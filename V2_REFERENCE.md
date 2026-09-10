@@ -17,7 +17,7 @@ Inspected during the September 9–10, 2026 design session:
   documentation session. Use this revision, not its predecessor `53d3c86`, as the
   reference for those fixes. Remote synchronization was not checked.
 - V3 started at `3779af19277c35c7dfc66773ef39e0d63bf3b436`, with a placeholder README
-  and Python `.gitignore`. This task adds design documents, not a working runtime.
+  and Python `.gitignore`. That initial session added design documents only; implementation entries below record the later core build.
 
 The links below point to local files for convenient inspection. They can change
 after this snapshot; check the source and diff again before extraction. Record the
@@ -239,3 +239,51 @@ Package-specific Qwen stream details were checked in the installed v2 mlx-audio
 0.5.1 implementation, then exercised independently in v3. The
 [slice-1 evidence](docs/INITIAL_TEST_PROGRAM.md#slice-1-implementation-evidence)
 distinguishes synthetic contracts, real providers on saved audio, and pending live work.
+
+### Slices 2–4: acoustic evidence, camera presence and storage (September 10, 2026)
+
+V2 source was reverified at `9806c74fd233a7118da88ca5ae55fb7450deec05`, clean.
+V3 changes are based on `47a1507`. No v2 module/environment/database is a runtime
+dependency, and no v2 personal data or files were changed.
+
+| Source → v3 owner | Retained behavior and adaptation | Evidence / remaining live work |
+| --- | --- | --- |
+| `audio/campplus.py` → `adapters/voice.py`, `speakers.py` | Exact public ONNX checkpoint, 16 kHz/80-bin globally centered Kaldi features, unit 192-D embeddings, CPU two-thread inference. New explicit lifecycle and bounded windows; one named/unnamed tracker, margin/unknown option, namespace and disagreement guards. No legacy score offsets or alternate model fallback. | Real synthetic saved audio and six-turn natural-learning integration passed. Human profile discrimination, short speech and overlap remain unmeasured. |
+| `intelligence/voice_learning.py` → `enrollment.py`, `state.py` | Original acoustic anchor, repeated compatible natural turns, 3/2s/8s starting thresholds, correction/expiry and archived originals. All writes belong to v3 state; no old interaction handlers or mouth/servo paths. Competing/known/suspect profiles cannot be silently overwritten. | Deterministic contamination/cancellation/failure checks and real-model synthetic enrollment passed. Live Bret/Jeff acceptance remains open. |
+| `memory/voice_recordings.py`, `setup_assets.py` schema → `memory.py`, `profiles.py` | Original WAV/PCM provenance, atomic embedding/archive transactions, independent selected copies, model namespaces, preview-first re-embedding and deletion. Source SQLite is read-only and consistently snapshotted; facts are excluded. | Synthetic WAL import, source independence, rollback, namespace, correction, reset and managed-file deletion checks passed. No personal import or review was run. |
+| `vision/camera.py::_FFmpegCapture` → `adapters/camera.py`, `faces.py` | AVFoundation unique device-name resolution, complete raw-frame reads, explicit bounded termination and no silent alternate device. V3 owns the process/worker and uses only face-presence boxes, coarse position and expiring tracks. No global frame singleton, automatic reconnection, appearance model or facial recognition was copied. | Selection/expiry tests and generated-frame detector timings passed. Camera was never opened; format/permission/room/load checks remain live work. |
+
+SHA-256 of inspected source files:
+
+- `audio/campplus.py`: `95c1a049b47ab66013d6b631e1fbec32d6716d9a0172d8fb6d54ec1ba40cc26d`
+- `intelligence/voice_learning.py`: `903f5ab14ddc6438f3df2ab41460eb6e0eb133a5301b45af326aa57f2e3e6367`
+- `memory/voice_recordings.py`: `dd4fed95a3d0f29e607a7b4c98e36a81c84589d6ef362419dbfa339de139ae62`
+- `vision/camera.py`: `340c4acd5ec25764b01adb9d301a93a91d81feb1f90752bad12f6bf1ac435a8f`
+
+The nonpersonal CAM++ file was independently copied and verified with SHA-256
+`aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2`.
+The new minimal camera detector uses the [official OpenCV 4.13 Haar asset](https://raw.githubusercontent.com/opencv/opencv/4.13.0/data/haarcascades/haarcascade_frontalface_default.xml),
+SHA-256 `0f7d4527844eb514d4a4948e822da90fbb16a34a0bbbbc6adc6498747a5aafb0`,
+with its embedded license retained. This avoids adding a resident facial-identity
+model for a presence-only requirement. Blank-frame CPU cost was measured; actual
+face quality and simultaneous camera/inference/playback performance were not.
+OpenCV 5 removed the selected classifier API, so the tested adapter pins
+[opencv-python 4.13.0.92](https://pypi.org/project/opencv-python/4.13.0.92/).
+The available ffmpeg reports version 8.1.1; no capture validation is implied.
+
+The subsequent car-session repairs use v3's own user-labeled recordings and active
+adapters; no additional v2 code or personal data was extracted. The checkpoint,
+feature namespace, providers, and named-enrollment thresholds remain unchanged.
+Tentative track linking, playback-boundary endpointing, and within-capture change
+proposals are v3 adaptations with results/limits in INITIAL_TEST_PROGRAM.md.
+The per-turn silence operation uses the existing strict Responses function-call
+contract and paired call/result history, following the [official function-calling
+guide](https://developers.openai.com/api/docs/guides/function-calling).
+
+The small semantic tool/state/claim core is new v3 code. Its Responses integration
+was checked against [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling)
+and [assistant phase handling](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.4).
+Intermediate commentary is not spoken, returned phases are preserved for tool
+continuations, and final answers retain the streaming path. Real hosted-model
+checks cover introductions, corrections, reference ambiguity and failed writes;
+no old semantic handler ladder or secondary classifier was extracted.

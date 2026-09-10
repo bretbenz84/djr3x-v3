@@ -1,86 +1,119 @@
 # DJ-R3X v3
 
-A smaller conversation core for Rex, built around reliable group conversation,
-explicit uncertainty, and memories that retain who said what about whom.
+A smaller conversation core for Rex, with one language owner, one acoustic speaker
+tracker, one state executor, and one speech output owner.
 
-**Status: slice 1 (audible-loop implementation) landed; live acceptance pending.**
-The program connects a selected microphone, Silero endpointing, batch Qwen3-ASR,
-one OpenAI reply generation, and streamed ElevenLabs speech through one output owner.
-It has cancellation, bounded input queues, and delivery diagnostics. Speaker identity,
-camera, and persistent memory are not implemented. V2 remains separate and unchanged.
+**Status: the core implementation through slices 0–4 is built; live acceptance is pending.**
+Microphone input, Qwen ASR, CAM++ tracks and natural enrollment, semantic identity
+and memory tools, persistent attributed claims, optional camera presence, frozen
+saved-audio replay, and profile maintenance are implemented. The full robot and
+slice-5 feature expansion are outside this build. V2 remains separate and unchanged.
 
-## Run the voice core
+The overnight checks used synthetic data and saved audio. No microphone was opened,
+no audio was played, and no video was captured. Read the [morning test guide](docs/CORE_OPERATIONS.md)
+and [acceptance evidence](docs/INITIAL_TEST_PROGRAM.md#core-implementation-evidence-slices-2-4).
 
-Use Python 3.11 and a dedicated v3 environment, from this checkout:
+## Run the core
+
+The dev Mac already has its independent `.venv`, selected devices, credentials,
+and model files. From this checkout, when ready to test:
+
+```sh
+.venv/bin/python -m r3x live
+# Optional group test: camera presence and WAV retention for human labeling.
+.venv/bin/python -m r3x live --camera --record-evaluation
+```
+
+Stop v2 before starting a live test. Grant microphone/camera permission if macOS
+requests it. Speak after `Listening`. **Enter or `stop` + Enter cancels;
+`quit` or Ctrl-C exits.** No startup command runs automatically in the background.
+
+The live terminal shows conversation and errors; detailed JSON diagnostics remain
+in the session file printed at startup. Generated speech is labeled separately from
+actual playback. `doctor` is optional: live startup already checks readiness.
+
+`doctor` checks dependency/model-file/credential presence without starting providers,
+opening devices, or creating scratch state. Missing prerequisites return exit code 1.
+`conversation_ready: false` is expected before startup. Camera defaults to disabled.
+
+Default echo handling separates captures when the playback gate changes, preserving
+human prefixes/suffixes rather than rejecting a whole mixed recording. The gate
+starts when speech PCM enters the output queue, not while waiting on the network,
+and ends 300 ms after playback. Human speech overlapping that window is still
+excluded; this is not echo cancellation. Terminal stop works then. Trusted
+spoken stop works outside the echo window. `echo_isolated = true` is available for
+an actually isolated headset setup; it does not enable acoustic echo cancellation.
+Speech during generation queues in capture order behind the single conversation owner.
+
+The conversation model can choose a silent turn for another device's commands or
+background speech. A later direct request re-engages normally. Within-capture speaker
+changes are conservative proposals; derived turns retain their source offsets and
+cannot enroll voices or write personal facts. Tentative track continuity is distinct
+from named identity and never refreshes voice references. The labeled car-session
+checks improved continuity but still abstain on short/difficult clips; see acceptance
+evidence for the coverage tradeoff and unresolved overlap/boundary limitations.
+
+## Local setup and data
+
+`local/settings.toml` contains the selected Mac microphone and camera names.
+[settings.example.toml](settings.example.toml) documents every setting and default.
+Names must resolve uniquely; the camera uses a fresh AVFoundation enumeration at
+explicit startup. Its baseline is 640×480 at 30 fps, with face detection at most
+2 fps. Face tracks provide coarse presence only, with no facial recognition or
+mouth-motion processing. Live camera/device compatibility remains to be checked.
+
+Credentials and the selected Rex voice are in ignored `local/secrets.toml`.
+`OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID` override those
+values. Runtime does not read v2. The authorized one-time setup helper,
+`tools/import_v2_setup.py`, copies only selected configuration, credentials, and
+public ASR files; it refuses to overwrite an existing setup. No v2 personal data
+has been imported into the live core.
+
+The active store is `local/core.sqlite3`. Accepted original voice audio and its
+embeddings commit together. `--record-evaluation` additionally saves endpointed
+WAVs under `local/recordings/`; they are explicitly unreviewed until a human labels
+them. Session traces under `local/sessions/` contain private transcripts and results.
+Never commit or publish `local/`. See the operations guide for independent imports,
+review, re-embedding, deletion, and the scope of diagnostic-file retention.
+
+For a fresh environment, use Python 3.11; this Mac uses
+`/Users/bbenziger/.pyenv/versions/3.11.9/bin/python`:
 
 ```sh
 python3.11 -m venv .venv
 .venv/bin/python -m pip install -r requirements-build.txt
 .venv/bin/python -m pip install -r requirements-live.txt
 .venv/bin/python -m pip install --no-build-isolation --no-deps -e .
-.venv/bin/python -m r3x doctor --profile dev-mac
-.venv/bin/python -m r3x live --profile dev-mac
-.venv/bin/python tools/run_checks.py
+# After supplying local credentials/devices and the Qwen ASR model:
+.venv/bin/python tools/prepare_core_models.py
 ```
 
-The development machine's environment was created using
-`/Users/bbenziger/.pyenv/versions/3.11.9/bin/python`. It is already installed here.
-`requirements-live.txt` locks the tested macOS/Apple Silicon dependencies; the
-short `requirements-live.in` records the selected adapters. Core imports and synthetic
-checks still need only the standard library. Editable checkout installation is required.
+`prepare_core_models.py` verifies/downloads the pinned public CAM++ and optional
+face-presence assets; it does not run inference or open devices. The resolved
+Apple Silicon environment is locked in `requirements-live.txt`; selected direct
+dependencies are in `requirements-live.in`. Core imports and ordinary checks use
+only the standard library. An editable checkout is required.
 
-`doctor` inspects declared live capabilities, dependency versions, local model files,
-and credential presence without starting providers or creating scratch state. Missing
-prerequisites produce exit code 1. Device enumeration and hosted availability are not
-part of this read-only check; `conversation_ready: false` is expected before startup.
-
-`live` loads only the selected ASR/VAD models and opens the configured microphone and
-speech output. Stop v2 first so they do not compete for audio devices. Grant macOS
-microphone permission to the terminal when prompted. Speak naturally after the
-`listening` event. **Enter or `stop` + Enter cancels; `quit` or Ctrl-C exits.**
-
-The default speaker setup rejects captures overlapping Rex's output, including a
-300 ms tail, because there is no Mac acoustic echo canceller yet. This also rejects
-human speech during playback. Terminal stop remains available then. Spoken `stop`
-works on trusted, non-echo captures; using genuinely isolated headphones allows
-`echo_isolated = true` for capture during playback. This setting is a user assertion,
-not measured echo isolation. Speech during model generation is queued in capture order.
-
-Session JSONL traces go under ignored `local/sessions/`. They retain original text,
-ASR quality, model calls, completed speech phrases, failures, and available timing.
-Partial phrase text is unknown, not inferred from a fraction of audio frames. Raw
-microphone audio is not saved in this slice. A capture/replay dataset comes in slice 2.
-
-The default configuration is `local/settings.toml`; `--config path/to/file.toml`
-overrides it. See [settings.example.toml](settings.example.toml) for the strict schema,
-consumers, and calibration defaults. Names take precedence over device indices and
-must match one microphone; missing/ambiguous names fail instead of silently selecting
-another device. Unspecified output uses the system playback device.
-
-The authorized setup import copied the dev-Mac microphone selection, OpenAI and
-ElevenLabs credentials, Rex voice ID, and independent Qwen model files into ignored
-`local/`. `local/v2-setup-import.json` records model digests and the camera selection
-reserved for the next slice. The runtime never reads v2. Secrets are in
-`local/secrets.toml`; `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, and
-`ELEVENLABS_VOICE_ID` environment variables override them. Values are not logged.
-For another checkout, the explicit one-time helper is `tools/import_v2_setup.py`;
-it refuses to replace an existing setup and never executes v2 configuration code.
-
-Additional implemented checks:
+## Check and inspect
 
 ```sh
-.venv/bin/python -m r3x boot
-.venv/bin/python -m r3x scenario tests/fixtures/audible_loop.json
+.venv/bin/python tools/run_checks.py
+.venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
+.venv/bin/python -m r3x replay local/dataset/manifest.json
 .venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl
-# Explicit paid-provider check on synthetic saved audio, with no live devices:
-.venv/bin/python tools/check_providers.py
+.venv/bin/python -m r3x profiles --help
 ```
 
-`boot` remains a provider-free lifecycle smoke check. `scenario` replaces providers
-but uses the same `Session.process_turn` as live; scripted answers cannot validate
-language understanding. `report` summarizes observed timings and includes failures.
-See [slice-1 evidence](docs/INITIAL_TEST_PROGRAM.md#slice-1-implementation-evidence)
-for measured provider checks and the remaining live microphone/speaker gate.
+`scenario` uses scripted providers with the production Session/state/store; it
+cannot prove language or acoustic accuracy. `replay` uses real VAD, ASR and CAM++
+on saved files, never live audio/video; `--brain` explicitly adds hosted inference
+with silent text output. Evaluation runs freeze identity profiles and disallow
+training or memory mutations. `--oracle-segments` isolates encoder behavior using
+human timing labels and cannot pass a production accuracy gate.
+
+`boot` remains a provider-free lifecycle check. Reports retain failures, missing
+measurements, model calls, speaker-analysis cost, playback receipts, and available
+latency/resource observations. A clean synthetic suite is not Bret/Jeff acceptance.
 
 ## Start here
 
@@ -98,10 +131,10 @@ and fallbacks. It contains valuable integrations and useful robot behavior, but
 some handlers interpret speech and write memory before the conversational model
 can judge its meaning. Weak speaker attribution then compounds those mistakes.
 
-V3 will give one conversational model authority over language interpretation, one
+V3 gives one conversational model authority over language interpretation, one
 speaker tracker authority over acoustic evidence, one state owner authority over
-session changes, and one output owner authority over speech. Code will validate
-and execute requests, preserve uncertainty, and enforce physical limits.
+session changes, and one output owner authority over speech. Code validates
+and executes requests, preserve uncertainty, and enforce physical limits.
 
 This is a replacement core, not a promise to reproduce every v2 feature before
 the first usable release. Progress is measured in actual conversations and sound
@@ -138,7 +171,7 @@ that requirement. See [microphone geometry](DESIGN.md#microphone-geometry).
 
 ## Working implementation defaults
 
-These are recommendations for the first build, not settled provider requirements:
+These are the current core defaults; future provider changes need measured justification:
 
 - Python, initially the proven Python 3.11 ecosystem, with a new project environment.
 - One process, explicit lifecycle, bounded queues, typed records, and no import-time
@@ -163,13 +196,13 @@ The inspected reference revision and working-tree status are in V2_REFERENCE.md;
 check them again before extracting code.
 
 The runtime directory is `local/`, with private settings, credentials, model files,
-validation audio, traces, and future stores beneath it. It is gitignored; keep private
+validation audio, traces, and stores beneath it. It is gitignored; keep private
 artifacts there and add ignore rules before using other private paths. The slice-1
 setup import copied only the authorized configuration/credentials and ASR weights;
 no personal memory, recordings, or voiceprints were imported.
 
-Use independent copies of selected voice profiles and recordings when importing
-is implemented. Do not point a v3 database connection at the live v2 database.
+The explicit profile importer makes independent copies of selected labels, originals,
+and references, with a source digest and ID mapping. Do not point a v3 database connection at the live v2 database.
 Start personal claims empty or with a small explicitly verified test fixture.
 
 ## Development sequence

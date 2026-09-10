@@ -61,6 +61,7 @@ class Delivery:
     first_audio_at: float | None = None
     error: str | None = None
     underruns: int = 0
+    medium: str = "audio"
 
 
 class OutputOwner:
@@ -89,15 +90,34 @@ class OutputOwner:
                 if not text:
                     continue
                 self.trace.emit("speech_generated", turn_id=turn_id, text=text)
+                synthesis_at = self.trace.clock()
+                first_pcm_at = None
+                def chunks():
+                    nonlocal first_pcm_at
+                    stream = self.tts.synthesize(text,cancel)
+                    try:
+                        for chunk in stream:
+                            if first_pcm_at is None:
+                                first_pcm_at = self.trace.clock()
+                                # Network generation is silent. Gate capture only
+                                # once PCM can enter the playback queue.
+                                self.active.set()
+                                self.trace.emit("tts_first_pcm",turn_id=turn_id,tts_first_pcm_seconds=first_pcm_at-synthesis_at)
+                            yield chunk
+                    finally:
+                        close = getattr(stream,"close",None)
+                        if close:
+                            close()
                 def started(at):
                     delivery.first_audio_at = delivery.first_audio_at or at
                     delivery.status = "started"
-                    self.trace.emit("playback_started", turn_id=turn_id, at_device=at)
-                self.active.set()
+                    self.trace.emit("playback_started", turn_id=turn_id, at_device=at,
+                                    playback_queue_seconds=at-first_pcm_at if first_pcm_at is not None else None)
                 try:
-                    receipt = self.sink.play(self.tts.synthesize(text, cancel), cancel, started)
+                    receipt = self.sink.play(chunks(), cancel, started)
                 finally:
-                    self.echo_until = self.trace.clock() + .3
+                    if first_pcm_at is not None:
+                        self.echo_until = self.trace.clock() + .3
                     self.active.clear()
                 cancel.check()
                 delivery.completed_text.append(plain_text(text))
@@ -106,8 +126,9 @@ class OutputOwner:
                                 frames=receipt.frames, underruns=receipt.underruns,
                                 completed_at=receipt.completed_at)
             cancel.check()
-            delivery.status = "completed" if delivery.completed_text else "failed"
-            if not delivery.completed_text:
+            if delivery.status != "suppressed":
+                delivery.status = "completed" if delivery.completed_text else "failed"
+            if not delivery.completed_text and delivery.status!="suppressed":
                 delivery.error = "EmptySpeech"
         except Cancelled:
             delivery.status = "interrupted"
@@ -118,6 +139,7 @@ class OutputOwner:
         finally:
             self.active.clear()
             self.trace.emit("delivery", turn_id=turn_id, status=delivery.status,
+                            medium=delivery.medium,
                             completed_text=" ".join(delivery.completed_text), error=delivery.error,
                             partial_phrase_text=None, underruns=delivery.underruns)
 
@@ -130,3 +152,31 @@ def put_phrase(queue: Queue, value: str | None, cancel: Cancellation) -> None:
             return
         except Full:
             continue
+
+
+class TextOutput:
+    """Explicit silent replay output. Never creates an audio delivery receipt."""
+    def __init__(self,trace):
+        self.trace = trace
+
+    def cancel(self):
+        pass
+
+    def run(self,phrases,cancel,turn_id,delivery):
+        if delivery.status != "suppressed":
+            delivery.medium = "text"
+        try:
+            while True:
+                cancel.check()
+                try:
+                    value = phrases.get(timeout=.05)
+                except Empty:
+                    continue
+                if value is None:
+                    break
+                delivery.completed_text.append(plain_text(value))
+                self.trace.emit("text_reply",turn_id=turn_id,text=plain_text(value),audio_played=False)
+            if delivery.status != "suppressed":
+                delivery.status = "completed" if delivery.completed_text else "failed"
+        except Cancelled:
+            delivery.status = "interrupted"

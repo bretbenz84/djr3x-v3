@@ -1,4 +1,4 @@
-"""Only settings consumed by the independent-boot slice."""
+"""Strict, consumed core settings; credentials live separately in ignored storage."""
 from dataclasses import dataclass, fields, field
 from pathlib import Path
 import math
@@ -16,17 +16,23 @@ class Settings:
     vad_threshold: float = 0.5
     end_silence_seconds: float = 0.6
     asr_trust_logprob: float = -0.35
+    camera_enabled: bool = False
+    camera_device_name: str = ""
+    record_evaluation: bool = False
 
     def __post_init__(self) -> None:
         if self.profile != "dev-mac":
             raise ValueError("Only the dev-mac boot profile is implemented")
-        for name in ("input_device_name", "output_device_name"):
+        for name in ("input_device_name", "output_device_name", "camera_device_name"):
             if not isinstance(getattr(self, name), str):
                 raise ValueError(f"{name} must be text")
         if self.input_device_index is not None and (type(self.input_device_index) is not int or self.input_device_index < 0):
             raise ValueError("input_device_index must be a nonnegative integer")
-        if type(self.echo_isolated) is not bool:
-            raise ValueError("echo_isolated must be boolean")
+        for name in ("echo_isolated","camera_enabled","record_evaluation"):
+            if type(getattr(self,name)) is not bool:
+                raise ValueError(f"{name} must be boolean")
+        if self.camera_enabled and not self.camera_device_name.strip():
+            raise ValueError("Enabled camera requires a device name")
         for name, lower, upper in (("vad_threshold", .01, .99), ("end_silence_seconds", .2, 2),
                                    ("asr_trust_logprob", -5, 0)):
             value = getattr(self, name)

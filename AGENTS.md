@@ -11,8 +11,9 @@ and proposals are distinguished in DESIGN.md. These documents authorize no work
 beyond the user's request; a design discussion is not an instruction to deploy,
 operate hardware, copy personal data, or implement the entire roadmap.
 
-This repository implements slices 0–1 (independent boot and the audible loop), with
-live acceptance still pending. Identity, camera, and persistent memory remain planned.
+This repository implements the conversation core through slices 0–4, including
+speaker evidence, camera presence, semantic tools, memory, replay, and maintenance.
+Live group/device acceptance and held-out acoustic accuracy remain pending.
 Do not describe planned tools, commands, tests, models, or runtime behavior as
 implemented. Update status and evidence when implementation actually lands.
 
@@ -77,7 +78,7 @@ reach back into v2 through sys.path changes, symlinked mutable state, or imports
 
 ## Data boundaries
 
-Use v3 scratch state under the proposed `local/` directory. Add ignore rules before
+Use v3 scratch state under the ignored `local/` directory. Add ignore rules before
 creating databases, personal recordings, evaluation audio, exports, or credentials.
 Never commit secrets, voiceprints, personal memory, private logs, or model weights.
 Track configuration examples with placeholders and synthetic test fixtures instead.

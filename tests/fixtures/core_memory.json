@@ -1,0 +1,21 @@
+{
+  "core": true,
+  "turns": [
+    {"text":"My name is Jordan Avery.","reply":"Nice to meet you, Jordan.",
+     "tool":{"name":"introduce_person","arguments":{"name":"Jordan Avery","aliases":["Jordan"],"subject":"self","person_id":null,"face_track_id":null}},
+     "expect":{"people":1,"enrollments":1,"recordings":0}},
+    {"text":"I spend my weekends restoring old clocks.","reply":"What sort of clocks?","expect":{"recordings":0}},
+    {"text":"I have a little garage workshop at home.","reply":"That sounds like a good place for it.","expect":{"recordings":3,"supported_profiles":1}},
+    {"text":"Please remember my favorite color is blue.","reply":"Your favorite color is saved as blue.",
+     "tool":{"name":"record_claim","arguments":{"subject_id":"$person:Jordan","subject_reference":null,"predicate":"favorite_color","value":"blue","kind":"self_report","source_turn_id":"$turn"}},
+     "expect":{"accepted_claims":1},"expect_value":"blue"},
+    {"restart":true,"text":"What is my favorite color?","reply":"Blue.",
+     "tool":{"name":"recall","arguments":{"subject_id":"$person:Jordan"}},"expect_value":"blue"},
+    {"text":"Actually, green, not blue. Please correct that.","reply":"Corrected to green.",
+     "tool":{"name":"correct_claim","arguments":{"claim_id":"$claim","value":"green","source_turn_id":"$turn"}},
+     "expect":{"accepted_claims":1},"expect_value":"green"},
+    {"text":"Please forget me and my voice recordings.","reply":"Your stored information and voice recordings were removed.",
+     "tool":{"name":"forget_person","arguments":{"person_id":"$person:Jordan"}},
+     "expect":{"people":0,"accepted_claims":0,"recordings":0,"supported_profiles":0,"enrollments":0}}
+  ]
+}

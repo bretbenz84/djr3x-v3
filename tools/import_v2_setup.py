@@ -54,6 +54,9 @@ def main():
         settings["input_device_name"] = values["AUDIO_DEVICE_NAME"]
     if values.get("AUDIO_DEVICE_INDEX"):
         settings["input_device_index"] = int(values["AUDIO_DEVICE_INDEX"])
+    if values.get("CAMERA_DEVICE_NAME"):
+        settings["camera_device_name"] = values["CAMERA_DEVICE_NAME"]
+    settings["camera_enabled"] = False
     for name, mapping in (("settings.toml", settings), ("secrets.toml", {k.lower(): v for k, v in keys.items()})):
         path = root.root / name
         with path.open("x") as handle:

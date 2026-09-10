@@ -8,9 +8,10 @@ from typing import Callable
 
 class Trace:
     def __init__(self, session_id: str, path: Path | None = None,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, display=None):
         self.session_id = session_id
         self.clock = clock
+        self.display = display
         self.lock = threading.Lock()
         self.handle = path.open("x", encoding="utf-8") if path else None
 
@@ -21,7 +22,10 @@ class Trace:
             if self.handle:
                 self.handle.write(line + "\n")
                 self.handle.flush()
-            print(line, flush=True)
+            if self.display is None:
+                print(line, flush=True)
+            else:
+                self.display(record)
 
     def close(self) -> None:
         with self.lock:
@@ -39,11 +43,37 @@ def report(path: Path) -> dict:
     outcomes = Counter()
     latencies: dict[str, list[float]] = {}
     calls = 0
-    for line in path.read_text().splitlines():
-        row = json.loads(line)
+    primary,continuations,underruns = 0,0,0
+    evidence,models,failures = set(),set(),[]
+    rss = []
+    for number,line in enumerate(path.read_text().splitlines(),1):
+        try:
+            row = json.loads(line)
+            if not isinstance(row,dict) or not isinstance(row.get("event"),str):
+                raise ValueError("InvalidTraceRow")
+        except ValueError:
+            failures.append({"event":"trace_parse_failed","line":number})
+            continue
         events[row["event"]] += 1
         if row["event"] == "model_request":
             calls += 1
+            primary += row.get("primary_calls",1)
+            continuations += int(row.get("purpose")=="tool_result_continuation")
+        if row.get("evidence"):
+            evidence.add(row["evidence"])
+        models.update(m for m in row.get("models",[]) if m)
+        if row["event"] in {"provider_failed","turn_failed","worker_stuck","state_finalize_failed","replay_clip_failed","startup_failed"}:
+            failures.append({k:row[k] for k in ("event","turn_id","capability","reason","error_type") if k in row})
+        if row["event"]=="delivery":
+            underruns += row.get("underruns",0)
+            if row.get("status") == "failed":
+                failures.append({k: row[k] for k in ("event", "turn_id", "error") if k in row})
+        if row["event"]=="resources":
+            rss.append(row["peak_rss_bytes_macos"])
+        for event,key in (("speaker_analysis","speaker_seconds"),("camera_frame","processing_seconds"),
+                          ("tts_first_pcm","tts_first_pcm_seconds"),("playback_started","playback_queue_seconds")):
+            if row["event"]==event and row.get(key) is not None:
+                latencies.setdefault(key,[]).append(row[key])
         if row["event"] == "transcript":
             for key in ("asr_seconds", "queue_seconds"):
                 if key in row:
@@ -58,5 +88,8 @@ def report(path: Path) -> dict:
         return {"n": len(ordered), "median": statistics.median(ordered),
                 "p95": ordered[max(0, math.ceil(len(ordered)*.95)-1)]}
     return {"events": dict(events), "turn_outcomes": dict(outcomes), "model_calls": calls,
+            "primary_calls":primary,"tool_result_continuations":continuations,"evidence":sorted(evidence),
+            "models":sorted(models),"failures":failures,"playback_underruns":underruns if events["playback_started"] else None,
+            "peak_rss_bytes_macos":max(rss) if rss else None,
             "observed_seconds": {k: summary(v) for k, v in latencies.items()},
             "speaker_accuracy": None, "group_acceptance": False}

@@ -1,11 +1,10 @@
 # Conversation core design
 
-Status: target architecture, with user requirements distinguished below. Slices 0–1
-implement independent boot and the audible-loop path; see the
-[implementation evidence](docs/INITIAL_TEST_PROGRAM.md#slice-1-implementation-evidence).
-Live microphone/speaker acceptance is pending. Identity, camera, semantic tools,
-and persistent memory below remain unimplemented. This document does not authorize
-reimplementing every v2 feature at once.
+Status: the core responsibilities through slices 0–4 are implemented. See the
+[implementation evidence](docs/INITIAL_TEST_PROGRAM.md#core-implementation-evidence-slices-2-4)
+and [operations guide](docs/CORE_OPERATIONS.md). Live microphone/speaker/camera and
+held-out group acceptance remain open. Requirements, proposed future work, and
+unmeasured thresholds are distinguished below; the full robot is outside this build.
 
 ## Decision status
 
@@ -177,6 +176,14 @@ not a confidence percentage. Calibrate acceptance, rejection, and ambiguity usin
 same-person and different-person recordings from this hardware. Measure false
 assignments, abstention, and track fragmentation together.
 
+The car-session implementation now distinguishes tentative track continuity from
+strong reference updates and verified profile matches. A tentative track carries
+no person identity and cannot authorize self attribution or enrollment. Playback
+gate transitions form capture boundaries; simultaneous playback/human audio remains
+excluded. Abrupt changes supported by compatible windows on both sides can propose
+approximate within-capture splits. Derived turns retain source offsets and cannot
+write personal facts or enroll voices while these boundaries remain unvalidated.
+
 No identity confidence can come from lip/jaw/mouth motion, including old derived
 "active speaker" fields. A known face establishes visibility; a small face may
 itself have uncertain identity. A single face does not prove no one is off camera.
@@ -289,6 +296,11 @@ request can supersede it. No onboarding mini-program owns future speech by defau
 Give Rex his existing character through a reviewed persona prompt and examples.
 Do not restore serial mood/comedy/governor layers that reinterpret the model's
 answer. Features propose context or tools; they cannot force a separate response.
+
+Participation is decided by this same model call. `remain_silent` is an explicit
+per-turn tool result, with no TTS and no result-continuation generation. The completed
+tool exchange is retained in history without fabricated spoken text. Silence does
+not persist as a mute mode; subsequent addressed speech is evaluated anew.
 
 Assign speech a generation ID and track requested/generated/queued/started/completed/
 interrupted/failed states. Keep generated transcript text distinct from what was

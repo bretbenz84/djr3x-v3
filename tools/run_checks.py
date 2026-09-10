@@ -43,6 +43,9 @@ def block_external_io(event, args):
         target = str(args[0])
         if target != ":memory:":
             import tempfile
+            if target.startswith("file:"):
+                from urllib.parse import urlparse,unquote
+                target = unquote(urlparse(target).path)
             if not Path(target).resolve().is_relative_to(Path(tempfile.gettempdir()).resolve()):
                 raise RuntimeError("Only temporary test databases are allowed")
 

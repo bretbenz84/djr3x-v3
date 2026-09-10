@@ -1,4 +1,4 @@
-"""Independent boot; real adapters will be composed here in slice 1."""
+"""Explicit composition of the complete core; no hardware starts during inspection."""
 from dataclasses import asdict
 from pathlib import Path
 import platform
@@ -19,6 +19,8 @@ class App:
         from .adapters.asr import QwenASR
         from .adapters.audio import AudioSink, Microphone, SileroVAD
         from .adapters.hosted import ElevenLabsTTS, OpenAIBrain
+        from .adapters.voice import CAMPlus
+        from .adapters.camera import Camera
         secrets = Secrets.load(self.paths.root)
         asr = QwenASR(self.paths.root / "models/qwen3-asr", self.settings.asr_trust_logprob)
         vad = SileroVAD(self.settings.vad_threshold)
@@ -26,7 +28,9 @@ class App:
         tts = ElevenLabsTTS(secrets.elevenlabs_api_key, secrets.elevenlabs_voice_id)
         sink = AudioSink(self.settings.output_device_name)
         mic = Microphone(self.settings, lambda: False)
-        self.live_components = (asr, vad, brain, tts, sink, mic)
+        encoder = CAMPlus(self.paths.root / "models/campplus.onnx")
+        camera = Camera(self.settings.camera_device_name,self.paths.root / "models/haarcascade_frontalface_default.xml") if self.settings.camera_enabled else None
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + ((camera,) if camera else ())
         self.owner = ProviderOwner(self.live_components)
 
     def readiness(self):
@@ -41,6 +45,15 @@ class App:
             if model.resolve() != model or not all((model / name).is_file() for name in
                     ("config.json", "model.safetensors", "vocab.json", "merges.txt", "preprocessor_config.json")):
                 missing.append("asr_model_files")
+            voice = self.paths.root / "models/campplus.onnx"
+            if voice.resolve() != voice or not voice.is_file():
+                missing.append("voice_model_file")
+            if self.settings.camera_enabled:
+                import shutil
+                if not shutil.which("ffmpeg"):
+                    missing.append("ffmpeg")
+                if not (self.paths.root / "models/haarcascade_frontalface_default.xml").is_file():
+                    missing.append("face_detector_file")
             for provider in self.owner.providers:
                 missing.extend(name for name, version in dependency_status(provider.capability).items()
                                if version is None)
@@ -50,7 +63,7 @@ class App:
         return {
             "profile": self.settings.profile,
             "python": platform.python_version(),
-            "slice": "1-audible-loop" if self.live_components else "0-independent-boot",
+            "slice": "0-4-core" if self.live_components else "0-independent-boot",
             "conversation_ready": bool(self.live_components and self.owner.state == "ready"),
             "missing": self.readiness(),
             "scratch_root": str(self.paths.root),
@@ -60,7 +73,11 @@ class App:
                 for p in self.owner.providers
             ],
             "results": [asdict(result) for result in self.owner.results],
-            "limitations": ["Speaker identity, camera, and persistent memory are not implemented",
+            "camera_enabled": self.settings.camera_enabled,
+            "record_evaluation": self.settings.record_evaluation,
+            "limitations": ["Held-out speaker accuracy and live group acceptance remain unmeasured",
+                            "Window consistency is not a validated overlap detector",
+                            "Face presence carries no biometric identity or speaker vote",
                             "Dependency presence is not provider/device validation"],
         }
 
@@ -77,7 +94,14 @@ class App:
         from .runtime import VoiceRuntime
         from .session import Session
         from .trace import Trace
+        from .terminal import LiveConsole
         from .lease import LiveLease
+        from .memory import Memory
+        from .state import CoreState
+        from .speakers import SpeakerTracker
+        from .adapters.voice import NAMESPACE
+        from .perception import Perception
+        from .dataset import CaptureRecorder
         self.configure_live()
         if self.readiness():
             return False
@@ -86,23 +110,33 @@ class App:
         lease.acquire()
         session_id = uuid4().hex
         try:
-            trace = Trace(session_id, self.paths.root / "sessions" / (session_id + ".jsonl"))
+            log_path = self.paths.root / "sessions" / (session_id + ".jsonl")
+            trace = Trace(session_id, log_path, display=LiveConsole())
+            trace.emit("starting", log_path=str(log_path))
         except BaseException:
             lease.close()
             raise
-        asr, vad, brain, tts, sink, mic = self.live_components
+        asr, vad, encoder, brain, tts, sink, mic, *optional = self.live_components
+        camera = optional[0] if optional else None
+        if camera:
+            camera.trace = trace
+        memory = Memory(self.paths.root / "core.sqlite3")
         output = OutputOwner(tts, sink, trace)
         mic.echo_risk = output.echo_risk
         self.owner = ProviderOwner(self.live_components)
         runtime = None
         success = False
         try:
+            memory.start()
             if not self.owner.start():
                 trace.emit("startup_failed", report=self.doctor())
             else:
-                trace.emit("startup", report=self.doctor(), evidence="live", models=[asr.capability.model, vad.capability.model])
-                session = Session(session_id, brain, output, trace)
-                runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds)
+                trace.emit("startup", report=self.doctor(), evidence="live", models=[p.capability.model for p in self.live_components if p.capability.model])
+                state = CoreState(memory,SpeakerTracker(NAMESPACE),trace)
+                perception = Perception(asr,encoder,trace,camera)
+                session = Session(session_id, brain, output, trace, state=state)
+                recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None
+                runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder)
                 runtime.run()
                 success = True
         finally:
@@ -111,6 +145,7 @@ class App:
                 trace.emit("shutdown_failed", reason="active_worker_resources_retained_until_process_exit")
             else:
                 self.close()
+                memory.close()
                 trace.emit("shutdown", report=self.doctor())
             trace.close()
             lease.close()

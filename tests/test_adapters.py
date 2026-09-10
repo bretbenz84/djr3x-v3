@@ -5,7 +5,8 @@ import unittest
 
 from r3x.adapters.audio import AudioSink, resolve_device
 from r3x.adapters.hosted import OpenAIBrain, ElevenLabsTTS
-from r3x.contracts import Cancellation, Cancelled, ProviderFailure, Snapshot
+from r3x.contracts import Cancellation, Cancelled, ProviderFailure, Snapshot,ToolCall
+from r3x.semantics import grounded_tools
 
 
 class Response:
@@ -27,6 +28,50 @@ class Client:
 
 
 class AdapterTests(unittest.TestCase):
+    def test_intermediate_commentary_is_not_speech_and_retains_its_phase(self):
+        item={"type":"message","id":"msg","role":"assistant","phase":"commentary","status":"completed",
+              "content":[{"type":"output_text","text":"I will save that.","annotations":[]}]}
+        events=[{"type":"response.output_item.added","output_index":0,"item":item},
+                {"type":"response.output_text.delta","output_index":0,"delta":"I will save that."},
+                {"type":"response.output_item.done","output_index":0,"item":item},
+                {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call","name":"recall","arguments":"{\"subject_id\":null}"}},
+                {"type":"response.completed"}]
+        brain=OpenAIBrain("fixture")
+        brain.client=Client(Response(events))
+        result=list(brain.reply(Snapshot("s","t",0,(),context={"source_turn_id":"t"},tools_enabled=True),Cancellation()))
+        self.assertEqual(len(result),1)
+        self.assertIsInstance(result[0],ToolCall)
+        self.assertEqual(result[0].preamble[0]["phase"],"commentary")
+        brain.client=Client(Response(events[:-1]))
+        with self.assertRaises(ProviderFailure):list(brain.reply(Snapshot("s","t",0,()),Cancellation()))
+
+    def test_final_answer_streams_before_completion_and_unphased_tool_text_is_held(self):
+        events=[{"type":"response.output_item.added","output_index":0,"item":{"type":"message","phase":"final_answer"}},
+                {"type":"response.output_text.delta","output_index":0,"delta":"Hello there."},{"type":"response.completed"}]
+        brain=OpenAIBrain("fixture")
+        brain.client=Client(Response(events))
+        stream=brain.reply(Snapshot("s","t",0,(),context={"source_turn_id":"t"},tools_enabled=True),Cancellation())
+        self.assertEqual(next(stream),"Hello there.")
+        self.assertFalse(brain.client.response.closed)
+        self.assertEqual(list(stream),[])
+        events.pop(0)
+        events.insert(1,{"type":"response.output_item.done","item":{"type":"function_call","call_id":"c","name":"recall","arguments":"{\"subject_id\":null}"}})
+        brain.client=Client(Response(events))
+        self.assertTrue(all(isinstance(x,ToolCall) for x in brain.reply(Snapshot("s","t",0,(),context={"source_turn_id":"t"},tools_enabled=True),Cancellation())))
+
+    def test_grounded_identifiers_do_not_constrain_unrelated_text_fields(self):
+        context={"people":[{"id":"person"}],"claims":[{"id":"claim"}],"source_turn_id":"turn","faces":[],"enrollment":[]}
+        tools={tool["name"]:tool["parameters"]["properties"] for tool in grounded_tools(context)}
+        self.assertEqual(tools["record_claim"]["source_turn_id"]["enum"],["turn"])
+        self.assertEqual(tools["record_claim"]["subject_id"]["enum"],["person"])
+        self.assertNotIn("enum",tools["record_claim"]["value"])
+        self.assertNotIn("enum",tools["record_claim"]["predicate"])
+        self.assertEqual(tools["introduce_person"]["face_track_id"]["enum"],[None])
+        self.assertEqual(tools["introduce_person"]["person_id"]["enum"],["person",None])
+        self.assertNotIn("enum",tools["introduce_person"]["name"])
+        next_tools=grounded_tools(dict(context,source_turn_id="next"))
+        self.assertEqual(tools["record_claim"]["source_turn_id"]["enum"],["turn"])
+
     def test_openai_one_stream_preserves_text_and_checks_completion(self):
         response = Response([{"type":"response.output_text.delta", "delta":"Hello."}, {"type":"response.completed"}])
         brain = OpenAIBrain("synthetic-key")

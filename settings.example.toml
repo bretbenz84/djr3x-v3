@@ -1,4 +1,4 @@
-# dev-mac is the only profile. live loads ASR/VAD, hosted brain/TTS, mic/playback.
+# dev-mac is the only profile. Models load only on explicit live/replay start.
 profile = "dev-mac"
 
 # Microphone consumer: exact unique name preferred, unique substring accepted.
@@ -19,3 +19,12 @@ vad_threshold = 0.5
 end_silence_seconds = 0.6
 # Qwen quality flag only, valid -5..0. This is not speaker identity confidence.
 asr_trust_logprob = -0.35
+
+# Optional camera: explicit AVFoundation device name. No fallback to an index.
+# Normally enable for a test using `live --camera`; no camera in doctor or replay.
+camera_enabled = false
+camera_device_name = ""
+
+# Optional live WAV retention for human labeling. Accepted enrollment audio is
+# always kept atomically in the core DB; this retains all endpointed test captures.
+record_evaluation = false

@@ -32,6 +32,11 @@ class Capture:
     sample_rate: int = 16000
     echo_risk: bool = False
     truncated: bool = False
+    voiced_intervals: tuple[tuple[float, float], ...] = ()  # Seconds relative to PCM start.
+    overlap: bool | None = None  # Unknown is not a measured absence of overlap.
+    device: str = "unspecified"
+    parent_capture_id: str | None = None
+    source_offset: float = 0.  # Derived PCM offset in the independently retained original.
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,26 @@ class Snapshot:
     revision: int
     messages: tuple[dict[str, str], ...]
     speaker: str = "unresolved"
+    context: dict = field(default_factory=dict)
+    tools_enabled: bool = False
+    continuation: tuple[dict, ...] = ()
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    call_id: str
+    name: str
+    arguments: dict
+    preamble: tuple[dict, ...] = ()  # Original, unspoken provider commentary with phase.
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    request_id: str
+    outcome: str
+    reason: str
+    revision: int
+    data: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -63,7 +88,7 @@ class ASR(Protocol):
 
 
 class Brain(Protocol):
-    def reply(self, snapshot: Snapshot, cancel: Cancellation) -> Iterator[str]: ...
+    def reply(self, snapshot: Snapshot, cancel: Cancellation) -> Iterator[str | ToolCall]: ...
 
 
 class TTS(Protocol):

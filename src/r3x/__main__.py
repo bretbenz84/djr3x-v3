@@ -2,6 +2,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import sqlite3
 from dataclasses import replace
 
 from .app import App
@@ -10,11 +11,24 @@ from .contracts import ProviderFailure
 
 
 def main() -> int:
+    if len(sys.argv)>1 and sys.argv[1]=="profiles":
+        from .management import main as manage
+        from .settings import ScratchPaths
+        try:
+            return manage(sys.argv[2:],ScratchPaths.for_project(Path(__file__).resolve().parents[2]))
+        except (ValueError,OSError,ProviderFailure,sqlite3.Error) as exc:
+            print(json.dumps({"outcome":"failed","error_type":type(exc).__name__,
+                              "reason":str(exc) if isinstance(exc,(ValueError,ProviderFailure)) else None}),file=sys.stderr)
+            return 1
     parser = argparse.ArgumentParser(description="DJ-R3X voice-core experiment")
-    parser.add_argument("command", choices=("doctor", "boot", "live", "scenario", "report"))
+    parser.add_argument("command", choices=("doctor", "boot", "live", "scenario", "report", "replay"))
     parser.add_argument("artifact", nargs="?", type=Path)
     parser.add_argument("--profile", choices=("dev-mac",), default=None)
     parser.add_argument("--config", type=Path, help="Explicit TOML settings file")
+    parser.add_argument("--camera",action="store_true",help="Explicitly enable the configured camera for live mode")
+    parser.add_argument("--record-evaluation",action="store_true",help="Explicitly retain live captures for later human labeling")
+    parser.add_argument("--brain",action="store_true",help="Enable paid hosted language inference during saved-audio replay")
+    parser.add_argument("--oracle-segments",action="store_true",help="Use human timing labels for encoder diagnostics, not production accuracy")
     args = parser.parse_args()
     app = None
     try:
@@ -26,6 +40,21 @@ def main() -> int:
         settings = Settings.load(config_path) if args.config or config_path.exists() else Settings()
         if args.profile is not None:
             settings = replace(settings, profile=args.profile)
+        if args.camera or args.record_evaluation:
+            if args.command!="live":
+                raise ValueError("CameraAndRecordingFlagsRequireLive")
+            settings = replace(settings,camera_enabled=args.camera or settings.camera_enabled,
+                               record_evaluation=args.record_evaluation or settings.record_evaluation)
+        if (args.brain or args.oracle_segments) and args.command!="replay":
+            raise ValueError("ReplayFlagsRequireReplay")
+        if args.command=="replay":
+            if args.artifact is None:
+                parser.error("replay requires a reviewed manifest")
+            from .replay import run
+            from .settings import ScratchPaths
+            paths = ScratchPaths.for_project(project)
+            paths.prepare()
+            return 0 if run(args.artifact.resolve(),paths.root,settings,args.brain,args.oracle_segments) else 1
         if args.command in {"scenario", "report"}:
             if args.artifact is None:
                 parser.error("scenario/report requires a file path")
@@ -52,9 +81,9 @@ def main() -> int:
         cleanup_failed = any(r.outcome == "failed" and r.operation in {"cancel", "close"}
                              for r in app.owner.results)
         return 0 if ready and not cleanup_failed else 1
-    except (ValueError, OSError, ProviderFailure) as exc:
+    except (ValueError, OSError, ProviderFailure,sqlite3.Error) as exc:
         print(json.dumps({"outcome": "failed", "error_type": type(exc).__name__,
-                          "reason": str(exc) if isinstance(exc, ProviderFailure) else None}), file=sys.stderr)
+                          "reason": str(exc) if isinstance(exc, (ProviderFailure,ValueError)) else None}), file=sys.stderr)
         return 1
     finally:
         if app is not None and args.command != "live":

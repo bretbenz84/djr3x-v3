@@ -1,9 +1,10 @@
 # Initial test program and acceptance plan
 
-Status: slices 0–1 implemented; slice-1 live acceptance pending. Later slices remain
-specifications. The current
-commands and checks are recorded below. [DESIGN.md](../DESIGN.md) defines ownership;
-[V2_REFERENCE.md](../V2_REFERENCE.md) locates reference implementations.
+Status: core implementation through slices 0–4 is present; live device and group
+acceptance remain open. The user explicitly requested completing the core overnight
+before the next live test, so implementation continued past the original slice-1
+live gate without claiming that gate had passed. Slice 5 and the full robot remain
+deferred. [Operations](CORE_OPERATIONS.md) contains the current commands.
 
 ## The first question to answer
 
@@ -158,22 +159,196 @@ Remaining gate: run `.venv/bin/python -m r3x live`, hear Rex's replies, check th
 words, use terminal stop during generation/playback, and inspect the session report.
 Measure real end-of-speech-to-first-audio, endpointing, echo rejection/abstention,
 underruns, device shutdown, and voice consistency across phrase requests. There is no
-live conversation, speaker-discrimination, or group-acceptance result yet. Begin the
-labeled recording/replay work after this gate; do not expand into camera/memory early.
+live conversation, speaker-discrimination, or group-acceptance result yet. The original sequencing constraint was superseded by the user's overnight core-build
+request; the live gate remains open despite later implementation.
 
-## Proposed operating modes
+## Core implementation evidence: slices 2–4
 
-`doctor`, `live`, `scenario`, and `report` are implemented to slice-1 scope below.
-`replay` remains proposed. The additional `boot` command is a provider-free
-start/close smoke check.
+September 10, 2026. V3 working tree based on `47a1507`; it was clean before this
+implementation. V2 was reverified clean at
+`9806c74fd233a7118da88ca5ae55fb7450deec05` and remains unchanged. Extraction details
+and checkpoint provenance are in V2_REFERENCE.md. No personal baseline data was
+imported, and the live `local/core.sqlite3` does not yet exist.
 
-| Proposed mode | Purpose | I/O expectations |
+Implemented:
+
+- One bounded named/unnamed CAM++ tracker, current-window profile agreement,
+  explicit unknown/short/mixed/ambiguous outcomes, and namespace isolation.
+  VAD intervals, original PCM, transcript trust and echo/truncation evidence travel
+  together through shared perception. A failed encoder leaves identity unavailable.
+- Natural provisional associations, anchor/cluster checks, three qualifying turns
+  with two voiced seconds each/eight total, atomic original-audio/embedding storage,
+  and expiry/correction/cancellation. Competing voices cannot collect for the same
+  person; incompatible voices cannot refresh an existing profile. Suspect profiles
+  require local review or explicit voice reset.
+- Optional AVFoundation camera with unique name selection and bounded face-presence
+  tracks. OpenCV 4.13.0.92 is pinned for the chosen classifier API. The public Haar
+  asset is verified by digest. There is no face recognition, mouth processing,
+  visual identity vote, or robot hardware integration.
+- One semantic tool surface: introductions/references, explicit-source claims,
+  correction/retraction/recall, question delivery/settlement, naming and forgetting.
+  IDs are constrained to the snapshot and independently revalidated. Unknown
+  self-reports cannot guess a personal subject; ambiguous third-party names cannot
+  choose an arbitrary profile. Prior turns retain their own speaker context.
+- SQLite participant/source/claim/recording/reference/result records, correction
+  history, and managed recording/export/preview cleanup. Stable IDs and source
+  quotes persist; session voice hypotheses do not become unquestionable identities
+  on restart. File-cleanup failures are reported without a completion acknowledgment.
+- Frozen replay uses the production endpoint, perception, Session and tracker.
+  It checks independent file digests/splits and refuses exact enrolled PCM as test
+  audio. Reports include wrong names, abstentions, precision **and** coverage,
+  short/unknown/mixed cohorts, breakdowns, fragmentation/merges, and failed clips.
+  Human labels do not steer acoustic predictions. Oracle timing is diagnostic only.
+- Explicit consistent v2 snapshot import with selected participant mapping, preserved
+  original WAVs, isolated legacy vector namespaces, suspect flags, digest-checked
+  re-embedding previews, export, bad-sample removal, voice reset, and forgetting.
+  These tools were tested against synthetic databases, not run on personal v2 data.
+- Bounded capture/turn/output queues, provider/cancellation failures, one primary
+  generation per ordinary reply, and at most one tool-result continuation.
+  Intermediate model commentary is silent; unphased tool-enabled text is held until
+  the response completes. Only delivered audio questions become pending. Diagnostics
+  include ASR, speaker analysis, context, first PCM, playback queue/actual audio,
+  resource high-water marks, and explicit failures where measured.
+
+Validation levels and results:
+
+| Evidence | Result | What it does not prove |
 | --- | --- | --- |
-| `python -m r3x doctor --profile dev-mac` | Declared live capabilities/dependencies, model-file readiness, missing credentials, and lifecycle | No recording, playback, download, inference, or scratch creation |
-| `python -m r3x live --profile dev-mac` | Audible loop, selected providers, and session traces; camera not integrated yet | Microphone, speaker, and selected hosted calls; no camera/serial hardware |
-| `python -m r3x replay <manifest>` | Run labeled recordings through production segmentation/ASR/tracking and optionally the real brain | Saved files; no live mic/servo; hosted inference is an explicit option |
-| `python -m r3x scenario <fixture>` | Exercise shared turn/output path with scripted providers; no meaning/memory validation yet | No network, devices, or personal databases |
-| `python -m r3x report <session.jsonl>` | Summarize events, failures, model calls, and observed timings; identity metrics remain unknown | Read local session evidence |
+| Blocked-I/O deterministic suite | **80 checks passed**; includes ownership, original utterance, atomic save/failure, restart, correction, cancellation, alias ambiguity, competing voices, deletion, namespace separation, replay labels, face expiry/selection, and 150-turn bounded-state exercise | Language skill, real voice discrimination, physical audio/video behavior |
+| Documented core scenario | Natural enrollment → claim → restart/recall → correction → forgetting passed with scripted decisions and simulated delivery | Real semantics or actual speech |
+| Real hosted model, synthetic identity/text | **14 calibration cases + 14 alternate wording cases passed** through the production Session/state/store; 22 and 23 requests respectively, with one primary per turn and bounded tool continuations | Universal semantic reliability; real acoustic attribution |
+| Real saved-audio model check | Qwen/Silero/CAM++ processed synthetic speech; trusted transcript, 192-dimensional embeddings, three windows, about .75 window consistency | Bret/Jeff separation, overlap detection, live endpoint quality |
+| Full real-provider core on synthetic speech | **Six spoken-input turns passed:** natural enrollment saved three originals, a supported self-report saved, recall survived restart, and correction superseded it; 6 primary + 5 tool continuations | Human group accuracy or spoken output; replies were text only |
+| Frozen replay CLI | Synthetic saved WAV passed through production VAD/ASR/tracker with zero conversational model calls and no mutations | Held-out human accuracy; its clean-enrolled cohort has zero samples |
+| Camera detector on generated blank frames | 20 blank frames: no faces, median about 2.6 ms/p95 2.8 ms; first detector import/load about 4.45 s in that process | Detection accuracy, real frame cost, capture compatibility, simultaneous live load |
+| Packaging/readiness | `pip check`, dependency/model readiness, model digests and whitespace checks passed | Hosted uptime, live device access or validated room settings |
+
+Private synthetic evidence directories:
+
+- Text calibration: `local/validation/1faee04367a44a5c8a0bbd58cc9f469a/`.
+- Alternate wording: `local/validation/7e346d2452654ce4a67be20a83eca301/`.
+- Saved models / blank frames: `local/validation/ba992e2fadca47ed91f65f9c4313fd5a/`.
+- Six-turn real-provider integration: `local/validation/15e01b7eed7a4c7cbfa0b3742ed92ab6/`.
+- Final evidence-only replay: `local/validation/e29fdb607b6c408db2054b8a710e1ee3/`.
+
+First morning live check: capture and ASR heard “Are you there?” and the model
+generated a reply, but delivery failed with `ElevenLabsConnectTimeout` before
+any PCM/playback event (session `62d222f743a64540947516b6e74f4447`). Camera frames
+were present; this is not camera accuracy or spoken-exchange acceptance. A later
+silent request through the configured TTS adapter received 98,784 PCM bytes
+(2.24 seconds) in 1.19 seconds. The connection worked on that check; actual
+speaker playback still needs verification. No timeout/retry policy was changed.
+Live console output now emphasizes conversation, generated-versus-played speech,
+and failures, keeping frame/resource telemetry in the complete JSON file. Failed
+delivery errors also appear in report summaries. The updated blocked-I/O suite
+passes **82 checks**, including console/log separation and failure reporting.
+
+### Labeled car-session repairs
+
+The user reviewed all 21 clips from session `460ffecabf704cf6b35681e155891ce9`,
+identifying Bret, Jeff, Rex, and Siri in order. The private `human-labels.json`
+sidecar preserves those labels and source digests; exact boundaries/overlap remain
+unlabeled. Labels score results after inference and never seed profiles.
+
+- Endpointing now splits at playback-gate transitions. The gate begins when PCM
+  enters the output queue, not while TTS is waiting on the network, and retains
+  the 300 ms tail. Human prefixes/suffixes survive; simultaneous speech is still
+  excluded. This does not implement AEC or separate superimposed voices.
+- Tentative session continuity uses .30 similarity and .12 competing-track margin,
+  without reference updates, person identity, self-identity permissions, or voice
+  learning. Strong updates/enrollment thresholds are unchanged. After the first
+  track, new tracks require one voiced second rather than minting tracks from very
+  short uncertain fragments. This is tuning against one session, not calibration
+  across people/devices.
+- Compatible windows on both sides of an abrupt acoustic change can propose up to
+  three approximate boundaries. Each resulting turn is independently transcribed,
+  retains its source ID/offset, and cannot enroll voices or write personal facts.
+- The same conversational generation can execute `remain_silent`, with no speech
+  or result continuation. A completed call/result pair records that decision without
+  fabricated heard text; old pairs are removed together when history is bounded.
+  The redundant model-facing `resolve_person` operation was retired: the context
+  already supplies the roster/aliases and the state executor retains exact lookup
+  validation. This avoids spending the one action on a lookup instead of a save.
+
+Saved-audio evidence: `local/validation/c152c9cccf1e473eaf21eba000f3743d/report.json`.
+The production Endpoint reused recorded VAD and reconstructed PCM-ready/playback-end
+times; Perception and the frozen Session/state used real Qwen ASR and CAM++.
+No live profile was read/changed, no device opened, and no hosted calls were made.
+
+| Labeled single-human clips | Original run | Revised replay |
+| --- | --- | --- |
+| Bret tracks | 2 | 1 |
+| Jeff tracks | 3 | 1 |
+| Assigned clips / all 10 single-human clips | 7/10 | 6/10 |
+| Tracks mixing Bret and Jeff in these clips | 0 | 0 |
+
+The coverage reduction is explicit: clip 21 now abstains rather than making another
+track from 0.61 voiced seconds. Clips 08, 12, and 15 also remain unassigned. The six
+Rex-only clips stay excluded; non-playback parts are recovered from clips 09, 15,
+16, 18, and 20. Clip 17 splits navigation from “You are annoying,” but does not
+separate the laugh. Clip 20 remains mixed after the playback portion. No synthetic
+voice classifier or complete diarization is claimed. Old frame-level echo flags
+were not retained, so playback reconstruction is approximate.
+
+Saved-clip processing median/max was .206/.682 seconds, with peak process RSS
+3.15 GB. These are saved-audio figures, not live reply latency; replayed timestamps
+cannot measure live queue delay. Source-window and capture timings remain inspectable.
+The blocked-I/O suite passes **92 checks**, including echo boundaries, weak-track
+nonlearning, ambiguous abstention, source-preserving splits, per-turn silence and
+re-engagement, bounded call/result history, and derived-source write rejection.
+
+Prompt/semantic trials and their failures are retained under private validation.
+Extra reasoning and a stronger-model request trial did not consistently resolve
+semantic failures, so the shipped model remains `gpt-5.4-mini`, reasoning `none`.
+The trial request overrides are recorded in `local/validation/car-analysis/model-experiments.json`;
+those experimental traces name the configured adapter, not the overridden request.
+
+After prompt consolidation and retirement of the redundant lookup tool, the
+original 14 semantic cases passed (`local/validation/7dcc3d0aec8c474eaf4748c9e28e2041/`).
+Further alternate-wording checks exposed and corrected over-eager saves of a joke's
+aside and conversational person references. The final alternate semantic set passed
+**14/14** (`local/validation/012110aea51c41368b9abf24c890b524/`); the alternate participation
+and re-engagement set passed **24/24** (`local/validation/7c72e7ff936b43ae8585ab7029a278f5/`).
+These hosted checks used synthetic text and temporary state, without TTS or devices.
+They are tuning/regression evidence, not universal semantic reliability or live
+latency measurements. Prior failed runs remain retained; no backend/reasoning-policy
+change was shipped to obtain these results. Facts are checked across predicate and
+value together while still requiring the correct subject/source; an unresolved
+occupation statement must create neither a claim nor a person.
+
+The final semantic run made 14 primary requests plus 12 tool-result continuations;
+request-to-first-text median/p95 was 1.82/9.35 seconds including tool work. The
+participation run made 24 primary requests and zero continuations; its 18 spoken-text
+responses had .65/1.66-second median/p95 first-text latency. The six quiet decisions
+produced no speech. These figures exclude capture/TTS/playback and show that tool
+turns still have substantial tail latency; a live end-to-end retest remains necessary.
+
+The six-turn integration measured ASR median/p95 about .224/.253 s, speaker
+analysis .030/.038 s, and model-to-first-text including applicable tool work
+1.705/1.916 s. Peak process RSS was about 3.19 GB on this dev Mac. These are a
+small synthetic saved-audio cohort, not live end-of-speech-to-audio, a steady-state
+memory trend, M2/16 GB results, or a matched v2 comparison. The Mac sandbox initially
+blocked Metal; saved-audio inference was rerun with local GPU access and no devices.
+
+**Remaining acceptance:** actual microphone/speaker/camera operation; Rex voice
+consistency and complete playback; live cancellation/drain/underruns; three two-person
+sessions; at least 100 held-out clean human utterances plus short/unknown/overlap
+cohorts; independently reviewed profiles; calibrated thresholds; camera/inference
+contention; and matched v2 latency. Window consistency can miss overlap or similar
+speakers. No real speaker accuracy, live responsiveness, or group-acceptance claim
+is made. Controlled feature expansion remains frozen until those results are reviewed.
+
+## Implemented operating modes
+
+| Mode | Purpose | I/O |
+| --- | --- | --- |
+| `python -m r3x doctor` | Capability, model-file, credential and dependency readiness | No model/device start, inference, download, or scratch creation |
+| `python -m r3x live` | Complete conversation core, persistence and delivery | Selected microphone/speaker and hosted providers; camera only when enabled |
+| `python -m r3x replay <manifest>` | Production segmentation, ASR and tracking on frozen labeled audio | Saved files; optional hosted `--brain` with silent output; no live devices |
+| `python -m r3x scenario <fixture>` | Production Session/state/output/store with scripted evidence | Temporary stores and synthetic providers; no live devices or network |
+| `python -m r3x report <session.jsonl>` | Observed timings, outcomes, failures and model calls | Read local evidence |
+| `python -m r3x profiles ...` | Independent import, previewed re-embedding, review and deletion | Explicit local file/store actions under the live lease; no hardware |
+| `python -m r3x boot` | Provider-free lifecycle check | Ignored scratch directories only |
 
 Use one shared turn-processing entry point in live, replay, and scenario modes.
 Replace observations/providers, not the decision machinery being evaluated. Typed
@@ -197,8 +372,9 @@ tests must not automatically receive the identity confidence of real audio input
    automatic enrollment or adaptive updates on the frozen accuracy-evaluation set.
    Run separate adaptation experiments if evaluating safe profile growth.
 
-No import or recording has been performed by the documentation task. A later live
-test must not run both v2 and v3 on the same microphone/speaker devices concurrently.
+No personal v2 import or live recording was performed during this implementation.
+Synthetic validation audio is stored separately from the live core. Do not run v2
+and v3 on the same microphone/speaker devices concurrently.
 
 ## Speaker evaluation dataset
 

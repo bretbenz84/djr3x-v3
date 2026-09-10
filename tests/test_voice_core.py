@@ -170,7 +170,7 @@ class CoreTests(unittest.TestCase):
         endpoint = Endpoint("session")
         result = None
         for i in range(630):
-            result = endpoint.push(Frame(bytes(1024), i*.032, (i+1)*.032, i == 100), True)
+            result = endpoint.push(Frame(bytes(1024), i*.032, (i+1)*.032, True), True)
             if result: break
         self.assertTrue(result.truncated)
         self.assertTrue(result.echo_risk)
@@ -202,15 +202,15 @@ class CoreTests(unittest.TestCase):
         completed = threading.Event()
         base_process = self.session.process_turn
         seen = []
-        def process(capture, transcript, revision):
+        def process(capture, transcript, revision, **evidence):
             seen.append(transcript.text)
-            result = base_process(capture, transcript, revision)
+            result = base_process(capture, transcript, revision, **evidence)
             if len(seen) == 3: completed.set()
             return result
         self.session.process_turn = process
         runtime = VoiceRuntime(None, None, None, self.session, self.trace)
         for text in ("first", "second", "third"):
-            runtime.enqueue(runtime.turns, (self.capture, Transcript(text, 0, True), 0), "turns")
+            runtime.enqueue(runtime.turns, (self.capture, Transcript(text, 0, True), 0, None), "turns")
         worker = threading.Thread(target=runtime._turn_loop)
         worker.start()
         self.assertTrue(completed.wait(2))
@@ -250,10 +250,11 @@ class CoreTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/"evidence.jsonl"
-            path.write_text("\n".join(json.dumps(r) for r in rows))
+            path.write_text("\n".join(json.dumps(r) for r in rows)+"\n{\"event\":")
             result = report(path)
         self.assertEqual(result["model_calls"], 1)
         self.assertEqual(result["turn_outcomes"]["failed"], 1)
         self.assertEqual(result["observed_seconds"]["total"]["median"], 3.)
         self.assertEqual(result["observed_seconds"]["first_audio"]["n"], 1)
         self.assertIsNone(result["speaker_accuracy"])
+        self.assertEqual(result["failures"], [{"event":"trace_parse_failed","line":5}])

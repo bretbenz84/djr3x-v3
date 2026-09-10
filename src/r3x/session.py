@@ -5,12 +5,13 @@ import threading
 import time
 from uuid import uuid4
 
-from .contracts import ASR, Brain, Cancellation, Cancelled, Capture, ProviderFailure, Snapshot, Transcript
+from .contracts import ASR, Brain, Cancellation, Cancelled, Capture, ProviderFailure, Snapshot, Transcript, ToolCall
+from .speakers import VoiceObservation
 from .output import Delivery, OutputOwner, Phrases, put_phrase
 
 
 class Session:
-    def __init__(self, session_id: str, brain: Brain, output: OutputOwner, trace):
+    def __init__(self, session_id: str, brain: Brain | None, output: OutputOwner, trace, state=None):
         self.session_id, self.brain, self.output, self.trace = session_id, brain, output, trace
         self.revision = 0
         self.history = deque(maxlen=16)
@@ -18,12 +19,15 @@ class Session:
         self._processing = threading.Lock()
         self._cancel: Cancellation | None = None
         self.closed = False
+        self.state = state
 
     def cancel(self) -> None:
         with self._lock:
             self.revision += 1
             if self._cancel:
                 self._cancel.event.set()
+            if self.state:
+                self.state.cancel()
         self.output.cancel()
         self.trace.emit("cancel", revision=self.revision)
 
@@ -31,7 +35,15 @@ class Session:
         self.closed = True
         self.cancel()
 
-    def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int) -> Delivery:
+    def history_messages(self):
+        # A bounded history may evict either half of an older tool exchange.
+        # Never send orphan calls/results to the Responses API.
+        calls={r.get("call_id") for r in self.history if r.get("type")=="function_call"}
+        results={r.get("call_id") for r in self.history if r.get("type")=="function_call_output"}
+        return tuple(r for r in self.history if r.get("type") not in {"function_call","function_call_output"}
+                     or r.get("call_id") in calls & results)
+
+    def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int, observation=None, faces=()) -> Delivery:
         if not self._processing.acquire(blocking=False):
             raise RuntimeError("Only one conversation owner may process turns")
         worker = None
@@ -42,6 +54,8 @@ class Session:
         model_at = None
         first_token_at = None
         model_error = None
+        question = None
+        state_started = False
         try:
             with self._lock:
                 if self.closed or capture.session_id != self.session_id or submitted_revision != self.revision:
@@ -62,8 +76,28 @@ class Session:
                 self.cancel()
                 delivery.status = "interrupted"
                 return delivery
+            context = {}
+            if self.state:
+                with self._lock:
+                    cancel.check()
+                    observation = observation or VoiceObservation(self.state.tracker.namespace)
+                    attribution = self.state.begin(turn_id,capture,transcript,observation,faces)
+                    state_started = True
+                    context = self.state.context(faces)
+                self.trace.emit("speaker_evidence",turn_id=turn_id,**context["speaker"],
+                                namespace=observation.namespace,window_consistency=observation.consistency)
+            if self.brain is None:
+                delivery.status = "observed"  # Frozen acoustic replay through the same state path.
+                delivery.medium = "none"
+                return delivery
+            if self.state:
+                import json
+                self.history.append({"role":"developer","content":"Evidence for the immediately following utterance: "+json.dumps({
+                    "speaker":context["speaker"],"source_turn_id":turn_id},ensure_ascii=False)})
             self.history.append({"role": "user", "content": transcript.text})
-            snapshot = Snapshot(self.session_id, turn_id, self.revision, tuple(self.history))
+            snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
+                                context.get("speaker",{}).get("person_id") or "unresolved",
+                                context, self.state is not None)
             phrases = Queue(maxsize=4)
             worker = threading.Thread(target=self.output.run, args=(phrases, cancel, turn_id, delivery),
                                       name="r3x-output", daemon=True)
@@ -73,32 +107,77 @@ class Session:
             model_at = self.trace.clock()
             self.trace.emit("model_request", turn_id=turn_id, primary_calls=1,
                             context_messages=len(snapshot.messages))
-            stream = self.brain.reply(snapshot, cancel)
-            try:
-                for delta in stream:
+            def generate(request):
+                nonlocal first_token_at, generated
+                calls = []
+                stream = self.brain.reply(request, cancel)
+                try:
+                    for delta in stream:
+                        cancel.check()
+                        if isinstance(delta, ToolCall):
+                            calls.append(delta)
+                            continue
+                        if first_token_at is None:
+                            first_token_at = self.trace.clock()
+                            self.trace.emit("model_first_text", turn_id=turn_id)
+                        generated += delta
+                        if len(generated) > 4000:
+                            raise ProviderFailure("ReplyLengthLimit")
+                        for phrase in splitter.add(delta):
+                            put_phrase(phrases, phrase, cancel)
                     cancel.check()
-                    if first_token_at is None:
-                        first_token_at = self.trace.clock()
-                        self.trace.emit("model_first_text", turn_id=turn_id)
-                    generated += delta
-                    if len(generated) > 4000:
-                        raise ProviderFailure("ReplyLengthLimit")
-                    for phrase in splitter.add(delta):
-                        put_phrase(phrases, phrase, cancel)
-                cancel.check()
-                self.trace.emit("model_completed", turn_id=turn_id, original_text=generated)
-                tail = splitter.finish()
-                if tail:
-                    put_phrase(phrases, tail, cancel)
-                put_phrase(phrases, None, cancel)
-                # Provider network timeouts and audio watchdogs bound this work.
-                worker.join(timeout=60)
-                if worker.is_alive():
-                    raise ProviderFailure("OutputWorkerTimeout")
-            finally:
-                close = getattr(stream, "close", None)
-                if close:
-                    close()
+                    return calls
+                finally:
+                    close = getattr(stream, "close", None)
+                    if close:
+                        close()
+            calls = generate(snapshot)
+            if calls:
+                if not self.state or len(calls) != 1 or generated.strip():
+                    raise ProviderFailure("SpeechToolProtocolViolation")
+                call = calls[0]
+                self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=call.arguments)
+                with self._lock:
+                    cancel.check()
+                    result = self.state.execute(call,context["state_revision"],cancel)
+                self.trace.emit("tool_executed",turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
+                if result.outcome=="ok" and call.name=="remain_silent":
+                    from dataclasses import asdict
+                    import json
+                    delivery.status, delivery.medium = "suppressed", "none"
+                    self.history.extend((
+                        {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps(call.arguments)},
+                        {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
+                    self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
+                elif result.outcome=="ok" and call.name=="ask_question":
+                    question = result.data
+                    put_phrase(phrases,question["question"],cancel)
+                else:
+                    from dataclasses import asdict
+                    import json
+                    context = self.state.context(faces)
+                    continuation = (*call.preamble,
+                        {"type":"function_call","call_id":call.call_id,"name":call.name,
+                         "arguments":json.dumps(call.arguments)},
+                        {"type":"function_call_output","call_id":call.call_id,
+                         "output":json.dumps(asdict(result))})
+                    # Forgotten information is not sent back in the continuation history.
+                    if self.state.forgotten:
+                        self.history.clear()
+                        self.history.append({"role":"developer","content":"A person was forgotten. Do not reuse previous personal context."})
+                    followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
+                                        snapshot.speaker,context,False,continuation)
+                    self.trace.emit("model_request",turn_id=turn_id,primary_calls=0,purpose="tool_result_continuation")
+                    if generate(followup):
+                        raise ProviderFailure("ToolContinuationLimit")
+            self.trace.emit("model_completed", turn_id=turn_id, original_text=generated)
+            tail = splitter.finish()
+            if tail:
+                put_phrase(phrases, tail, cancel)
+            put_phrase(phrases, None, cancel)
+            worker.join(timeout=60)
+            if worker.is_alive():
+                raise ProviderFailure("OutputWorkerTimeout")
         except Cancelled:
             if delivery.status != "failed":
                 delivery.status = "interrupted"
@@ -122,14 +201,23 @@ class Session:
             if worker and not worker.is_alive():
                 heard = " ".join(delivery.completed_text)
                 if heard:
-                    self.history.append({"role": "assistant", "content": heard})
-                if delivery.status != "completed":
+                    self.history.append({"role": "assistant", "phase":"final_answer", "content": heard})
+                if delivery.status not in {"completed","suppressed"}:
                     self.history.append({"role": "developer", "content":
                         "The last reply was interrupted or failed. Only completed phrases above are known delivered; any partial phrase is unknown."})
+            if self.state and state_started and not cancel.event.is_set() and not self.state.forgotten and delivery.status!="suppressed":
+                try:
+                    with self._lock:
+                        cancel.check()
+                        self.state.advance_enrollment()
+                        if question and delivery.status=="completed" and delivery.medium=="audio":
+                            self.state.question_delivered(question["question"],question["addressee_id"],self.trace.clock())
+                except Exception as exc:
+                    self.trace.emit("state_finalize_failed",turn_id=turn_id,error_type=type(exc).__name__)
             with self._lock:
                 self._cancel = None
             audio_at = delivery.first_audio_at
-            self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, timings={
+            self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, medium=delivery.medium, timings={
                 "endpoint": capture.ended_at - capture.speech_ended_at,
                 "context": model_at - began if model_at is not None else None,
                 "model_first_text": first_token_at - model_at if first_token_at is not None else None,

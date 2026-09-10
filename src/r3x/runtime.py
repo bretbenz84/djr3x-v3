@@ -1,5 +1,6 @@
 """Live orchestration: bounded capture/ASR queues feeding the shared Session."""
 from queue import Queue, Empty, Full
+from dataclasses import replace
 import sys
 import threading
 import time
@@ -9,9 +10,10 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=.6):
+    def __init__(self, mic, vad, asr, session, trace, silence=.6, perception=None, recorder=None):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
         self.endpoint = Endpoint(session.session_id, silence)
+        self.perception, self.recorder = perception, recorder
         self.captures = Queue(maxsize=2)
         self.turns = Queue(maxsize=3)
         self.stop = threading.Event()
@@ -51,17 +53,22 @@ class VoiceRuntime:
                 self.asr_cancel = Cancellation()
             began = self.trace.clock()
             try:
-                transcript = self.asr.transcribe(capture, self.asr_cancel)
-                self.trace.emit("transcript", capture_id=capture.capture_id, original_text=transcript.text,
-                    avg_logprob=transcript.avg_logprob, trusted=transcript.trusted,
-                    asr_seconds=self.trace.clock() - began, queue_seconds=began - capture.ended_at)
-                if revision != self.session.revision or self.stop.is_set():
-                    self.trace.emit("transcript_rejected", capture_id=capture.capture_id, reason="stale")
-                    continue
-                if transcript.trusted and transcript.text.strip().lower().rstrip(".!?") in {"stop", "cancel", "stop rex", "rex stop"}:
-                    self.cancel()  # Bypasses a busy conversational generation.
-                else:
-                    self.enqueue(self.turns, (capture, transcript, revision), "turns")
+                perceived_turns = self.perception.analyze_many(capture,self.asr_cancel) if self.perception else (None,)
+                for perceived in perceived_turns:
+                    part = perceived.capture if perceived else capture
+                    transcript = perceived.transcript if perceived else self.asr.transcribe(part, self.asr_cancel)
+                    if not perceived:
+                        self.trace.emit("transcript", capture_id=part.capture_id, original_text=transcript.text,
+                            avg_logprob=transcript.avg_logprob, trusted=transcript.trusted,
+                            asr_seconds=self.trace.clock() - began, queue_seconds=began - part.ended_at)
+                    if revision != self.session.revision or self.stop.is_set():
+                        self.trace.emit("transcript_rejected", capture_id=part.capture_id, reason="stale")
+                        break
+                    if transcript.trusted and transcript.text.strip().lower().rstrip(".!?") in {"stop", "cancel", "stop rex", "rex stop"}:
+                        self.cancel()  # Bypasses a busy conversational generation.
+                        break
+                    else:
+                        self.enqueue(self.turns, (part, transcript, revision, perceived), "turns")
             except Cancelled:
                 self.trace.emit("asr_cancelled", capture_id=capture.capture_id)
             except Exception as exc:
@@ -70,16 +77,29 @@ class VoiceRuntime:
     def _turn_loop(self):
         while not self.stop.is_set() and not self.session.closed:
             try:
-                capture, transcript, revision = self.turns.get(timeout=.05)
+                capture, transcript, revision, perceived = self.turns.get(timeout=.05)
             except Empty:
                 continue
-            self.session.process_turn(capture, transcript, revision)
+            self.session.process_turn(capture, transcript, revision,
+                observation=perceived.voice if perceived else None, faces=perceived.faces if perceived else ())
         if self.session.closed:
             self.stop.set()
 
     def start_workers(self):
+        def guarded(target):
+            try:
+                target()
+            except BaseException as exc:
+                self.stop.set()
+                self.session.closed = True
+                self.asr_cancel.event.set()
+                try:
+                    self.session.cancel()
+                    self.trace.emit("worker_stuck",worker=threading.current_thread().name,reason=type(exc).__name__)
+                except Exception:
+                    print("Core worker stopped: "+type(exc).__name__,file=sys.stderr)
         for name, target in (("asr", self._asr_loop), ("conversation", self._turn_loop)):
-            thread = threading.Thread(target=target, name="r3x-" + name, daemon=True)
+            thread = threading.Thread(target=guarded,args=(target,), name="r3x-" + name, daemon=True)
             self.workers.append(thread)
             thread.start()
 
@@ -88,10 +108,20 @@ class VoiceRuntime:
         self.trace.emit("listening", controls="Enter or 'stop' cancels; 'quit' or Ctrl-C exits")
         previous_dropped = (0, 0)
         previous_end = None
+        next_resources = 0.
         # Nonblocking terminal input is polled alongside frames; no orphan stdin worker.
         import select
         try:
             while not self.stop.is_set():
+                now = self.trace.clock()
+                if now>=next_resources:
+                    import resource
+                    usage = resource.getrusage(resource.RUSAGE_SELF)
+                    self.trace.emit("resources",peak_rss_bytes_macos=usage.ru_maxrss,
+                                    user_cpu_seconds=usage.ru_utime,system_cpu_seconds=usage.ru_stime,
+                                    captures_queued=self.captures.qsize(),turns_queued=self.turns.qsize(),
+                                    threads=threading.active_count())
+                    next_resources = now+30
                 if sys.stdin.isatty() and select.select([sys.stdin], [], [], 0)[0]:
                     command = sys.stdin.readline().strip().lower()
                     if command in {"quit", "exit"}:
@@ -113,6 +143,9 @@ class VoiceRuntime:
                     continue
                 capture = self.endpoint.push(frame, self.vad.is_speech(frame.pcm))
                 if capture:
+                    capture = replace(capture,device=getattr(self.mic,"device_name","configured_microphone"))
+                    if self.recorder:
+                        self.recorder.save(capture)
                     self.trace.emit("capture", capture_id=capture.capture_id,
                         started_at=capture.started_at, ended_at=capture.ended_at,
                         speech_ended_at=capture.speech_ended_at, truncated=capture.truncated,

@@ -37,11 +37,14 @@ class Microphone:
         self.status_errors = 0
         self.last_callback = 0.
         self.stopped = threading.Event()
+        self.device_name = settings.input_device_name or "configured_index"
 
     def start(self):
         import sounddevice as sd
-        index = resolve_device(sd.query_devices(), self.settings.input_device_name,
+        devices = sd.query_devices()
+        index = resolve_device(devices, self.settings.input_device_name,
                                self.settings.input_device_index, "input")
+        self.device_name = devices[index]["name"]
         def callback(data, count, timing, status):
             now = self.clock()
             self.last_callback = now
