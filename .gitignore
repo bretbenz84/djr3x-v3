@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# DJ-R3X private runtime state and local credentials
+/local/
+/apikeys.py
+/user_config.py
+.DS_Store
