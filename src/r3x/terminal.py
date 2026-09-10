@@ -42,6 +42,8 @@ class LiveConsole:
                 message += f" Playback underruns: {row['underruns']}."
         elif event == "turn_done":
             message = "Ready for the next turn."
+        elif event == "reply_yielded":
+            message = "Still listening — holding the reply while you continue."
         elif event == "reply_suppressed":
             message = "Rex stayed quiet: " + clean(row["reason"]).replace("_", " ")
         elif event == "voice_learning_saved":

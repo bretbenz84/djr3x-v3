@@ -87,7 +87,7 @@ def load_manifest(path):
     return data,hashlib.sha256(raw).hexdigest()
 
 
-def segment(pcm,session_id,vad,silence=.6,offset=0.,device="saved_audio"):
+def segment(pcm,session_id,vad,silence=1.2,offset=0.,device="saved_audio"):
     """The same Endpoint and VAD as the live microphone, including final silence."""
     endpoint = Endpoint(session_id,silence)
     vad.reset()

@@ -18,7 +18,7 @@ class AcousticRepairs(unittest.TestCase):
     def test_echo_transitions_preserve_human_prefix_and_suffix_pcm(self):
         endpoint=Endpoint("s")
         captures=[]
-        for i in range(84):
+        for i in range(104):
             frame=Frame(bytes([i,0])*512,i*.032,(i+1)*.032,20<=i<40)
             capture=endpoint.push(frame,i<64)
             if capture: captures.append(capture)
@@ -141,7 +141,9 @@ class SemanticRepairs(MemoryFixture):
         session.history.extend((
             {"type":"function_call","call_id":"old","name":"remain_silent","arguments":"{}"},
             {"type":"function_call_output","call_id":"old","output":"{}"}))
-        for i in range(15):session.history.append({"role":"user","content":str(i)})
+        for i in range(32):
+            session.history.begin_turn()
+            session.history.append({"role":"user","content":str(i)})
         self.assertFalse(any(r.get("type")=="function_call_output" for r in session.history_messages()))
         session.history.append({"type":"function_call","call_id":"unfinished","name":"remain_silent","arguments":"{}"})
         self.assertFalse(any(r.get("type")=="function_call" for r in session.history_messages()))

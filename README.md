@@ -3,7 +3,7 @@
 A smaller conversation core for Rex, with one language owner, one acoustic speaker
 tracker, one state executor, and one speech output owner.
 
-**Status: the core implementation through slices 0–4 is built; live acceptance is pending.**
+**Status: the core runtime is implemented; identification and live acceptance remain incomplete.**
 Microphone input, Qwen ASR, CAM++ tracks and natural enrollment, semantic identity
 and memory tools, persistent attributed claims, optional camera presence, frozen
 saved-audio replay, and profile maintenance are implemented. The full robot and
@@ -43,7 +43,22 @@ and ends 300 ms after playback. Human speech overlapping that window is still
 excluded; this is not echo cancellation. Terminal stop works then. Trusted
 spoken stop works outside the echo window. `echo_isolated = true` is available for
 an actually isolated headset setup; it does not enable acoustic echo cancellation.
-Speech during generation queues in capture order behind the single conversation owner.
+The default pause allowance is 1.2 seconds. Non-echo speech resuming during
+recognition/generation cancels an unheard reply; earlier words remain in history
+for the next turn. Unfinished thoughts can receive a silent decision from the same
+conversation model. This does not detect human interruptions during speaker echo.
+
+Session conversation now retains up to 32 complete exchanges, within a 24,000-
+character serialized history budget. Speaker evidence, original user words, and
+heard replies stay together; older exchanges leave as units. This is session-only
+context, not a summary or permanent biography. A new run starts with fresh chat
+history; saved names, facts, and completed voice profiles remain in the local store.
+
+The conversation model remains `gpt-5.4-mini`, now using low reasoning within the
+same primary call. Yielded user words retain an explicit delivery/context note;
+continuations can complete the previous thought. Identity actions are offered only
+for targets authorized by the state owner. An existing-name self-introduction
+starts a provisional association rather than renaming someone.
 
 The conversation model can choose a silent turn for another device's commands or
 background speech. A later direct request re-engages normally. Within-capture speaker
@@ -222,3 +237,8 @@ Each capability has one owner, one active implementation, explicit dependencies,
 and a removal path. A replacement includes retiring its predecessor. Configuration
 switches do not justify keeping competing conversational authorities indefinitely.
 Use Git history to preserve retired code rather than inactive runtime branches.
+
+Voice enrollment now accumulates clean unnamed speaker groups before introductions.
+An introduction can use earlier matching audio, and unfinished groups survive
+restart for up to 24 hours. See [enrollment evidence](docs/CORE_OPERATIONS.md#conversational-enrollment-evidence)
+for thresholds, retention, correction behavior, and remaining calibration limits.

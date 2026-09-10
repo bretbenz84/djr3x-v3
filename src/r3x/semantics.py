@@ -13,7 +13,7 @@ NULL_TEXT = {"type":["string","null"]}
 
 
 TOOLS = (
-    schema("introduce_person", "Interpret an explicit introduction. subject=self starts a provisional acoustic association only; other never enrolls the current speaker as the mentioned person. Use existing candidate ID when resolved, otherwise null. Never use unrelated next utterance as a name answer.",
+    schema("introduce_person", "Interpret an explicit introduction, including a speaker giving the name of an existing person. This is not a rename. subject=self starts a provisional acoustic association only; other never enrolls the current speaker as the mentioned person. Use existing candidate ID when resolved, otherwise null. Never use unrelated next utterance as a name answer.",
            {"name":TEXT,"aliases":{"type":"array","items":TEXT},"subject":{"type":"string","enum":["self","other"]},"person_id":NULL_TEXT,"face_track_id":NULL_TEXT}),
     schema("record_claim", "Propose a lasting personal fact about an explicit subject. A property's meaning must stand independently of this conversation: who was just mentioned/addressed is conversational context, not biography. Names/introductions use introduce_person. Questions, jokes and their asides, insults, passing remarks, and generated fiction are not facts to save. Use the current source_turn_id; unresolved speakers remain candidate claims.",
            {"subject_id":TEXT,"subject_reference":{"type":["string","null"],"description":"For third_party, the explicit person name/alias in this utterance; must resolve uniquely. For self_report, null."},
@@ -24,15 +24,15 @@ TOOLS = (
     schema("recall", "Read accepted current claims with who said them and source; null subject returns a bounded view. Candidate claims are not established facts.", {"subject_id":NULL_TEXT}),
     schema("cancel_association", "An identity correction or decline cancels provisional voice collection. Use the affected candidate person ID or track ID, never assume the current speaker is the mentioned person.",
            {"person_id":NULL_TEXT,"track_id":NULL_TEXT}),
-    schema("rename_person", "Correct the display name of an explicitly resolved person; never assigns the current voice to that person. Requires the subject's supported voice or its current provisional introduction.",
+    schema("rename_person", "Only an explicit correction to the stored spelling/display name uses this tool. A self-introduction uses introduce_person, including existing names. Mentioning someone ELSE must never rename the current speaker to that other person. Requires the subject's supported voice or its current provisional introduction.",
            {"person_id":TEXT,"name":TEXT,"aliases":{"type":"array","items":TEXT}}),
     schema("forget_person", "Forget an explicitly identified person on request, including accepted recordings and dependent claims. Requires supported self identity; otherwise explain that the local management command is needed.", {"person_id":TEXT}),
     schema("ask_question", "Deliver one targeted clarification whose pending state begins only after the question is actually heard. No future utterance is automatically consumed as its answer.",
            {"text":TEXT,"addressee_id":NULL_TEXT}),
     schema("settle_question", "Mark a delivered pending question answered, declined, or superseded based on the meaning of this turn. Does not store a personal fact or confirm identity.",
            {"status":{"type":"string","enum":["answered","declined","superseded"]}}),
-    schema("remain_silent", "End this turn without speech ONLY for clear external conversation/device announcements or an uninvited fragment. Do not use for a self-introduction, a correction to Rex, a memory request, or a conversational reply. Unknown speaker identity does not justify silence. No follow-up model call; no acoustic synthetic-voice claim.",
-           {"reason":{"type":"string","enum":["other_addressee","device_speech","background_conversation","no_response_needed"]}}),
+    schema("remain_silent", "End this turn without speech for an unfinished thought/thinking pause, clear external conversation/device announcements, or an uninvited fragment. Use unfinished_thought when a clause is still waiting for its action/object/destination or the speaker asks for time to think; do not ask them to finish. Quiet requests and addressee corrections require silence, never a spoken acknowledgment. Complete introductions, ordinary questions, and replies in our conversation normally deserve speech. Unknown speaker identity does not justify silence. No follow-up model call; no acoustic synthetic-voice claim.",
+           {"reason":{"type":"string","enum":["other_addressee","device_speech","background_conversation","no_response_needed","unfinished_thought"]}}),
 )
 
 
@@ -47,6 +47,9 @@ def grounded_tools(context):
     allowed = []
     for definition in definitions:
         name = definition["name"]
+        identity_targets = context.get("identity_action_targets", {}).get(name, [])
+        if name in {"rename_person", "forget_person"} and not identity_targets:
+            continue
         if not people and name in {"record_claim","rename_person","forget_person"}:
             continue
         if not claims and name in {"correct_claim","retract_claim"}:
@@ -58,6 +61,7 @@ def grounded_tools(context):
         for key,spec in definition["parameters"]["properties"].items():
             values = None
             if key in {"person_id","subject_id","addressee_id"}: values = people
+            if key=="person_id" and name in {"rename_person","forget_person"}: values = identity_targets
             if key=="claim_id": values = claims
             if key=="face_track_id": values = faces
             if key=="track_id": values = [e["track_id"] for e in enrollments]

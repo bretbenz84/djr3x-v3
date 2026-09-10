@@ -258,3 +258,57 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(result["observed_seconds"]["first_audio"]["n"], 1)
         self.assertIsNone(result["speaker_accuracy"])
         self.assertEqual(result["failures"], [{"event":"trace_parse_failed","line":5}])
+
+class ListeningTests(unittest.TestCase):
+    setup_core = CoreTests.setup_core
+    turn = CoreTests.turn
+    def test_thinking_pause_stays_in_one_capture(self):
+        endpoint = Endpoint('session')
+        completed = []
+        for i in range(100):
+            speech = i < 10 or 35 <= i < 45  # 800 ms pause, then continuation.
+            capture = endpoint.push(Frame(bytes(1024), i*.032, (i+1)*.032), speech)
+            if capture: completed.append(capture)
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(len(completed[0].voiced_intervals), 2)
+        self.assertGreaterEqual(completed[0].ended_at-completed[0].speech_ended_at, 1.2)
+
+    def test_resuming_during_model_yields_without_resetting_conversation(self):
+        outer = self
+        class ResumingBrain(Brain):
+            def reply(self, snapshot, cancel):
+                self.calls += 1
+                outer.session.note_speech(100.)
+                yield 'This premature answer must never be heard.'
+        self.setup_core(brain=ResumingBrain())
+        result = self.turn('We are going to')
+        self.assertEqual(result.status, 'interrupted')
+        self.assertIsNone(result.first_audio_at)
+        self.assertEqual(self.session.revision, 0)
+        self.assertIn({'role':'user','content':'We are going to'}, self.session.history)
+        self.session.brain = Brain('That sounds like a lovely destination.')
+        self.capture = replace(self.capture, started_at=100., speech_ended_at=102., ended_at=103.2)
+        self.assertEqual(self.turn('the beach.').status, 'completed')
+        context = str(self.session.brain.snapshots[0].messages)
+        self.assertIn('Rex yielded without speaking',context)
+        self.assertIn('We are going to',context)
+
+    def test_resuming_during_tts_prevents_first_pcm(self):
+        outer = self
+        class ResumingTTS:
+            def synthesize(self, text, cancel):
+                outer.session.note_speech(100.)
+                yield bytes(1024)
+        self.setup_core(tts=ResumingTTS())
+        result = self.turn('We are going to')
+        self.assertEqual(result.status, 'interrupted')
+        self.assertIsNone(result.first_audio_at)
+        self.assertFalse(self.session.output.active.is_set())
+
+    def test_delayed_old_transcript_is_preserved_without_a_stale_reply(self):
+        self.setup_core()
+        self.session.note_speech(100.)
+        result = self.turn('We are going to')
+        self.assertEqual(result.status, 'interrupted')
+        self.assertEqual(self.brain.calls, 0)
+        self.assertIn({'role':'user','content':'We are going to'}, self.session.history)

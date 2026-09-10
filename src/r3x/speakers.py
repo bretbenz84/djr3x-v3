@@ -144,6 +144,12 @@ class SpeakerTracker:
             track = self.tracks[tracks[0][0]]
             if person_id and track.person_id not in (None, person_id):
                 return Attribution(reason="track_profile_conflict", candidates=alternatives)
+            # Each window must choose the same acoustic group as the whole clip.
+            references = {key: t.references for key, t in self.tracks.items()}
+            if any(not (r := self.rank(window[2], references)) or r[0][0] != track.track_id or
+                   r[0][1] < p.track_threshold or (len(r) > 1 and r[0][1]-r[1][1] < p.margin)
+                   for window in observation.windows):
+                return Attribution(reason="window_track_conflict", candidates=alternatives)
             # An old named track does not manufacture enrolled acoustic support.
         else:
             if self.tracks and observation.voiced_seconds < p.min_new_track_seconds:

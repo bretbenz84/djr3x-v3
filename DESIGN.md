@@ -18,8 +18,9 @@ unmeasured thresholds are distinguished below; the full robot is outside this bu
 | User requirement | The torso microphone can drift roughly 15–20 degrees with the hero-arm servo; center and hold that servo during enrollment on the robot. |
 | Working design | One conversational decision owner, one acoustic tracker, one state owner, one output owner, and minimal attributed memory. |
 | Working design | Python and a single process for the first program; existing model integrations are starting candidates. Swift remains an option if a measured need or native-app goal justifies it. |
-| Working design | Batch ASR; finish a pending reply before later captured speech, with explicit stop/cancel taking priority. Preserve this v2 interaction choice initially and evaluate it rather than silently introducing speculative barge-in. |
-| Working design | Ordinary replies use one primary model generation; optional tool-result follow-ups are visible and bounded. |
+| Working design | Batch ASR with a 1.2-second pause allowance. Resumed non-echo speech yields an unheard reply and preserves source history for the continuation. The conversation owner can wait silently on unfinished thoughts. Human barge-in during speaker echo remains unsupported. This replaces finish-pending-first after the September 10 live test demonstrated repeated interruptions. |
+| Working design | Session history keeps up to 32 source-preserving exchanges with a 24,000-character request-history budget. Eviction removes whole exchanges; no automatic summary or durable fact extraction is added. |
+| Working design | Ordinary replies use one primary model generation with low reasoning; optional tool-result follow-ups are visible and bounded. The September 10 multi-turn repair measured improved listening/participation decisions without a separate classifier. |
 | Open experiment | Speaker segmentation/diarization implementation, calibrated thresholds, confidence categories, and useful audio durations under real room conditions. |
 | Open experiment | Exact latency/coverage release thresholds, camera workload, offline profile, and when native audio code would provide a measurable benefit. |
 
@@ -191,9 +192,13 @@ itself have uncertain identity. A single face does not prove no one is off camer
 ### Natural enrollment and safe growth
 
 An explicit self-introduction, or a known face's speaking confirmation interpreted
-in context, can anchor a provisional association. The person then speaks naturally.
-Retain the original anchor; accepted samples must agree with it and the accumulated
-cluster, and must lack competing speaker or direction evidence.
+in context, can anchor a provisional association. Accumulate clean acoustic groups
+before names are known, including alternating speakers. Attach an introduction to
+the existing matching group; earlier compatible samples count toward enrollment.
+Accepted samples must agree with the name anchor and one another, and must lack
+competing speaker or direction evidence. Reply suppression or interruption does
+not discard input evidence. Unverified groups persist separately from accepted
+profiles across restarts; explicit identity corrections can retract them.
 
 V2 starts with three qualifying turns, two voiced seconds per sample, and eight
 voiced seconds total. These are useful baseline parameters, not a proven optimum

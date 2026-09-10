@@ -10,7 +10,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=.6, perception=None, recorder=None):
+    def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
         self.endpoint = Endpoint(session.session_id, silence)
         self.perception, self.recorder = perception, recorder
@@ -141,7 +141,10 @@ class VoiceRuntime:
                 if frame.started_at <= self.cancel_before:
                     self.endpoint.reset()
                     continue
-                capture = self.endpoint.push(frame, self.vad.is_speech(frame.pcm))
+                speech = self.vad.is_speech(frame.pcm)
+                if speech and not frame.echo_risk:
+                    self.session.note_speech(frame.ended_at)
+                capture = self.endpoint.push(frame, speech)
                 if capture:
                     capture = replace(capture,device=getattr(self.mic,"device_name","configured_microphone"))
                     if self.recorder:

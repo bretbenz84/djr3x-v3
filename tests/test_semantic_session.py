@@ -36,7 +36,8 @@ class SessionTests(MemoryFixture):
             self.begin("A synthetic ordinary conversation turn.")
             receipt=session.process_turn(self.state.current[1],Transcript("A synthetic ordinary conversation turn.",0,True),0,observation())
             self.assertEqual(receipt.status,"completed")
-        self.assertLessEqual(len(session.history),16)
+        self.assertLessEqual(len(session.history.turns),32)
+        self.assertLessEqual(session.history.size(session.history_messages()),24_000)
         self.assertEqual(len(self.state.tracker.tracks),1)
         self.assertLessEqual(len(next(iter(self.state.tracker.tracks.values())).references),5)
         self.assertEqual(len(self.store.rows("SELECT id FROM recordings")),3)
@@ -154,3 +155,28 @@ class SessionTests(MemoryFixture):
         result=self.call("record_claim",{"subject_id":person,"predicate":"collects","value":"radios","kind":"self_report","source_turn_id":turn})
         self.assertEqual(result.reason,"FrozenEvaluationDisallowsMutation")
         self.assertEqual(self.store.claims(),[])
+
+class IntroductionAvailabilityTests(MemoryFixture):
+    def test_existing_name_opens_association_without_offering_unauthorized_rename(self):
+        from r3x.semantics import grounded_tools
+        with self.store.transaction() as conn:
+            person = self.store.add_person(conn,'Jordan Avery',[],None)
+        self.begin('My name is Jordan Avery.')
+        tools = {x['name']:x for x in grounded_tools(self.state.context())}
+        self.assertIn('introduce_person',tools)
+        self.assertNotIn('rename_person',tools)
+        self.assertNotIn('forget_person',tools)
+        result = self.call('introduce_person',{'name':'Jordan Avery','aliases':[],
+            'subject':'self','person_id':person,'face_track_id':None})
+        self.assertEqual(result.outcome,'ok')
+        self.assertEqual(len(self.store.people()),1)
+        self.assertEqual(next(iter(self.state.enrollments.values())).person_id,person)
+        tools = {x['name']:x for x in grounded_tools(self.state.context())}
+        self.assertEqual(tools['rename_person']['parameters']['properties']['person_id']['enum'],[person])
+        self.assertNotIn('forget_person',tools)
+        self.begin('My name is Jordan Avery.',B)
+        tools = {x['name']:x for x in grounded_tools(self.state.context())}
+        self.assertNotIn('rename_person',tools)
+        result = self.call('rename_person',{'person_id':person,'name':'Jordon','aliases':[]})
+        self.assertEqual(result.outcome,'rejected')
+        self.assertEqual(self.store.person(person)['name'],'Jordan Avery')

@@ -87,7 +87,8 @@ def main():
                 capture=Capture(uuid4().hex,session.session_id,uuid4().bytes*6000,now-4,now-1,now,
                                 voiced_intervals=((0.,3.),),device="synthetic fixture")
                 receipt=session.process_turn(capture,Transcript(text,-.01,True),session.revision,observation(vector))
-                passed=receipt.status=="completed" and bool(check())
+                expected = {"completed","suppressed"} if case=="comment_not_occupation" else {"completed"}
+                passed=receipt.status in expected and bool(check())
                 events=[json.loads(line) for line in (folder/"session.jsonl").read_text().splitlines()[before_lines:]]
                 results=[e for e in events if e["event"]=="tool_result"]
                 if case=="write_failure":
@@ -97,7 +98,7 @@ def main():
                               "tool_outcomes":[{"name":e["name"],"outcome":e["outcome"],"reason":e["reason"]} for e in results]})
                 trace.emit("validation_case",**cases[-1])
             turn("mentioned_person","That’s Jeff Benziger.",B,
-                 lambda:len(memory.people())==2 and session.state.current[4].person_id==ids["Bret"] and not session.state.enrollments and not memory.claims(include_candidates=True))
+                 lambda:len(memory.people())==2 and memory.person(ids["Bret"])["name"]=="Bret Benziger" and session.state.current[4].person_id==ids["Bret"] and not session.state.enrollments and not memory.claims(include_candidates=True))
             session.state.question_delivered("What should I call you?",None,time.monotonic())
             session.history.append({"role":"assistant","content":"What should I call you?"})
             turn("activity_not_name","I’m going camping tomorrow.",U,lambda:len(memory.people())==2 and not session.state.enrollments)

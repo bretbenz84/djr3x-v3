@@ -40,6 +40,7 @@ CASES=(
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--variants',action='store_true',help='Use alternate wording outside the prompt examples')
+    parser.add_argument('--listening',action='store_true',help='Check unfinished thoughts and short complete turns')
     args=parser.parse_args()
     variants={
         'siri_request':'Siri, find the quickest way back to the hotel.',
@@ -61,13 +62,41 @@ def main():
     results=[]
     brain.start()
     try:
-        for name,text,quiet in CASES:
-            if args.variants:text=variants[name]
+        cases = CASES if not args.listening else (
+            ('unfinished', 'I was planning to.', True),
+            ('homophone_fragment', 'We are heading east two.', True),
+            ('thinking', 'Hold on, I need a moment to think.', True),
+            ('hesitation', 'Um, let me see.', True),
+            ('short_question', 'Why?', False),
+            ('short_answer', 'Yes, please.', False),
+            ('completed_plan', 'We are going to the beach.', False),
+            ('completed_number', 'There are two.', False),
+        )
+        for name,text,quiet in cases:
+            if args.variants:
+                text=variants[name]
+                if name=='direct_correction': quiet=True
             memory=Memory(':memory:');memory.start()
             session=Session(uuid4().hex,brain,TextOutput(trace),trace,CoreState(memory,SpeakerTracker('synthetic:3'),trace))
             try:
+                # Short answers require the question they are answering; an
+                # isolated yes/number is not evidence of an invitation to Rex.
+                if args.listening:
+                    preceding = {'unfinished':'What are your plans for today?',
+                                 'homophone_fragment':'Which direction are you heading?',
+                                 'completed_plan':'What are your plans for today?',
+                                 'short_answer':'Would you like a suggestion for the trip?',
+                                 'completed_number':'How many people are coming?',
+                                 'short_question':'I would take the scenic road.'}.get(name)
+                    if preceding:
+                        session.history.append({'role':'assistant','phase':'final_answer','content':preceding})
                 reengage='Hey Rex, can we talk again?' if args.variants else 'Rex, are you still there?'
-                for phase,utterance,expected in [('probe',text,quiet),('reengage',reengage,False)]:
+                phases = [('probe',text,quiet)]
+                if args.listening and name in {'unfinished','homophone_fragment'}:
+                    continuation = 'visit the science museum. What would you want to see?' if name=='unfinished' else 'the coast. Do you like the ocean?'
+                    phases.append(('continuation',continuation,False))
+                phases.append(('reengage',reengage,False))
+                for phase,utterance,expected in phases:
                     now=time.monotonic()
                     capture=Capture(uuid4().hex,session.session_id,bytes(96000),now-3,now,now,voiced_intervals=((0,3),))
                     voice=VoiceObservation('synthetic:3',(1.,0.,0.),((0,2,(1.,0.,0.)),),3.,1.,reason='synthetic')
@@ -77,7 +106,7 @@ def main():
                         'passed':passed,'receipt':asdict(receipt)})
                     print(name,phase,'PASS' if passed else 'FAIL',flush=True)
             finally:session.close();memory.close()
-        evidence={'evidence':'hosted synthetic text via production Session; no acoustic accuracy claim','alternate_wording':args.variants,
+        evidence={'evidence':'hosted synthetic text via production Session; no acoustic accuracy claim','alternate_wording':args.variants,'listening':args.listening,
             'models':[brain.capability.model],'cases':results,'passed':sum(r['passed'] for r in results),
             'total':len(results),'audio_played':False,'devices_opened':False,'runtime':report(folder/'session.jsonl')}
         (folder/'evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')

@@ -2,6 +2,9 @@
 from dataclasses import asdict, replace
 import hashlib
 import json
+import time
+from collections import deque
+from .speakers import Track, cosine
 from uuid import uuid4
 
 from .contracts import ToolResult
@@ -14,6 +17,8 @@ class CoreState:
     def __init__(self, store, tracker, trace, frozen=False):
         self.store, self.tracker, self.trace = store, tracker, trace
         self.enrollments = {}
+        self.evidence = {}
+        self._restored = False
         self.pending = None
         self.current = None
         self.forgotten = False
@@ -22,18 +27,48 @@ class CoreState:
         self.face_associations = {}
 
     def cancel(self):
-        for proposal in self.enrollments.values():
-            self.tracker.forget(proposal.person_id)
-        if self.enrollments or self.pending:
-            self.trace.emit("pending_cancelled",enrollments=len(self.enrollments),question=bool(self.pending))
-        self.enrollments.clear()
+        # Stopping speech cancels dialogue work, not previously observed evidence.
+        # Identity corrections use cancel_association or forget_person explicitly.
+        if self.pending:
+            self.trace.emit("pending_cancelled", enrollments=0, question=True)
         self.pending = None
 
     def begin(self, turn_id, capture, transcript, observation, faces=()):
+        if not self._restored and not self.frozen:
+            with self.store.transaction() as conn:
+                conn.execute("DELETE FROM voice_candidates WHERE updated_at<?", (time.time()-86400,))
+            for row in self.store.rows("SELECT * FROM voice_candidates WHERE namespace=? ORDER BY updated_at DESC LIMIT 12", (self.tracker.namespace,)):
+                if row["person_id"] and self.store.person(row["person_id"])["status"] != "provisional":
+                    with self.store.transaction() as conn:
+                        conn.execute("DELETE FROM voice_candidates WHERE track_id=?", (row["track_id"],))
+                    continue
+                proposal = Enrollment.decode(row)
+                self.evidence[proposal.track_id] = proposal
+                self.tracker.tracks[proposal.track_id] = Track(proposal.track_id, capture.ended_at,
+                    deque([s[2].embedding for s in proposal.samples] or [proposal.anchor], maxlen=5), proposal.person_id,
+                    "hypothesis" if proposal.person_id else "unresolved")
+                if proposal.person_id:
+                    self.enrollments[proposal.track_id] = proposal
+            self._restored = True
+        expired = [key for key, p in self.evidence.items() if time.time()-p.updated_at >= 86400]
+        if expired and not self.frozen:
+            with self.store.transaction() as conn:
+                conn.executemany("DELETE FROM voice_candidates WHERE track_id=?", [(key,) for key in expired])
+            for key in expired:
+                self.evidence.pop(key, None)
+                self.enrollments.pop(key, None)
+                self.tracker.tracks.pop(key, None)
+        # Candidate groups remain matchable during the retention window even
+        # if ordinary conversational tracks would otherwise expire after a pause.
+        for key in self.evidence:
+            if key in self.tracker.tracks:
+                self.tracker.tracks[key].last_at = capture.ended_at
+        if capture.overlap is True:
+            observation = replace(observation, mixed=True)
         attribution = self.tracker.observe(observation, capture.ended_at,
             self.store.profiles(self.tracker.namespace), transcript.trusted, capture.echo_risk, capture.truncated)
         self.enrollments = {key:p for key,p in self.enrollments.items()
-                            if capture.ended_at-p.created_at < 300 and p.track_id in self.tracker.tracks}
+                            if p.track_id in self.tracker.tracks}
         if self.pending and capture.ended_at-self.pending["delivered_at"] > 120:
             self.pending = None
         if capture.parent_capture_id is not None:
@@ -44,7 +79,21 @@ class CoreState:
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
         self.store.source(turn_id,capture,transcript,attribution,observation,track.person_id if track else None)
         self.forgotten = False
+        self.learn_observation()
         return attribution
+
+    def identity_targets(self, name):
+        """Same acoustic authorization for offered actions and execution."""
+        try:
+            self._source_allowed({}, name)
+        except ValueError:
+            return []
+        attribution = self.current[4]
+        targets = [attribution.person_id] if attribution.person_id else []
+        provisional = self.enrollments.get(attribution.track_id)
+        if name == "rename_person" and provisional:
+            targets.append(provisional.person_id)
+        return list(dict.fromkeys(targets))
 
     def context(self, faces=()):
         turn_id,capture,transcript,observation,attribution = self.current
@@ -52,6 +101,7 @@ class CoreState:
         speaker_person = self.store.person(attribution.person_id) if attribution.person_id else None
         return {"source_turn_id":turn_id,"state_revision":self.store.revision,
                 "current_utterance":transcript.text,
+                "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
                 "speaker":{**asdict(attribution),"display_name":speaker_person["name"] if speaker_person else None},
                 "provisional_person_id":track.person_id if track else None,
                 "people":self.store.people(),"claims":self.store.claims(include_candidates=True),
@@ -225,11 +275,11 @@ class CoreState:
             if retired:
                 conn.execute("UPDATE people SET status='retracted' WHERE id=?",(person_id,))
                 conn.execute("UPDATE claims SET status='retracted' WHERE subject_id=? AND status='candidate'",(person_id,))
-            return {"person_id":person_id,"track_id":args["track_id"],"status":"cancelled"},retired
+            conn.execute("DELETE FROM voice_candidates WHERE person_id=?", (person_id,))
+            return {"person_id":person_id,"track_id":args["track_id"],"status":"cancelled"},True
         if name in {"rename_person","forget_person"}:
             person = self._person(args["person_id"])
-            provisional = self.enrollments.get(attribution.track_id)
-            if attribution.person_id != person["id"] and not (name=="rename_person" and provisional and provisional.person_id==person["id"]):
+            if person["id"] not in self.identity_targets(name):
                 raise ValueError("SupportedSelfIdentityRequired")
             if name=="forget_person":
                 self.store.forget(conn,person["id"])
@@ -249,11 +299,26 @@ class CoreState:
         if name=="introduce_person" and data["subject"]=="self":
             self.tracker.associate(attribution.track_id,data["person_id"],attribution.person_id==data["person_id"])
             if attribution.person_id is None and attribution.track_id not in self.enrollments:
-                self.enrollments[attribution.track_id] = Enrollment(data["person_id"],attribution.track_id,observation.embedding,capture.ended_at)
-        if name in {"cancel_association","rename_person","forget_person"}:
+                proposal = self.evidence.get(attribution.track_id)
+                if proposal is None:
+                    proposal = Enrollment(None,attribution.track_id,observation.embedding)
+                # The introduction must align with each retained sample, not just recency.
+                proposal.samples = [s for s in proposal.samples if cosine(s[2].embedding, observation.embedding) >= .55]
+                proposal.digests = {hashlib.sha256(s[0].pcm).hexdigest() for s in proposal.samples}
+                proposal.person_id = data["person_id"]
+                proposal.anchor = observation.embedding
+                proposal.updated_at = time.time()
+                self.evidence[attribution.track_id] = proposal
+                self.enrollments[attribution.track_id] = proposal
+                self.persist_evidence(proposal)
+                self.learn_observation()
+        if name in {"cancel_association","forget_person"}:
             for key,e in list(self.enrollments.items()):
                 if data.get("person_id")==e.person_id or data.get("track_id")==key:
                     del self.enrollments[key]
+                    self.evidence.pop(key, None)
+                    with self.store.transaction() as conn:
+                        conn.execute("DELETE FROM voice_candidates WHERE track_id=?", (key,))
                     self.tracker.forget(e.person_id)
         if name=="forget_person":
             self.tracker.forget(data["person_id"])
@@ -270,22 +335,70 @@ class CoreState:
         if name in {"settle_question","introduce_person","record_claim","correct_claim","cancel_association"}:
             self.pending = None
 
+    def learn_observation(self):
+        # A storage failure must not discard the user's words or kill listening.
+        try:
+            self.collect_evidence()
+            self.advance_enrollment()
+        except Exception as exc:
+            self.trace.emit("voice_learning_failed", error_type=type(exc).__name__)
+
+    def persist_evidence(self, proposal):
+        with self.store.transaction() as conn:
+            conn.execute("INSERT OR REPLACE INTO voice_candidates VALUES(?,?,?,?,?)",
+                (proposal.track_id, proposal.person_id, self.tracker.namespace, proposal.updated_at, json.dumps(proposal.encode())))
+            if proposal.person_id:
+                conn.executemany("UPDATE artifacts SET person_id=? WHERE capture_id=? AND person_id IS NULL",
+                    [(proposal.person_id, sample[0].capture_id) for sample in proposal.samples])
+            conn.execute("DELETE FROM voice_candidates WHERE track_id NOT IN (SELECT track_id FROM voice_candidates ORDER BY updated_at DESC LIMIT 12)")
+
+    def collect_evidence(self):
+        if self.frozen:
+            return
+        turn, capture, transcript, observation, attribution = self.current
+        self.evidence = {k:v for k,v in self.evidence.items() if k in self.tracker.tracks}
+        if not attribution.learning_eligible or attribution.person_id:
+            return
+        proposal = self.evidence.get(attribution.track_id)
+        if proposal is None:
+            proposal = Enrollment(None, attribution.track_id, observation.embedding)
+        if proposal.add(capture, transcript, observation, attribution, turn):
+            self.evidence[attribution.track_id] = proposal
+            self.persist_evidence(proposal)
+
     def advance_enrollment(self):
         if self.frozen:
             return
         turn_id,capture,transcript,observation,attribution = self.current
         proposal = self.enrollments.get(attribution.track_id)
         if proposal:
-            proposal.add(capture,transcript,observation,attribution,turn_id)
             self.trace.emit("voice_learning_progress",person_id=proposal.person_id,track_id=proposal.track_id,
                 qualifying_turns=len(proposal.samples),voiced_seconds=sum(s[2].voiced_seconds for s in proposal.samples),
                 reason=proposal.last_reason)
             if proposal.ready:
+                try:
+                    self._source_allowed({}, "rename_person")
+                except ValueError:
+                    return
+                # Recheck earlier samples against voices discovered later in the exchange.
+                rivals = {key: track.references for key, track in self.tracker.tracks.items()
+                          if key != proposal.track_id}
+                for sample in proposal.samples:
+                    vectors = [sample[2].embedding, *(w[2] for w in sample[2].windows)]
+                    for vector in vectors:
+                        own = cosine(vector, proposal.anchor)
+                        ranked = self.tracker.rank(vector, rivals)
+                        if ranked and own - ranked[0][1] < self.tracker.policy.margin:
+                            self.trace.emit("voice_learning_deferred", person_id=proposal.person_id,
+                                            reason="competing_group_evidence")
+                            return
                 with self.store.transaction() as conn:
                     self.store.save_voice(conn,proposal.person_id,proposal.samples,observation.namespace)
+                    conn.execute("DELETE FROM voice_candidates WHERE track_id=?", (proposal.track_id,))
                     revision = self.store.advance(conn)
                 self.tracker.associate(proposal.track_id,proposal.person_id,True)
                 del self.enrollments[proposal.track_id]
+                self.evidence.pop(proposal.track_id, None)
                 self.trace.emit("voice_learning_saved",person_id=proposal.person_id,samples=len(proposal.samples),revision=revision)
 
     def question_delivered(self,text,addressee_id,completed_at):

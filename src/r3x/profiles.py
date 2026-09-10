@@ -224,6 +224,7 @@ def delete_recording(memory,recording_id):
         if row is None:
             raise ValueError("UnknownRecordingId")
         memory.remove_artifacts(conn,row[0],recording_id)
+        conn.execute("DELETE FROM voice_candidates WHERE person_id=?",(row[0],))
         conn.execute("DELETE FROM recordings WHERE id=?",(recording_id,))
         conn.execute("UPDATE people SET status='suspect' WHERE id=?",(row[0],))
         conn.execute("UPDATE operations SET result=?",(json.dumps({"outcome":"redacted","reason":"voice_data_removed"}),))
@@ -236,6 +237,7 @@ def reset_voice(memory,person_id):
         raise ValueError("UnknownPersonId")
     with memory.transaction() as conn:
         memory.remove_artifacts(conn,person_id)
+        conn.execute("DELETE FROM voice_candidates WHERE person_id=?",(person_id,))
         conn.execute("DELETE FROM recordings WHERE person_id=?",(person_id,))
         conn.execute("DELETE FROM legacy_embeddings WHERE person_id=?",(person_id,))
         conn.execute("UPDATE people SET status='provisional' WHERE id=?",(person_id,))

@@ -14,7 +14,7 @@ From `/Users/bbenziger/Local/djr3x-v3`, after stopping v2:
 ```
 
 Omit `--camera` for an audio-only test. Omit `--record-evaluation` to retain only
-accepted enrollment audio, rather than all endpointed test captures. The copied
+accepted enrollment audio and bounded unverified candidate audio, rather than all endpointed test captures. The copied
 camera selection remains disabled in settings; the flag enables it for this run.
 macOS permission prompts and actual device formats have not been tested in v3.
 The camera requires ffmpeg, a unique AVFoundation video-device name, and the pinned
@@ -83,7 +83,9 @@ Suggested first pass:
 Voice matching starts at cosine .50 with .07 margin. Session-track matching uses
 .55; disagreement below .45 across windows abstains. Learning requires at least
 .55 window consistency and agreement with the original anchor and sample cluster.
-Tracks expire after five minutes; pending questions expire after two. These are
+Ordinary tracks expire after five minutes; groups with retained candidate evidence
+remain matchable for up to 24 hours after their last added sample/name anchor.
+Pending questions expire after two minutes. These are
 initial heuristics, not calibrated probabilities. Window consistency is **not a
 validated overlap detector**. Nearby similar voices and short/mixed speech need
 the held-out dataset before any accuracy claim.
@@ -254,3 +256,85 @@ loads, v2 files, and real v3 state; fixtures use temporary databases. The full
 synthetic-audio integration uses real Qwen/Silero/CAM++/OpenAI/ElevenLabs with a
 separate validation database and silent replies. Its success does not establish
 human voice discrimination, camera accuracy, physical cancellation, or speech quality.
+
+## Patient listening check
+
+The September 10 listening repair increases default endpoint silence from 0.6 to
+1.2 seconds. The dev Mac settings inherit this default. Non-echo speech resuming
+before playback cancels the pending reply while retaining the prior user words
+for context. The console reports “Still listening”. This does not reset pending
+identity questions or perform an explicit stop. The same conversational generation
+can choose `remain_silent(unfinished_thought)` for thinking pauses and incomplete
+clauses; it does not add a separate classifier. Raw ASR text remains unchanged.
+
+After restarting live, tell Rex a story with natural pauses and trailing clauses,
+then finish the thought. He should leave room rather than ask for the missing
+ending. Also try a complete short answer after his question. Live acceptance is
+still required: a 1.2-second pause is not proof of sentence completion, Qwen can
+mishear homophones, and human speech during the playback echo gate remains
+unavailable. This change does not provide echo cancellation or full barge-in.
+
+
+For the continuation/introduction repair, use the same live command after restart.
+Try a travel statement across a pause, a place correction, your self-introduction,
+and ordinary follow-up conversation. Rex should start a provisional association
+rather than confuse an introduction with a rename. Introduce your dad, explain Rex
+to him, then address Rex directly again. The conversation model now uses low
+reasoning within its existing primary call; the endpoint and Qwen model are unchanged.
+The hosted checks passed the reproduced exchanges, but ambiguous homophones and
+standalone search fragments still sometimes get unwanted replies.
+
+
+## Session context and grounded character
+
+A run now retains up to 32 complete exchanges within a 24,000-character serialized
+history budget instead of 16 individual message items. Metadata no longer displaces
+conversation after roughly five replies. Old exchanges leave as units so a user
+utterance is not separated from its speaker evidence or a tool result from its call.
+The current exchange is never silently clipped; if it alone exceeds the budget,
+the program reports `ConversationTurnExceedsHistoryBudget`. This budget covers
+history, not the separately bounded state snapshot or system instructions.
+
+There is no session-summary model or extra classifier. Context is the original
+conversation, including only Rex's known delivered replies. It can carry expressed
+relationships and style corrections without saving them as personal biography or
+confirming a voice identity. Older information still falls out at the limits.
+Chat history starts fresh on restart. Names, accepted facts, completed voice
+profiles, and retained diagnostic transcripts keep their existing persistence.
+Forgetting a person clears active conversational history before the result follow-up.
+
+For a live check, mention a companion and a wording preference early, discuss other
+topics, and ask about both later. Criticize an actual mistake and also challenge a
+claim that was not a factual error: Rex should correct the former and respond to the
+latter briefly without reflexive agreement or an extended defense of his personality.
+Listening timing remains unchanged. Hosted tone tests are evidence, not guarantees.
+
+### Conversational enrollment evidence
+
+Clean unnamed groups now collect up to six original clips each before an
+introduction. At least three qualifying clips and eight voiced seconds are still
+required; each clip needs two voiced seconds, four transcript words, trusted ASR,
+and compatible acoustic evidence. Samples must agree pairwise, and analyzed
+windows must agree on the selected group. Before saving, earlier samples are
+checked against competing groups discovered later. Similarity thresholds are
+heuristics, not certainty or a calibrated probability.
+
+A self-introduction attaches a name to the existing acoustic group and can finish
+enrollment immediately. Mentioning someone else does not attach their name to
+the current voice. Original source attribution stays intact; this does not rewrite
+all earlier transcripts as verified speech. Correcting a display name preserves
+the same person's acoustic evidence.
+
+The additive `voice_candidates` SQLite table holds unverified original PCM,
+transcripts, embeddings, source turns, and model namespace separately from accepted
+profiles. At most 12 groups persist, with six clips each; candidates expire after
+24 hours without added evidence, checked on startup/input. Expiration is performed
+when the program next runs if it was closed. Restart restores hypotheses, not
+verified identities, and fresh speech must match acoustically. Accepted profiles
+remain durable. Existing runs predating this change have no candidate archive to
+recover automatically.
+
+Learning runs on input before response generation. Silent, failed, yielded, and
+stopped replies do not reset the evidence. A deliberate association correction,
+forget, or voice reset removes the relevant pending evidence. No extra model call,
+new provider, microphone operation, or camera operation was added.

@@ -15,7 +15,7 @@ class Frame:
 
 
 class Endpoint:
-    def __init__(self, session_id: str, silence: float = .6):
+    def __init__(self, session_id: str, silence: float = 1.2):
         self.session_id, self.silence = session_id, silence
         self.pre = deque(maxlen=8)  # 256 ms at 512 frames / 16 kHz.
         self.frames: list[Frame] = []

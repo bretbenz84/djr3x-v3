@@ -34,13 +34,15 @@ class SyntheticTTS:
 
 class SyntheticSink:
     def play(self, chunks, cancel, on_start):
-        began = time.monotonic()
-        on_start(began)
+        began = None
         frames = 0
         for chunk in chunks:
             cancel.check()
+            if began is None:
+                began = time.monotonic()
+                on_start(began)
             frames += len(chunk) // 2
-        return Playback(frames, began, time.monotonic(), 0)
+        return Playback(frames, began or time.monotonic(), time.monotonic(), 0)
 
     def cancel(self):
         pass

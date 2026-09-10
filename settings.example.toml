@@ -16,7 +16,8 @@ echo_isolated = false
 # Silero speech probability threshold, valid .01-.99; needs room calibration.
 vad_threshold = 0.5
 # Endpoint silence, valid .2-2 seconds. Mic preroll is fixed at 256 ms.
-end_silence_seconds = 0.6
+# Allows thinking pauses; the conversation model can also wait on unfinished thoughts.
+end_silence_seconds = 1.2
 # Qwen quality flag only, valid -5..0. This is not speaker identity confidence.
 asr_trust_logprob = -0.35
 

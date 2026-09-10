@@ -1,5 +1,4 @@
 """One sequential conversational owner shared by live input and scenarios."""
-from collections import deque
 from queue import Queue
 import threading
 import time
@@ -7,6 +6,7 @@ from uuid import uuid4
 
 from .contracts import ASR, Brain, Cancellation, Cancelled, Capture, ProviderFailure, Snapshot, Transcript, ToolCall
 from .speakers import VoiceObservation
+from .history import TurnHistory
 from .output import Delivery, OutputOwner, Phrases, put_phrase
 
 
@@ -14,12 +14,14 @@ class Session:
     def __init__(self, session_id: str, brain: Brain | None, output: OutputOwner, trace, state=None):
         self.session_id, self.brain, self.output, self.trace = session_id, brain, output, trace
         self.revision = 0
-        self.history = deque(maxlen=16)
+        self.history = TurnHistory()
         self._lock = threading.Lock()
         self._processing = threading.Lock()
         self._cancel: Cancellation | None = None
         self.closed = False
         self.state = state
+        self._latest_speech = float("-inf")
+        self._capture_end = float("inf")
 
     def cancel(self) -> None:
         with self._lock:
@@ -31,17 +33,24 @@ class Session:
         self.output.cancel()
         self.trace.emit("cancel", revision=self.revision)
 
+    def note_speech(self, ended_at: float) -> None:
+        """Yield an unheard reply to resumed, non-echo microphone speech.
+
+        This is not an explicit stop: keep revision, pending questions, and the
+        original user history so the continuation can be understood normally.
+        """
+        with self._lock:
+            self._latest_speech = max(self._latest_speech, ended_at)
+            if self._cancel and ended_at > self._capture_end and not self._cancel.event.is_set():
+                self._cancel.event.set()
+                self.trace.emit("reply_yielded", reason="user_resumed_speaking")
+
     def close(self) -> None:
         self.closed = True
         self.cancel()
 
     def history_messages(self):
-        # A bounded history may evict either half of an older tool exchange.
-        # Never send orphan calls/results to the Responses API.
-        calls={r.get("call_id") for r in self.history if r.get("type")=="function_call"}
-        results={r.get("call_id") for r in self.history if r.get("type")=="function_call_output"}
-        return tuple(r for r in self.history if r.get("type") not in {"function_call","function_call_output"}
-                     or r.get("call_id") in calls & results)
+        return self.history.messages()
 
     def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int, observation=None, faces=()) -> Delivery:
         if not self._processing.acquire(blocking=False):
@@ -63,6 +72,7 @@ class Session:
                     delivery.status = "rejected"
                     return delivery
                 self._cancel = cancel
+                self._capture_end = float("inf")
             self.trace.emit("turn", turn_id=turn_id, capture_id=capture.capture_id,
                             original_text=transcript.text, avg_logprob=transcript.avg_logprob,
                             trusted=transcript.trusted, speaker="unresolved", revision=self.revision)
@@ -76,6 +86,7 @@ class Session:
                 self.cancel()
                 delivery.status = "interrupted"
                 return delivery
+            self.history.begin_turn()
             context = {}
             if self.state:
                 with self._lock:
@@ -93,8 +104,16 @@ class Session:
             if self.state:
                 import json
                 self.history.append({"role":"developer","content":"Evidence for the immediately following utterance: "+json.dumps({
-                    "speaker":context["speaker"],"source_turn_id":turn_id},ensure_ascii=False)})
+                    "speaker":context["speaker"],"source_turn_id":turn_id,
+                    "speech_ended_at":capture.speech_ended_at,"transcript_trusted":transcript.trusted},ensure_ascii=False)})
             self.history.append({"role": "user", "content": transcript.text})
+            # A newer capture can arrive while the previous ASR result waits in
+            # the queue. Retain its source/history, but do not answer it belatedly.
+            with self._lock:
+                self._capture_end = capture.ended_at
+                if self._latest_speech > capture.ended_at:
+                    cancel.event.set()
+                cancel.check()
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
                                 context, self.state is not None)
@@ -106,7 +125,10 @@ class Session:
             generated = ""
             model_at = self.trace.clock()
             self.trace.emit("model_request", turn_id=turn_id, primary_calls=1,
-                            context_messages=len(snapshot.messages))
+                            context_messages=len(snapshot.messages),
+                            history_turns=len(self.history.turns),
+                            history_characters=self.history.size(snapshot.messages),
+                            reasoning_effort=getattr(self.brain,"reasoning_effort",None))
             def generate(request):
                 nonlocal first_token_at, generated
                 calls = []
@@ -167,7 +189,8 @@ class Session:
                         self.history.append({"role":"developer","content":"A person was forgotten. Do not reuse previous personal context."})
                     followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
                                         snapshot.speaker,context,False,continuation)
-                    self.trace.emit("model_request",turn_id=turn_id,primary_calls=0,purpose="tool_result_continuation")
+                    self.trace.emit("model_request",turn_id=turn_id,primary_calls=0,purpose="tool_result_continuation",
+                                    reasoning_effort=getattr(self.brain,"reasoning_effort",None))
                     if generate(followup):
                         raise ProviderFailure("ToolContinuationLimit")
             self.trace.emit("model_completed", turn_id=turn_id, original_text=generated)
@@ -205,11 +228,15 @@ class Session:
                 if delivery.status not in {"completed","suppressed"}:
                     self.history.append({"role": "developer", "content":
                         "The last reply was interrupted or failed. Only completed phrases above are known delivered; any partial phrase is unknown."})
+            if delivery.status == "interrupted" and delivery.first_audio_at is None and self._latest_speech > capture.ended_at:
+                self.history.append({"role":"developer","content":
+                    "Rex yielded without speaking because microphone speech resumed after source turn " + turn_id +
+                    ". The preceding user words remain part of the conversation; the next fragment may continue them. "
+                    "This timing event does not establish that the voices are the same person."})
             if self.state and state_started and not cancel.event.is_set() and not self.state.forgotten and delivery.status!="suppressed":
                 try:
                     with self._lock:
                         cancel.check()
-                        self.state.advance_enrollment()
                         if question and delivery.status=="completed" and delivery.medium=="audio":
                             self.state.question_delivered(question["question"],question["addressee_id"],self.trace.clock())
                 except Exception as exc:

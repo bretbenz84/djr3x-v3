@@ -97,6 +97,7 @@ class OutputOwner:
                     stream = self.tts.synthesize(text,cancel)
                     try:
                         for chunk in stream:
+                            cancel.check()  # Speech may have resumed during the TTS request.
                             if first_pcm_at is None:
                                 first_pcm_at = self.trace.clock()
                                 # Network generation is silent. Gate capture only

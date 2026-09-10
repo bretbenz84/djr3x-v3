@@ -107,7 +107,7 @@ Implemented ownership and limits:
   Qwen3-ASR-1.7B-8bit with token log probabilities, OpenAI `gpt-5.4-mini` through
   Responses, ElevenLabs `eleven_v3_conversational`, and one sounddevice output owner.
   Nothing loads at core import or `doctor`; no provider substitutes or hidden retries.
-- Capture has 256 ms preroll, .6-second default endpoint silence, and a 20-second
+- Capture has 256 ms preroll, 1.2-second default endpoint silence, and a 20-second
   cap. Gaps reset partial capture. Queues bound mic blocks to 128, pending captures to
   two, turns to three, and output phrases to four; overflow rejects newest and logs it.
 - Ordinary prose streams into bounded phrases, each sent through streamed PCM TTS.
@@ -299,7 +299,8 @@ re-engagement, bounded call/result history, and derived-source write rejection.
 
 Prompt/semantic trials and their failures are retained under private validation.
 Extra reasoning and a stronger-model request trial did not consistently resolve
-semantic failures, so the shipped model remains `gpt-5.4-mini`, reasoning `none`.
+semantic failures at this earlier checkpoint, so it retained `gpt-5.4-mini`, reasoning `none`.
+The later multi-turn repair below supersedes that reasoning choice.
 The trial request overrides are recorded in `local/validation/car-analysis/model-experiments.json`;
 those experimental traces name the configured adapter, not the overridden request.
 
@@ -507,3 +508,171 @@ acoustic matching, language interpretation, state validation, storage, or delive
 Fix the owning component. Do not add a new interception rule in a different layer
 or rewrite all providers together. Expand only after the remaining limitations
 are explicit and acceptable for the next intended use.
+
+## September 10 patient-listening repair
+
+The latest run (`0fec67fc393f4a959b58a94b85e3d340`) logged replies to “We are
+going to.” and “West two.” with roughly 0.608-second endpoints. This is transcript
+and timing evidence, not a new waveform/boundary annotation. The user reported
+being interrupted. The default pause allowance is now 1.2 seconds, replacing
+finish-pending-first: resumed non-echo speech cancels pending generation/TTS before
+PCM delivery, preserves earlier user history, and skips stale queued replies.
+Explicit stop still resets its own revision; yielding does not. The conversational
+owner can select `unfinished_thought` in the existing silence tool. No new model,
+second classifier, word-replacement regex, or ASR provider was introduced.
+
+Verification: 96 offline contract tests passed with blocked network/devices/private
+state, including an 800-ms internal pause and continuation, resumption during model
+and TTS work, and delayed transcript retention. The simulated sink now starts its
+receipt only after PCM arrives, matching the real sink's delivery contract.
+
+Hosted synthetic text checks with the final prompt: listening **17/18**
+(`79d75780776741c3937538aaa6f4d220`), participation **23/24**
+(`0739fbd8a58a4ad4990967b200fe0b0e`). The remaining failures were a reply to an
+ambiguous “east two” fragment after a direction question and a brief acknowledgment
+of a request for space instead of complete silence. Both are retained limitations,
+not passing quiet decisions. The identity/memory alternate suite passed **14/14**
+(`79b6acaef1b247a98fc2320479061d15`) before the final addressee/quiet-protocol
+wording adjustment. Earlier attempts include provider timeouts and are retained.
+These checks used no audio playback, microphone, camera, or personal databases.
+
+Live acceptance remains open. The added default endpoint allowance is 0.6 seconds;
+new end-to-end latency has not been measured. Qwen remains local 1.7B/8-bit and its
+homophone accuracy is not fixed or established by text-only checks. Already-started
+speaker playback still gates microphone speech; this is not full barge-in or echo
+cancellation. Semantic waiting is probabilistic and still misses some ambiguous
+fragments. Do not claim every unfinished thought will be detected.
+
+## September 10 continuation, introduction, and addressee repair
+
+Live run `065dd1c7d81248409ed4765defc16aed` supported the listening improvement:
+12 audio replies completed with no underruns; four yielded turns had no playback,
+including three active cancellations and one stale turn. The user reported no
+interruptions. Median first audio was 3.99 s versus 2.92 s in the preceding,
+unmatched conversation. No waveform overlap annotation was performed.
+
+This repair preserves the 1.2-second endpoint and adds explicit yielded-without-
+speech history, source timing/trust metadata, and instructions to interpret a
+continuation or correction with the preceding user words. Original transcripts and
+speaker uncertainty remain intact. Instructions distinguish an invitation to greet
+a parent from an explanation about Rex to that parent, including later re-engagement.
+
+Existing-name self-introductions use `introduce_person`, not `rename_person`.
+The state owner now provides permitted rename/forget targets using the same
+acoustic authorization checked during execution; unavailable operations are not
+offered. A supported/provisional name correction still works, but an unrelated
+voice cannot rename someone. No live person, voiceprint, or claim was edited.
+
+The model remains `gpt-5.4-mini`; reasoning changed from none to low within the
+single primary generation after the same 14 multi-turn synthetic checks improved
+from 10/14 (`bc79194aa16848458b7436ce7d174ed9`, none) to 14/14
+(`03ac095080ad4372b30e787a3ce95408`, low). In that small comparison, median first
+text for completed replies was 1.00 versus 1.33 s; max was 2.43 versus 2.88 s.
+This measures text/tool processing, not new live speech latency. Output budgets
+are bounded at 1536 tokens with tools and 768 for result continuations; reasoning
+is included in those budgets. Subsequent traces record `reasoning_effort` explicitly.
+There is no new model/provider, resident model, or serial classifier. Qwen is unchanged.
+
+Final checks:
+- **97 offline contracts passed**, blocking network, devices, and private state.
+  New coverage exercises existing-person association, offered/executed rename
+  authorization, and preservation of yielded words in the next model snapshot.
+- **14/14 hosted multi-turn checks passed** (`7bd3f07db0ca45c4a2d8524e6fd5ed20`).
+  Replies were also read: the destination was treated as part of the trip and the
+  state correction was understood. The parent explanation stayed quiet and the
+  direct question re-engaged. Ordinary follow-up turns advanced synthetic enrollment.
+  Synthetic embeddings do not demonstrate real voice learning or discrimination.
+  Final completed-reply first-text median/max was 1.26/5.10 s in this small run.
+- **14/14 alternate memory/identity cases passed**
+  (`c0293a58eb8d41938149a015744a72e3`). The mentioned-person assertion now also
+  verifies that the speaker's stored name was not changed. Requests for space may
+  be honored silently; the test still requires no inappropriate identity/fact write.
+  A prior low-reasoning attempt saved a joke aside; whole-utterance memory guidance
+  was clarified and the failed evidence retained.
+- Broader pre-final-memory-wording probes were **17/18 listening**
+  (`5031e2bd3488458a9eb1e66d1d7cbe78`) and **23/24 participation**
+  (`a9171f02c2624170833045105b90d3c0`). Remaining misses: asking where after an
+  ambiguous “east two” fragment, and answering a standalone search-like fragment.
+  These are known limitations, not passing silence decisions.
+
+All hosted probes used synthetic text and isolated databases with no TTS or devices.
+Live follow-up is still needed for response timing, natural enrollment, and group
+participation. Text checks do not correct Qwen's town/name spelling; the model may
+still repeat a misheard town. Quiet judgments remain probabilistic. Speaker echo
+still prevents validated human barge-in during playback. Do not describe the whole
+core or acoustic acceptance as complete on the strength of these checks.
+
+## September 10 session context and grounded personality
+
+Run `24628373accd4356885eae2f9818eff2` exposed loss of an earlier companion reference
+and style correction. The previous 16-item deque retained only roughly five ordinary
+exchanges once speaker metadata and replies were counted. The replacement
+`TurnHistory` keeps up to 32 whole exchanges with a 24,000-character serialized
+request-history budget. Complete old exchanges are evicted together, original words
+are not summarized or rewritten, incomplete tool pairs are excluded, and an oversized
+current exchange fails explicitly before a model request rather than being clipped.
+Request traces include history turn/item/character counts. No new configuration,
+resident model, summarizer, or serial model call was introduced.
+
+Instructions now emphasize remembering expressed session relationships and style
+corrections without converting them to verified identity or durable claims. Rex
+should distinguish a joke/metaphor from a factual claim, admit specific demonstrated
+mistakes, resist unsupported accusations, and avoid inventing flaws or performing
+an argument to seem opinionated. This is model behavior guidance, not a deterministic
+semantic filter. Original ASR text remains unchanged.
+
+Validation:
+- **101 offline contracts passed**, including 20-turn context retention with speaker
+  provenance, no automatic people/claim creation, whole-exchange budget eviction,
+  oversized-turn rejection, clean new-session history, and deletion of long context
+  before a forget-result continuation. Existing cancellation/delivery checks passed.
+- In a **hosted synthetic comparison**, the old last-16-items window could recall
+  neither the companion nor the wording preference after an 18-turn scripted detour;
+  the new production history recalled “my sister” and “not a race or a rally”.
+  `local/validation/09ba2b1c97f14cf3a897a594d542e09f/evidence.json` retains replies for
+  human review. The new history also carried the companion into a later topic
+  suggestion. No people or claims were created in either condition.
+- Reviewed style probes resisted unsupported accusations, maintained a position,
+  moved on with the next topic, and acknowledged a seeded Arkansas/Alabama error.
+  They still contain some generic imagery and potentially reactive wording; this is
+  an improvement sample, not universal personality acceptance. Completed status was
+  not treated as a semantic correctness score.
+- For the three matched context questions, old history used 2,808–3,076 serialized
+  characters versus 10,931–12,138 with complete turns. Text-decision median/max was
+  1.55/3.04 s versus 0.95/1.08 s. These tiny, sequential samples are not evidence that
+  larger context is intrinsically faster; live latency and tail impact remain open.
+- **14/14 alternate identity/memory regression cases passed**
+  (`f829518c06bc47af92ccadde86cd0083`). A pre-final-generalization multi-turn run passed
+  **13/14** (`38c85de3a0a0468fba77192c1c948ed8`); it still answered an explanation
+  intended for a parent. That miss remains visible and is not claimed fixed here.
+
+These checks used fake clocks/providers for offline contracts and actual hosted
+model calls on synthetic text for semantic review. Detour turns were built through
+production Session with scripted replies; the compared probes used the actual
+hosted adapter. No microphones, cameras, playback, private databases, or real speaker
+models were used. This change does not add cross-run conversation retrieval, durable
+session summaries, completed voice enrollment, or validated barge-in. The active
+chat starts fresh on restart; existing persistent names/facts/profiles are unchanged.
+
+
+### Evidence-first conversational enrollment (2026-09-10)
+
+Implemented unnamed candidate collection before introductions, retrospective
+same-group enrollment, competing-window/group checks, and pending evidence
+persistence separate from verified profiles. Input learning precedes response
+selection. Stopping speech preserves evidence; correcting an association removes
+it, and a display-name correction retains the same acoustic group.
+
+Offline acceptance uses temporary databases, synthetic embeddings/audio, and the
+production CoreState/Session path with external providers/devices blocked. Coverage
+includes alternating A/B groups with delayed introductions and exact retained PCM,
+named and anonymous restart recovery, short anchors, other-person references,
+suppressed/yielded responses, cancellation versus correction, explicit overlap,
+disagreeing windows, expiration, namespace separation, forget, name correction,
+additive database migration, frozen replay, and atomic save-failure recovery.
+
+Validation: `.venv/bin/python tools/run_checks.py` — 113 contracts passed.
+No microphone, camera, playback, hosted model, or real-model saved-audio check was
+used for this change. Real Bret/Jeff discrimination, wrong-person attribution,
+abstention, and end-to-end latency remain live/held-out acceptance work. The older
+runs were not retroactively enrolled or edited. No new model/dependency was added.

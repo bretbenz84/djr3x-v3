@@ -14,7 +14,7 @@ class Settings:
     output_device_name: str = ""
     echo_isolated: bool = False
     vad_threshold: float = 0.5
-    end_silence_seconds: float = 0.6
+    end_silence_seconds: float = 1.2
     asr_trust_logprob: float = -0.35
     camera_enabled: bool = False
     camera_device_name: str = ""

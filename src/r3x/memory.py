@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS recordings(
 CREATE TABLE IF NOT EXISTS embeddings(
  recording_id TEXT NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
  namespace TEXT NOT NULL,vector TEXT NOT NULL, PRIMARY KEY(recording_id,namespace));
+CREATE TABLE IF NOT EXISTS voice_candidates(
+ track_id TEXT PRIMARY KEY, person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+ namespace TEXT NOT NULL, updated_at REAL NOT NULL, evidence TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS operations(
  request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,result TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS originals(
@@ -204,6 +207,8 @@ class Memory:
     def forget(self, conn, person_id):
         # Claims from or about this person cannot survive as unattributed facts.
         affected = {row[0] for row in conn.execute("SELECT source_turn FROM claims WHERE subject_id=? OR said_by=?",(person_id,person_id))}
+        for row in conn.execute("SELECT evidence FROM voice_candidates WHERE person_id=?", (person_id,)):
+            affected.update(sample[3] for sample in json.loads(row[0])["samples"])
         for row in conn.execute("SELECT metadata FROM recordings WHERE person_id=?",(person_id,)):
             affected.add(json.loads(row[0]).get("source_turn"))
         for row in conn.execute("SELECT id,evidence FROM turns"):
