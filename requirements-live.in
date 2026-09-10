@@ -1,0 +1,8 @@
+# Selected slice-1 adapters only; lock resolved versions in requirements-live.txt.
+httpx==0.28.1
+numpy==2.3.5
+sounddevice==0.5.5
+mlx==0.32.0
+mlx-audio[stt]==0.5.1
+mlx-lm==0.31.3
+silero-vad==6.2.1

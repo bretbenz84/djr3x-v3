@@ -3,10 +3,84 @@
 A smaller conversation core for Rex, built around reliable group conversation,
 explicit uncertainty, and memories that retain who said what about whom.
 
-**Status: design and implementation brief only.** There is no runnable v3 program
-yet. Proposed interfaces, commands, models, and acceptance targets below are not
-implemented or validated. This repository begins with documentation, not a copy of
-v2. The working v2 robot remains available separately.
+**Status: slice 1 (audible-loop implementation) landed; live acceptance pending.**
+The program connects a selected microphone, Silero endpointing, batch Qwen3-ASR,
+one OpenAI reply generation, and streamed ElevenLabs speech through one output owner.
+It has cancellation, bounded input queues, and delivery diagnostics. Speaker identity,
+camera, and persistent memory are not implemented. V2 remains separate and unchanged.
+
+## Run the voice core
+
+Use Python 3.11 and a dedicated v3 environment, from this checkout:
+
+```sh
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r requirements-build.txt
+.venv/bin/python -m pip install -r requirements-live.txt
+.venv/bin/python -m pip install --no-build-isolation --no-deps -e .
+.venv/bin/python -m r3x doctor --profile dev-mac
+.venv/bin/python -m r3x live --profile dev-mac
+.venv/bin/python tools/run_checks.py
+```
+
+The development machine's environment was created using
+`/Users/bbenziger/.pyenv/versions/3.11.9/bin/python`. It is already installed here.
+`requirements-live.txt` locks the tested macOS/Apple Silicon dependencies; the
+short `requirements-live.in` records the selected adapters. Core imports and synthetic
+checks still need only the standard library. Editable checkout installation is required.
+
+`doctor` inspects declared live capabilities, dependency versions, local model files,
+and credential presence without starting providers or creating scratch state. Missing
+prerequisites produce exit code 1. Device enumeration and hosted availability are not
+part of this read-only check; `conversation_ready: false` is expected before startup.
+
+`live` loads only the selected ASR/VAD models and opens the configured microphone and
+speech output. Stop v2 first so they do not compete for audio devices. Grant macOS
+microphone permission to the terminal when prompted. Speak naturally after the
+`listening` event. **Enter or `stop` + Enter cancels; `quit` or Ctrl-C exits.**
+
+The default speaker setup rejects captures overlapping Rex's output, including a
+300 ms tail, because there is no Mac acoustic echo canceller yet. This also rejects
+human speech during playback. Terminal stop remains available then. Spoken `stop`
+works on trusted, non-echo captures; using genuinely isolated headphones allows
+`echo_isolated = true` for capture during playback. This setting is a user assertion,
+not measured echo isolation. Speech during model generation is queued in capture order.
+
+Session JSONL traces go under ignored `local/sessions/`. They retain original text,
+ASR quality, model calls, completed speech phrases, failures, and available timing.
+Partial phrase text is unknown, not inferred from a fraction of audio frames. Raw
+microphone audio is not saved in this slice. A capture/replay dataset comes in slice 2.
+
+The default configuration is `local/settings.toml`; `--config path/to/file.toml`
+overrides it. See [settings.example.toml](settings.example.toml) for the strict schema,
+consumers, and calibration defaults. Names take precedence over device indices and
+must match one microphone; missing/ambiguous names fail instead of silently selecting
+another device. Unspecified output uses the system playback device.
+
+The authorized setup import copied the dev-Mac microphone selection, OpenAI and
+ElevenLabs credentials, Rex voice ID, and independent Qwen model files into ignored
+`local/`. `local/v2-setup-import.json` records model digests and the camera selection
+reserved for the next slice. The runtime never reads v2. Secrets are in
+`local/secrets.toml`; `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, and
+`ELEVENLABS_VOICE_ID` environment variables override them. Values are not logged.
+For another checkout, the explicit one-time helper is `tools/import_v2_setup.py`;
+it refuses to replace an existing setup and never executes v2 configuration code.
+
+Additional implemented checks:
+
+```sh
+.venv/bin/python -m r3x boot
+.venv/bin/python -m r3x scenario tests/fixtures/audible_loop.json
+.venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl
+# Explicit paid-provider check on synthetic saved audio, with no live devices:
+.venv/bin/python tools/check_providers.py
+```
+
+`boot` remains a provider-free lifecycle smoke check. `scenario` replaces providers
+but uses the same `Session.process_turn` as live; scripted answers cannot validate
+language understanding. `report` summarizes observed timings and includes failures.
+See [slice-1 evidence](docs/INITIAL_TEST_PROGRAM.md#slice-1-implementation-evidence)
+for measured provider checks and the remaining live microphone/speaker gate.
 
 ## Start here
 
@@ -88,10 +162,11 @@ modules. Reuse verified details through extraction and focused adapter tests.
 The inspected reference revision and working-tree status are in V2_REFERENCE.md;
 check them again before extracting code.
 
-The proposed runtime directory is `local/`, with scratch databases, voice-profile
-copies, recordings, evaluation manifests, logs, and caches beneath it. This directory
-is gitignored; keep private artifacts there and add ignore rules before using other
-private paths. No personal data or credentials were copied as part of this task.
+The runtime directory is `local/`, with private settings, credentials, model files,
+validation audio, traces, and future stores beneath it. It is gitignored; keep private
+artifacts there and add ignore rules before using other private paths. The slice-1
+setup import copied only the authorized configuration/credentials and ASR weights;
+no personal memory, recordings, or voiceprints were imported.
 
 Use independent copies of selected voice profiles and recordings when importing
 is implemented. Do not point a v3 database connection at the live v2 database.

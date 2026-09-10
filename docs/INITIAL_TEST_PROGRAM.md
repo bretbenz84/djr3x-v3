@@ -1,7 +1,8 @@
 # Initial test program and acceptance plan
 
-Status: implementation specification only. None of the commands, modules, or
-results described here exists yet. [DESIGN.md](../DESIGN.md) defines ownership;
+Status: slices 0–1 implemented; slice-1 live acceptance pending. Later slices remain
+specifications. The current
+commands and checks are recorded below. [DESIGN.md](../DESIGN.md) defines ownership;
 [V2_REFERENCE.md](../V2_REFERENCE.md) locates reference implementations.
 
 ## The first question to answer
@@ -53,17 +54,126 @@ Keep a narrow interface between pure core logic and providers. Camera/ASR/model
 workers return events to session ownership; they cannot change profiles or speak.
 Core import tests must work with all heavyweight model modules unavailable.
 
+## Slice 0 implementation evidence
+
+September 10, 2026: implemented against v3 base revision `a2c5e2f` in the working
+tree. The tree was clean before implementation. No v2 code or personal data was
+extracted; no v2 environment or database is used.
+
+- Python 3.11.9 in the checkout's new `.venv`; editable `djr3x-core` package.
+  Zero third-party runtime dependencies; packaging versions are pinned separately.
+- `settings.py`: immutable, strict profile settings and local scratch paths;
+  existing symlink redirection is rejected before directory creation.
+- `providers.py`: typed capability declarations, dependency metadata inspection
+  without provider imports, explicit start/cancel/close, reverse cleanup including
+  partial starts, duplicate-owner rejection, and structured failure results.
+  Exception types are retained without potentially sensitive exception messages.
+- `app.py` and `__main__.py`: composition and JSON diagnostics. The `dev-mac`
+  profile enables zero providers at this stage; readiness for conversation is false.
+- `.venv/bin/python tools/run_checks.py`: **14 deterministic checks passed** using
+  synthetic lifecycle providers and temporary scratch directories. The runner blocks
+  network creation, subprocesses, native-library loads, model/device/v2 imports,
+  baseline-file/device access, and non-temporary SQLite connections. These guards
+  catch accidental I/O in this suite; they are not an adversarial security sandbox.
+- `.venv/bin/python -m r3x doctor --profile dev-mac` and `boot --profile dev-mac`
+  both passed. Boot created only ignored empty scratch directories and reported
+  ready then closed. `pip check` passed; `git diff --check` passed.
+
+The checks exercise read-only diagnostics, configuration rejection, scratch-link
+rejection, lifecycle ordering, partial startup failure, optional failure, missing
+dependencies, cancellation/close errors, keyboard interruption during startup,
+idempotent close, and import/I/O isolation. Cleanup failures remain visible as
+`cleanup_failed`; no substitute provider is started.
+
+**Historical slice-0 limits (before slice 1):** lifecycle methods are synchronous and must return; bounded cancellation
+of real workers is not implemented or validated. There are no real adapters, turn
+processor, speech delivery receipts, database, or model paths yet. No saved-audio,
+hosted-model, live-room, or hardware checks were run. Speaker accuracy, voice
+quality, response latency, playback underruns, and model memory usage are unmeasured.
+Slice 1 must add the production turn path and real adapter/delivery validation.
+
+## Slice 1 implementation evidence
+
+September 10, 2026, v3 working tree based on `a2c5e2f` (slice-0 changes were already
+uncommitted). Implementation is present; **the live spoken-exchange gate remains open**.
+
+Implemented ownership and limits:
+
+- `Session.process_turn` is shared by live and synthetic scenarios. One sequential
+  conversation worker makes one primary generation per ordinary turn. Speaker stays
+  unresolved; no identity inference, named writes, database, camera, or semantic tools.
+- Selected adapters: 16 kHz mono sounddevice input, 512-frame Silero VAD, local
+  Qwen3-ASR-1.7B-8bit with token log probabilities, OpenAI `gpt-5.4-mini` through
+  Responses, ElevenLabs `eleven_v3_conversational`, and one sounddevice output owner.
+  Nothing loads at core import or `doctor`; no provider substitutes or hidden retries.
+- Capture has 256 ms preroll, .6-second default endpoint silence, and a 20-second
+  cap. Gaps reset partial capture. Queues bound mic blocks to 128, pending captures to
+  two, turns to three, and output phrases to four; overflow rejects newest and logs it.
+- Ordinary prose streams into bounded phrases, each sent through streamed PCM TTS.
+  Initial audio buffering is approximately 280 ms. The output callback supplies a
+  DAC-clock start timestamp; completion waits for PortAudio drain. Underruns are
+  counted without discarding the remainder. Partial phrase wording is unknown.
+- Cancellation invalidates old capture revisions and queued speech. Terminal stop
+  is independent of ASR. A trusted spoken stop bypasses a busy conversation worker.
+  The default echo gate rejects captures during output and its 300 ms tail; therefore
+  spoken stop during speaker playback is not supported in this conservative mode.
+  An explicitly isolated headset setting permits duplex capture, without claiming AEC.
+- HTTP reads have a 15-second timeout, connect 5 seconds, and checked 30-second
+  stream deadlines. Cancellation gates each yielded token/chunk and the audio callback;
+  it cannot forcibly preempt an in-progress native MLX call or blocked socket read.
+  Shutdown waits up to 18 seconds for runtime workers. A stuck worker is reported and
+  no new turn starts over it; native resources are not unloaded underneath it.
+- One OS file lease prevents two live v3 processes in this checkout. It does not
+  arbitrate with v2: stop v2 before a live test. Private traces retain text; microphone
+  waveforms are not recorded yet and cannot establish capture/overlap accuracy.
+
+Validation performed:
+
+1. **37 deterministic checks passed** via `.venv/bin/python tools/run_checks.py`.
+   Synthetic providers, fake trace clocks, temporary stores, and blocked network,
+   devices, heavyweight imports, and private v2/v3 state. Cases include original text,
+   one model call, capture order/overflow, rejected echo/stale input, late model data,
+   cancellation, failed TTS/playback, truncated model streams, final PCM drain,
+   device selection, and single-instance rejection. These do not prove semantic skill.
+2. **Real VAD on synthetic silence:** loaded Silero 6.2.1; silence was not speech.
+3. **Real providers on synthetic saved audio:** `tools/check_providers.py` passed with
+   Qwen, OpenAI, and ElevenLabs in the v3 environment. The reference was
+   “Hello Rex. I am going camping tomorrow. What should I bring?” ASR retained the
+   words, adding a comma; mean token log probability was about -0.0167 (trusted).
+   One model call produced a relevant packing answer, and a 25.6-second reply WAV
+   was rendered. No speaker played it during the check.
+4. **Read-only macOS device check:** the imported microphone name resolved and
+   16 kHz mono int16 settings were supported. No recording stream was opened.
+5. Packaging dependency consistency and whitespace checks passed.
+
+The single provider run measured startup 4.32 s, synthetic-input TTS 1.40 s, ASR
+0.98 s, full model response 2.56 s, and full reply TTS rendering 6.35 s. Process peak
+RSS was about 2.94 GB on macOS 27 / Apple Silicon / Python 3.11.9. This is **one
+saved-audio run**, not median/p95, streaming-first-audio latency, M2/16 GB performance,
+or a matched v2 comparison. Provider evidence and WAVs remain at
+`local/validation/2317c3d34607458480b0eddc7621e639/`; resolved packages are locked in
+`requirements-live.txt`.
+
+Remaining gate: run `.venv/bin/python -m r3x live`, hear Rex's replies, check the final
+words, use terminal stop during generation/playback, and inspect the session report.
+Measure real end-of-speech-to-first-audio, endpointing, echo rejection/abstention,
+underruns, device shutdown, and voice consistency across phrase requests. There is no
+live conversation, speaker-discrimination, or group-acceptance result yet. Begin the
+labeled recording/replay work after this gate; do not expand into camera/memory early.
+
 ## Proposed operating modes
 
-These command shapes are design examples, not runnable instructions today:
+`doctor`, `live`, `scenario`, and `report` are implemented to slice-1 scope below.
+`replay` remains proposed. The additional `boot` command is a provider-free
+start/close smoke check.
 
 | Proposed mode | Purpose | I/O expectations |
 | --- | --- | --- |
-| `python -m r3x doctor --profile dev-mac` | Show effective configuration, capabilities, model paths, and dependency readiness | No recording, playback, download, or model inference unless explicitly requested |
-| `python -m r3x live --profile dev-mac` | Real conversation with camera presence, selected providers, and scratch storage | Microphone, camera, and selected hosted calls; no serial hardware |
+| `python -m r3x doctor --profile dev-mac` | Declared live capabilities/dependencies, model-file readiness, missing credentials, and lifecycle | No recording, playback, download, inference, or scratch creation |
+| `python -m r3x live --profile dev-mac` | Audible loop, selected providers, and session traces; camera not integrated yet | Microphone, speaker, and selected hosted calls; no camera/serial hardware |
 | `python -m r3x replay <manifest>` | Run labeled recordings through production segmentation/ASR/tracking and optionally the real brain | Saved files; no live mic/servo; hosted inference is an explicit option |
-| `python -m r3x scenario <fixture>` | Exercise full decision/state/output contracts with deterministic observations/providers | No network, devices, or personal databases |
-| `python -m r3x report <session>` | Summarize identity decisions, writes, delivery, resources, and latency | Read local session evidence |
+| `python -m r3x scenario <fixture>` | Exercise shared turn/output path with scripted providers; no meaning/memory validation yet | No network, devices, or personal databases |
+| `python -m r3x report <session.jsonl>` | Summarize events, failures, model calls, and observed timings; identity metrics remain unknown | Read local session evidence |
 
 Use one shared turn-processing entry point in live, replay, and scenario modes.
 Replace observations/providers, not the decision machinery being evaluated. Typed

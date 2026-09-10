@@ -11,9 +11,10 @@ and proposals are distinguished in DESIGN.md. These documents authorize no work
 beyond the user's request; a design discussion is not an instruction to deploy,
 operate hardware, copy personal data, or implement the entire roadmap.
 
-This repository currently contains design documents only. Do not describe planned
-tools, commands, tests, models, or runtime behavior as implemented. Update the
-status and evidence when implementation actually lands.
+This repository implements slices 0–1 (independent boot and the audible loop), with
+live acceptance still pending. Identity, camera, and persistent memory remain planned.
+Do not describe planned tools, commands, tests, models, or runtime behavior as
+implemented. Update status and evidence when implementation actually lands.
 
 ## Architectural boundaries
 

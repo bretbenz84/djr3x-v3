@@ -221,4 +221,14 @@ __marimo__/
 /local/
 /apikeys.py
 /user_config.py
+.env.*
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.wav
+*.mp3
+*.onnx
+*.safetensors
 .DS_Store

@@ -195,4 +195,47 @@ Append a brief entry when code is actually reused:
 4. Focused automated evidence, saved-audio evidence, live validation still required.
 5. Any model/API behavior still assumed rather than verified.
 
-There are no completed extractions yet.
+Slice 0 (September 10, 2026) was implemented independently with Python standard-library
+boot, configuration, and lifecycle code. It required no v2 source extraction or
+baseline-data access.
+
+### Slice 1: audible-loop adapters (September 10, 2026)
+
+Source reverified: v2 `9806c74fd233a7118da88ca5ae55fb7450deec05`, clean working tree.
+V3 does not import v2 modules or connect to its databases. Dependencies were installed
+in v3, with the resolved environment in `requirements-live.txt`.
+
+| Source / owner | Retained behavior and adaptation | Evidence / remaining validation |
+| --- | --- | --- |
+| `audio/transcription.py::_qwen_transcribe` → `adapters/asr.py` | Qwen3-ASR-1.7B-8bit, mono 16 kHz, batch decode through `stream_generate`, 256-token cap, token log probabilities, -0.35 initial trust floor. One instance-owned lock; explicit lifecycle/cancel token. No v2 globals, lexical bias, recent-Rex prompt, text correction ladder, or Whisper fallback. | Real synthetic saved-audio decode passed with the words preserved; room-quality thresholds and native cancellation still need live evaluation. |
+| `audio/stream.py`, `audio/vad.py` → `adapters/audio.py`, `capture.py` | 512-frame callbacks, timestamped PCM, Silero 6.2.1, explicit selected mic, bounded buffers, reset on gaps. VAD loads only at start. Name resolution refuses missing/ambiguous matches rather than falling back to an unrelated index. No servo/AEC/watchdog startup chain copied. | Synthetic endpoint/gap/echo/duration tests passed; selected Mac microphone metadata validated without recording. Real endpointing, mic stalls, and output overlap remain live checks. |
+| `intelligence/lean_brain.py::stream_reply`, `config.py::REX_CORE_PROMPT` → `adapters/hosted.py` | One main streaming generation with the existing `gpt-5.4-mini` model; a compact adapted Rex persona. Responses API with `store=false` and no retries replaces the old completion wrapper. No mood/governor/handler stack, planner, identity tools, or memory writer was copied. | One real reply request passed; production Session one-call and stale/cancel contracts passed with fixtures. Natural conversation and meaning remain unvalidated. |
+| `audio/tts.py`, selected `TTS_V3_*` constants → `adapters/hosted.py`, `output.py` | `eleven_v3_conversational`, selected Rex voice, `pcm_22050`, natural stability .5, seed 1440639067, approved tag palette, and no `previous_text`. No silent buffered/local fallback, motors, LEDs, or cache. The sole output owner emits drain-based completion; incomplete phrases never enter history as fully delivered. | Real synthesis to WAV and synthetic PCM-final-tail checks passed. Actual playback, underruns, cancellation, and consistent voice across phrase requests remain live checks. |
+
+Source SHA-256 for the two directly adapted protocol implementations:
+
+- `audio/transcription.py`: `873e5cba07de8a4f5b6f3f0d29453d90c85ccab52ae72c548e01ef28e474be85`
+- `audio/tts.py`: `7719de3988515d0decb451355bd7317db3c7eb155c878e19401c7e66cfc81356`
+
+Deliberate speech scheduling choice: the v3 design streams ordinary prose. This
+slice therefore synthesizes bounded phrases while the one reply generation continues,
+unlike v2's whole-reply v3-voice path. It retains the v3 request settings but does not
+claim equivalent timbre between phrases. Evaluate that tradeoff in the live gate;
+there is no unmeasured second TTS mode to silently fall back to.
+
+The user explicitly authorized the v2 device configuration and API credentials.
+`tools/import_v2_setup.py` read selected `.env` entries and literal values from
+`apikeys.py` / `config.py` without executing them. It wrote independent ignored
+settings and secrets, retained camera selection as deferred metadata, and copied
+only the nonpersonal ASR model files with matching SHA-256 digests. The private
+manifest is `local/v2-setup-import.json`. No v2 data was modified, and no people,
+voiceprint, original-person-audio, or claim import occurred.
+
+Current protocol references checked during implementation:
+[OpenAI streaming responses](https://developers.openai.com/api/docs/guides/streaming-responses),
+[ElevenLabs streamed speech](https://elevenlabs.io/docs/api-reference/text-to-speech/stream),
+and [sounddevice raw streams](https://python-sounddevice.readthedocs.io/en/0.5.5/api/raw-streams.html).
+Package-specific Qwen stream details were checked in the installed v2 mlx-audio
+0.5.1 implementation, then exercised independently in v3. The
+[slice-1 evidence](docs/INITIAL_TEST_PROGRAM.md#slice-1-implementation-evidence)
+distinguishes synthetic contracts, real providers on saved audio, and pending live work.

@@ -1,0 +1,21 @@
+# dev-mac is the only profile. live loads ASR/VAD, hosted brain/TTS, mic/playback.
+profile = "dev-mac"
+
+# Microphone consumer: exact unique name preferred, unique substring accepted.
+# Default empty/no index fails live startup. Use the actual OS device name.
+input_device_name = "YOUR MICROPHONE NAME"
+# input_device_index = 1  # Optional nonnegative index if name is empty.
+
+# Playback consumer: empty means system default output; otherwise unique name.
+output_device_name = ""
+
+# Capture echo gate: false rejects overlap with Rex playback and 300 ms tail.
+# Set true only for an actually isolated headset/test setup. No AEC is implemented.
+echo_isolated = false
+
+# Silero speech probability threshold, valid .01-.99; needs room calibration.
+vad_threshold = 0.5
+# Endpoint silence, valid .2-2 seconds. Mic preroll is fixed at 256 ms.
+end_silence_seconds = 0.6
+# Qwen quality flag only, valid -5..0. This is not speaker identity confidence.
+asr_trust_logprob = -0.35

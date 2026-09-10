@@ -1,0 +1,3 @@
+# Packaging only. The slice-0 runtime uses the Python standard library.
+setuptools==84.0.0
+wheel==0.45.1

@@ -1,8 +1,11 @@
 # Conversation core design
 
-Status: proposed architecture, with user requirements distinguished below. No v3
-runtime or acceptance results exist yet. This document defines the first program;
-it is not a roadmap to reimplement every v2 feature at once.
+Status: target architecture, with user requirements distinguished below. Slices 0–1
+implement independent boot and the audible-loop path; see the
+[implementation evidence](docs/INITIAL_TEST_PROGRAM.md#slice-1-implementation-evidence).
+Live microphone/speaker acceptance is pending. Identity, camera, semantic tools,
+and persistent memory below remain unimplemented. This document does not authorize
+reimplementing every v2 feature at once.
 
 ## Decision status
 
