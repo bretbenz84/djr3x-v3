@@ -350,3 +350,35 @@ Learning runs on input before response generation. Silent, failed, yielded, and
 stopped replies do not reset the evidence. A deliberate association correction,
 forget, or voice reset removes the relevant pending evidence. No extra model call,
 new provider, microphone operation, or camera operation was added.
+
+## Proactive face greetings
+
+The normal `live --camera` runner now allows a stable face arrival to prompt the
+existing conversation model. It can greet a recognized person using their name
+and accepted memory, invite an unfamiliar person's name, or remain silent based
+on recent conversation. Greeting wording comes from the LLM, not Python templates.
+Recognition alone never identifies the acoustic speaker or saves a new identity.
+
+Expect an initial opportunity after at least eight seconds of startup and three
+seconds of stable face observations, with five seconds free of detected speech.
+After a conversation, allow at least ten seconds. Queued audio/transcripts, ASR
+work, a pending name question, and an explicit stop prevent new greetings. Silence
+choices also impose a two-minute pause. Greetings are limited to one attempt per
+visit, with a 45-second global gap and five-minute per-person gap. A return needs
+at least 30 seconds of absence. Anonymous invitations are limited to one per
+occupied scene until the target is named or the scene empties for 30 seconds.
+
+A face question becomes pending only after its audio finishes playing. A companion
+can answer for the targeted person through the existing third-party introduction
+path. Text-only output does not establish a delivered spoken question. If a target
+leaves or changes identity while a greeting is being generated, it is cancelled.
+Detected non-echo speech also cancels it; the existing playback echo window still
+limits detection of human overlap during Rex's speech.
+
+For a live check, use `.venv/bin/python -m r3x live --camera --record-evaluation`,
+remain visible and quiet briefly, then try an unfamiliar companion and answer
+for them. Verify no repeated greeting while staying in frame, no interruption
+while speaking, and correct face targeting. Terminal traces mark arrival
+opportunities separately from heard speech. Frozen evaluation disables proactive
+speech. Camera/audio live validation remains pending; 151 blocked-I/O checks and
+three actual hosted-model text-only cases passed on September 11, 2026.

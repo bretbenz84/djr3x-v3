@@ -14,7 +14,8 @@ correctly attributed memories across a restart?
 
 The first program is a replacement-core experiment with real microphone input and
 Rex's voice. A typed chat demo is useful for plumbing but cannot answer this question.
-No motors, decorative servo control, games, or proactive feature expansion is needed.
+No motors, decorative servo control, or games are needed. The explicitly authorized
+face-arrival greetings below are the limited proactive addition to this core.
 
 ## Implementation slices
 
@@ -722,3 +723,17 @@ regression was isolated and mitigated through standard CPU kernel selection; the
 55-frame varied-image process peak fell from 2,598 MiB to 268 MiB, with median face
 analysis increasing from 70 ms to 271 ms. The full saved-video check retained its
 recognition results. See the face plan for exact scope and the performance tradeoff.
+
+### Proactive face greetings (September 11, 2026)
+
+Stable visual arrivals now enter the same production conversation/output path as
+speech, with LLM-authored context-sensitive greetings or targeted name questions,
+and silence as an explicit choice. Arrival pacing and listening gates prevent
+repeated attempts; visual events do not create acoustic evidence or authorize
+identity writes. See the [operating policy](CORE_OPERATIONS.md#proactive-face-greetings).
+
+The blocked-I/O suite passes **151 checks**. Three hosted text-only requests using
+fictional visitors verified a named greeting, an unfamiliar visitor's targeted name
+question, and silence after a quiet request, each with one model generation. No
+camera, microphone or audio output was operated. Live timing, face-question answers,
+repetition and overlap still need validation; robot/M2 acceptance remains open.

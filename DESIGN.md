@@ -372,3 +372,12 @@ latest-frame camera path, SCRFD-10G/EdgeFace-S recognition, contextual name asso
 quality-gated persistent face references, targeted questions, corrections and deletion.
 A recognized face remains separate from the acoustic speaker. Robot direction,
 movement, camera calibration and whole-core M2 acceptance are still outstanding.
+
+The explicitly authorized face-arrival slice now offers proactive greetings through
+that same conversational owner. A bounded visual opportunity carries no invented
+speech; the LLM can greet, ask the target's name, or remain silent using context.
+Deterministic arrival/cooldown and listening gates control opportunities, not wording.
+Visual events cannot save facts or enroll people, and spoken question delivery
+still goes through the sole output owner. See the
+[operating policy](docs/CORE_OPERATIONS.md#proactive-face-greetings) and face plan
+for evidence and remaining live acceptance. Broader autonomous behaviors remain deferred.

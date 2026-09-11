@@ -430,3 +430,43 @@ Offline video decoding also explicitly uses one FFmpeg decoder thread. These are
 isolated M5 process peaks, not incremental whole-core residency or M2 acceptance.
 The raw private reports distinguish fixed-input, changing-input and decoder checks.
 No new package or model download was needed for this mitigation.
+
+### Contextual arrival greetings (September 11, 2026)
+
+The user-authorized proactive face slice is implemented. A bounded arrival tracker
+consumes the existing camera's public observations; it loads no model and opens no
+additional camera. The idle conversation worker submits a typed visual event to
+production Session. Python owns stability, freshness, size and cooldown gates;
+the same conversational LLM owns whether and what to say using recent exchanges,
+visible identities and the recognized target's accepted facts. No fabricated user
+utterance, acoustic attribution or source recording is created.
+
+Visual events expose only silence and a targeted face-name-question tool. They
+cannot write personal facts or enroll identity. Questions become pending through
+the existing output receipt only after completed audio delivery; another speaker
+can then answer for the target. Target loss, identity/epoch changes, new non-echo
+speech and cancellation invalidate generation/output. Frozen evaluation disables
+this feature. Actual returns within a run are distinguished from simply recognizing
+a saved person, so the model is instructed not to invent prior encounters.
+
+Current pacing: three seconds stable, observations at most one second old, minimum
+48 native face pixels and 0.006 normalized frame area; eight seconds after startup,
+five seconds without detected speech and ten seconds after an interaction. Queued
+capture/transcripts, active ASR, stale microphone frames and pending questions block
+opportunities. Attempts have a 45-second global and 300-second per-person cooldown;
+a new visit requires 30 seconds absent. Anonymous invitations are once per occupied
+scene until the target gains a name or the scene empties for 30 seconds. A silence
+choice or stop holds opportunities for 120 seconds. Attempts are consumed even if
+suppressed, cancelled or failed, preventing automatic retry chatter.
+
+Evidence: **151 blocked-I/O tests pass**, including shared Session/history/output,
+no visual identity writes, third-party answers, cooldowns, stale/replaced faces,
+queued speech, cancellation before PCM, and frozen evaluation. Three actual hosted
+requests with fictional names and TextOutput produced a known-person greeting, a
+targeted unknown-person name question, and silence after a request for quiet. Each
+used one generation; no camera, microphone, TTS or personal imagery was used.
+The private report is `local/validation/proactive-greetings.json`. No face models,
+assets or dependencies changed; prior saved-media resource measurements are not
+new measurements of this feature. Live greeting timing, social repetition, overlap
+behavior and whole-core M2 resource acceptance remain open. The existing playback
+echo window still limits recognition of human speech overlapping Rex's audio.

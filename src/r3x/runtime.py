@@ -21,6 +21,12 @@ class VoiceRuntime:
         self.workers = []
         self.cancel_before = float("-inf")
         self.control_lock = threading.Lock()
+        self.asr_busy = threading.Event()
+        from .proactive import Arrivals
+        self.arrivals = Arrivals()
+        self.camera = getattr(perception,'camera',None)
+        self.started_at = self.trace.clock()
+        self.audio_seen_at = float('-inf')
 
     def cancel(self):
         with self.control_lock:
@@ -38,17 +44,23 @@ class VoiceRuntime:
     def _asr_loop(self):
         while not self.stop.is_set():
             try:
-                capture, revision = self.captures.get(timeout=.05)
+                with self.control_lock:
+                    capture, revision = self.captures.get_nowait()
+                    self.asr_busy.set()
             except Empty:
+                self.stop.wait(.05)
                 continue
             if revision != self.session.revision or capture.started_at <= self.cancel_before:
                 self.trace.emit("capture_rejected", capture_id=capture.capture_id, reason="cancelled")
+                self.asr_busy.clear()
                 continue
             if capture.echo_risk:
                 self.trace.emit("capture_rejected", capture_id=capture.capture_id, reason="playback_echo_risk")
+                self.asr_busy.clear()
                 continue
             with self.control_lock:
                 if revision != self.session.revision or self.stop.is_set():
+                    self.asr_busy.clear()
                     continue
                 self.asr_cancel = Cancellation()
             began = self.trace.clock()
@@ -73,17 +85,45 @@ class VoiceRuntime:
                 self.trace.emit("asr_cancelled", capture_id=capture.capture_id)
             except Exception as exc:
                 self.trace.emit("provider_failed", capability="asr", error_type=type(exc).__name__)
+            finally:
+                self.asr_busy.clear()
 
     def _turn_loop(self):
         while not self.stop.is_set() and not self.session.closed:
             try:
                 capture, transcript, revision, perceived = self.turns.get(timeout=.05)
             except Empty:
+                self.proactive_tick()
                 continue
             self.session.process_turn(capture, transcript, revision,
                 observation=perceived.voice if perceived else None, faces=perceived.faces if perceived else ())
         if self.session.closed:
             self.stop.set()
+
+    def observe_visual(self, now):
+        if self.camera:
+            self.arrivals.observe(self.camera.latest(now),now)
+            self.session.check_visual()
+
+    def proactive_tick(self):
+        """Called only by the idle conversation worker; audio always has priority."""
+        if not self.camera or not self.session.state or self.session.state.frozen: return
+        now = self.trace.clock()
+        with self.control_lock:
+            if (self.stop.is_set() or self.session.closed or now-self.started_at<8 or
+                not 0<=now-self.audio_seen_at<=.5 or self.asr_busy.is_set() or
+                not self.captures.empty() or not self.turns.empty() or
+                now-self.session._latest_speech<5 or now-self.session.last_interaction_at<10 or
+                now<self.session.proactive_hold_until): return
+            pending = self.session.state.pending
+            if pending and now-pending['delivered_at']<=120: return
+            event = self.arrivals.take(self.session.session_id,now,self.session._latest_speech)
+            if event is None: return
+            revision = self.session.revision
+        self.trace.emit('visual_opportunity',event_id=event.event_id,face_track_id=event.target_track,person_id=event.person_id)
+        result = self.session.process_visual(event,revision,lambda:self.arrivals.valid(event,self.trace.clock()) and not self.stop.is_set() and 0<=self.trace.clock()-self.audio_seen_at<=.5)
+        self.trace.emit('visual_opportunity_done',event_id=event.event_id,status=result.status,medium=result.medium,
+                        delivered=bool(result.completed_text),failed=result.error)
 
     def start_workers(self):
         def guarded(target):
@@ -109,11 +149,15 @@ class VoiceRuntime:
         previous_dropped = (0, 0)
         previous_end = None
         next_resources = 0.
+        next_visual = 0.
         # Nonblocking terminal input is polled alongside frames; no orphan stdin worker.
         import select
         try:
             while not self.stop.is_set():
                 now = self.trace.clock()
+                if now>=next_visual:
+                    self.observe_visual(now)
+                    next_visual = now+.25
                 if now>=next_resources:
                     import resource
                     usage = resource.getrusage(resource.RUSAGE_SELF)
@@ -131,6 +175,7 @@ class VoiceRuntime:
                 frame = self.mic.read()
                 if frame is None:
                     continue
+                self.audio_seen_at = frame.ended_at
                 counts = (self.mic.dropped, self.mic.status_errors)
                 if counts != previous_dropped or (previous_end is not None and frame.started_at - previous_end > .05):
                     self.trace.emit("capture_gap", dropped=counts[0], status_errors=counts[1])

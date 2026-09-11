@@ -14,6 +14,8 @@ class LiveConsole:
             message = f"Starting Rex… Detailed log: {row['log_path']}"
         elif event == "listening":
             message = "Listening — speak normally. Enter stops a reply; quit + Enter exits."
+        elif event == "visual_opportunity":
+            message = "Rex noticed an arrival and is considering a greeting…"
         elif event == "transcript":
             message = f"You: {clean(row['original_text'])}"
         elif event == "model_request" and row.get("primary_calls"):

@@ -120,6 +120,40 @@ class CoreState:
                 "enrollment":[{"person_id":e.person_id,"track_id":e.track_id,"qualifying_turns":len(e.samples),
                                "voiced_seconds":sum(s[2].voiced_seconds for s in e.samples)} for e in self.enrollments.values()]}
 
+    def visual_context(self, event):
+        """No acoustic observation/source turn is fabricated for a camera event."""
+        from .face_attribution import public_face
+        if self.frozen: raise ValueError("FrozenEvaluationDisallowsProactiveSpeech")
+        if self.pending and event.at-self.pending['delivered_at']>120: self.pending=None
+        faces = [public_face(f) for f in event.faces if f.get('face_epoch',0)>=self.min_face_epoch]
+        people = self.store.people()
+        person_ids = {p['id'] for p in people}
+        if event.person_id and event.person_id not in person_ids: raise ValueError('VisualPersonNoLongerAvailable')
+        if not any(f['track_id']==event.target_track for f in faces): raise ValueError('VisualTargetStale')
+        return {'trigger':'visual_arrival','event_id':event.event_id,'state_revision':self.store.revision,
+                'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
+                                  'returning_this_session':event.returning},
+                'speaker':{'person_id':None,'state':'unresolved','reason':'no_speech_observed'},
+                'faces':faces,'people':people,'claims':self.store.claims(event.person_id) if event.person_id else [],
+                'pending_question':self.pending,'frozen_evaluation':self.frozen}
+
+    def execute_visual(self, call, context, cancel):
+        """Visual cues can ask or stay quiet, never create identity or personal facts."""
+        request_id = context['event_id']+':'+call.call_id
+        try:
+            cancel.check()
+            validate(call.name,call.arguments)
+            if self.store.revision!=context['state_revision']: raise ValueError('StaleStateRevision')
+            if call.name=='remain_silent': data={'reason':call.arguments['reason']}
+            elif call.name=='ask_face_question':
+                if call.arguments['face_track_id']!=context['visual_arrival']['face_track_id']:
+                    raise ValueError('VisualQuestionTargetMismatch')
+                data={'question':call.arguments['text'],'face_track_id':call.arguments['face_track_id'],'addressee_id':None}
+            else: raise ValueError('VisualEventDoesNotAuthorizeMutation')
+            return ToolResult(request_id,'ok','executed',self.store.revision,data)
+        except ValueError as exc:
+            return ToolResult(request_id,'rejected',str(exc),self.store.revision)
+
     def execute(self, call, expected_revision, cancel):
         turn_id,capture,transcript,observation,attribution = self.current
         request_id = capture.session_id + ":" + call.call_id

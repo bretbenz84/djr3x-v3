@@ -44,6 +44,8 @@ def grounded_tools(context):
     """Constrain identifier syntax to the current snapshot, independently revalidated on apply."""
     import copy
     definitions = copy.deepcopy(TOOLS)
+    if context.get('trigger')=='visual_arrival':
+        definitions = [d for d in definitions if d['name'] in {'remain_silent','ask_face_question'}]
     people = [p["id"] for p in context.get("people",[])]
     claims = [c["id"] for c in context.get("claims",[])]
     faces = [f["track_id"] for f in context.get("faces",[])]
@@ -71,7 +73,8 @@ def grounded_tools(context):
             if key in {"person_id","subject_id","addressee_id"}: values = people
             if key=="person_id" and name in {"rename_person","forget_person"}: values = identity_targets
             if key=="claim_id": values = claims
-            if key=="face_track_id": values = faces
+            if key=="face_track_id":
+                values = [context['visual_arrival']['face_track_id']] if context.get('trigger')=='visual_arrival' else faces
             if key=="track_id": values = [e["track_id"] for e in enrollments]
             if key=="source_turn_id": values = [context["source_turn_id"]]
             if name=="cancel_association" and key=="person_id": values = [e["person_id"] for e in enrollments]

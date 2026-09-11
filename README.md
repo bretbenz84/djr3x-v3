@@ -184,7 +184,7 @@ presence. Directional audio is optional; the dev Mac must work without it.
 
 ## Deferred capabilities
 
-Wheel motion, servo expression, LEDs, games, autonomous greetings, visual riffs,
+Wheel motion, servo expression, LEDs, games, visual riffs,
 impersonations, rich biographies, relationship scoring, semantic memory retrieval,
 and a polished GUI follow the core's acceptance gates. Offline mode and additional
 providers are later explicit profiles, not a default collection of loaded models.
@@ -257,3 +257,11 @@ Face recognition now uses SCRFD-10G and EdgeFace-S when `--camera` is enabled,
 with persistent face/name associations and a shared pipeline for future pose/object
 consumers. The [face attribution plan](docs/FACE_ATTRIBUTION_PLAN.md) records the
 implementation, provisional thresholds, evidence and remaining M2/16 GB acceptance.
+
+With `--camera`, stable arrivals can also prompt an LLM-written greeting or a
+targeted name question without anyone speaking first. The existing conversation
+owner uses recent history and accepted memory, and can choose silence. Arrival
+pacing prevents repeated greetings from face flicker; microphone activity, queued
+speech, and pending questions take priority. See
+[proactive greetings](docs/CORE_OPERATIONS.md#proactive-face-greetings) for behavior
+and the remaining live check.

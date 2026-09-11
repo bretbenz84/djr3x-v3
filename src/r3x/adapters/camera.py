@@ -113,6 +113,12 @@ class Camera:
                 self.stop.wait(max(0,.5-(time.monotonic()-began)))
         except Exception as exc: self._failed(exc)
 
+    def latest(self, now):
+        with self.lock:
+            if self.failure or self.stop.is_set() or not self.tracker.history: return ()
+            at, rows = self.tracker.history[-1]
+            return rows if 0<=now-at<=1. else ()
+
     def during(self,start,end):
         with self.lock:
             return () if self.failure or self.stop.is_set() else self.tracker.during(start,end)

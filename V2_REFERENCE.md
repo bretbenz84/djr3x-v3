@@ -327,3 +327,11 @@ and digest verification; no additional v2 extraction or personal-data import occ
 Focused state/tracking/storage checks and real saved-media results are recorded in
 [face implementation evidence](docs/FACE_ATTRIBUTION_PLAN.md#implementation-evidence-and-remaining-acceptance).
 Camera/robot hardware and M2 combined-load validation remain outstanding.
+
+### Proactive greeting behavior preserved in v3 (September 11, 2026)
+
+At the user's request, stable visible arrivals can again initiate greetings and
+name invitations. V3 uses its existing LLM conversation owner, history, face state
+and output receipts instead of copying static v2 greeting handlers. No v2 source,
+profile or model asset was extracted for this change. The face plan records the
+151 blocked-I/O checks, three hosted text-only cases and outstanding live validation.
