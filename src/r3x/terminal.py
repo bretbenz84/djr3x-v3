@@ -46,6 +46,8 @@ class LiveConsole:
             message = "Still listening — holding the reply while you continue."
         elif event == "reply_suppressed":
             message = "Rex stayed quiet: " + clean(row["reason"]).replace("_", " ")
+        elif event == "face_learning_saved":
+            message = f"Face samples saved ({row['samples']} clear views)."
         elif event == "voice_learning_saved":
             message = f"Voice samples saved ({row['samples']} compatible turns)."
         elif event == "tool_result":

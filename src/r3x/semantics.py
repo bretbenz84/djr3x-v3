@@ -13,8 +13,12 @@ NULL_TEXT = {"type":["string","null"]}
 
 
 TOOLS = (
-    schema("introduce_person", "Interpret an explicit introduction, including a speaker giving the name of an existing person. This is not a rename. subject=self starts a provisional acoustic association only; other never enrolls the current speaker as the mentioned person. Use existing candidate ID when resolved, otherwise null. Never use unrelated next utterance as a name answer.",
+    schema("introduce_person", "Interpret an explicit introduction, including a speaker giving the name of an existing person. Select face_track_id from visual evidence when clear; naming a shy friend keeps the current speaker separate. A face_status other than saved/already_saved means the face has NOT been enrolled; use a targeted clarification or closer look if needed. This is not a rename. subject=self starts a provisional acoustic association only; other never enrolls the current speaker as the mentioned person. Use existing candidate ID when resolved, otherwise null. Never use unrelated next utterance as a name answer.",
            {"name":TEXT,"aliases":{"type":"array","items":TEXT},"subject":{"type":"string","enum":["self","other"]},"person_id":NULL_TEXT,"face_track_id":NULL_TEXT}),
+    schema("ask_face_question", "Ask a natural targeted name or closer-look question about one visible face. This targets a face, not necessarily the speaker. Another person may answer for them. Pending state begins only after delivery.",
+           {"text":TEXT,"face_track_id":TEXT}),
+    schema("reset_face_identity", "On an explicit correction that a visible face has been assigned the wrong person, remove that person's saved face references so a new introduction can rebuild them. Does not rename the person or change voice profiles. Never infer a correction from a low score.",
+           {"person_id":TEXT,"face_track_id":TEXT}),
     schema("record_claim", "Propose a lasting personal fact about an explicit subject. A property's meaning must stand independently of this conversation: who was just mentioned/addressed is conversational context, not biography. Names/introductions use introduce_person. Questions, jokes and their asides, insults, passing remarks, and generated fiction are not facts to save. Use the current source_turn_id; unresolved speakers remain candidate claims.",
            {"subject_id":TEXT,"subject_reference":{"type":["string","null"],"description":"For third_party, the explicit person name/alias in this utterance; must resolve uniquely. For self_report, null."},
             "predicate":TEXT,"value":TEXT,"kind":{"type":"string","enum":["self_report","third_party"]},"source_turn_id":TEXT}),
@@ -49,6 +53,10 @@ def grounded_tools(context):
         name = definition["name"]
         identity_targets = context.get("identity_action_targets", {}).get(name, [])
         if name in {"rename_person", "forget_person"} and not identity_targets:
+            continue
+        if name in {"ask_face_question","reset_face_identity"} and not faces:
+            continue
+        if name=="reset_face_identity" and not people:
             continue
         if not people and name in {"record_claim","rename_person","forget_person"}:
             continue

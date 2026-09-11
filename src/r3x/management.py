@@ -20,7 +20,7 @@ def main(argv,paths):
     parser = argparse.ArgumentParser(prog="r3x profiles")
     commands = parser.add_subparsers(dest="action",required=True)
     commands.add_parser("list")
-    for name in ("recordings","forget","reset-voice"):
+    for name in ("recordings","faces","reset-face","forget","reset-voice"):
         commands.add_parser(name).add_argument("person_id")
     review = commands.add_parser("review")
     review.add_argument("person_id")
@@ -55,7 +55,16 @@ def main(argv,paths):
         else:
             memory.start()
             if args.action=="list":
-                result = [{**person,"recordings":memory.rows("SELECT count(*) AS n FROM recordings WHERE person_id=?",(person["id"],))[0]["n"]} for person in memory.people(include_retired=True)]
+                result = [{**person,"face_references":memory.rows("SELECT count(*) AS n FROM face_references WHERE person_id=?",(person["id"],))[0]["n"],"recordings":memory.rows("SELECT count(*) AS n FROM recordings WHERE person_id=?",(person["id"],))[0]["n"]} for person in memory.people(include_retired=True)]
+            elif args.action=="faces":
+                result = memory.rows("SELECT id,namespace,digest,metadata,source_turn FROM face_references WHERE person_id=?", (args.person_id,))
+            elif args.action=="reset-face":
+                if memory.person(args.person_id) is None: raise ValueError("UnknownPersonId")
+                with memory.transaction() as conn:
+                    count = conn.execute("DELETE FROM face_references WHERE person_id=?", (args.person_id,)).rowcount
+                    conn.execute("INSERT OR IGNORE INTO face_learning_blocks VALUES(?)", (args.person_id,))
+                    revision = memory.advance(conn)
+                result = {"person_id":args.person_id,"face_references_removed":count,"revision":revision}
             elif args.action=="recordings":
                 result = memory.rows("SELECT id,digest,sample_rate,metadata FROM recordings WHERE person_id=?",(args.person_id,))
             elif args.action=="apply-import":

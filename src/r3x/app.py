@@ -29,7 +29,7 @@ class App:
         sink = AudioSink(self.settings.output_device_name)
         mic = Microphone(self.settings, lambda: False)
         encoder = CAMPlus(self.paths.root / "models/campplus.onnx")
-        camera = Camera(self.settings.camera_device_name,self.paths.root / "models/haarcascade_frontalface_default.xml") if self.settings.camera_enabled else None
+        camera = Camera(self.settings.camera_device_name,self.paths.root / "models/faces") if self.settings.camera_enabled else None
         self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + ((camera,) if camera else ())
         self.owner = ProviderOwner(self.live_components)
 
@@ -52,8 +52,9 @@ class App:
                 import shutil
                 if not shutil.which("ffmpeg"):
                     missing.append("ffmpeg")
-                if not (self.paths.root / "models/haarcascade_frontalface_default.xml").is_file():
-                    missing.append("face_detector_file")
+                for name in ("scrfd_10g.onnx", "edgeface_s_gamma_05.onnx"):
+                    if not (self.paths.root / "models/faces" / name).is_file():
+                        missing.append(name)
             for provider in self.owner.providers:
                 missing.extend(name for name, version in dependency_status(provider.capability).items()
                                if version is None)
@@ -77,7 +78,7 @@ class App:
             "record_evaluation": self.settings.record_evaluation,
             "limitations": ["Held-out speaker accuracy and live group acceptance remain unmeasured",
                             "Window consistency is not a validated overlap detector",
-                            "Face presence carries no biometric identity or speaker vote",
+                            "Face thresholds are provisional; robot-camera and M2 validation remain pending",
                             "Dependency presence is not provider/device validation"],
         }
 
@@ -128,11 +129,15 @@ class App:
         success = False
         try:
             memory.start()
+            if camera:
+                from .adapters.face import NAMESPACE as FACE_NAMESPACE
+                camera.session_id = session_id
+                camera.profiles = lambda: memory.face_profiles(FACE_NAMESPACE)
             if not self.owner.start():
                 trace.emit("startup_failed", report=self.doctor())
             else:
                 trace.emit("startup", report=self.doctor(), evidence="live", models=[p.capability.model for p in self.live_components if p.capability.model])
-                state = CoreState(memory,SpeakerTracker(NAMESPACE),trace)
+                state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None)
                 perception = Perception(asr,encoder,trace,camera)
                 session = Session(session_id, brain, output, trace, state=state)
                 recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None

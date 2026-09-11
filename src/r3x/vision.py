@@ -1,0 +1,53 @@
+"""One immutable latest-frame mailbox shared by independently paced consumers."""
+from dataclasses import dataclass
+import threading
+
+
+@dataclass(frozen=True)
+class Frame:
+    frame_id: str
+    camera_id: str
+    session_id: str
+    at: float
+    width: int
+    height: int
+    pixels: bytes
+
+
+class FrameHub:
+    """One pending frame plus one in-flight frame per registered consumer (max 3).
+
+    Immutable byte storage is shared, not copied per subscriber. Consumers replace
+    pending work and may hold only their current frame. At 1080p four shared frames are
+    23.7 MiB. No historical full-resolution queue.
+    """
+    def __init__(self):
+        self.condition = threading.Condition()
+        self.latest = None
+        self.closed = False
+        self.consumers = set()
+
+    def register(self,name):
+        with self.condition:
+            if name in self.consumers or len(self.consumers)>=3: raise ValueError('VisualConsumerCapacity')
+            self.consumers.add(name)
+
+    def publish(self,frame):
+        if not isinstance(frame.pixels,bytes) or len(frame.pixels)!=frame.width*frame.height*3 or not 0<frame.width*frame.height<=1920*1080:
+            raise ValueError('InvalidBoundedBGRFrame')
+        with self.condition:
+            if not self.closed:
+                self.latest = frame
+                self.condition.notify_all()
+
+    def take(self,name,after=None,timeout=.5):
+        with self.condition:
+            if name not in self.consumers: raise ValueError('UnregisteredVisualConsumer')
+            self.condition.wait_for(lambda:self.closed or (self.latest and self.latest.frame_id!=after),timeout)
+            return None if self.closed or not self.latest or self.latest.frame_id==after else self.latest
+
+    def close(self):
+        with self.condition:
+            self.closed = True
+            self.latest = None
+            self.condition.notify_all()

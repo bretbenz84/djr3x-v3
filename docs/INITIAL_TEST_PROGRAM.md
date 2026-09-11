@@ -682,7 +682,7 @@ runs were not retroactively enrolled or edited. No new model/dependency was adde
 [Face attribution plan](FACE_ATTRIBUTION_PLAN.md) records the base M2/16 GB target,
 automatic contextual face/name association (including third-party introductions),
 recency with contradiction handling, shared visual frames, tentative resource
-budgets and phased acceptance. Live face identification has not been implemented.
+budgets and phased acceptance. This historical preparation stage is superseded by the implementation evidence below.
 
 Five public v2 model assets were independently copied without downloads or profile
 imports. A CPU ONNX aligned-crop harness now records resource use, known-person
@@ -692,3 +692,33 @@ A real ArcFace model ran only on generated pixels: M5 Pro one-thread warm median
 other models and provides no identity accuracy or M2 readiness evidence. The
 blocked-I/O suite passes 119 checks. Representative face images, preprocessing
 parity and M2/combined-load validation remain pending; no camera/audio was operated.
+
+The first compact challenger is now prepared: EdgeFace-S, 14.81 MB downloaded and
+verified against its publisher's release digest. Matched M5 Pro CPU generated-pixel
+runs measured median 6.71 ms / peak process RSS 123.92 MiB versus ArcFace R50
+45.24 ms / 485.95 MiB. Both used separate processes, one CPU thread and 30 warm
+embeddings. No detector or other model ran concurrently. This is resource screening
+only; it preceded the user-supplied photo/video diagnostics. M2 acceptance remains unmeasured. See the face plan for provenance and repeat commands.
+
+
+### Face identity implementation (September 11, 2026)
+
+The optional camera now runs SCRFD-10G + EdgeFace-S through shared latest-frame
+capture. Contextual introductions, third-party face targets, supported-voice/sole-face
+association, quality-gated persistent crops, targeted questions, face-only correction,
+restart and deletion are implemented. It never substitutes visual identity for the
+acoustic speaker. Existing files were independently copied; no new download or live
+profile import occurred. See [implementation and evidence](FACE_ATTRIBUTION_PLAN.md#implemented-dev-mac-face-path)
+for policy gates, saved-media coverage/abstention, memory bounds and remaining tests.
+
+Real models ran on supplied saved media; a temporary-store check saved and reloaded
+real crops with synthetic voice/semantic input. No camera, microphone, playback,
+hosted model or live personal database was operated. Robot-camera and combined-load
+M2 acceptance remain open; neither synthetic tests nor this small saved-media cohort
+establishes general identification accuracy.
+
+Final blocked-I/O suite: **135 checks passed**. A changing-input M5 detector memory
+regression was isolated and mitigated through standard CPU kernel selection; the
+55-frame varied-image process peak fell from 2,598 MiB to 268 MiB, with median face
+analysis increasing from 70 ms to 271 ms. The full saved-video check retained its
+recognition results. See the face plan for exact scope and the performance tradeoff.

@@ -171,7 +171,7 @@ class Session:
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps(call.arguments)},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                     self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
-                elif result.outcome=="ok" and call.name=="ask_question":
+                elif result.outcome=="ok" and call.name in {"ask_question","ask_face_question"}:
                     question = result.data
                     put_phrase(phrases,question["question"],cancel)
                 else:
@@ -238,7 +238,7 @@ class Session:
                     with self._lock:
                         cancel.check()
                         if question and delivery.status=="completed" and delivery.medium=="audio":
-                            self.state.question_delivered(question["question"],question["addressee_id"],self.trace.clock())
+                            self.state.question_delivered(question["question"],question["addressee_id"],self.trace.clock(),question.get("face_track_id"))
                 except Exception as exc:
                     self.trace.emit("state_finalize_failed",turn_id=turn_id,error_type=type(exc).__name__)
             with self._lock:

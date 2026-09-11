@@ -5,14 +5,12 @@ from pathlib import Path
 import urllib.request
 from uuid import uuid4
 
-from r3x.adapters.camera import FACE_MODEL_SHA256
 from r3x.adapters.voice import MODEL_SHA256
 from r3x.settings import ScratchPaths
 
 
 ASSETS=(
     ("campplus.onnx","https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",MODEL_SHA256),
-    ("haarcascade_frontalface_default.xml","https://raw.githubusercontent.com/opencv/opencv/4.13.0/data/haarcascades/haarcascade_frontalface_default.xml",FACE_MODEL_SHA256),
 )
 
 

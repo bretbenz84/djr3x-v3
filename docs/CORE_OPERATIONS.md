@@ -18,8 +18,9 @@ accepted enrollment audio and bounded unverified candidate audio, rather than al
 camera selection remains disabled in settings; the flag enables it for this run.
 macOS permission prompts and actual device formats have not been tested in v3.
 The camera requires ffmpeg, a unique AVFoundation video-device name, and the pinned
-face classifier. It requests 640×480 UYVY at 30 fps and detects faces at most twice
-per second. It reports failure rather than opening an unrelated device.
+SCRFD-10G and EdgeFace-S models in `local/models/faces/`. It requests 1280×720
+UYVY at 30 fps; a separate CPU worker analyzes the latest frame at most twice per
+second. Models are already prepared on this Mac. It reports failure rather than opening an unrelated device.
 
 `doctor` is an optional diagnostic; live startup checks readiness itself.
 The terminal shows listening, your transcript, Rex's proposed speech, actual playback,
@@ -90,9 +91,20 @@ initial heuristics, not calibrated probabilities. Window consistency is **not a
 validated overlap detector**. Nearby similar voices and short/mixed speech need
 the held-out dataset before any accuracy claim.
 
-Camera tracks give presence, coarse position, and explicit provisional name
-associations. There is no face-recognition model. Known-face scenarios can exercise
-supplied face hypotheses, but the camera does not identify people by itself.
+Camera tracks report presence, coarse position and recognized or provisional person
+IDs. Clear compatible crops can persist through an introduction or an already
+supported voice with a sole prominent face. An introducer can name a friend without
+assigning their own voice to that friend. Ambiguous faces may need a targeted name
+question or closer look. Saved face profiles survive restart; temporary hypotheses
+do not. Supplied sample photos are not automatically imported.
+
+Use `profiles list` for voice/face reference counts, `profiles faces PERSON_ID` for
+face provenance, or `profiles reset-face PERSON_ID` to remove a wrong face profile
+without changing the voice/name. Reset blocks automatic relearning until an explicit
+introduction. `forget` also removes stored face crops and vectors. Face-only
+corrections can be interpreted conversationally through `reset_face_identity`.
+See [face implementation](FACE_ATTRIBUTION_PLAN.md#implemented-dev-mac-face-path)
+for provisional recognition/quality thresholds and outstanding hardware validation.
 No visual observation certifies a voice. False self-identification also remains
 a limitation: this learns voice-to-claimed-person associations, not legal identity.
 

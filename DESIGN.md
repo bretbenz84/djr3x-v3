@@ -361,11 +361,14 @@ authority. Bring over integrations one at a time, update reference evidence, and
 retire replaced code and configuration. Git preserves history; runtime fallbacks
 must not preserve an obsolete second brain indefinitely.
 
-## Planned face attribution and shared vision
+## Face attribution and shared vision
 
 The robot design target is a base Apple M2 with 16 GB unified memory. The
 [face attribution plan](docs/FACE_ATTRIBUTION_PLAN.md) defines automatic contextual
 face/name association, third-party introductions, stable temporal evidence, and
 a shared bounded camera pipeline for future pose/object consumers. Its budgets
-are proposed measurement gates. Only design and offline recognizer comparison
-preparation are implemented; no live face-ID model has been selected or loaded.
+remain proposed measurement gates. The dev-Mac core now implements the shared
+latest-frame camera path, SCRFD-10G/EdgeFace-S recognition, contextual name association,
+quality-gated persistent face references, targeted questions, corrections and deletion.
+A recognized face remains separate from the acoustic speaker. Robot direction,
+movement, camera calibration and whole-core M2 acceptance are still outstanding.

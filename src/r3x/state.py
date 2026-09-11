@@ -14,7 +14,7 @@ from .semantics import validate
 
 
 class CoreState:
-    def __init__(self, store, tracker, trace, frozen=False):
+    def __init__(self, store, tracker, trace, frozen=False, face_invalidator=None):
         self.store, self.tracker, self.trace = store, tracker, trace
         self.enrollments = {}
         self.evidence = {}
@@ -25,6 +25,9 @@ class CoreState:
         self.frozen = frozen
         self.faces = ()
         self.face_associations = {}
+        self.face_learning = {}
+        self.face_invalidator = face_invalidator
+        self.min_face_epoch = 0
 
     def cancel(self):
         # Stopping speech cancels dialogue work, not previously observed evidence.
@@ -74,12 +77,14 @@ class CoreState:
         if capture.parent_capture_id is not None:
             attribution = replace(attribution,learning_eligible=False)
         self.current = (turn_id,capture,transcript,observation,attribution)
-        self.faces = tuple(faces)
+        self.faces = tuple(f for f in faces if f.get("face_epoch",0)>=self.min_face_epoch)
+        faces = self.faces
         self.face_associations = {k:v for k,v in self.face_associations.items() if any(f["track_id"]==k for f in faces)}
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
         self.store.source(turn_id,capture,transcript,attribution,observation,track.person_id if track else None)
         self.forgotten = False
         self.learn_observation()
+        self.learn_faces()
         return attribution
 
     def identity_targets(self, name):
@@ -99,13 +104,15 @@ class CoreState:
         turn_id,capture,transcript,observation,attribution = self.current
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
         speaker_person = self.store.person(attribution.person_id) if attribution.person_id else None
+        from .face_attribution import public_face
         return {"source_turn_id":turn_id,"state_revision":self.store.revision,
                 "current_utterance":transcript.text,
                 "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
                 "speaker":{**asdict(attribution),"display_name":speaker_person["name"] if speaker_person else None},
                 "provisional_person_id":track.person_id if track else None,
                 "people":self.store.people(),"claims":self.store.claims(include_candidates=True),
-                "pending_question":self.pending,"faces":[{**f,"person_hypothesis":self.face_associations.get(f["track_id"])} for f in self.faces],
+                "pending_question":self.pending,"faces":[{**public_face(f),"person_hypothesis":self.face_associations.get(f["track_id"])} for f in self.faces],
+                "face_enrollment":[{"face_track_id":k,"person_id":v["person_id"]} for k,v in self.face_learning.items()],
                 "frozen_evaluation":self.frozen,
                 "transcript_trusted":transcript.trusted,
                 "acoustic_limits":{"overlap_detector":"window consistency only", "overlap":capture.overlap,
@@ -120,7 +127,7 @@ class CoreState:
         revision = self.store.revision
         try:
             validate(call.name,call.arguments)
-            if self.frozen and call.name not in {"recall","ask_question","settle_question","remain_silent"}:
+            if self.frozen and call.name not in {"recall","ask_question","ask_face_question","settle_question","remain_silent"}:
                 raise ValueError("FrozenEvaluationDisallowsMutation")
             with self.store.transaction() as conn:
                 cancel.check()
@@ -180,6 +187,10 @@ class CoreState:
             if args["subject_id"]:
                 self._person(args["subject_id"])
             return {"claims":self.store.claims(args["subject_id"])},False
+        if name == "ask_face_question":
+            if not any(f["track_id"]==args["face_track_id"] for f in self.faces):
+                raise ValueError("FaceEvidenceMissing")
+            return {"question":args["text"],"addressee_id":None,"face_track_id":args["face_track_id"]},False
         if name == "ask_question":
             if args["addressee_id"]:
                 self._person(args["addressee_id"])
@@ -189,6 +200,14 @@ class CoreState:
                 raise ValueError("NoDeliveredPendingQuestion")
             return {"status":args["status"]},False
         self._source_allowed(args,name)
+        if name == "reset_face_identity":
+            person = self._person(args["person_id"])
+            face = next((f for f in self.faces if f["track_id"]==args["face_track_id"]),None)
+            if face is None or person['id'] not in {face.get('identity'),self.face_associations.get(face['track_id'])}:
+                raise ValueError("FaceCorrectionNeedsCurrentAssociation")
+            conn.execute("DELETE FROM face_references WHERE person_id=?", (person['id'],))
+            conn.execute("INSERT OR IGNORE INTO face_learning_blocks VALUES(?)", (person['id'],))
+            return {"person_id":person['id'],"status":"face_references_removed"},True
         if name == "introduce_person":
             if args["face_track_id"] and not any(f["track_id"]==args["face_track_id"] for f in self.faces):
                 raise ValueError("FaceEvidenceMissing")
@@ -220,8 +239,30 @@ class CoreState:
                         raise ValueError("CompetingVoiceAssociation")
             if not person_id:
                 person_id = self.store.add_person(conn,name_text,args["aliases"],turn_id)
+            from .face_attribution import target_allowed, learning_samples
+            face = next((f for f in self.faces if f["track_id"]==args["face_track_id"]),None)
+            # The semantic owner may omit the face ID for an ordinary self-introduction.
+            if face is None and args['subject']=='self' and len(self.faces)==1:
+                face = self.faces[0]
+            competing = any(key!=attribution.track_id and 0<=capture.ended_at-track.last_at<=8
+                            for key,track in self.tracker.tracks.items())
+            allowed = face is not None and target_allowed(face,self.faces,args['subject'],attribution,self.pending,competing)
+            status, saved = 'no_face_target', 0
+            if face is not None:
+                status = 'ambiguous_face_target'
+                if face.get('identity') not in (None,person_id):
+                    allowed, status = False, 'conflicting_face_identity'
+                if allowed:
+                    conn.execute('DELETE FROM face_learning_blocks WHERE person_id=?', (person_id,))
+                    samples,status = learning_samples(face,capture,person_id,self.store)
+                    if samples:
+                        saved = self.store.save_faces(conn,person_id,samples,turn_id,
+                            {'subject':args['subject'],'said_by':attribution.person_id,'source_track':attribution.track_id,
+                             'face_track_id':face['track_id']})
+                        status = 'saved' if saved else 'already_saved'
             return {"person_id":person_id,"subject":args["subject"],"track_id":attribution.track_id if args["subject"]=="self" else None,
-                    "status":"hypothesis","face_track_id":args["face_track_id"]},True
+                    "status":"hypothesis","face_track_id":face['track_id'] if face else None,
+                    "face_status":status,"face_samples_saved":saved,"face_target_allowed":allowed},True
         if name == "record_claim":
             self._person(args["subject_id"])
             if args["kind"]=="third_party":
@@ -274,6 +315,7 @@ class CoreState:
             retired = self.store.person(person_id)["status"]=="provisional"
             if retired:
                 conn.execute("UPDATE people SET status='retracted' WHERE id=?",(person_id,))
+                conn.execute("DELETE FROM face_references WHERE person_id=?", (person_id,))
                 conn.execute("UPDATE claims SET status='retracted' WHERE subject_id=? AND status='candidate'",(person_id,))
             conn.execute("DELETE FROM voice_candidates WHERE person_id=?", (person_id,))
             return {"person_id":person_id,"track_id":args["track_id"],"status":"cancelled"},True
@@ -292,8 +334,23 @@ class CoreState:
 
     def _after(self,name,data):
         if name=="introduce_person" and data.get("face_track_id"):
-            self.face_associations[data["face_track_id"]] = data["person_id"]
-        if name in {"forget_person","cancel_association","rename_person"}:
+            key = data['face_track_id']
+            self.face_associations[key] = data["person_id"]
+            if data.get('face_target_allowed') and data['face_status']=='need_clear_compatible_views':
+                self.face_learning[key] = {'person_id':data['person_id'],'source_turn':self.current[0],
+                    'subject':data['subject'],'said_by':self.current[4].person_id,
+                    'source_track':self.current[4].track_id,'expires':self.current[1].ended_at+30}
+            else:
+                self.face_learning.pop(key,None)
+            if data.get('face_samples_saved'):
+                self.trace.emit('face_learning_saved',person_id=data['person_id'],samples=data['face_samples_saved'],revision=self.store.revision)
+        if name in {"forget_person","cancel_association","reset_face_identity"}:
+            self.face_learning = {k:v for k,v in self.face_learning.items() if v["person_id"]!=data.get("person_id")}
+            if self.face_invalidator:
+                self.min_face_epoch = self.face_invalidator()
+                self.face_learning.clear()
+                self.face_associations.clear()
+            self.faces = ()
             self.face_associations = {k:v for k,v in self.face_associations.items() if v!=data.get("person_id")}
         turn_id,capture,transcript,observation,attribution = self.current
         if name=="introduce_person" and data["subject"]=="self":
@@ -328,12 +385,49 @@ class CoreState:
             from .speakers import VoiceObservation,Attribution
             self.current = (turn_id,replace(capture,pcm=b""),transcript,
                             VoiceObservation(observation.namespace),Attribution(reason="person_forgotten"))
-        if name in {"introduce_person","cancel_association","rename_person","forget_person"}:
+        if name in {"introduce_person","cancel_association","rename_person","forget_person","reset_face_identity"}:
             self.trace.emit("association_result",source_turn_id=turn_id,revision=self.store.revision,operation=name,**data)
         if name=="settle_question":
             self.trace.emit("question_settled",source_turn_id=turn_id,**data)
         if name in {"settle_question","introduce_person","record_claim","correct_claim","cancel_association"}:
             self.pending = None
+
+    def learn_faces(self):
+        if self.frozen: return
+        from .face_attribution import learning_samples
+        turn,capture,transcript,observation,attribution = self.current
+        visible = {f['track_id']:f for f in self.faces}
+        self.face_learning = {k:v for k,v in self.face_learning.items() if k in visible and capture.ended_at<=v['expires']}
+        if not transcript.trusted or capture.echo_risk or observation.mixed or capture.overlap is True or capture.truncated or capture.parent_capture_id:
+            return
+        # A supported voice and sole clear face can associate an already named person
+        # without requiring another introduction. Competing recent voices veto this.
+        if attribution.person_id and len(self.faces)==1:
+            from .face_attribution import target_allowed
+            face = self.faces[0]
+            competing = any(k!=attribution.track_id and 0<=capture.ended_at-t.last_at<=8 for k,t in self.tracker.tracks.items())
+            samples = face.get('_samples',())
+            blocked = self.store.rows('SELECT person_id FROM face_learning_blocks WHERE person_id=?', (attribution.person_id,)) if samples else []
+            if (samples and not blocked and face.get('identity') in (None,attribution.person_id) and
+                target_allowed(face,self.faces,'self',attribution,None,competing) and
+                not self.store.face_profiles(samples[0].namespace).get(attribution.person_id)):
+                self.face_learning.setdefault(face['track_id'], {'person_id':attribution.person_id,
+                    'source_turn':turn,'subject':'self','said_by':attribution.person_id,
+                    'source_track':attribution.track_id,'expires':capture.ended_at+30})
+        for key,proposal in list(self.face_learning.items()):
+            if proposal['subject']=='self' and attribution.track_id!=proposal['source_track']: continue
+            samples,reason = learning_samples(visible[key],capture,proposal['person_id'],self.store)
+            if not samples:
+                if reason!='need_clear_compatible_views': self.face_learning.pop(key,None)
+                continue
+            try:
+                with self.store.transaction() as conn:
+                    saved = self.store.save_faces(conn,proposal['person_id'],samples,proposal['source_turn'],proposal)
+                    revision = self.store.advance(conn) if saved else self.store.revision
+                self.face_learning.pop(key,None)
+                self.trace.emit('face_learning_saved',person_id=proposal['person_id'],samples=saved,revision=revision)
+            except Exception as exc:
+                self.trace.emit('face_learning_failed',error_type=type(exc).__name__)
 
     def learn_observation(self):
         # A storage failure must not discard the user's words or kill listening.
@@ -401,6 +495,7 @@ class CoreState:
                 self.evidence.pop(proposal.track_id, None)
                 self.trace.emit("voice_learning_saved",person_id=proposal.person_id,samples=len(proposal.samples),revision=revision)
 
-    def question_delivered(self,text,addressee_id,completed_at):
+    def question_delivered(self,text,addressee_id,completed_at,face_track_id=None):
         self.pending = {"text":text,"addressee_id":addressee_id,"delivered_at":completed_at}
+        if face_track_id: self.pending["face_track_id"] = face_track_id
         self.trace.emit("question_delivered",**self.pending)

@@ -5,7 +5,7 @@ tracker, one state executor, and one speech output owner.
 
 **Status: the core runtime is implemented; identification and live acceptance remain incomplete.**
 Microphone input, Qwen ASR, CAM++ tracks and natural enrollment, semantic identity
-and memory tools, persistent attributed claims, optional camera presence, frozen
+and memory tools, persistent attributed claims, optional persistent face recognition, frozen
 saved-audio replay, and profile maintenance are implemented. The full robot and
 slice-5 feature expansion are outside this build. V2 remains separate and unchanged.
 
@@ -20,7 +20,7 @@ and model files. From this checkout, when ready to test:
 
 ```sh
 .venv/bin/python -m r3x live
-# Optional group test: camera presence and WAV retention for human labeling.
+# Face recognition and optional WAV retention for human labeling.
 .venv/bin/python -m r3x live --camera --record-evaluation
 ```
 
@@ -73,9 +73,14 @@ evidence for the coverage tradeoff and unresolved overlap/boundary limitations.
 `local/settings.toml` contains the selected Mac microphone and camera names.
 [settings.example.toml](settings.example.toml) documents every setting and default.
 Names must resolve uniquely; the camera uses a fresh AVFoundation enumeration at
-explicit startup. Its baseline is 640×480 at 30 fps, with face detection at most
-2 fps. Face tracks provide coarse presence only, with no facial recognition or
-mouth-motion processing. Live camera/device compatibility remains to be checked.
+explicit startup. Capture requests 1280×720 at 30 fps; a separate worker analyzes the latest frame
+at most twice per second using pinned SCRFD-10G and EdgeFace-S on one CPU thread.
+Clear compatible views can become persistent face references through introductions
+or a supported voice with a sole prominent face. Third-party introductions keep the
+introducer's voice separate. Face identity never overrides acoustic identity.
+See the [face implementation and limits](docs/FACE_ATTRIBUTION_PLAN.md#implemented-dev-mac-face-path).
+Live device compatibility, robot-camera calibration and combined-load M2 performance
+remain to be checked. No mouth-motion processing is used.
 
 Credentials and the selected Rex voice are in ignored `local/secrets.toml`.
 `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID` override those
@@ -103,11 +108,16 @@ python3.11 -m venv .venv
 .venv/bin/python tools/prepare_core_models.py
 ```
 
-`prepare_core_models.py` verifies/downloads the pinned public CAM++ and optional
-face-presence assets; it does not run inference or open devices. The resolved
+`prepare_core_models.py` verifies/downloads the pinned public CAM++ assets; it does not run inference or open devices. The resolved
 Apple Silicon environment is locked in `requirements-live.txt`; selected direct
 dependencies are in `requirements-live.in`. Core imports and ordinary checks use
 only the standard library. An editable checkout is required.
+
+Face assets on this Mac are already prepared. A fresh setup reuses the offline
+comparison cache with `.venv/bin/python tools/prepare_face_models.py`; see the face
+plan for cache preparation. Startup verifies digests and never silently substitutes
+a detector or downloads models. `samples/` stays ignored and is not automatically
+enrolled into the live database.
 
 ## Check and inspect
 
@@ -160,8 +170,8 @@ memory writes, not a feature count or a smaller file count alone.
 - Real microphone capture, batch transcription, and Rex's actual spoken replies.
 - One speaker tracker covering both named and unnamed voices; one-to-three-person
   sessions, with two-person dev-Mac testing first.
-- Basic camera face presence and stable tracks for group context; no mouth-motion
-  input to identity, enrollment, or learning permission.
+- Camera face recognition, stable visual tracks and persistent name associations;
+  no mouth-motion input to identity, enrollment, or learning permission.
 - Natural introductions and corrections interpreted by the conversational model.
 - A small, separate SQLite store for participants, source turns, claims, and
   accepted voice recordings; recall and correction must work after a restart.
@@ -243,7 +253,7 @@ An introduction can use earlier matching audio, and unfinished groups survive
 restart for up to 24 hours. See [enrollment evidence](docs/CORE_OPERATIONS.md#conversational-enrollment-evidence)
 for thresholds, retention, correction behavior, and remaining calibration limits.
 
-Face recognition is being designed for the robot's base **M2/16 GB**, with a shared
-camera pipeline for later pose/object consumers. The [face attribution plan](docs/FACE_ATTRIBUTION_PLAN.md)
-contains the resource targets and prepared offline comparison tools. Current live
-camera behavior is still presence-only; the research recognizer is not loaded by live.
+Face recognition now uses SCRFD-10G and EdgeFace-S when `--camera` is enabled,
+with persistent face/name associations and a shared pipeline for future pose/object
+consumers. The [face attribution plan](docs/FACE_ATTRIBUTION_PLAN.md) records the
+implementation, provisional thresholds, evidence and remaining M2/16 GB acceptance.

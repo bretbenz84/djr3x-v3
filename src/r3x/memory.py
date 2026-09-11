@@ -17,6 +17,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 INSERT OR IGNORE INTO meta VALUES('schema','1');
 INSERT OR IGNORE INTO meta VALUES('revision','0');
+INSERT OR IGNORE INTO meta VALUES('face_schema','1');
 CREATE TABLE IF NOT EXISTS people(
  id TEXT PRIMARY KEY, name TEXT NOT NULL, aliases TEXT NOT NULL, status TEXT NOT NULL,
  source_turn TEXT, import_ref TEXT);
@@ -39,6 +40,13 @@ CREATE TABLE IF NOT EXISTS embeddings(
 CREATE TABLE IF NOT EXISTS voice_candidates(
  track_id TEXT PRIMARY KEY, person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
  namespace TEXT NOT NULL, updated_at REAL NOT NULL, evidence TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS face_learning_blocks(
+ person_id TEXT PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS face_references(
+ id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+ namespace TEXT NOT NULL,digest TEXT NOT NULL,aligned BLOB NOT NULL,original BLOB NOT NULL,
+ vector TEXT NOT NULL,metadata TEXT NOT NULL,source_turn TEXT NOT NULL REFERENCES turns(id),
+ UNIQUE(namespace,digest));
 CREATE TABLE IF NOT EXISTS operations(
  request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,result TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS originals(
@@ -91,6 +99,9 @@ class Memory:
         row = self.connection.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
         if not row or row[0]!="1":
             raise ValueError("UnsupportedMemorySchema")
+        face = self.connection.execute("SELECT value FROM meta WHERE key='face_schema'").fetchone()
+        if face and face[0]!="1":
+            raise ValueError("UnsupportedFaceSchema")
 
     def close(self):
         with self.lock:
@@ -181,6 +192,34 @@ class Memory:
             profiles.setdefault(row["person_id"], []).append(tuple(json.loads(row["vector"])))
         return profiles
 
+    def face_profiles(self, namespace):
+        profiles = {}
+        for row in self.rows("SELECT f.person_id,f.vector FROM face_references f JOIN people p ON p.id=f.person_id WHERE namespace=? AND p.status NOT IN ('retracted','suspect')", (namespace,)):
+            profiles.setdefault(row["person_id"], []).append(tuple(json.loads(row["vector"])))
+        return profiles
+
+    def save_faces(self, conn, person_id, samples, source_turn, association):
+        from dataclasses import asdict
+        count = conn.execute("SELECT count(*) FROM face_references WHERE person_id=?", (person_id,)).fetchone()[0]
+        saved = 0
+        for sample in samples:
+            if count >= 6: break
+            if not sample.eligible or sample.vector is None or not sample.original or not sample.aligned:
+                raise ValueError("FaceSampleNotEligible")
+            digest = hashlib.sha256(sample.aligned).hexdigest()
+            previous = conn.execute("SELECT person_id FROM face_references WHERE namespace=? AND digest=?", (sample.namespace,digest)).fetchone()
+            if previous:
+                if previous[0] != person_id: raise ValueError("FaceCropAlreadyAssigned")
+                continue
+            metadata = {k:v for k,v in asdict(sample).items() if k not in {"vector","aligned","original"}}
+            metadata.update(association=association, original_sha256=hashlib.sha256(sample.original).hexdigest(),
+                            acceptance="explicit_semantic_target_and_compatible_quality_views", revision=self.revision+1)
+            conn.execute("INSERT INTO face_references VALUES(?,?,?,?,?,?,?,?,?)", (uuid4().hex,person_id,sample.namespace,
+                digest,sample.aligned,sample.original,json.dumps(sample.vector),json.dumps(metadata),source_turn))
+            saved += 1
+            count += 1
+        return saved
+
     def save_voice(self, conn, person_id, samples, namespace):
         count = conn.execute("SELECT count(*) FROM recordings WHERE person_id=?",(person_id,)).fetchone()[0]
         for sample in samples:
@@ -215,6 +254,7 @@ class Memory:
             evidence = json.loads(row[1])
             if evidence.get("attribution",{}).get("person_id") == person_id or evidence.get("association_person_id")==person_id:
                 affected.add(row[0])
+        affected.update(row[0] for row in conn.execute("SELECT source_turn FROM face_references WHERE person_id=?", (person_id,)))
         person = conn.execute("SELECT source_turn FROM people WHERE id=?",(person_id,)).fetchone()
         if person:
             affected.add(person[0])

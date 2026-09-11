@@ -306,3 +306,24 @@ dataset split separation, wrong-name and abstention accounting. Face-model parit
 real-image discrimination, detector/alignment, M2 memory and combined visual load
 remain outstanding. RF-DETR is a future comparison reference, not a v3 selection;
 the user reports frequent errors. See [face plan](docs/FACE_ATTRIBUTION_PLAN.md).
+
+The saved-video diagnostic inspects the installed v2 InsightFace SCRFD decoder
+(strides 8/16/32, two anchors, box/keypoint distances, RGB normalization and NMS)
+as an algorithm reference. V2 remained clean at
+`9806c74fd233a7118da88ca5ae55fb7450deec05`. The new file-only helper owns its own
+ONNX session and bounded frame sampling, loads only the independently copied v3
+model, and does not import v2. Static least-squares similarity alignment is checked
+with synthetic identity/scale/translation inputs. Real extracted crops were visually
+reviewed. Exact native-reference parity and robot validation remain outstanding;
+no camera, audio playback, microphone, or personal database was operated.
+
+
+The authorized live-face implementation promotes this v3 SCRFD decoder/alignment
+into `src/r3x/adapters/face.py`; the offline tool imports that same implementation.
+EdgeFace-S uses the previously downloaded pinned challenger, not v2 runtime code.
+The presence-only Haar path is retired. Public SCRFD/EdgeFace files were copied
+independently from v3's comparison cache to `local/models/faces/`, with provenance
+and digest verification; no additional v2 extraction or personal-data import occurred.
+Focused state/tracking/storage checks and real saved-media results are recorded in
+[face implementation evidence](docs/FACE_ATTRIBUTION_PLAN.md#implementation-evidence-and-remaining-acceptance).
+Camera/robot hardware and M2 combined-load validation remain outstanding.
