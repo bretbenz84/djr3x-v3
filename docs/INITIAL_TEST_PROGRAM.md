@@ -676,3 +676,19 @@ No microphone, camera, playback, hosted model, or real-model saved-audio check w
 used for this change. Real Bret/Jeff discrimination, wrong-person attribution,
 abstention, and end-to-end latency remain live/held-out acceptance work. The older
 runs were not retroactively enrolled or edited. No new model/dependency was added.
+
+### Face design and comparison preparation (September 10, 2026)
+
+[Face attribution plan](FACE_ATTRIBUTION_PLAN.md) records the base M2/16 GB target,
+automatic contextual face/name association (including third-party introductions),
+recency with contradiction handling, shared visual frames, tentative resource
+budgets and phased acceptance. Live face identification has not been implemented.
+
+Five public v2 model assets were independently copied without downloads or profile
+imports. A CPU ONNX aligned-crop harness now records resource use, known-person
+accuracy, unknown false accepts and abstention with camera/native-face-size groups.
+A real ArcFace model ran only on generated pixels: M5 Pro one-thread warm median
+45.48 ms, p95 46.04 ms, process lifetime peak 481.45 MiB. This excludes detection and
+other models and provides no identity accuracy or M2 readiness evidence. The
+blocked-I/O suite passes 119 checks. Representative face images, preprocessing
+parity and M2/combined-load validation remain pending; no camera/audio was operated.

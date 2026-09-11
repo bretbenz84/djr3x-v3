@@ -242,3 +242,8 @@ Voice enrollment now accumulates clean unnamed speaker groups before introductio
 An introduction can use earlier matching audio, and unfinished groups survive
 restart for up to 24 hours. See [enrollment evidence](docs/CORE_OPERATIONS.md#conversational-enrollment-evidence)
 for thresholds, retention, correction behavior, and remaining calibration limits.
+
+Face recognition is being designed for the robot's base **M2/16 GB**, with a shared
+camera pipeline for later pose/object consumers. The [face attribution plan](docs/FACE_ATTRIBUTION_PLAN.md)
+contains the resource targets and prepared offline comparison tools. Current live
+camera behavior is still presence-only; the research recognizer is not loaded by live.

@@ -287,3 +287,22 @@ Intermediate commentary is not spoken, returned phases are preserved for tool
 continuations, and final answers retain the streaming path. Real hosted-model
 checks cover introductions, corrections, reference ambiguity and failed writes;
 no old semantic handler ladder or secondary classifier was extracted.
+
+### Face comparison preparation (September 10, 2026)
+
+Source revision `9806c74fd233a7118da88ca5ae55fb7450deec05`, clean at inspection.
+Inspected `config.py`, `vision/face.py`, `vision/pose.py`,
+`vision/animal_detector.py` and the installed InsightFace `arcface_onnx.py` input
+normalization. Reused only the five public model files enumerated by
+`tools/prepare_visual_assets.py`; copied independently to
+`local/models/visual-bench/`, with exact bytes, source paths and SHA-256 in its
+`assets.json`. No personal profiles, images, v2 globals or fallback chains copied.
+
+The offline recognizer harness preserves explicit RGB/NCHW 112 input normalization,
+CPU ONNX execution and unit embeddings, using v3's existing OpenCV/NumPy/ONNX Runtime.
+Generated-pixel inference checks lifecycle/resource reporting, not accuracy or
+preprocessing parity on faces. Contract tests verify copy independence, integrity,
+dataset split separation, wrong-name and abstention accounting. Face-model parity,
+real-image discrimination, detector/alignment, M2 memory and combined visual load
+remain outstanding. RF-DETR is a future comparison reference, not a v3 selection;
+the user reports frequent errors. See [face plan](docs/FACE_ATTRIBUTION_PLAN.md).
