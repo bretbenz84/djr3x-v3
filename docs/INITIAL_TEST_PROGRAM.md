@@ -5,17 +5,23 @@ acceptance remain open. The user explicitly requested completing the core overni
 before the next live test, so implementation continued past the original slice-1
 live gate without claiming that gate had passed. Slice 5 and the full robot remain
 deferred. [Operations](CORE_OPERATIONS.md) contains the current commands.
+The September 12 [proactive conversation design](PROACTIVE_CONVERSATION.md) adds
+broader initiative to core design and acceptance, not to the implemented feature
+list. Historical slice evidence below retains its original scope.
 
 ## The first question to answer
 
 Can Rex conduct an ordinary conversation with Bret and Jeff, distinguish speakers
 when the evidence supports it, handle uncertainty naturally, and preserve a few
-correctly attributed memories across a restart?
+correctly attributed memories across a restart—and contribute welcome humor,
+warmth and initiative without waiting for someone to speak first every time?
 
 The first program is a replacement-core experiment with real microphone input and
 Rex's voice. A typed chat demo is useful for plumbing but cannot answer this question.
 No motors, decorative servo control, or games are needed. The explicitly authorized
-face-arrival greetings below are the limited proactive addition to this core.
+face-arrival greetings below are the currently implemented proactive entry point.
+Broader participation is developed with the core under the September 12 design;
+it does not require importing every v2 behavior or provider first.
 
 ## Implementation slices
 
@@ -25,7 +31,7 @@ face-arrival greetings below are the limited proactive addition to this core.
 | 1. Audible loop | Capture, batch ASR, main model reply, ElevenLabs adapter, single output owner, cancellation, original/played-text trace | A real spoken exchange works; speech completion and failures are visible; only selected models load |
 | 2. Speaker evidence | Labeled-audio replay, session tracks, enrolled profile copies, unknown option, change/overlap diagnostics | Distinguish encoder, segmentation, and decision-rule failures; establish a held-out Bret/Jeff baseline |
 | 3. Meaning and memory | Basic camera tracks, identity/reference tools, pending questions as context, claim store, correction and recall | Full introduced-person/correction scenarios run through the real core; persistence survives restart correctly |
-| 4. Group acceptance | Repeated dev-Mac sessions, saved-audio replay, load/failure tests, diagnostics review | Freeze and satisfy the declared evaluation gates, or identify a specific remaining limitation |
+| 4. Group acceptance | Repeated dev-Mac sessions, saved-audio replay, load/failure tests, diagnostics review; September 12 proactive policy and scenarios developed alongside the core | Freeze and satisfy the declared evaluation gates, including welcome initiative and sensitive restraint, or identify a specific remaining limitation |
 | 5. Controlled expansion | One additional useful capability through typed tool/results | Its addition preserves prior group, memory, delivery, and latency gates; retire any replaced implementation |
 
 Begin speaker data collection as soon as slice 1 works; do not finish a GUI or rich
@@ -163,7 +169,7 @@ underruns, device shutdown, and voice consistency across phrase requests. There 
 live conversation, speaker-discrimination, or group-acceptance result yet. The original sequencing constraint was superseded by the user's overnight core-build
 request; the live gate remains open despite later implementation.
 
-## Core implementation evidence: slices 2–4
+## Core implementation evidence: slices 2-4
 
 September 10, 2026. V3 working tree based on `47a1507`; it was clean before this
 implementation. V2 was reverified clean at
@@ -432,6 +438,48 @@ implementing. Use actual speech for the final acceptance pass.
 Deliberate false self-identification is a limit to document, not something a cosine
 threshold or text model can solve universally. The prototype learns a voice-to-claimed-
 identity association; it is not legal identity verification.
+
+## Proactive conversation acceptance
+
+September 12 design additions: these are scenarios to implement and evaluate,
+not passing results. Use the [shared proactive policy](PROACTIVE_CONVERSATION.md)
+through production Session, preserving the same attribution and delivery rules.
+
+| Scenario | Required outcome |
+| --- | --- |
+| Known or unknown visitor arrives without speaking | A suitable greeting/invitation is possible; identity uncertainty remains explicit |
+| Tired person is receptive to light conversation | Rex can offer warmth or low-pressure humor; a short answer must not mechanically suppress initiative |
+| Grief, distress or a serious disclosure | Sensitive acknowledgment/listening, no forced joke or demand to become cheerful |
+| Explicit request for quiet or to drop a subject | Honor its meaning and scope; camera-facing or another person's reply cannot erase that boundary |
+| Thinking pause versus completed topic | Preserve unfinished thoughts; a genuine lull can permit a relevant contribution |
+| Human asks another human a question | Rex leaves the intended respondent the floor even when he could answer |
+| Humans discuss Rex, then address him directly | Contextual restraint or a well-timed brief contribution; normal re-engagement when addressed |
+| One quiet and one engaged participant | Individual context remains separate; no shared energy label or compulsory equal-turn invitation |
+| Relevant topic and unrelated cue are both available | The model can continue the topic; fixed category order must not permanently hide relevant opportunities |
+| Repeated invitations go unanswered | Reduce initiative without a canned demand for reassurance; a meaningful new opening can still be considered |
+| Human speech is unrelated to the last invitation | Do not automatically mark the invitation answered or reset all pacing limits |
+| Camera flicker or an unchanged scene | No repeated arrivals or novelty claims; uncertain objects remain uncertain |
+| Private fact or celebration in a group | Preserve source attribution and appropriate audience discretion |
+| Cancelled, failed or stale proactive output | No false greeting/question completion or inference that a person ignored unheard speech |
+| Same topic offered with different wording | Recognize repetition; distinguish a useful follow-up from asking again |
+
+Separate deterministic contracts (freshness, boundaries represented in state,
+revision validation, outcome bookkeeping, bounded queues) from semantic judgments
+that require actual model calls and human review. Test paraphrases and group
+sequences, including receptive quiet people and serious conversations. No automatic
+test should claim a joke improved someone's mood.
+
+In live sessions, annotate both unwelcome interruptions/repetition and missed welcome
+opportunities. Record offered, selected, declined, cancelled and delivered counts,
+participant responses, unsolicited question load, target errors, and observer/user
+ratings of relevance, warmth, humor and timing. Report disagreements and denominators;
+zero interruptions achieved by permanent silence is not acceptance. Numerical gates
+for this new policy remain to be agreed before its evaluation, not invented here.
+
+Measure proactive model calls/cost, decision-to-audio time, impact on ordinary-reply
+median/p95 latency, microphone responsiveness, memory and cancellation under combined
+load. Existing playback echo gating still prevents validated human barge-in during
+Rex's audio. Saved replay cannot establish that physical limitation is resolved.
 
 ## Delivery, lifecycle, and failure scenarios
 

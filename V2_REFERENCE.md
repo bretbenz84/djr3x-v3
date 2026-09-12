@@ -335,3 +335,28 @@ name invitations. V3 uses its existing LLM conversation owner, history, face sta
 and output receipts instead of copying static v2 greeting handlers. No v2 source,
 profile or model asset was extracted for this change. The face plan records the
 151 blocked-I/O checks, three hosted text-only cases and outstanding live validation.
+
+### Proactive behavior review (September 12, 2026)
+
+Read-only review at `9806c74fd233a7118da88ca5ae55fb7450deec05`, clean working tree.
+No source was extracted, no personal data imported, and no tests, providers or
+hardware were run. This records design lessons, not a new runtime integration.
+Effective live overrides were not inspected. The
+[proactive core design](docs/PROACTIVE_CONVERSATION.md) incorporates the user's
+goal of delight and mood improvement with sensitivity rather than energy mirroring.
+
+| Current v2 source | Lesson for v3 |
+| --- | --- |
+| `intelligence/lean_brain.py::consider_initiating`, `_render_option` | One LLM can choose a cue, freeform contribution or PASS; retain that choice and concise grounded material |
+| `intelligence/interaction.py::_collect_lean_cue_candidates` | Fixed ordering and a three-candidate default cap can hide relevant lower entries; make bounded opportunity selection and omissions inspectable |
+| `intelligence/interaction.py::_maybe_lean_impulse` | Preserve bounded consults, stale-revision rejection and delivery outcomes; avoid rebuilding its timer ladder and compulsory engagement probes |
+| `intelligence/interaction.py::_lean_impulse_addressee`, `_lean_impulse_person_present` | Recent/most-frequent speaker is not always the audience; any recent human speech must not establish a particular target's presence |
+| `intelligence/user_energy.py::note_user_turn`, `_classify` | The current singleton discards person ID and interprets short replies through heuristics; do not transplant room-wide energy matching into group conversation |
+| `intelligence/consciousness.py::_step_group_turn_taking`, `_step_overheard_chime_in` | Preserve optional topical inclusion and awareness that people may discuss Rex; let the shared model decide participation without quotas or random sentiment-based triggers |
+| `intelligence/consciousness.py` presence, wave, room-change, held-object and reaction steps; `intelligence/idle_behaviors.py` | Preserve useful observations and character ideas, not independent speech authorities; some legacy purposes are suppressed by Lean and others use separate paths |
+| `intelligence/interaction.py::_lean_celebration_cue`, `_lean_news_cue`; `awareness/current_events.py` | Current code includes celebration cues and cached general/interest news; retain discretion, provenance, dates and delivery-based deduplication when these capabilities are implemented |
+| `awareness/situation.py`, `intelligence/action_governor.py` | Separate hard availability/evidence gates from social interpretation; one shared conversation/output path replaces competing reactive arbitration |
+
+V3 behavior and source-preserving acceptance are specified in
+[proactive acceptance](docs/INITIAL_TEST_PROGRAM.md#proactive-conversation-acceptance).
+No v2 runtime dependency, new model, configuration or API contract was added.

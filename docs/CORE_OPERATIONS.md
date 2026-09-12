@@ -353,6 +353,12 @@ new provider, microphone operation, or camera operation was added.
 
 ## Proactive face greetings
 
+This section describes implemented behavior. The September 12
+[proactive conversation design](PROACTIVE_CONVERSATION.md) makes broader initiative
+part of core development, with delight and sensitive mood improvement as goals.
+Its broader lull, group-awareness and outcome policies remain planned; they add
+no new command, setting or runtime behavior in this documentation update.
+
 The normal `live --camera` runner now allows a stable face arrival to prompt the
 existing conversation model. It can greet a recognized person using their name
 and accepted memory, invite an unfamiliar person's name, or remain silent based

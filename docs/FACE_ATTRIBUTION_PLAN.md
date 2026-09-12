@@ -5,6 +5,12 @@ selected with the user's authorization after the saved-media comparison. It is
 ready for live testing, not accepted on robot hardware. The robot target remains
 **base Apple M2 / 16 GB**; M5 Pro measurements cannot establish M2 readiness.
 
+The September 12 [proactive conversation design](PROACTIVE_CONVERSATION.md) places
+face arrivals within a shared policy for replies and initiative. That broader
+policy is planned; implemented face gates below remain unchanged. Visibility can
+support considering a greeting, but does not prove willingness to engage or identify
+the acoustic speaker. Social interpretation belongs to the conversation owner.
+
 ## Behavior to build
 
 Maintain separate people, acoustic groups, visual tracks, and face/voice/name

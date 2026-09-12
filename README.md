@@ -145,6 +145,7 @@ latency/resource observations. A clean synthetic suite is not Bret/Jeff acceptan
 | Document | What it answers |
 | --- | --- |
 | [DESIGN.md](DESIGN.md) | Who makes each decision, how turns flow, how identity and memory work, and which choices remain proposals. |
+| [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex should initiate, delight and participate sensitively as part of the core; approved design, broader implementation pending. |
 | [Initial test program](docs/INITIAL_TEST_PROGRAM.md) | What to build first, how to exercise it with Bret and Jeff, and what evidence is needed before expansion. |
 | [V2_REFERENCE.md](V2_REFERENCE.md) | Where to recover working integrations, field failures, model constraints, and useful tests without importing the old architecture. |
 | [AGENTS.md](AGENTS.md) | Development rules for people and coding agents working in this repository. |
@@ -165,6 +166,13 @@ This is a replacement core, not a promise to reproduce every v2 feature before
 the first usable release. Progress is measured in actual conversations and sound
 memory writes, not a feature count or a smaller file count alone.
 
+Rex should delight, make people laugh and help improve their mood. Emotional
+awareness guides sensitivity rather than mechanically matching low energy; grief,
+distress and explicit boundaries call for a different response. Proactive and
+reactive conversation share one owner and are developed and evaluated together.
+The [proactive design](docs/PROACTIVE_CONVERSATION.md) extends the implemented
+face-arrival path; broader conversational initiative remains planned.
+
 ## First usable program
 
 - Real microphone capture, batch transcription, and Rex's actual spoken replies.
@@ -173,6 +181,8 @@ memory writes, not a feature count or a smaller file count alone.
 - Camera face recognition, stable visual tracks and persistent name associations;
   no mouth-motion input to identity, enrollment, or learning permission.
 - Natural introductions and corrections interpreted by the conversational model.
+- Context-sensitive initiative and group participation, designed alongside replies;
+  face arrivals are implemented, broader proactive acceptance is pending.
 - A small, separate SQLite store for participants, source turns, claims, and
   accepted voice recordings; recall and correction must work after a restart.
 - A minimal diagnostic view or terminal trace explaining speaker evidence, model

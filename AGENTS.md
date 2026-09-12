@@ -73,8 +73,14 @@ reach back into v2 through sys.path changes, symlinked mutable state, or imports
   session globals and hidden work launched by imports or callback side effects.
 - Provider errors become structured results. Never acknowledge a save, action, or
   completed speech before its executor reports the relevant success.
-- Freeze feature expansion while the core is being evaluated. Log new ideas as
-  deferred work rather than implementing them opportunistically.
+- Proactive participation is part of the conversational core, designed and evaluated
+  with replies, attribution and memory; read docs/PROACTIVE_CONVERSATION.md for the
+  September 12 direction. Delight and mood improvement are goals; emotional awareness
+  guides sensitivity, not automatic energy matching. The broader policy is not yet
+  implemented and this documentation alone does not authorize implementation.
+- Keep unrelated feature expansion frozen during core evaluation. New perception,
+  external feeds and hardware behaviors need scoped work rather than opportunistic
+  implementation; route eventual opportunities through the same conversation owner.
 
 ## Data boundaries
 

@@ -11,6 +11,8 @@ unmeasured thresholds are distinguished below; the full robot is outside this bu
 | Status | Decision |
 | --- | --- |
 | User requirement | Start independently in the new v3 repository and preserve knowledge from v2. |
+| User requirement | Delight, make people laugh and help improve their mood; emotional awareness guides sensitivity rather than automatic mood mirroring. |
+| User requirement | Develop proactive participation with the conversational core; the same model decides replies, initiative and silence. Broader policy is designed, not yet implemented. |
 | User requirement | Learn voices through ordinary conversation and association; retain accepted original audio for later model migration. |
 | User requirement | Never use mouth-motion detection for speaker identity or enrollment. |
 | User requirement | Support one-to-three visible people, including a dev Mac with no directional audio. |
@@ -283,7 +285,9 @@ different record types; generated impersonation text is not biographical evidenc
 
 Use parameterized transactions with one write owner and idempotent operations.
 Keep memory lookup small and deterministic initially. Semantic embeddings, large
-summaries, relationship scoring, and autonomous memory-driven commentary are deferred.
+summaries and relationship scoring remain deferred. Contextual follow-ups from
+accepted claims belong in the proactive core design; their broader implementation
+is pending, with source attribution and audience discretion preserved.
 Forgetting includes dependent recordings, derived references, and pending proposals;
 the active store and retrieval must stop exposing deleted personal information.
 
@@ -301,6 +305,15 @@ request can supersede it. No onboarding mini-program owns future speech by defau
 Give Rex his existing character through a reviewed persona prompt and examples.
 Do not restore serial mood/comedy/governor layers that reinterpret the model's
 answer. Features propose context or tools; they cannot force a separate response.
+
+Rex aims to delight and lift the mood without forcing cheerfulness. Low energy or
+a short answer does not automatically mean no humor or initiative; grief, distress
+and explicit boundaries call for sensitive listening. Proactive participation is
+part of this same core, including the meaning of pauses, human-to-human exchanges,
+individual receptiveness and actual outcomes of Rex's invitations. See
+[proactive conversation](docs/PROACTIVE_CONVERSATION.md) for the approved design,
+behavior examples and implementation boundaries. No separate energy classifier,
+continuous planner or mandatory extra generation is proposed.
 
 Participation is decided by this same model call. `remain_silent` is an explicit
 per-turn tool result, with no TTS and no result-continuation generation. The completed
@@ -380,7 +393,11 @@ Deterministic arrival/cooldown and listening gates control opportunities, not wo
 Visual events cannot save facts or enroll people, and spoken question delivery
 still goes through the sole output owner. See the
 [operating policy](docs/CORE_OPERATIONS.md#proactive-face-greetings) and face plan
-for evidence and remaining live acceptance. Broader autonomous behaviors remain deferred.
+for evidence and remaining live acceptance. The September 12
+[proactive core design](docs/PROACTIVE_CONVERSATION.md) supersedes treating broader
+conversational initiative as a separate later layer. That broader runtime remains
+unimplemented; additional perception, external feeds and physical autonomy remain
+separate capability work.
 
 September 11 voice calibration now admits clean one-second clips into conversational
 accumulation while retaining three clips/eight voiced seconds for enrollment.
