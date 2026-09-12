@@ -470,3 +470,21 @@ assets or dependencies changed; prior saved-media resource measurements are not
 new measurements of this feature. Live greeting timing, social repetition, overlap
 behavior and whole-core M2 resource acceptance remain open. The existing playback
 echo window still limits recognition of human speech overlapping Rex's audio.
+
+### Short self-introduction correction (September 11, 2026)
+
+A live run exposed an incorrect dependency: a clean 1.34-second self-introduction
+had a usable speaker track but could not save the sole visible face because voice
+training requires two seconds per sample. Explicit semantic self-introductions now
+allow face learning with an accepted acoustic track and consistent windows without
+requiring voice-training duration. Passive voice-to-face learning keeps its existing
+gate. Sole-face continuity, frame area, no recent competing speaker, trusted source,
+no overlap/echo/direction conflict and compatible quality-gated face samples remain
+required. Voice enrollment thresholds and saved identities are unchanged.
+
+153 blocked-I/O tests pass, including short-introduction persistence across restart
+without voice enrollment and rejection of ambiguous visual/acoustic evidence. The
+regression uses synthetic face/voice vectors and the observed live speech duration;
+it does not establish real-model accuracy. No camera or audio output was operated,
+and no face was retroactively inserted into the personal database. Live enrollment
+with the correction remains to be checked.

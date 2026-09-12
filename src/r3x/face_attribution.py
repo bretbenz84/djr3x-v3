@@ -7,11 +7,18 @@ def public_face(row):
     return {key:value for key,value in row.items() if not key.startswith('_')}
 
 
-def target_allowed(face, faces, subject, attribution, pending, recent_competitor=False):
+def target_allowed(face, faces, subject, attribution, pending, recent_competitor=False,
+                   introduction_source=False):
     if subject == 'self':
+        # A short, clean introduction can identify the sole visible face without
+        # supplying enough audio to train a voice profile. Passive learning keeps
+        # its existing acoustic eligibility gate.
+        source_allowed = attribution.learning_eligible or (
+            introduction_source and attribution.track_id is not None and
+            attribution.reason in {'session_track', 'acoustic_match'})
         return bool(face.get('sole_face_throughout') and len(faces)==1 and
             face.get('box',[0,0,0,0])[2]*face.get('box',[0,0,0,0])[3]>=.025 and
-            attribution.learning_eligible and not recent_competitor)
+            source_allowed and not recent_competitor)
     # A targeted delivered question or a uniquely presented face permits an introducer to answer.
     if pending and pending.get('face_track_id')==face['track_id']: return True
     if len(faces)==1: return True

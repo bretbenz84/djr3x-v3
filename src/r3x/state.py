@@ -280,7 +280,10 @@ class CoreState:
                 face = self.faces[0]
             competing = any(key!=attribution.track_id and 0<=capture.ended_at-track.last_at<=8
                             for key,track in self.tracker.tracks.items())
-            allowed = face is not None and target_allowed(face,self.faces,args['subject'],attribution,self.pending,competing)
+            consistent_intro = (not observation.direction_conflict and observation.consistency is not None and
+                                observation.consistency>=self.tracker.policy.track_threshold)
+            allowed = face is not None and target_allowed(face,self.faces,args['subject'],attribution,self.pending,
+                                                          competing,introduction_source=consistent_intro)
             status, saved = 'no_face_target', 0
             if face is not None:
                 status = 'ambiguous_face_target'
@@ -486,6 +489,10 @@ class CoreState:
         turn, capture, transcript, observation, attribution = self.current
         self.evidence = {k:v for k,v in self.evidence.items() if k in self.tracker.tracks}
         if not attribution.learning_eligible or attribution.person_id:
+            if not attribution.person_id:
+                self.trace.emit('voice_learning_deferred',capture_id=capture.capture_id,
+                    reason=attribution.reason if not attribution.track_id else 'sample_quality',
+                    voiced_seconds=observation.voiced_seconds,consistency=observation.consistency)
             return
         proposal = self.evidence.get(attribution.track_id)
         if proposal is None:
@@ -493,6 +500,9 @@ class CoreState:
         if proposal.add(capture, transcript, observation, attribution, turn):
             self.evidence[attribution.track_id] = proposal
             self.persist_evidence(proposal)
+        else:
+            self.trace.emit('voice_learning_deferred',capture_id=capture.capture_id,
+                            reason=proposal.last_reason)
 
     def advance_enrollment(self):
         if self.frozen:

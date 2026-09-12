@@ -5,7 +5,7 @@ import threading
 
 from ..contracts import Capture, Cancellation, ProviderFailure
 from ..providers import Capability
-from ..speakers import VoiceObservation, centroid, cosine
+from ..speakers import VoiceObservation, centroid, window_consistency
 
 
 MODEL_SHA256 = "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2"
@@ -96,6 +96,7 @@ class CAMPlus:
                 windows.append((start, finish, embedding))
         if not windows:
             return VoiceObservation(NAMESPACE, voiced_seconds=voiced, reason="no_usable_windows")
-        similarity = min((cosine(a[2], b[2]) for i,a in enumerate(windows) for b in windows[i+1:]), default=1.)
+        similarity, change = window_consistency(windows)
         return VoiceObservation(NAMESPACE, centroid([w[2] for w in windows]), tuple(windows), voiced,
-                                similarity, reason="window_consistency_baseline")
+                                similarity, mixed=change,
+                                reason="coherent_window_groups" if change else "pooled_window_consistency")

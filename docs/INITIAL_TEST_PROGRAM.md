@@ -737,3 +737,30 @@ fictional visitors verified a named greeting, an unfamiliar visitor's targeted n
 question, and silence after a quiet request, each with one model generation. No
 camera, microphone or audio output was operated. Live timing, face-question answers,
 repetition and overlap still need validation; robot/M2 acceptance remains open.
+
+Short-introduction face fix: **153 blocked-I/O checks pass**. An explicit clean
+self-introduction can now save a clear sole face even below the per-sample voice
+training duration. Ambiguity, competing voices, source validity and face-quality
+checks remain. Voice accumulation policy is unchanged; the latest live run's short
+clips and rejected long-utterance windows still require separate audio investigation.
+
+### Conversational voice variation correction (September 11, 2026)
+
+The worst-pair window gate is replaced by leave-one-window-out pooled consistency,
+with a coherent temporal-group veto and all windows retained for rival checks.
+One-second clean clips can accumulate; three clips/eight seconds total remain
+required. Cluster comparison uses the pooled references plus anchor and pairwise
+conflict floors. See CORE_OPERATIONS.md for exact gates and validation limits.
+
+The saved five-turn dev-Mac run, real CAM++ inference and scripted semantic input
+through production Session enrolled three originals totaling 8.384 voiced seconds
+in a temporary database. Its final utterance matched the enrolled profile. The
+older 21-clip car cohort abstained on every held-out named decision both before and
+after; no new false names were observed, but this is not accuracy acceptance.
+No live microphone, camera, playback or hosted model was used, and personal state
+was not rewritten. Synthetic checks cover gradual variation, actual two-group
+changes, isolated foreign windows, rival groups and accumulation across restart.
+
+Final verification: **157 blocked-I/O tests passed**; `git diff --check` passed.
+The fix adds no model, download, camera stream or model-generation call. Saved
+CAM++ checks used the dev Mac; combined-load M2 performance was not remeasured.

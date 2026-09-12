@@ -27,6 +27,28 @@ def centroid(vectors):
     return unit(tuple(sum(row[i] for row in vectors)/len(vectors) for i in range(len(vectors[0]))))
 
 
+def window_consistency(windows):
+    """Compare each window with independent pooled evidence, preserving all windows.
+
+    Also veto two internally coherent, separated temporal groups: pooling those
+    would otherwise hide a speaker change behind a plausible average voice.
+    """
+    vectors = [w[2] for w in windows]
+    if len(vectors)<2: return 1., False
+    scores = []
+    for i, vector in enumerate(vectors):
+        other = centroid(vectors[:i]+vectors[i+1:])
+        scores.append(cosine(vector,other) if other else -1.)
+    for cut in range(2,len(vectors)-1):
+        left,right = vectors[:cut],vectors[cut:]
+        a,b = centroid(left),centroid(right)
+        if (a and b and cosine(a,b)<.45 and
+            min(cosine(v,a) for v in left)>=.75 and
+            min(cosine(v,b) for v in right)>=.75):
+            return min(scores), True
+    return min(scores), False
+
+
 @dataclass(frozen=True)
 class VoiceObservation:
     namespace: str
@@ -65,7 +87,7 @@ class SpeakerPolicy:
     track_threshold: float = .55
     window_threshold: float = .45
     min_named_seconds: float = 1.
-    min_learning_seconds: float = 2.
+    min_learning_seconds: float = 1.
     track_expiry_seconds: float = 300.
     # Car-session calibration: weak continuity is observational only. It never
     # changes references, carries a name, or permits enrollment.
@@ -144,10 +166,11 @@ class SpeakerTracker:
             track = self.tracks[tracks[0][0]]
             if person_id and track.person_id not in (None, person_id):
                 return Attribution(reason="track_profile_conflict", candidates=alternatives)
-            # Each window must choose the same acoustic group as the whole clip.
+            # The complete clip must meet .55. Individual phonetic windows may
+            # be weaker, but none may contradict it or prefer a competing group.
             references = {key: t.references for key, t in self.tracks.items()}
             if any(not (r := self.rank(window[2], references)) or r[0][0] != track.track_id or
-                   r[0][1] < p.track_threshold or (len(r) > 1 and r[0][1]-r[1][1] < p.margin)
+                   r[0][1] < .35 or (len(r) > 1 and r[0][1]-r[1][1] < p.margin)
                    for window in observation.windows):
                 return Attribution(reason="window_track_conflict", candidates=alternatives)
             # An old named track does not manufacture enrolled acoustic support.

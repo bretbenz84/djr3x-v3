@@ -26,6 +26,43 @@ def face(start,vector=A,key='face-a',eligible=True,sole=True,identity=None):
 
 
 class FaceStateTests(MemoryFixture):
+    def test_short_clean_introduction_saves_face_but_not_voice(self):
+        # Face learning must stay independent even with a stricter voice policy.
+        self.state.tracker.policy=replace(self.state.tracker.policy,min_learning_seconds=2.)
+        capture=Capture(uuid4().hex,'session',b'x'*96000,110.,113.,113.,
+                        voiced_intervals=((.3,1.643960874),))
+        voice=observation(seconds=1.343960874)
+        self.state.begin(uuid4().hex,capture,Transcript('My name is Bret Benziger.',0.,True),voice,[face(110)])
+        self.assertFalse(self.state.current[4].learning_eligible)
+        result=self.intro_face('Bret',key=None)
+        self.assertEqual(result.data['face_status'],'saved')
+        person=result.data['person_id']
+        self.assertEqual(len(self.store.face_profiles(FNS)[person]),2)
+        self.assertEqual(self.store.profiles(NS),{})
+        self.store.close();self.store.start()
+        self.assertEqual(len(self.store.face_profiles(FNS)[person]),2)
+        self.assertEqual(self.store.person(person)['name'],'Bret')
+
+    def test_short_introduction_still_rejects_ambiguous_visual_or_acoustic_evidence(self):
+        cases = ('multiple','not_sole','distant','competitor','inconsistent','direction')
+        for case in cases:
+            with self.subTest(case=case):
+                self.state.tracker.reset()
+                self.state.enrollments.clear()
+                faces=[face(110)]
+                voice=observation(seconds=1.34)
+                if case=='multiple': faces.append(face(110,B,'second',sole=False))
+                if case=='not_sole': faces[0]['sole_face_throughout']=False
+                if case=='distant': faces[0]['box']=[.2,.2,.1,.1]
+                if case=='competitor': self.state.tracker.observe(observation(B),109.,{})
+                if case=='inconsistent': voice=replace(voice,consistency=.5)
+                if case=='direction': voice=replace(voice,direction_conflict=True)
+                capture=Capture(uuid4().hex,'session',b'x'*96000,110.,113.,113.)
+                self.state.begin(uuid4().hex,capture,Transcript('My name is Jordan.',0.,True),voice,faces)
+                result=self.intro_face()
+                self.assertEqual(self.store.face_profiles(FNS),{})
+                self.assertNotEqual(result.data.get('face_status'),'saved')
+
     def visible_turn(self,text,faces,vector=A,trusted=True,mixed=False):
         start=faces[0]['at']-2
         capture=Capture(uuid4().hex,'session',uuid4().bytes*6000,start,start+3,start+3,

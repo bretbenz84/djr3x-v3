@@ -67,7 +67,7 @@ Suggested first pass:
    sentence-length turns. Include a hobby or recent activity; no recitation routine.
 2. Inspect `speaker_evidence`, `voice_learning_progress`, and `voice_learning_saved`.
    A name starts a hypothesis. Initial defaults require three distinct compatible
-   turns, at least two voiced seconds each and eight total, four transcript words
+   turns, at least one voiced second each and eight total, four transcript words
    per qualifying sample, and anchor/cluster agreement. No DoA or mouth evidence is
    used. A competing voice cannot open a second chain for the same person.
 3. Once acoustic support is established, volunteer a clear fact and ask Rex to
@@ -325,8 +325,8 @@ Listening timing remains unchanged. Hosted tone tests are evidence, not guarante
 
 Clean unnamed groups now collect up to six original clips each before an
 introduction. At least three qualifying clips and eight voiced seconds are still
-required; each clip needs two voiced seconds, four transcript words, trusted ASR,
-and compatible acoustic evidence. Samples must agree pairwise, and analyzed
+required; each clip needs one voiced second, four transcript words, trusted ASR,
+and compatible acoustic evidence. Samples must agree with the pooled group and retain a pairwise conflict floor; analyzed
 windows must agree on the selected group. Before saving, earlier samples are
 checked against competing groups discovered later. Similarity thresholds are
 heuristics, not certainty or a calibrated probability.
@@ -382,3 +382,31 @@ while speaking, and correct face targeting. Terminal traces mark arrival
 opportunities separately from heard speech. Frozen evaluation disables proactive
 speech. Camera/audio live validation remains pending; 151 blocked-I/O checks and
 three actual hosted-model text-only cases passed on September 11, 2026.
+
+### Voice-window variation and conversational accumulation
+
+CAM++ now compares each window against the pooled *other* windows, rather than
+letting the single worst pair reject a whole sentence. No window is removed.
+Two coherent but acoustically separated temporal groups still veto learning, as
+do a strongly contradictory window and windows favoring a competing speaker.
+This is a heuristic, not proof that no second person spoke.
+
+Qualifying clips can contain one second of voiced speech; enrollment still needs
+three distinct compatible clips, eight voiced seconds total and four words per
+clip. An incoming clip must match the original anchor (.50), the existing sample
+centroid (.55), and every retained sample at least .45. Track assignment still
+requires .55 for the whole utterance; each window must choose the same group with
+the existing rival margin and a .35 contradiction floor. Named-profile matching
+retains its stricter window checks. The encoder, embeddings namespace and stored
+original audio format are unchanged. Logs include both the new consistency score
+and the old minimum-pair diagnostic, plus reasons for deferred learning.
+
+September 11 saved-audio validation used the real CAM++ model, recorded transcripts
+and a scripted introduction through production Session with text output and a
+temporary database. Bret's five-turn run enrolled from three clips totaling 8.384
+voiced seconds and recognized the final utterance; the short question abstained.
+No live database was modified. A separate 21-clip, user-labeled car cohort with
+leave-one-clip-out Bret/Jeff reference galleries produced zero named decisions
+before and after: zero wrong names, but **100% abstention**, so it does not establish
+useful car identification accuracy. Live multi-person, overlap and M2 validation
+remain open. Reports and replay scripts are under `local/validation/`.

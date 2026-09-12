@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import hashlib
 import time
 
-from .speakers import cosine
+from .speakers import cosine, centroid
 
 
 @dataclass
@@ -21,13 +21,15 @@ class Enrollment:
         if (attribution.track_id != self.track_id or not attribution.learning_eligible or
                 not transcript.trusted or capture.echo_risk or capture.truncated or capture.parent_capture_id is not None or
                 capture.overlap is True or observation.mixed or observation.direction_conflict or
-                observation.voiced_seconds < 2 or len(transcript.text.split()) < 4 or
+                observation.voiced_seconds < 1 or len(transcript.text.split()) < 4 or
                 observation.voiced_seconds>len(capture.pcm)/(2*capture.sample_rate)+.032):
             return False
         if cosine(self.anchor, observation.embedding) < .5:
             self.last_reason = "anchor_disagreement"
             return False
-        if any(cosine(s[2].embedding, observation.embedding) < .55 for s in self.samples):
+        references = [s[2].embedding for s in self.samples]
+        if references and (cosine(centroid(references),observation.embedding)<.55 or
+                           any(cosine(v,observation.embedding)<.45 for v in references)):
             self.last_reason = "cluster_disagreement"
             return False
         digest = hashlib.sha256(capture.pcm).hexdigest()

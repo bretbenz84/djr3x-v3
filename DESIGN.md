@@ -381,3 +381,10 @@ Visual events cannot save facts or enroll people, and spoken question delivery
 still goes through the sole output owner. See the
 [operating policy](docs/CORE_OPERATIONS.md#proactive-face-greetings) and face plan
 for evidence and remaining live acceptance. Broader autonomous behaviors remain deferred.
+
+September 11 voice calibration now admits clean one-second clips into conversational
+accumulation while retaining three clips/eight voiced seconds for enrollment.
+Window agreement uses pooled independent windows with a temporal-group veto,
+not the minimum pair alone. Acoustic rival checks remain authoritative; no name
+or face can override them. Exact gates and saved-audio evidence are documented in
+[core operations](docs/CORE_OPERATIONS.md#voice-window-variation-and-conversational-accumulation).

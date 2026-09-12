@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 
 from .contracts import Capture, Cancellation, Transcript, Cancelled
-from .speakers import VoiceObservation
+from .speakers import VoiceObservation, cosine
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,8 @@ class Perception:
         self.trace.emit("speaker_analysis", capture_id=capture.capture_id,
             speaker_seconds=self.trace.clock()-began if voice_seconds is None else voice_seconds, namespace=voice.namespace,
             voiced_seconds=voice.voiced_seconds, windows=len(voice.windows),
-            consistency=voice.consistency, reason=voice.reason)
+            consistency=voice.consistency, reason=voice.reason,
+            minimum_pair_similarity=min((cosine(a[2],b[2]) for i,a in enumerate(voice.windows)
+                                         for b in voice.windows[i+1:]),default=None))
         faces = self.camera.during(capture.started_at,capture.speech_ended_at) if self.camera else ()
         return PerceivedTurn(capture,transcript,voice,tuple(faces))
