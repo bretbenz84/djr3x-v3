@@ -972,3 +972,24 @@ and abandoned work. **330 blocked-I/O checks pass**, with focused hosted preserv
 and simulated interruption evidence. See the [core integration pass](CORE_INTEGRATION_PASS.md)
 for current behavior and remaining limits; earlier partial-edit deferrals describe
 the preceding slices.
+### September 13 enrollment-status follow-up
+
+Read-only inspection of two user-run sessions found no completed voice profiles.
+The later session retained three candidate samples totaling 6.306 voiced seconds,
+below the unchanged eight-second requirement. It saved face references and later
+reported face matches; this does not verify who was speaking. A self-introduction
+in the earlier session was rejected for tentative track continuity. A user-labeled
+two-speaker capture remained one unresolved turn, but was excluded from learning.
+Its waveform was not retained, so the missed boundary remains unvalidated.
+
+Implemented shared enrollment progress in model context and terminal output,
+including required/remaining evidence and pending final validation. The model is
+instructed to distinguish saved names, face matches and completed voice profiles,
+and can invite fuller natural speech instead of repeatedly asking for a name.
+This improves visibility and conversational recovery; it does not fix or validate
+acoustic recognition, tentative-introduction recovery, or speaker segmentation.
+
+Validation: 332 blocked-I/O checks passed, including a three-turn/six-second
+synthetic chain that stays pending across restart and another speaker, then saves
+only after compatible additional speech. No personal database changes, hardware,
+hosted calls, or real-model accuracy evaluation were performed.

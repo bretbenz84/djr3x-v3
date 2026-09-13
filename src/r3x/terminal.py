@@ -52,6 +52,10 @@ class LiveConsole:
             message = f"Face samples saved ({row['samples']} clear views)."
         elif event == "voice_learning_saved":
             message = f"Voice samples saved ({row['samples']} compatible turns)."
+        elif event == "voice_learning_progress":
+            message = (f"Voice learning pending: {row['qualifying_turns']}/{row['required_turns']} turns, "
+                       f"{row['voiced_seconds']:.1f}/{row['required_voiced_seconds']:g} usable speech seconds. "
+                       "Voice profile not saved yet.")
         elif event == "tool_result":
             message = f"Action {clean(row.get('name', ''))}: {clean(row.get('outcome', ''))}"
         elif event == "cancel":

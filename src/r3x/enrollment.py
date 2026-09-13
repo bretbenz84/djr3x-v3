@@ -5,6 +5,9 @@ import time
 
 from .speakers import cosine, centroid
 
+MIN_TURNS = 3
+MIN_VOICED_SECONDS = 8
+
 
 @dataclass
 class Enrollment:
@@ -44,7 +47,17 @@ class Enrollment:
 
     @property
     def ready(self):
-        return len(self.samples) >= 3 and sum(s[2].voiced_seconds for s in self.samples) >= 8
+        return len(self.samples) >= MIN_TURNS and sum(s[2].voiced_seconds for s in self.samples) >= MIN_VOICED_SECONDS
+
+    def progress(self):
+        seconds = sum(s[2].voiced_seconds for s in self.samples)
+        return {"person_id": self.person_id, "track_id": self.track_id,
+                "qualifying_turns": len(self.samples), "voiced_seconds": seconds,
+                "required_turns": MIN_TURNS, "required_voiced_seconds": MIN_VOICED_SECONDS,
+                "remaining_turns": max(0, MIN_TURNS-len(self.samples)),
+                "remaining_voiced_seconds": max(0, MIN_VOICED_SECONDS-seconds),
+                "status": "awaiting_final_validation" if self.ready else "collecting_evidence",
+                "expires_at": self.updated_at+86400}
 
     def encode(self):
         from dataclasses import asdict

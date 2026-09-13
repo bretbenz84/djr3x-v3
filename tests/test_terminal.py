@@ -10,6 +10,16 @@ from r3x.trace import Trace, report
 
 
 class TerminalTests(unittest.TestCase):
+    def test_pending_voice_progress_does_not_announce_a_saved_profile(self):
+        console = io.StringIO()
+        with redirect_stdout(console):
+            display = LiveConsole()
+            display({"event": "voice_learning_progress", "qualifying_turns": 3,
+                     "required_turns": 3, "voiced_seconds": 6.3059, "required_voiced_seconds": 8})
+        self.assertIn("3/3 turns, 6.3/8 usable speech seconds", console.getvalue())
+        self.assertIn("Voice profile not saved yet", console.getvalue())
+        self.assertNotIn("Voice samples saved", console.getvalue())
+
     def test_live_view_keeps_conversation_and_failure_while_file_retains_details(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.jsonl"

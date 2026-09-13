@@ -48,6 +48,24 @@ class ConversationalEnrollmentTests(MemoryFixture):
         self.begin("I have returned to finish this discussion.", A)
         self.assertEqual(len(self.store.profiles(NS)[person]), 3)
 
+    def test_three_short_turns_remain_pending_across_restart_until_enough_speech(self):
+        self.begin("My name is Synthetic Person.", seconds=2.)
+        person = self.name_current("Synthetic Person").data["person_id"]
+        for _ in range(2):
+            self.begin("Here is another useful sentence.", seconds=2.)
+        progress = self.state.context()["enrollment"][0]
+        self.assertEqual(progress["remaining_turns"], 0)
+        self.assertEqual(progress["remaining_voiced_seconds"], 2.)
+        self.assertEqual(progress["status"], "collecting_evidence")
+        self.assertNotIn(person, self.store.profiles(NS))
+        self.restart()
+        self.begin("A different speaker cannot complete that enrollment.", B)
+        self.assertEqual(self.state.context()["enrollment"][0], progress)
+        self.assertNotIn(person, self.store.profiles(NS))
+        self.begin("I am continuing my original conversation.", seconds=2.1)
+        self.assertIn(person, self.store.profiles(NS))
+        self.assertEqual(self.state.context()["enrollment"], [])
+
     def test_anonymous_progress_and_short_anchor_survive_restart(self):
         self.begin("Some useful speech before giving my name.")
         self.begin("Another sentence before giving my name.")

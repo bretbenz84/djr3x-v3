@@ -211,8 +211,7 @@ class CoreState:
                 "transcript_trusted":transcript.trusted,
                 "acoustic_limits":{"overlap_detector":"window consistency only", "overlap":capture.overlap,
                     "speaker_boundary_proposed":capture.parent_capture_id is not None},
-                "enrollment":[{"person_id":e.person_id,"track_id":e.track_id,"qualifying_turns":len(e.samples),
-                               "voiced_seconds":sum(s[2].voiced_seconds for s in e.samples)} for e in self.enrollments.values()]}
+                "enrollment":[e.progress() for e in self.enrollments.values()]}
 
     def opportunity_context(self, event):
         """No acoustic observation/source turn is fabricated for an opportunity."""
@@ -788,9 +787,7 @@ class CoreState:
         turn_id,capture,transcript,observation,attribution = self.current
         proposal = self.enrollments.get(attribution.track_id)
         if proposal:
-            self.trace.emit("voice_learning_progress",person_id=proposal.person_id,track_id=proposal.track_id,
-                qualifying_turns=len(proposal.samples),voiced_seconds=sum(s[2].voiced_seconds for s in proposal.samples),
-                reason=proposal.last_reason)
+            self.trace.emit("voice_learning_progress", **proposal.progress(), reason=proposal.last_reason)
             if proposal.ready:
                 try:
                     self._source_allowed({}, "rename_person")

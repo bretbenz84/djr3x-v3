@@ -559,3 +559,16 @@ floor, audience and pacing gates remain in control. These are conversational
 reactions; there is no motor/servo action. See [observation sources](OBSERVATION_SOURCES.md)
 for lifecycle, freshness, retention, source defaults and explicit validation commands.
 The user deferred live acceptance until this software work was complete.
+### Incomplete voice learning
+
+The terminal now shows pending voice learning with qualifying turns and usable
+speech seconds. Three turns alone do not complete enrollment: eight usable seconds
+and the final acoustic consistency checks are also required. Only `Voice samples
+saved` confirms completion. Saved names and face references are separate from a
+completed voice profile. Unfinished voice candidates resume for 24 hours since
+their last update; they are not verified identity across launches.
+
+For recognition or speaker-handoff investigations, launch with
+`.venv/bin/python -m r3x live --camera --record-evaluation`. This retains evaluation
+audio locally, including captures that were not accepted for enrollment. Without
+it, a transcript of two people speaking cannot establish their acoustic boundary.
