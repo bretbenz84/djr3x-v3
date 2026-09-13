@@ -33,7 +33,7 @@ class TerminalTests(unittest.TestCase):
                 trace.emit("delivery", turn_id="t", status="failed", error="ElevenLabsConnectTimeout")
                 trace.close()
             text = console.getvalue()
-            self.assertIn("You: Are you there?", text)
+            self.assertIn("Heard: Are you there?", text)
             self.assertIn("Rex (preparing speech): I am here.", text)
             self.assertIn("Could not connect to ElevenLabs", text)
             self.assertNotIn("Reply played", text)

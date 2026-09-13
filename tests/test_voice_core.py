@@ -140,9 +140,21 @@ class CoreTests(unittest.TestCase):
     def test_input_overflow_is_explicit(self):
         self.setup_core()
         runtime = VoiceRuntime(None, None, None, self.session, self.trace)
-        for i in range(5): runtime.enqueue(runtime.captures, i, "captures")
+        for i in range(5): runtime.enqueue(runtime.captures, (replace(self.capture,capture_id=str(i)),0), "captures")
         self.assertEqual(runtime.captures.qsize(), 2)
         self.assertEqual(len([r for r in self.trace.rows if r["event"] == "input_overflow"]), 3)
+
+    def test_echo_boundary_capture_never_queues_as_human_work(self):
+        self.setup_core()
+        runtime=VoiceRuntime(None,None,None,self.session,self.trace)
+        endpoint=Endpoint('session')
+        for i in range(8):endpoint.push(Frame(bytes(1024),i*.032,(i+1)*.032,True),True)
+        echo=endpoint.push(Frame(bytes(1024),.256,.288,False),False)
+        self.assertTrue(echo.echo_risk)
+        runtime.enqueue(runtime.captures,(echo,0),'captures')
+        self.assertTrue(runtime.captures.empty())
+        runtime.enqueue(runtime.captures,(self.capture,0),'captures')
+        self.assertEqual(runtime.captures.qsize(),1)
 
     def test_full_transcript_queue_waits_and_preserves_order(self):
         self.setup_core()

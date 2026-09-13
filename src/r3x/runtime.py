@@ -38,6 +38,11 @@ class VoiceRuntime:
         self.trace.emit("input_invalidated", captured_before=self.cancel_before)
 
     def enqueue(self, queue, item, kind):
+        if kind=='captures' and item[0].echo_risk:
+            # Echo transitions must not masquerade as queued human work in the
+            # proactive guard. Evaluation recording has already kept this PCM.
+            self.trace.emit('capture_rejected',capture_id=item[0].capture_id,reason='playback_echo_risk')
+            return
         if kind=='turns':
             # Do not discard an already transcribed utterance during a slow
             # network request. The ASR worker waits; capture/control remain live.

@@ -17,7 +17,7 @@ class LiveConsole:
         elif event == "visual_opportunity":
             message = "Rex noticed an arrival and is considering a greeting…"
         elif event == "transcript":
-            message = f"You: {clean(row['original_text'])}"
+            message = f"Heard: {clean(row['original_text'])}"
         elif event == "model_request" and row.get("primary_calls"):
             message = "Rex is thinking…"
         elif event == "speech_generated":

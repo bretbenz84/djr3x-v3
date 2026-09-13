@@ -38,6 +38,7 @@ class Microphone:
         self.last_callback = 0.
         self.stopped = threading.Event()
         self.device_name = settings.input_device_name or "configured_index"
+        self.clock_offset = None
 
     def start(self):
         import sounddevice as sd
@@ -50,8 +51,9 @@ class Microphone:
             self.last_callback = now
             if status:
                 self.status_errors += 1
-            # Map PortAudio clock to monotonic while preserving the capture interval.
-            began = now + timing.inputBufferAdcTime - timing.currentTime
+            # Preserve the stream clock mapping established before callbacks;
+            # callback/GIL delay must not become a false gap in captured PCM.
+            began = timing.inputBufferAdcTime + self.clock_offset
             frame = Frame(bytes(data), began, began + count / 16000,
                           not self.settings.echo_isolated and self.echo_risk())
             try:
@@ -60,6 +62,10 @@ class Microphone:
                 self.dropped += 1
         self.stream = sd.RawInputStream(device=index, samplerate=16000, channels=1,
                                         dtype="int16", blocksize=512, callback=callback)
+        before=self.clock()
+        stream_time=self.stream.time
+        after=self.clock()
+        self.clock_offset=(before+after)/2-stream_time
         self.last_callback = self.clock()
         self.stream.start()
 

@@ -196,7 +196,11 @@ class Arrivals:
                 self.unknown_target = None
 
     def audience(self, now):
-        """Fresh stable audience, including unnamed people; never an acoustic ID."""
+        """Full fresh audience, eligible when at least one prominent face is stable.
+
+        Stability gates initiative, not membership. The event and its validity
+        check must describe the same visible group, including background faces.
+        """
         with self.lock:
             result = []
             for face in self.faces:
@@ -206,4 +210,4 @@ class Arrivals:
                     0<=now-face['at']<=1 and entry['last']-entry['first']>=self.stable_seconds and
                     (face.get('face_width_px') or 0)>=48 and box[2]*box[3]>=.006):
                     result.append(face)
-            return tuple(result)
+            return tuple(f for f in self.faces if 0<=now-f['at']<=1) if result else ()
