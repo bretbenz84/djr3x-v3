@@ -21,6 +21,8 @@ class Session:
         self._opportunity_guard = None
         self.closed = False
         self.state = state
+        if state is not None:
+            state.attention.scene.session_id = session_id
         self._latest_speech = float("-inf")
         self._capture_end = float("inf")
         self.proactive_hold_until = float("-inf")
@@ -60,6 +62,19 @@ class Session:
     def close(self) -> None:
         self.closed = True
         self.cancel()
+        for adapter in (getattr(self.output,"attention",None),getattr(self.output,"gestures",None),getattr(self.output,"inspection",None)):
+            if adapter is not None:
+                adapter.close()
+
+    def observe_attention(self, frame):
+        """Publish explicit simulated perception through the owner, never from model text."""
+        with self._lock:
+            if self.closed or self.state is None or self.state.frozen or (getattr(self.output, 'attention', None) is None and getattr(self.output,'gestures',None) is None):
+                raise ValueError('AttentionUnavailable')
+            self.state.attention.scene.publish(frame)
+            self.state.attention.context()
+            self.trace.emit('attention_frame', observation_id=frame.observation_id,
+                            view_epoch=frame.view_epoch, target_count=len(frame.targets), medium=frame.medium)
 
     def history_messages(self):
         return self.history.messages()
@@ -89,6 +104,8 @@ class Session:
         question = None
         memory_selected = None
         observation_selected = None
+        attention_intent = None
+        performance_gesture = None
         state_started = False
         opportunity_attempted = False
         try:
@@ -172,6 +189,14 @@ class Session:
                 if self._latest_speech > self._capture_end:
                     cancel.event.set()
                 cancel.check()
+            if self.state and not self.state.frozen and (getattr(self.output, 'attention', None) is not None or getattr(self.output, 'gestures', None) is not None or getattr(self.output,'inspection',None) is not None):
+                with self._lock:
+                    cancel.check()
+                    context['attention_enabled'] = getattr(self.output,'attention',None) is not None
+                    context['inspection_enabled'] = getattr(self.output,'inspection',None) is not None
+                    context['gesture_enabled'] = getattr(self.output,'gestures',None) is not None
+                    context['recent_performances'] = list(self.state.performances)
+                    context['attention'] = self.state.attention.context()
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
                                 context, self.state is not None, images=opportunity.scene_images if opportunity and any(c["kind"]=="scene" for c in context.get("observations",[])) else ())
@@ -224,13 +249,84 @@ class Session:
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=call.arguments)
                 with self._lock:
                     cancel.check()
-                    result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel)
+                    if call.name == 'inspect_view':
+                        inspection_request = self.state.propose_inspection(call,context,cancel)
+                        from .contracts import ToolResult
+                        result = ToolResult(inspection_request.request_id,'ok','InspectionProposed',self.state.store.revision)
+                    elif call.name == 'respond_with_gesture':
+                        gesture, anchor = self.state.propose_performance(call, context, cancel)
+                        performance_gesture = gesture
+                        from .contracts import ToolResult
+                        result = ToolResult(gesture.request_id,'ok','PerformanceProposed',self.state.store.revision)
+                    elif call.name == 'shift_attention':
+                        attention_intent = self.state.propose_attention(call, context, cancel)
+                        from .contracts import ToolResult
+                        result = ToolResult(attention_intent.request_id, 'ok', 'AttentionProposed', self.state.store.revision)
+                    else:
+                        result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel)
                     if opportunity and result.outcome!='ok': raise ProviderFailure(result.reason)
-                self.trace.emit("tool_executed",turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
+                self.trace.emit("tool_validated" if call.name in {"shift_attention","respond_with_gesture","inspect_view"} else "tool_executed",
+                                turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
                 if (result.outcome=='ok' and call.name=='conversation_feedback' and
                     result.data['action']=='floor_resolved' and not self.state.initiative.floor_held(self.trace.clock())):
                     self.proactive_hold_until = float('-inf')
-                if result.outcome=="ok" and (call.name=="remain_silent" or
+                if result.outcome=='ok' and call.name=='inspect_view':
+                    from dataclasses import asdict
+                    import json
+                    expected_revision = result.revision
+                    expected_epoch = inspection_request.view_epoch
+                    def inspection_valid():
+                        return self.state.store.revision==expected_revision and self.state.attention.scene.view_epoch==expected_epoch
+                    cancel.guard = inspection_valid
+                    data, images = self.output.execute_inspection(inspection_request,cancel,inspection_valid)
+                    self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
+                    cancel.check()
+                    result = ToolResult(result.request_id,'ok' if images else 'failed',data.get('reason','InspectionFailed'),result.revision,data)
+                    continuation = (*call.preamble,
+                        {'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
+                        {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(asdict(result))})
+                    followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
+                        snapshot.speaker,{**context,'attention':self.state.attention.context(),'inspection':data},False,continuation,images)
+                    self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,
+                        purpose='inspection_result_continuation',image_count=len(images))
+                    if generate(followup):raise ProviderFailure('ToolContinuationLimit')
+                    self.history.append({'role':'developer','content':'Inspection result (simulation only): '+json.dumps(data)})
+                elif result.outcome=='ok' and call.name=='respond_with_gesture':
+                    from .performance import Performance
+                    expected_revision = result.revision
+                    expected_attention = self.state.attention.version
+                    def valid_gesture():
+                        with self._lock:
+                            cancel.check()
+                            return (self.state.store.revision==expected_revision and
+                                    self.state.attention.version==expected_attention and
+                                    (anchor is None or self.state.attention.scene.valid(anchor)))
+                    def delivered_gesture():
+                        with self._lock:
+                            cancel.check()
+                            if (self.state.store.revision!=expected_revision or self.state.attention.version!=expected_attention or
+                                (anchor is not None and not self.state.attention.scene.valid(anchor))):
+                                raise ProviderFailure('GestureEvidenceStale')
+                            self.state.attention.clear()
+                            self.state.attention.scene.invalidate(self.trace.clock())
+                    put_phrase(phrases, Performance(call.arguments['text'],gesture,
+                        call.arguments['timing'],valid_gesture,delivered_gesture),cancel)
+                elif result.outcome=='ok' and call.name=='shift_attention':
+                    # Output owns execution; never hold the state lock over an adapter call.
+                    receipt = self.output.execute_attention(attention_intent, cancel)
+                    with self._lock:
+                        cancel.check()
+                        if self.state.store.revision != result.revision:
+                            raise ProviderFailure('StaleStateRevision')
+                        self.state.attention.complete(attention_intent, receipt)
+                    from dataclasses import asdict
+                    self.trace.emit('attention_result', turn_id=turn_id, **asdict(receipt),
+                                    target=attention_intent.target, purpose=attention_intent.purpose)
+                    delivery.status, delivery.medium = 'suppressed', 'none'
+                    self.history.append({'role':'developer','content':
+                        'Attention shift simulated only: ' + attention_intent.target +
+                        '. No physical movement, speech, or new observation occurred.'})
+                elif result.outcome=="ok" and (call.name=="remain_silent" or
                     call.name=="set_initiative" and result.data['mode']=='quiet' or
                     call.name=="conversation_feedback" and result.data['text'] is None):
                     from dataclasses import asdict
@@ -301,6 +397,11 @@ class Session:
             self.trace.emit("turn_failed", turn_id=turn_id, reason=delivery.error)
             cancel.event.set()
         finally:
+            if attention_intent:
+                with self._lock:
+                    if self.state.attention.pending == attention_intent:
+                        self.state.attention.clear()
+                        self.trace.emit('attention_aborted', turn_id=turn_id, request_id=attention_intent.request_id)
             if worker and worker.is_alive():
                 cancel.event.set()
                 self.output.cancel()
@@ -336,6 +437,17 @@ class Session:
                             self.state.question_delivered(question["question"],question["addressee_id"],self.trace.clock(),question.get("face_track_id"))
                 except Exception as exc:
                     self.trace.emit("state_finalize_failed",turn_id=turn_id,error_type=type(exc).__name__)
+            if performance_gesture and not any(r['request_id']==performance_gesture.request_id for r in delivery.gestures):
+                row = {'request_id':performance_gesture.request_id,'status':'cancelled','at':self.trace.clock(),
+                       'medium':'simulation','reason':'OutputNotReached','primitive':performance_gesture.primitive,
+                       'target':performance_gesture.target,'intensity':performance_gesture.intensity,
+                       'timing':call.arguments['timing']}
+                delivery.gestures.append(row)
+                self.trace.emit('gesture_delivery',turn_id=turn_id,**row)
+            if self.state and delivery.gestures:
+                self.state.performances.extend(delivery.gestures)
+                import json
+                self.history.append({'role':'developer','content':'Gesture outcomes (simulation only, separate from heard speech): '+json.dumps(delivery.gestures)})
             with self._lock:
                 self._cancel = None
                 self._opportunity_guard = None

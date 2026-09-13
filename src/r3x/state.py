@@ -26,6 +26,9 @@ class CoreState:
         from datetime import date
         self.calendar_today = date.today
         self.memory_cursor = 0
+        self.performances = deque(maxlen=8)
+        from .attention import AttentionState
+        self.attention = AttentionState(trace.clock)
         self.observations = None
         self.scene_observer = None
         self.wall_clock = time.time
@@ -37,7 +40,67 @@ class CoreState:
         from .proactive import Initiative
         self.initiative = Initiative()
 
+    def propose_inspection(self, call, context, cancel):
+        from .inspection import InspectionRequest
+        cancel.check()
+        validate(call.name,call.arguments)
+        if self.frozen or not context.get('inspection_enabled'):
+            raise ValueError('InspectionUnavailable')
+        if self.store.revision!=context['state_revision']:
+            raise ValueError('StaleStateRevision')
+        self.attention.clear()
+        self.attention.scene.invalidate(self.trace.clock())
+        source = context.get('event_id') or context['source_turn_id']
+        return InspectionRequest(source+':'+call.call_id,call.arguments['direction'],
+            call.arguments['question'],self.attention.scene.view_epoch,self.trace.clock())
+
+    def propose_performance(self, call, context, cancel):
+        from .performance import Gesture
+        cancel.check()
+        validate(call.name, call.arguments)
+        if self.frozen or not context.get('gesture_enabled'):
+            raise ValueError('GestureUnavailable')
+        if self.store.revision != context['state_revision']:
+            raise ValueError('StaleStateRevision')
+        self.attention.context()
+        if self.attention.version != context['attention']['version']:
+            raise ValueError('StaleAttentionVersion')
+        target = call.arguments['target']
+        anchor = None
+        if target not in {'left','right','up','forward','unfocused'}:
+            anchor = next((r for r in context['attention']['vision']['targets'] if r['target_id']==target),None)
+            if anchor is None or not self.attention.scene.valid(anchor):
+                raise ValueError('GestureTargetUnavailable')
+            anchor = self.attention.scene.resolve(target)
+        source = context.get('event_id') or context['source_turn_id']
+        return Gesture(source+':'+call.call_id,call.arguments['primitive'],target,
+                       call.arguments['intensity'],self.trace.clock()+30,anchor), anchor
+
+    def propose_attention(self, call, context, cancel):
+        cancel.check()
+        validate(call.name, call.arguments)
+        if self.frozen or not context.get('attention_enabled'):
+            raise ValueError('AttentionUnavailable')
+        if self.store.revision != context['state_revision']:
+            raise ValueError('StaleStateRevision')
+        self.attention.context()  # Expiry is a versioned transition, even during generation.
+        if self.attention.version != context['attention']['version']:
+            raise ValueError('StaleAttentionVersion')
+        source = context.get('event_id') or context['source_turn_id']
+        anchor = None
+        if call.arguments['target'] not in {'left','right','up','forward','unfocused'} and not call.arguments['target'].startswith('visual:'):
+            raise ValueError('InvalidAttentionTarget')
+        if call.arguments['target'].startswith('visual:'):
+            offered = next((t for t in context['attention']['vision']['targets']
+                            if t['target_id']==call.arguments['target']), None)
+            if offered is None or not self.attention.scene.valid(offered):
+                raise ValueError('AttentionTargetUnavailable')
+            anchor = self.attention.scene.resolve(call.arguments['target'])
+        return self.attention.propose(source + ':' + call.call_id, call.arguments, anchor)
+
     def cancel(self):
+        self.attention.clear()
+        self.attention.scene.invalidate(self.trace.clock())
         # Stopping speech cancels dialogue work, not previously observed evidence.
         # Identity corrections use cancel_association or forget_person explicitly.
         if self.pending:
@@ -570,6 +633,10 @@ class CoreState:
             self.initiative.forget()
             self.tracker.forget(data["person_id"])
             self.pending = None
+            self.attention.clear()
+            self.attention.recent.clear()
+            self.performances.clear()
+            self.attention.scene.invalidate(self.trace.clock())
             self.forgotten = True
             from dataclasses import replace
             from .speakers import VoiceObservation,Attribution

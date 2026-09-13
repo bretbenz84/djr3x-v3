@@ -15,8 +15,11 @@ class ProviderFailure(Exception):
 @dataclass
 class Cancellation:
     event: Event = field(default_factory=Event)
+    guard: Callable[[], bool] | None = field(default=None, repr=False)
 
     def check(self) -> None:
+        if self.guard is not None and not self.guard():
+            self.event.set()
         if self.event.is_set():
             raise Cancelled()
 

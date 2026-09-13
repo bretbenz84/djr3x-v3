@@ -337,7 +337,7 @@ class OpenAIBrain(HTTPProvider):
         payload = {"model": self.capability.model, "instructions": PERSONA,
                    "input": list(snapshot.messages)+list(snapshot.continuation), "stream": True, "store": False,
                    "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 1536 if snapshot.tools_enabled else 768}
-        if snapshot.images and not snapshot.continuation:
+        if snapshot.images:
             if len(snapshot.images)>2 or any(len(i.data_url)>1_500_000 or not i.data_url.startswith('data:image/png;base64,') for i in snapshot.images):
                 raise ProviderFailure('InvalidSceneImages')
             payload['input'].append({'role':'user','content':[

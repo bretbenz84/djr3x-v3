@@ -879,3 +879,38 @@ requests and one image input; this proves transport and these decisions, not liv
 animal/gesture recognition or universal source attribution. Detailed measurements
 and limitations are in [observation sources](OBSERVATION_SOURCES.md). Live social
 and M2/device acceptance is deferred at the user's request until after this delivery.
+
+### Intentional attention groundwork (September 12, 2026)
+
+The first [attention slice](ATTENTION_IMPLEMENTATION.md) adds 12 synthetic production-
+Session contract tests; **233 blocked-I/O checks pass**. Optional silent attention
+choices use one primary model call and explicitly simulated receipts, with expiry,
+cancellation and context continuity. No hosted model or hardware was exercised for
+this slice. Live startup does not expose the simulation tool. Target grounding,
+coordinated speech/gestures and live social validation remain pending.
+
+### Grounded attention targets (September 12, 2026)
+
+The second [attention slice](ATTENTION_IMPLEMENTATION.md#slice-2-grounded-targets-and-post-movement-evidence)
+adds explicit synthetic face/object targets, source/view/calibration validation and
+fresh post-movement evidence through production Session. **243 blocked-I/O checks
+pass**, including 10 new target/frame scenarios. No live perception or motion adapter
+is enabled; hosted selection quality and physical settling/tracking remain untested.
+
+### Coordinated speech and simulated gestures
+
+The [third attention slice](ATTENTION_IMPLEMENTATION.md#slice-3-coordinated-speech-and-gestures)
+adds one-call response/gesture proposals through the existing output queue, actual-
+playback timing, shared cancellation and separate receipts. **257 blocked-I/O checks
+pass**, including 14 new coordination/partial-completion cases with synthetic audio
+and motion. Live model selection, physical gesture timing, continuous blending and
+combined hardware load remain untested. Normal live startup has no motion adapter.
+
+### Composite visual inspection in simulation
+
+**269 blocked-I/O checks pass**, including 12 new cases for the
+[inspection contract](ATTENTION_IMPLEMENTATION.md#composite-visual-inspection-motion-settling-and-capture).
+A single LLM-selected tool sequences simulated movement, settling and fresh capture,
+then returns the image to one model continuation. Synthetic providers, scripted
+model choices and fake hosted HTTP only; no physical motion/capture or real-model
+visual interpretation was tested. Description memory and live adapters remain planned.

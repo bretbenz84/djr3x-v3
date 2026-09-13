@@ -186,3 +186,21 @@ The [acceptance scenarios](INITIAL_TEST_PROGRAM.md#proactive-conversation-accept
 must assess delight and useful initiative alongside restraint. Real people should
 judge welcome contributions, humor, warmth and social timing; detector labels,
 synthetic tests and an LLM's self-rating cannot establish improved mood.
+
+## Intentional attention
+
+The user also wants Rex to choose when to look away or attend to his surroundings,
+rather than always fixating on faces. See the [attention implementation plan](ATTENTION_IMPLEMENTATION.md).
+Its first two simulation-only slices implement attention choices, grounded synthetic
+visual targets and post-movement evidence through the same conversational owner.
+Coordinated before/after-speech gestures are also implemented in simulation, with
+separate motion and audio receipts. Physical target-aware motion remains planned; no physical
+capability is enabled. Attention shifts must not imply boredom, lost identity or
+rejection of a quiet participant.
+
+Rich hosted image descriptions remain a requested avenue alongside spatial object
+tracks. The [attention plan](ATTENTION_IMPLEMENTATION.md#rich-visual-understanding-requested-design-addition)
+now covers visual queries, selective descriptive refresh, observation memory and
+model-owned repetition judgment. Observing a stable appearance detail does not
+require commenting on it; prior observations and actual remarks provide context.
+This expanded descriptive-memory/query path remains planned.

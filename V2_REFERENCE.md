@@ -388,3 +388,50 @@ and top headlines; actuator control stays outside their proactive-only scope.
 221 blocked-I/O checks and explicit public-source/synthetic hosted probes are
 recorded in [observation-source evidence](docs/OBSERVATION_SOURCES.md). Real scene,
 animal/gesture, group and M2 validation remain pending; no hardware was operated.
+
+## Attention and motion design review (September 12, 2026)
+
+Read-only V2 HEAD `9806c74fd233a7118da88ca5ae55fb7450deec05`; working tree clean on
+recheck. No V2 code, settings, calibrations or personal data were extracted.
+
+- `sequences/animations.py`: fixed named beats, gaze and wave-back helpers. Preserve
+  expressive range; replace default fixed event choreography with contextual,
+  target-aware composition. Random side selection alone does not remove repetition.
+- `hardware/servos.py`: smooth listening trajectories and procedural speech motion.
+  Preserve bounded/smooth movement and tracking baselines, not independent writers.
+- `intelligence/performance_plan.py`, `performance_output.py` and the interaction
+  post-line callback: preserve actual-audio-end timing and interruption checks.
+- `intelligence/motion_controller.py`, `motion_sequence.py`, `motion_agency.py`:
+  preserve correlated completion, cancellation, target loss and manual ownership
+  when physical integration is separately implemented.
+
+V2 depends on Maestro/servo calibration, ESP32 serial/firmware for the base,
+perception, shared state and speech callbacks. None becomes a v3 runtime dependency.
+The first v3 adaptation is an independent in-memory attention contract and simulated
+output adapter; see [implementation and evidence](docs/ATTENTION_IMPLEMENTATION.md).
+Its 12 new synthetic checks do not validate V2 hardware or live motion. Physical
+calibration, perception after movement, combined load and social quality remain open.
+
+## Rich visual descriptions and repeated hair remarks (September 12, 2026)
+
+V2 HEAD rechecked at `9806c74fd233a7118da88ca5ae55fb7450deec05`, clean working tree.
+Read-only design review; no runtime extraction, provider calls or private data reads.
+
+- `vision/face.py:update_appearance` contains hosted structured appearance extraction
+  including hair/style/features and apparent age, with persistence into V2 facts.
+  The function exists; this review did not establish its current live invocation
+  frequency. Preserve descriptive richness, not direct promotion into v3 biography.
+- `vision/scene.py:analyze_directed_attention` supplies the user's question/direction
+  after a look and defers competing periodic work. Preserve question-aware visual
+  interpretation and avoiding duplicate uploads.
+- `intelligence/interaction.py:_lean_visual_riff_cue` documents the September 3
+  "Brown hair again, Bret" failure and calls `_pick_appearance_hint(...,
+  include_hair=False)`. Preserve the regression case; replace trait-specific
+  exclusion with source-linked observation/actual-remark context and evaluated
+  conversational judgment.
+
+Dependencies include V2 OpenAI image requests, JPEG encoding, shared perception,
+identity and facts storage. No dependencies or data were copied. V3's planned
+adaptation and acceptance cases are in the
+[rich-vision design](docs/ATTENTION_IMPLEMENTATION.md#rich-visual-understanding-requested-design-addition).
+No new runtime capability or validation score is claimed by this documentation change.

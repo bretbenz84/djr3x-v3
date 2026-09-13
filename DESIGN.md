@@ -416,3 +416,22 @@ Window agreement uses pooled independent windows with a temporal-group veto,
 not the minimum pair alone. Acoustic rival checks remain authoritative; no name
 or face can override them. Exact gates and saved-audio evidence are documented in
 [core operations](docs/CORE_OPERATIONS.md#voice-window-variation-and-conversational-accumulation).
+
+## Intentional attention and action groundwork
+
+The authorized first two [attention slices](docs/ATTENTION_IMPLEMENTATION.md) implement
+session-owned directional/visual-target attention and output-owned simulation through the same
+Session/tool path. Simulation is explicitly injected, never enabled by live startup.
+Synthetic face/object target grounding and post-movement frame validation are
+implemented. No live object-tracking adapter, physical gaze controller or coordinated
+hardware gesture runtime is implemented yet. Optional single-primitive gestures
+can now be simulated before/after speech through the output owner, with independent
+receipts and a shared exclusive motion resource. Face tracking will serve chosen attention; it must not own social
+attention. Movement intent, physical completion and new perception remain distinct.
+
+Composite `inspect_view` is implemented for explicit simulation harnesses through
+the same conversation/state/output owners: movement completion, executor-owned
+settling, fresh image capture and one tool-result continuation. No regex command
+router or live base/camera inspection adapter was added. The
+[inspection contract](docs/ATTENTION_IMPLEMENTATION.md#composite-visual-inspection-motion-settling-and-capture)
+separates partial movement success, failed inspection and actual spoken delivery.

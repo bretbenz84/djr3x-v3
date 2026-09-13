@@ -13,6 +13,14 @@ The overnight checks used synthetic data and saved audio. No microphone was open
 no audio was played, and no video was captured. Read the [morning test guide](docs/CORE_OPERATIONS.md)
 and [acceptance evidence](docs/INITIAL_TEST_PROGRAM.md#core-implementation-evidence-slices-2-4).
 
+The [attention and coordinated-action slices](docs/ATTENTION_IMPLEMENTATION.md) are also
+implemented for explicit simulation harnesses. They add silent attention choices,
+grounded synthetic visual targets, post-movement evidence checks, and gestures
+coordinated before/after speech through the same
+conversation owner. An LLM-selected inspection can also sequence simulated movement,
+settling and image capture before a model continuation. Normal live startup has no
+motion or composite-inspection capability.
+
 ## Run the core
 
 The dev Mac already has its independent `.venv`, selected devices, credentials,
