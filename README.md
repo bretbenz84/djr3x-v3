@@ -24,7 +24,9 @@ as bounded, source-linked visual observations and reused through LLM tools. Fres
 proactive scene images can also be described and retained silently or with a remark
 in the primary call, with
 actual spoken remarks kept separately. [Hosted proactive trials](docs/PROACTIVE_VISUAL_EVALUATION.md)
-now document improved restraint plus remaining repetition/correction issues. Live
+now document improved restraint plus remaining repetition issues.
+[Related visual corrections](docs/VISUAL_CORRECTION.md) can withdraw multiple
+LLM-selected descriptions together; partial edits remain unimplemented. Live
 descriptive quality remains unvalidated.
 
 ## Run the core

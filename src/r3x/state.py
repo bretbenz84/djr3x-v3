@@ -417,11 +417,13 @@ class CoreState:
         if name == 'retract_visual':
             self._source_allowed(args,name)
             from . import visual_memory
-            allowed=visual_memory.context(self.store,capture.session_id,visual_memory.audience({'faces':self.faces}))
-            if args['observation_id'] not in {r['id'] for r in allowed}:
+            allowed=visual_memory.correction_candidates(self.store,capture.session_id,visual_memory.audience({'faces':self.faces}))
+            if not set(args['observation_ids']) <= {r['id'] for r in allowed}:
                 raise ValueError('VisualObservationUnavailable')
-            conn.execute("UPDATE visual_observations SET status='retracted' WHERE id=?",(args['observation_id'],))
-            return {'text':args['text']},True
+            conn.executemany("UPDATE visual_observations SET status='retracted' WHERE id=?",[(key,) for key in args['observation_ids']])
+            return {'text':args['text'],'source_turn_id':turn_id,
+                    'records':[{'observation_id':key,'status':'retracted'} for key in args['observation_ids']],
+                    'replacement_saved':False},True
         if name == "remain_silent":
             data = {"reason":args["reason"]}
             if not self.frozen and args['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:

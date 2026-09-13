@@ -73,7 +73,7 @@ class VisualMemoryTests(MemoryFixture):
         self.setup_description();self.turn()
         observation_id=self.store.rows('SELECT id FROM visual_observations')[0]['id']
         def reply(snapshot,cancel):
-            yield ToolCall('correct','retract_visual',{'observation_id':observation_id,
+            yield ToolCall('correct','retract_visual',{'observation_ids':[observation_id],
                 'source_turn_id':snapshot.context['source_turn_id'],'text':'I will not rely on that description.'})
         self.brain.reply=reply
         self.assertEqual(self.turn().status,'completed')

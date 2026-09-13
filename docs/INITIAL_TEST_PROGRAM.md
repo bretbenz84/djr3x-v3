@@ -952,3 +952,13 @@ proactive-image context change improved the final restraint cases, but repeated
 visual riffs and incomplete correction across similar descriptions remain. Two
 quiet-state rejections are not model-selected silence. **302 blocked-I/O checks
 pass**; see [measurements and review](PROACTIVE_VISUAL_EVALUATION.md).
+
+### Related visual correction (September 13)
+
+`retract_visual` now accepts LLM-selected batches across all 32 eligible records,
+including descriptions outside the eight-record recall window. Atomic withdrawal,
+source/revision checks, per-record results and post-commit speech are implemented.
+**312 blocked-I/O checks pass.** Two focused hosted runs correctly selected broad,
+narrow and ambiguous correction scopes. Whole-record withdrawal can also remove
+useful details in the same description; it does not save replacements. See
+[implementation and evidence](VISUAL_CORRECTION.md).

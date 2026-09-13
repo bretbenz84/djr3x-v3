@@ -204,6 +204,8 @@ class Session:
             if self.state and not self.state.frozen:
                 from . import visual_memory
                 context['visual_memory'] = visual_memory.context(self.state.store,self.session_id,visual_memory.audience(context))
+                if not opportunity:
+                    context['visual_correction_candidates'] = visual_memory.correction_candidates(self.state.store,self.session_id,visual_memory.audience(context))
                 if 0<len(scene_images)<=2 and all(0<=self.trace.clock()-i.at<=2 for i in scene_images):
                     from hashlib import sha256
                     latest = scene_images[-1]
@@ -407,6 +409,10 @@ class Session:
                     visual_selected = result.data['observation_id']
                     put_phrase(phrases,result.data['text'],cancel)
                 elif result.outcome=='ok' and call.name=='retract_visual':
+                    import json
+                    self.history.append({'role':'developer','content':
+                        'Visual correction executed: '+json.dumps(result.data)+
+                        '. Entire selected descriptions were withdrawn, including other details they contained; no replacement was saved. This is not a failure to see the original image. Do not treat withdrawn interpretations as available visual evidence.'})
                     if result.data['text'] is not None:
                         put_phrase(phrases,result.data['text'],cancel)
                     else:

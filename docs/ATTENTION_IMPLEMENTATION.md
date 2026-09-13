@@ -480,3 +480,8 @@ The September 13 [hosted proactive evaluation](PROACTIVE_VISUAL_EVALUATION.md) i
 complete for six small synthetic-image trials. A scoped input-context correction
 improved final restraint cases. Repetition, related-record correction, real-photo
 quality and live acceptance remain open; 302 blocked-I/O tests pass.
+
+Related-record correction is now [implemented and evaluated](VISUAL_CORRECTION.md):
+the LLM can withdraw multiple explicitly selected descriptions, including older
+eligible records, in one atomic operation. 312 blocked-I/O checks pass. This is
+whole-record withdrawal; partial edits, repetition quality and live acceptance remain open.

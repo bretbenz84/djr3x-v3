@@ -16,6 +16,16 @@ def context(store, session_id, audience_key):
     return rows
 
 
+def correction_candidates(store, session_id, audience_key):
+    """All bounded eligible records, including those outside the eight-item recall window."""
+    rows = store.rows('SELECT id,description,uncertainty,source,created_at FROM visual_observations WHERE session_id=? AND audience=? AND status=? ORDER BY created_at DESC,rowid DESC LIMIT 32',
+                      (session_id,audience_key,'observed'))
+    for row in rows:
+        source = json.loads(row.pop('source'))
+        row['source'] = {key:source.get(key) for key in ('event_id','source_turn_id','frame_id','captured_at','direction','question','medium')}
+    return rows
+
+
 def save(store, session_id, audience_key, source, args, model, now):
     if source.get('status') not in {'simulated','observed'} or source.get('stage')!='complete' or not source.get('frame_id'):
         raise ValueError('VisualEvidenceUnavailable')

@@ -127,3 +127,11 @@ with truthful per-record results, then repeat correction/repetition trials. Impr
 novelty judgment with observation and heard-remark context; avoid trait blacklists.
 Broader saved photographs and live group/device testing are still needed before
 calling the feature socially validated. Physical motion remains separate work.
+
+## Follow-on correction work
+
+The related-record correction limitation now has an implemented batch tool and
+[focused hosted evidence](VISUAL_CORRECTION.md). Broad/narrow/ambiguous selection
+worked in two trials, and the saved-image conversation withdrew both duplicate
+records. Whole-record withdrawal can also remove valid details; this does not
+establish partial correction or resolve repeated riffs.
