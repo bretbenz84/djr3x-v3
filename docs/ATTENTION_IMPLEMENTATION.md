@@ -475,3 +475,8 @@ change remains unresolved; see [visual validation](CURRENT_VIEW_VALIDATION.md).
 Next evaluation: saved-media multi-turn proactive trials covering both welcome
 contributions and restraint, corrections and repeated unchanged appearance. Live
 camera/group acceptance and physical motion controllers remain separate open work.
+
+The September 13 [hosted proactive evaluation](PROACTIVE_VISUAL_EVALUATION.md) is now
+complete for six small synthetic-image trials. A scoped input-context correction
+improved final restraint cases. Repetition, related-record correction, real-photo
+quality and live acceptance remain open; 302 blocked-I/O tests pass.

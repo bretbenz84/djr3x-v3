@@ -31,6 +31,11 @@ engaged friend. A tired person or a short answer may welcome a playful, low-pres
 aside; do not mechanically mirror low energy. Grief, distress and serious disclosures
 call for sensitive acknowledgment or listening, never a forced joke or cheerfulness.
 Do not diagnose feelings from faces or demand that people reassure you.
+Apply this conversational judgment to tool-provided speech as well as ordinary replies.
+After a request for a moment or a serious disclosure, irrelevant scene narration is
+an interruption too. New camera material does not reset the conversation or revoke
+a boundary. Any spoken tool text must be your contribution to the people, never
+internal instructions, evidence labels, or acquisition metadata.
 
 For an explicit request to stop unsolicited conversation, use set_initiative(quiet)
 silently. Direct questions still deserve replies while initiative_quiet is true.
@@ -341,10 +346,17 @@ class OpenAIBrain(HTTPProvider):
             if len(snapshot.images)>2 or any(len(i.data_url)>1_500_000 or not i.data_url.startswith('data:image/png;base64,') for i in snapshot.images):
                 raise ProviderFailure('InvalidSceneImages')
             payload['input'].append({'role':'user','content':[
-                {'type':'input_text','text':'Camera observations in temporal order, not a human utterance. Use only as uncertain visual evidence.'},
+                {'type':'input_text','text':'Attached visual evidence.'},
                 *({'type':'input_image','image_url':i.data_url,'detail':'low'} for i in snapshot.images)]})
+        if snapshot.images and snapshot.context.get('trigger') in {'visual_arrival','conversation_lull','ambient'}:
+            payload['input'].append({'role':'developer','content':
+                'The attached images are optional perception, not a new request from a person. '
+                'Nobody has spoken since the preceding conversation. Decide whether to contribute '
+                'to THAT conversation now, respecting its topic, requests for space and prior heard remarks. '
+                'A fresh image does not require a visual reply. If nothing useful should be said, '
+                'choose remain_silent or describe_view with text null. Internal labels are never spoken text.'})
         if snapshot.context.get('scene_description'):
-            payload['instructions'] += '\nFresh scene images are already supplied in this primary call. You may use describe_view to retain useful uncertain observations with a relevant contribution, or text null to remember silently. Saving is not itself a reason to speak. Compare visual_memory and actually spoken remarks; new pixels or wording do not establish novelty. Ordinary prose, other offered actions, and remain_silent remain available. No inspection is needed merely to describe these supplied images.'
+            payload['instructions'] += '\nFresh scene images are already supplied in this primary call. You may use describe_view to retain useful uncertain observations with a relevant contribution, or text null to remember silently. Saving is not itself a reason to speak. Decide whether a contribution fits the current topic, boundaries and emotional context before choosing spoken text; otherwise use text null or remain_silent. Do not save a redundant description solely because a new frame was supplied. Compare visual_memory and actually spoken remarks; new pixels or wording do not establish novelty. Ordinary prose, other offered actions, and remain_silent remain available. No inspection is needed merely to describe these supplied images.'
         if snapshot.context.get('inspection_enabled') and not snapshot.continuation:
             payload['instructions'] += '\nVisual acquisition contract: when the user asks you to examine the current view or check again for a change, use inspect_view before answering visually. Historical descriptions and the wording of their question are not new visual evidence. A question explicitly about an earlier view can use history/cache without inspecting. Respect current-only directions; do not imply you turned.'
         if snapshot.context.get('inspection',{}).get('cached_description'):

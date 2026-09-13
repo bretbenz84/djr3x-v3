@@ -23,7 +23,9 @@ through the same LLM tool. Physical turning and composite motion remain unavaila
 as bounded, source-linked visual observations and reused through LLM tools. Fresh
 proactive scene images can also be described and retained silently or with a remark
 in the primary call, with
-actual spoken remarks kept separately. Live descriptive quality remains unvalidated.
+actual spoken remarks kept separately. [Hosted proactive trials](docs/PROACTIVE_VISUAL_EVALUATION.md)
+now document improved restraint plus remaining repetition/correction issues. Live
+descriptive quality remains unvalidated.
 
 ## Run the core
 

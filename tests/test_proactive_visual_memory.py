@@ -139,3 +139,22 @@ class ProactiveVisualMemoryTests(MemoryFixture):
         self.brain.reply=reply
         self.assertEqual(self.run_scene().status,'failed')
         self.assertFalse(self.store.rows('SELECT * FROM visual_observations'))
+
+    def test_hosted_transport_distinguishes_proactive_images_from_a_new_human_request(self):
+        from r3x.adapters.hosted import OpenAIBrain
+        from r3x.contracts import Snapshot, Cancellation
+        from tests.test_adapters import Client, Response
+        self.setup_scene()
+        brain=OpenAIBrain('fixture')
+        response=lambda:Client(Response([{'type':'response.output_text.delta','delta':'Hello.'},{'type':'response.completed'}]))
+        messages=({'role':'user','content':'Please give us a moment.'},)
+        brain.client=response()
+        snap=Snapshot('session','turn',0,messages,context={'trigger':'ambient'},images=self.opportunity.scene_images)
+        list(brain.reply(snap,Cancellation()))
+        payload=brain.client.calls[0][1]['json']
+        self.assertEqual(payload['input'][-2]['content'][-1]['type'],'input_image')
+        self.assertEqual(payload['input'][-1]['role'],'developer')
+        self.assertEqual(snap.messages,messages)
+        brain.client=response()
+        list(brain.reply(replace(snap,context={'inspection_description_allowed':True,'inspection':{'question':'What is here?'}}),Cancellation()))
+        self.assertEqual(brain.client.calls[0][1]['json']['input'][-1]['content'][-1]['type'],'input_image')

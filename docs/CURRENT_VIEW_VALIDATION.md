@@ -102,3 +102,12 @@ and actual speech receipts as inspection descriptions. **301 blocked-I/O checks
 pass**; this follow-on slice has synthetic contract evidence only. It does not
 resolve the hosted semantic failure above. See the
 [proactive slice](ATTENTION_IMPLEMENTATION.md#proactive-visual-description-and-silent-retention).
+
+## September 13 hosted proactive evaluation
+
+Six hosted proactive runs (90 submitted turns) now exercise the new path. They
+exposed spoken internal labels, irrelevant scene narration and repeated riffs.
+A scoped image-context/tool-speech clarification improved restraint in the final
+trials; repetition and correction across related descriptions remain open.
+**302 blocked-I/O tests pass.** See the
+[full evaluation and limitations](PROACTIVE_VISUAL_EVALUATION.md).

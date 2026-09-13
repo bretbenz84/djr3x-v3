@@ -943,3 +943,12 @@ state changes, multi-frame provenance and separate observation/speech receipts a
 covered. No additional model call or physical action was added. Hosted spontaneous
 selection and live acceptance remain unverified; see the
 [implementation and limits](ATTENTION_IMPLEMENTATION.md#proactive-visual-description-and-silent-retention).
+
+### Hosted proactive image dialogue (September 13)
+
+Six 15-turn trials used real hosted inference, saved synthetic illustrations and
+production Session with synthetic output; no devices were operated. A scoped
+proactive-image context change improved the final restraint cases, but repeated
+visual riffs and incomplete correction across similar descriptions remain. Two
+quiet-state rejections are not model-selected silence. **302 blocked-I/O checks
+pass**; see [measurements and review](PROACTIVE_VISUAL_EVALUATION.md).
