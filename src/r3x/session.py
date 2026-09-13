@@ -107,6 +107,17 @@ class Session:
         question = None
         memory_selected = None
         observation_selected = None
+        def observation_ready():
+            # Camera/feed freshness authorizes starting this remark. Ordinary
+            # scene movement or cue expiry must not interrupt words already audible.
+            if delivery.first_audio_at is not None:
+                return True
+            ready = self.state.observation_available(observation_selected)
+            if not ready and not cancel.event.is_set():
+                self.trace.emit('observation_output_rejected', turn_id=turn_id,
+                                cue_id=observation_selected['cue_id'],
+                                reason='observation_changed_or_expired_before_speech')
+            return ready
         attention_intent = None
         performance_gesture = None
         visual_selected = None
@@ -333,7 +344,7 @@ class Session:
                     cancel.guard=lambda: (previous_guard is None or previous_guard()) and self.state.store.revision==selected_revision
                     observation_selected = next(c for c in context['observations'] if c['cue_id']==context['scene_description']['cue_id'])
                     previous_valid = cancel.valid
-                    cancel.valid = lambda: previous_valid() and self.state.observation_available(observation_selected)
+                    cancel.valid = lambda: previous_valid() and observation_ready()
                     if call.arguments['text'] is not None:
                         visual_proposed_text=call.arguments['text']
                         put_phrase(phrases,call.arguments['text'],cancel)
@@ -469,7 +480,7 @@ class Session:
                     previous_valid = cancel.valid
                     selected_revision = result.revision
                     cancel.valid = lambda: (previous_valid() and self.state.store.revision==selected_revision
-                        and self.state.observation_available(observation_selected))
+                        and observation_ready())
                     put_phrase(phrases,result.data['text'],cancel)
                 elif result.outcome=='ok' and call.name=='use_memory_opportunity':
                     memory_selected = result.data

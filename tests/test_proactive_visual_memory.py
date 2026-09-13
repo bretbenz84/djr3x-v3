@@ -75,6 +75,34 @@ class ProactiveVisualMemoryTests(MemoryFixture):
         self.assertEqual(self.store.rows('SELECT spoken FROM visual_observations')[0]['spoken'],'[]')
         self.assertFalse(self.store.rows('SELECT * FROM observation_delivery'))
 
+    def test_scene_change_after_playback_starts_finishes_remark_and_records_delivery(self):
+        self.setup_scene()
+        original = self.output.tts.synthesize
+        def synthesize(text, cancel):
+            yield from original(text, cancel)
+            # The sink has announced actual playback of the first chunk.
+            self.valid = False
+            cancel.check()
+            yield bytes(64)
+        self.output.tts.synthesize = synthesize
+        result = self.run_scene()
+        self.assertEqual(result.status, 'completed')
+        self.assertEqual(result.completed_text, ['That red object looks interesting.'])
+        self.assertIn('That red object', self.store.rows('SELECT spoken FROM visual_observations')[0]['spoken'])
+        self.assertEqual(len(self.store.rows('SELECT * FROM observation_delivery')), 1)
+
+    def test_explicit_stop_still_interrupts_started_visual_remark(self):
+        self.setup_scene()
+        original = self.output.tts.synthesize
+        def synthesize(text, cancel):
+            yield from original(text, cancel)
+            self.session.cancel()
+            cancel.check()
+            yield bytes(64)
+        self.output.tts.synthesize = synthesize
+        self.assertEqual(self.run_scene().status, 'interrupted')
+        self.assertFalse(self.store.rows('SELECT * FROM observation_delivery'))
+
     def test_missing_or_stale_images_offer_no_description_and_cannot_save(self):
         self.setup_scene()
         image=self.opportunity.scene_images[0]

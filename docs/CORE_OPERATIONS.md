@@ -610,3 +610,9 @@ history and raw-capture queue limits still apply. Retry work is session-only and
 is not resumed automatically after quitting/restarting; this is not a durable
 outbox. Local capture/ASR remain independent of OpenAI. Network retry events are
 counted separately as model requests, without claiming another primary decision.
+
+September 13 scene-cutoff follow-up: camera/feed freshness gates starting an
+observation-based remark. Once speech starts, ordinary scene changes or expiration
+of the original cue do not cut off the remark. Explicit stop and the remaining
+runtime/state guards still apply. The next-run investigation and 372-check
+synthetic evidence are recorded in [the review follow-up](REVIEW_2026_09_13.md#follow-up-scene-change-during-audible-speech).
