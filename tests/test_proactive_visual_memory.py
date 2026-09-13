@@ -158,3 +158,19 @@ class ProactiveVisualMemoryTests(MemoryFixture):
         brain.client=response()
         list(brain.reply(replace(snap,context={'inspection_description_allowed':True,'inspection':{'question':'What is here?'}}),Cancellation()))
         self.assertEqual(brain.client.calls[0][1]['json']['input'][-1]['content'][-1]['type'],'input_image')
+
+    def test_intervening_visual_revision_cancels_selected_proactive_phrase(self):
+        from r3x import visual_memory
+        self.setup_scene()
+        def synthesize(text,cancel):
+            oid=self.store.rows('SELECT id FROM visual_observations')[0]['id']
+            with self.store.transaction() as conn:
+                visual_memory.revise(conn,[{'observation_id':oid,'description':'A blue toy mug.','uncertainty':'User correction.'}],
+                    'intervening-correction','It is a blue toy.',100)
+                self.store.advance(conn)
+            yield bytes(64)
+        self.output.tts.synthesize=synthesize
+        result=self.run_scene()
+        self.assertEqual(result.status,'interrupted');self.assertFalse(result.completed_text)
+        self.assertEqual(self.state.visual_selections[-1]['heard_text'],'')
+        self.assertIn('blue toy',self.store.rows('SELECT description FROM visual_observations')[0]['description'])

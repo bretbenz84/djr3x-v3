@@ -342,6 +342,10 @@ class OpenAIBrain(HTTPProvider):
         payload = {"model": self.capability.model, "instructions": PERSONA,
                    "input": list(snapshot.messages)+list(snapshot.continuation), "stream": True, "store": False,
                    "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 1536 if snapshot.tools_enabled else 768}
+        if snapshot.tools_enabled and not snapshot.continuation:
+            # Complete revised descriptions need more room than a list of withdrawal IDs.
+            count=min(32,len(snapshot.context.get('visual_correction_candidates',[])))
+            payload['max_output_tokens']=max(payload['max_output_tokens'],512*(count+1))
         if snapshot.images:
             if len(snapshot.images)>2 or any(len(i.data_url)>1_500_000 or not i.data_url.startswith('data:image/png;base64,') for i in snapshot.images):
                 raise ProviderFailure('InvalidSceneImages')
@@ -355,6 +359,10 @@ class OpenAIBrain(HTTPProvider):
                 'to THAT conversation now, respecting its topic, requests for space and prior heard remarks. '
                 'A fresh image does not require a visual reply. If nothing useful should be said, '
                 'choose remain_silent or describe_view with text null. Internal labels are never spoken text.'})
+        if snapshot.context.get('visual_novelty'):
+            payload['instructions'] += '\nUse visual_novelty to distinguish stored observations, selected-but-unheard remarks and actual heard remarks. A new conversational angle should connect to the people or their current activity; rewording an inventory is still repetition. An unmentioned detail need not become speech. Corrections revise old interpretations rather than proving the scene changed.'
+        if snapshot.context.get('action_continuity'):
+            payload['instructions'] += '\nAction continuity records the purpose and separate execution/speech outcomes of earlier work. Follow the current conversation. Do not finish an abandoned answer merely because a capture or gesture succeeded. A new explicit request can choose a fresh action; old work never resumes on its own.'
         if snapshot.context.get('scene_description'):
             payload['instructions'] += '\nFresh scene images are already supplied in this primary call. You may use describe_view to retain useful uncertain observations with a relevant contribution, or text null to remember silently. Saving is not itself a reason to speak. Decide whether a contribution fits the current topic, boundaries and emotional context before choosing spoken text; otherwise use text null or remain_silent. Do not save a redundant description solely because a new frame was supplied. Compare visual_memory and actually spoken remarks; new pixels or wording do not establish novelty. Ordinary prose, other offered actions, and remain_silent remain available. No inspection is needed merely to describe these supplied images.'
         if snapshot.context.get('inspection_enabled') and not snapshot.continuation:

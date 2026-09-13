@@ -1,0 +1,71 @@
+Date : 2026-09-13 00:38:22
+Directory : /Users/bbenziger/Local/djr3x-v3
+Total : 38 files,  3026 codes, 32 comments, 416 blanks, all 3474 lines
+
+Languages
++----------+------------+------------+------------+------------+------------+
+| language | files      | code       | comment    | blank      | total      |
++----------+------------+------------+------------+------------+------------+
+| Python   |         27 |      2,143 |         32 |        229 |      2,404 |
+| Markdown |         11 |        883 |          0 |        187 |      1,070 |
++----------+------------+------------+------------+------------+------------+
+
+Directories
++--------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                     | files      | code       | comment    | blank      | total      |
++--------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                        |         38 |      3,026 |         32 |        416 |      3,474 |
+| . (Files)                                                                |          3 |         86 |          0 |         15 |        101 |
+| docs                                                                     |          8 |        797 |          0 |        172 |        969 |
+| src                                                                      |         14 |        814 |         21 |         74 |        909 |
+| src/r3x                                                                  |         14 |        814 |         21 |         74 |        909 |
+| src/r3x (Files)                                                          |         13 |        790 |         21 |         74 |        885 |
+| src/r3x/adapters                                                         |          1 |         24 |          0 |          0 |         24 |
+| tests                                                                    |          9 |      1,026 |          4 |        131 |      1,161 |
+| tools                                                                    |          4 |        303 |          7 |         24 |        334 |
++--------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++--------------------------------------------------------------------------+----------+------------+------------+------------+------------+
+| filename                                                                 | language | code       | comment    | blank      | total      |
++--------------------------------------------------------------------------+----------+------------+------------+------------+------------+
+| /Users/bbenziger/Local/djr3x-v3/DESIGN.md                                | Markdown |         32 |          0 |          6 |         38 |
+| /Users/bbenziger/Local/djr3x-v3/README.md                                | Markdown |         15 |          0 |          1 |         16 |
+| /Users/bbenziger/Local/djr3x-v3/V2_REFERENCE.md                          | Markdown |         39 |          0 |          8 |         47 |
+| /Users/bbenziger/Local/djr3x-v3/docs/ATTENTION_IMPLEMENTATION.md         | Markdown |        410 |          0 |         78 |        488 |
+| /Users/bbenziger/Local/djr3x-v3/docs/CORE_INTEGRATION_PASS.md            | Markdown |         15 |          0 |          4 |         19 |
+| /Users/bbenziger/Local/djr3x-v3/docs/CURRENT_VIEW_VALIDATION.md          | Markdown |         92 |          0 |         22 |        114 |
+| /Users/bbenziger/Local/djr3x-v3/docs/INITIAL_TEST_PROGRAM.md             | Markdown |         65 |          0 |         18 |         83 |
+| /Users/bbenziger/Local/djr3x-v3/docs/OBSERVATION_SOURCES.md              | Markdown |          5 |          0 |          2 |          7 |
+| /Users/bbenziger/Local/djr3x-v3/docs/PROACTIVE_CONVERSATION.md           | Markdown |         16 |          0 |          3 |         19 |
+| /Users/bbenziger/Local/djr3x-v3/docs/PROACTIVE_VISUAL_EVALUATION.md      | Markdown |        112 |          0 |         26 |        138 |
+| /Users/bbenziger/Local/djr3x-v3/docs/VISUAL_CORRECTION.md                | Markdown |         82 |          0 |         19 |        101 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/actions.py                       | Python   |         33 |          1 |          8 |         42 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/adapters/hosted.py               | Python   |         24 |          0 |          0 |         24 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/app.py                           | Python   |          3 |          0 |          0 |          3 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/attention.py                     | Python   |         10 |          0 |          0 |         10 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/attention_scene.py               | Python   |         83 |          5 |         14 |        102 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/contracts.py                     | Python   |          3 |          0 |          0 |          3 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/inspection.py                    | Python   |        123 |          8 |         19 |        150 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/memory.py                        | Python   |          4 |          0 |          0 |          4 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/output.py                        | Python   |         75 |          0 |          2 |         77 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/performance.py                   | Python   |         39 |          2 |         12 |         53 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/semantics.py                     | Python   |         45 |          0 |          0 |         45 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/session.py                       | Python   |        205 |          1 |          1 |        207 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/state.py                         | Python   |        105 |          0 |          3 |        108 |
+| /Users/bbenziger/Local/djr3x-v3/src/r3x/visual_memory.py                 | Python   |         62 |          4 |         15 |         81 |
+| /Users/bbenziger/Local/djr3x-v3/tests/test_action_vision_integration.py  | Python   |        121 |          1 |         12 |        134 |
+| /Users/bbenziger/Local/djr3x-v3/tests/test_attention.py                  | Python   |         97 |          0 |         11 |        108 |
+| /Users/bbenziger/Local/djr3x-v3/tests/test_current_view.py               | Python   |        111 |          0 |         13 |        124 |
+| /Users/bbenziger/Local/djr3x-v3/tests/test_inspection.py                 | Python   |        128 |          0 |         18 |        146 |
+| /Users/bbenziger/Local/djr3x-v3/tests/test_performance.py                | Python   |        135 |          1 |         20 |        156 |
+| /Users/bbenziger/Local/djr3x-v3/tests/test_proactive_visual_memory.py    | Python   |        158 |          1 |         18 |        177 |
+| /Users/bbenziger/Local/djr3x-v3/tests/test_visual_correction.py          | Python   |         97 |          1 |         15 |        113 |
+| /Users/bbenziger/Local/djr3x-v3/tests/test_visual_memory.py              | Python   |        109 |          0 |         14 |        123 |
+| /Users/bbenziger/Local/djr3x-v3/tests/test_visual_revision.py            | Python   |         70 |          0 |         10 |         80 |
+| /Users/bbenziger/Local/djr3x-v3/tools/check_action_continuity.py         | Python   |         42 |          1 |          4 |         47 |
+| /Users/bbenziger/Local/djr3x-v3/tools/check_proactive_visual_dialogue.py | Python   |        122 |          4 |          8 |        134 |
+| /Users/bbenziger/Local/djr3x-v3/tools/check_visual_corrections.py        | Python   |         59 |          1 |          5 |         65 |
+| /Users/bbenziger/Local/djr3x-v3/tools/check_visual_dialogue.py           | Python   |         80 |          1 |          7 |         88 |
+| Total                                                                    |          |      3,026 |         32 |        416 |      3,474 |
++--------------------------------------------------------------------------+----------+------------+------------+------------+------------+

@@ -98,3 +98,13 @@ were rejected before inference because the earlier request activated quiet mode;
 these do not count as model-selected restraint. The correction itself used one
 primary call and no image upload. These small trials do not prove reliable selection
 for ambiguous people, unrelated scenes sharing appearance, or live group usage.
+
+### Core integration follow-on
+
+Detail-preserving `revise_visual` is now implemented alongside whole-record withdrawal.
+It retains correction provenance and useful unchanged details. Visual novelty context
+and action continuity now distinguish observations, selected remarks, heard speech
+and abandoned work. **330 blocked-I/O checks pass**, with focused hosted preservation
+and simulated interruption evidence. See the [core integration pass](CORE_INTEGRATION_PASS.md)
+for current behavior and remaining limits; earlier partial-edit deferrals describe
+the preceding slices.

@@ -11,7 +11,7 @@ CASES={
 
 
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--hosted',action='store_true');args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--hosted',action='store_true');parser.add_argument('--revise',action='store_true');args=parser.parse_args()
  folder=Path(__file__).resolve().parents[1]/'local/validation'/('visual-corrections-'+uuid4().hex);folder.mkdir(parents=True)
  print(folder,flush=True)
  if not args.hosted:
@@ -29,25 +29,32 @@ def main():
  from r3x import visual_memory
  evidence=[];key=Secrets.load(folder.parents[1]).openai_api_key
  for name,(prompt,expected) in CASES.items():
+  if args.revise and name!='ambiguous':
+   prompt = ('The puppet-set mug is a toy, not a drinking cup. Correct every affected saved description, including older ones, but preserve the other details and other objects.' if name=='related' else 'Only the blue puppet-set cup is actually a toy mug. Correct that description, preserving its other details. Leave all other records alone.')
   sid=uuid4().hex;trace=Trace(sid,folder/(name+'.jsonl'),display=lambda _:None)
   store=Memory(':memory:');store.start();state=CoreState(store,SpeakerTracker('synthetic'),trace)
   records=[('mug-red','A red drinking cup on the puppet-set table.'),('mug-dim','The puppet-set drinking mug is red under dimmer lighting.'),
            ('mug-blue','A blue drinking cup on the puppet-set table.'),('kitchen-cup','A real white ceramic drinking cup in the kitchen, separate from the puppet set.')]
   records += [('other-'+str(i),text) for i,text in enumerate(['A green plant on a shelf.','A brass floor lamp.','A yellow notebook on a desk.','A bicycle near a door.','A black wall clock.','A window with white curtains.','A wooden chair.','A closed umbrella.'])]
   for i,(rid,text) in enumerate(records):
+   if args.revise and rid.startswith('mug-'):text+=' Beside it is a brown-haired figure in a blue shirt.'
    visual_memory.save(store,sid,'[]',{'request_id':rid,'frame_id':'saved:'+rid,'status':'observed','stage':'complete',
        'medium':'seeded_synthetic_description','question':'What is in this view?'},
        {'observation_id':rid,'description':text,'uncertainty':'Synthetic model interpretation; subject binding comes only from description.'},'synthetic-seed',i)
+  original_descriptions={r['id']:r['description'] for r in store.rows('SELECT id,description FROM visual_observations')}
   brain=OpenAIBrain(key);brain.trace=trace;brain.start()
   session=Session(sid,brain,OutputOwner(SyntheticTTS(),SyntheticSink(),trace),trace,state)
   rows=[]
   try:
-   for text in (prompt,'What visual observations are still available? Do not guess from withdrawn descriptions.'):
+   followup='What color was the hair of the figure beside the puppet mug? Use the saved description, not a new look.' if args.revise else 'What visual observations are still available? Do not guess from withdrawn descriptions.'
+   for text in (prompt,followup):
     now=time.monotonic();result=session.process_turn(Capture(uuid4().hex,sid,bytes(1024),now-.5,now-.1,now),Transcript(text,-.01,True),session.revision)
     rows.append({'prompt':text,'status':result.status,'reply':' '.join(result.completed_text),'seconds':time.monotonic()-now})
    statuses={r['id']:r['status'] for r in store.rows('SELECT id,status FROM visual_observations')}
-   selected={k for k,v in statuses.items() if v=='retracted'}
-   evidence.append({'case':name,'turns':rows,'statuses':statuses,'expected_ids':sorted(expected),'actual_ids':sorted(selected),
+   stored=store.rows('SELECT id,description,uncertainty,source,status FROM visual_observations')
+   selected=({r['id'] for r in stored if json.loads(r['source']).get('interpretation_revision',0)>0} if args.revise else {k for k,v in statuses.items() if v=='retracted'})
+   preserved=(all(all(word in r['description'].lower() for word in ('toy','brown','blue')) for r in stored if r['id'] in expected) and all(r['description']==original_descriptions[r['id']] for r in stored if r['id'] not in expected)) if args.revise else None
+   evidence.append({'preservation_matches':preserved,'case':name,'revision_mode':args.revise,'records':stored,'turns':rows,'statuses':statuses,'expected_ids':sorted(expected),'actual_ids':sorted(selected),
       'selection_matches':selected==expected and all(r['status'] in {'completed','suppressed'} for r in rows),'scope':'ambiguous case additionally requires manual clarification review'})
   finally:session.close();brain.close();store.close();trace.close()
   evidence[-1]['report']=report(folder/(name+'.jsonl'))

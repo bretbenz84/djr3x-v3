@@ -27,6 +27,9 @@ class CoreState:
         self.calendar_today = date.today
         self.memory_cursor = 0
         self.last_inspection = None
+        from .actions import Actions
+        self.actions = Actions()
+        self.visual_selections = deque(maxlen=16)
         self.performances = deque(maxlen=8)
         from .attention import AttentionState
         self.attention = AttentionState(trace.clock)
@@ -414,6 +417,15 @@ class CoreState:
             if args['observation_id'] not in {r['id'] for r in allowed}:
                 raise ValueError('VisualObservationUnavailable')
             return {'text':args['text'],'observation_id':args['observation_id']},False
+        if name == 'revise_visual':
+            self._source_allowed(args,name)
+            from . import visual_memory
+            allowed=visual_memory.correction_candidates(self.store,capture.session_id,visual_memory.audience({'faces':self.faces}))
+            if not {r['observation_id'] for r in args['revisions']} <= {r['id'] for r in allowed}:
+                raise ValueError('VisualObservationUnavailable')
+            records=visual_memory.revise(conn,args['revisions'],turn_id,transcript.text,self.wall_clock())
+            return {'text':args['text'],'source_turn_id':turn_id,'records':records,
+                    'meaning':'Revised old model interpretations using this user correction; no new image or verified personal fact.'},True
         if name == 'retract_visual':
             self._source_allowed(args,name)
             from . import visual_memory
@@ -679,6 +691,8 @@ class CoreState:
             self.attention.clear()
             self.attention.recent.clear()
             self.performances.clear()
+            self.actions.clear()
+            self.visual_selections.clear()
             self.last_inspection = None
             self.attention.scene.invalidate(self.trace.clock())
             self.forgotten = True

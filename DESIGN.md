@@ -454,3 +454,9 @@ primary call, with silent retention or source-linked delivered speech. This adds
 second conversation owner or mandatory inspection. See the [proactive visual memory
 slice](docs/ATTENTION_IMPLEMENTATION.md#proactive-visual-description-and-silent-retention)
 for source validity, synthetic evidence and pending social acceptance.
+
+The September 13 [core integration pass](docs/CORE_INTEGRATION_PASS.md) implements
+model-authored visual revisions with source audit, bounded observation/selection/
+heard-remark context and audience-scoped action continuity. Output remains the only
+executor; abandoned work never resumes automatically. Synthetic integration and
+small hosted trials do not replace live group/device acceptance.

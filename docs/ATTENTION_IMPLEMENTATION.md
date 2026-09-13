@@ -485,3 +485,13 @@ Related-record correction is now [implemented and evaluated](VISUAL_CORRECTION.m
 the LLM can withdraw multiple explicitly selected descriptions, including older
 eligible records, in one atomic operation. 312 blocked-I/O checks pass. This is
 whole-record withdrawal; partial edits, repetition quality and live acceptance remain open.
+
+### Core integration follow-on
+
+Detail-preserving `revise_visual` is now implemented alongside whole-record withdrawal.
+It retains correction provenance and useful unchanged details. Visual novelty context
+and action continuity now distinguish observations, selected remarks, heard speech
+and abandoned work. **330 blocked-I/O checks pass**, with focused hosted preservation
+and simulated interruption evidence. See the [core integration pass](CORE_INTEGRATION_PASS.md)
+for current behavior and remaining limits; earlier partial-edit deferrals describe
+the preceding slices.

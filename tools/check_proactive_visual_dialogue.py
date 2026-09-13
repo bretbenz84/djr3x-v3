@@ -90,6 +90,7 @@ def run_scenario(name, cases, folder, images, key):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--hosted',action='store_true')
+    parser.add_argument('--revise',action='store_true',help='Request detail-preserving correction instead of withdrawal')
     parser.add_argument('--heldout',action='store_true',help='Alternate dialogue wording on the same controlled images')
     args=parser.parse_args()
     folder=Path(__file__).resolve().parents[1]/'local/validation'/('proactive-visual-'+uuid4().hex)
@@ -110,6 +111,9 @@ def main():
         for (name,index),prompt in replacements.items():
             image,_,expectation=scenarios[name][index]
             scenarios[name][index]=(image,prompt,expectation)
+    if args.revise:
+        image,_,_=scenarios['welcome_and_repetition'][5]
+        scenarios['welcome_and_repetition'][5]=(image,'The prop is a toy mug, not a drinking cup. Correct every related saved description, but preserve other useful details like the hair color.','Revise all affected records, preserve supported details, then recall hair color.')
     (folder/'review-plan.json').write_text(json.dumps(scenarios,indent=2))
     print(folder,flush=True)
     if not args.hosted:return
@@ -118,7 +122,7 @@ def main():
     results=[run_scenario(name,cases,folder,images,key) for name,cases in scenarios.items()]
     seconds=[c['seconds'] for r in results for c in r['cases']]
     (folder/'evidence.json').write_text(json.dumps({
-        'manual_semantic_review_required':True,'devices_opened':False,'heldout_wording':args.heldout,
+        'manual_semantic_review_required':True,'devices_opened':False,'heldout_wording':args.heldout,'detail_preserving_correction':args.revise,
         'source':'saved synthetic cartoon fixtures; synthetic face presence; no real people',
         'method':'Production Session direct opportunity probes; fake elapsed gaps; not scheduler or live acceptance',
         'audio':'synthetic delivery; no playback','scenarios':results,
