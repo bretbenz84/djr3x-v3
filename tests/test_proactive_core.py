@@ -51,7 +51,7 @@ class InitiativeCoreTests(MemoryFixture):
         snapshot = self.brain.snapshots[-1]
         self.assertEqual(snapshot.context['trigger'],'conversation_lull')
         self.assertEqual(snapshot.speaker,'unresolved')
-        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)},{'remain_silent'})
+        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)},{'remain_silent','ask_face_question'})
         users = [m['content'] for m in snapshot.messages if m.get('role')=='user']
         self.assertEqual(users,['Rex, we finally fixed the camera.'])
         self.assertEqual(self.store.rows('SELECT * FROM turns'),sources)
@@ -92,6 +92,58 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(outcome['status'],'interrupted')
         self.assertFalse(outcome['heard_complete_phrases'])
         self.assertEqual(outcome['response'],'not_applicable')
+
+    def test_lull_can_ask_visible_person_name_and_wait_for_audible_answer(self):
+        self.setup_core(); self.turn(); self.visible(108)
+        class Question(Brain):
+            def reply(self,snapshot,cancel):
+                yield ToolCall('name','ask_face_question',
+                    {'face_track_id':'visitor','text':'We have not met yet. What should I call you?'})
+        self.session.brain=Question()
+        self.session.output=OutputOwner(SyntheticTTS(),SyntheticSink(),self.trace)
+        self.runtime.proactive_tick()
+        self.assertEqual(self.state.pending['face_track_id'],'visitor')
+        self.assertIsNone(self.state.pending['addressee_id'])
+        self.assertEqual(self.store.people(),[])
+        self.visible(130); before=len(self.state.initiative.outcomes)
+        self.runtime.proactive_tick()
+        self.assertEqual(len(self.state.initiative.outcomes),before)
+
+    def test_audio_timestamp_update_during_clock_read_does_not_cancel(self):
+        self.setup_core();self.turn();self.visible(108)
+        runtime,trace=self.runtime,self.trace
+        armed=[False]
+        def clock():
+            now=trace.at
+            if armed[0]:
+                armed[0]=False
+                trace.at+=.01
+                runtime.audio_seen_at=trace.at
+            return now
+        trace.clock=clock
+        class Updating(Brain):
+            def reply(self,snapshot,cancel):
+                armed[0]=True
+                cancel.check()
+                yield 'I have a thought to share with everyone.'
+        self.session.brain=Updating()
+        self.runtime.proactive_tick()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
+        self.assertFalse(any(r['event']=='proactive_invalidated' for r in trace.rows))
+
+    def test_stale_audio_reports_cancellation_reason(self):
+        self.setup_core();self.turn();self.visible(108)
+        runtime=self.runtime
+        class Stalled(Brain):
+            def reply(self,snapshot,cancel):
+                runtime.audio_seen_at=100
+                cancel.check()
+                yield 'This must not play.'
+        self.session.brain=Stalled();self.runtime.proactive_tick()
+        rows=[r for r in self.trace.rows if r['event']=='proactive_invalidated']
+        self.assertTrue(rows)
+        self.assertEqual(rows[0]['reason'],'audio_stale')
+        self.assertFalse(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
 
     def test_new_audience_member_during_tts_cancels_before_first_pcm(self):
         self.setup_core();self.turn();self.visible(108)

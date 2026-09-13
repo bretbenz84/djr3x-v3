@@ -299,3 +299,34 @@ gesture/object accuracy, timing and M2/device validation remain unperformed; the
 source probes are not substitutes for those measurements. No hardware was started,
 no old people data was imported, and no additional live test is requested as a
 prerequisite to this software delivery.
+
+### September 13: introductions and interrupted opportunities
+
+Two user-run sessions contained eleven proactive outcomes: nine interrupted without
+complete spoken phrases and two deliberately suppressed. Historical traces do not
+identify the invalidating guard, so these counts do not establish the cancellation
+cause. No proactive phrase was recorded as completely heard in those runs.
+
+Implemented repairs:
+- Targeted face-name questions are available at lulls and ambient opportunities as
+  well as arrivals. The state owner validates the target against the offered faces;
+  arrival questions still target the arrival. Only actual audio delivery creates
+  a pending question. No proactive identity or personal-data write is authorized.
+- Shared model guidance favors natural introductions for unnamed speakers and
+  unfamiliar faces, while respecting prior introductions, pending/declined
+  invitations, provisional enrollment and quiet requests. This adds no classifier
+  or extra mandatory model generation.
+- An arrival interrupted before first audio can be offered again after the existing
+  45-second global cooldown, within the existing six-attempt/five-minute budget.
+  Partial/heard speech, deliberate silence and provider failures do not reopen it.
+- Cancellation checks sample the microphone timestamp before reading the clock,
+  preventing a concurrent update from looking like future audio. Structured trace
+  and terminal reasons distinguish speech, queued work, unavailable audio and an
+  audience change/staleness. This race is reproducible synthetically; its occurrence
+  in the historical sessions is not established.
+
+Validation: 336 blocked-I/O checks passed. Added production-path checks cover an
+LLM-tool-shaped name question during a lull, waiting after audible delivery,
+unheard-arrival recovery versus partial playback, the timestamp race, and stale
+microphone cancellation. No hardware or hosted model was run. Live greeting rate,
+model choice of introductions, cancellation causes and social quality remain open.

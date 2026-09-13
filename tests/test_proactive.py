@@ -50,6 +50,19 @@ class ArrivalTests(unittest.TestCase):
         self.visible(a,105,109,track='visitor')
         self.assertIsNotNone(a.take('s',109,0))
 
+    def test_unheard_cancelled_arrival_can_retry_but_partial_audio_cannot(self):
+        from r3x.output import Delivery
+        for started in (None,4.1):
+            with self.subTest(first_audio_at=started):
+                a=Arrivals();self.visible(a,0,4)
+                e=a.take('s',4,0)
+                a.finished(e,Delivery(status='interrupted',first_audio_at=started))
+                self.visible(a,4.5,10)
+                self.assertIsNone(a.take('s',10,0))
+                self.visible(a,10.5,49)
+                retry=a.take('s',49,0)
+                self.assertEqual(retry is not None,started is None)
+
     def test_stale_tiny_and_duplicate_identity_faces_do_not_trigger(self):
         a=Arrivals();self.visible(a,0,4,'known')
         self.assertIsNone(a.take('s',10,0))

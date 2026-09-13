@@ -274,8 +274,10 @@ class CoreState:
                 if not candidate:raise ValueError('MemoryOpportunityUnavailable')
                 data={'text':call.arguments['text'],'claim_id':candidate['claim_id'],'occasion':candidate['occasion']}
             elif call.name=='remain_silent': data={'reason':call.arguments['reason']}
-            elif call.name=='ask_face_question' and context['trigger']=='visual_arrival':
-                if call.arguments['face_track_id']!=context['visual_arrival']['face_track_id']:
+            elif call.name=='ask_face_question':
+                if call.arguments['face_track_id'] not in {f['track_id'] for f in context['faces']}:
+                    raise ValueError('FaceEvidenceMissing')
+                if context['trigger']=='visual_arrival' and call.arguments['face_track_id']!=context['visual_arrival']['face_track_id']:
                     raise ValueError('VisualQuestionTargetMismatch')
                 data={'question':call.arguments['text'],'face_track_id':call.arguments['face_track_id'],'addressee_id':None}
             else: raise ValueError('VisualEventDoesNotAuthorizeMutation')

@@ -81,7 +81,7 @@ def grounded_tools(context):
     if context.get('trigger')=='visual_arrival':
         definitions = [d for d in definitions if d['name'] in {'remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view'}]
     elif context.get('trigger') in {'conversation_lull','ambient'}:
-        definitions = [d for d in definitions if d['name'] in {'remain_silent','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view'}]
+        definitions = [d for d in definitions if d['name'] in {'remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view'}]
     if context.get('inspection_description_allowed'):
         definitions = copy.deepcopy([d for d in TOOLS if d['name']=='describe_view'])
     people = [p["id"] for p in context.get("people",[])]

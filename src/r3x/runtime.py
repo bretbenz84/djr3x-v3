@@ -153,11 +153,27 @@ class VoiceRuntime:
         self.trace.emit('proactive_opportunity',event_id=event.event_id,kind=event.kind,
                         face_track_id=event.target_track,person_id=event.person_id)
         def valid():
-            return (self.arrivals.valid(event,self.trace.clock()) and not self.stop.is_set() and
-                    self.session._latest_speech==event.speech_marker and
-                    self.captures.empty() and self.turns.empty() and not self.asr_busy.is_set() and
-                    0<=self.trace.clock()-self.audio_seen_at<=.5)
+            # Sample the producer timestamp before the clock: a microphone frame
+            # arriving between these reads must not look like future audio.
+            audio_seen_at = self.audio_seen_at
+            now = self.trace.clock()
+            audio_age = now-audio_seen_at
+            reason = ('shutdown' if self.stop.is_set() else
+                      'human_speech' if self.session._latest_speech!=event.speech_marker else
+                      'capture_queued' if not self.captures.empty() else
+                      'turn_queued' if not self.turns.empty() else
+                      'recognition_busy' if self.asr_busy.is_set() else
+                      'audio_timestamp_ahead' if audio_age<0 else
+                      'audio_stale' if audio_age>.5 else
+                      'audience_changed_or_stale' if not self.arrivals.valid(event,now) else None)
+            if reason and not invalidated.is_set():
+                invalidated.set()
+                self.trace.emit('proactive_invalidated',event_id=event.event_id,kind=event.kind,
+                                reason=reason,audio_age_seconds=audio_age)
+            return reason is None
+        invalidated = threading.Event()
         result = self.session.process_opportunity(event,revision,valid)
+        self.arrivals.finished(event,result)
         self.trace.emit('proactive_opportunity_done',event_id=event.event_id,kind=event.kind,status=result.status,medium=result.medium,
                         delivered=bool(result.completed_text),failed=result.error)
 

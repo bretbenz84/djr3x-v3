@@ -572,3 +572,8 @@ For recognition or speaker-handoff investigations, launch with
 `.venv/bin/python -m r3x live --camera --record-evaluation`. This retains evaluation
 audio locally, including captures that were not accepted for enrollment. Without
 it, a transcript of two people speaking cannot establish their acoustic boundary.
+
+Proactive turns now print their invalidation reason when a runtime guard stops
+work. Unheard arrival greetings can be reconsidered after the normal cooldown.
+Name invitations are also available during lulls, chosen by the same conversation
+model. A pending question is recorded only when it was actually spoken.

@@ -174,6 +174,27 @@ class Arrivals:
                        f.get('face_epoch')==next(t.get('face_epoch') for t in event.faces if t['track_id']==event.target_track) and
                        0<=now-f['at']<=1. for f in self.faces)
 
+    def finished(self, event, delivery):
+        """An interrupted unheard arrival is eligible again after normal pacing.
+
+        Keep the global cooldown and attempt budget. Silence, failures, and
+        even partially spoken phrases do not trigger automatic re-offering.
+        """
+        if (event.kind!='visual_arrival' or delivery.status!='interrupted' or
+                delivery.completed_text or delivery.first_audio_at is not None):
+            return
+        with self.lock:
+            entry = self.seen.get(event.person_id or event.target_track)
+            if not entry or entry['track']!=event.target_track or entry['attempt']!=event.at:
+                return
+            entry['used'] = False
+            # The global cooldown still limits a retry; the per-person cooldown
+            # applies to greetings that had a chance to reach the person.
+            entry['attempt'] = float('-inf')
+            if self.unknown_target==event.target_track:
+                self.unknown_attempted = False
+                self.unknown_target = None
+
     def audience(self, now):
         """Fresh stable audience, including unnamed people; never an acoustic ID."""
         with self.lock:
