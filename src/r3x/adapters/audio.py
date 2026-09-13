@@ -94,7 +94,13 @@ class SileroVAD:
         import torch
         from silero_vad import load_silero_vad
         torch.set_num_threads(1)
-        self.model = load_silero_vad()
+        # Silero currently ships a TorchScript artifact. Keep that supported
+        # loader; silence only its upstream migration notice, not runtime errors.
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', message=r'`torch\.jit\.load` is deprecated\. Please switch to `torch\.export`\.',
+                                    category=FutureWarning, module=r'torch\.jit\._serialization')
+            self.model = load_silero_vad()
 
     def is_speech(self, pcm: bytes):
         import numpy as np

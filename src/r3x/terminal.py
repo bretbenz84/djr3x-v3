@@ -50,6 +50,21 @@ class LiveConsole:
             message = "Rex stayed quiet: " + clean(row["reason"]).replace("_", " ")
         elif event == "proactive_invalidated":
             message = "Rex's proactive turn stopped: " + clean(row['reason']).replace('_', ' ')
+        elif event == "audio_input_health":
+            level = 'digital silence' if row['peak_dbfs'] is None else f"peak {row['peak_dbfs']:.0f} dBFS"
+            message = (f"Microphone ({clean(row['device'])}): {level}; "
+                       f"speech detected in {row['speech_frames']}/{row['frames']} frames.")
+        elif event == 'capture_gap':
+            message = ('Microphone timing gap; interrupted input cleared.' if row.get('utterance_discarded')
+                       else 'Microphone timing gap; listening resumed.')
+        elif event == 'openai_waiting':
+            message = (f"OpenAI unavailable ({clean(row['reason'])}); retrying in {row['retry_in_seconds']} seconds. "
+                       + ('Your transcribed speech is retained while Rex stays running.' if row['human_turn']
+                          else 'Waiting to try this proactive turn again.'))
+        elif event == 'openai_recovered':
+            message = 'OpenAI is responding again.'
+        elif event == 'transcript_waiting':
+            message = 'Transcribed speech is waiting for the conversation worker.'
         elif event == "face_learning_saved":
             message = f"Face samples saved ({row['samples']} clear views)."
         elif event == "voice_learning_saved":

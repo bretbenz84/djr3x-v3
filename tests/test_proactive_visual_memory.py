@@ -59,7 +59,10 @@ class ProactiveVisualMemoryTests(MemoryFixture):
             self.valid=False
             yield from original(s,c)
         self.brain.reply=reply
-        self.assertEqual(self.run_scene().status,'failed')
+        self.assertEqual(self.run_scene().status,'suppressed')
+        self.assertTrue(any(r['event']=='tool_result' and r.get('reason')=='VisualEvidenceUnavailable'
+                            for r in self.state.trace.rows))
+        self.assertFalse(any(r['event']=='turn_failed' for r in self.state.trace.rows))
         self.assertFalse(self.store.rows('SELECT * FROM visual_observations'))
 
     def test_changed_scene_during_synthesis_keeps_observation_but_no_delivery(self):
@@ -137,7 +140,7 @@ class ProactiveVisualMemoryTests(MemoryFixture):
             self.state.trace.at+=16
             yield from original(s,c)
         self.brain.reply=reply
-        self.assertEqual(self.run_scene().status,'failed')
+        self.assertEqual(self.run_scene().status,'suppressed')
         self.assertFalse(self.store.rows('SELECT * FROM visual_observations'))
 
     def test_hosted_transport_distinguishes_proactive_images_from_a_new_human_request(self):

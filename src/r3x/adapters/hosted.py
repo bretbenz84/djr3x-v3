@@ -356,6 +356,49 @@ class OpenAIBrain(HTTPProvider):
                                      "gpt-5.4-mini", ("httpx",), ("network",))
 
     def reply(self, snapshot: Snapshot, cancel: Cancellation):
+        """Retry unavailable transport only before any reply/tool is released.
+
+        The Session keeps the original source and owns cancellation when newer
+        speech arrives. Never regenerate a partially released reply or execute a
+        tool twice to recover connectivity.
+        """
+        attempt = 0
+        while True:
+            cancel.check()
+            if attempt and self.trace:
+                self.trace.emit('model_request',turn_id=snapshot.turn_id,primary_calls=0,
+                    purpose='network_retry',retry_attempt=attempt,
+                    image_count=len(snapshot.images),image_bytes=sum(len(i.data_url) for i in snapshot.images))
+            released = False
+            try:
+                for item in self._reply_once(snapshot,cancel):
+                    if attempt and not released and self.trace:
+                        self.trace.emit('openai_recovered',turn_id=snapshot.turn_id,attempts=attempt+1)
+                    released = True
+                    yield item
+                return
+            except ProviderFailure as exc:
+                retryable = str(exc) in {
+                    'OpenAIConnectError','OpenAIConnectTimeout','OpenAIReadError','OpenAIReadTimeout',
+                    'OpenAIWriteError','OpenAIWriteTimeout','OpenAIPoolTimeout','OpenAIRemoteProtocolError',
+                    'OpenAIHTTP408','OpenAIHTTP429','OpenAIHTTP500','OpenAIHTTP502','OpenAIHTTP503','OpenAIHTTP504'}
+                if released or not retryable: raise
+                attempt += 1
+                delay = min(30,2**min(attempt,5))
+                if self.trace:
+                    self.trace.emit('openai_waiting',turn_id=snapshot.turn_id,reason=str(exc),
+                        retry_in_seconds=delay,attempt=attempt,
+                        human_turn=snapshot.context.get('trigger') not in {'visual_arrival','conversation_lull','ambient'})
+                self._wait_retry(delay,cancel)
+
+    def _wait_retry(self, seconds, cancel):
+        deadline = time.monotonic()+seconds
+        while time.monotonic()<deadline:
+            cancel.check()
+            cancel.event.wait(min(.1,max(0,deadline-time.monotonic())))
+        cancel.check()
+
+    def _reply_once(self, snapshot: Snapshot, cancel: Cancellation):
         if self.client is None:
             raise ProviderFailure("BrainNotStarted")
         cancel.check()

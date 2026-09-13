@@ -140,9 +140,44 @@ class CoreTests(unittest.TestCase):
     def test_input_overflow_is_explicit(self):
         self.setup_core()
         runtime = VoiceRuntime(None, None, None, self.session, self.trace)
-        for i in range(5): runtime.enqueue(runtime.turns, i, "turns")
-        self.assertEqual(runtime.turns.qsize(), 3)
-        self.assertEqual(len([r for r in self.trace.rows if r["event"] == "input_overflow"]), 2)
+        for i in range(5): runtime.enqueue(runtime.captures, i, "captures")
+        self.assertEqual(runtime.captures.qsize(), 2)
+        self.assertEqual(len([r for r in self.trace.rows if r["event"] == "input_overflow"]), 3)
+
+    def test_full_transcript_queue_waits_and_preserves_order(self):
+        self.setup_core()
+        runtime = VoiceRuntime(None,None,None,self.session,self.trace)
+        for i in range(3):runtime.enqueue(runtime.turns,i,'turns')
+        pending=threading.Thread(target=runtime.enqueue,args=(runtime.turns,3,'turns'))
+        pending.start()
+        try:
+            self.assertEqual(runtime.turns.get(timeout=1),0)
+            pending.join(1)
+            self.assertFalse(pending.is_alive())
+            self.assertEqual([runtime.turns.get_nowait() for _ in range(3)],[1,2,3])
+            self.assertFalse(any(r['event']=='input_overflow' for r in self.trace.rows))
+        finally:runtime.stop.set();pending.join(1)
+
+    def test_new_speech_during_outage_retains_old_words_and_answers_latest(self):
+        from r3x.adapters.hosted import OpenAIBrain
+        from tests.test_adapters import Client,Response
+        response=Response();response.status_code=503
+        brain=OpenAIBrain('synthetic');brain.client=Client(response)
+        self.setup_core(brain=brain)
+        def resumed(delay,cancel):
+            self.session.note_speech(101)
+            cancel.check()
+        brain._wait_retry=resumed
+        first=self.turn('We visited the museum earlier.')
+        self.assertEqual(first.status,'interrupted')
+        self.assertFalse(first.completed_text)
+        brain.client.response=Response([{'type':'response.output_text.delta','delta':'You visited both places today.'},
+                                        {'type':'response.completed'}])
+        self.capture=replace(self.capture,capture_id='next',started_at=100,speech_ended_at=101,ended_at=102)
+        self.assertEqual(self.turn('Now we are at the cemetery.').status,'completed')
+        sent=brain.client.calls[-1][1]['json']['input']
+        self.assertEqual([m['content'] for m in sent if m['role']=='user'],
+                         ['We visited the museum earlier.','Now we are at the cemetery.'])
 
     def test_endpoint_preserves_preroll_and_endpoint_timestamps(self):
         endpoint = Endpoint("session", .2)

@@ -577,3 +577,29 @@ Proactive turns now print their invalidation reason when a runtime guard stops
 work. Unheard arrival greetings can be reconsidered after the normal cooldown.
 Name invitations are also available during lulls, chosen by the same conversation
 model. A pending question is recorded only when it was actually spoken.
+
+When diagnosing missing transcription, the terminal prints a microphone summary
+about every five seconds. `digital silence` means the processed samples were all
+zero; a numerical peak with zero detected-speech frames means audio arrived but
+the speech detector did not accept it. Neither proves which person or sound was
+captured. The JSON `audio_input_health` event also records RMS, echo frames and
+whether an utterance is pending. Evaluation recording retains completed captures,
+so no WAV is expected when speech never passes endpoint detection.
+
+### Intermittent OpenAI connectivity
+
+Temporary OpenAI connection/read/write errors, timeouts, HTTP 408/429 and selected
+server errors now retry before any reply text or tool is released. Retry delays
+increase through 2, 4, 8, 16 and 30 seconds, capped at 30. The actual request tests
+service availability; no separate ping service is required. The terminal reports
+waiting and recovery. Explicit stop/shutdown cancels retries. Authentication and
+other permanent errors fail normally, and partially released replies are not
+regenerated automatically.
+
+Transcribed turns wait instead of being discarded when the conversation queue is
+full. New speech cancels the older pending answer; its original words remain in
+session history and the newest turn can respond with that context. Existing bounded
+history and raw-capture queue limits still apply. Retry work is session-only and
+is not resumed automatically after quitting/restarting; this is not a durable
+outbox. Local capture/ASR remain independent of OpenAI. Network retry events are
+counted separately as model requests, without claiming another primary decision.

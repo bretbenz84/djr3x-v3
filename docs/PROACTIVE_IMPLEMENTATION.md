@@ -330,3 +330,75 @@ LLM-tool-shaped name question during a lull, waiting after audible delivery,
 unheard-arrival recovery versus partial playback, the timestamp race, and stale
 microphone cancellation. No hardware or hosted model was run. Live greeting rate,
 model choice of introductions, cancellation causes and social quality remain open.
+
+### September 13: live cancellation evidence and microphone diagnostics
+
+The next user-run session recorded four audience-change/staleness cancellations
+and one human-speech cancellation. It contained no completed captures or ASR
+requests; microphone frames continued arriving. The user reports normal/loud
+speech and manual Ctrl-C. No waveform was retained because evaluation recording
+runs after endpoint completion. The trace cannot establish input level or VAD
+accuracy for this run.
+
+Fixed a second freshness problem: ongoing opportunity guards now read the camera's
+latest analyzed cache before evaluating the audience, rather than relying on the
+main loop's older polling snapshot. The one-second freshness limit and cancellation
+on actual audience changes remain intact. No frame is reanalyzed by this check.
+
+Added five-second microphone diagnostics with selected device, peak/RMS level,
+frame counts, speech-detector/echo counts and pending endpoint state. Terminal
+output shows level and detected-speech counts. Diagnostics retain no PCM and run
+without a new provider. This distinguishes digital silence from audible signal
+that the detector rejects; it does not by itself fix the user's missing speech.
+
+Validation: 338 blocked-I/O checks passed, including a camera result refreshed
+between main-loop polls, actual audience-change cancellation, and separate signal
+versus detector reporting. No live device was operated. Live input/ASR recovery
+and confirmation of the historical camera cancellation mechanism remain pending.
+
+### September 13: camera changes during audible replies
+
+The subsequent live run delivered conversation and an arrival greeting. The
+user-reported cut-off proactive sentence coincides with an audience invalidation
+mid-playback; the trace reports interruption, not a TTS provider failure. A separate
+ValueError followed a valid describe_view proposal while the scene changed during
+model generation. The original trace omitted the exception reason; source freshness
+validation is consistent with the observed scene changes and valid tool arguments.
+
+General prose now requires a valid audience before first audio but can finish after
+camera evidence changes. Human speech, explicit cancellation, unavailable input and
+shutdown still interrupt. Tool-selected output retains audience checks, including
+face questions, visual remarks, memory and actions. This does not enable acoustic
+barge-in during the existing echo gate.
+
+A VisualEvidenceUnavailable rejection during description saving becomes a structured
+rejected tool result and silent outcome, without a save or generic turn failure.
+Other validation/programming errors remain failures. The current TorchScript VAD
+backend is unchanged; only its specific torch.jit.load FutureWarning is filtered
+inside startup. Capture-gap traces now include gap duration and whether pending
+input was discarded; the terminal describes reset/recovery without a generic error.
+
+Validation: 340 blocked-I/O checks passed, including camera changes after first
+speech, continued interruption for human speech, and structured stale-description
+rejection. No hardware, hosted calls or TTS regeneration were used. Actual audible
+completion, startup timing-gap cause and the separately observed six playback
+underruns on another reply remain live validation work.
+
+### September 13: intermittent network recovery
+
+Two subsequent user-run sessions recorded OpenAIWriteTimeout on proactive requests.
+Neither produced a completed capture/transcript: input diagnostics showed substantial
+signal but zero speech-detector frames. That separate detection problem remains
+unresolved; network retries do not repair it.
+
+Implemented cancellable pre-output OpenAI retries with bounded backoff, visible
+waiting/recovery, request-attempt accounting, and backpressure instead of dropping
+already transcribed turns from a full conversation queue. No automatic replay of
+partially released speech/tools or durable cross-launch retry was introduced.
+
+Validation: 346 blocked-I/O checks passed. Synthetic transport tests cover repeated
+write failures then success, identical retained request content, cancellation,
+nonretryable authentication failure, and no replay after released text. Production
+Session coverage confirms that new speech during an outage preserves earlier user
+words and answers the latest turn. Queue tests preserve transcribed order. No live
+network, model, microphone or speaker was operated for this change.

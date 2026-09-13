@@ -23,6 +23,7 @@ class InitiativeCoreTests(MemoryFixture):
         self.runtime = VoiceRuntime(SimpleNamespace(),SimpleNamespace(),None,self.session,self.trace,
                                     perception=SimpleNamespace(camera=SimpleNamespace()))
         self.runtime.started_at = 0
+        self.runtime.camera.latest=lambda now:self.runtime.arrivals.faces
 
     def turn(self,text='Rex, we finally fixed the camera.',voice=None):
         now = self.trace.at
@@ -145,6 +146,23 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(rows[0]['reason'],'audio_stale')
         self.assertFalse(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
 
+    def test_new_camera_cache_prevents_false_stale_poll_cancellation(self):
+        self.setup_core();self.turn();self.visible(108)
+        runtime,trace=self.runtime,self.trace
+        latest=[face(108,track='visitor')]
+        runtime.camera.latest=lambda now:tuple(latest)
+        class Slow(Brain):
+            def reply(self,snapshot,cancel):
+                # No main-loop visual poll has occurred. The camera has already
+                # supplied a fresh frame before the old snapshot expires.
+                trace.at=109.1;runtime.audio_seen_at=109.1
+                latest[:]=[face(108.7,track='visitor')]
+                cancel.check()
+                yield 'Good to see everyone here.'
+        self.session.brain=Slow();runtime.proactive_tick()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
+        self.assertFalse(any(r['event']=='proactive_invalidated' for r in trace.rows))
+
     def test_new_audience_member_during_tts_cancels_before_first_pcm(self):
         self.setup_core();self.turn();self.visible(108)
         runtime=self.runtime
@@ -153,6 +171,36 @@ class InitiativeCoreTests(MemoryFixture):
                 runtime.arrivals.observe([face(108,track='visitor'),face(108,track='new')],108)
                 yield bytes(64)
         self.session.output=OutputOwner(Changed(),SyntheticSink(),self.trace)
+        self.runtime.proactive_tick()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
+        self.assertFalse(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
+
+    def test_camera_change_after_first_audio_finishes_general_reply(self):
+        self.setup_core();self.turn();self.visible(108)
+        runtime=self.runtime
+        class MovingSink(SyntheticSink):
+            def play(self,chunks,cancel,on_start):
+                def started(at):
+                    on_start(at)
+                    runtime.arrivals.observe([face(108,track='new')],108)
+                    cancel.check()
+                return super().play(chunks,cancel,started)
+        self.session.output=OutputOwner(SyntheticTTS(),MovingSink(),self.trace)
+        self.runtime.proactive_tick()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
+        self.assertTrue(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
+
+    def test_human_speech_after_first_audio_still_interrupts(self):
+        self.setup_core();self.turn();self.visible(108)
+        session=self.session
+        class InterruptingSink(SyntheticSink):
+            def play(self,chunks,cancel,on_start):
+                def started(at):
+                    on_start(at)
+                    session.note_speech(108.1)
+                    cancel.check()
+                return super().play(chunks,cancel,started)
+        self.session.output=OutputOwner(SyntheticTTS(),InterruptingSink(),self.trace)
         self.runtime.proactive_tick()
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
         self.assertFalse(self.state.initiative.outcomes[-1]['heard_complete_phrases'])

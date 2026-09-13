@@ -153,6 +153,7 @@ class ObservationCoreTests(MemoryFixture):
         runtime=VoiceRuntime(SimpleNamespace(),SimpleNamespace(),None,self.session,self.state.trace,
             perception=SimpleNamespace(camera=SimpleNamespace()),observations=source)
         runtime.started_at=90;runtime.audio_seen_at=100
+        runtime.camera.latest=lambda now:runtime.arrivals.faces
         for at in (97,98,99,100):runtime.arrivals.observe([face(at)],at)
         runtime.arrivals.seen['face']['used']=True
         try:

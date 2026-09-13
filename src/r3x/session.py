@@ -19,6 +19,8 @@ class Session:
         self._processing = threading.Lock()
         self._cancel: Cancellation | None = None
         self._opportunity_guard = None
+        self._proactive_delivery = None
+        self._audience_bound_output = False
         self.closed = False
         self.state = state
         if state is not None:
@@ -119,6 +121,8 @@ class Session:
                     return delivery
                 self._cancel = cancel
                 self._opportunity_guard = still_valid if opportunity else None
+                self._proactive_delivery = delivery if opportunity else None
+                self._audience_bound_output = False
                 self._capture_end = opportunity.speech_marker if opportunity else float("inf")
                 if opportunity and self.state and self.state.initiative.floor_held(self.trace.clock()):
                     cancel.check()
@@ -251,6 +255,7 @@ class Session:
                     for delta in stream:
                         cancel.check()
                         if isinstance(delta, ToolCall):
+                            self._audience_bound_output = True
                             calls.append(delta)
                             continue
                         if first_token_at is None:
@@ -280,7 +285,17 @@ class Session:
                     if call.name == 'describe_view':
                         from .contracts import ToolResult
                         model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
-                        revision = self.state.save_visual(call,context,self.session_id,model,cancel)
+                        try:
+                            revision = self.state.save_visual(call,context,self.session_id,model,cancel)
+                        except ValueError as exc:
+                            if str(exc) != 'VisualEvidenceUnavailable': raise
+                            result = ToolResult(call.call_id,'rejected','VisualEvidenceUnavailable',self.state.store.revision)
+                            self.trace.emit('tool_result',name=call.name,request_id=result.request_id,
+                                outcome=result.outcome,reason=result.reason,revision=result.revision,data={})
+                            delivery.status,delivery.medium='suppressed','none'
+                            put_phrase(phrases,None,cancel)
+                            worker.join(timeout=2)
+                            return delivery
                         visual_selected = context['scene_description']['request_id']
                         result = ToolResult(visual_selected,'ok','VisualDescriptionSaved',revision)
                         self.trace.emit('visual_description_saved',turn_id=turn_id,observation_id=visual_selected,model=model)
@@ -575,6 +590,8 @@ class Session:
             with self._lock:
                 self._cancel = None
                 self._opportunity_guard = None
+                self._proactive_delivery = None
+                self._audience_bound_output = False
             audio_at = delivery.first_audio_at
             self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, medium=delivery.medium, timings={
                 "endpoint": None if opportunity else source_end - speech_end,

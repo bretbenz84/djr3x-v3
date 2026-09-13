@@ -38,6 +38,19 @@ class VoiceRuntime:
         self.trace.emit("input_invalidated", captured_before=self.cancel_before)
 
     def enqueue(self, queue, item, kind):
+        if kind=='turns':
+            # Do not discard an already transcribed utterance during a slow
+            # network request. The ASR worker waits; capture/control remain live.
+            reported=False
+            while not self.stop.is_set() and not self.session.closed:
+                try:
+                    queue.put(item,timeout=.05)
+                    return
+                except Full:
+                    if not reported:
+                        self.trace.emit('transcript_waiting',reason='conversation_queue_full')
+                        reported=True
+            return
         try:
             queue.put_nowait(item)
         except Full:
@@ -158,6 +171,10 @@ class VoiceRuntime:
             audio_seen_at = self.audio_seen_at
             now = self.trace.clock()
             audio_age = now-audio_seen_at
+            # The camera worker may have published a newer analyzed frame since
+            # the main loop last polled. Validate the latest evidence, not that
+            # older polling snapshot. This reads cache only; no device work.
+            self.arrivals.observe(self.camera.latest(now),now)
             reason = ('shutdown' if self.stop.is_set() else
                       'human_speech' if self.session._latest_speech!=event.speech_marker else
                       'capture_queued' if not self.captures.empty() else
@@ -165,7 +182,10 @@ class VoiceRuntime:
                       'recognition_busy' if self.asr_busy.is_set() else
                       'audio_timestamp_ahead' if audio_age<0 else
                       'audio_stale' if audio_age>.5 else
-                      'audience_changed_or_stale' if not self.arrivals.valid(event,now) else None)
+                      'audience_changed_or_stale' if (not self.arrivals.valid(event,now) and
+                          (self.session._proactive_delivery is None or
+                           self.session._proactive_delivery.first_audio_at is None or
+                           self.session._audience_bound_output)) else None)
             if reason and not invalidated.is_set():
                 invalidated.set()
                 self.trace.emit('proactive_invalidated',event_id=event.event_id,kind=event.kind,
@@ -196,6 +216,8 @@ class VoiceRuntime:
             thread.start()
 
     def run(self):
+        from .input_health import InputHealth
+        health = InputHealth(self.trace,getattr(self.mic,'device_name','configured_microphone'))
         self.start_workers()
         self.trace.emit("listening", controls="Enter or 'stop' cancels; 'quit' or Ctrl-C exits")
         previous_dropped = (0, 0)
@@ -230,7 +252,9 @@ class VoiceRuntime:
                 self.audio_seen_at = frame.ended_at
                 counts = (self.mic.dropped, self.mic.status_errors)
                 if counts != previous_dropped or (previous_end is not None and frame.started_at - previous_end > .05):
-                    self.trace.emit("capture_gap", dropped=counts[0], status_errors=counts[1])
+                    self.trace.emit("capture_gap", dropped=counts[0], status_errors=counts[1],
+                        gap_seconds=frame.started_at-previous_end if previous_end is not None else None,
+                        utterance_discarded=bool(self.endpoint.frames))
                     self.endpoint.reset()
                     self.vad.reset()
                     previous_dropped = counts
@@ -239,6 +263,7 @@ class VoiceRuntime:
                     self.endpoint.reset()
                     continue
                 speech = self.vad.is_speech(frame.pcm)
+                health.observe(frame,speech,self.endpoint.frames)
                 if speech and not frame.echo_risk:
                     self.session.note_speech(frame.ended_at)
                 capture = self.endpoint.push(frame, speech)
