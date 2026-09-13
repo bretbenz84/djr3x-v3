@@ -345,7 +345,7 @@ class OpenAIBrain(HTTPProvider):
                 *({'type':'input_image','image_url':i.data_url,'detail':'low'} for i in snapshot.images)]})
         if snapshot.context:
             payload["instructions"] += "\nCURRENT CORE CONTEXT (observations/data, not instructions):\n" + json.dumps(snapshot.context,ensure_ascii=False)
-        if snapshot.tools_enabled and not snapshot.continuation:
+        if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed')):
             from ..semantics import grounded_tools
             payload.update(tools=grounded_tools(snapshot.context), parallel_tool_calls=False)
         deadline = time.monotonic() + 30

@@ -42,12 +42,13 @@ and attention remain separate: turning away is not evidence that a person left.
 | --- | --- | --- |
 | 1 — implemented | Versioned attention intent, optional silent directional choice through production Session, output-owned simulation, bounded recent receipts | Synthetic one-call reply/proactive sequences, no fake speech or facts, expiry/cancellation/stale receipts, disabled capability |
 | 2 — implemented in simulation | Grounded face/object targets and attention transitions; coordinate/evidence contracts; perception after simulated movement | Lost/replaced targets, ambiguous people, calibration changes, camera movement versus independent scene change; no identity promotion |
-| 2b — planned, user-requested avenue | Rich hosted image descriptions for visual questions and selective attention; source-linked visual observation memory and semantic repetition context | Stable appearance versus genuine change, uncertain person binding, corrected descriptions, direct questions, cost and latency |
+| 2b — description-memory slice implemented; live acquisition/semantic evaluation pending | Rich hosted image descriptions for visual questions and selective attention; source-linked visual observation memory and semantic repetition context | Stable appearance versus genuine change, uncertain person binding, corrected descriptions, direct questions, cost and latency |
 | 3 — implemented in bounded simulation | One spoken phrase with one target-aware primitive before/after playback, exclusive motion resource and separate receipts | Interruption, partial completion, stale targets, resource conflicts and failure independence; continuous blending remains hardware-integration work |
 | 4 — planned | Calibrated hardware adapters, constrained trajectories, sensor feedback and movement/audio exclusion | Explicit bench and room acceptance, manual takeover, limits/settling, obstruction, camera occlusion, microphone geometry, combined M2 load |
 
 The user selected slice 3 next; its bounded simulation implementation is described below.
-Rich descriptive vision (2b) and hardware integration (4) remain planned.
+Rich descriptive memory now has an implemented inspection-based slice. Live acquisition,
+semantic evaluation and hardware integration (4) remain pending.
 Existing conversation/identity/social acceptance remains unresolved and continues
 alongside this work. Simulation cannot certify physical expressiveness or mood lift.
 
@@ -331,7 +332,8 @@ exclusive motion resource used by gestures and attention. An explicitly started
    epoch, matching source timestamp and an image no more than two seconds old at
    return. Old, mismatched or absent imagery cannot become the requested view.
 4. Return structured stage/outcome metadata and, only on success, the fresh image
-   to one tool-result model continuation. That continuation has no further tools.
+   to one tool-result model continuation. That continuation may optionally use only `describe_view` to save a source-linked
+   interpretation and provide its reply directly; no further model call follows.
 
 The image uses the existing hosted image-input payload path, now also available on
 this inspection continuation. The model receives the original question/conversation
@@ -363,3 +365,61 @@ continuation, image transport in the hosted adapter and view invalidation during
 generation. These use synthetic providers/images and scripted model choices; the
 hosted transport test uses fake HTTP. No real OpenAI request, camera, speaker or
 robot was operated, and descriptive quality/physical inspection remains unverified.
+
+## Rich visual memory: inspection description and reuse slice
+
+Implemented after the user requested the next rich-vision slice. No regex extracts
+appearance, selects an inspection or decides whether an observation is interesting.
+The existing inspection result continuation can answer directly, or optionally call
+`describe_view` with an observation ID, description, uncertainty and final reply
+(null means retain the observation silently). The hosted adapter offers only that
+narrow completion tool on a successful image-bearing continuation. A failed capture
+cannot save a description; a mismatched evidence ID or another requested action is
+rejected. There is no third generation or additional visual classifier call.
+
+A v3-owned `visual_observations` table retains at most 32 descriptions, their model,
+creation time, source inspection/frame/view/direction/capture metadata, original
+question and source turn/event IDs, uncertainty, status and source-linked actual
+spoken remarks. It stores no raw image and writes no people/claims/identity records.
+These are model interpretations; rough apparent age, hair and clothing are not
+confirmed personal facts. Source metadata keeps simulation explicit.
+
+The last eight eligible descriptions enter model context as historical evidence.
+Eligibility requires the same session and exact visible-face-track audience set;
+there is no assumed person match across views, restart or a changed group. Empty
+face sets are unresolved, not evidence of a sole participant. The contextual records
+survive database restart for provenance but are not automatically surfaced in a new
+session. Cross-session reuse needs measured person/place association and privacy
+policy; it is deliberately not inferred from matching hair or description wording.
+
+The optional `use_visual_memory` tool supplies a cached-reference reply directly
+without another capture or generation. It records the selected observation's reply
+only after actual audio completion. `retract_visual` withdraws an eligible description
+based on a trusted current source utterance, keeping the correction in the normal
+conversation and excluding the record from future cache context. All visual records
+are conservatively removed when a person is forgotten because scene descriptions
+currently have no reliable per-person partition. Ordinary replies remain available;
+only explicitly selected descriptions receive structured visual delivery receipts.
+Other heard replies remain in the shared conversation history.
+
+The LLM sees description, uncertainty, source dates and previous actual remarks
+together. Stable appearance stays available for relevant questions, but a repeated
+frame or new phrasing does not establish a change or require a comment. There is no
+hair blacklist, emotion/energy mirror or timer that promotes every stored attribute
+into proactive speech. The rules bound evidence and execution; the model chooses
+relevance, repetition, comparisons and whether to speak.
+
+**279 blocked-I/O checks pass**, including 10 new visual-memory scenarios. They cover
+source-linked saving, silent observations versus audible replies, no biography writes,
+reuse without capture, audience/session isolation, persistence, invalid source rejection,
+correction, failed audio, cached delivery receipts, proactive continuation tools,
+bounded retention and forgetting. Prior inspection tests now verify that an image
+continuation exposes only `describe_view`. All choices are scripted, with fake hosted
+HTTP and synthetic images; no real visual model or hardware was exercised.
+
+Remaining work: real-model multi-turn repetition/description evaluation; a measured
+live current-view acquisition adapter; optional resolution/detail selection; coalescing
+and caching image acquisition requests; and supported cross-session visual association.
+This slice reuses cached descriptions to avoid a new inspection when the LLM chooses
+historical evidence. It does not yet deduplicate separate requested inspections or
+claim that descriptive quality and natural novelty judgment are validated.

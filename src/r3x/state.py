@@ -40,6 +40,17 @@ class CoreState:
         from .proactive import Initiative
         self.initiative = Initiative()
 
+    def save_visual(self, call, context, session_id, model, cancel):
+        from . import visual_memory
+        cancel.check()
+        validate(call.name,call.arguments)
+        if call.name!='describe_view' or not context.get('inspection_description_allowed') or self.frozen:
+            raise ValueError('VisualDescriptionUnavailable')
+        if self.store.revision!=context['state_revision']:
+            raise ValueError('StaleStateRevision')
+        return visual_memory.save(self.store,session_id,visual_memory.audience(context),context['inspection'],
+                                  call.arguments,model,self.wall_clock())
+
     def propose_inspection(self, call, context, cancel):
         from .inspection import InspectionRequest
         cancel.check()
@@ -234,7 +245,14 @@ class CoreState:
             cancel.check()
             validate(call.name,call.arguments)
             if self.store.revision!=context['state_revision']: raise ValueError('StaleStateRevision')
-            if call.name=='use_observation':
+            if call.name=='use_visual_memory':
+                from . import visual_memory
+                offered={r['id'] for r in context.get('visual_memory',[])}
+                current=visual_memory.context(self.store,self.attention.scene.session_id,visual_memory.audience(context))
+                if call.arguments['observation_id'] not in offered & {r['id'] for r in current}:
+                    raise ValueError('VisualObservationUnavailable')
+                data={'text':call.arguments['text'],'observation_id':call.arguments['observation_id']}
+            elif call.name=='use_observation':
                 cue=next((r for r in context.get('observations',[]) if r['cue_id']==call.arguments['cue_id']),None)
                 if cue is None or not self.observation_available(cue):raise ValueError('ObservationUnavailable')
                 data={'text':call.arguments['text'],'cue':cue}
@@ -382,6 +400,20 @@ class CoreState:
 
     def _apply(self, conn, name, args):
         turn_id,capture,transcript,observation,attribution = self.current
+        if name == 'use_visual_memory':
+            from . import visual_memory
+            allowed=visual_memory.context(self.store,capture.session_id,visual_memory.audience({'faces':self.faces}))
+            if args['observation_id'] not in {r['id'] for r in allowed}:
+                raise ValueError('VisualObservationUnavailable')
+            return {'text':args['text'],'observation_id':args['observation_id']},False
+        if name == 'retract_visual':
+            self._source_allowed(args,name)
+            from . import visual_memory
+            allowed=visual_memory.context(self.store,capture.session_id,visual_memory.audience({'faces':self.faces}))
+            if args['observation_id'] not in {r['id'] for r in allowed}:
+                raise ValueError('VisualObservationUnavailable')
+            conn.execute("UPDATE visual_observations SET status='retracted' WHERE id=?",(args['observation_id'],))
+            return {'text':args['text']},True
         if name == "remain_silent":
             data = {"reason":args["reason"]}
             if not self.frozen and args['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:
@@ -555,6 +587,7 @@ class CoreState:
             if person["id"] not in self.identity_targets(name):
                 raise ValueError("SupportedSelfIdentityRequired")
             if name=="forget_person":
+                conn.execute("DELETE FROM visual_observations")
                 self.store.forget(conn,person["id"])
                 return {"person_id":person["id"],"status":"forgotten"},True
             if len(args["name"].strip())>120 or any(ord(c)<32 for c in args["name"]):

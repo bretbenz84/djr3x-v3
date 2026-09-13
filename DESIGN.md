@@ -435,3 +435,10 @@ settling, fresh image capture and one tool-result continuation. No regex command
 router or live base/camera inspection adapter was added. The
 [inspection contract](docs/ATTENTION_IMPLEMENTATION.md#composite-visual-inspection-motion-settling-and-capture)
 separates partial movement success, failed inspection and actual spoken delivery.
+
+The [rich visual-memory slice](docs/ATTENTION_IMPLEMENTATION.md#rich-visual-memory-inspection-description-and-reuse-slice)
+adds optional LLM tools for describing successful inspection evidence, reusing an
+eligible cached description and retracting an incorrect observation. Visual memory
+retains model/source uncertainty separately from accepted biography and actual
+spoken remarks. No regex semantic extraction or automatic cross-person/session
+association is added. Live description/repetition quality remains untested.

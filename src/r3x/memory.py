@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS memory_followups(
 CREATE TABLE IF NOT EXISTS memory_followup_delivery(
  claim_id TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
  occasion TEXT NOT NULL,delivered_on TEXT NOT NULL, PRIMARY KEY(claim_id,occasion));
+CREATE TABLE IF NOT EXISTS visual_observations(
+ id TEXT PRIMARY KEY,session_id TEXT NOT NULL,audience TEXT NOT NULL,source TEXT NOT NULL,
+ description TEXT NOT NULL,uncertainty TEXT NOT NULL,model TEXT NOT NULL,created_at REAL NOT NULL,
+ status TEXT NOT NULL,spoken TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS observation_delivery(
  cue_id TEXT PRIMARY KEY,kind TEXT NOT NULL,delivered_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS recordings(

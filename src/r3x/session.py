@@ -106,6 +106,7 @@ class Session:
         observation_selected = None
         attention_intent = None
         performance_gesture = None
+        visual_selected = None
         state_started = False
         opportunity_attempted = False
         try:
@@ -196,6 +197,8 @@ class Session:
                     context['inspection_enabled'] = getattr(self.output,'inspection',None) is not None
                     context['gesture_enabled'] = getattr(self.output,'gestures',None) is not None
                     context['recent_performances'] = list(self.state.performances)
+                    from . import visual_memory
+                    context['visual_memory'] = visual_memory.context(self.state.store,self.session_id,visual_memory.audience(context))
                     context['attention'] = self.state.attention.context()
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
@@ -281,15 +284,32 @@ class Session:
                     data, images = self.output.execute_inspection(inspection_request,cancel,inspection_valid)
                     self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
                     cancel.check()
+                    data = {**data,'source_turn_id':context.get('source_turn_id'),'event_id':context.get('event_id'),
+                            'question':inspection_request.question}
                     result = ToolResult(result.request_id,'ok' if images else 'failed',data.get('reason','InspectionFailed'),result.revision,data)
                     continuation = (*call.preamble,
                         {'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
                         {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(asdict(result))})
                     followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
-                        snapshot.speaker,{**context,'attention':self.state.attention.context(),'inspection':data},False,continuation,images)
+                        snapshot.speaker,{**context,'attention':self.state.attention.context(),'inspection':data,
+                            'inspection_description_allowed':bool(images)},bool(images),continuation,images)
                     self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,
                         purpose='inspection_result_continuation',image_count=len(images))
-                    if generate(followup):raise ProviderFailure('ToolContinuationLimit')
+                    description_calls = generate(followup)
+                    if description_calls:
+                        if len(description_calls)!=1 or generated.strip() or not images or description_calls[0].name!='describe_view':
+                            raise ProviderFailure('ToolContinuationLimit')
+                        description_call = description_calls[0]
+                        with self._lock:
+                            cancel.check()
+                            model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
+                            expected_revision = self.state.save_visual(description_call,followup.context,self.session_id,model,cancel)
+                        visual_selected = data['request_id']
+                        self.trace.emit('visual_description_saved',turn_id=turn_id,observation_id=visual_selected,model=model)
+                        if description_call.arguments['text'] is not None:
+                            put_phrase(phrases,description_call.arguments['text'],cancel)
+                        else:
+                            delivery.status,delivery.medium='suppressed','none'
                     self.history.append({'role':'developer','content':'Inspection result (simulation only): '+json.dumps(data)})
                 elif result.outcome=='ok' and call.name=='respond_with_gesture':
                     from .performance import Performance
@@ -338,6 +358,14 @@ class Session:
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps(call.arguments)},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                     self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
+                elif result.outcome=='ok' and call.name=='use_visual_memory':
+                    visual_selected = result.data['observation_id']
+                    put_phrase(phrases,result.data['text'],cancel)
+                elif result.outcome=='ok' and call.name=='retract_visual':
+                    if result.data['text'] is not None:
+                        put_phrase(phrases,result.data['text'],cancel)
+                    else:
+                        delivery.status,delivery.medium='suppressed','none'
                 elif result.outcome=='ok' and call.name=='use_observation':
                     observation_selected = result.data['cue']
                     previous_valid = cancel.valid
@@ -428,6 +456,9 @@ class Session:
                 try:
                     with self._lock:
                         cancel.check()
+                        if visual_selected and delivery.medium=='audio' and delivery.completed_text:
+                            from .visual_memory import delivered
+                            delivered(self.state.store,visual_selected,turn_id,' '.join(delivery.completed_text),self.state.wall_clock())
                         if observation_selected and delivery.status=='completed' and delivery.medium=='audio' and delivery.completed_text:
                             self.state.observation_delivered(observation_selected)
                             self.trace.emit('observation_delivered',turn_id=turn_id,cue_id=observation_selected['cue_id'],kind=observation_selected['kind'])

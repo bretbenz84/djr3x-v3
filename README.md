@@ -19,7 +19,9 @@ grounded synthetic visual targets, post-movement evidence checks, and gestures
 coordinated before/after speech through the same
 conversation owner. An LLM-selected inspection can also sequence simulated movement,
 settling and image capture before a model continuation. Normal live startup has no
-motion or composite-inspection capability.
+motion or composite-inspection capability. Inspection descriptions can now be saved
+as bounded, source-linked visual observations and reused through LLM tools, with
+actual spoken remarks kept separately. Live descriptive quality remains unvalidated.
 
 ## Run the core
 

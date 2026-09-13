@@ -50,7 +50,7 @@ class InspectionTests(MemoryFixture):
         data=snapshot.context['inspection']
         self.assertGreater(data['captured_at'],data['settled_at'])
         self.assertGreater(data['settled_at'],data['motion_completed_at'])
-        self.assertFalse(snapshot.tools_enabled)
+        self.assertTrue(snapshot.tools_enabled)
         self.assertNotIn('data:image',str(self.session.history_messages()))
         self.assertNotIn('data:image',str(self.state.trace.rows))
         self.assertFalse(self.store.claims())
@@ -125,7 +125,7 @@ class InspectionTests(MemoryFixture):
         list(brain.reply(self.brain.snapshots[-1],Cancellation()))
         payload=brain.client.calls[0][1]['json']
         self.assertEqual(payload['input'][-1]['content'][-1]['type'],'input_image')
-        self.assertNotIn('tools',payload)
+        self.assertEqual([t['name'] for t in payload['tools']],['describe_view'])
 
     def test_cancelled_settle_trace_retains_completed_motion(self):
         self.setup_session();self.adapter.wait_until=lambda *args:self.session.cancel()

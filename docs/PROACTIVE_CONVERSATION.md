@@ -203,4 +203,5 @@ tracks. The [attention plan](ATTENTION_IMPLEMENTATION.md#rich-visual-understandi
 now covers visual queries, selective descriptive refresh, observation memory and
 model-owned repetition judgment. Observing a stable appearance detail does not
 require commenting on it; prior observations and actual remarks provide context.
-This expanded descriptive-memory/query path remains planned.
+Inspection-based descriptive memory and cache-use/correction tools are now
+implemented; live acquisition and real-model repetition evaluation remain pending.

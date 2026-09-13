@@ -914,3 +914,12 @@ A single LLM-selected tool sequences simulated movement, settling and fresh capt
 then returns the image to one model continuation. Synthetic providers, scripted
 model choices and fake hosted HTTP only; no physical motion/capture or real-model
 visual interpretation was tested. Description memory and live adapters remain planned.
+
+### Source-linked descriptive visual memory
+
+**279 blocked-I/O checks pass**, including 10 new visual-memory tests. The
+[description/reuse slice](ATTENTION_IMPLEMENTATION.md#rich-visual-memory-inspection-description-and-reuse-slice)
+uses optional LLM tools on inspection results and cached evidence, with separate
+observations/delivery, bounded storage, correction and forgetting. No real image
+model or hardware was tested. Cross-session matching, live acquisition and semantic
+repetition judgments remain unvalidated.
