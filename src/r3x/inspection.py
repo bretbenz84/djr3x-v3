@@ -94,3 +94,56 @@ class Inspection:
         except Exception as exc:
             result['reason']=type(exc).__name__
             return result,()
+
+
+class CurrentView:
+    """Reuse the shared scene encoder; no motor access or second camera consumer."""
+    directions = ('current',)
+
+    def __init__(self, scene, clock=None):
+        import time
+        from .providers import Capability
+        from threading import Event
+        self.scene, self.clock = scene, clock or time.monotonic
+        self.stop, self.started = Event(), False
+        self.capability = Capability('current_view','shared camera scene cache',
+            'tool-selected current-view visual questions',None,(),('one <=480px image per requested inspection',),required=False)
+
+    def start(self):
+        self.stop.clear();self.started=True
+
+    def cancel(self):
+        self.stop.set()
+
+    def close(self):
+        self.cancel();self.started=False
+
+    def execute(self, request, cancel, valid):
+        result={'request_id':request.request_id,'direction':request.direction,'view_epoch':request.view_epoch,
+                'medium':'camera','stage':'capture','motion_status':'not_requested','status':'failed'}
+        if not self.started or self.stop.is_set():
+            return {**result,'reason':'CurrentViewNotStarted'},()
+        if request.direction!='current':
+            return {**result,'reason':'MotionUnavailable'},()
+        deadline=self.clock()+2
+        import time
+        wall_deadline=time.monotonic()+2
+        while True:
+            cancel.check()
+            if not valid():return {**result,'reason':'InspectionSuperseded'},()
+            if self.stop.is_set():return {**result,'reason':'CurrentViewStopped'},()
+            try:
+                snapshot=self.scene.snapshot(True)
+            except Exception as exc:
+                return {**result,'reason':type(exc).__name__},()
+            if snapshot:
+                image=snapshot[1][-1]
+                age=self.clock()-image.at
+                if 0<=age<=2:
+                    from hashlib import sha256
+                    return {**result,'image_digest':sha256(image.data_url.encode()).hexdigest(),'status':'observed','stage':'complete','frame_id':image.frame_id,
+                        'captured_at':image.at,'capture_age_seconds':age,'shared_frame':True,
+                        'reason':'Current camera view; no movement requested or performed.'},(image,)
+            if self.clock()>=deadline or time.monotonic()>=wall_deadline:
+                return {**result,'reason':'FreshCurrentViewUnavailable'},()
+            cancel.event.wait(.05)

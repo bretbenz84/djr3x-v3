@@ -195,14 +195,31 @@ class Session:
                     cancel.check()
                     context['attention_enabled'] = getattr(self.output,'attention',None) is not None
                     context['inspection_enabled'] = getattr(self.output,'inspection',None) is not None
+                    context['inspection_directions'] = list(getattr(getattr(self.output,'inspection',None),'directions',('current','left','right','behind')))
+                    context['inspection_mode'] = 'current_camera_only' if context['inspection_directions']==['current'] else 'simulation'
                     context['gesture_enabled'] = getattr(self.output,'gestures',None) is not None
                     context['recent_performances'] = list(self.state.performances)
-                    from . import visual_memory
-                    context['visual_memory'] = visual_memory.context(self.state.store,self.session_id,visual_memory.audience(context))
                     context['attention'] = self.state.attention.context()
+            scene_images = opportunity.scene_images if opportunity and any(c['kind']=='scene' for c in context.get('observations',[])) else ()
+            if self.state and not self.state.frozen:
+                from . import visual_memory
+                context['visual_memory'] = visual_memory.context(self.state.store,self.session_id,visual_memory.audience(context))
+                if 0<len(scene_images)<=2 and all(0<=self.trace.clock()-i.at<=2 for i in scene_images):
+                    from hashlib import sha256
+                    latest = scene_images[-1]
+                    context['scene_description'] = {
+                        'request_id':turn_id+':scene', 'status':'observed', 'stage':'complete',
+                        'medium':'camera', 'acquisition':'proactive_snapshot', 'motion_status':'not_requested',
+                        'frame_id':latest.frame_id, 'captured_at':latest.at,
+                        'frames':[{'frame_id':i.frame_id,'captured_at':i.at} for i in scene_images],
+                        'image_digest':sha256(latest.data_url.encode()).hexdigest() if len(scene_images)==1 else None,
+                        'event_id':opportunity.event_id, 'source_turn_id':opportunity.source_turn_id,
+                        'cue_id':opportunity.scene_id, 'question':None}
+                else:
+                    scene_images = ()
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
-                                context, self.state is not None, images=opportunity.scene_images if opportunity and any(c["kind"]=="scene" for c in context.get("observations",[])) else ())
+                                context, self.state is not None, images=scene_images)
             phrases = Queue(maxsize=4)
             worker = threading.Thread(target=self.output.run, args=(phrases, cancel, turn_id, delivery),
                                       name="r3x-output", daemon=True)
@@ -252,7 +269,14 @@ class Session:
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=call.arguments)
                 with self._lock:
                     cancel.check()
-                    if call.name == 'inspect_view':
+                    if call.name == 'describe_view':
+                        from .contracts import ToolResult
+                        model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
+                        revision = self.state.save_visual(call,context,self.session_id,model,cancel)
+                        visual_selected = context['scene_description']['request_id']
+                        result = ToolResult(visual_selected,'ok','VisualDescriptionSaved',revision)
+                        self.trace.emit('visual_description_saved',turn_id=turn_id,observation_id=visual_selected,model=model)
+                    elif call.name == 'inspect_view':
                         inspection_request = self.state.propose_inspection(call,context,cancel)
                         from .contracts import ToolResult
                         result = ToolResult(inspection_request.request_id,'ok','InspectionProposed',self.state.store.revision)
@@ -273,7 +297,15 @@ class Session:
                 if (result.outcome=='ok' and call.name=='conversation_feedback' and
                     result.data['action']=='floor_resolved' and not self.state.initiative.floor_held(self.trace.clock())):
                     self.proactive_hold_until = float('-inf')
-                if result.outcome=='ok' and call.name=='inspect_view':
+                if result.outcome=='ok' and call.name=='describe_view':
+                    observation_selected = next(c for c in context['observations'] if c['cue_id']==context['scene_description']['cue_id'])
+                    previous_valid = cancel.valid
+                    cancel.valid = lambda: previous_valid() and self.state.observation_available(observation_selected)
+                    if call.arguments['text'] is not None:
+                        put_phrase(phrases,call.arguments['text'],cancel)
+                    else:
+                        delivery.status,delivery.medium='suppressed','none'
+                elif result.outcome=='ok' and call.name=='inspect_view':
                     from dataclasses import asdict
                     import json
                     expected_revision = result.revision
@@ -284,17 +316,30 @@ class Session:
                     data, images = self.output.execute_inspection(inspection_request,cancel,inspection_valid)
                     self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
                     cancel.check()
+                    if images and data.get('image_digest'):
+                        with self._lock:
+                            prior = self.state.last_inspection
+                            data['image_comparison'] = ('identical_transmitted_image' if prior and prior.get('image_digest')==data['image_digest'] else 'different_or_first_image')
+                            data['compared_request_id'] = prior['request_id'] if prior else None
+                            self.state.last_inspection = {key:data[key] for key in ('request_id','image_digest')}
                     data = {**data,'source_turn_id':context.get('source_turn_id'),'event_id':context.get('event_id'),
                             'question':inspection_request.question}
-                    result = ToolResult(result.request_id,'ok' if images else 'failed',data.get('reason','InspectionFailed'),result.revision,data)
+                    cached = next((r for r in context.get('visual_memory',[]) if data.get('image_digest') and
+                        r['source'].get('image_digest')==data['image_digest']),None)
+                    if images and cached:
+                        data['cached_description'] = {key:cached[key] for key in ('id','description','uncertainty','spoken')}
+                        data['image_reused_without_upload'] = True
+                        images = ()
+                        visual_selected = cached['id']
+                    result = ToolResult(result.request_id,'ok' if images or cached else 'failed',data.get('reason','InspectionFailed'),result.revision,data)
                     continuation = (*call.preamble,
                         {'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
                         {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(asdict(result))})
                     followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
-                        snapshot.speaker,{**context,'attention':self.state.attention.context(),'inspection':data,
+                        snapshot.speaker,{**{k:v for k,v in context.items() if k!='scene_description'},'attention':self.state.attention.context(),'inspection':data,
                             'inspection_description_allowed':bool(images)},bool(images),continuation,images)
                     self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,
-                        purpose='inspection_result_continuation',image_count=len(images))
+                        purpose='inspection_result_continuation',image_count=len(images),image_bytes=sum(len(i.data_url) for i in images))
                     description_calls = generate(followup)
                     if description_calls:
                         if len(description_calls)!=1 or generated.strip() or not images or description_calls[0].name!='describe_view':
@@ -310,7 +355,7 @@ class Session:
                             put_phrase(phrases,description_call.arguments['text'],cancel)
                         else:
                             delivery.status,delivery.medium='suppressed','none'
-                    self.history.append({'role':'developer','content':'Inspection result (simulation only): '+json.dumps(data)})
+                    self.history.append({'role':'developer','content':'Inspection result (see medium and motion status): '+json.dumps(data)})
                 elif result.outcome=='ok' and call.name=='respond_with_gesture':
                     from .performance import Performance
                     expected_revision = result.revision

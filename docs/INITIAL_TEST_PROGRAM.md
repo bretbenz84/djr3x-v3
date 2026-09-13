@@ -923,3 +923,23 @@ uses optional LLM tools on inspection results and cached evidence, with separate
 observations/delivery, bounded storage, correction and forgetting. No real image
 model or hardware was tested. Cross-session matching, live acquisition and semantic
 repetition judgments remain unvalidated.
+
+### Current-view acquisition and hosted dialogue
+
+**289 blocked-I/O checks pass**, with 10 new current-view cases. The existing camera
+scene cache now supports tool-selected current-view inspection; no motion driver
+is enabled. Four hosted seven-turn synthetic-image trials were reviewed during
+iteration. The final run executed four requested inspections with three image
+uploads and saved/retracted visual memory, but invented a shape change alongside
+a correct color change. See [full evidence and measurements](CURRENT_VIEW_VALIDATION.md).
+No live hardware, real-person imagery or physical audio was used.
+
+### Proactive descriptive memory
+
+**301 blocked-I/O checks pass** after adding 12 synthetic production-Session cases.
+Fresh proactive scene images can now support `describe_view` in the primary call,
+with silent retention or a directly delivered remark. Source freshness, cancellation,
+state changes, multi-frame provenance and separate observation/speech receipts are
+covered. No additional model call or physical action was added. Hosted spontaneous
+selection and live acceptance remain unverified; see the
+[implementation and limits](ATTENTION_IMPLEMENTATION.md#proactive-visual-description-and-silent-retention).

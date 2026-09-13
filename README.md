@@ -18,9 +18,11 @@ implemented for explicit simulation harnesses. They add silent attention choices
 grounded synthetic visual targets, post-movement evidence checks, and gestures
 coordinated before/after speech through the same
 conversation owner. An LLM-selected inspection can also sequence simulated movement,
-settling and image capture before a model continuation. Normal live startup has no
-motion or composite-inspection capability. Inspection descriptions can now be saved
-as bounded, source-linked visual observations and reused through LLM tools, with
+settling and image capture before a model continuation. Camera-enabled startup now offers [current-view inspection](docs/CURRENT_VIEW_VALIDATION.md)
+through the same LLM tool. Physical turning and composite motion remain unavailable. Inspection descriptions can now be saved
+as bounded, source-linked visual observations and reused through LLM tools. Fresh
+proactive scene images can also be described and retained silently or with a remark
+in the primary call, with
 actual spoken remarks kept separately. Live descriptive quality remains unvalidated.
 
 ## Run the core

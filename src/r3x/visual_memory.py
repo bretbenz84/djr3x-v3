@@ -17,7 +17,7 @@ def context(store, session_id, audience_key):
 
 
 def save(store, session_id, audience_key, source, args, model, now):
-    if source.get('status')!='simulated' or source.get('stage')!='complete' or not source.get('frame_id'):
+    if source.get('status') not in {'simulated','observed'} or source.get('stage')!='complete' or not source.get('frame_id'):
         raise ValueError('VisualEvidenceUnavailable')
     if args['observation_id']!=source['request_id']:
         raise ValueError('VisualSourceMismatch')

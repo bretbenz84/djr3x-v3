@@ -442,3 +442,15 @@ eligible cached description and retracting an incorrect observation. Visual memo
 retains model/source uncertainty separately from accepted biography and actual
 spoken remarks. No regex semantic extraction or automatic cross-person/session
 association is added. Live description/repetition quality remains untested.
+
+Current-view acquisition is now wired to the existing scene cache in camera-enabled
+runs with scene uploads enabled. Only current-view inspection is offered; physical
+motion remains unavailable. Exact-image cached descriptions may avoid a duplicate
+upload. [Hosted evidence](docs/CURRENT_VIEW_VALIDATION.md) now includes actual model
+calls on synthetic saved images, with explicit residual semantic errors.
+
+Fresh proactive scene images can now use the same description tool directly in the
+primary call, with silent retention or source-linked delivered speech. This adds no
+second conversation owner or mandatory inspection. See the [proactive visual memory
+slice](docs/ATTENTION_IMPLEMENTATION.md#proactive-visual-description-and-silent-retention)
+for source validity, synthetic evidence and pending social acceptance.

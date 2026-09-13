@@ -35,8 +35,9 @@ proactive_lull_seconds = 8.0
 # always kept atomically in the core DB; this retains all endpointed test captures.
 record_evaluation = false
 
-# Proactive scene snapshots: only active with --camera. Sends up to two small
-# images to the existing hosted conversation model during an opportunity.
+# Shared scene snapshots: only active with --camera. Sends up to two small
+# images during proactive opportunities, or one for tool-selected current-view
+# questions. False disables both image-upload paths.
 # Images are not written to logs/history. Disable to keep camera pixels local.
 scene_observations_enabled = true
 

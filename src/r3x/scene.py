@@ -42,7 +42,7 @@ class SceneObserver:
     def __init__(self,camera,trace=None,clock=time.monotonic):
         self.camera,self.trace,self.clock=camera,trace,clock
         self.capability=Capability('scene_observations','shared camera snapshots','objects, animals and visible gestures in the main conversation generation',
-            None,(),('two cached + two in-flight <=480px images; <=2 samples/sec; hosted input during opportunities',),required=False)
+            None,(),('two cached + two in-flight <=480px images; <=2 samples/sec; hosted input during opportunities or tool-selected current-view questions',),required=False)
         self.stop=threading.Event();self.lock=threading.RLock();self.worker=None
         self.images=deque(maxlen=2);self.signature=None;self.scene_id=None;self.last_offer=float('-inf');self.offered_id=None
 

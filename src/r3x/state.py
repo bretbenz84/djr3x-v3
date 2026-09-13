@@ -26,6 +26,7 @@ class CoreState:
         from datetime import date
         self.calendar_today = date.today
         self.memory_cursor = 0
+        self.last_inspection = None
         self.performances = deque(maxlen=8)
         from .attention import AttentionState
         self.attention = AttentionState(trace.clock)
@@ -44,11 +45,16 @@ class CoreState:
         from . import visual_memory
         cancel.check()
         validate(call.name,call.arguments)
-        if call.name!='describe_view' or not context.get('inspection_description_allowed') or self.frozen:
+        if call.name!='describe_view' or not (context.get('inspection_description_allowed') or context.get('scene_description')) or self.frozen:
             raise ValueError('VisualDescriptionUnavailable')
         if self.store.revision!=context['state_revision']:
             raise ValueError('StaleStateRevision')
-        return visual_memory.save(self.store,session_id,visual_memory.audience(context),context['inspection'],
+        source = context['inspection'] if context.get('inspection_description_allowed') else context['scene_description']
+        if context.get('scene_description') and not context.get('inspection_description_allowed'):
+            cue = next((c for c in context.get('observations',[]) if c['kind']=='scene' and c['cue_id']==source['cue_id']),None)
+            if cue is None or not self.observation_available(cue) or not 0<=self.trace.clock()-source['captured_at']<=15:
+                raise ValueError('VisualEvidenceUnavailable')
+        return visual_memory.save(self.store,session_id,visual_memory.audience(context),source,
                                   call.arguments,model,self.wall_clock())
 
     def propose_inspection(self, call, context, cancel):
@@ -57,6 +63,8 @@ class CoreState:
         validate(call.name,call.arguments)
         if self.frozen or not context.get('inspection_enabled'):
             raise ValueError('InspectionUnavailable')
+        if call.arguments['direction'] not in context.get('inspection_directions',('current','left','right','behind')):
+            raise ValueError('MotionUnavailable')
         if self.store.revision!=context['state_revision']:
             raise ValueError('StaleStateRevision')
         self.attention.clear()
@@ -669,6 +677,7 @@ class CoreState:
             self.attention.clear()
             self.attention.recent.clear()
             self.performances.clear()
+            self.last_inspection = None
             self.attention.scene.invalidate(self.trace.clock())
             self.forgotten = True
             from dataclasses import replace

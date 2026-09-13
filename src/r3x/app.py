@@ -34,7 +34,9 @@ class App:
         from .scene import SceneObserver
         public = PublicObservations(self.settings) if camera and (self.settings.news_feed_urls or self.settings.weather_enabled) else None
         scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene) if p)
+        from .inspection import CurrentView
+        inspection = CurrentView(scene) if scene else None
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection) if p)
         self.owner = ProviderOwner(self.live_components)
 
     def readiness(self):
@@ -131,7 +133,8 @@ class App:
         if camera:
             camera.trace = trace
         memory = Memory(self.paths.root / "core.sqlite3")
-        output = OutputOwner(tts, sink, trace)
+        inspection = next((p for p in optional if p.capability.name=='current_view'),None)
+        output = OutputOwner(tts, sink, trace,inspection=inspection)
         mic.echo_risk = output.echo_risk
         self.owner = ProviderOwner(self.live_components)
         runtime = None

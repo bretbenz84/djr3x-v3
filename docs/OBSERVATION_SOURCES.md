@@ -121,3 +121,10 @@ Current-condition fields and units follow the
 [Open-Meteo forecast API](https://open-meteo.com/en/docs).
 The exact configured source feed is the
 [BBC News RSS feed](https://feeds.bbci.co.uk/news/rss.xml).
+
+## Tool-selected current-view questions
+
+The shared scene cache also supplies optional `inspect_view(current)` calls during
+ordinary conversation. This adds no camera consumer and can reuse an exact-image
+cached description without another upload. The scene-upload setting controls both
+paths. See [current-view configuration and evaluation](CURRENT_VIEW_VALIDATION.md).

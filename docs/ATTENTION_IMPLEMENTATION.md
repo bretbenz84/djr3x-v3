@@ -423,3 +423,55 @@ and caching image acquisition requests; and supported cross-session visual assoc
 This slice reuses cached descriptions to avoid a new inspection when the LLM chooses
 historical evidence. It does not yet deduplicate separate requested inspections or
 claim that descriptive quality and natural novelty judgment are validated.
+
+## Current-camera acquisition and hosted evaluation
+
+The current-view adapter is now connected to camera-enabled startup when scene
+uploads are enabled. It shares encoded frames, permits only current-view inspection,
+and avoids another image upload when identical pixels match an eligible cached
+description. **289 blocked-I/O checks pass**. Real hosted multi-turn trials on saved
+synthetic images now exist; they also expose a residual invented shape change.
+See [current evidence, configuration and limits](CURRENT_VIEW_VALIDATION.md).
+Earlier simulation-only acquisition notes above describe the preceding slices;
+physical turning/post-motion capture remains simulation-only. No device was operated.
+
+## Proactive visual description and silent retention
+
+The same `describe_view` tool is now available in the primary proactive call when
+fresh scene images are actually supplied. The conversation owner may retain a
+useful uncertain description silently (`text=null`), retain it with a relevant
+remark, answer normally, choose another offered tool, or stay silent. No additional
+inspection, image upload, model generation, background classifier or timer is added.
+This connects rich descriptive memory to arrival/lull/ambient opportunities rather
+than requiring somebody to ask a visual question first.
+
+The source retains event and prior-turn provenance, every supplied frame ID/capture
+time, camera medium and no-motion status. There is no invented human utterance or
+identity/biography write. A description based on two images has no single-image
+reuse digest: matching only its last frame cannot validate the whole interpretation.
+Single-image observations can participate in the existing exact-image inspection
+reuse. Historical descriptions now enter eligible conversation context even when
+no motion/inspection adapter is installed, with the existing session/audience scope.
+
+At dispatch, at most two images must each be at most two seconds old. Before saving,
+the state owner checks the offered source ID, revision, cancellation, current scene
+cue validity and a 15-second maximum acquisition age. The cue's existing ten-second
+expiry may reject sooner. These are conservative software deadlines, not measured
+camera/model calibration. Changed scene evidence during synthesis cancels the
+pending remark. A saved observation remains historical evidence; only completed
+audio earns a visual remark receipt and a scene-delivery receipt. Silent retention
+neither claims speech nor imposes the two-minute `remain_silent` hold. Existing
+opportunity pacing still applies. No trait-specific repetition rules were added.
+
+**301 blocked-I/O checks pass**, including 12 new production Session scenarios for
+one-call save/speech, silent retention, stale/missing source rejection, changed
+scene/state, cancelled generation, expired acquisition, failed/interrupted audio,
+source IDs, multi-frame provenance and cache availability without motion adapters.
+These use scripted choices, synthetic images/audio and temporary databases. They do
+not establish spontaneous remark quality, social judgment or camera performance.
+No hosted call or hardware was used for this slice. The earlier hosted false shape
+change remains unresolved; see [visual validation](CURRENT_VIEW_VALIDATION.md).
+
+Next evaluation: saved-media multi-turn proactive trials covering both welcome
+contributions and restraint, corrections and repeated unchanged appearance. Live
+camera/group acceptance and physical motion controllers remain separate open work.
