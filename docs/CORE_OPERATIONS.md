@@ -148,9 +148,11 @@ restart as established identity.
 ## Saved-audio replay
 
 `--record-evaluation` creates `local/recordings/SESSION_ID/*.wav` and an
-`unreviewed.jsonl` inventory. It captures endpointed utterances, not continuous room
-audio; it cannot by itself measure speech the live endpoint missed. Use separately
-saved continuous recordings when investigating capture recall.
+`unreviewed.jsonl` inventory for endpointed utterances. It also retains the first
+30 PCM seconds of fresh input separately as `input-diagnostic.wav` and
+`input-diagnostic.json`, even if the endpoint detects nothing. This short diagnostic
+is not in the utterance inventory and has no speaker labels. Longer capture-recall
+studies still need separately saved and labeled continuous recordings.
 
 Create independent labels before evaluating. Keep enrollment/tuning/evaluation
 files separate, and use the actual v3 person IDs for enrolled people. A real unknown
@@ -583,8 +585,12 @@ about every five seconds. `digital silence` means the processed samples were all
 zero; a numerical peak with zero detected-speech frames means audio arrived but
 the speech detector did not accept it. Neither proves which person or sound was
 captured. The JSON `audio_input_health` event also records RMS, echo frames and
-whether an utterance is pending. Evaluation recording retains completed captures,
-so no WAV is expected when speech never passes endpoint detection.
+whether an utterance is pending. With `--record-evaluation`, Rex also saves the
+first 30 PCM seconds of fresh raw microphone input, independently of speech
+detection, as `input-diagnostic.wav` with a timestamp/echo sidecar. Quitting earlier
+saves the shorter sample. This diagnostic is separate from endpointed recordings
+and is never automatically used for enrollment or labeled evaluation. Recording
+failure is reported without stopping input processing.
 
 ### Intermittent OpenAI connectivity
 

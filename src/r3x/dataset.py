@@ -35,6 +35,37 @@ class CaptureRecorder:
         if self.root.resolve()!=self.root:
             raise ValueError("RecordingDirectoryLinked")
         self.root.mkdir(mode=0o700)
+        self.input_pcm = bytearray()
+        self.input_frames = []
+        self.input_finished = False
+
+    def record_input(self, frame):
+        """First 30 PCM seconds, before VAD; diagnostic only, never enrollment."""
+        if self.input_finished:return None
+        offset=len(self.input_pcm)
+        pcm=frame.pcm[:max(0,30*32000-offset)]
+        if pcm:
+            self.input_pcm.extend(pcm)
+            self.input_frames.append({'offset_seconds':offset/32000,'started_at':frame.started_at,
+                'ended_at':frame.ended_at,'pcm_bytes':len(pcm),'echo_risk':frame.echo_risk})
+        if len(self.input_pcm)>=30*32000:return self.close()
+        return None
+
+    def close(self):
+        if self.input_finished:return None
+        self.input_finished=True
+        if not self.input_pcm:return None
+        path=self.root/'input-diagnostic.wav'
+        try:
+            write_wav(path,self.input_pcm)
+            with (self.root/'input-diagnostic.json').open('x') as handle:
+                json.dump({'purpose':'raw input before speech detection; diagnostic only, not enrollment or labeled evaluation',
+                    'file':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                    'frames':self.input_frames},handle)
+            return path
+        finally:
+            self.input_pcm.clear()
+            self.input_frames.clear()
 
     def save(self,capture):
         path = self.root/(capture.capture_id+".wav")

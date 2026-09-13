@@ -109,7 +109,9 @@ has been imported into the live core.
 The active store is `local/core.sqlite3`. Accepted original voice audio and its
 embeddings commit together. `--record-evaluation` additionally saves endpointed
 WAVs under `local/recordings/`; they are explicitly unreviewed until a human labels
-them. Session traces under `local/sessions/` contain private transcripts and results.
+them. The same flag saves a separate, bounded 30-second raw-input diagnostic before
+speech detection, allowing investigation of missed speech. Session traces under
+`local/sessions/` contain private transcripts and results.
 Never commit or publish `local/`. See the operations guide for independent imports,
 review, re-embedding, deletion, and the scope of diagnostic-file retention.
 

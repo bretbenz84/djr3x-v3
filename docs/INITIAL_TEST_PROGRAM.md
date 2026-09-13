@@ -993,3 +993,20 @@ Validation: 332 blocked-I/O checks passed, including a three-turn/six-second
 synthetic chain that stays pending across restart and another speaker, then saves
 only after compatible additional speech. No personal database changes, hardware,
 hosted calls, or real-model accuracy evaluation were performed.
+
+### September 13: pre-detector diagnostic recording
+
+The post-reboot user run received strong microphone input but detected four speech
+blocks across roughly 50 seconds, with no endpointed utterance. This does not
+establish what sound was received. To close that evidence gap, --record-evaluation
+now retains the first 30 PCM seconds of fresh raw input independently of VAD, with
+original frame timestamps and echo flags in a separate sidecar. Early shutdown
+flushes a shorter recording. It never feeds enrollment or automatically becomes
+labeled evaluation data. Memory use is bounded; raw diagnostic write failures are
+reported without failing input processing.
+
+Validation: 348 blocked-I/O checks passed. New tests prove retention despite zero
+accepted speech, early-close flushing, separate inventories, a strict 30-second
+cap and no renewed recording after completion. No microphone/camera was operated.
+The missed-speech root cause remains unresolved pending an actual rejected-input
+recording; this change adds that evidence path rather than changing VAD thresholds.

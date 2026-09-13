@@ -65,6 +65,8 @@ class LiveConsole:
             message = 'OpenAI is responding again.'
         elif event == 'transcript_waiting':
             message = 'Transcribed speech is waiting for the conversation worker.'
+        elif event == 'input_diagnostic_saved':
+            message = 'Raw microphone diagnostic saved: ' + clean(row['path'])
         elif event == "face_learning_saved":
             message = f"Face samples saved ({row['samples']} clear views)."
         elif event == "voice_learning_saved":

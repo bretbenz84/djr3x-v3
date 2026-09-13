@@ -250,6 +250,12 @@ class VoiceRuntime:
                 if frame is None:
                     continue
                 self.audio_seen_at = frame.ended_at
+                if self.recorder and frame.started_at>=self.started_at:
+                    try:
+                        path=self.recorder.record_input(frame)
+                        if path:self.trace.emit('input_diagnostic_saved',path=str(path))
+                    except Exception as exc:
+                        self.trace.emit('recording_failed',kind='input_diagnostic',error_type=type(exc).__name__)
                 counts = (self.mic.dropped, self.mic.status_errors)
                 if counts != previous_dropped or (previous_end is not None and frame.started_at - previous_end > .05):
                     self.trace.emit("capture_gap", dropped=counts[0], status_errors=counts[1],
@@ -285,6 +291,12 @@ class VoiceRuntime:
         self.stop.set()
         self.cancel()
         self.mic.cancel()
+        if self.recorder:
+            try:
+                path=self.recorder.close()
+                if path:self.trace.emit('input_diagnostic_saved',path=str(path))
+            except Exception as exc:
+                self.trace.emit('recording_failed',kind='input_diagnostic',error_type=type(exc).__name__)
         deadline = time.monotonic() + 18  # Network read bound plus cooperative cleanup.
         for worker in self.workers:
             worker.join(max(0, deadline - time.monotonic()))
