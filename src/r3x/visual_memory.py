@@ -3,7 +3,8 @@ import json
 
 
 def audience(context):
-    return json.dumps(sorted(f['track_id'] for f in context.get('faces',[])))
+    return json.dumps(sorted({('person:'+f['identity']) if f.get('identity') else f['track_id']
+                              for f in context.get('faces',[])}))
 
 
 def context(store, session_id, audience_key):

@@ -117,8 +117,9 @@ a limitation: this learns voice-to-claimed-person associations, not legal identi
 ```
 
 Profiles use stable IDs; labels and explicit aliases are lookup data. The core
-keeps at most 100 participant records, 12 current acoustic tracks with five recent
-references each, 16 conversation messages, and 32 claims in a context/recall result.
+keeps at most 100 active participant records, 12 current acoustic tracks with five recent
+references each, up to 12 retained enrollment candidates, 32 complete exchanges within
+a 24,000-character history budget, and 32 claims in a context/recall result.
 Claims beyond the retrieval window remain stored. No semantic embedding model or
 automatic summarizer runs. Accepted profiles stop growing after the initial chain;
 there is no passive second writer refreshing voiceprints.

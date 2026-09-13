@@ -306,6 +306,9 @@ class VoiceRuntime:
         for worker in self.workers:
             worker.join(max(0, deadline - time.monotonic()))
         stuck = [w.name for w in self.workers if w.is_alive()]
+        output_worker = self.session.output_worker
+        if output_worker is not None and output_worker.is_alive():
+            stuck.append(output_worker.name)
         if stuck:
             self.trace.emit("worker_stuck", workers=stuck)
             raise ProviderFailure("RuntimeWorkersDidNotStop")

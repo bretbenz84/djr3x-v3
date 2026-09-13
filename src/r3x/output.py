@@ -64,6 +64,7 @@ class Delivery:
     underruns: int = 0
     medium: str = "audio"
     gestures: list[dict] = field(default_factory=list)
+    completed_at: float | None = None
 
 
 class OutputOwner:
@@ -195,6 +196,7 @@ class OutputOwner:
                         self.echo_until = self.trace.clock() + .3
                     self.active.clear()
                 delivery.completed_text.append(plain_text(text))
+                delivery.completed_at = receipt.completed_at
                 delivery.underruns += receipt.underruns
                 self.trace.emit("phrase_completed", turn_id=turn_id, text=plain_text(text),
                                 frames=receipt.frames, underruns=receipt.underruns,

@@ -55,6 +55,8 @@ def run(manifest,root,settings,with_brain=False,oracle=False):
             memory.close()
             raise ValueError("EvaluationContainsEnrolledAudio")
     run_id = uuid4().hex
+    from .settings import ScratchPaths
+    ScratchPaths(root).prepare()
     directory = root/"validation"/run_id
     directory.mkdir(parents=True,mode=0o700)
     trace = Trace(run_id,directory/"session.jsonl")

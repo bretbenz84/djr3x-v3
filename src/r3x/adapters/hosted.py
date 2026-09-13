@@ -439,7 +439,7 @@ class OpenAIBrain(HTTPProvider):
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed')):
             from ..semantics import grounded_tools
             payload.update(tools=grounded_tools(snapshot.context), parallel_tool_calls=False)
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + max(30, payload["max_output_tokens"] / 20)
         complete = False
         calls = []
         phases, buffered, preambles = {}, [], []
@@ -472,7 +472,9 @@ class OpenAIBrain(HTTPProvider):
                                 raise ProviderFailure("UnphasedReplyLengthLimit")
                             buffered.append(event["delta"])
                         else:
+                            paused = time.monotonic()
                             yield event["delta"]
+                            deadline += time.monotonic() - paused
                     elif kind == "response.completed":
                         complete = True
                         usage=event.get('response',{}).get('usage',{})
@@ -533,7 +535,9 @@ class ElevenLabsTTS(HTTPProvider):
                         received += len(chunk)
                         if received > self.sample_rate * 2 * 40:
                             raise ProviderFailure("SpeechDurationLimit")
+                        paused = time.monotonic()
                         yield chunk
+                        deadline += time.monotonic() - paused
             if received == 0 or received % 2:
                 raise ProviderFailure("InvalidPCMResponse")
         except (Cancelled, ProviderFailure):

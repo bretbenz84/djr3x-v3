@@ -78,6 +78,7 @@ class Track:
     references: deque = field(default_factory=lambda: deque(maxlen=5))
     person_id: str | None = None
     association: str = "unresolved"
+    retained: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,7 +128,7 @@ class SpeakerTracker:
     def observe(self, observation: VoiceObservation, at: float, profiles: dict,
                 trusted: bool = True, echo: bool = False, truncated: bool = False) -> Attribution:
         p = self.policy
-        self.tracks = {key: t for key, t in self.tracks.items() if at - t.last_at <= p.track_expiry_seconds}
+        self.tracks = {key: t for key, t in self.tracks.items() if t.retained or at - t.last_at <= p.track_expiry_seconds}
         vector = unit(observation.embedding)
         if observation.namespace != self.namespace or vector is None:
             return Attribution(reason="missing_or_wrong_namespace")
@@ -177,7 +178,7 @@ class SpeakerTracker:
         else:
             if self.tracks and observation.voiced_seconds < p.min_new_track_seconds:
                 return Attribution(reason="too_short_for_new_track", candidates=alternatives)
-            if len(self.tracks) >= 12:
+            if sum(at-t.last_at<=p.track_expiry_seconds for t in self.tracks.values()) >= 12:
                 return Attribution(reason="track_capacity", candidates=alternatives)
             track = Track(uuid4().hex, at)
             self.tracks[track.track_id] = track

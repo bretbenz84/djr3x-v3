@@ -15,13 +15,14 @@ class Session:
         self.session_id, self.brain, self.output, self.trace = session_id, brain, output, trace
         self.revision = 0
         self.history = TurnHistory()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._processing = threading.Lock()
         self._cancel: Cancellation | None = None
         self._opportunity_guard = None
         self._proactive_delivery = None
         self._audience_bound_output = False
         self.closed = False
+        self.output_worker = None
         self.state = state
         if state is not None:
             state.attention.scene.session_id = session_id
@@ -138,7 +139,7 @@ class Session:
                 self.trace.emit('proactive_turn',turn_id=turn_id,event_id=opportunity.event_id,kind=opportunity.kind,
                     face_track_id=opportunity.target_track,person_id=opportunity.person_id,revision=self.revision)
             else:
-                self.trace.emit("turn", turn_id=turn_id, capture_id=capture.capture_id,
+                self.trace.emit("turn", turn_id=turn_id, capture_id=capture.capture_id, parent_capture_id=capture.parent_capture_id,
                             original_text=transcript.text, avg_logprob=transcript.avg_logprob,
                             trusted=transcript.trusted, speaker="unresolved", revision=self.revision)
             if not opportunity and (capture.echo_risk or not transcript.text.strip()):
@@ -235,6 +236,7 @@ class Session:
             phrases = Queue(maxsize=4)
             worker = threading.Thread(target=self.output.run, args=(phrases, cancel, turn_id, delivery),
                                       name="r3x-output", daemon=True)
+            self.output_worker = worker
             worker.start()
             splitter = Phrases()
             generated = ""
@@ -343,7 +345,8 @@ class Session:
                     expected_revision = result.revision
                     expected_epoch = inspection_request.view_epoch
                     def inspection_valid():
-                        return self.state.store.revision==expected_revision and self.state.attention.scene.view_epoch==expected_epoch
+                        with self._lock:
+                            return self.state.store.revision==expected_revision and self.state.attention.scene.view_epoch==expected_epoch
                     cancel.guard = inspection_valid
                     data, images = self.output.execute_inspection(inspection_request,cancel,inspection_valid)
                     self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
@@ -507,7 +510,7 @@ class Session:
             if tail:
                 put_phrase(phrases, tail, cancel)
             put_phrase(phrases, None, cancel)
-            worker.join(timeout=60)
+            worker.join(timeout=5 * (40 + 30) + 5)  # Five queued/active phrases: audio plus transport bounds.
             if worker.is_alive():
                 raise ProviderFailure("OutputWorkerTimeout")
         except Cancelled:
@@ -547,20 +550,23 @@ class Session:
                     "Rex yielded without speaking because microphone speech resumed after source turn " + turn_id +
                     ". The preceding user words remain part of the conversation; the next fragment may continue them. "
                     "This timing event does not establish that the voices are the same person."})
-            if self.state and state_started and not cancel.event.is_set() and (opportunity or not self.state.forgotten) and delivery.status!="suppressed":
+            if self.state and state_started and (opportunity or not self.state.forgotten):
                 try:
                     with self._lock:
-                        cancel.check()
+                        from .output import plain_text
+                        def fully_heard(text):
+                            return (delivery.medium=='audio' and bool(delivery.completed_text) and
+                                    plain_text(text).split()==' '.join(delivery.completed_text).split())
                         if visual_selected and delivery.medium=='audio' and delivery.completed_text:
                             from .visual_memory import delivered
                             delivered(self.state.store,visual_selected,turn_id,' '.join(delivery.completed_text),self.state.wall_clock())
-                        if observation_selected and delivery.status=='completed' and delivery.medium=='audio' and delivery.completed_text:
+                        if observation_selected and fully_heard(call.arguments['text']):
                             self.state.observation_delivered(observation_selected)
                             self.trace.emit('observation_delivered',turn_id=turn_id,cue_id=observation_selected['cue_id'],kind=observation_selected['kind'])
-                        if memory_selected and delivery.status=='completed' and delivery.medium=='audio' and delivery.completed_text:
+                        if memory_selected and fully_heard(memory_selected['text']):
                             self.state.memory_delivered(memory_selected)
-                        if question and delivery.status=="completed" and delivery.medium=="audio":
-                            self.state.question_delivered(question["question"],question["addressee_id"],self.trace.clock(),question.get("face_track_id"))
+                        if question and fully_heard(question['question']):
+                            self.state.question_delivered(question["question"],question["addressee_id"],delivery.completed_at or self.trace.clock(),question.get("face_track_id"))
                 except Exception as exc:
                     self.trace.emit("state_finalize_failed",turn_id=turn_id,error_type=type(exc).__name__)
             if performance_gesture and not any(r['request_id']==performance_gesture.request_id for r in delivery.gestures):
@@ -583,10 +589,11 @@ class Session:
                             'selected_text':visual_proposed_text or generated[:1200],
                             'heard_text':' '.join(delivery.completed_text) if delivery.medium=='audio' else '',
                             'delivery_status':delivery.status,'at':self.trace.clock()})
-                    if action_started:
-                        outcome=self.state.actions.finish(delivery,self.trace.clock())
-                        if outcome:
-                            self.trace.emit('action_finished',turn_id=turn_id,**outcome)
+            if self.state and action_started:
+                with self._lock:
+                    outcome=self.state.actions.finish(delivery,self.trace.clock())
+                    if outcome:
+                        self.trace.emit('action_finished',turn_id=turn_id,**outcome)
             with self._lock:
                 self._cancel = None
                 self._opportunity_guard = None

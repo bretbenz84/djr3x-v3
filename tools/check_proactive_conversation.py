@@ -42,6 +42,8 @@ def main():
     key = Secrets.load(root).openai_api_key
     if not key:
         raise SystemExit('OpenAI credential required for explicit hosted checks')
+    from r3x.settings import ScratchPaths
+    ScratchPaths(root).prepare()
     folder = root/'validation'/('proactive-'+uuid4().hex)
     folder.mkdir(parents=True)
     clock_offset=[0.]

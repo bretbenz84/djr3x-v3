@@ -159,7 +159,8 @@ class App:
                 runtime.run()
                 success = True
         finally:
-            if runtime and any(w.is_alive() for w in runtime.workers):
+            if runtime and (any(w.is_alive() for w in runtime.workers) or
+                            (runtime.session.output_worker is not None and runtime.session.output_worker.is_alive())):
                 # Do not unload native models under an unfinished worker.
                 trace.emit("shutdown_failed", reason="active_worker_resources_retained_until_process_exit")
             else:

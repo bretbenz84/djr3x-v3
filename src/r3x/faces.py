@@ -51,6 +51,7 @@ class FaceTrack:
     strong_at: float = float('-inf')
     candidate: str | None = None
     candidate_since: float = 0.
+    first_seen: float | None = None
 
 
 class FaceTracker:
@@ -98,6 +99,7 @@ class FaceTracker:
             key = scores[0][1] if scores and (len(scores)==1 or scores[0][0]-scores[1][0]>.1) else 'face-'+uuid4().hex
             available.discard(key)
             track = self.tracks.get(key) or FaceTrack(key,tuple(box),at)
+            if track.first_seen is None:track.first_seen=at
             track.box,track.last_seen = tuple(box),at
             if vector is not None and (sample.eligible or track.vector is None): track.vector = vector
             if sample and sample.eligible and (not track.samples or at-track.samples[-1].at>=.8):
@@ -127,7 +129,7 @@ class FaceTracker:
                     dict(ranked).get(track.identity,-1)<.4): track.identity = None
             self.tracks[key] = track
             center = box[0]+box[2]/2
-            seen.append({'track_id':key,'face_epoch':self.epoch,'box':list(box),'at':at,
+            seen.append({'track_id':key,'face_epoch':self.epoch,'box':list(box),'at':at,'track_first_seen':track.first_seen,
                 'position':'left' if center<.33 else 'right' if center>.67 else 'center',
                 'identity':track.identity,'evidence':'face_match' if track.identity else 'face_unresolved',
                 'similarity':score,'margin':margin,'face_width_px':sample.width if sample else None,
@@ -148,11 +150,13 @@ class FaceTracker:
             for row in rows:
                 result[row['track_id']] = {**row,'first_seen_in_capture':result.get(row['track_id'],{}).get('first_seen_in_capture',at)}
         answer = []
+        latest_tracks={r['track_id'] for r in frames[-1][1]}
         crop_targets = {r['track_id'] for r in sorted(result.values(),key=lambda r:r['box'][2]*r['box'][3],reverse=True)[:3]}
         for row in result.values():
+            if row['track_id'] not in latest_tracks:continue
             if end-row['at']>1.: continue
             evidence = tuple(s for key,s,_ in self.sample_history if key==row['track_id'] and start<=s.at<=end)[-3:] if row['track_id'] in crop_targets else ()
             answer.append({**row,'sole_face_throughout':len(all_tracks)==1,
-                'newly_presented':row['first_seen_in_capture']>start+.5,
+                'newly_presented':row.get('track_first_seen',float('-inf'))>start+.5,
                 '_samples':evidence})
         return tuple(answer)

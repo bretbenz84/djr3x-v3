@@ -30,6 +30,25 @@ from r3x.state import CoreState
 from r3x.trace import Trace,report
 
 
+def baseline_predictions(events, clips):
+    """Join old split turns to their original labeled capture, including legacy traces."""
+    turns = {r['turn_id']: r.get('parent_capture_id') or r['capture_id']
+             for r in events if r['event'] == 'turn'}
+    labels = {c['capture_id']: c['clip'] for c in clips}
+    result = []
+    for row in events:
+        if row['event'] != 'speaker_evidence':
+            continue
+        capture = turns.get(row['turn_id'], '')
+        if capture not in labels:
+            parent, separator, part = capture.rpartition('-part')
+            if separator and part.isdigit():
+                capture = parent
+        if capture in labels:
+            result.append({'clip': labels[capture], 'attribution': row})
+    return result
+
+
 def playback_intervals(events):
     active={}
     spans=[]
@@ -108,6 +127,8 @@ def main():
     events=[json.loads(s) for s in (root/'sessions'/(folder.name+'.jsonl')).read_text().splitlines()]
     spans=playback_intervals(events)
     run_id=uuid4().hex
+    from r3x.settings import ScratchPaths
+    ScratchPaths(root).prepare()
     directory=root/'validation'/run_id
     directory.mkdir(parents=True)
     trace=Trace(run_id,directory/'session.jsonl',display=lambda row:None)
@@ -143,9 +164,7 @@ def main():
             durations.append(time.monotonic()-began)
             print('Processed clip',clip['clip'],flush=True)
         # Baseline joins the user's labels to actual earlier runtime decisions.
-        old_turns={r['turn_id']:r['capture_id'] for r in events if r['event']=='turn'}
-        by_capture={c['capture_id']:c['clip'] for c in clips}
-        baseline=[{'clip':by_capture[old_turns[r['turn_id']]],'attribution':r} for r in events if r['event']=='speaker_evidence']
+        baseline = baseline_predictions(events, clips)
         result={'source_session':folder.name,'labels_sha256':hashlib.sha256(raw).hexdigest(),
             'inference':'production Endpoint using recorded VAD and reconstructed PCM-ready/playback-end intervals; production Perception/Session',
             'limitations':['Old callbacks did not retain frame-level echo flags; playback mask is reconstructed.',

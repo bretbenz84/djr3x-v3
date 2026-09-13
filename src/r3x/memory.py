@@ -182,7 +182,7 @@ class Memory:
             any(not isinstance(a,str) or not 0<len(a.strip())<=120 for a in aliases) or
             status not in {"provisional","supported","suspect","retracted"}):
             raise ValueError("InvalidPersonLabelOrStatus")
-        if conn.execute("SELECT count(*) FROM people").fetchone()[0]>=100:
+        if conn.execute("SELECT count(*) FROM people WHERE status<>'retracted'").fetchone()[0]>=100:
             raise ValueError("PersonCapacityReached")
         person_id = uuid4().hex
         conn.execute("INSERT INTO people VALUES(?,?,?,?,?,?)",
@@ -270,11 +270,12 @@ class Memory:
         person = conn.execute("SELECT source_turn FROM people WHERE id=?",(person_id,)).fetchone()
         if person:
             affected.add(person[0])
+        capture_ids=[]
         for turn_id in affected:
             capture = conn.execute("SELECT capture_id FROM turns WHERE id=?",(turn_id,)).fetchone()
             if capture:
-                conn.execute("UPDATE artifacts SET person_id=? WHERE capture_id=?",(person_id,capture[0]))
-        self.remove_artifacts(conn,person_id)
+                capture_ids.append(capture[0])
+        self.remove_artifacts(conn,person_id,capture_ids=capture_ids)
         conn.execute("DELETE FROM people WHERE id=?",(person_id,))
         for row in conn.execute("SELECT digest,mapping FROM imports").fetchall():
             mapping = {k:v for k,v in json.loads(row[1]).items() if v!=person_id}
@@ -292,12 +293,15 @@ class Memory:
         conn.execute("DELETE FROM artifacts WHERE path=? AND person_id IS ?",(str(path),person_id))
         conn.execute("INSERT OR REPLACE INTO artifacts VALUES(?,?,?,?,?)",(str(path),digest,person_id,recording_id,capture_id))
 
-    def remove_artifacts(self,conn,person_id,recording_id=None):
+    def remove_artifacts(self,conn,person_id,recording_id=None,*,capture_ids=()):
         sql = "SELECT path,digest FROM artifacts WHERE person_id=?"
         params = [person_id]
         if recording_id:
             sql += " AND (recording_id=? OR recording_id IS NULL)"
             params.append(recording_id)
+        if capture_ids:
+            sql += ' OR capture_id IN ('+','.join('?' for _ in capture_ids)+')'
+            params.extend(capture_ids)
         rows = conn.execute(sql,params).fetchall()
         # Verify all paths first. Missing files mean an earlier interrupted deletion
         # already removed that copy; changed/unowned files are never deleted blindly.

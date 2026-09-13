@@ -106,7 +106,7 @@ class ScratchPaths:
 
     def prepare(self) -> None:
         # Recheck at the write boundary, including pre-existing child links.
-        paths = [self.root, *(self.root / name for name in ("sessions", "recordings", "cache"))]
+        paths = [self.root, *(self.root / name for name in ("sessions", "recordings", "cache", "validation"))]
         for path in paths:
             if path.resolve() != path:
                 raise ValueError("Scratch paths must not contain symlinks")

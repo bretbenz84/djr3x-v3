@@ -60,15 +60,14 @@ def main():
                 "namespace":perceived.voice.namespace})
         evidence["captures"]=results
         began=time.monotonic()
-        import cv2
-        from r3x.adapters.camera import load_detector
-        detector=load_detector(paths.root/"models/haarcascade_frontalface_default.xml")
+        from r3x.adapters.face import Detector
+        detector=Detector(paths.root/"models/scrfd_10g.onnx",640)
         evidence["face_detector_startup_seconds"]=time.monotonic()-began
-        gray=np.zeros((480,640),dtype=np.uint8)
+        gray=np.zeros((480,640,3),dtype=np.uint8)
         timings=[]
         for _ in range(20):
             began=time.monotonic()
-            faces=detector.detectMultiScale(gray,scaleFactor=1.15,minNeighbors=5,minSize=(36,36))
+            faces=detector.detect(gray)
             timings.append(time.monotonic()-began)
             assert not len(faces)
         evidence["blank_frame_processing_seconds"]={"n":20,"median":statistics.median(timings),"p95":sorted(timings)[18]}

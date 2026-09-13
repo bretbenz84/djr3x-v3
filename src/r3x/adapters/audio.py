@@ -161,6 +161,7 @@ class AudioSink:
         queue = Queue(maxsize=16)  # <1.5 sec at 4096 bytes/block.
         eof = threading.Event()
         finished = threading.Event()
+        drained = threading.Event()
         pending = b""
         frames = 0
         underruns = 0
@@ -191,6 +192,7 @@ class AudioSink:
                     started_at = self.clock() + timing.outputBufferDacTime - timing.currentTime
             if actual < wanted:
                 if eof.is_set() and queue.empty() and not pending:
+                    drained.set()
                     raise self.sd.CallbackStop  # Drain final padded callback before finished.
                 underruns += 1  # Starvation is reported; no deliberate audio discard.
 
@@ -242,7 +244,9 @@ class AudioSink:
                 if self.clock() > deadline:
                     raise ProviderFailure("PlaybackDrainTimeout")
             announce()
-            cancel.check()
+            if not drained.is_set():
+                cancel.check()
+                raise ProviderFailure('PlaybackNotDrained')
             return Playback(frames, started_at, self.clock(), underruns)
         finally:
             if self.stream:

@@ -22,6 +22,8 @@ def main():
     root=Path(__file__).resolve().parents[1]/'local'
     key=Secrets.load(root).openai_api_key
     if not key:raise SystemExit('OpenAI credential required')
+    from r3x.settings import ScratchPaths
+    ScratchPaths(root).prepare()
     folder=root/'validation'/('memory-opportunities-'+uuid4().hex);folder.mkdir(parents=True)
     offset=[0.]
     trace=Trace('memory-probes',folder/'session.jsonl',clock=lambda:time.monotonic()+offset[0],display=lambda _:None)

@@ -18,6 +18,8 @@ from r3x.trace import Trace
 
 def main():
     root = Path(__file__).resolve().parents[1]/'local'
+    from r3x.settings import ScratchPaths
+    ScratchPaths(root).prepare()
     folder = root/'validation'/uuid4().hex
     folder.mkdir(parents=True)
     trace = Trace('conversation-repairs',folder/'session.jsonl',display=lambda row:None)

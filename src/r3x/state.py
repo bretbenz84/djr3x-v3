@@ -140,9 +140,9 @@ class CoreState:
                     continue
                 proposal = Enrollment.decode(row)
                 self.evidence[proposal.track_id] = proposal
-                self.tracker.tracks[proposal.track_id] = Track(proposal.track_id, capture.ended_at,
+                self.tracker.tracks[proposal.track_id] = Track(proposal.track_id, float('-inf'),
                     deque([s[2].embedding for s in proposal.samples] or [proposal.anchor], maxlen=5), proposal.person_id,
-                    "hypothesis" if proposal.person_id else "unresolved")
+                    "hypothesis" if proposal.person_id else "unresolved", retained=True)
                 if proposal.person_id:
                     self.enrollments[proposal.track_id] = proposal
             self._restored = True
@@ -154,11 +154,10 @@ class CoreState:
                 self.evidence.pop(key, None)
                 self.enrollments.pop(key, None)
                 self.tracker.tracks.pop(key, None)
-        # Candidate groups remain matchable during the retention window even
-        # if ordinary conversational tracks would otherwise expire after a pause.
+        # Retention keeps acoustic evidence matchable, not recently heard.
         for key in self.evidence:
             if key in self.tracker.tracks:
-                self.tracker.tracks[key].last_at = capture.ended_at
+                self.tracker.tracks[key].retained = True
         if capture.overlap is True:
             observation = replace(observation, mixed=True)
         attribution = self.tracker.observe(observation, capture.ended_at,
@@ -217,6 +216,7 @@ class CoreState:
         """No acoustic observation/source turn is fabricated for an opportunity."""
         from .face_attribution import public_face
         if self.frozen: raise ValueError("FrozenEvaluationDisallowsProactiveSpeech")
+        self.forgotten=False  # A new opportunity is a new turn, not the prior forget operation.
         if self.pending and event.at-self.pending['delivered_at']>120: self.pending=None
         faces = [public_face(f) for f in event.faces if f.get('face_epoch',0)>=self.min_face_epoch]
         people = self.store.people()
@@ -486,7 +486,7 @@ class CoreState:
         if name == "reset_face_identity":
             person = self._person(args["person_id"])
             face = next((f for f in self.faces if f["track_id"]==args["face_track_id"]),None)
-            if face is None or person['id'] not in {face.get('identity'),self.face_associations.get(face['track_id'])}:
+            if face is None or face.get('identity')!=person['id']:
                 raise ValueError("FaceCorrectionNeedsCurrentAssociation")
             conn.execute("DELETE FROM face_references WHERE person_id=?", (person['id'],))
             conn.execute("INSERT OR IGNORE INTO face_learning_blocks VALUES(?)", (person['id'],))
@@ -761,6 +761,12 @@ class CoreState:
                 conn.executemany("UPDATE artifacts SET person_id=? WHERE capture_id=? AND person_id IS NULL",
                     [(proposal.person_id, sample[0].capture_id) for sample in proposal.samples])
             conn.execute("DELETE FROM voice_candidates WHERE track_id NOT IN (SELECT track_id FROM voice_candidates ORDER BY updated_at DESC LIMIT 12)")
+        retained={r['track_id'] for r in self.store.rows('SELECT track_id FROM voice_candidates')}
+        for key in set(self.evidence)-retained:
+            self.evidence.pop(key,None)
+            self.enrollments.pop(key,None)
+        for key,track in self.tracker.tracks.items():
+            track.retained=key in retained
 
     def collect_evidence(self):
         if self.frozen:
@@ -812,6 +818,7 @@ class CoreState:
                     conn.execute("DELETE FROM voice_candidates WHERE track_id=?", (proposal.track_id,))
                     revision = self.store.advance(conn)
                 self.tracker.associate(proposal.track_id,proposal.person_id,True)
+                self.tracker.tracks[proposal.track_id].retained=False
                 del self.enrollments[proposal.track_id]
                 self.evidence.pop(proposal.track_id, None)
                 self.trace.emit("voice_learning_saved",person_id=proposal.person_id,samples=len(proposal.samples),revision=revision)

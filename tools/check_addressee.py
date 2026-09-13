@@ -56,6 +56,8 @@ def main():
         'question_about_siri':'How does a voice assistant figure out which person is speaking?',
         'direct_correction':'You keep talking over our conversation, Rex. Give us a little space.'}
     root=Path(__file__).resolve().parents[1]/'local'
+    from r3x.settings import ScratchPaths
+    ScratchPaths(root).prepare()
     folder=root/'validation'/uuid4().hex;folder.mkdir(parents=True)
     trace=Trace('addressee-check',folder/'session.jsonl',display=lambda row:None)
     brain=OpenAIBrain(Secrets.load(root).openai_api_key)

@@ -11,6 +11,8 @@ if Path(sys.prefix).resolve() != PROJECT / ".venv":
     raise SystemExit("Use .venv/bin/python tools/run_checks.py")
 sys.path.insert(0, str(PROJECT))
 
+from tools.check_io_policy import check_mutation
+
 BLOCKED_MODULES = {
     "sounddevice", "pyaudio", "serial", "cv2", "torch", "torchaudio",
     "mlx", "mlx_audio", "silero_vad", "onnxruntime", "openai", "elevenlabs", "config",
@@ -26,6 +28,7 @@ class BlockProviderImports(MetaPathFinder):
 
 
 def block_external_io(event, args):
+    check_mutation(event, args)
     if event in {"socket.__new__", "socket.connect", "socket.getaddrinfo",
                  "subprocess.Popen", "os.system", "ctypes.dlopen"}:
         raise RuntimeError(f"External I/O blocked in contract tests: {event}")
@@ -33,6 +36,8 @@ def block_external_io(event, args):
         raise RuntimeError(f"Device/model/v2 import blocked: {args[0]}")
     if event == "open":
         target = args[0]
+        if args[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
+            check_mutation("os.truncate", (target,))
         if isinstance(target, (str, bytes)):
             path = Path(target.decode() if isinstance(target, bytes) else target).resolve()
             if path.is_relative_to(Path("/Users/bbenziger/djr3x-v2")) or str(path).startswith("/dev/"):
@@ -50,6 +55,7 @@ def block_external_io(event, args):
                 raise RuntimeError("Only temporary test databases are allowed")
 
 
+sys.dont_write_bytecode = True
 sys.addaudithook(block_external_io)
 sys.meta_path.insert(0, BlockProviderImports())
 with tempfile.TemporaryDirectory() as temporary_cwd:
