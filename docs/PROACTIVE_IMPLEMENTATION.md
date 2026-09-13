@@ -30,7 +30,7 @@ not parallel conversation loops. No mandatory classifier/planner call is added
 before ordinary replies. Keep the semantic feedback design bounded; an optional
 state tool must not turn every natural response into two model generations.
 
-## First slice boundaries
+## First slice boundaries (historical scope)
 
 Start with the camera already used for arrivals. Lulls require a fresh stable
 visible audience; this avoids claiming that some other person's recent speech
@@ -93,4 +93,97 @@ or run these first checks.
 - Stage 1 social/live acceptance remains open. Read the sample replies and evaluate
   humor, relevance and timing with people. A status match is not a humor score;
   no mood improvement or real speaker discrimination was measured.
-- Stages 2–5: planned, not implemented by this first slice.
+- Stages 3–5 remain planned. Stage 2 implementation and evidence follow.
+
+## Stage 2: conversational feedback
+
+Implemented against v3 base `73b09a6313301a9b1147dd5af2ff8fc3c78c054e`.
+No v2 extraction, data import, provider or resident model was added.
+
+- `conversation_feedback` records explicit invitation answer/decline, topic closure
+  or avoidance, corrections/reopening and resolution of a human-owned floor.
+  It is optional on ordinary turns. Its validated reply goes directly to the sole
+  output owner in the same generation; a null reply stays silent. Rejected tools
+  retain the existing exceptional result-continuation path.
+- Each note retains the current source ID, bounded original words and observed
+  speaker person/track. Untrusted, mixed, tentative-continuity and absent-track
+  sources cannot write feedback. A mentioned person is never substituted for the
+  speaker. Notes remain session interpretations, not permanent personal facts.
+- Invitation feedback references actual completed audible phrases, within five
+  minutes, after the source invitation, with any named target checked against the
+  current speaker. Unrelated speech never automatically settles an invitation or
+  pending identity question. Group outcomes stay unknown; feedback belongs to the
+  responding participant. Delivered excerpts support semantic repetition checks.
+- Topic boundaries are participant-scoped. Only their owner can retract/reopen
+  them; source-linked floor resolution may come from the other participant who
+  answers that exchange. Association corrections remove affected notes; forgetting
+  removes all social links; restart restores none of this session context.
+- Existing `remain_silent` human-floor reasons preserve their semantic decision
+  with a source-linked note. The scheduler and Session defer initiative while that
+  note is active, even after an unrelated direct reply or history eviction. A
+  semantic completion releases it; expiry is at two minutes, not an inferred answer.
+  This uses the existing model decision rather than a second silence classifier.
+- There are at most 32 notes and 16 delivery receipts, with excerpts bounded to
+  500 source / 1,200 delivered characters. Routine feedback cannot evict an active
+  avoid-topic boundary; a full set of boundaries rejects additional notes rather
+  than silently forgetting one. No extra settings were added.
+
+### Stage 2 verification
+
+- **192 blocked-I/O checks pass** (174 before this slice). Synthetic voices and
+  production Session/state/output paths exercise participant scope, source validation,
+  revisions, idempotence, unrelated speech, actual delivery, failure, forgetting,
+  correction, restart, bounded retention, human-floor holds/releases and generation
+  counts. No network, audio, serial, camera or real acoustic model is used by them.
+- Hosted evidence below is synthetic text with synthetic acoustic tracks, in-memory
+  stores, TextOutput and one simulated audible invitation. No microphone, camera,
+  TTS service, personal database or real playback is used. The same configured
+  hosted model remains `gpt-5.4-mini`, low reasoning.
+- Earlier hosted iterations exposed conflicting silence instructions and weak tool
+  selection. One intermediate 9/10 run still intruded after an unrelated direct
+  question. This led to applying the LLM's existing floor decision in the state
+  and scheduler, rather than asking the model to rediscover it at every lull.
+  Earlier runs remain in private validation; they are not erased by later results.
+
+- Final original feedback probes: **9/11**, ten hosted requests for eleven judged
+  turns (one held lull uses zero). Alternate wording: **9/11**, eleven hosted
+  requests (one held lull uses zero; one rejected foreign-boundary retraction uses
+  a result continuation). Each run also has two scripted seeds. In the original,
+  an invitation decline and completed topic were recorded as avoid-topic notes.
+  In the alternate, the state owner correctly rejected another participant's
+  attempted retraction, but the extra call fails the one-call expectation; a human
+  answer did not release its floor note. That hold expires after two minutes.
+- Hosted judged-turn wall time, excluding the zero-call hold: original median/max
+  **1.409/1.845 seconds**, alternate **1.471/4.302 seconds**, ten samples each.
+  These include applicable result continuation and silent TextOutput, but exclude
+  capture, ASR, TTS and real playback. This is not a matched latency benchmark or
+  evidence of improved end-to-end performance over stage 1.
+- Private final feedback evidence: `local/validation/feedback-60d9d2c8a00d4e5fb5af74ad5a72cab4/`
+  and `local/validation/feedback-431d23877522482bbb85e084ce561b6f/`. The initial
+  blocked-network run is retained; its early absence-only checks were corrected
+  to require successful delivery/suppression and are not semantic evidence.
+
+- Final earlier proactive regression probes: **7/9**, ten actual hosted requests
+  for nine judged turns, plus six scripted seeds. Welcome tiredness, completed-topic
+  initiative, thinking/grief and quiet/resume passed. A human-directed question and
+  an unanswered invitation still received unwanted follow-ups. These historical
+  seed turns provide original words but no semantic human-floor note, so this
+  exposes the remaining dependence on interpreting context when a hold is absent.
+  Private evidence: `local/validation/proactive-a9389502283c492eb42479f92a0caa8b/`.
+  This small stochastic sample does not establish a measured regression rate or
+  universal improvement over the earlier 8/9 runs.
+- Final whitespace validation and **44 local Markdown links/anchors** in changed
+  documentation pass. Implementation acceptance remains separate from hosted and
+  live social acceptance.
+
+### Remaining acceptance
+
+Semantic selection is probabilistic. A completed subject can be recorded as a
+stronger avoid-topic preference, and an invitation decline can become a topic
+boundary without an invitation receipt link. Phrasing sometimes overstates group
+scope even when stored state remains correctly participant-scoped. No synthetic
+status score proves humor, sensitivity, actual mood improvement or live speaker
+accuracy. Proactive holds depend on the initial semantic silence decision; a missed
+human addressee can still receive an ordinary reply. The two-minute expiry and
+per-participant feedback need live demonstration acceptance. M2 resource usage and
+capture-to-audio latency have not been measured for this slice.

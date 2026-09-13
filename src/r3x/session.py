@@ -98,6 +98,11 @@ class Session:
                 self._cancel = cancel
                 self._opportunity_guard = still_valid if opportunity else None
                 self._capture_end = opportunity.speech_marker if opportunity else float("inf")
+                if opportunity and self.state and self.state.initiative.floor_held(self.trace.clock()):
+                    cancel.check()
+                    delivery.status,delivery.medium = 'suppressed','none'
+                    self.trace.emit('proactive_deferred',event_id=opportunity.event_id,reason='human_floor_held')
+                    return delivery
                 if opportunity and self.state:
                     self.state.initiative.attempted(opportunity)
                     opportunity_attempted = True
@@ -218,16 +223,23 @@ class Session:
                     result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel)
                     if opportunity and result.outcome!='ok': raise ProviderFailure(result.reason)
                 self.trace.emit("tool_executed",turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
+                if (result.outcome=='ok' and call.name=='conversation_feedback' and
+                    result.data['action']=='floor_resolved' and not self.state.initiative.floor_held(self.trace.clock())):
+                    self.proactive_hold_until = float('-inf')
                 if result.outcome=="ok" and (call.name=="remain_silent" or
-                    call.name=="set_initiative" and result.data['mode']=='quiet'):
+                    call.name=="set_initiative" and result.data['mode']=='quiet' or
+                    call.name=="conversation_feedback" and result.data['text'] is None):
                     from dataclasses import asdict
                     import json
                     delivery.status, delivery.medium = "suppressed", "none"
-                    self.proactive_hold_until = self.trace.clock()+120
+                    if call.name!='conversation_feedback':
+                        self.proactive_hold_until = self.trace.clock()+120
                     self.history.extend((
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps(call.arguments)},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                     self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
+                elif result.outcome=="ok" and call.name=="conversation_feedback":
+                    put_phrase(phrases,result.data['text'],cancel)
                 elif result.outcome=="ok" and call.name in {"ask_question","ask_face_question"}:
                     question = result.data
                     put_phrase(phrases,question["question"],cancel)

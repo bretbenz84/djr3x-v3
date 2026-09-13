@@ -34,7 +34,7 @@ class OpportunityCancellation(Cancellation):
 class Initiative:
     """Session-state-owned pacing. Attempts never masquerade as heard speech.
 
-    First slice: semantic answered/dismissed judgments remain in original history.
+    Semantic feedback is optional, source-linked and scoped to its observed speaker.
     A new source turn permits consideration, not an inference of engagement.
     """
     def __init__(self):
@@ -43,10 +43,14 @@ class Initiative:
         self.attempts = deque(maxlen=16)
         self.outcomes = deque(maxlen=16)
         self.lull_source = None
+        self.feedback = deque(maxlen=32)
+
+    def floor_held(self, now: float) -> bool:
+        return any(r['action']=='yield_floor' and now < r['expires_at'] for r in self.feedback)
 
     def allowed(self, now: float) -> bool:
         recent = [at for at in self.attempts if 0 <= now-at < 300]
-        return not self.quiet and len(recent) < 6 and (
+        return not self.quiet and not self.floor_held(now) and len(recent) < 6 and (
             not self.attempts or now-self.attempts[-1] >= 8)
 
     def attempted(self, event: Opportunity) -> None:
@@ -59,18 +63,28 @@ class Initiative:
         row = {"event_id": event.event_id, "kind": event.kind, "at": now,
                "status": delivery.status, "medium": delivery.medium,
                "heard_complete_phrases": heard,
+               "source_turn_id": event.source_turn_id, "target_person_id": event.person_id,
+               "delivered_text": " ".join(delivery.completed_text)[:1200] if heard else None,
                "response": "unknown" if heard else "not_applicable"}
         self.outcomes.append(row)
         return row
 
-    def context(self) -> dict:
+    def context(self, now: float | None = None) -> dict:
         return {"initiative_quiet": self.quiet, "policy_source_turn_id": self.policy_source,
-                "recent_opportunities": list(self.outcomes)}
+                "recent_opportunities": list(self.outcomes),
+                "feedback": [dict(row) for row in self.feedback
+                             if row["expires_at"] is None or now is None or now < row["expires_at"]]}
+
+    def discard_association(self, person_id, track_id) -> None:
+        self.feedback = deque((r for r in self.feedback if not (
+            person_id and r['participant']['person_id']==person_id or
+            track_id and r['participant']['track_id']==track_id)), maxlen=32)
 
     def forget(self) -> None:
         # Keep anonymous pacing and a quiet request, remove personal source links.
         self.policy_source = None
         self.outcomes.clear()
+        self.feedback.clear()
         self.lull_source = None
 
 

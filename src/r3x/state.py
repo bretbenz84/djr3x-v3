@@ -109,7 +109,7 @@ class CoreState:
         from .face_attribution import public_face
         return {"source_turn_id":turn_id,"state_revision":self.store.revision,
                 "current_utterance":transcript.text,
-                "participation":self.initiative.context(),
+                "participation":self.initiative.context(self.trace.clock()),
                 "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
                 "speaker":{**asdict(attribution),"display_name":speaker_person["name"] if speaker_person else None},
                 "provisional_person_id":track.person_id if track else None,
@@ -139,7 +139,7 @@ class CoreState:
         if event.kind=='conversation_lull' and (not self.current or event.source_turn_id!=self.current[0]):
             raise ValueError('StaleLullSource')
         return {'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
-                'participation':self.initiative.context(),
+                'participation':self.initiative.context(self.trace.clock()),
                 'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
                                'quiet_seconds':event.quiet_seconds,
                                'audience':'visible_group' if event.kind=='conversation_lull' else 'arrival_target'},
@@ -225,10 +225,64 @@ class CoreState:
             raise ValueError("UnknownPersonId")
         return person
 
+    def _feedback(self, args):
+        turn_id,capture,transcript,observation,attribution = self.current
+        self._source_allowed(args,"conversation_feedback")
+        if not attribution.track_id or attribution.reason == "tentative_continuity":
+            raise ValueError("FeedbackNeedsCurrentSpeakerEvidence")
+        participant = {"person_id":attribution.person_id,"track_id":attribution.track_id}
+        action, reference, topic = args["action"], args["reference_id"], args["topic"]
+        needs_reference = action in {"invitation_answered","invitation_declined","retract","floor_resolved"}
+        if bool(reference) != needs_reference or bool(topic) != (action in {"topic_closed","topic_avoid"}):
+            raise ValueError("FeedbackFieldsMismatch")
+        if action == "yield_floor" and args["text"] is not None:
+            raise ValueError("FloorYieldMustBeSilent")
+        now = self.trace.clock()
+        if action in {"retract","floor_resolved"}:
+            previous = next((r for r in self.initiative.context(now)["feedback"] if r["id"]==reference), None)
+            if not previous: raise ValueError("FeedbackReferenceMissing")
+            if previous['source_turn_id']==turn_id:
+                raise ValueError('FeedbackNeedsNewSource')
+            if action=='floor_resolved':
+                if previous['action']!='yield_floor': raise ValueError('NotAHumanFloorReference')
+            else:
+                owner = previous["participant"]
+                if not (owner["person_id"] == participant["person_id"] if owner["person_id"]
+                        else owner["track_id"] == participant["track_id"]):
+                    raise ValueError("FeedbackBelongsToAnotherParticipant")
+        elif needs_reference:
+            previous = next((r for r in self.initiative.outcomes if r["event_id"]==reference), None)
+            if not previous or not previous["heard_complete_phrases"]:
+                raise ValueError("FeedbackNeedsAudibleOpportunity")
+            if previous["at"] > now or now-previous["at"] > 300:
+                raise ValueError("FeedbackOpportunityExpired")
+            if turn_id == previous['source_turn_id'] or capture.started_at < previous['at']:
+                raise ValueError("FeedbackSourcePrecedesOpportunity")
+            target = previous["target_person_id"]
+            if target and target != attribution.person_id:
+                raise ValueError("FeedbackTargetMismatch")
+        if action not in {'retract','floor_resolved'} and len(self.initiative.feedback)==32 and all(
+                r['action']=='topic_avoid' for r in self.initiative.feedback):
+            raise ValueError('FeedbackCapacityReached')
+        return {"id":uuid4().hex,"action":action,"reference_id":reference,"topic":topic,
+                "source_turn_id":turn_id,"source_text":transcript.text[:500],
+                "participant":participant,"at":now,"expires_at":now+120 if action=="yield_floor" else None,
+                "text":args["text"],"reason":"conversation_feedback"},True
+
     def _apply(self, conn, name, args):
         turn_id,capture,transcript,observation,attribution = self.current
         if name == "remain_silent":
-            return {"reason":args["reason"]},False
+            data = {"reason":args["reason"]}
+            if not self.frozen and args['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:
+                try:
+                    data['feedback'], _ = self._feedback(dict(action='yield_floor',reference_id=None,
+                        topic=None,source_turn_id=turn_id,text=None))
+                except ValueError:
+                    # Silence remains valid even when source/track evidence cannot support a note.
+                    pass
+            return data,'feedback' in data
+        if name == "conversation_feedback":
+            return self._feedback(args)
         if name == "set_initiative":
             self._source_allowed(args,name)
             return {"mode":args["mode"],"source_turn_id":turn_id,
@@ -386,6 +440,19 @@ class CoreState:
         raise ValueError("UnknownTool")
 
     def _after(self,name,data):
+        if name=='remain_silent' and 'feedback' in data:
+            self._after('conversation_feedback',data['feedback'])
+        if name=='conversation_feedback':
+            if data['action'] in {'retract','floor_resolved'}:
+                self.initiative.feedback = deque((r for r in self.initiative.feedback
+                    if r['id'] != data['reference_id']), maxlen=32)
+            else:
+                # Proposed reply text is not evidence of actual delivery.
+                if len(self.initiative.feedback)==32:
+                    # Active explicit boundaries cannot disappear behind routine feedback.
+                    expendable = next(r for r in self.initiative.feedback if r['action']!='topic_avoid')
+                    self.initiative.feedback.remove(expendable)
+                self.initiative.feedback.append({k:v for k,v in data.items() if k not in {'text','reason'}})
         if name=='set_initiative':
             self.initiative.quiet = data['mode']=='quiet'
             self.initiative.policy_source = data['source_turn_id']
@@ -425,6 +492,11 @@ class CoreState:
                 self.enrollments[attribution.track_id] = proposal
                 self.persist_evidence(proposal)
                 self.learn_observation()
+        if name=='cancel_association':
+            self.initiative.discard_association(data.get('person_id'),data.get('track_id'))
+            for key, proposal in self.enrollments.items():
+                if proposal.person_id==data.get('person_id'):
+                    self.initiative.discard_association(None,key)
         if name in {"cancel_association","forget_person"}:
             for key,e in list(self.enrollments.items()):
                 if data.get("person_id")==e.person_id or data.get("track_id")==key:

@@ -13,6 +13,11 @@ NULL_TEXT = {"type":["string","null"]}
 
 
 TOOLS = (
+    schema("conversation_feedback", "Record explicit social state changes from this human turn; ordinary turns without a state change need no feedback tool. Never use silence, tiredness, short answers or mere unrelated speech as a rejection. invitation_answered/declined requires a recent audible opportunity reference and semantic response to that contribution. topic_closed/avoid records the current speaker's explicit topic boundary (topic required); never infer group consensus. retract corrects/reopens one of this speaker's feedback records using its reference_id. floor_resolved uses a yield_floor feedback reference when this utterance actually completes or answers that human exchange (including its other participant); unrelated direct questions to Rex do not resolve it. topic must be null for both retract and floor_resolved. All other reference/topic fields are null. This never settles pending identity questions or saves biography. text is an optional complete natural reply, spoken directly after validation in this same generation; null stays silent. Prefer ordinary streaming prose when no context update is needed.",
+           {"action":{"type":"string","enum":["invitation_answered","invitation_declined","topic_closed","topic_avoid","retract","floor_resolved"]},
+            "reference_id":{"type":["string","null"],"description":"event_id for invitation feedback; feedback id for retract/floor_resolved; null for topic_closed, topic_avoid."},
+            "topic":{"type":["string","null"],"description":"Subject only for topic_closed/topic_avoid. MUST be null for retract, floor_resolved, invitation feedback."},
+            "source_turn_id":TEXT,"text":NULL_TEXT}),
     schema("set_initiative", "Only for an explicit request to stop unsolicited conversation (quiet), or an explicit invitation to resume initiating (available). Quiet still permits direct replies. This session-wide boundary lasts for this run and is not cleared by another person's speech or facing the camera. Never infer it from tiredness, grief, short answers or an external conversation. Quiet executes silently, without acknowledgment. Use current source_turn_id.",
            {"mode":{"type":"string","enum":["quiet","available"]},"source_turn_id":TEXT}),
     schema("introduce_person", "Interpret an explicit introduction, including a speaker giving the name of an existing person. Select face_track_id from visual evidence when clear; naming a shy friend keeps the current speaker separate. A face_status other than saved/already_saved means the face has NOT been enrolled; use a targeted clarification or closer look if needed. This is not a rename. subject=self starts a provisional acoustic association only; other never enrolls the current speaker as the mentioned person. Use existing candidate ID when resolved, otherwise null. Never use unrelated next utterance as a name answer.",
@@ -81,6 +86,11 @@ def grounded_tools(context):
                 values = [context['visual_arrival']['face_track_id']] if context.get('trigger')=='visual_arrival' else faces
             if key=="track_id": values = [e["track_id"] for e in enrollments]
             if key=="source_turn_id": values = [context["source_turn_id"]]
+            if key=="reference_id" and name=="conversation_feedback":
+                participation = context.get("participation", {})
+                values = [r["event_id"] for r in participation.get("recent_opportunities", [])
+                          if r["heard_complete_phrases"]]
+                values += [r["id"] for r in participation.get("feedback", [])]
             if name=="cancel_association" and key=="person_id": values = [e["person_id"] for e in enrollments]
             if values is not None:
                 nullable = isinstance(spec["type"],list) and "null" in spec["type"]

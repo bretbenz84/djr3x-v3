@@ -480,3 +480,39 @@ leave-one-clip-out Bret/Jeff reference galleries produced zero named decisions
 before and after: zero wrong names, but **100% abstention**, so it does not establish
 useful car identification accuracy. Live multi-person, overlap and M2 validation
 remain open. Reports and replay scripts are under `local/validation/`.
+
+### Source-linked conversational feedback
+
+The second proactive slice retains explicit topic closure/avoidance and invitation
+responses for the current run. A note belongs to the observed speaker's supported
+person ID or unresolved acoustic track; a mentioned name cannot take ownership.
+Another participant cannot remove that person's topic boundary. An explicit
+reopening uses the referenced note, and forgetting clears social source context.
+Identity-association cancellation removes affected notes; restart starts fresh.
+
+Human-floor silence decisions retain their source for up to two minutes. A direct
+question to Rex still receives a reply, but does not itself release that earlier
+floor. A semantic answer/completion can release it through `conversation_feedback`;
+otherwise it expires. Active holds defer arrivals/lulls without a model call.
+Expiry is not evidence of an answer. A source too uncertain for a note can still
+receive a silent response and the existing temporary hold.
+
+Feedback is optional during normal conversation and can include the brief reply
+for the existing output owner in the same generation. It never saves biography,
+identifies a speaker, or automatically settles a pending identity question.
+A maximum of 32 notes is retained. Explicit avoid-topic boundaries are preserved
+when routine feedback is evicted; at full boundary capacity a new note is rejected.
+These bounded notes and delivery excerpts help the model avoid repetition, but
+semantic selection and social quality remain imperfect. See
+[implementation evidence](PROACTIVE_IMPLEMENTATION.md).
+
+Explicit hosted synthetic probes, when desired (API usage, no devices):
+
+```sh
+.venv/bin/python tools/check_conversation_feedback.py
+.venv/bin/python tools/check_conversation_feedback.py --variants
+```
+
+The probes use in-memory stores, synthetic acoustic tracks and one simulated audible
+invitation; no real audio is played. Read the source, reply and feedback together.
+A passing state check alone does not establish tact, humor or correct live attribution.

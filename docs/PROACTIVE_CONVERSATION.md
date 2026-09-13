@@ -1,6 +1,6 @@
 # Proactive conversation and situational awareness
 
-September 12, 2026: user-approved design direction with a first implementation slice.
+September 12, 2026: user-approved design direction with two implementation slices.
 Proactive participation belongs in the conversational core and its acceptance
 work. It is designed alongside replies, identity and memory rather than postponed
 as an independent entertainment layer. The user subsequently authorized a plan and
@@ -8,8 +8,10 @@ beginning implementation; no new providers or hardware operation are implied.
 
 Face arrivals and visible-group lull opportunities now use the shared Session,
 conversation model and output owner. The first slice includes attempt/delivery
-history and explicit session quiet/resume. Richer semantic outcome tracking,
-per-participant state and memory opportunities below remain design targets. See
+history and explicit session quiet/resume. The second slice adds bounded, source-linked
+invitation feedback, topic boundaries and human-floor state. These are session
+interpretations with speaker uncertainty, not verified emotions or durable preferences.
+Broader outcomes, memory opportunities and live social acceptance remain design targets. See
 [implementation stages](PROACTIVE_IMPLEMENTATION.md) and
 [current operation](CORE_OPERATIONS.md#conversational-lulls-and-initiative-control).
 

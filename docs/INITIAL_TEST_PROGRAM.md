@@ -826,7 +826,26 @@ and explicit session quiet/resume. No new provider or resident model was added.
 The [implementation plan](PROACTIVE_IMPLEMENTATION.md) records verification and
 remaining stages. Synthetic scenarios exercise source preservation, state, pacing,
 cancellation and delivery; actual hosted text probes assess welcome initiative
-alongside sensitivity and restraint. The source/delivery ledger does not yet label
-semantic response outcomes or build persistent participant preferences. Group
+alongside sensitivity and restraint. The second slice now adds optional source-linked invitation response interpretations,
+participant topic boundaries and human-floor resolution. These remain session state;
+no persistent participant preferences or emotion inference are created. Group
 participation remains probabilistic; automated checks do not establish delight,
 real attribution accuracy, physical barge-in or M2 performance.
+
+### Conversational feedback slice (September 12, 2026)
+
+Implemented: `conversation_feedback` applies source-linked invitation responses,
+topic closure/avoidance, participant-owned corrections and human-floor resolution.
+A successful proposal can contain its reply for the sole output owner, avoiding a
+mandatory continuation. Ordinary prose stays on the streaming path. Existing
+`remain_silent` human-floor reasons now retain bounded source context; unrelated
+speech does not clear it. The scheduler and Session defer initiative without a model
+call until semantic resolution or the two-minute expiry.
+
+**192 blocked-I/O checks pass** with synthetic voices/providers and temporary stores.
+They cover delivery vs generation, named/unnamed participant scope, unrelated speech,
+invalid/stale/frozen sources, idempotence, correction, forgetting/restart, history
+and feedback eviction, floor release, failed output and one-call replies. They do
+not prove the model selected the correct meaning. Hosted evidence and remaining
+misses are maintained in the [implementation plan](PROACTIVE_IMPLEMENTATION.md).
+No devices or real acoustic models were operated for this slice.

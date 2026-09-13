@@ -173,8 +173,10 @@ distress and explicit boundaries call for a different response. Proactive and
 reactive conversation share one owner and are developed and evaluated together.
 The [proactive design](docs/PROACTIVE_CONVERSATION.md) extends the implemented
 face-arrival path. The first slice adds visible-group lulls after about eight
-seconds, explicit session quiet/resume and attempt/delivery history. Richer feedback
-and memory opportunities remain planned; live social acceptance is still open.
+seconds, explicit session quiet/resume and attempt/delivery history. The second slice
+adds source-linked invitation feedback, participant topic boundaries and human-floor
+holds with semantic release, without a required extra generation. Memory opportunities
+remain planned; hosted semantic reliability and live social acceptance remain open.
 
 ## First usable program
 
