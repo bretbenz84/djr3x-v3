@@ -45,6 +45,9 @@ def report(path: Path) -> dict:
     purposes = Counter()
     latencies: dict[str, list[float]] = {}
     calls = 0
+    images,image_bytes = 0,0
+    observation_receipts = Counter()
+    token_usage = Counter()
     primary,continuations,underruns = 0,0,0
     evidence,models,failures = set(),set(),[]
     rss = []
@@ -60,8 +63,15 @@ def report(path: Path) -> dict:
         if row["event"] == "model_request":
             purposes[row.get('purpose','conversation')] += 1
             calls += 1
+            images += row.get("image_count",0)
+            image_bytes += row.get("image_bytes",0)
             primary += row.get("primary_calls",1)
             continuations += int(row.get("purpose")=="tool_result_continuation")
+        if row["event"]=="model_usage":
+            for key in ("input_tokens","output_tokens","total_tokens"):token_usage[key]+=row.get(key,0)
+        if row["event"]=="observation_delivered":observation_receipts[row["kind"]]+=1
+        if row["event"]=="observation_refresh" and row.get("outcome")=="failed":
+            failures.append({k:row[k] for k in ("event","source","error_type") if k in row})
         if row.get("evidence"):
             evidence.add(row["evidence"])
         models.update(m for m in row.get("models",[]) if m)
@@ -93,7 +103,8 @@ def report(path: Path) -> dict:
         return {"n": len(ordered), "median": statistics.median(ordered),
                 "p95": ordered[max(0, math.ceil(len(ordered)*.95)-1)]}
     return {"events": dict(events), "turn_outcomes": dict(outcomes), "model_calls": calls,
-            "model_calls_by_purpose":dict(purposes),
+            "model_calls_by_purpose":dict(purposes),"scene_image_inputs":images,"scene_image_bytes":image_bytes,
+            "observation_deliveries":dict(observation_receipts),"reported_model_tokens":dict(token_usage),
             "proactive_outcomes":[{'kind':key[0],'status':key[1],'medium':key[2],
                                     'heard_complete_phrases':key[3],'count':count}
                                    for key,count in proactive.items()],

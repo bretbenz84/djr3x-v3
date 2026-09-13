@@ -56,6 +56,7 @@ class Snapshot:
     context: dict = field(default_factory=dict)
     tools_enabled: bool = False
     continuation: tuple[dict, ...] = ()
+    images: tuple = field(default=(), repr=False)
 
 
 @dataclass(frozen=True)

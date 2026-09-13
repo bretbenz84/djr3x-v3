@@ -19,6 +19,9 @@ class Opportunity:
     kind: str = "visual_arrival"
     source_turn_id: str | None = None
     quiet_seconds: float | None = None
+    public_cues: tuple = ()
+    scene_id: str | None = None
+    scene_images: tuple = ()
 
 
 class OpportunityCancellation(Cancellation):
@@ -55,7 +58,7 @@ class Initiative:
 
     def attempted(self, event: Opportunity) -> None:
         self.attempts.append(event.at)
-        if event.kind == "conversation_lull":
+        if event.kind in {"conversation_lull","ambient"}:
             self.lull_source = event.source_turn_id
 
     def finished(self, event: Opportunity, delivery, now: float) -> dict:
@@ -163,7 +166,7 @@ class Arrivals:
 
     def valid(self, event, now):
         with self.lock:
-            if event.kind == "conversation_lull":
+            if event.kind in {"conversation_lull","ambient"}:
                 keys = lambda faces: {(f['track_id'],f.get('identity'),f.get('face_epoch',0)) for f in faces}
                 fresh = [f for f in self.faces if 0<=now-f['at']<=1]
                 return bool(event.faces) and keys(fresh) == keys(event.faces)

@@ -30,6 +30,14 @@ CREATE TABLE IF NOT EXISTS claims(
  source_track TEXT,source_turn TEXT NOT NULL REFERENCES turns(id),kind TEXT NOT NULL,
  status TEXT NOT NULL,supersedes TEXT,revision INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS claims_subject ON claims(subject_id,status);
+CREATE TABLE IF NOT EXISTS memory_followups(
+ claim_id TEXT PRIMARY KEY REFERENCES claims(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL,on_date TEXT,audience TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS memory_followup_delivery(
+ claim_id TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+ occasion TEXT NOT NULL,delivered_on TEXT NOT NULL, PRIMARY KEY(claim_id,occasion));
+CREATE TABLE IF NOT EXISTS observation_delivery(
+ cue_id TEXT PRIMARY KEY,kind TEXT NOT NULL,delivered_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS recordings(
  id TEXT PRIMARY KEY,person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
  digest TEXT NOT NULL,pcm BLOB NOT NULL,sample_rate INTEGER NOT NULL,metadata TEXT NOT NULL,

@@ -87,6 +87,8 @@ class Session:
         first_token_at = None
         model_error = None
         question = None
+        memory_selected = None
+        observation_selected = None
         state_started = False
         opportunity_attempted = False
         try:
@@ -172,7 +174,7 @@ class Session:
                 cancel.check()
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
-                                context, self.state is not None)
+                                context, self.state is not None, images=opportunity.scene_images if opportunity and any(c["kind"]=="scene" for c in context.get("observations",[])) else ())
             phrases = Queue(maxsize=4)
             worker = threading.Thread(target=self.output.run, args=(phrases, cancel, turn_id, delivery),
                                       name="r3x-output", daemon=True)
@@ -181,6 +183,8 @@ class Session:
             generated = ""
             model_at = self.trace.clock()
             self.trace.emit("model_request", turn_id=turn_id, primary_calls=1,
+                            image_count=len(snapshot.images),image_bytes=sum(len(i.data_url) for i in snapshot.images),
+                            observation_count=len(context.get("observations",[])),
                             purpose=opportunity.kind if opportunity else "conversation",
                             context_messages=len(snapshot.messages),
                             history_turns=len(self.history.turns),
@@ -238,6 +242,21 @@ class Session:
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps(call.arguments)},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                     self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
+                elif result.outcome=='ok' and call.name=='use_observation':
+                    observation_selected = result.data['cue']
+                    previous_valid = cancel.valid
+                    selected_revision = result.revision
+                    cancel.valid = lambda: (previous_valid() and self.state.store.revision==selected_revision
+                        and self.state.observation_available(observation_selected))
+                    put_phrase(phrases,result.data['text'],cancel)
+                elif result.outcome=='ok' and call.name=='use_memory_opportunity':
+                    memory_selected = result.data
+                    previous_valid = cancel.valid
+                    selected_revision = result.revision
+                    selected_day = context['calendar_date']
+                    cancel.valid = lambda: (previous_valid() and self.state.store.revision==selected_revision
+                        and self.state.calendar_today().isoformat()==selected_day)
+                    put_phrase(phrases,result.data['text'],cancel)
                 elif result.outcome=="ok" and call.name=="conversation_feedback":
                     put_phrase(phrases,result.data['text'],cancel)
                 elif result.outcome=="ok" and call.name in {"ask_question","ask_face_question"}:
@@ -308,6 +327,11 @@ class Session:
                 try:
                     with self._lock:
                         cancel.check()
+                        if observation_selected and delivery.status=='completed' and delivery.medium=='audio' and delivery.completed_text:
+                            self.state.observation_delivered(observation_selected)
+                            self.trace.emit('observation_delivered',turn_id=turn_id,cue_id=observation_selected['cue_id'],kind=observation_selected['kind'])
+                        if memory_selected and delivery.status=='completed' and delivery.medium=='audio' and delivery.completed_text:
+                            self.state.memory_delivered(memory_selected)
                         if question and delivery.status=="completed" and delivery.medium=="audio":
                             self.state.question_delivered(question["question"],question["addressee_id"],self.trace.clock(),question.get("face_track_id"))
                 except Exception as exc:

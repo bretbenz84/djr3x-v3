@@ -367,3 +367,24 @@ provider or model. V3-owned lull pacing, quiet/resume and delivery bookkeeping a
 recorded in [the implementation plan](docs/PROACTIVE_IMPLEMENTATION.md); the only
 new setting is the user's requested conversational lull timing. Live validation
 and richer feedback/memory integrations remain pending.
+
+## Completing proactive input sources (September 12, 2026)
+
+Rechecked v2 `9806c74fd233a7118da88ca5ae55fb7450deec05`, working tree clean,
+without changing files or reading personal databases. Relevant reference:
+`awareness/current_events.py` (`stories`, `refresh_if_stale`, `pick_story`,
+`mark_mentioned`). Preserve dated/fresh cached material, off-turn refresh and
+marking only after actual delivery. Do not preserve the global startup/cache chain,
+fixed ordered selection or the historical date-parsing heuristics.
+
+V3's implementation is independent: bounded RSS/Open-Meteo adapters, explicit
+lifecycle workers, a typed observation and the existing Session/model/output path.
+Scene inputs reuse v3's own FrameHub; no v2 vision or hardware adapter was copied.
+Dependencies: existing httpx for public retrieval, Python standard-library XML/PNG
+handling, and the existing hosted conversation model for images. No new resident
+model or v2 runtime dependency was added. The v3 user selected Sacramento weather
+and top headlines; actuator control stays outside their proactive-only scope.
+
+221 blocked-I/O checks and explicit public-source/synthetic hosted probes are
+recorded in [observation-source evidence](docs/OBSERVATION_SOURCES.md). Real scene,
+animal/gesture, group and M2 validation remain pending; no hardware was operated.

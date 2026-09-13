@@ -21,11 +21,12 @@ opening. See [design](PROACTIVE_CONVERSATION.md) for delight and emotional sensi
 | 1. Shared initiative foundation | Generalize the existing arrival event and Session path; add visible-group lulls, shared history/outcomes, explicit session quiet/resume, sensitivity guidance, bounded pacing and cancellation | Production Session/worker tests with blocked I/O, hosted synthetic semantic probes, documented live limits |
 | 2. Conversational feedback | Source-linked interpretation of invitation responses, topic closure/repetition and per-participant preferences; preserve human-to-human floor context without a universal metadata call | Multi-person sequences where unrelated speech does not settle a question, quietness is not disengagement, and correction/forgetting remove stale context; compare model-call counts and latency |
 | 3. Contextual memory opportunities | Relevant accepted plans, callbacks and celebrations with source/audience constraints; diverse bounded opportunity selection | Source/subject/discretion scenarios, dates and corrections across restart; no automatic biography from a proactive remark |
-| 4. Live social acceptance | Repeated demonstrations on the dev Mac, then combined-load M2 sessions | Human ratings of delight, warmth and timing alongside interruptions, repetition, missed openings, attribution, median/p95 latency and playback |
-| 5. Additional observation sources | Explicitly scoped news/weather, objects/animals/gestures and eventual physical reactions through the same opportunity path | Verify each provider's facts/freshness and resource cost; preserve all core acceptance contracts before adding the next |
+| 4. Live social acceptance | Deferred at user request until software is complete; then repeated dev-Mac demonstrations and combined-load M2 sessions | Human ratings of delight, warmth and timing alongside interruptions, repetition, missed openings, attribution, median/p95 latency and playback |
+| 5. Additional observation sources | Implemented public news/weather and scene images for conversational object/animal/gesture reactions; actuator control is outside the clarified proactive-only scope | Verify each provider's facts/freshness and resource cost; preserve all core acceptance contracts before adding the next |
 
-Stages 1–4 are core work. Stage 5 records future integrations and is not blanket
-authorization to add providers, download models or operate hardware. Stages are
+Stages 1–4 are core work. The user subsequently authorized finishing the proactive
+software before testing, including stage 5 inputs, and excluded the wider robot
+roadmap. This does not authorize starting hardware during implementation. Stages are
 not parallel conversation loops. No mandatory classifier/planner call is added
 before ordinary replies. Keep the semantic feedback design bounded; an optional
 state tool must not turn every natural response into two model generations.
@@ -93,7 +94,7 @@ or run these first checks.
 - Stage 1 social/live acceptance remains open. Read the sample replies and evaluate
   humor, relevance and timing with people. A status match is not a humor score;
   no mood improvement or real speaker discrimination was measured.
-- Stages 3–5 remain planned. Stage 2 implementation and evidence follow.
+- Stage 2, 3 and 5 software implementation/evidence follow. Live acceptance remains pending.
 
 ## Stage 2: conversational feedback
 
@@ -187,3 +188,114 @@ accuracy. Proactive holds depend on the initial semantic silence decision; a mis
 human addressee can still receive an ordinary reply. The two-minute expiry and
 per-participant feedback need live demonstration acceptance. M2 resource usage and
 capture-to-audio latency have not been measured for this slice.
+
+## Stage 3: contextual memory opportunities
+
+Implemented against v3 base `67597216b39fe8d376fcc275bf4ba6f0dba920b7`.
+No v2 extraction, personal-data import or new provider/model was added.
+
+`remember_followup` uses the existing attributed-claim executor to atomically save
+an accepted supported-speaker self-report and its follow-up metadata. A plan or
+celebration uses an exact ISO calendar date; a birthday uses month/day; a callback
+has no date. The local calendar date is supplied to the same conversation model.
+Unknown/provisional speakers cannot schedule somebody else's memory. Ambiguous
+relative dates need clarification, not Python language parsing.
+
+Sharing defaults to `subject_only`; `group` requires the subject's explicit semantic
+permission. A private candidate requires the subject as the sole visible face;
+an unknown extra face also withholds it. A group candidate still requires the
+subject present. Third-party/candidate claims are excluded. These are candidate
+access rules, not proof that all speech or retained conversation history can never
+leak a private detail. The model still interprets the source and discretion.
+
+At arrivals and lulls, up to six eligible candidates rotate through a bounded pool
+of 128 recent accepted follow-ups. The model can select one, use another fresh
+contribution, or stay silent. This preserves one proactive generation and the
+existing quiet/floor/pacing gates. `use_memory_opportunity` revalidates the offered
+claim, current status, date and audience, then uses the sole output owner. Speech,
+audience changes, changed state revision or midnight can cancel stale output.
+Generated speech never creates a new personal fact.
+
+Only completed audible output records a persistent delivery receipt. Text-only,
+failed and interrupted deliveries do not count. Birthdays are eligible on their
+calendar day each year (February 29 stays February 29); celebrations on the exact
+saved date; plans within seven days before/after their date, without assuming they
+happened; callbacks may be considered daily. A delivered plan/celebration is not
+reoffered for that occurrence, a birthday not again that year, and a callback not
+again that day, including after restart. These are opportunity eligibility windows,
+not an unattended reminder service or guaranteed speech schedule.
+
+Correction/retraction makes the old linked claim ineligible without carrying its
+date or sharing permission to a replacement. Forgetting cascades to metadata and
+receipts. Existing databases gain additive tables on ordinary Memory.start; original
+claims remain intact. Old generic claims are not automatically converted into dated
+or group-shareable follow-ups. A corrected follow-up currently needs a fresh
+`remember_followup` save to establish new scheduling/sharing metadata.
+
+### Stage 3 evidence and remaining acceptance
+
+- **205 blocked-I/O checks pass**, versus 192 before this slice. Synthetic contracts
+  cover private/unknown/group audiences, supported subject attribution, date windows,
+  leap dates, rotation, atomic rejection, corrections, forgetting, restart, additive
+  schema compatibility, sole-generation selection, text vs audio receipts and
+  midnight cancellation. No devices or real acoustic models were used.
+- Hosted synthetic storage/eligibility probes: **6/6** in each of two runs. The final
+  run includes an explicitly shared birthday with an additional unknown face. Plans
+  and birthdays used `use_memory_opportunity`; a private promotion was withheld in
+  a group after clearing session history. Three saves and three arrival turns use
+  the configured hosted model with synthetic supported acoustic enrollment,
+  in-memory stores and TextOutput. No audio was played and no personal DB was read.
+- These scores check saves and candidate availability, not unrestricted semantic
+  quality. The sailing-save acknowledgment still promised a future nudge despite
+  opportunity-only guidance. One greeting narrated camera framing, and another
+  implied a return visit without evidence. These wording failures remain open;
+  neither six passing state checks nor synthetic identity establishes social acceptance.
+- Private evidence: `local/validation/memory-opportunities-7d407edb00d14204a8120f188b139b0c/`
+  and `local/validation/memory-opportunities-76b6b3e264a04ad889b3ad7d8ad245d8/` (final
+  group case). Stage 1/2 semantic limitations remain; this slice does not claim to
+  resolve unwanted replies, missed floor releases or humor quality.
+- The final six judged turns used **nine hosted requests**: one primary generation
+  plus the existing save-result continuation for each of three saves, and one
+  primary generation for each of three arrival decisions. Judged-turn wall time
+  median/max was **2.018/5.836 seconds** (six samples); this includes hosted work
+  and TextOutput, not capture/ASR/TTS/playback. It is not a matched latency comparison.
+  Whitespace validation and **46 local Markdown links/anchors** pass.
+- Live M2 load, recognition accuracy, source-to-audio timing, delight and discretion
+  with real groups remain unmeasured. The next stage is explicitly arranged live
+  acceptance, not automatically starting microphones/cameras or robot hardware.
+
+## Stage 4: social acceptance preparation
+
+The user authorized proceeding with social acceptance. The dev-Mac non-starting
+readiness check reports no missing dependencies, including camera prerequisites.
+No live conversation has yet been observed in this stage. The
+[live social acceptance guide](SOCIAL_ACCEPTANCE.md) defines a first guided pilot,
+a natural conversation segment, observation records and the distinction between
+a solo check, a two-person pilot and the existing multi-session acceptance gates.
+The user subsequently deferred startup until the software plan was finished; full
+audio-capture retention is not enabled by default. No old data is imported. Device startup, social ratings and live
+acceptance remain pending until the session actually occurs.
+
+## Stage 5: observation inputs and software completion
+
+The user explicitly requested finishing the proactive-conversation plan before
+live testing, excluding the wider robot roadmap. They selected Sacramento, CA
+weather and top headline news. Public RSS/Open-Meteo observations and shared-camera
+snapshots now feed the existing conversational owner with bounded rotation,
+freshness, cancellation, source attribution and persistent completed-audio receipts.
+New material can create an ambient opportunity without a human speaking first.
+No additional resident model, independent speaker or mandatory reply classifier
+was introduced. Actuator control and sound-event classifiers remain wider-roadmap
+work; conversational reactions to scene/gesture evidence are implemented here.
+
+**221 blocked-I/O checks pass.** The final explicit public-source validation fetched
+BBC headlines and Sacramento weather; **4/4** synthetic hosted status cases passed
+using four model requests, including one scene image and a serious-context silence
+case. See [observation-source documentation](OBSERVATION_SOURCES.md) for exact
+limits, configuration, token/latency evidence and remaining semantic issues.
+
+The agreed proactive software stages are implemented. Real social acceptance,
+gesture/object accuracy, timing and M2/device validation remain unperformed; the
+source probes are not substitutes for those measurements. No hardware was started,
+no old people data was imported, and no additional live test is requested as a
+prerequisite to this software delivery.

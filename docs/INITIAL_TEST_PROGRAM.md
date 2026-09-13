@@ -849,3 +849,33 @@ and feedback eviction, floor release, failed output and one-call replies. They d
 not prove the model selected the correct meaning. Hosted evidence and remaining
 misses are maintained in the [implementation plan](PROACTIVE_IMPLEMENTATION.md).
 No devices or real acoustic models were operated for this slice.
+
+### Contextual memory opportunities (September 12, 2026)
+
+The third proactive slice is implemented: supported self-report follow-ups, explicit
+calendar dates, private-by-default candidate filtering, bounded rotation and
+persistent completed-audio receipts through production Session. Existing claim
+correction/retraction/forgetting invalidates dependent cues. One proactive generation
+can select a candidate or leave it unused; no new classifier/provider was added.
+
+**205 blocked-I/O checks pass** using synthetic data and temporary stores. Hosted
+synthetic storage/candidate probes passed **6/6** twice, including a shared birthday
+and private milestone with a bystander in the final run. Reminder overpromises and
+ungrounded greeting wording remain unresolved; these scores are not live semantic,
+privacy, humor or identification acceptance. See the full
+[implementation evidence](PROACTIVE_IMPLEMENTATION.md).
+
+### Public and visual proactive inputs (September 12, 2026)
+
+The remaining proactive-only software is implemented: dated news/weather cues,
+bounded shared-camera image sampling, one-call multimodal scene interpretation,
+ambient opportunities and actual-audio delivery deduplication. All existing floor,
+audience, cancellation and state-write boundaries apply. No new resident model or
+physical actuator executor was added.
+
+**221 blocked-I/O checks pass.** Explicit public-provider checks retrieved BBC news
+and Sacramento weather. Four synthetic hosted status cases passed with four primary
+requests and one image input; this proves transport and these decisions, not live
+animal/gesture recognition or universal source attribution. Detailed measurements
+and limitations are in [observation sources](OBSERVATION_SOURCES.md). Live social
+and M2/device acceptance is deferred at the user's request until after this delivery.

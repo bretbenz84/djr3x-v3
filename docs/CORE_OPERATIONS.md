@@ -516,3 +516,46 @@ Explicit hosted synthetic probes, when desired (API usage, no devices):
 The probes use in-memory stores, synthetic acoustic tracks and one simulated audible
 invitation; no real audio is played. Read the source, reply and feedback together.
 A passing state check alone does not establish tact, humor or correct live attribution.
+
+### Remembered plans, birthdays and callbacks
+
+A supported speaker can naturally give Rex a meaningful plan, birthday, milestone
+or callback to remember. `remember_followup` saves the accepted self-report and
+its date/sharing metadata together. Sharing is private to the subject unless they
+explicitly permit group use. An unknown visible bystander withholds private cues.
+
+On a later arrival or lull, eligible follow-ups are options for the same conversation
+model, not guaranteed reminders. Plans are considered within seven days either side
+of their date; celebrations on their saved date; birthdays on their month/day each
+year; callbacks can be considered daily. Rex must not assume a past plan happened.
+Completed audio prevents repetition for that occurrence/day across restart.
+
+Generic old claims are not automatically scheduled. Correcting/retracting the claim
+retires the old cue; a fresh follow-up save is needed to establish a replacement's
+date/sharing scope. Forgetting also removes its delivery receipts. No background
+calendar task, news provider or new model runs for this feature.
+
+Explicit hosted synthetic validation (API calls, no real devices/personal database):
+
+```sh
+.venv/bin/python tools/check_memory_opportunities.py
+```
+
+Read the generated wording as well as the storage/eligibility score. A passing
+candidate check does not establish an appropriate greeting or truthful reminder
+promise. See the [stage evidence](PROACTIVE_IMPLEMENTATION.md).
+
+### Public information and scene-aware initiative
+
+With `live --camera`, the completed proactive software also offers BBC top headlines,
+Sacramento weather and small camera snapshots to the same conversation model.
+Scene snapshots are sent to the hosted model only during an opportunity. Set
+`scene_observations_enabled = false` to keep camera pixels out of hosted requests.
+Set `news_feed_urls = []` or `weather_enabled = false` to disable those sources.
+No new provider starts in doctor or frozen replay, and no extra resident model loads.
+
+New cues can open an opportunity without another spoken turn, while existing quiet,
+floor, audience and pacing gates remain in control. These are conversational
+reactions; there is no motor/servo action. See [observation sources](OBSERVATION_SOURCES.md)
+for lifecycle, freshness, retention, source defaults and explicit validation commands.
+The user deferred live acceptance until this software work was complete.

@@ -23,6 +23,12 @@ class CoreState:
         self.current = None
         self.forgotten = False
         self.frozen = frozen
+        from datetime import date
+        self.calendar_today = date.today
+        self.memory_cursor = 0
+        self.observations = None
+        self.scene_observer = None
+        self.wall_clock = time.time
         self.faces = ()
         self.face_associations = {}
         self.face_learning = {}
@@ -108,7 +114,7 @@ class CoreState:
         speaker_person = self.store.person(attribution.person_id) if attribution.person_id else None
         from .face_attribution import public_face
         return {"source_turn_id":turn_id,"state_revision":self.store.revision,
-                "current_utterance":transcript.text,
+                "current_utterance":transcript.text,"calendar_date":self.calendar_today().isoformat(),
                 "participation":self.initiative.context(self.trace.clock()),
                 "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
                 "speaker":{**asdict(attribution),"display_name":speaker_person["name"] if speaker_person else None},
@@ -131,22 +137,31 @@ class CoreState:
         faces = [public_face(f) for f in event.faces if f.get('face_epoch',0)>=self.min_face_epoch]
         people = self.store.people()
         person_ids = {p['id'] for p in people}
-        if event.kind not in {'visual_arrival','conversation_lull'}: raise ValueError('UnknownOpportunity')
+        if event.kind not in {'visual_arrival','conversation_lull','ambient'}: raise ValueError('UnknownOpportunity')
         if event.person_id and event.person_id not in person_ids: raise ValueError('VisualPersonNoLongerAvailable')
         if not faces: raise ValueError('VisualTargetStale')
         if event.kind=='visual_arrival' and not any(f['track_id']==event.target_track for f in faces):
             raise ValueError('VisualTargetStale')
         if event.kind=='conversation_lull' and (not self.current or event.source_turn_id!=self.current[0]):
             raise ValueError('StaleLullSource')
-        return {'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
+        cues=[cue.public() for cue in event.public_cues if self.observation_available(cue.public())]
+        if event.scene_id and event.scene_images:
+            scene={'cue_id':event.scene_id,'kind':'scene','source':'current camera snapshots',
+                   'source_url':'','published_at':self.wall_clock(),'expires_at':self.wall_clock()+10,
+                   'text':'Two ordered snapshots when available. Interpret only visible evidence; no verified identity, emotion or mouth-motion evidence.'}
+            if self.observation_available(scene):cues.append(scene)
+        from .memory_opportunities import candidates
+        offered = candidates(self.store,faces,self.calendar_today(),self.memory_cursor)
+        self.memory_cursor += len(offered)
+        return {'observations':cues,'calendar_date':self.calendar_today().isoformat(),'memory_opportunities':offered,'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
                 'participation':self.initiative.context(self.trace.clock()),
                 'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
                                'quiet_seconds':event.quiet_seconds,
-                               'audience':'visible_group' if event.kind=='conversation_lull' else 'arrival_target'},
+                               'audience':'arrival_target' if event.kind=='visual_arrival' else 'visible_group'},
                 **({'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
                                      'returning_this_session':event.returning}} if event.kind=='visual_arrival' else {}),
                 'speaker':{'person_id':None,'state':'unresolved','reason':'no_speech_observed'},
-                'faces':faces,'people':people,'claims':self.store.claims(event.person_id) if event.person_id and len(faces)==1 else [],
+                'faces':faces,'people':people,'claims':[],
                 'pending_question':self.pending,'frozen_evaluation':self.frozen}
 
     def execute_opportunity(self, call, context, cancel):
@@ -156,7 +171,18 @@ class CoreState:
             cancel.check()
             validate(call.name,call.arguments)
             if self.store.revision!=context['state_revision']: raise ValueError('StaleStateRevision')
-            if call.name=='remain_silent': data={'reason':call.arguments['reason']}
+            if call.name=='use_observation':
+                cue=next((r for r in context.get('observations',[]) if r['cue_id']==call.arguments['cue_id']),None)
+                if cue is None or not self.observation_available(cue):raise ValueError('ObservationUnavailable')
+                data={'text':call.arguments['text'],'cue':cue}
+            elif call.name=='use_memory_opportunity':
+                from .memory_opportunities import candidates
+                offered={r['claim_id'] for r in context.get('memory_opportunities',[])}
+                current=candidates(self.store,context['faces'],self.calendar_today(),limit=128)
+                candidate=next((r for r in current if r['claim_id']==call.arguments['claim_id'] and r['claim_id'] in offered),None)
+                if not candidate:raise ValueError('MemoryOpportunityUnavailable')
+                data={'text':call.arguments['text'],'claim_id':candidate['claim_id'],'occasion':candidate['occasion']}
+            elif call.name=='remain_silent': data={'reason':call.arguments['reason']}
             elif call.name=='ask_face_question' and context['trigger']=='visual_arrival':
                 if call.arguments['face_track_id']!=context['visual_arrival']['face_track_id']:
                     raise ValueError('VisualQuestionTargetMismatch')
@@ -165,6 +191,28 @@ class CoreState:
             return ToolResult(request_id,'ok','executed',self.store.revision,data)
         except ValueError as exc:
             return ToolResult(request_id,'rejected',str(exc),self.store.revision)
+
+    def observation_available(self, cue):
+        if cue['expires_at']<=self.wall_clock():return False
+        provider=self.scene_observer if cue['kind']=='scene' else self.observations
+        if provider is not None and not provider.valid(cue['cue_id']):return False
+        return not self.store.rows('SELECT 1 FROM observation_delivery WHERE cue_id=? AND delivered_at>?',
+                                   (cue['cue_id'],self.wall_clock()-86400))
+
+    def observation_delivered(self, cue):
+        with self.store.transaction() as conn:
+            conn.execute('DELETE FROM observation_delivery WHERE delivered_at<?',(self.wall_clock()-7*86400,))
+            conn.execute('INSERT OR REPLACE INTO observation_delivery VALUES(?,?,?)',
+                         (cue['cue_id'],cue['kind'],self.wall_clock()))
+            self.store.advance(conn)
+
+    def memory_delivered(self, selected):
+        with self.store.transaction() as conn:
+            current=conn.execute("SELECT status FROM claims WHERE id=?",(selected['claim_id'],)).fetchone()
+            if not current or current[0]!='accepted':return
+            written=conn.execute('INSERT OR IGNORE INTO memory_followup_delivery VALUES(?,?,?)',
+                         (selected['claim_id'],selected['occasion'],self.calendar_today().isoformat()))
+            if written.rowcount:self.store.advance(conn)
 
     def execute(self, call, expected_revision, cancel):
         turn_id,capture,transcript,observation,attribution = self.current
@@ -287,6 +335,19 @@ class CoreState:
             self._source_allowed(args,name)
             return {"mode":args["mode"],"source_turn_id":turn_id,
                     "reason":"explicit_initiative_request"},False
+        if name == "remember_followup":
+            self._source_allowed(args,name)
+            if attribution.state!='supported' or not attribution.person_id:
+                raise ValueError('FollowupNeedsSupportedSelfIdentity')
+            from .memory_opportunities import validate_date
+            validate_date(args['kind'],args['on_date'])
+            data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.person_id,
+                subject_reference=None,predicate=args['predicate'],value=args['value'],
+                kind='self_report',source_turn_id=turn_id))
+            if data['status']!='accepted':raise ValueError('FollowupNeedsAcceptedClaim')
+            conn.execute('INSERT INTO memory_followups VALUES(?,?,?,?)',
+                         (data['claim_id'],args['kind'],args['on_date'],args['audience']))
+            return {**data,'followup_kind':args['kind'],'on_date':args['on_date'],'audience':args['audience']},True
         if name == "recall":
             if args["subject_id"]:
                 self._person(args["subject_id"])

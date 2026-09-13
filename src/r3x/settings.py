@@ -20,6 +20,12 @@ class Settings:
     camera_device_name: str = ""
     record_evaluation: bool = False
     proactive_lull_seconds: float = 8.0
+    scene_observations_enabled: bool = True
+    news_feed_urls: tuple[str, ...] = ("https://feeds.bbci.co.uk/news/rss.xml",)
+    weather_enabled: bool = True
+    weather_location: str = "Sacramento, CA"
+    weather_latitude: float = 38.5816
+    weather_longitude: float = -121.4944
 
     def __post_init__(self) -> None:
         if self.profile != "dev-mac":
@@ -29,9 +35,20 @@ class Settings:
                 raise ValueError(f"{name} must be text")
         if self.input_device_index is not None and (type(self.input_device_index) is not int or self.input_device_index < 0):
             raise ValueError("input_device_index must be a nonnegative integer")
-        for name in ("echo_isolated","camera_enabled","record_evaluation"):
+        for name in ("echo_isolated","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled"):
             if type(getattr(self,name)) is not bool:
                 raise ValueError(f"{name} must be boolean")
+        from .observations import https_url
+        if not isinstance(self.news_feed_urls,(list,tuple)) or len(self.news_feed_urls)>4:
+            raise ValueError('AtMostFourNewsFeeds')
+        for url in self.news_feed_urls:
+            if not isinstance(url,str):raise ValueError('InvalidNewsFeed')
+            https_url(url)
+        object.__setattr__(self,'news_feed_urls',tuple(self.news_feed_urls))
+        if not isinstance(self.weather_location,str) or not 0<len(self.weather_location)<=120:raise ValueError('WeatherLocationRequired')
+        for name,limit in (('weather_latitude',90),('weather_longitude',180)):
+            value=getattr(self,name)
+            if type(value) not in (int,float) or not math.isfinite(value) or not -limit<=value<=limit:raise ValueError('InvalidWeatherCoordinates')
         if self.camera_enabled and not self.camera_device_name.strip():
             raise ValueError("Enabled camera requires a device name")
         for name, lower, upper in (("vad_threshold", .01, .99), ("end_silence_seconds", .2, 2),

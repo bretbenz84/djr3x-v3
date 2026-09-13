@@ -12,7 +12,7 @@ unmeasured thresholds are distinguished below; the full robot is outside this bu
 | --- | --- |
 | User requirement | Start independently in the new v3 repository and preserve knowledge from v2. |
 | User requirement | Delight, make people laugh and help improve their mood; emotional awareness guides sensitivity rather than automatic mood mirroring. |
-| User requirement | Develop proactive participation with the conversational core; the same model decides replies, initiative and silence. Shared arrivals/lulls and bounded conversational feedback are implemented; memory opportunities and live acceptance remain pending. |
+| User requirement | Develop proactive participation with the conversational core; the same model decides replies, initiative and silence. Shared arrivals/lulls and bounded conversational feedback are implemented; dated memory opportunities are implemented; live acceptance remains pending. |
 | Working design | Social demonstrations should feel like an engaged friend: consider an opening after 7–10 seconds of a genuine lull, initially eight. This is opportunity timing, not automatic speech or measured first-audio latency. |
 | User requirement | Learn voices through ordinary conversation and association; retain accepted original audio for later model migration. |
 | User requirement | Never use mouth-motion detection for speaker identity or enrollment. |
@@ -404,8 +404,11 @@ feedback replies use the same generation; silence alone never means rejection.
 The state owner preserves a human-floor decision across unrelated direct replies
 until semantic resolution or expiry. See the
 [implementation plan](docs/PROACTIVE_IMPLEMENTATION.md) for evidence and remaining
-semantic limitations. Memory opportunities, additional perception, external feeds
-and physical autonomy remain separate pending stages.
+semantic limitations. Dated plans, birthdays, celebrations and callbacks now join
+that same opportunity context with source/audience checks and persistent delivery
+receipts. Public news/weather and bounded scene snapshots now feed that same model. Their
+[implementation limits](docs/OBSERVATION_SOURCES.md) distinguish conversational
+reactions from wider-roadmap physical autonomy, which remains pending.
 
 September 11 voice calibration now admits clean one-second clips into conversational
 accumulation while retaining three clips/eight voiced seconds for enrollment.

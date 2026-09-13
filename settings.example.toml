@@ -34,3 +34,19 @@ proactive_lull_seconds = 8.0
 # Optional live WAV retention for human labeling. Accepted enrollment audio is
 # always kept atomically in the core DB; this retains all endpointed test captures.
 record_evaluation = false
+
+# Proactive scene snapshots: only active with --camera. Sends up to two small
+# images to the existing hosted conversation model during an opportunity.
+# Images are not written to logs/history. Disable to keep camera pixels local.
+scene_observations_enabled = true
+
+# Top headline RSS feeds, at most four HTTPS URLs. Empty [] disables news.
+# Used only with camera-enabled live participation; refreshed outside the turn loop.
+news_feed_urls = ["https://feeds.bbci.co.uk/news/rss.xml"]
+
+# Sacramento, CA, per the user's requested weather location. No geolocation lookup.
+# Open-Meteo current conditions, Fahrenheit/mph/inches; no credential required.
+weather_enabled = true
+weather_location = "Sacramento, CA"
+weather_latitude = 38.5816
+weather_longitude = -121.4944

@@ -30,7 +30,11 @@ class App:
         mic = Microphone(self.settings, lambda: False)
         encoder = CAMPlus(self.paths.root / "models/campplus.onnx")
         camera = Camera(self.settings.camera_device_name,self.paths.root / "models/faces") if self.settings.camera_enabled else None
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + ((camera,) if camera else ())
+        from .observations import PublicObservations
+        from .scene import SceneObserver
+        public = PublicObservations(self.settings) if camera and (self.settings.news_feed_urls or self.settings.weather_enabled) else None
+        scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene) if p)
         self.owner = ProviderOwner(self.live_components)
 
     def readiness(self):
@@ -118,7 +122,12 @@ class App:
             lease.close()
             raise
         asr, vad, encoder, brain, tts, sink, mic, *optional = self.live_components
-        camera = optional[0] if optional else None
+        brain.trace = trace
+        camera = next((p for p in optional if p.capability.name=='camera'),None)
+        public = next((p for p in optional if p.capability.name=='public_observations'),None)
+        scene = next((p for p in optional if p.capability.name=='scene_observations'),None)
+        for provider in (public,scene):
+            if provider:provider.trace=trace
         if camera:
             camera.trace = trace
         memory = Memory(self.paths.root / "core.sqlite3")
@@ -138,11 +147,12 @@ class App:
             else:
                 trace.emit("startup", report=self.doctor(), evidence="live", models=[p.capability.model for p in self.live_components if p.capability.model])
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None)
+                state.observations,state.scene_observer=public,scene
                 perception = Perception(asr,encoder,trace,camera)
                 session = Session(session_id, brain, output, trace, state=state)
                 recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
-                                       lull_seconds=self.settings.proactive_lull_seconds)
+                                       lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene)
                 runtime.run()
                 success = True
         finally:

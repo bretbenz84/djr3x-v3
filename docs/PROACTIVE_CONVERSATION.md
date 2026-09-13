@@ -1,17 +1,21 @@
 # Proactive conversation and situational awareness
 
-September 12, 2026: user-approved design direction with two implementation slices.
+September 12, 2026: user-approved design direction with the agreed proactive software stages implemented.
 Proactive participation belongs in the conversational core and its acceptance
 work. It is designed alongside replies, identity and memory rather than postponed
-as an independent entertainment layer. The user subsequently authorized a plan and
-beginning implementation; no new providers or hardware operation are implied.
+as an independent entertainment layer. The user subsequently authorized finishing
+the proactive software, including observation providers, before live testing.
+Hardware operation remains a separate acceptance step.
 
 Face arrivals and visible-group lull opportunities now use the shared Session,
 conversation model and output owner. The first slice includes attempt/delivery
 history and explicit session quiet/resume. The second slice adds bounded, source-linked
 invitation feedback, topic boundaries and human-floor state. These are session
 interpretations with speaker uncertainty, not verified emotions or durable preferences.
-Broader outcomes, memory opportunities and live social acceptance remain design targets. See
+The third slice adds dated accepted-memory candidates and actual-delivery receipts.
+News/weather and shared-camera scene snapshots are also implemented through the
+same opportunity path. Broader outcome interpretation and live social acceptance
+remain design targets. See
 [implementation stages](PROACTIVE_IMPLEMENTATION.md) and
 [current operation](CORE_OPERATIONS.md#conversational-lulls-and-initiative-control).
 
@@ -57,8 +61,10 @@ verify live configuration or operate providers. Source pointers are in
 | Rex's character | A playful observation, a grounded personal aside, or a shared recollection |
 
 These are sources of material for one conversational decision, not independent
-speakers. Their inclusion here does not imply v3 has object, gesture, sound-event,
-news, calendar or mood providers. Availability of material does not require using it.
+speakers. The implemented inputs and their limits are documented in
+[observation sources](OBSERVATION_SOURCES.md). Object/animal/gesture interpretation
+uses small scene images in the existing model; no sound-event or mood classifier
+is implemented. Availability of material does not require using it.
 
 V2 already lets Lean choose a cue, improvise, or pass in one generation. Preserve
 that freedom, delivery-aware bookkeeping, topic deduplication and bounded pacing.
@@ -167,9 +173,9 @@ Examples illustrate judgment, not prescribed dialogue or deterministic mappings.
 Develop this policy together with core replies, attribution, memory and output.
 First exercise arrivals, meaningful lulls, human-to-human conversation, emotional
 sensitivity and initiative outcomes using existing evidence and providers. Then
-integrate accepted-memory follow-ups through the same policy. News, richer vision,
-sound events and physical reactions remain separate capability implementations;
-their social contracts are designed here before adding their resource costs.
+integrate accepted-memory follow-ups through the same policy. News/weather and small shared-camera snapshots are now implemented; their resource
+bounds and remaining recognition limitations are documented. Sound-event and
+actuator implementations remain in the wider robot roadmap.
 
 Use the production Session in synthetic scenarios and timestamped replay; do not
 build a separate mock proactive brain. Frozen identity replay must remain free of

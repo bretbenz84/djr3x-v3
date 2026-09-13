@@ -10,7 +10,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0):
+    def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
         self.endpoint = Endpoint(session.session_id, silence)
         self.perception, self.recorder = perception, recorder
@@ -28,6 +28,7 @@ class VoiceRuntime:
         self.started_at = self.trace.clock()
         self.audio_seen_at = float('-inf')
         self.lull_seconds = lull_seconds
+        self.observations,self.scene_observer = observations,scene_observer
 
     def cancel(self):
         with self.control_lock:
@@ -130,8 +131,24 @@ class VoiceRuntime:
                     from uuid import uuid4
                     event = Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
                                         self.session._latest_speech,False,'conversation_lull',source,
-                                        min(now-self.session._latest_speech,now-self.session.last_interaction_at))
-            if event is None: return
+                                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at))
+            cues=tuple(c for c in self.observations.candidates() if self.session.state.observation_available(c.public())) if self.observations else ()
+            scene=self.scene_observer.snapshot() if self.scene_observer else None
+            if scene and self.session.state.store.rows('SELECT 1 FROM observation_delivery WHERE cue_id=? AND delivered_at>?',
+                    (scene[0],self.session.state.wall_clock()-86400)):scene=None
+            if event is None and (cues or scene):
+                audience=self.arrivals.audience(now)
+                if audience:
+                    from .proactive import Opportunity
+                    from uuid import uuid4
+                    current=self.session.state.current
+                    event=Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
+                        self.session._latest_speech,False,'ambient',current[0] if current else None,
+                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at))
+            if event is None:return
+            event=replace(event,public_cues=cues,scene_id=scene[0] if scene else None,scene_images=scene[1] if scene else ())
+            if self.observations:self.observations.attempted([c.cue_id for c in cues])
+            if scene:self.scene_observer.attempted(scene[0])
             revision = self.session.revision
         self.trace.emit('proactive_opportunity',event_id=event.event_id,kind=event.kind,
                         face_track_id=event.target_track,person_id=event.person_id)

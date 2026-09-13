@@ -6,8 +6,8 @@ tracker, one state executor, and one speech output owner.
 **Status: the core runtime is implemented; identification and live acceptance remain incomplete.**
 Microphone input, Qwen ASR, CAM++ tracks and natural enrollment, semantic identity
 and memory tools, persistent attributed claims, optional persistent face recognition, frozen
-saved-audio replay, and profile maintenance are implemented. The full robot and
-slice-5 feature expansion are outside this build. V2 remains separate and unchanged.
+saved-audio replay, and profile maintenance are implemented. The full robot roadmap remains outside this build; the explicitly authorized
+proactive news/weather and scene-input extensions are implemented. V2 remains separate and unchanged.
 
 The overnight checks used synthetic data and saved audio. No microphone was opened,
 no audio was played, and no video was captured. Read the [morning test guide](docs/CORE_OPERATIONS.md)
@@ -175,8 +175,9 @@ The [proactive design](docs/PROACTIVE_CONVERSATION.md) extends the implemented
 face-arrival path. The first slice adds visible-group lulls after about eight
 seconds, explicit session quiet/resume and attempt/delivery history. The second slice
 adds source-linked invitation feedback, participant topic boundaries and human-floor
-holds with semantic release, without a required extra generation. Memory opportunities
-remain planned; hosted semantic reliability and live social acceptance remain open.
+holds with semantic release, without a required extra generation. Dated, source-linked memory opportunities are also implemented, with private-by-default
+audiences and delivery receipts. [News/weather and scene inputs](docs/OBSERVATION_SOURCES.md)
+now join the same proactive path. Hosted semantic reliability and live social acceptance remain open.
 
 ## First usable program
 
