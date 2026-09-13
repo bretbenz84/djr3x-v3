@@ -1,0 +1,233 @@
+"""Observable initiative contracts through production Session and runtime."""
+from types import SimpleNamespace
+from uuid import uuid4
+
+from r3x.contracts import Capture, ToolCall, Transcript, ProviderFailure
+from r3x.output import OutputOwner, TextOutput
+from r3x.proactive import Opportunity
+from r3x.runtime import VoiceRuntime
+from r3x.semantics import grounded_tools
+from r3x.session import Session
+from r3x.settings import Settings
+from r3x.scenario import SyntheticSink, SyntheticTTS
+from tests.test_memory_core import MemoryFixture, observation, B
+from tests.test_proactive import face
+from tests.test_voice_core import Brain
+
+
+class InitiativeCoreTests(MemoryFixture):
+    def setup_core(self, brain=None, output=None):
+        self.brain = brain or Brain('Those cameras are earning their dramatic reputation.')
+        self.trace = self.state.trace
+        self.session = Session('session',self.brain,output or TextOutput(self.trace),self.trace,self.state)
+        self.runtime = VoiceRuntime(SimpleNamespace(),SimpleNamespace(),None,self.session,self.trace,
+                                    perception=SimpleNamespace(camera=SimpleNamespace()))
+        self.runtime.started_at = 0
+
+    def turn(self,text='Rex, we finally fixed the camera.',voice=None):
+        now = self.trace.at
+        capture = Capture(uuid4().hex,'session',bytes(96000),now-4,now-1,now,
+                          voiced_intervals=((0,3),))
+        self.session.note_speech(now-1)
+        return self.session.process_turn(capture,Transcript(text,-.01,True),0,voice or observation())
+
+    def visible(self,now,track='visitor'):
+        for at in (now-3,now-2,now-1,now):
+            self.runtime.arrivals.observe([face(at,track=track)],at)
+        # Already greeted in this visit; test the lull rather than arrival selection.
+        self.runtime.arrivals.seen[track]['used'] = True
+        self.trace.at = now
+        self.runtime.audio_seen_at = now
+
+    def lull(self):
+        return Opportunity(uuid4().hex,'session',self.trace.at,None,None,(face(self.trace.at),),
+                           self.session._latest_speech,False,'conversation_lull',self.state.current[0])
+
+    def test_eight_second_lull_uses_same_history_one_generation_and_no_identity_writes(self):
+        self.setup_core(); self.turn()
+        sources = self.store.rows('SELECT * FROM turns')
+        self.visible(107.9);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,1)
+        self.visible(108);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,2)
+        snapshot = self.brain.snapshots[-1]
+        self.assertEqual(snapshot.context['trigger'],'conversation_lull')
+        self.assertEqual(snapshot.speaker,'unresolved')
+        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)},{'remain_silent'})
+        users = [m['content'] for m in snapshot.messages if m.get('role')=='user']
+        self.assertEqual(users,['Rex, we finally fixed the camera.'])
+        self.assertEqual(self.store.rows('SELECT * FROM turns'),sources)
+        self.assertEqual(self.store.people(),[])
+        self.assertEqual(self.store.claims(),[])
+        self.assertEqual(self.store.rows('SELECT * FROM recordings'),[])
+        self.visible(170);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,2)
+
+    def test_rolling_attempt_cap_does_not_reset_on_new_human_turns(self):
+        self.setup_core()
+        for i in range(7):
+            self.trace.at=100+i*20;self.turn()
+            self.visible(self.trace.at+8);self.runtime.proactive_tick()
+        self.assertEqual(len(self.state.initiative.outcomes),6)
+        self.assertEqual(self.brain.calls,13)  # Seven replies, six optional generations.
+
+    def test_stale_camera_unknown_audience_and_frozen_evaluation(self):
+        for mode in ('stale','no_camera','frozen'):
+            with self.subTest(mode=mode):
+                self.setup_core();self.turn();self.visible(108)
+                if mode=='stale':self.trace.at=110;self.runtime.audio_seen_at=110
+                if mode=='no_camera':self.runtime.camera=None
+                if mode=='frozen':self.state.frozen=True
+                self.runtime.proactive_tick();self.assertEqual(self.brain.calls,1)
+                self.state.frozen=False
+
+    def test_new_speech_during_lull_cancels_without_delivery(self):
+        self.setup_core();self.turn();self.visible(108)
+        session=self.session
+        class Resumed(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1
+                session.note_speech(108.1)
+                yield 'I was about to offer another thought.'
+        self.session.brain=Resumed()
+        self.runtime.proactive_tick()
+        outcome=self.state.initiative.outcomes[-1]
+        self.assertEqual(outcome['status'],'interrupted')
+        self.assertFalse(outcome['heard_complete_phrases'])
+        self.assertEqual(outcome['response'],'not_applicable')
+
+    def test_new_audience_member_during_tts_cancels_before_first_pcm(self):
+        self.setup_core();self.turn();self.visible(108)
+        runtime=self.runtime
+        class Changed:
+            def synthesize(self,text,cancel):
+                runtime.arrivals.observe([face(108,track='visitor'),face(108,track='new')],108)
+                yield bytes(64)
+        self.session.output=OutputOwner(Changed(),SyntheticSink(),self.trace)
+        self.runtime.proactive_tick()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
+        self.assertFalse(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
+
+    def test_queue_race_invalidates_opportunity_before_generation(self):
+        self.setup_core();self.turn();self.visible(108)
+        event=self.lull()
+        self.runtime.turns.put(object())
+        result=self.session.process_opportunity(event,0,lambda:self.runtime.turns.empty())
+        self.assertEqual(result.status,'interrupted');self.assertEqual(self.brain.calls,1)
+
+    def test_explicit_quiet_is_silent_and_survives_other_speech_and_history_eviction(self):
+        class Quiet(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1
+                yield ToolCall(uuid4().hex,'set_initiative',{'mode':'quiet','source_turn_id':snapshot.context['source_turn_id']})
+        self.setup_core(Quiet())
+        result=self.turn('Please stop starting conversations until I ask you to again.')
+        self.assertEqual(result.status,'suppressed');self.assertEqual(self.brain.calls,1)
+        self.assertTrue(self.state.initiative.quiet)
+        self.assertEqual(result.completed_text,[])
+        self.session.brain=Brain();self.trace.at=120
+        self.assertEqual(self.turn('Rex, what does that mean?',observation(B)).status,'completed')
+        self.session.history.clear()
+        self.visible(500);self.runtime.proactive_tick()
+        self.assertEqual(self.session.brain.calls,1)
+        self.assertTrue(self.state.initiative.quiet)
+
+    def test_explicit_resume_updates_policy_after_success_and_uses_bounded_continuation(self):
+        class Resume(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1
+                if snapshot.tools_enabled:
+                    yield ToolCall(uuid4().hex,'set_initiative',{'mode':'available','source_turn_id':snapshot.context['source_turn_id']})
+                else: yield 'I have a few thoughts worth sharing.'
+        self.setup_core(Resume());self.state.initiative.quiet=True
+        result=self.turn('You can start conversations again, Rex.')
+        self.assertEqual(result.status,'completed');self.assertEqual(self.brain.calls,2)
+        self.assertFalse(self.state.initiative.quiet)
+
+    def test_untrusted_or_stale_policy_cannot_change_state(self):
+        self.setup_core();self.turn()
+        from r3x.contracts import Cancellation
+        args={'mode':'quiet','source_turn_id':'wrong-source'}
+        call=ToolCall('invalid','set_initiative',args)
+        self.assertEqual(self.state.execute(call,self.store.revision,Cancellation()).reason,'SourceTurnMismatch')
+        self.assertFalse(self.state.initiative.quiet)
+        args['source_turn_id']=self.state.current[0]
+        self.assertEqual(self.state.execute(call,-1,Cancellation()).reason,'StaleStateRevision')
+        self.assertFalse(self.state.initiative.quiet)
+
+    def test_lull_cannot_use_prior_speaker_to_mutate_policy_or_people(self):
+        self.setup_core();self.turn()
+        class Bad(Brain):
+            def reply(self,snapshot,cancel):
+                yield ToolCall('bad','set_initiative',{'mode':'quiet','source_turn_id':snapshot.context['opportunity']['source_turn_id']})
+        self.session.brain=Bad()
+        result=self.session.process_opportunity(self.lull(),0,lambda:True)
+        self.assertEqual(result.error,'VisualEventDoesNotAuthorizeMutation')
+        self.assertFalse(self.state.initiative.quiet)
+
+    def test_receipts_distinguish_audio_text_failure_and_never_assume_an_answer(self):
+        self.setup_core();self.turn()
+        self.session.process_opportunity(self.lull(),0,lambda:True)
+        self.assertEqual(self.state.initiative.outcomes[-1]['response'],'not_applicable')
+        self.session.output=OutputOwner(SyntheticTTS(),SyntheticSink(),self.trace)
+        self.session.process_opportunity(self.lull(),0,lambda:True)
+        self.assertTrue(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
+        self.assertEqual(self.state.initiative.outcomes[-1]['response'],'unknown')
+        class Failed:
+            def synthesize(self,text,cancel):
+                raise ProviderFailure('SyntheticTTSFailure')
+                yield b''
+        self.session.output=OutputOwner(Failed(),SyntheticSink(),self.trace)
+        self.session.process_opportunity(self.lull(),0,lambda:True)
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'failed')
+        self.assertEqual(self.state.initiative.outcomes[-1]['response'],'not_applicable')
+
+    def test_lull_setting_validates_and_is_consumed(self):
+        self.assertEqual(Settings().proactive_lull_seconds,8)
+        for invalid in (True,0,float('nan'),121):
+            with self.assertRaises(ValueError):Settings(proactive_lull_seconds=invalid)
+        self.setup_core();self.runtime.lull_seconds=10;self.turn()
+        self.visible(108);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,1)
+        self.visible(110);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,2)
+
+    def test_documented_scenario_uses_shared_session_and_preserves_source_counts(self):
+        from pathlib import Path
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from r3x.scenario import run
+        with redirect_stdout(StringIO()):
+            self.assertTrue(run(Path(__file__).parent/'fixtures'/'proactive_core.json'))
+
+    def test_forget_removes_initiative_source_links_without_resetting_quiet_or_pacing(self):
+        person=self.enroll('Jordan')
+        self.setup_core();self.turn('Rex, that was a good afternoon.')
+        self.session.process_opportunity(self.lull(),0,lambda:True)
+        self.state.initiative.quiet=True
+        self.state.initiative.policy_source=self.state.current[0]
+        attempts=list(self.state.initiative.attempts)
+        result=self.call('forget_person',{'person_id':person})
+        self.assertEqual(result.outcome,'ok')
+        self.assertEqual(list(self.state.initiative.outcomes),[])
+        self.assertIsNone(self.state.initiative.policy_source)
+        self.assertTrue(self.state.initiative.quiet)
+        self.assertEqual(list(self.state.initiative.attempts),attempts)
+
+    def test_restart_does_not_restore_a_session_quiet_boundary(self):
+        from r3x.state import CoreState
+        from r3x.speakers import SpeakerTracker
+        self.state.initiative.quiet=True
+        restarted=CoreState(self.store,SpeakerTracker(self.state.tracker.namespace),self.state.trace)
+        self.assertFalse(restarted.initiative.quiet)
+
+    def test_empty_model_output_is_failure_not_a_silence_decision(self):
+        self.setup_core();self.turn()
+        self.session.brain=Brain('')
+        result=self.session.process_opportunity(self.lull(),0,lambda:True)
+        self.assertEqual(result.status,'failed')
+        self.assertEqual(result.error,'EmptyModelResponse')
+        self.assertEqual(self.state.initiative.outcomes[-1]['response'],'not_applicable')
+
+    def test_invalid_audience_attempt_is_paced_instead_of_retried_each_tick(self):
+        self.setup_core();self.turn();self.visible(108)
+        self.runtime.arrivals.valid=lambda event,now:False
+        for _ in range(5):self.runtime.proactive_tick()
+        self.assertEqual(self.brain.calls,1)
+        self.assertEqual(len(self.state.initiative.attempts),1)
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')

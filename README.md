@@ -146,6 +146,7 @@ latency/resource observations. A clean synthetic suite is not Bret/Jeff acceptan
 | --- | --- |
 | [DESIGN.md](DESIGN.md) | Who makes each decision, how turns flow, how identity and memory work, and which choices remain proposals. |
 | [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex should initiate, delight and participate sensitively as part of the core; approved design, broader implementation pending. |
+| [Proactive implementation plan](docs/PROACTIVE_IMPLEMENTATION.md) | Stages, first-slice behavior, evidence and remaining social acceptance. |
 | [Initial test program](docs/INITIAL_TEST_PROGRAM.md) | What to build first, how to exercise it with Bret and Jeff, and what evidence is needed before expansion. |
 | [V2_REFERENCE.md](V2_REFERENCE.md) | Where to recover working integrations, field failures, model constraints, and useful tests without importing the old architecture. |
 | [AGENTS.md](AGENTS.md) | Development rules for people and coding agents working in this repository. |
@@ -171,7 +172,9 @@ awareness guides sensitivity rather than mechanically matching low energy; grief
 distress and explicit boundaries call for a different response. Proactive and
 reactive conversation share one owner and are developed and evaluated together.
 The [proactive design](docs/PROACTIVE_CONVERSATION.md) extends the implemented
-face-arrival path; broader conversational initiative remains planned.
+face-arrival path. The first slice adds visible-group lulls after about eight
+seconds, explicit session quiet/resume and attempt/delivery history. Richer feedback
+and memory opportunities remain planned; live social acceptance is still open.
 
 ## First usable program
 
@@ -182,7 +185,7 @@ face-arrival path; broader conversational initiative remains planned.
   no mouth-motion input to identity, enrollment, or learning permission.
 - Natural introductions and corrections interpreted by the conversational model.
 - Context-sensitive initiative and group participation, designed alongside replies;
-  face arrivals are implemented, broader proactive acceptance is pending.
+  face arrivals and visible-group lulls are implemented, broader acceptance is pending.
 - A small, separate SQLite store for participants, source turns, claims, and
   accepted voice recordings; recall and correction must work after a restart.
 - A minimal diagnostic view or terminal trace explaining speaker evidence, model
@@ -275,3 +278,10 @@ pacing prevents repeated greetings from face flicker; microphone activity, queue
 speech, and pending questions take priority. See
 [proactive greetings](docs/CORE_OPERATIONS.md#proactive-face-greetings) for behavior
 and the remaining live check.
+
+With `--camera`, a stable visible group can also prompt one brief contribution
+after roughly eight seconds of a conversational lull. Rex uses the same model and
+history to choose speech or silence. Explicit requests to stop initiating persist
+for the run while direct replies remain available; invite him to resume when ready.
+See [lull operation](docs/CORE_OPERATIONS.md#conversational-lulls-and-initiative-control)
+for pacing, current limits and the repeatable synthetic scenario.

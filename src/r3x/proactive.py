@@ -1,4 +1,5 @@
-"""Bounded arrival opportunities. Code paces; the conversation model chooses speech."""
+"""Bounded social opportunities and receipts; no language or mood classification."""
+from collections import deque
 from dataclasses import dataclass
 import threading
 from uuid import uuid4
@@ -6,18 +7,21 @@ from .contracts import Cancellation
 
 
 @dataclass(frozen=True)
-class VisualArrival:
+class Opportunity:
     event_id: str
     session_id: str
     at: float
-    target_track: str
+    target_track: str | None
     person_id: str | None
     faces: tuple[dict, ...]
     speech_marker: float
     returning: bool
+    kind: str = "visual_arrival"
+    source_turn_id: str | None = None
+    quiet_seconds: float | None = None
 
 
-class VisualCancellation(Cancellation):
+class OpportunityCancellation(Cancellation):
     def __init__(self, valid):
         super().__init__()
         self.valid = valid
@@ -25,6 +29,49 @@ class VisualCancellation(Cancellation):
     def check(self):
         if not self.valid(): self.event.set()
         super().check()
+
+
+class Initiative:
+    """Session-state-owned pacing. Attempts never masquerade as heard speech.
+
+    First slice: semantic answered/dismissed judgments remain in original history.
+    A new source turn permits consideration, not an inference of engagement.
+    """
+    def __init__(self):
+        self.quiet = False
+        self.policy_source = None
+        self.attempts = deque(maxlen=16)
+        self.outcomes = deque(maxlen=16)
+        self.lull_source = None
+
+    def allowed(self, now: float) -> bool:
+        recent = [at for at in self.attempts if 0 <= now-at < 300]
+        return not self.quiet and len(recent) < 6 and (
+            not self.attempts or now-self.attempts[-1] >= 8)
+
+    def attempted(self, event: Opportunity) -> None:
+        self.attempts.append(event.at)
+        if event.kind == "conversation_lull":
+            self.lull_source = event.source_turn_id
+
+    def finished(self, event: Opportunity, delivery, now: float) -> dict:
+        heard = bool(delivery.completed_text) and delivery.medium == "audio"
+        row = {"event_id": event.event_id, "kind": event.kind, "at": now,
+               "status": delivery.status, "medium": delivery.medium,
+               "heard_complete_phrases": heard,
+               "response": "unknown" if heard else "not_applicable"}
+        self.outcomes.append(row)
+        return row
+
+    def context(self) -> dict:
+        return {"initiative_quiet": self.quiet, "policy_source_turn_id": self.policy_source,
+                "recent_opportunities": list(self.outcomes)}
+
+    def forget(self) -> None:
+        # Keep anonymous pacing and a quiet request, remove personal source links.
+        self.policy_source = None
+        self.outcomes.clear()
+        self.lull_source = None
 
 
 class Arrivals:
@@ -97,11 +144,28 @@ class Arrivals:
             if not target.get('identity'):
                 self.unknown_attempted = True
                 self.unknown_target = target['track_id']
-            return VisualArrival(uuid4().hex,session_id,now,target['track_id'],target.get('identity'),
+            return Opportunity(uuid4().hex,session_id,now,target['track_id'],target.get('identity'),
                                  self.faces,speech_marker,entry['returning'])
 
     def valid(self, event, now):
         with self.lock:
+            if event.kind == "conversation_lull":
+                keys = lambda faces: {(f['track_id'],f.get('identity'),f.get('face_epoch',0)) for f in faces}
+                fresh = [f for f in self.faces if 0<=now-f['at']<=1]
+                return bool(event.faces) and keys(fresh) == keys(event.faces)
             return any(f['track_id']==event.target_track and f.get('identity')==event.person_id and
                        f.get('face_epoch')==next(t.get('face_epoch') for t in event.faces if t['track_id']==event.target_track) and
                        0<=now-f['at']<=1. for f in self.faces)
+
+    def audience(self, now):
+        """Fresh stable audience, including unnamed people; never an acoustic ID."""
+        with self.lock:
+            result = []
+            for face in self.faces:
+                entry = self.seen.get(face.get('identity') or face['track_id'])
+                box = face.get('box',(0,0,0,0))
+                if (entry and entry['track']==face['track_id'] and
+                    0<=now-face['at']<=1 and entry['last']-entry['first']>=self.stable_seconds and
+                    (face.get('face_width_px') or 0)>=48 and box[2]*box[3]>=.006):
+                    result.append(face)
+            return tuple(result)

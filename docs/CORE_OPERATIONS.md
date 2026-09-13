@@ -356,8 +356,9 @@ new provider, microphone operation, or camera operation was added.
 This section describes implemented behavior. The September 12
 [proactive conversation design](PROACTIVE_CONVERSATION.md) makes broader initiative
 part of core development, with delight and sensitive mood improvement as goals.
-Its broader lull, group-awareness and outcome policies remain planned; they add
-no new command, setting or runtime behavior in this documentation update.
+The first shared arrival/lull slice is now implemented; see
+[lull operation](#conversational-lulls-and-initiative-control). Broader semantic
+feedback, per-person state and memory opportunities remain planned.
 
 The normal `live --camera` runner now allows a stable face arrival to prompt the
 existing conversation model. It can greet a recognized person using their name
@@ -366,8 +367,9 @@ on recent conversation. Greeting wording comes from the LLM, not Python template
 Recognition alone never identifies the acoustic speaker or saves a new identity.
 
 Expect an initial opportunity after at least eight seconds of startup and three
-seconds of stable face observations, with five seconds free of detected speech.
-After a conversation, allow at least ten seconds. Queued audio/transcripts, ASR
+seconds of stable face observations, with eight seconds free of detected speech
+by default (the configured lull interval). After a conversation, allow that same
+interval after completed work. Queued audio/transcripts, ASR
 work, a pending name question, and an explicit stop prevent new greetings. Silence
 choices also impose a two-minute pause. Greetings are limited to one attempt per
 visit, with a 45-second global gap and five-minute per-person gap. A return needs
@@ -388,6 +390,68 @@ while speaking, and correct face targeting. Terminal traces mark arrival
 opportunities separately from heard speech. Frozen evaluation disables proactive
 speech. Camera/audio live validation remains pending; 151 blocked-I/O checks and
 three actual hosted-model text-only cases passed on September 11, 2026.
+
+## Conversational lulls and initiative control
+
+September 12 first slice: `live --camera` now offers the same conversational model
+a lull opportunity when a stable group is visible. Default `proactive_lull_seconds`
+is **8.0**, adjustable from 3–120 seconds in local settings. It is measured since
+both recent microphone speech and the last completed interaction. Model/TTS latency
+comes afterward; this is not eight-second first-audio acceptance. Camera-disabled
+runs retain ordinary replies but have no new automatic lull trigger.
+
+The host normally runs Rex for social demonstrations. The prompt favors a brief
+welcome contribution while preserving thinking pauses, questions between humans,
+grief and explicit boundaries. Tiredness or a short answer does not mechanically
+set an energy mode. History retains each source's speaker uncertainty; the lull
+does not invent a new speaker or turn someone's face into acoustic identity.
+
+Initial pacing is one lull attempt per processed human source turn, at least eight
+seconds between proactive attempts and at most six attempts in a rolling five-minute
+window across both arrivals and lulls. Human turns do not reset the rolling cap.
+Arrivals retain their additional visit/cooldown rules. A model silence decision or
+terminal stop retains the two-minute hold. Attempts cancelled before generation
+also consume pacing, preventing a failed freshness check from spinning every tick.
+This policy is provisional social calibration, not a verified ideal conversation rate.
+
+An explicit "stop starting conversations until I ask" can call `set_initiative`
+with `mode=quiet`, silently. It creates a session-wide quiet boundary that survives
+ordinary replies and history eviction. Direct questions still receive answers.
+An explicit invitation to initiate again uses `mode=available`; its acknowledgment
+follows the executed result. Both modes require a trusted current source, never a
+camera event. They reset on a new run. Narrow topic/per-person boundaries remain
+in original history; richer structured feedback is the next planned stage.
+
+New speech, queued captures/transcripts, ASR work, stale microphone frames, target
+changes, and camera audience changes cancel/block opportunities. Frozen evaluation
+does not enable them. Lulls expose only silence alongside ordinary prose; they
+cannot enroll identity, save a personal fact or change the quiet policy. Arrival
+questions retain the existing delivery-based pending-question path. Private claim
+retrieval for named arrivals is withheld when multiple faces are visible; original
+history still requires the model to exercise audience discretion.
+
+Diagnostics use `proactive_opportunity`, `proactive_turn`, `proactive_outcome` and
+`proactive_opportunity_done`. The report groups outcomes by kind/status/medium and
+counts model requests by purpose. An audio receipt with complete phrases is distinct
+from text-only, cancelled, failed or suppressed output. An invitation's response is
+explicitly unassessed, not automatically "ignored" or "answered". Outcomes keep at
+most 16 entries; forgetting clears retained source/outcome links without revoking
+quiet or anonymous pacing. No new provider, model, dependency or background worker.
+
+```sh
+.venv/bin/python -m r3x scenario tests/fixtures/proactive_core.json
+# Explicit hosted synthetic checks, with silent text output and no personal DB:
+.venv/bin/python tools/check_proactive_conversation.py
+.venv/bin/python tools/check_proactive_conversation.py --variants
+```
+
+Try a receptive quiet visitor, a lull after a completed topic, a thinking pause,
+and a question directed to a companion. Then request quiet, ask Rex a direct
+question, and invite him to initiate again. Review whether the contributions are
+welcome and amusing, not merely whether he spoke. Live devices and combined-load
+M2 acceptance remain open; the playback echo window still limits human barge-in.
+See [implementation evidence](PROACTIVE_IMPLEMENTATION.md#evidence) for measured
+synthetic/hosted results and retained semantic misses.
 
 ### Voice-window variation and conversational accumulation
 

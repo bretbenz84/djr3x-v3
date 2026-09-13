@@ -1,15 +1,17 @@
 # Proactive conversation and situational awareness
 
-September 12, 2026: user-approved design direction, not an implementation report.
+September 12, 2026: user-approved design direction with a first implementation slice.
 Proactive participation belongs in the conversational core and its acceptance
 work. It is designed alongside replies, identity and memory rather than postponed
-as an independent entertainment layer. This documentation update authorizes no
-runtime changes, new providers or hardware operation.
+as an independent entertainment layer. The user subsequently authorized a plan and
+beginning implementation; no new providers or hardware operation are implied.
 
-Today, face-arrival opportunities already use the shared Session, conversation
-model and output owner. General lull opportunities, broader social awareness and
-the outcome tracking proposed here are not yet implemented. See
-[current face behavior](CORE_OPERATIONS.md#proactive-face-greetings).
+Face arrivals and visible-group lull opportunities now use the shared Session,
+conversation model and output owner. The first slice includes attempt/delivery
+history and explicit session quiet/resume. Richer semantic outcome tracking,
+per-participant state and memory opportunities below remain design targets. See
+[implementation stages](PROACTIVE_IMPLEMENTATION.md) and
+[current operation](CORE_OPERATIONS.md#conversational-lulls-and-initiative-control).
 
 ## Purpose: delight with sensitivity
 
@@ -29,6 +31,11 @@ uncertain and revisable. Warmth and delight can include attentive companionship.
 Both excessive chatter and missed welcome openings are failures. Silence is a valid
 choice, not the universal optimization target. Visible presence permits considering
 an invitation; it does not prove attention or oblige anyone to answer.
+
+Rex is normally started deliberately for social demonstrations with friends.
+Consider a welcome opening after roughly 7–10 seconds of a genuine lull, initially
+eight seconds. This preference favors an engaged conversational friend, while
+unfinished thoughts, human-to-human questions and explicit boundaries retain priority.
 
 ## What to preserve from v2
 

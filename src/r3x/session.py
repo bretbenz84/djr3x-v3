@@ -18,7 +18,7 @@ class Session:
         self._lock = threading.Lock()
         self._processing = threading.Lock()
         self._cancel: Cancellation | None = None
-        self._visual_guard = None
+        self._opportunity_guard = None
         self.closed = False
         self.state = state
         self._latest_speech = float("-inf")
@@ -49,10 +49,10 @@ class Session:
                 self._cancel.event.set()
                 self.trace.emit("reply_yielded", reason="user_resumed_speaking")
 
-    def check_visual(self):
+    def check_opportunity(self):
         cancel_output = False
         with self._lock:
-            if self._visual_guard and self._cancel and not self._cancel.event.is_set() and not self._visual_guard():
+            if self._opportunity_guard and self._cancel and not self._cancel.event.is_set() and not self._opportunity_guard():
                 self._cancel.event.set()
                 cancel_output = True
         if cancel_output: self.output.cancel()
@@ -67,27 +67,28 @@ class Session:
     def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int, observation=None, faces=()) -> Delivery:
         return self._process(capture,transcript,submitted_revision,observation,faces)
 
-    def process_visual(self, event, submitted_revision, still_valid):
-        return self._process(None,None,submitted_revision,faces=event.faces,visual=event,still_valid=still_valid)
+    def process_opportunity(self, event, submitted_revision, still_valid):
+        return self._process(None,None,submitted_revision,faces=event.faces,opportunity=event,still_valid=still_valid)
 
-    def _process(self, capture, transcript, submitted_revision, observation=None, faces=(), visual=None, still_valid=None):
+    def _process(self, capture, transcript, submitted_revision, observation=None, faces=(), opportunity=None, still_valid=None):
         if not self._processing.acquire(blocking=False):
             raise RuntimeError("Only one conversation owner may process turns")
         worker = None
         delivery = Delivery()
         turn_id = uuid4().hex
         began = self.trace.clock()
-        from .proactive import VisualCancellation
-        cancel = VisualCancellation(still_valid) if visual else Cancellation()
-        source_session = visual.session_id if visual else capture.session_id
-        source_id = visual.event_id if visual else capture.capture_id
-        source_end = visual.at if visual else capture.ended_at
-        speech_end = None if visual else capture.speech_ended_at
+        from .proactive import OpportunityCancellation
+        cancel = OpportunityCancellation(still_valid) if opportunity else Cancellation()
+        source_session = opportunity.session_id if opportunity else capture.session_id
+        source_id = opportunity.event_id if opportunity else capture.capture_id
+        source_end = opportunity.at if opportunity else capture.ended_at
+        speech_end = None if opportunity else capture.speech_ended_at
         model_at = None
         first_token_at = None
         model_error = None
         question = None
         state_started = False
+        opportunity_attempted = False
         try:
             with self._lock:
                 if self.closed or source_session != self.session_id or submitted_revision != self.revision:
@@ -95,24 +96,27 @@ class Session:
                     delivery.status = "rejected"
                     return delivery
                 self._cancel = cancel
-                self._visual_guard = still_valid if visual else None
-                self._capture_end = visual.speech_marker if visual else float("inf")
-                if visual and self._latest_speech!=visual.speech_marker: cancel.event.set()
+                self._opportunity_guard = still_valid if opportunity else None
+                self._capture_end = opportunity.speech_marker if opportunity else float("inf")
+                if opportunity and self.state:
+                    self.state.initiative.attempted(opportunity)
+                    opportunity_attempted = True
+                if opportunity and self._latest_speech!=opportunity.speech_marker: cancel.event.set()
                 cancel.check()
-            if visual:
-                self.trace.emit('visual_turn',turn_id=turn_id,event_id=visual.event_id,
-                    face_track_id=visual.target_track,person_id=visual.person_id,revision=self.revision)
+            if opportunity:
+                self.trace.emit('proactive_turn',turn_id=turn_id,event_id=opportunity.event_id,kind=opportunity.kind,
+                    face_track_id=opportunity.target_track,person_id=opportunity.person_id,revision=self.revision)
             else:
                 self.trace.emit("turn", turn_id=turn_id, capture_id=capture.capture_id,
                             original_text=transcript.text, avg_logprob=transcript.avg_logprob,
                             trusted=transcript.trusted, speaker="unresolved", revision=self.revision)
-            if not visual and (capture.echo_risk or not transcript.text.strip()):
+            if not opportunity and (capture.echo_risk or not transcript.text.strip()):
                 delivery.status = "rejected"
                 self.trace.emit("turn_rejected", turn_id=turn_id,
                                 reason="echo_risk" if capture.echo_risk else "empty_transcript")
                 return delivery
             # Syntax-only emergency control. No names/facts are parsed in Python.
-            if not visual and transcript.trusted and transcript.text.strip().lower().rstrip(".!?") in {"stop", "cancel", "stop rex", "rex stop"}:
+            if not opportunity and transcript.trusted and transcript.text.strip().lower().rstrip(".!?") in {"stop", "cancel", "stop rex", "rex stop"}:
                 self.cancel()
                 delivery.status = "interrupted"
                 return delivery
@@ -121,33 +125,43 @@ class Session:
             if self.state:
                 with self._lock:
                     cancel.check()
-                    if visual:
-                        context = self.state.visual_context(visual)
+                    if opportunity:
+                        if self.state.initiative.quiet:
+                            raise ProviderFailure('InitiativeQuietRequested')
+                        context = self.state.opportunity_context(opportunity)
                     else:
                         observation = observation or VoiceObservation(self.state.tracker.namespace)
                         attribution = self.state.begin(turn_id,capture,transcript,observation,faces)
                         context = self.state.context(faces)
                     state_started = True
-                if not visual:
+                if not opportunity:
                     self.trace.emit("speaker_evidence",turn_id=turn_id,**context["speaker"],
                                     namespace=observation.namespace,window_consistency=observation.consistency)
             if self.brain is None:
                 delivery.status = "observed"  # Frozen acoustic replay through the same state path.
                 delivery.medium = "none"
                 return delivery
-            if visual:
+            if opportunity:
                 import json
-                self.history.append({'role':'developer','content':'Camera arrival observation; nobody spoke: '+json.dumps(context['visual_arrival'])})
+                evidence = {"kind":opportunity.kind,"event_id":opportunity.event_id,
+                            "quiet_seconds":opportunity.quiet_seconds,
+                            "source_turn_id":opportunity.source_turn_id,
+                            "faces":context['faces']}
+                if opportunity.kind=='visual_arrival': evidence['arrival']=context['visual_arrival']
+                self.history.append({'role':'developer','content':
+                    'Proactive opportunity; nobody spoke. The previous exchange was already processed. '
+                    'There is no new human reply; do not answer the earlier utterance again. '
+                    'Choose whether a new contribution is welcome or use remain_silent. Observation: '+json.dumps(evidence)})
             elif self.state:
                 import json
                 self.history.append({"role":"developer","content":"Evidence for the immediately following utterance: "+json.dumps({
                     "speaker":context["speaker"],"source_turn_id":turn_id,
                     "speech_ended_at":capture.speech_ended_at,"transcript_trusted":transcript.trusted},ensure_ascii=False)})
-            if not visual: self.history.append({"role": "user", "content": transcript.text})
+            if not opportunity: self.history.append({"role": "user", "content": transcript.text})
             # A newer capture can arrive while the previous ASR result waits in
             # the queue. Retain its source/history, but do not answer it belatedly.
             with self._lock:
-                self._capture_end = visual.speech_marker if visual else source_end
+                self._capture_end = opportunity.speech_marker if opportunity else source_end
                 if self._latest_speech > self._capture_end:
                     cancel.event.set()
                 cancel.check()
@@ -162,7 +176,7 @@ class Session:
             generated = ""
             model_at = self.trace.clock()
             self.trace.emit("model_request", turn_id=turn_id, primary_calls=1,
-                            purpose="visual_arrival" if visual else "conversation",
+                            purpose=opportunity.kind if opportunity else "conversation",
                             context_messages=len(snapshot.messages),
                             history_turns=len(self.history.turns),
                             history_characters=self.history.size(snapshot.messages),
@@ -192,6 +206,8 @@ class Session:
                     if close:
                         close()
             calls = generate(snapshot)
+            if not calls and not generated.strip():
+                raise ProviderFailure('EmptyModelResponse')
             if calls:
                 if not self.state or len(calls) != 1 or generated.strip():
                     raise ProviderFailure("SpeechToolProtocolViolation")
@@ -199,10 +215,11 @@ class Session:
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=call.arguments)
                 with self._lock:
                     cancel.check()
-                    result = self.state.execute_visual(call,context,cancel) if visual else self.state.execute(call,context["state_revision"],cancel)
-                    if visual and result.outcome!='ok': raise ProviderFailure(result.reason)
+                    result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel)
+                    if opportunity and result.outcome!='ok': raise ProviderFailure(result.reason)
                 self.trace.emit("tool_executed",turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
-                if result.outcome=="ok" and call.name=="remain_silent":
+                if result.outcome=="ok" and (call.name=="remain_silent" or
+                    call.name=="set_initiative" and result.data['mode']=='quiet'):
                     from dataclasses import asdict
                     import json
                     delivery.status, delivery.medium = "suppressed", "none"
@@ -218,6 +235,8 @@ class Session:
                     from dataclasses import asdict
                     import json
                     context = self.state.context(faces)
+                    if call.name=='set_initiative' and result.outcome=='ok':
+                        self.proactive_hold_until = float('-inf')
                     continuation = (*call.preamble,
                         {"type":"function_call","call_id":call.call_id,"name":call.name,
                          "arguments":json.dumps(call.arguments)},
@@ -268,12 +287,12 @@ class Session:
                 if delivery.status not in {"completed","suppressed"}:
                     self.history.append({"role": "developer", "content":
                         "The last reply was interrupted or failed. Only completed phrases above are known delivered; any partial phrase is unknown."})
-            if not visual and delivery.status == "interrupted" and delivery.first_audio_at is None and self._latest_speech > source_end:
+            if not opportunity and delivery.status == "interrupted" and delivery.first_audio_at is None and self._latest_speech > source_end:
                 self.history.append({"role":"developer","content":
                     "Rex yielded without speaking because microphone speech resumed after source turn " + turn_id +
                     ". The preceding user words remain part of the conversation; the next fragment may continue them. "
                     "This timing event does not establish that the voices are the same person."})
-            if self.state and state_started and not cancel.event.is_set() and (visual or not self.state.forgotten) and delivery.status!="suppressed":
+            if self.state and state_started and not cancel.event.is_set() and (opportunity or not self.state.forgotten) and delivery.status!="suppressed":
                 try:
                     with self._lock:
                         cancel.check()
@@ -283,17 +302,21 @@ class Session:
                     self.trace.emit("state_finalize_failed",turn_id=turn_id,error_type=type(exc).__name__)
             with self._lock:
                 self._cancel = None
-                self._visual_guard = None
+                self._opportunity_guard = None
             audio_at = delivery.first_audio_at
             self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, medium=delivery.medium, timings={
-                "endpoint": None if visual else source_end - speech_end,
+                "endpoint": None if opportunity else source_end - speech_end,
                 "context": model_at - began if model_at is not None else None,
                 "model_first_text": first_token_at - model_at if first_token_at is not None else None,
-                "end_of_speech_to_first_audio": audio_at - speech_end if audio_at is not None and not visual else None,
+                "end_of_speech_to_first_audio": audio_at - speech_end if audio_at is not None and not opportunity else None,
+                "opportunity_to_first_audio": audio_at - source_end if audio_at is not None and opportunity else None,
                 "total": self.trace.clock() - began,
             })
             if state_started:
                 self.last_interaction_at = self.trace.clock()
-                if not visual and delivery.status=='completed': self.proactive_hold_until = float('-inf')
+                if not opportunity and delivery.status=='completed': self.proactive_hold_until = float('-inf')
+            if opportunity_attempted:
+                outcome = self.state.initiative.finished(opportunity,delivery,self.trace.clock())
+                self.trace.emit('proactive_outcome',**outcome)
             self._processing.release()
         return delivery

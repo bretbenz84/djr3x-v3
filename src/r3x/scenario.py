@@ -115,15 +115,27 @@ def run_core(fixture,name):
                                 voiced_intervals=((0.,duration),),device="synthetic fixture")
                 vector=tuple(turn.get("voice",(1.,0.,0.)))
                 observation=VoiceObservation(namespace,vector,((0.,duration,vector),),duration,1.,False,"synthetic")
-                receipt=session.process_turn(capture,Transcript(turn["text"],0.,True),session.revision,observation)
+                if turn.get('opportunity'):
+                    from .proactive import Opportunity
+                    kind=turn['opportunity']
+                    faces=({'at':now,'track_id':'synthetic-face','identity':None,'face_epoch':0,
+                            'face_width_px':150,'box':[.2,.2,.3,.3],'position':'center'},)
+                    event=Opportunity(uuid4().hex,session.session_id,now,
+                        'synthetic-face' if kind=='visual_arrival' else None,None,faces,
+                        session._latest_speech,False,kind,session.state.current[0] if session.state.current else None)
+                    receipt=session.process_opportunity(event,session.revision,lambda:True)
+                else:
+                    receipt=session.process_turn(capture,Transcript(turn["text"],0.,True),session.revision,observation)
                 actual={"people":len(memory.people()),"accepted_claims":len(memory.claims()),
+                        "source_turns":memory.rows("SELECT count(*) AS n FROM turns")[0]['n'],
+                        "initiative_quiet":session.state.initiative.quiet,
                         "recordings":memory.rows("SELECT count(*) AS n FROM recordings")[0]["n"],
                         "supported_profiles":len(memory.profiles(namespace)),"enrollments":len(session.state.enrollments)}
-                okay=receipt.status=="completed" and all(actual[k]==v for k,v in turn.get("expect",{}).items())
+                okay=receipt.status==turn.get('expect_status','completed') and all(actual[k]==v for k,v in turn.get("expect",{}).items())
                 if turn.get("expect_value"):
                     okay=okay and any(c["value"]==turn["expect_value"] for c in memory.claims())
                 passed=passed and okay
-                trace.emit("scenario_assertion",text=turn["text"],passed=okay,actual=actual)
+                trace.emit("scenario_assertion",text=turn.get('text'),opportunity=turn.get('opportunity'),passed=okay,actual=actual)
         finally:
             session.close()
             memory.close()

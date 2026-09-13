@@ -6,8 +6,9 @@ before the next live test, so implementation continued past the original slice-1
 live gate without claiming that gate had passed. Slice 5 and the full robot remain
 deferred. [Operations](CORE_OPERATIONS.md) contains the current commands.
 The September 12 [proactive conversation design](PROACTIVE_CONVERSATION.md) adds
-broader initiative to core design and acceptance, not to the implemented feature
-list. Historical slice evidence below retains its original scope.
+broader initiative to core design and acceptance. The first shared arrival/lull
+slice is now implemented; its evidence is recorded below. Historical slice evidence
+retains its original scope and does not validate these new behaviors.
 
 ## The first question to answer
 
@@ -19,7 +20,7 @@ warmth and initiative without waiting for someone to speak first every time?
 The first program is a replacement-core experiment with real microphone input and
 Rex's voice. A typed chat demo is useful for plumbing but cannot answer this question.
 No motors, decorative servo control, or games are needed. The explicitly authorized
-face-arrival greetings below are the currently implemented proactive entry point.
+face-arrival greetings and visible-group lulls are now shared proactive entry points.
 Broader participation is developed with the core under the September 12 design;
 it does not require importing every v2 behavior or provider first.
 
@@ -441,8 +442,8 @@ identity association; it is not legal identity verification.
 
 ## Proactive conversation acceptance
 
-September 12 design additions: these are scenarios to implement and evaluate,
-not passing results. Use the [shared proactive policy](PROACTIVE_CONVERSATION.md)
+September 12 design additions: these are acceptance targets, not a declaration
+that every case passes. Use the [shared proactive policy](PROACTIVE_CONVERSATION.md)
 through production Session, preserving the same attribution and delivery rules.
 
 | Scenario | Required outcome |
@@ -812,3 +813,20 @@ changes, isolated foreign windows, rival groups and accumulation across restart.
 Final verification: **157 blocked-I/O tests passed**; `git diff --check` passed.
 The fix adds no model, download, camera stream or model-generation call. Saved
 CAM++ checks used the dev Mac; combined-load M2 performance was not remeasured.
+
+### Shared proactive core foundation (September 12, 2026)
+
+The user authorized planning and beginning implementation, clarifying that Rex
+normally runs for social demonstrations and should consider an opening after
+7–10 seconds of silence. The default is eight seconds. Arrivals and visible-group
+lulls now share one Opportunity/Session/model/output path, with original source
+history, current audience, elapsed quiet time, bounded attempts, delivery outcomes,
+and explicit session quiet/resume. No new provider or resident model was added.
+
+The [implementation plan](PROACTIVE_IMPLEMENTATION.md) records verification and
+remaining stages. Synthetic scenarios exercise source preservation, state, pacing,
+cancellation and delivery; actual hosted text probes assess welcome initiative
+alongside sensitivity and restraint. The source/delivery ledger does not yet label
+semantic response outcomes or build persistent participant preferences. Group
+participation remains probabilistic; automated checks do not establish delight,
+real attribution accuracy, physical barge-in or M2 performance.

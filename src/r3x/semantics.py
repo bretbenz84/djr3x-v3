@@ -13,6 +13,8 @@ NULL_TEXT = {"type":["string","null"]}
 
 
 TOOLS = (
+    schema("set_initiative", "Only for an explicit request to stop unsolicited conversation (quiet), or an explicit invitation to resume initiating (available). Quiet still permits direct replies. This session-wide boundary lasts for this run and is not cleared by another person's speech or facing the camera. Never infer it from tiredness, grief, short answers or an external conversation. Quiet executes silently, without acknowledgment. Use current source_turn_id.",
+           {"mode":{"type":"string","enum":["quiet","available"]},"source_turn_id":TEXT}),
     schema("introduce_person", "Interpret an explicit introduction, including a speaker giving the name of an existing person. Select face_track_id from visual evidence when clear; naming a shy friend keeps the current speaker separate. A face_status other than saved/already_saved means the face has NOT been enrolled; use a targeted clarification or closer look if needed. This is not a rename. subject=self starts a provisional acoustic association only; other never enrolls the current speaker as the mentioned person. Use existing candidate ID when resolved, otherwise null. Never use unrelated next utterance as a name answer.",
            {"name":TEXT,"aliases":{"type":"array","items":TEXT},"subject":{"type":"string","enum":["self","other"]},"person_id":NULL_TEXT,"face_track_id":NULL_TEXT}),
     schema("ask_face_question", "Ask a natural targeted name or closer-look question about one visible face. This targets a face, not necessarily the speaker. Another person may answer for them. Pending state begins only after delivery.",
@@ -35,7 +37,7 @@ TOOLS = (
            {"text":TEXT,"addressee_id":NULL_TEXT}),
     schema("settle_question", "Mark a delivered pending question answered, declined, or superseded based on the meaning of this turn. Does not store a personal fact or confirm identity.",
            {"status":{"type":"string","enum":["answered","declined","superseded"]}}),
-    schema("remain_silent", "End this turn without speech for an unfinished thought/thinking pause, clear external conversation/device announcements, or an uninvited fragment. Use unfinished_thought when a clause is still waiting for its action/object/destination or the speaker asks for time to think; do not ask them to finish. Quiet requests and addressee corrections require silence, never a spoken acknowledgment. Complete introductions, ordinary questions, and replies in our conversation normally deserve speech. Unknown speaker identity does not justify silence. No follow-up model call; no acoustic synthetic-voice claim.",
+    schema("remain_silent", "End this turn without speech for an unfinished thought/thinking pause, clear external conversation/device announcements, or an uninvited fragment. Use unfinished_thought when a clause is still waiting for its action/object/destination or the speaker asks for time to think; do not ask them to finish. Explicit requests to stop unsolicited conversation use set_initiative(quiet) when available; addressee corrections require silence, never an acknowledgment. Complete introductions, ordinary questions, and replies in our conversation normally deserve speech. Unknown speaker identity does not justify silence. No follow-up model call; no acoustic synthetic-voice claim.",
            {"reason":{"type":"string","enum":["other_addressee","device_speech","background_conversation","no_response_needed","unfinished_thought"]}}),
 )
 
@@ -46,6 +48,8 @@ def grounded_tools(context):
     definitions = copy.deepcopy(TOOLS)
     if context.get('trigger')=='visual_arrival':
         definitions = [d for d in definitions if d['name'] in {'remain_silent','ask_face_question'}]
+    elif context.get('trigger')=='conversation_lull':
+        definitions = [d for d in definitions if d['name']=='remain_silent']
     people = [p["id"] for p in context.get("people",[])]
     claims = [c["id"] for c in context.get("claims",[])]
     faces = [f["track_id"] for f in context.get("faces",[])]

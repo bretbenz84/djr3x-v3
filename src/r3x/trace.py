@@ -41,6 +41,8 @@ def report(path: Path) -> dict:
     import statistics
     events = Counter()
     outcomes = Counter()
+    proactive = Counter()
+    purposes = Counter()
     latencies: dict[str, list[float]] = {}
     calls = 0
     primary,continuations,underruns = 0,0,0
@@ -56,6 +58,7 @@ def report(path: Path) -> dict:
             continue
         events[row["event"]] += 1
         if row["event"] == "model_request":
+            purposes[row.get('purpose','conversation')] += 1
             calls += 1
             primary += row.get("primary_calls",1)
             continuations += int(row.get("purpose")=="tool_result_continuation")
@@ -70,6 +73,8 @@ def report(path: Path) -> dict:
                 failures.append({k: row[k] for k in ("event", "turn_id", "error") if k in row})
         if row["event"]=="resources":
             rss.append(row["peak_rss_bytes_macos"])
+        if row['event']=='proactive_outcome':
+            proactive[(row['kind'],row['status'],row['medium'],row['heard_complete_phrases'])] += 1
         for event,key in (("speaker_analysis","speaker_seconds"),("camera_frame","processing_seconds"),
                           ("tts_first_pcm","tts_first_pcm_seconds"),("playback_started","playback_queue_seconds")):
             if row["event"]==event and row.get(key) is not None:
@@ -88,6 +93,10 @@ def report(path: Path) -> dict:
         return {"n": len(ordered), "median": statistics.median(ordered),
                 "p95": ordered[max(0, math.ceil(len(ordered)*.95)-1)]}
     return {"events": dict(events), "turn_outcomes": dict(outcomes), "model_calls": calls,
+            "model_calls_by_purpose":dict(purposes),
+            "proactive_outcomes":[{'kind':key[0],'status':key[1],'medium':key[2],
+                                    'heard_complete_phrases':key[3],'count':count}
+                                   for key,count in proactive.items()],
             "primary_calls":primary,"tool_result_continuations":continuations,"evidence":sorted(evidence),
             "models":sorted(models),"failures":failures,"playback_underruns":underruns if events["playback_started"] else None,
             "peak_rss_bytes_macos":max(rss) if rss else None,

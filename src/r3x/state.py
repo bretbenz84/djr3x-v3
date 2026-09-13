@@ -28,6 +28,8 @@ class CoreState:
         self.face_learning = {}
         self.face_invalidator = face_invalidator
         self.min_face_epoch = 0
+        from .proactive import Initiative
+        self.initiative = Initiative()
 
     def cancel(self):
         # Stopping speech cancels dialogue work, not previously observed evidence.
@@ -107,6 +109,7 @@ class CoreState:
         from .face_attribution import public_face
         return {"source_turn_id":turn_id,"state_revision":self.store.revision,
                 "current_utterance":transcript.text,
+                "participation":self.initiative.context(),
                 "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
                 "speaker":{**asdict(attribution),"display_name":speaker_person["name"] if speaker_person else None},
                 "provisional_person_id":track.person_id if track else None,
@@ -120,24 +123,33 @@ class CoreState:
                 "enrollment":[{"person_id":e.person_id,"track_id":e.track_id,"qualifying_turns":len(e.samples),
                                "voiced_seconds":sum(s[2].voiced_seconds for s in e.samples)} for e in self.enrollments.values()]}
 
-    def visual_context(self, event):
-        """No acoustic observation/source turn is fabricated for a camera event."""
+    def opportunity_context(self, event):
+        """No acoustic observation/source turn is fabricated for an opportunity."""
         from .face_attribution import public_face
         if self.frozen: raise ValueError("FrozenEvaluationDisallowsProactiveSpeech")
         if self.pending and event.at-self.pending['delivered_at']>120: self.pending=None
         faces = [public_face(f) for f in event.faces if f.get('face_epoch',0)>=self.min_face_epoch]
         people = self.store.people()
         person_ids = {p['id'] for p in people}
+        if event.kind not in {'visual_arrival','conversation_lull'}: raise ValueError('UnknownOpportunity')
         if event.person_id and event.person_id not in person_ids: raise ValueError('VisualPersonNoLongerAvailable')
-        if not any(f['track_id']==event.target_track for f in faces): raise ValueError('VisualTargetStale')
-        return {'trigger':'visual_arrival','event_id':event.event_id,'state_revision':self.store.revision,
-                'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
-                                  'returning_this_session':event.returning},
+        if not faces: raise ValueError('VisualTargetStale')
+        if event.kind=='visual_arrival' and not any(f['track_id']==event.target_track for f in faces):
+            raise ValueError('VisualTargetStale')
+        if event.kind=='conversation_lull' and (not self.current or event.source_turn_id!=self.current[0]):
+            raise ValueError('StaleLullSource')
+        return {'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
+                'participation':self.initiative.context(),
+                'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
+                               'quiet_seconds':event.quiet_seconds,
+                               'audience':'visible_group' if event.kind=='conversation_lull' else 'arrival_target'},
+                **({'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
+                                     'returning_this_session':event.returning}} if event.kind=='visual_arrival' else {}),
                 'speaker':{'person_id':None,'state':'unresolved','reason':'no_speech_observed'},
-                'faces':faces,'people':people,'claims':self.store.claims(event.person_id) if event.person_id else [],
+                'faces':faces,'people':people,'claims':self.store.claims(event.person_id) if event.person_id and len(faces)==1 else [],
                 'pending_question':self.pending,'frozen_evaluation':self.frozen}
 
-    def execute_visual(self, call, context, cancel):
+    def execute_opportunity(self, call, context, cancel):
         """Visual cues can ask or stay quiet, never create identity or personal facts."""
         request_id = context['event_id']+':'+call.call_id
         try:
@@ -145,7 +157,7 @@ class CoreState:
             validate(call.name,call.arguments)
             if self.store.revision!=context['state_revision']: raise ValueError('StaleStateRevision')
             if call.name=='remain_silent': data={'reason':call.arguments['reason']}
-            elif call.name=='ask_face_question':
+            elif call.name=='ask_face_question' and context['trigger']=='visual_arrival':
                 if call.arguments['face_track_id']!=context['visual_arrival']['face_track_id']:
                     raise ValueError('VisualQuestionTargetMismatch')
                 data={'question':call.arguments['text'],'face_track_id':call.arguments['face_track_id'],'addressee_id':None}
@@ -217,6 +229,10 @@ class CoreState:
         turn_id,capture,transcript,observation,attribution = self.current
         if name == "remain_silent":
             return {"reason":args["reason"]},False
+        if name == "set_initiative":
+            self._source_allowed(args,name)
+            return {"mode":args["mode"],"source_turn_id":turn_id,
+                    "reason":"explicit_initiative_request"},False
         if name == "recall":
             if args["subject_id"]:
                 self._person(args["subject_id"])
@@ -370,6 +386,9 @@ class CoreState:
         raise ValueError("UnknownTool")
 
     def _after(self,name,data):
+        if name=='set_initiative':
+            self.initiative.quiet = data['mode']=='quiet'
+            self.initiative.policy_source = data['source_turn_id']
         if name=="introduce_person" and data.get("face_track_id"):
             key = data['face_track_id']
             self.face_associations[key] = data["person_id"]
@@ -415,6 +434,7 @@ class CoreState:
                         conn.execute("DELETE FROM voice_candidates WHERE track_id=?", (key,))
                     self.tracker.forget(e.person_id)
         if name=="forget_person":
+            self.initiative.forget()
             self.tracker.forget(data["person_id"])
             self.pending = None
             self.forgotten = True

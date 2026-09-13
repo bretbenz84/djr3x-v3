@@ -19,6 +19,7 @@ class Settings:
     camera_enabled: bool = False
     camera_device_name: str = ""
     record_evaluation: bool = False
+    proactive_lull_seconds: float = 8.0
 
     def __post_init__(self) -> None:
         if self.profile != "dev-mac":
@@ -34,7 +35,7 @@ class Settings:
         if self.camera_enabled and not self.camera_device_name.strip():
             raise ValueError("Enabled camera requires a device name")
         for name, lower, upper in (("vad_threshold", .01, .99), ("end_silence_seconds", .2, 2),
-                                   ("asr_trust_logprob", -5, 0)):
+                                   ("asr_trust_logprob", -5, 0), ("proactive_lull_seconds", 3, 120)):
             value = getattr(self, name)
             if type(value) not in (int, float) or not math.isfinite(value) or not lower <= value <= upper:
                 raise ValueError(f"Invalid {name}")

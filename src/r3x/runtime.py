@@ -10,7 +10,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None):
+    def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
         self.endpoint = Endpoint(session.session_id, silence)
         self.perception, self.recorder = perception, recorder
@@ -27,6 +27,7 @@ class VoiceRuntime:
         self.camera = getattr(perception,'camera',None)
         self.started_at = self.trace.clock()
         self.audio_seen_at = float('-inf')
+        self.lull_seconds = lull_seconds
 
     def cancel(self):
         with self.control_lock:
@@ -103,7 +104,7 @@ class VoiceRuntime:
     def observe_visual(self, now):
         if self.camera:
             self.arrivals.observe(self.camera.latest(now),now)
-            self.session.check_visual()
+            self.session.check_opportunity()
 
     def proactive_tick(self):
         """Called only by the idle conversation worker; audio always has priority."""
@@ -113,16 +114,34 @@ class VoiceRuntime:
             if (self.stop.is_set() or self.session.closed or now-self.started_at<8 or
                 not 0<=now-self.audio_seen_at<=.5 or self.asr_busy.is_set() or
                 not self.captures.empty() or not self.turns.empty() or
-                now-self.session._latest_speech<5 or now-self.session.last_interaction_at<10 or
+                now-self.session._latest_speech<self.lull_seconds or now-self.session.last_interaction_at<self.lull_seconds or
                 now<self.session.proactive_hold_until): return
+            initiative = self.session.state.initiative
+            if not initiative.allowed(now): return
             pending = self.session.state.pending
             if pending and now-pending['delivered_at']<=120: return
             event = self.arrivals.take(self.session.session_id,now,self.session._latest_speech)
+            if event is None:
+                current = self.session.state.current
+                source = current[0] if current else None
+                audience = self.arrivals.audience(now)
+                if source and source!=initiative.lull_source and audience and self.session.history.turns:
+                    from .proactive import Opportunity
+                    from uuid import uuid4
+                    event = Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
+                                        self.session._latest_speech,False,'conversation_lull',source,
+                                        min(now-self.session._latest_speech,now-self.session.last_interaction_at))
             if event is None: return
             revision = self.session.revision
-        self.trace.emit('visual_opportunity',event_id=event.event_id,face_track_id=event.target_track,person_id=event.person_id)
-        result = self.session.process_visual(event,revision,lambda:self.arrivals.valid(event,self.trace.clock()) and not self.stop.is_set() and 0<=self.trace.clock()-self.audio_seen_at<=.5)
-        self.trace.emit('visual_opportunity_done',event_id=event.event_id,status=result.status,medium=result.medium,
+        self.trace.emit('proactive_opportunity',event_id=event.event_id,kind=event.kind,
+                        face_track_id=event.target_track,person_id=event.person_id)
+        def valid():
+            return (self.arrivals.valid(event,self.trace.clock()) and not self.stop.is_set() and
+                    self.session._latest_speech==event.speech_marker and
+                    self.captures.empty() and self.turns.empty() and not self.asr_busy.is_set() and
+                    0<=self.trace.clock()-self.audio_seen_at<=.5)
+        result = self.session.process_opportunity(event,revision,valid)
+        self.trace.emit('proactive_opportunity_done',event_id=event.event_id,kind=event.kind,status=result.status,medium=result.medium,
                         delivered=bool(result.completed_text),failed=result.error)
 
     def start_workers(self):

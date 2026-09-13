@@ -12,7 +12,8 @@ unmeasured thresholds are distinguished below; the full robot is outside this bu
 | --- | --- |
 | User requirement | Start independently in the new v3 repository and preserve knowledge from v2. |
 | User requirement | Delight, make people laugh and help improve their mood; emotional awareness guides sensitivity rather than automatic mood mirroring. |
-| User requirement | Develop proactive participation with the conversational core; the same model decides replies, initiative and silence. Broader policy is designed, not yet implemented. |
+| User requirement | Develop proactive participation with the conversational core; the same model decides replies, initiative and silence. Shared arrivals/lulls are implemented; richer feedback and memory opportunities remain planned. |
+| Working design | Social demonstrations should feel like an engaged friend: consider an opening after 7–10 seconds of a genuine lull, initially eight. This is opportunity timing, not automatic speech or measured first-audio latency. |
 | User requirement | Learn voices through ordinary conversation and association; retain accepted original audio for later model migration. |
 | User requirement | Never use mouth-motion detection for speaker identity or enrollment. |
 | User requirement | Support one-to-three visible people, including a dev Mac with no directional audio. |
@@ -395,9 +396,13 @@ still goes through the sole output owner. See the
 [operating policy](docs/CORE_OPERATIONS.md#proactive-face-greetings) and face plan
 for evidence and remaining live acceptance. The September 12
 [proactive core design](docs/PROACTIVE_CONVERSATION.md) supersedes treating broader
-conversational initiative as a separate later layer. That broader runtime remains
-unimplemented; additional perception, external feeds and physical autonomy remain
-separate capability work.
+conversational initiative as a separate later layer. The first implementation now
+shares arrival/lull processing and original history, explicit session quiet/resume,
+bounded attempts and delivery outcomes. Semantic feedback remains in history; the
+ledger does not infer answered/ignored outcomes. See the
+[implementation plan](docs/PROACTIVE_IMPLEMENTATION.md). Richer feedback, memory
+opportunities, additional perception, external feeds and physical autonomy remain
+separate pending stages.
 
 September 11 voice calibration now admits clean one-second clips into conversational
 accumulation while retaining three clips/eight voiced seconds for enrollment.

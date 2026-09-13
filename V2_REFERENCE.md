@@ -360,3 +360,10 @@ goal of delight and mood improvement with sensitivity rather than energy mirrori
 V3 behavior and source-preserving acceptance are specified in
 [proactive acceptance](docs/INITIAL_TEST_PROGRAM.md#proactive-conversation-acceptance).
 No v2 runtime dependency, new model, configuration or API contract was added.
+
+The subsequent first proactive core slice uses v3's existing Session and face
+arrival scheduler, generalized to typed opportunities. It adds no v2 extraction,
+provider or model. V3-owned lull pacing, quiet/resume and delivery bookkeeping are
+recorded in [the implementation plan](docs/PROACTIVE_IMPLEMENTATION.md); the only
+new setting is the user's requested conversational lull timing. Live validation
+and richer feedback/memory integrations remain pending.

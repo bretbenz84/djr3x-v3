@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 import json
 import unittest
-from r3x.proactive import Arrivals, VisualArrival
+from r3x.proactive import Arrivals, Opportunity
 from r3x.session import Session
 from r3x.output import OutputOwner, TextOutput
 from r3x.scenario import SyntheticSink, SyntheticTTS
@@ -22,7 +22,7 @@ def face(at,person=None,track='face',width=150):
 
 
 def event(person=None,at=100,track='face'):
-    return VisualArrival(uuid4().hex,'session',at,track,person,(face(at,person,track),),float('-inf'),False)
+    return Opportunity(uuid4().hex,'session',at,track,person,(face(at,person,track),),float('-inf'),False)
 
 
 class ArrivalTests(unittest.TestCase):
@@ -75,7 +75,7 @@ class ProactiveSessionTests(MemoryFixture):
     def test_llm_greeting_is_one_call_without_fake_user_audio_or_writes(self):
         with self.store.transaction() as conn:person=self.store.add_person(conn,'Jordan',[],None)
         brain=Brain('Jordan! Good to see you around here.');session=self.session(brain)
-        result=session.process_visual(event(person),0,lambda:True)
+        result=session.process_opportunity(event(person),0,lambda:True)
         self.assertEqual(result.status,'completed');self.assertEqual(brain.calls,1)
         self.assertEqual(result.completed_text,['Jordan! Good to see you around here.'])
         self.assertEqual(self.store.rows('SELECT * FROM turns'),[])
@@ -93,7 +93,7 @@ class ProactiveSessionTests(MemoryFixture):
                 self.calls+=1
                 yield ToolCall('question','ask_face_question',{'text':'Hello there. What should I call you?','face_track_id':'friend'})
         session=self.session(Question())
-        result=session.process_visual(event(track='friend'),0,lambda:True)
+        result=session.process_opportunity(event(track='friend'),0,lambda:True)
         self.assertEqual(result.status,'completed')
         self.assertEqual(self.state.pending['face_track_id'],'friend')
         self.assertIsNone(self.state.pending['addressee_id'])
@@ -103,7 +103,7 @@ class ProactiveSessionTests(MemoryFixture):
         self.assertEqual(result.data['face_status'],'saved')
         self.assertEqual(self.store.profiles(self.state.tracker.namespace),{})
         self.state.pending=None
-        self.session(Question(),TextOutput(self.state.trace)).process_visual(event(track='friend'),0,lambda:True)
+        self.session(Question(),TextOutput(self.state.trace)).process_opportunity(event(track='friend'),0,lambda:True)
         self.assertIsNone(self.state.pending)
 
     def test_model_can_stay_quiet_without_tts_or_continuation(self):
@@ -112,7 +112,7 @@ class ProactiveSessionTests(MemoryFixture):
                 self.calls+=1
                 yield ToolCall('quiet','remain_silent',{'reason':'no_response_needed'})
         brain=Silent();session=self.session(brain)
-        result=session.process_visual(event(),0,lambda:True)
+        result=session.process_opportunity(event(),0,lambda:True)
         self.assertEqual(result.status,'suppressed');self.assertEqual(brain.calls,1)
         self.assertEqual(result.completed_text,[])
         self.assertGreater(session.proactive_hold_until,self.state.trace.clock())
@@ -125,7 +125,7 @@ class ProactiveSessionTests(MemoryFixture):
                 self.calls+=1
                 yield ToolCall('bad','introduce_person',{'name':'Jordan','aliases':[],'subject':'self','person_id':None,'face_track_id':'face'})
         brain=Bad();session=self.session(brain)
-        result=session.process_visual(event(),0,lambda:True)
+        result=session.process_opportunity(event(),0,lambda:True)
         self.assertEqual(result.error,'VisualEventDoesNotAuthorizeMutation')
         self.assertEqual(self.store.people(),[]);self.assertEqual(brain.calls,1)
         self.assertEqual(result.completed_text,[])
@@ -136,7 +136,7 @@ class ProactiveSessionTests(MemoryFixture):
                 self.calls+=1;session.note_speech(99.9)
                 yield 'Hello there, welcome back!'
         brain=Resumed();session=self.session(brain)
-        result=session.process_visual(event(at=100),0,lambda:True)
+        result=session.process_opportunity(event(at=100),0,lambda:True)
         self.assertEqual(result.status,'interrupted');self.assertEqual(result.completed_text,[])
         self.assertIsNone(self.state.pending)
         self.assertFalse(any(r['event']=='speech_generated' for r in self.state.trace.rows))
@@ -147,16 +147,16 @@ class ProactiveSessionTests(MemoryFixture):
             def reply(self,snapshot,cancel):
                 visible[0]=False
                 yield ToolCall('q','ask_face_question',{'text':'What should I call you?','face_track_id':'face'})
-        session=self.session(Lost());result=session.process_visual(event(),0,lambda:visible[0])
+        session=self.session(Lost());result=session.process_opportunity(event(),0,lambda:visible[0])
         self.assertEqual(result.status,'interrupted');self.assertIsNone(self.state.pending)
         session.cancel()
         brain=Brain();session.brain=brain
-        self.assertEqual(session.process_visual(event(),0,lambda:True).status,'rejected')
+        self.assertEqual(session.process_opportunity(event(),0,lambda:True).status,'rejected')
         self.assertEqual(brain.calls,0)
 
     def test_greeting_and_question_history_informs_the_next_spoken_turn(self):
         brain=Brain('Hello Jordan, good to see you.');session=self.session(brain)
-        session.process_visual(event(),0,lambda:True)
+        session.process_opportunity(event(),0,lambda:True)
         self.begin('Hello Rex.')
         result=session.process_turn(self.state.current[1],Transcript('Hello Rex.',0,True),0,observation())
         self.assertEqual(result.status,'completed')
@@ -170,7 +170,7 @@ class ProactiveSessionTests(MemoryFixture):
                 visible[0]=False
                 yield b'\0\0'*10
         output=OutputOwner(TTS(),SyntheticSink(),self.state.trace)
-        result=self.session(Brain(),output).process_visual(event(),0,lambda:visible[0])
+        result=self.session(Brain(),output).process_opportunity(event(),0,lambda:visible[0])
         self.assertEqual(result.status,'interrupted')
         self.assertIsNone(result.first_audio_at)
 

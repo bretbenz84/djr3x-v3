@@ -26,6 +26,11 @@ asr_trust_logprob = -0.35
 camera_enabled = false
 camera_device_name = ""
 
+# Conversation worker: consider a lull after this much silence and completed work.
+# Default 8 seconds for social demos; valid 3-120. Requires --camera and a stable
+# visible audience. The same LLM may stay quiet; this is not a speech interval.
+proactive_lull_seconds = 8.0
+
 # Optional live WAV retention for human labeling. Accepted enrollment audio is
 # always kept atomically in the core DB; this retains all endpointed test captures.
 record_evaluation = false

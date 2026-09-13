@@ -141,7 +141,8 @@ class App:
                 perception = Perception(asr,encoder,trace,camera)
                 session = Session(session_id, brain, output, trace, state=state)
                 recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None
-                runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder)
+                runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
+                                       lull_seconds=self.settings.proactive_lull_seconds)
                 runtime.run()
                 success = True
         finally:
