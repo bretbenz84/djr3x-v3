@@ -460,3 +460,12 @@ model-authored visual revisions with source audit, bounded observation/selection
 heard-remark context and audience-scoped action continuity. Output remains the only
 executor; abandoned work never resumes automatically. Synthetic integration and
 small hosted trials do not replace live group/device acceptance.
+
+## Introduction-first identity recovery (September 13)
+
+Implemented: the model's explicit self-introduction proposal establishes a usable
+self-reported name before independent voice recognition. Ambiguous old unnamed
+tracks may yield to a fresh introduction anchor; they are not relabeled as that
+person. Compatible speech progressively supports recognition. Existing supported
+profiles and current competing-speaker evidence retain their protections.
+[Implementation and acceptance evidence](docs/INTRODUCTION_RECOVERY.md).

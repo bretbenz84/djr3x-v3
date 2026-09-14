@@ -15,7 +15,7 @@ def target_allowed(face, faces, subject, attribution, pending, recent_competitor
         # its existing acoustic eligibility gate.
         source_allowed = attribution.learning_eligible or (
             introduction_source and attribution.track_id is not None and
-            attribution.reason in {'session_track', 'acoustic_match'})
+            attribution.reason in {'session_track', 'acoustic_match', 'self_introduction'})
         return bool(face.get('sole_face_throughout') and len(faces)==1 and
             face.get('box',[0,0,0,0])[2]*face.get('box',[0,0,0,0])[3]>=.025 and
             source_allowed and not recent_competitor)

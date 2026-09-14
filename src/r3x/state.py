@@ -356,7 +356,6 @@ class CoreState:
             raise ValueError("UntrustedSource")
         if attribution.reason=="tentative_continuity" and (
                 name in {"rename_person","forget_person"} or
-                (name=="introduce_person" and args["subject"]=="self") or
                 (name=="record_claim" and args["kind"]=="self_report")):
             raise ValueError("TentativeTrackDoesNotAuthorizeSelfIdentity")
 
@@ -505,11 +504,19 @@ class CoreState:
                 person_id = matches[0]["id"]
             elif len(matches)>1:
                 raise ValueError("AmbiguousName")
+            fresh_track = False
+            introduction_attribution = attribution
+            voice_usable = (observation.embedding is not None and
+                            observation.namespace == self.tracker.namespace and
+                            observation.consistency is not None and
+                            observation.consistency >= self.tracker.policy.track_threshold and
+                            observation.voiced_seconds >= .5 and not observation.direction_conflict)
             if args["subject"] == "self":
-                if not attribution.track_id or observation.embedding is None:
-                    raise ValueError("IntroductionNeedsUsableVoiceTrack")
-                track = self.tracker.tracks[attribution.track_id]
-                if track.person_id and track.person_id != person_id:
+                # A name assertion is not an acoustic recognition result. Ambiguous
+                # old groups must not veto a new, source-bound enrollment anchor.
+                reliable_track = attribution.track_id if attribution.reason in {'session_track','acoustic_match'} else None
+                track = self.tracker.tracks.get(reliable_track)
+                if track and track.person_id and track.person_id != person_id:
                     raise ValueError("ConflictingVoiceIdentity")
                 if attribution.person_id and attribution.person_id != person_id:
                     raise ValueError("NameCannotOverrideAcoustics")
@@ -518,8 +525,21 @@ class CoreState:
                         raise ValueError("SuspectProfileRequiresLocalReviewOrVoiceReset")
                     if person_id in self.store.profiles(self.tracker.namespace) and attribution.person_id!=person_id:
                         raise ValueError("ExistingProfileNeedsCompatibleVoice")
-                    if any(e.person_id==person_id and e.track_id!=attribution.track_id for e in self.enrollments.values()):
-                        raise ValueError("CompetingVoiceAssociation")
+                    if any(e.person_id==person_id and e.track_id!=reliable_track for e in self.enrollments.values()):
+                        # Reintroduction can replace a stalled provisional chain,
+                        # but cannot replace a recently active competing voice.
+                        competing_chains = [e for e in self.enrollments.values() if e.person_id==person_id and e.track_id!=reliable_track]
+                        if reliable_track is not None or any(0 <= capture.ended_at-self.tracker.tracks[e.track_id].last_at <= 8
+                               for e in competing_chains if e.track_id in self.tracker.tracks):
+                            raise ValueError("CompetingVoiceAssociation")
+                if voice_usable and reliable_track is None:
+                    if sum(capture.ended_at-t.last_at<=self.tracker.policy.track_expiry_seconds
+                           for t in self.tracker.tracks.values()) < 12:
+                        reliable_track, fresh_track = uuid4().hex, True
+                from .speakers import Attribution
+                introduction_attribution = (replace(attribution,track_id=reliable_track,state='hypothesis',
+                    reason='self_introduction',learning_eligible=voice_usable and observation.voiced_seconds>=1)
+                    if reliable_track and voice_usable else Attribution(reason='name_only_introduction'))
             if not person_id:
                 person_id = self.store.add_person(conn,name_text,args["aliases"],turn_id)
             from .face_attribution import target_allowed, learning_samples
@@ -531,7 +551,7 @@ class CoreState:
                             for key,track in self.tracker.tracks.items())
             consistent_intro = (not observation.direction_conflict and observation.consistency is not None and
                                 observation.consistency>=self.tracker.policy.track_threshold)
-            allowed = face is not None and target_allowed(face,self.faces,args['subject'],attribution,self.pending,
+            allowed = face is not None and target_allowed(face,self.faces,args['subject'],introduction_attribution,self.pending,
                                                           competing,introduction_source=consistent_intro)
             status, saved = 'no_face_target', 0
             if face is not None:
@@ -543,10 +563,16 @@ class CoreState:
                     samples,status = learning_samples(face,capture,person_id,self.store)
                     if samples:
                         saved = self.store.save_faces(conn,person_id,samples,turn_id,
-                            {'subject':args['subject'],'said_by':attribution.person_id,'source_track':attribution.track_id,
+                            {'subject':args['subject'],'said_by':attribution.person_id,'source_track':introduction_attribution.track_id,
                              'face_track_id':face['track_id']})
                         status = 'saved' if saved else 'already_saved'
-            return {"person_id":person_id,"subject":args["subject"],"track_id":attribution.track_id if args["subject"]=="self" else None,
+            voice_status = 'awaiting_usable_audio'
+            if args['subject']=='self' and introduction_attribution.track_id:
+                voice_status = 'recognized' if attribution.person_id else 'collecting_evidence'
+            return {"person_id":person_id,"subject":args["subject"],"track_id":introduction_attribution.track_id if args["subject"]=="self" else None,
+                    "fresh_voice_track":fresh_track,
+                    "identity_basis":"self_report" if args['subject']=='self' else 'third_party_introduction',
+                    "voice_status":voice_status,
                     "status":"hypothesis","face_track_id":face['track_id'] if face else None,
                     "face_status":status,"face_samples_saved":saved,"face_target_allowed":allowed},True
         if name == "record_claim":
@@ -642,7 +668,7 @@ class CoreState:
             if data.get('face_target_allowed') and data['face_status']=='need_clear_compatible_views':
                 self.face_learning[key] = {'person_id':data['person_id'],'source_turn':self.current[0],
                     'subject':data['subject'],'said_by':self.current[4].person_id,
-                    'source_track':self.current[4].track_id,'expires':self.current[1].ended_at+30}
+                    'source_track':data.get('track_id') or self.current[4].track_id,'expires':self.current[1].ended_at+30}
             else:
                 self.face_learning.pop(key,None)
             if data.get('face_samples_saved'):
@@ -656,7 +682,26 @@ class CoreState:
             self.faces = ()
             self.face_associations = {k:v for k,v in self.face_associations.items() if v!=data.get("person_id")}
         turn_id,capture,transcript,observation,attribution = self.current
-        if name=="introduce_person" and data["subject"]=="self":
+        if name=="introduce_person" and data["subject"]=="self" and data.get('track_id'):
+            key = data['track_id']
+            if data.get('fresh_voice_track'):
+                self.tracker.tracks[key] = Track(key,capture.ended_at,deque([observation.embedding],maxlen=5))
+            # Replace only provisional chains for this explicitly reintroduced name.
+            for old_key, proposal in list(self.enrollments.items()):
+                if proposal.person_id==data['person_id'] and old_key!=key:
+                    self.enrollments.pop(old_key,None);self.evidence.pop(old_key,None)
+                    self.tracker.tracks.pop(old_key,None)
+                    with self.store.transaction() as conn:
+                        conn.execute('DELETE FROM voice_candidates WHERE track_id=?',(old_key,))
+            attribution = replace(attribution,track_id=key,state='supported' if attribution.person_id else 'hypothesis',
+                                  reason='acoustic_match' if attribution.person_id else 'self_introduction',
+                                  learning_eligible=observation.voiced_seconds>=1)
+            self.current = (turn_id,capture,transcript,observation,attribution)
+            with self.store.transaction() as conn:
+                evidence = json.loads(conn.execute('SELECT evidence FROM turns WHERE id=?',(turn_id,)).fetchone()[0])
+                evidence['association_person_id'] = data['person_id']
+                evidence['introduction_track_id'] = key
+                conn.execute('UPDATE turns SET evidence=? WHERE id=?',(json.dumps(evidence),turn_id))
             self.tracker.associate(attribution.track_id,data["person_id"],attribution.person_id==data["person_id"])
             if attribution.person_id is None and attribution.track_id not in self.enrollments:
                 proposal = self.evidence.get(attribution.track_id)
@@ -697,7 +742,6 @@ class CoreState:
             self.last_inspection = None
             self.attention.scene.invalidate(self.trace.clock())
             self.forgotten = True
-            from dataclasses import replace
             from .speakers import VoiceObservation,Attribution
             self.current = (turn_id,replace(capture,pcm=b""),transcript,
                             VoiceObservation(observation.namespace),Attribution(reason="person_forgotten"))
@@ -776,7 +820,7 @@ class CoreState:
         if not attribution.learning_eligible or attribution.person_id:
             if not attribution.person_id:
                 self.trace.emit('voice_learning_deferred',capture_id=capture.capture_id,
-                    reason=attribution.reason if not attribution.track_id else 'sample_quality',
+                    reason=attribution.reason,
                     voiced_seconds=observation.voiced_seconds,consistency=observation.consistency)
             return
         proposal = self.evidence.get(attribution.track_id)

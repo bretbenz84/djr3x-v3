@@ -616,3 +616,10 @@ observation-based remark. Once speech starts, ordinary scene changes or expirati
 of the original cue do not cut off the remark. Explicit stop and the remaining
 runtime/state guards still apply. The next-run investigation and 372-check
 synthetic evidence are recorded in [the review follow-up](REVIEW_2026_09_13.md#follow-up-scene-change-during-audible-speech).
+
+September 13 introduction recovery: a trusted self-introduction now saves the name
+without requiring independent voice recognition first. A usable introduction can
+start a fresh provisional voice group when old unnamed groups are ambiguous.
+Your existing supported profiles are preserved. See
+[introduction-first learning](INTRODUCTION_RECOVERY.md) for the implementation,
+379-check evidence and outstanding live acceptance.

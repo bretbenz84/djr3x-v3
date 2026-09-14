@@ -1010,3 +1010,12 @@ accepted speech, early-close flushing, separate inventories, a strict 30-second
 cap and no renewed recording after completion. No microphone/camera was operated.
 The missed-speech root cause remains unresolved pending an actual rejected-input
 recording; this change adds that evidence path rather than changing VAD thresholds.
+
+### September 13 introduction-first recovery
+
+Trusted introductions can create a person without a usable acoustic track and can
+anchor a fresh voice group instead of being vetoed by weak old-group continuity.
+Self-reported names remain distinct from recognized speakers. See
+[implementation and verification](INTRODUCTION_RECOVERY.md): 379 blocked-I/O checks
+pass, including restart, conflicting-profile protection and production Session
+coverage. Live multi-person acceptance remains pending; personal data was unchanged.
