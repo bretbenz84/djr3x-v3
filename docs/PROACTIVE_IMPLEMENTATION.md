@@ -1,5 +1,8 @@
 # Proactive core implementation plan
 
+Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
+below preserve the evidence and limitations of their respective checkpoints.
+
 September 12, 2026. The user authorized planning and beginning implementation.
 Existing documentation edits were already present in the working tree. This work
 uses v3's own Session and providers; no v2 extraction or personal-data import.
@@ -94,7 +97,8 @@ or run these first checks.
 - Stage 1 social/live acceptance remains open. Read the sample replies and evaluate
   humor, relevance and timing with people. A status match is not a humor score;
   no mood improvement or real speaker discrimination was measured.
-- Stage 2, 3 and 5 software implementation/evidence follow. Live acceptance remains pending.
+- Stages 2, 3 and 5 are also implemented; their dated evidence follows below.
+  Stage 4 is live acceptance, not an unfinished software stage.
 
 ## Stage 2: conversational feedback
 

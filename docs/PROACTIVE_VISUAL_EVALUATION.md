@@ -1,5 +1,8 @@
 # Hosted proactive visual dialogue evaluation — September 13, 2026
 
+Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
+below preserve the evidence and limitations of their respective checkpoints.
+
 The production conversation path was exercised in six hosted runs, each with 15
 turns across playful prop-making, grief-sensitive restraint, and topic/boundary
 scenarios. These trials found real semantic failures and motivated a scoped input/
@@ -75,7 +78,7 @@ In the alternate-wording run:
   produced speech. Earlier hair color was recalled correctly; no input label leaked.
 - **Repetition remains:** multiple playful remarks returned to the same mug/setup,
   including after mere dimming. Their wording varied more than their substance.
-- **Correction remains incomplete:** the LLM withdrew one selected description but
+- **Correction was incomplete at this checkpoint:** the LLM withdrew one selected description but
   similar earlier/later descriptions remained active. The one-record operation
   succeeded; the broader correction was not fully propagated.
 
@@ -135,3 +138,7 @@ The related-record correction limitation now has an implemented batch tool and
 worked in two trials, and the saved-image conversation withdrew both duplicate
 records. Whole-record withdrawal can also remove valid details; this does not
 establish partial correction or resolve repeated riffs.
+
+Related-record withdrawal and detail-preserving revisions were implemented after
+these trials. See [the integration pass](CORE_INTEGRATION_PASS.md) for subsequent
+evidence; the earlier failure remains part of the historical evaluation.

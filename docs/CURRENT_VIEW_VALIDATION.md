@@ -1,5 +1,8 @@
 # Current-view inspection and hosted visual dialogue
 
+Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
+below preserve the evidence and limitations of their respective checkpoints.
+
 The current-camera inspection adapter is implemented. Camera-enabled live startup
 with `scene_observations_enabled = true` exposes the LLM's `inspect_view` tool with
 only `direction=current`. No regex selects the tool. Base rotation and post-motion
@@ -108,6 +111,8 @@ resolve the hosted semantic failure above. See the
 Six hosted proactive runs (90 submitted turns) now exercise the new path. They
 exposed spoken internal labels, irrelevant scene narration and repeated riffs.
 A scoped image-context/tool-speech clarification improved restraint in the final
-trials; repetition and correction across related descriptions remain open.
+trials. Related-description correction and detail-preserving revisions were
+implemented afterward in the [core integration pass](CORE_INTEGRATION_PASS.md).
+Repetition quality and broader live acceptance remain open.
 **302 blocked-I/O tests pass.** See the
 [full evaluation and limitations](PROACTIVE_VISUAL_EVALUATION.md).

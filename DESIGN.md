@@ -287,8 +287,9 @@ different record types; generated impersonation text is not biographical evidenc
 Use parameterized transactions with one write owner and idempotent operations.
 Keep memory lookup small and deterministic initially. Semantic embeddings, large
 summaries and relationship scoring remain deferred. Contextual follow-ups from
-accepted claims belong in the proactive core design; their broader implementation
-is pending, with source attribution and audience discretion preserved.
+accepted claims are implemented through contextual memory opportunities, with
+source attribution and audience discretion preserved. Their live relevance remains
+to be evaluated; see the [current checklist](docs/IMPLEMENTATION_STATUS.md).
 Forgetting includes dependent recordings, derived references, and pending proposals;
 the active store and retrieval must stop exposing deleted personal information.
 

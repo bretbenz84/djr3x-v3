@@ -1,10 +1,13 @@
 # Initial test program and acceptance plan
 
+Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
+below preserve the evidence and limitations of their respective checkpoints.
+
 Status: core implementation through slices 0–4 is present; live device and group
 acceptance remain open. The user explicitly requested completing the core overnight
 before the next live test, so implementation continued past the original slice-1
-live gate without claiming that gate had passed. Slice 5 and the full robot remain
-deferred. [Operations](CORE_OPERATIONS.md) contains the current commands.
+live gate without claiming that gate had passed. Initial-program slice 5 (wider expansion) and the full robot remain
+deferred; this is distinct from the implemented proactive stage 5 observation inputs. [Operations](CORE_OPERATIONS.md) contains the current commands.
 The September 12 [proactive conversation design](PROACTIVE_CONVERSATION.md) adds
 broader initiative to core design and acceptance. The first shared arrival/lull
 slice is now implemented; its evidence is recorded below. Historical slice evidence

@@ -1,5 +1,8 @@
 # Conversation, action and vision integration pass
 
+Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
+below preserve the evidence and limitations of their respective checkpoints.
+
 Authorized September 13, 2026. Work in this pass:
 
 1. Add LLM-selected, detail-preserving revisions to eligible visual descriptions.

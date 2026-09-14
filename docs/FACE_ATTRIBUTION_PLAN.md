@@ -1,14 +1,19 @@
 # Face attribution and shared vision plan
 
+Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
+below preserve the evidence and limitations of their respective checkpoints.
+
 Status: the dev-Mac face path is implemented with **SCRFD-10G + EdgeFace-S**,
 selected with the user's authorization after the saved-media comparison. It is
 ready for live testing, not accepted on robot hardware. The robot target remains
 **base Apple M2 / 16 GB**; M5 Pro measurements cannot establish M2 readiness.
 
 The September 12 [proactive conversation design](PROACTIVE_CONVERSATION.md) places
-face arrivals within a shared policy for replies and initiative. The first shared
-arrival/lull slice is implemented; broader feedback and memory policy remains planned.
-Face identity/enrollment gates below remain unchanged. Visibility can
+face arrivals within a shared policy for replies and initiative. Shared
+arrivals/lulls, conversational feedback and contextual memory opportunities are
+implemented. See the [current checklist](IMPLEMENTATION_STATUS.md).
+The historical face gates below are supplemented by
+[introduction-first recovery](INTRODUCTION_RECOVERY.md). Visibility can
 support considering a greeting, but does not prove willingness to engage or identify
 the acoustic speaker. Social interpretation belongs to the conversation owner.
 

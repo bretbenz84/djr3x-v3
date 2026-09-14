@@ -1,5 +1,8 @@
 # Intentional attention and coordinated action
 
+Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
+below preserve the evidence and limitations of their respective checkpoints.
+
 September 12, 2026. The user authorized this implementation document and the first
 slice, then authorized proceeding with slice 2. Physical operation and the wider robot roadmap are not part of this slice.
 
@@ -42,13 +45,15 @@ and attention remain separate: turning away is not evidence that a person left.
 | --- | --- | --- |
 | 1 — implemented | Versioned attention intent, optional silent directional choice through production Session, output-owned simulation, bounded recent receipts | Synthetic one-call reply/proactive sequences, no fake speech or facts, expiry/cancellation/stale receipts, disabled capability |
 | 2 — implemented in simulation | Grounded face/object targets and attention transitions; coordinate/evidence contracts; perception after simulated movement | Lost/replaced targets, ambiguous people, calibration changes, camera movement versus independent scene change; no identity promotion |
-| 2b — description-memory slice implemented; live acquisition/semantic evaluation pending | Rich hosted image descriptions for visual questions and selective attention; source-linked visual observation memory and semantic repetition context | Stable appearance versus genuine change, uncertain person binding, corrected descriptions, direct questions, cost and latency |
+| 2b — implemented, including current-camera acquisition and limited hosted evaluation | Rich hosted image descriptions for visual questions and selective attention; source-linked visual observation memory and semantic repetition context | Stable appearance versus genuine change, uncertain person binding, corrected descriptions, direct questions, cost and latency |
 | 3 — implemented in bounded simulation | One spoken phrase with one target-aware primitive before/after playback, exclusive motion resource and separate receipts | Interruption, partial completion, stale targets, resource conflicts and failure independence; continuous blending remains hardware-integration work |
 | 4 — planned | Calibrated hardware adapters, constrained trajectories, sensor feedback and movement/audio exclusion | Explicit bench and room acceptance, manual takeover, limits/settling, obstruction, camera occlusion, microphone geometry, combined M2 load |
 
-The user selected slice 3 next; its bounded simulation implementation is described below.
-Rich descriptive memory now has an implemented inspection-based slice. Live acquisition,
-semantic evaluation and hardware integration (4) remain pending.
+Slices 1–3 and descriptive memory are implemented. Current-view camera acquisition
+is available in live startup; limited hosted visual evaluation is complete. Broader
+semantic/live acceptance and hardware integration (4) remain open.
+See the [current checklist](IMPLEMENTATION_STATUS.md); dated sections below retain
+the scope and evidence of their respective slices.
 Existing conversation/identity/social acceptance remains unresolved and continues
 alongside this work. Simulation cannot certify physical expressiveness or mood lift.
 
@@ -92,8 +97,9 @@ floor and proactive pacing gates still govern unsolicited opportunities.
 `attention_result` traces identify simulation, request, target and purpose; aborted
 pending proposals produce `attention_aborted`. Speech remains independently marked
 suppressed/none. These are not physical completion or successful visual inspection.
-A separate general action-delivery ledger and simultaneous speech/motion are planned
-in slice 3, not implied by this first adapter.
+The later [core integration pass](CORE_INTEGRATION_PASS.md) implements the general
+action/outcome ledger; slice 3 below implements before/after speech gestures in
+simulation. Simultaneous physical speech/motion remains hardware-integration work.
 
 ## Movement composition direction
 
@@ -192,9 +198,10 @@ beyond object detector labels. Useful descriptions include appearance (hair colo
 style, clothing/accessories and a rough apparent age range), room details, objects
 and their relationships. Object tracks locate candidates; image understanding
 provides descriptive meaning. Neither substitutes for the other. Current live
-proactive snapshots already reach the hosted conversation model, but durable visual
-observation memory and a general direct visual-query/inspection flow are not yet
-implemented. This section is a design addition, not a claim that those paths exist.
+proactive snapshots reach the hosted conversation model. Visual observation memory,
+LLM-selected inspection and current-view acquisition are now implemented; see
+[the current checklist](IMPLEMENTATION_STATUS.md). This section records their design
+and also discusses future options that are not required for the implemented slice.
 
 Use three access routes: an explicit visual question, a conversation-owner request
 to inspect a selected target, and a budgeted refresh when existing visual context
@@ -306,8 +313,8 @@ choreography, overlapping gesture trajectories, word-level alignment, continuous
 gaze blending or physical settling feedback. Serial execution is the conservative
 resource policy until real joint controllers and measured timing exist. The next
 hardware design must preserve these contracts while implementing interruption-safe
-trajectories and measuring latency/combined load. Rich image descriptions remain the
-separate planned avenue; this slice does not replace or implement that work.
+trajectories and measuring latency/combined load. Rich image descriptions were implemented in the
+subsequent inspection/visual-memory slices below.
 
 ## Composite visual inspection: motion, settling and capture
 
@@ -351,12 +358,14 @@ and must honor it and the cancellation token. The coordinator rejects late retur
 it cannot forcibly interrupt a misbehaving blocking provider. No such hardware
 provider is enabled by this slice.
 
-Normal live startup exposes no inspection tool: the coordinator and its move/wait/
-capture callables are explicitly injected into a simulation harness. Physical base
+At this slice, the move/wait/capture coordinator was simulation-only. Subsequent
+[current-view acquisition](CURRENT_VIEW_VALIDATION.md) exposes inspection during
+camera-enabled live startup, restricted to the current view. Physical base
 rotation, calibrated heading/coordinate transforms, motor settling feedback and live
 camera capture after movement remain unimplemented. Synthetic image evidence is not
 a live tracked-object frame; a later tracking adapter must publish its own valid
-post-movement observations. Rich descriptive-memory/caching work remains planned.
+post-movement observations. Rich descriptive memory and exact-image description
+reuse are now implemented in the subsequent slices below.
 
 **269 blocked-I/O checks pass**, including 12 new inspection tests. They exercise
 ordered motion/settling/capture, blocked movement, early settling, stale/wrong-view
@@ -417,12 +426,11 @@ bounded retention and forgetting. Prior inspection tests now verify that an imag
 continuation exposes only `describe_view`. All choices are scripted, with fake hosted
 HTTP and synthetic images; no real visual model or hardware was exercised.
 
-Remaining work: real-model multi-turn repetition/description evaluation; a measured
-live current-view acquisition adapter; optional resolution/detail selection; coalescing
-and caching image acquisition requests; and supported cross-session visual association.
-This slice reuses cached descriptions to avoid a new inspection when the LLM chooses
-historical evidence. It does not yet deduplicate separate requested inspections or
-claim that descriptive quality and natural novelty judgment are validated.
+Subsequent work implemented current-camera acquisition, limited hosted multi-turn
+evaluation and exact-image description reuse. General request coalescing, adaptive
+resolution/detail selection and supported cross-session visual association remain
+future options, outside the completed core slices. Broader descriptive quality and
+natural novelty judgment still need validation.
 
 ## Current-camera acquisition and hosted evaluation
 
@@ -472,19 +480,21 @@ not establish spontaneous remark quality, social judgment or camera performance.
 No hosted call or hardware was used for this slice. The earlier hosted false shape
 change remains unresolved; see [visual validation](CURRENT_VIEW_VALIDATION.md).
 
-Next evaluation: saved-media multi-turn proactive trials covering both welcome
-contributions and restraint, corrections and repeated unchanged appearance. Live
+The following evaluation stage exercised saved-media multi-turn proactive trials
+covering contributions, restraint, corrections and repeated unchanged appearance. Live
 camera/group acceptance and physical motion controllers remain separate open work.
 
 The September 13 [hosted proactive evaluation](PROACTIVE_VISUAL_EVALUATION.md) is now
 complete for six small synthetic-image trials. A scoped input-context correction
-improved final restraint cases. Repetition, related-record correction, real-photo
-quality and live acceptance remain open; 302 blocked-I/O tests pass.
+improved final restraint cases. Related-record correction was implemented afterward
+(see below). Repetition, real-photo quality and live acceptance remain open; the
+evaluation-stage suite contained 302 passing blocked-I/O tests.
 
 Related-record correction is now [implemented and evaluated](VISUAL_CORRECTION.md):
 the LLM can withdraw multiple explicitly selected descriptions, including older
 eligible records, in one atomic operation. 312 blocked-I/O checks pass. This is
-whole-record withdrawal; partial edits, repetition quality and live acceptance remain open.
+whole-record withdrawal; the subsequent integration pass adds detail-preserving
+revisions. Repetition quality and live acceptance remain open.
 
 ### Core integration follow-on
 

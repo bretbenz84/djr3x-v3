@@ -3,7 +3,9 @@
 A smaller conversation core for Rex, with one language owner, one acoustic speaker
 tracker, one state executor, and one speech output owner.
 
-**Status: the core runtime is implemented; identification and live acceptance remain incomplete.**
+**Status: the agreed core software is implemented; live identity and social acceptance remain incomplete.**
+See the [current implementation checklist](docs/IMPLEMENTATION_STATUS.md) for completed
+software, remaining validation and deferred hardware work.
 Microphone input, Qwen ASR, CAM++ tracks and natural enrollment, semantic identity
 and memory tools, persistent attributed claims, optional persistent face recognition, frozen
 saved-audio replay, and profile maintenance are implemented. The full robot roadmap remains outside this build; the explicitly authorized
@@ -163,9 +165,10 @@ latency/resource observations. A clean synthetic suite is not Bret/Jeff acceptan
 
 | Document | What it answers |
 | --- | --- |
+| [Current implementation checklist](docs/IMPLEMENTATION_STATUS.md) | Current software completion, validation gaps and future coding scope. |
 | [DESIGN.md](DESIGN.md) | Who makes each decision, how turns flow, how identity and memory work, and which choices remain proposals. |
-| [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex should initiate, delight and participate sensitively as part of the core; approved design, broader implementation pending. |
-| [Proactive implementation plan](docs/PROACTIVE_IMPLEMENTATION.md) | Stages, first-slice behavior, evidence and remaining social acceptance. |
+| [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex should initiate, delight and participate sensitively as part of the core; software implemented; social acceptance remains open. |
+| [Proactive implementation plan](docs/PROACTIVE_IMPLEMENTATION.md) | Implemented proactive stages, dated evidence and remaining social acceptance. |
 | [Initial test program](docs/INITIAL_TEST_PROGRAM.md) | What to build first, how to exercise it with Bret and Jeff, and what evidence is needed before expansion. |
 | [V2_REFERENCE.md](V2_REFERENCE.md) | Where to recover working integrations, field failures, model constraints, and useful tests without importing the old architecture. |
 | [AGENTS.md](AGENTS.md) | Development rules for people and coding agents working in this repository. |
@@ -219,8 +222,8 @@ presence. Directional audio is optional; the dev Mac must work without it.
 
 ## Deferred capabilities
 
-Wheel motion, servo expression, LEDs, games, visual riffs,
-impersonations, rich biographies, relationship scoring, semantic memory retrieval,
+Physical wheel/servo/LED control, games, impersonations, rich biographies,
+relationship scoring, semantic memory retrieval,
 and a polished GUI follow the core's acceptance gates. Offline mode and additional
 providers are later explicit profiles, not a default collection of loaded models.
 Preserve their v2 reference material so adding them later does not repeat research.

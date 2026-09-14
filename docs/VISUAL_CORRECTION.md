@@ -1,12 +1,16 @@
 # Correction across related visual memories
 
+Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
+below preserve the evidence and limitations of their respective checkpoints.
+
 Implemented September 13, 2026. `retract_visual` now accepts an explicit list of
 `observation_ids`, replacing the single-ID input. The conversation owner chooses
 all descriptions affected by the user's correction. There is no Python semantic
 matching, shared-word expansion, inferred person association or trait blacklist.
 
 The primary human-turn context includes up to 32 compact correction candidates in
-the current session and exact visible-track audience scope. This covers the entire
+the current session and audience scope (stable IDs for recognized people, track IDs
+for unknown faces). This covers the entire
 bounded visual store, including records outside the eight-item detailed recall
 window. Each candidate contains description, uncertainty, creation time and source
 references. No additional image or model call is required. Proactive turns do not

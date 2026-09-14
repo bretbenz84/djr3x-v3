@@ -76,9 +76,10 @@ reach back into v2 through sys.path changes, symlinked mutable state, or imports
 - Proactive participation is part of the conversational core, designed and evaluated
   with replies, attribution and memory; read docs/PROACTIVE_CONVERSATION.md for the
   September 12 direction. Delight and mood improvement are goals; emotional awareness
-  guides sensitivity, not automatic energy matching. The first shared arrival/lull
-  slice is implemented; docs/PROACTIVE_IMPLEMENTATION.md distinguishes remaining
-  feedback/memory work from current behavior. Documentation alone does not authorize
+  guides sensitivity, not automatic energy matching. Shared arrival/lull behavior,
+  feedback, memory opportunities and observation inputs are implemented;
+  docs/IMPLEMENTATION_STATUS.md separates completed software from live acceptance
+  and future coding. Documentation alone does not authorize
   implementing additional stages or operating hardware.
 - Keep unrelated feature expansion frozen during core evaluation. New perception,
   external feeds and hardware behaviors need scoped work rather than opportunistic
