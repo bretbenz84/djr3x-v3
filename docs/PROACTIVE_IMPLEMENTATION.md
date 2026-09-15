@@ -17,6 +17,33 @@ is opportunity timing, not a promise of audible output at eight seconds: model
 and speech latency follow. The model still interprets whether this is a welcome
 opening. See [design](PROACTIVE_CONVERSATION.md) for delight and emotional sensitivity.
 
+## Startup greeting repair — September 14, 2026
+
+The user requires a hello when Rex starts with a stable visible person before
+anyone speaks. The latest live failure (`c151bb0def17478daf6d2ec3afba85e7`)
+recognized a face, offered an arrival at eight seconds, then selected
+`remain_silent(no_response_needed)` and imposed a 120-second hold.
+
+Startup arrivals now explicitly request a brief model-written greeting. Only
+ordinary speech or an audible face-name invitation is offered in that opening;
+silent attention/description tools remain available for later opportunities.
+Attached images no longer add conflicting instructions about a preceding exchange.
+No identity is required for a simple hello, and no acoustic identity is inferred.
+The existing eight-second startup gate, camera stability, quiet/floor checks,
+new-speech cancellation and delivery receipts remain in force. Model/network or
+playback failure is still a failure, not a guaranteed or fabricated greeting.
+
+A `no_response_needed` decision on a later opportunity skips that contribution
+without imposing the 120-second hold. Human-floor reasons and explicit quiet/stop
+controls retain their existing protection. Ordinary pacing still limits attempts;
+this change does not automatically retry every declined arrival.
+
+Verification: **382 blocked-I/O checks passed**, including a synthetic hosted
+transport through production Session with startup images and audible greeting,
+unknown-face name invitation, later silence versus human-floor holds, cancellation
+and non-repetition. No hosted model, microphone, camera or speaker was operated.
+Live startup greeting quality and latency still need acceptance.
+
 ## Stages
 
 | Stage | Deliverable | Verification and completion gate |

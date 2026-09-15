@@ -84,6 +84,10 @@ def grounded_tools(context):
         definitions = [d for d in definitions if d['name'] in {'remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view'}]
     if context.get('inspection_description_allowed'):
         definitions = copy.deepcopy([d for d in TOOLS if d['name']=='describe_view'])
+    if context.get('visual_arrival',{}).get('startup_greeting'):
+        # Startup is an explicit social opening, not an optional visual riff.
+        # Ordinary model prose and an audible name invitation are sufficient.
+        definitions = [d for d in definitions if d['name']=='ask_face_question']
     people = [p["id"] for p in context.get("people",[])]
     claims = [c["id"] for c in context.get("claims",[])]
     faces = [f["track_id"] for f in context.get("faces",[])]

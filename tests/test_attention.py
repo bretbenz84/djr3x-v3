@@ -1,4 +1,5 @@
 """Synthetic attention choices through the production Session; no devices/models."""
+from dataclasses import replace
 from r3x.attention import AttentionReceipt, AttentionState, SimulatedAttention
 from r3x.contracts import Capture, ToolCall, Transcript
 from r3x.output import OutputOwner
@@ -42,7 +43,7 @@ class AttentionTests(MemoryFixture):
 
     def test_proactive_choice_uses_same_owner_without_inventing_a_speaker(self):
         self.setup_session()
-        result=self.session.process_opportunity(event(),0,lambda:True)
+        result=self.session.process_opportunity(replace(event(),kind="ambient",target_track=None),0,lambda:True)
         self.assertEqual(result.status,'suppressed')
         self.assertFalse(self.store.rows('SELECT * FROM turns'))
         self.assertFalse(any(m.get('role')=='user' for m in self.brain.snapshots[0].messages))
@@ -92,7 +93,7 @@ class AttentionTests(MemoryFixture):
         def invalidate(intent,cancel):
             result=original(intent,cancel);valid[0]=False;return result
         self.adapter.execute=invalidate
-        self.assertEqual(self.session.process_opportunity(event(),0,lambda:valid[0]).status,'interrupted')
+        self.assertEqual(self.session.process_opportunity(replace(event(),kind="ambient",target_track=None),0,lambda:valid[0]).status,'interrupted')
         self.assertIsNone(self.state.attention.active)
 
     def test_receipt_cannot_claim_physical_completion(self):
@@ -130,7 +131,7 @@ class AttentionTests(MemoryFixture):
     def test_human_floor_hold_suppresses_proactive_attention(self):
         self.setup_session()
         self.state.initiative.floor_held=lambda now:True
-        self.assertEqual(self.session.process_opportunity(event(),0,lambda:True).status,'suppressed')
+        self.assertEqual(self.session.process_opportunity(replace(event(),kind="ambient",target_track=None),0,lambda:True).status,'suppressed')
         self.assertEqual(self.brain.calls,0)
         self.assertIsNone(self.state.attention.active)
 

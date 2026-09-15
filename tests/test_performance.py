@@ -1,4 +1,5 @@
 """Production Session/output coordination with synthetic audio and simulated motion."""
+from dataclasses import replace
 from r3x.contracts import Capture, ToolCall, Transcript, ProviderFailure
 from r3x.performance import SimulatedGesture, GestureReceipt
 from r3x.output import OutputOwner
@@ -102,7 +103,7 @@ class PerformanceTests(MemoryFixture):
 
     def test_proactive_performance_uses_same_path_without_fake_human_turn(self):
         self.setup_session()
-        result=self.session.process_opportunity(event(),0,lambda:True)
+        result=self.session.process_opportunity(replace(event(),kind="ambient",target_track=None),0,lambda:True)
         self.assertEqual(result.status,'completed')
         self.assertEqual(result.gestures[0]['status'],'simulated')
         self.assertEqual(self.brain.calls,1)
@@ -149,7 +150,7 @@ class PerformanceTests(MemoryFixture):
             def play(self,*args,**kwargs):
                 receipt=super().play(*args,**kwargs);valid[0]=False;return receipt
         self.setup_session(sink=ChangedSink())
-        result=self.session.process_opportunity(event(),0,lambda:valid[0])
+        result=self.session.process_opportunity(replace(event(),kind="ambient",target_track=None),0,lambda:valid[0])
         self.assertEqual(result.status,'interrupted')
         self.assertTrue(result.completed_text)
         self.assertEqual(result.gestures[0]['status'],'cancelled')

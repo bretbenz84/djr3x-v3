@@ -190,6 +190,24 @@ class ProactiveVisualMemoryTests(MemoryFixture):
         list(brain.reply(replace(snap,context={'inspection_description_allowed':True,'inspection':{'question':'What is here?'}}),Cancellation()))
         self.assertEqual(brain.client.calls[0][1]['json']['input'][-1]['content'][-1]['type'],'input_image')
 
+    def test_startup_with_images_offers_greeting_not_silent_visual_tools(self):
+        from r3x.adapters.hosted import OpenAIBrain
+        from tests.test_adapters import Client, Response
+        self.setup_scene()
+        brain=OpenAIBrain('fixture')
+        brain.client=Client(Response([{'type':'response.output_text.delta','delta':'Hello there!'},
+                                     {'type':'response.completed'}]))
+        self.session.brain=brain
+        result=self.session.process_opportunity(replace(self.opportunity,kind='visual_arrival',target_track='face'),0,lambda:True)
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(result.completed_text,['Hello there!'])
+        self.assertEqual(len(brain.client.calls),1)
+        payload=brain.client.calls[0][1]['json']
+        self.assertEqual({t['name'] for t in payload['tools']},{'ask_face_question'})
+        self.assertIn('Greet the person now',payload['input'][-1]['content'])
+        self.assertFalse(self.store.rows('SELECT * FROM visual_observations'))
+        self.assertFalse(self.store.rows('SELECT * FROM turns'))
+
     def test_intervening_visual_revision_cancels_selected_proactive_phrase(self):
         from r3x import visual_memory
         self.setup_scene()

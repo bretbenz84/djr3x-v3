@@ -243,7 +243,9 @@ class CoreState:
                                'quiet_seconds':event.quiet_seconds,
                                'audience':'arrival_target' if event.kind=='visual_arrival' else 'visible_group'},
                 **({'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
-                                     'returning_this_session':event.returning}} if event.kind=='visual_arrival' else {}),
+                                     'returning_this_session':event.returning,
+                                     'startup_greeting':event.speech_marker==float('-inf') and self.current is None
+                                         and not any(r['heard_complete_phrases'] for r in self.initiative.outcomes)}} if event.kind=='visual_arrival' else {}),
                 'speaker':{'person_id':None,'state':'unresolved','reason':'no_speech_observed'},
                 'faces':faces,'people':people,'claims':[],
                 'pending_question':self.pending,'frozen_evaluation':self.frozen}
@@ -255,6 +257,8 @@ class CoreState:
             cancel.check()
             validate(call.name,call.arguments)
             if self.store.revision!=context['state_revision']: raise ValueError('StaleStateRevision')
+            if context.get('visual_arrival',{}).get('startup_greeting') and call.name!='ask_face_question':
+                raise ValueError('StartupGreetingRequiresSpeech')
             if call.name=='use_visual_memory':
                 from . import visual_memory
                 offered={r['id'] for r in context.get('visual_memory',[])}

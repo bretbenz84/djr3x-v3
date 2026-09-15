@@ -192,9 +192,12 @@ class Session:
                             "faces":context['faces']}
                 if opportunity.kind=='visual_arrival': evidence['arrival']=context['visual_arrival']
                 self.history.append({'role':'developer','content':
+                    ('Startup greeting: a stable person is visible and no human has spoken in this run. '
+                     'Say a brief hello now; choose natural wording and optionally invite an unknown person to share their name. '
+                     if context.get('visual_arrival',{}).get('startup_greeting') else
                     'Proactive opportunity; nobody spoke. The previous exchange was already processed. '
                     'There is no new human reply; do not answer the earlier utterance again. '
-                    'Choose whether a new contribution is welcome or use remain_silent. Observation: '+json.dumps(evidence)})
+                    'Choose whether a new contribution is welcome or use remain_silent. ')+'Observation: '+json.dumps(evidence)})
             elif self.state:
                 import json
                 self.history.append({"role":"developer","content":"Evidence for the immediately following utterance: "+json.dumps({
@@ -292,6 +295,8 @@ class Session:
                 if not self.state or len(calls) != 1 or generated.strip():
                     raise ProviderFailure("SpeechToolProtocolViolation")
                 call = calls[0]
+                if context.get('visual_arrival',{}).get('startup_greeting') and call.name!='ask_face_question':
+                    raise ProviderFailure('StartupGreetingRequiresSpeech')
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=call.arguments)
                 with self._lock:
                     cancel.check()
@@ -448,7 +453,8 @@ class Session:
                     from dataclasses import asdict
                     import json
                     delivery.status, delivery.medium = "suppressed", "none"
-                    if call.name!='conversation_feedback':
+                    if (call.name=='set_initiative' or
+                        call.name=='remain_silent' and result.data['reason']!='no_response_needed'):
                         self.proactive_hold_until = self.trace.clock()+120
                     self.history.extend((
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps(call.arguments)},

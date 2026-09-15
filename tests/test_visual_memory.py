@@ -102,7 +102,9 @@ class VisualMemoryTests(MemoryFixture):
         from tests.test_proactive import event
         from r3x.semantics import grounded_tools
         self.setup_description()
-        result=self.session.process_opportunity(event(),0,lambda:True)
+        from dataclasses import replace
+        self.session.note_speech(0)
+        result=self.session.process_opportunity(replace(event(),speech_marker=0),0,lambda:True)
         self.assertEqual(result.status,'completed')
         self.assertEqual([t['name'] for t in grounded_tools(self.brain.snapshots[-1].context)],['describe_view'])
 

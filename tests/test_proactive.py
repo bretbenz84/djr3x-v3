@@ -110,7 +110,27 @@ class ProactiveSessionTests(MemoryFixture):
         self.assertEqual(snapshot.speaker,'unresolved')
         self.assertFalse(any(m.get('role')=='user' for m in snapshot.messages))
         self.assertIn('Jordan',json.dumps(snapshot.context))
-        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)}, {'remain_silent','ask_face_question'})
+        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)}, {'ask_face_question'})
+        self.assertTrue(snapshot.context['visual_arrival']['startup_greeting'])
+
+    def test_startup_cannot_choose_silence_and_later_arrival_keeps_that_choice(self):
+        from r3x.contracts import Cancellation
+        startup=self.state.opportunity_context(event())
+        result=self.state.execute_opportunity(ToolCall('quiet','remain_silent',{'reason':'no_response_needed'}),startup,Cancellation())
+        self.assertEqual(result.outcome,'rejected')
+        self.assertEqual(result.reason,'StartupGreetingRequiresSpeech')
+        later=self.state.opportunity_context(replace(event(),speech_marker=0))
+        self.assertFalse(later['visual_arrival']['startup_greeting'])
+        self.assertIn('remain_silent',{t['name'] for t in grounded_tools(later)})
+
+    def test_human_floor_silence_retains_hold(self):
+        class Silent(Brain):
+            def reply(self,snapshot,cancel):
+                yield ToolCall('quiet','remain_silent',{'reason':'background_conversation'})
+        session=self.session(Silent());session.note_speech(0)
+        result=session.process_opportunity(replace(event(),speech_marker=0),0,lambda:True)
+        self.assertEqual(result.status,'suppressed')
+        self.assertEqual(session.proactive_hold_until,self.state.trace.clock()+120)
 
     def test_name_question_is_pending_only_after_audio_and_other_person_can_answer(self):
         class Question(Brain):
@@ -136,11 +156,11 @@ class ProactiveSessionTests(MemoryFixture):
             def reply(self,snapshot,cancel):
                 self.calls+=1
                 yield ToolCall('quiet','remain_silent',{'reason':'no_response_needed'})
-        brain=Silent();session=self.session(brain)
-        result=session.process_opportunity(event(),0,lambda:True)
+        brain=Silent();session=self.session(brain);session.note_speech(0)
+        result=session.process_opportunity(replace(event(),speech_marker=0),0,lambda:True)
         self.assertEqual(result.status,'suppressed');self.assertEqual(brain.calls,1)
         self.assertEqual(result.completed_text,[])
-        self.assertGreater(session.proactive_hold_until,self.state.trace.clock())
+        self.assertLess(session.proactive_hold_until,self.state.trace.clock())
         self.assertFalse(any(r['event']=='speech_generated' for r in self.state.trace.rows))
 
     def test_visual_tools_cannot_enroll_or_write_even_with_stale_audio_state(self):

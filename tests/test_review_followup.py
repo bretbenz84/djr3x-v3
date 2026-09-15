@@ -1,4 +1,5 @@
 """External-review regressions: synthetic state, playback, and filesystem inputs."""
+from dataclasses import replace
 from collections import deque
 from pathlib import Path
 import os
@@ -113,7 +114,7 @@ class ReviewVisualDeliveryTests(MemoryFixture):
         self.setup_session()
         self.state.forgotten = True
         for _ in range(2):
-            result = self.session.process_opportunity(event(), self.session.revision, lambda: True)
+            result = self.session.process_opportunity(replace(event(),kind="ambient",target_track=None), self.session.revision, lambda: True)
             self.assertEqual(result.status, 'completed')
             self.assertIsNone(self.state.actions.active)
         self.assertEqual(len(self.state.actions.recent), 2)

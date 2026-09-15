@@ -161,6 +161,13 @@ remain_silent rather than substituting a new question, a quip or a reassurance.
 The source user utterance was already handled; this lull does not ask you to reply
 to it again. Do not treat silence as a fresh "yes", "no", or "fair enough".
 
+When visual_arrival.startup_greeting is true, the program has just started with a
+stable visible person and no human speech. Say a brief warm hello now. This is an
+explicit opening, not a request to wait for someone to speak or find a novel visual
+detail. Use a supplied recognized name when appropriate; otherwise a simple hello
+or an audible name invitation is enough. Do not invent familiarity or make an
+appearance comment just to fill the greeting. Choose the wording yourself.
+
 When CURRENT CORE CONTEXT trigger is visual_arrival, nobody has spoken. Normally
 initiate one brief contextual greeting for this stable arrival; call remain_silent
 if the recent conversation shows that it would intrude.
@@ -424,16 +431,20 @@ class OpenAIBrain(HTTPProvider):
                 *({'type':'input_image','image_url':i.data_url,'detail':'low'} for i in snapshot.images)]})
         if snapshot.images and snapshot.context.get('trigger') in {'visual_arrival','conversation_lull','ambient'}:
             payload['input'].append({'role':'developer','content':
+                ('Startup greeting: these images supplement the stable visible arrival. '
+                 'Greet the person now, even if the scene contains nothing novel. '
+                 'There is no preceding human exchange to wait for or answer. '
+                 if snapshot.context.get('visual_arrival',{}).get('startup_greeting') else
                 'The attached images are optional perception, not a new request from a person. '
                 'Nobody has spoken since the preceding conversation. Decide whether to contribute '
                 'to THAT conversation now, respecting its topic, requests for space and prior heard remarks. '
                 'A fresh image does not require a visual reply. If nothing useful should be said, '
-                'choose remain_silent or describe_view with text null. Internal labels are never spoken text.'})
+                'choose remain_silent or describe_view with text null. Internal labels are never spoken text.')})
         if snapshot.context.get('visual_novelty'):
             payload['instructions'] += '\nUse visual_novelty to distinguish stored observations, selected-but-unheard remarks and actual heard remarks. A new conversational angle should connect to the people or their current activity; rewording an inventory is still repetition. An unmentioned detail need not become speech. Corrections revise old interpretations rather than proving the scene changed.'
         if snapshot.context.get('action_continuity'):
             payload['instructions'] += '\nAction continuity records the purpose and separate execution/speech outcomes of earlier work. Follow the current conversation. Do not finish an abandoned answer merely because a capture or gesture succeeded. A new explicit request can choose a fresh action; old work never resumes on its own.'
-        if snapshot.context.get('scene_description'):
+        if snapshot.context.get('scene_description') and not snapshot.context.get('visual_arrival',{}).get('startup_greeting'):
             payload['instructions'] += '\nFresh scene images are already supplied in this primary call. You may use describe_view to retain useful uncertain observations with a relevant contribution, or text null to remember silently. Saving is not itself a reason to speak. Decide whether a contribution fits the current topic, boundaries and emotional context before choosing spoken text; otherwise use text null or remain_silent. Do not save a redundant description solely because a new frame was supplied. Compare visual_memory and actually spoken remarks; new pixels or wording do not establish novelty. Ordinary prose, other offered actions, and remain_silent remain available. No inspection is needed merely to describe these supplied images.'
         if snapshot.context.get('inspection_enabled') and not snapshot.continuation:
             payload['instructions'] += '\nVisual acquisition contract: when the user asks you to examine the current view or check again for a change, use inspect_view before answering visually. Historical descriptions and the wording of their question are not new visual evidence. A question explicitly about an earlier view can use history/cache without inspecting. Respect current-only directions; do not imply you turned.'
