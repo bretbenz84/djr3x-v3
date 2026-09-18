@@ -94,6 +94,16 @@ class DirectionTests(unittest.TestCase):
         for invalid in (float('nan'),float('inf'),None,True):
             with self.assertRaises(ValueError): coordinates(invalid)
 
+    def test_near_forward_wording_preserves_small_offsets_for_speaker_comparison(self):
+        for bearing, side in ((-8.155070935031404,'right'), (7.4,'left')):
+            result = summarize(self.samples([bearing]*5), 0, 2)
+            self.assertTrue(result['coordinates']['description'].startswith('nearly straight ahead'))
+            self.assertEqual(result['coordinates']['side'],side)
+            self.assertAlmostEqual(result['bearing_deg'],bearing)
+            self.assertAlmostEqual(result['coordinates']['degrees_from_forward'],abs(bearing))
+        self.assertTrue(coordinates(-175)['description'].startswith('nearly directly behind'))
+        self.assertFalse(coordinates(-12.375)['description'].startswith('nearly straight ahead'))
+
     def test_wraparound_and_stale_window(self):
         rows = self.samples([179,-179,180,-178])
         result = summarize(rows,1,2)

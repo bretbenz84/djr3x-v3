@@ -26,7 +26,11 @@ def coordinates(bearing):
     else:
         side = 'left' if angle > 0 else 'right'
         description = f'{magnitude:.1f} degrees {side} of microphone-array forward'
-        if magnitude > 90:
+        if magnitude <= 10:
+            description = f'nearly straight ahead, {magnitude:.1f} degrees to the microphone array\'s {side}'
+        elif magnitude >= 170:
+            description = f'nearly directly behind, {180-magnitude:.1f} degrees toward the microphone array\'s {side} from rear'
+        elif magnitude > 90:
             description += f' ({magnitude-90:.1f} degrees behind its {side} side)'
         elif magnitude == 90:
             description += f' (directly to its {side})'

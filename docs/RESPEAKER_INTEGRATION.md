@@ -70,6 +70,13 @@ bearings, changed location windows, missing/ambiguous evidence, cardinal axes an
 angle wraparound. No live hardware or hosted model was used for this follow-up;
 the next room run must verify the model uses the descriptions correctly.
 
+The next room run confirmed correct rightward interpretation but described -8.2°
+as "right" when the owner was basically ahead. Descriptions now lead with
+"nearly straight ahead" within 10° of forward (and "nearly directly behind"
+within 10° of rear). This is a wording boundary only: signed side, full bearing,
+spread, clustering and identity evidence are unchanged. 402 blocked-I/O checks
+pass, including this near-forward regression; revised wording awaits live use.
+
 ### Initial integration
 
 - 398 blocked-I/O checks: synthetic PCM selection/clipping, wrong-output rejection,

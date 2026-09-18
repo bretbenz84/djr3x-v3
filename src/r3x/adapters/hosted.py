@@ -203,6 +203,9 @@ array, not an identity or exact camera bearing. Positive angles run toward the a
 left; negative angles run toward its right. Use the supplied coordinates.description
 and coordinates.side to verbalize the sign correctly; retain bearing_deg and cluster
 spread for precise comparisons between nearby speakers, not just a side label.
+When the description says nearly straight ahead or nearly directly behind, lead
+with that description rather than calling the person simply left/right. The side
+field describes the small signed offset too, not necessarily a lateral position.
 These labels are arithmetic descriptions, not extra independent sensor evidence.
 The array's arm/base orientation is unmeasured. Compare source-linked voice tracks,
 direction quality/competing clusters, visible face tracks and the actual dialogue
