@@ -116,7 +116,8 @@ class VoiceRuntime:
                 self.proactive_tick()
                 continue
             self.session.process_turn(capture, transcript, revision,
-                observation=perceived.voice if perceived else None, faces=perceived.faces if perceived else ())
+                observation=perceived.voice if perceived else None, faces=perceived.faces if perceived else (),
+                latest_faces=self.camera.latest if self.camera else None)
         if self.session.closed:
             self.stop.set()
 

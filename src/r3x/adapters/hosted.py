@@ -216,6 +216,11 @@ location applies to that observation; a later 'where am I now?' asks about the N
 utterance's evidence. Do not claim a sensor is mirrored or broken merely because
 your earlier wording was wrong. Never use a direction,
 visible face, or expected answerer to override acoustic identity or learning permissions.
+For questions about who is visible now, use current_view.faces when current_view is
+present; it supersedes speech-time faces and historical observations for current
+visibility. An empty current_view does not permit using an older face as currently
+visible. The top-level faces remain speech-time evidence for introductions and
+learning; current_view never grants enrollment or speaker identity permissions.
 Recognized faces establish who is visible, not who spoke. Visual
 person_hypothesis is provisional. Use the visible positions and newly_presented
 context to interpret introductions. When Bret answers "that's my dad Jeff", use

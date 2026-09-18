@@ -82,13 +82,13 @@ class Session:
     def history_messages(self):
         return self.history.messages()
 
-    def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int, observation=None, faces=()) -> Delivery:
-        return self._process(capture,transcript,submitted_revision,observation,faces)
+    def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int, observation=None, faces=(), *, latest_faces=None) -> Delivery:
+        return self._process(capture,transcript,submitted_revision,observation,faces,latest_faces=latest_faces)
 
     def process_opportunity(self, event, submitted_revision, still_valid):
         return self._process(None,None,submitted_revision,faces=event.faces,opportunity=event,still_valid=still_valid)
 
-    def _process(self, capture, transcript, submitted_revision, observation=None, faces=(), opportunity=None, still_valid=None):
+    def _process(self, capture, transcript, submitted_revision, observation=None, faces=(), opportunity=None, still_valid=None, latest_faces=None):
         if not self._processing.acquire(blocking=False):
             raise RuntimeError("Only one conversation owner may process turns")
         worker = None
@@ -107,6 +107,26 @@ class Session:
         question = None
         memory_selected = None
         observation_selected = None
+        def refresh_current_view(context):
+            if latest_faces is None or opportunity or not self.state:
+                return
+            from .face_attribution import public_face
+            now = self.trace.clock()
+            rows = latest_faces(now)
+            people = {p['id'] for p in self.state.store.people()}
+            visible = []
+            for row in rows:
+                if not 0 <= now-row['at'] <= 1.0 or row.get('face_epoch',0) < self.state.min_face_epoch:
+                    continue
+                face = public_face(row)
+                if face.get('identity') not in people:
+                    face['identity'] = None
+                    face['evidence'] = 'face_unresolved'
+                visible.append(face)
+            context['current_view'] = {'sampled_at':now,'faces':visible,
+                'meaning':'Latest fresh face evidence for who is visible now. Empty means no fresh detected face, not proof the room is empty. Separate from speech-time faces; never authorizes speaker attribution or enrollment.'}
+            self.trace.emit('reply_visual_context',turn_id=turn_id,**context['current_view'])
+
         def observation_ready():
             # Camera/feed freshness authorizes starting this remark. Ordinary
             # scene movement or cue expiry must not interrupt words already audible.
@@ -245,6 +265,7 @@ class Session:
                 context['visual_novelty'] = visual_memory.novelty(context['visual_memory'],scene_images)
                 context['visual_novelty']['recent_selections'] = [r for r in self.state.visual_selections if r['audience']==visual_memory.audience(context)]
                 context['action_continuity'] = self.state.actions.context(visual_memory.audience(context))
+            refresh_current_view(context)
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
                                 context, self.state is not None, images=scene_images)
@@ -506,6 +527,7 @@ class Session:
                     from dataclasses import asdict
                     import json
                     context = self.state.context(faces)
+                    refresh_current_view(context)
                     if call.name=='set_initiative' and result.outcome=='ok':
                         self.proactive_hold_until = float('-inf')
                     continuation = (*call.preamble,

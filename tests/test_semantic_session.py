@@ -26,6 +26,47 @@ class Brain:
 
 
 class SessionTests(MemoryFixture):
+    def test_current_view_updates_reply_without_changing_speech_evidence(self):
+        person = self.enroll()
+        self.begin('Who do you see?', C)
+        old = {'track_id':'face-test','identity':None,'face_epoch':0,'at':self.at,
+               'box':[.3,.2,.1,.2],'position':'center','evidence':'face_unresolved'}
+        brain = Brain(lambda s:'I can see Bret.' if s.context['current_view']['faces'][0]['identity']==person else 'Unknown.')
+        session = Session('session',brain,TextOutput(self.state.trace),self.state.trace,self.state)
+        reads = []
+        def latest(now):
+            reads.append(now)
+            return ({**old,'identity':person,'evidence':'face_match','at':now-.1,'_samples':('private',)},)
+        receipt = session.process_turn(self.state.current[1],Transcript('Who do you see?',0,True),0,
+            observation(C),faces=(old,),latest_faces=latest)
+        self.assertEqual(receipt.completed_text,['I can see Bret.'])
+        self.assertEqual(len(brain.requests),1)
+        self.assertEqual(len(reads),1)
+        context = brain.requests[0].context
+        self.assertIsNone(context['faces'][0]['identity'])
+        self.assertIsNone(context['speaker']['person_id'])
+        self.assertIsNone(self.state.faces[0]['identity'])
+        self.assertNotIn('_samples',context['current_view']['faces'][0])
+        self.assertEqual(self.state.face_learning,{})
+        session.close()
+
+    def test_current_view_rejects_expired_future_and_invalidated_faces(self):
+        person = self.enroll()
+        for kind in ('expired','future','invalidated','empty'):
+            with self.subTest(kind=kind):
+                self.begin('Who is here?')
+                self.state.min_face_epoch = 1
+                brain = Brain(lambda s:'No fresh face evidence.' if not s.context['current_view']['faces'] else 'Visible.')
+                session = Session('session',brain,TextOutput(self.state.trace),self.state.trace,self.state)
+                def latest(now):
+                    if kind=='empty': return ()
+                    return ({'track_id':'old','identity':person,'face_epoch':0 if kind=='invalidated' else 1,
+                             'at':now+(.1 if kind=='future' else -2 if kind=='expired' else -.1)},)
+                receipt = session.process_turn(self.state.current[1],Transcript('Who is here?',0,True),0,
+                    observation(),latest_faces=latest)
+                self.assertEqual(receipt.completed_text,['No fresh face evidence.'])
+                session.close()
+
     def test_repeated_turns_keep_context_tracks_and_original_archive_bounded(self):
         self.enroll()
         from r3x.scenario import ScriptedBrain

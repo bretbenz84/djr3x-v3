@@ -67,3 +67,25 @@ Routine JSON traces contain no images or embeddings.
 - Full conversation load, two nearby people, difficult pose/lighting and longer
   distances remain acceptance work. The fixed feed changes what face/scene consumers
   see; their former apparent stability was not validation.
+
+## Reply-time face evidence (September 17)
+
+The subsequent live run `8ea29aa3483b47cfa964dcc3baa8ca93` exposed a timing
+problem: at the questions around 47 and 162 seconds, face confirmation completed
+after speech ended but before the conversational model request. The model received
+only the earlier unresolved speech-window evidence.
+
+Ordinary live turns now include a separate `current_view` snapshot, read from the
+camera cache immediately before the primary request and refreshed for state-tool
+continuations. The model uses it for current visibility. Speech-window `faces`
+remain the source for attribution, introductions and learning. No extra inference,
+frame wait or model request is introduced. Rows older than one second, future
+rows and invalidated epochs are excluded; forgotten identities are removed.
+An empty current view cannot establish that the room is empty or justify reusing
+an old face. `reply_visual_context` traces record exactly the supplied snapshot.
+
+Validation: **405 blocked-I/O tests passed**. Added synthetic session regressions
+cover recognition arriving after the speech snapshot, unchanged speaker/learning
+evidence, one primary request, and stale/future/invalidated/empty current views.
+Live conversational acceptance of this timing fix remains pending; no hardware
+or hosted providers were operated for these tests.

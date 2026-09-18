@@ -68,3 +68,7 @@ contracts, design rationale and dated evidence. The initial program's numbered
 slices and the proactive plan's numbered stages are separate sequences. In
 particular, the initial program's deferred expansion must not be confused with
 proactive stage 5, whose news/weather/scene inputs are implemented.
+
+September 17 reply-time face context: fresh cached `current_view` is separate from
+speech-time attribution/enrollment evidence; 405 blocked-I/O tests pass. Live
+acceptance pending. See [face timing evidence](FACE_DISTANCE_FIX.md#reply-time-face-evidence-september-17).
