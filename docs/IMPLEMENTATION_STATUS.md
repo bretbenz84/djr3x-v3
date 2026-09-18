@@ -81,3 +81,13 @@ shared model can inspect/compare, teach, correct and forget pet/object reference
 contracts. Individual-animal accuracy, ambiguous spatial references and full live
 conversation acceptance remain limited; no dedicated room model was added. See
 [implementation and evidence](OBJECT_PHOTO_MEMORY.md).
+
+Photo-memory follow-up: 417 blocked-I/O checks pass with explicit save/defer teaching,
+source-name checks, additive notes, and multi-pet overview rejection. Saved-photo
+hosted checks still misidentified the dogs despite fresh inspection; reliable
+individual-animal recognition remains open. See the
+[handling follow-up](OBJECT_PHOTO_MEMORY.md#teaching-and-correction-safeguards-september-17-follow-up).
+
+User-requested [Luna comparison](LUNA_COMPARISON.md): saved-photo trials completed
+with isolated galleries and silent output. Luna was cheaper but slower in the small
+paired test and failed a breed-update acknowledgment; production remains Mini/low.

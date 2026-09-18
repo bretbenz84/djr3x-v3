@@ -396,6 +396,7 @@ class HTTPProvider:
 
 class OpenAIBrain(HTTPProvider):
     reasoning_effort = "low"
+
     def __init__(self, key: str):
         super().__init__()
         self.key = key
@@ -481,8 +482,23 @@ class OpenAIBrain(HTTPProvider):
                 'to THAT conversation now, respecting its topic, requests for space and prior heard remarks. '
                 'A fresh image does not require a visual reply. If nothing useful should be said, '
                 'choose remain_silent or describe_view with text null. Internal labels are never spoken text.')})
+        if snapshot.context.get('photo_memory') and not snapshot.context.get('photo_inspection'):
+            payload['instructions'] += ('\nPHOTO MEMORY DECISION: The catalog is the complete saved pet/object library; '
+                'a name only mentioned in conversation is not saved. Explicit naming such as "the smaller dog is NAME" '
+                'is teaching even without the word remember: inspect the intended subject and save, or clarify ambiguity. '
+                'Never merely acknowledge a teaching statement as though it was saved. Apparent image size is not physical size; '
+                'when larger/smaller leaves two dogs ambiguous, ask for coat markings or an unambiguous position before saving. '
+                'For questions about which named dog is closest, highest, or currently visible, inspect_visual_memory '
+                'with target_id null and relevant reference entity_ids BEFORE answering. Detector boxes and old user '
+                'location statements cannot establish current named identity. If unable to inspect, say so. '
+                'For continued descriptions, read the immediately preceding HUMAN words, including interrupted turns; '
+                'do not substitute the last dog YOU talked about or the only saved dog. An unnamed fragment cannot '
+                'authorize a photo edit: ask which named pet the combined description belongs to. '
+                'Save durable appearance/breed details with notes; a temporary location stays in conversation and is not a permanent appearance note. '
+                'remove_notes only selects the specifically contradicted old detail quoted by the user. '
+                'When PhotoSubjectNeedsExplicitName rejects a write, ask for the name with the description; nothing was saved.')
         if snapshot.context.get('photo_inspection'):
-            payload['instructions'] += '\nPhotographic inspection result: The current overview and optional target crop come first; their labels explicitly say current. All subsequent images are historical references. Labels are supplied immediately before each image and in photo_inspection.images. Compare all requested subjects in the current overview when asked about multiple objects; the crop is a close-up of just one of them. If there are no reference images, this is a first look: never claim a match or previous photographic familiarity. Answer the ORIGINAL current_utterance, not merely the model-authored inspection question. Target selection can be wrong: verify the crop corresponds to the position/subject the user asked about, using the current overview and image_position. If it does not, answer about the requested subject in the overview or clarify, never silently substitute the matched pet. Answer the user using individual visual evidence; do not mistake a reference for a current sighting. If the current user explicitly taught/confirmed this object, use the offered remember_object tool now, with the current source_turn_id and evidence_id. This continuation explicitly permits that one save tool; do not merely promise to remember. Recognition alone must not add a reference. Compare visible markings and shapes in the CURRENT image against each REFERENCE: incompatible marking colors/layouts, proportions or distinguishing features count against a match. Shared pose, couch or general dark coat is not enough. Describe only the current crop/view; never describe reference images as other dogs currently present. If the view is blurred, obscured or contradictory, abstain. No other tools or extra inspections.'
+            payload['instructions'] += '\nPhotographic inspection result: The current overview and optional target crop come first; their labels explicitly say current. All subsequent images are historical references. Labels are supplied immediately before each image and in photo_inspection.images. Compare all requested subjects in the current overview when asked about multiple objects; the crop is a close-up of just one of them. If there are no reference images, this is a first look: never claim a match or previous photographic familiarity. Answer the ORIGINAL current_utterance, not merely the model-authored inspection question. Target selection can be wrong: verify the crop corresponds to the position/subject the user asked about, using the current overview and image_position. If it does not, answer about the requested subject in the overview or clarify, never silently substitute the matched pet. Answer the user using individual visual evidence; do not mistake a reference for a current sighting. If multiple pets are detected, never save the whole overview as one pet: teaching requires a selected target crop. Ask for an unambiguous location/marking when unavailable. If the current user explicitly taught/confirmed this object, use the offered remember_object tool now, with the current source_turn_id and evidence_id. This continuation permits one save OR edit tool: use remember_object for photographic teaching, edit_object_memory for user-supplied details or corrections to an existing entry. A breed or coat statement is an update to save, not a request to independently verify the user. Do not merely promise to remember. Recognition alone must not add a reference. Compare visible markings and shapes in the CURRENT image against each REFERENCE: incompatible marking colors/layouts, proportions or distinguishing features count against a match. Shared pose, couch or general dark coat is not enough. Describe only the current crop/view; never describe reference images as other dogs currently present. If the view is blurred, obscured or contradictory, abstain. No other tools or extra inspections.'
         if snapshot.context.get('visual_novelty'):
             payload['instructions'] += '\nUse visual_novelty to distinguish stored observations, selected-but-unheard remarks and actual heard remarks. A new conversational angle should connect to the people or their current activity; rewording an inventory is still repetition. An unmentioned detail need not become speech. Corrections revise old interpretations rather than proving the scene changed.'
         if snapshot.context.get('action_continuity'):
@@ -500,6 +516,8 @@ class OpenAIBrain(HTTPProvider):
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             from ..semantics import grounded_tools
             payload.update(tools=grounded_tools(snapshot.context), parallel_tool_calls=False)
+            if snapshot.context.get('photo_inspection',{}).get('intent')=='teach':
+                payload['tool_choice']='required'
         deadline = time.monotonic() + max(30, payload["max_output_tokens"] / 20)
         complete = False
         calls = []

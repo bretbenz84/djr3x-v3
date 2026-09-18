@@ -10,6 +10,17 @@ from .scene import SceneImage
 
 PHOTO_TOOLS = {'inspect_visual_memory','remember_object','edit_object_memory'}
 
+def names_subject(text, name):
+    """Validate a model-selected literal reference, never infer a subject from speech."""
+    text=text.casefold();name=name.casefold().strip()
+    if not name:return False
+    start=0
+    while (index:=text.find(name,start))>=0:
+        end=index+len(name)
+        if (index==0 or not text[index-1].isalnum()) and (end==len(text) or not text[end].isalnum()):return True
+        start=end
+    return False
+
 class PhotoMemory:
     def __init__(self,root: Path):
         self.root=root
@@ -82,6 +93,7 @@ class PhotoMemory:
             raise ValueError('PhotoTeachingSourceMismatch')
         data=copy.deepcopy(self.data);created=None;remove=[]
         if call.name=='remember_object':
+            if not names_subject(source['text'],a['name']):raise ValueError('PhotoSubjectNeedsExplicitName')
             evidence=self.evidence.get(a['evidence_id'])
             if not evidence or not 0<=now-evidence['offered_at']<=45:raise ValueError('PhotoEvidenceExpired')
             key=a['entity_id'] or uuid4().hex
@@ -105,12 +117,22 @@ class PhotoMemory:
         elif call.name=='edit_object_memory':
             key=a['entity_id'];entity=data['entities'].get(key)
             if entity is None:raise ValueError('UnknownPhotoEntity')
+            if not names_subject(source['text'],entity['name']):raise ValueError('PhotoSubjectNeedsExplicitName')
             if a['action']=='forget':
                 remove=[self._path(r['file']) for r in entity['references']];del data['entities'][key]
                 result={'entity_id':key,'status':'forgotten'}
             else:
+                previous_notes=entity['notes']
+                if a['remove_notes'] is not None:
+                    if a['remove_notes'] not in previous_notes:raise ValueError('PhotoCorrectionTextMismatch')
+                    if not names_subject(source['text'],a['remove_notes']):raise ValueError('PhotoCorrectionNeedsQuotedDetail')
+                    previous_notes=previous_notes.replace(a['remove_notes'],'',1).strip(' ;\n')
+                notes=a['notes']
+                if notes is None or notes in previous_notes:notes=previous_notes
+                elif previous_notes:notes=previous_notes.rstrip(' ;')+'; '+notes
+                if len(notes)>4000:raise ValueError('PhotoNotesCapacity')
                 entity['history']=(entity['history']+[{'action':'correct','previous':{k:entity[k] for k in ('name','notes')},'source':source}])[-24:]
-                entity['name'],entity['notes']=a['name'],a['notes']
+                entity['name'],entity['notes']=a['name'],notes
                 result={'entity_id':key,'name':entity['name'],'status':'updated'}
         else:raise ValueError('UnknownPhotoOperation')
         data['operations'][op]=result

@@ -132,3 +132,66 @@ implemented locally. Model digest and shapes are checked; mismatches fail startu
 
 References: [RF-DETR export](https://rfdetr.roboflow.com/1.6.2/learn/export/),
 [OpenAI image inputs](https://developers.openai.com/api/docs/guides/images-vision).
+
+## Teaching and correction safeguards (September 17 follow-up)
+
+The first user-run dog session exposed missing saves, skipped fresh inspections,
+and an unnamed continuation overwriting the wrong dog's whole notes. The following
+changes are implemented:
+
+- `inspect_visual_memory` now declares `intent: look | teach`. A successful teaching
+  inspection offers only `remember_object` and `defer_photo_teaching`, with required
+  tool selection. Plain prose is rejected before it reaches output. Saving gets an
+  executor acknowledgment; deferral explicitly leaves memory unchanged. Ordinary
+  replies still use one primary generation, with no classifier or required preamble.
+- A selected write requires the literal existing name in the current human utterance
+  (the proposed name for a new reference). This validates an LLM-selected reference;
+  it does not interpret language or infer a subject. An unnamed continuation or
+  pronoun requires a named clarification. Renames currently require the old name
+  too. Merely mentioning a name is necessary, not sufficient authorization: the
+  conversational model still must interpret actual teaching/correction intent.
+- `edit_object_memory.notes` appends a new detail, or null leaves notes unchanged.
+  `remove_notes` must match an existing substring AND text explicitly supplied by
+  the user. This prevents an unrelated appearance addition from dropping breed or
+  other details. Corrections retain previous notes and original source attribution.
+- With multiple dog/cat detections, saving a pet requires an individual target crop;
+  the whole multi-pet overview is rejected. This does not prove the selected crop
+  is the intended animal. A look continuation can now finish with a detail edit.
+- Context explicitly distinguishes the complete saved catalog, unnamed detector
+  hints and current photographic evidence. Model guidance calls for fresh whole-view
+  comparison for current spatial questions, durable appearance notes instead of
+  temporary locations, and clarification of ambiguous size/continuation references.
+
+Validation: **417 blocked-I/O checks pass**. Added production-Session cases cover
+preserving unrelated notes, rejecting wrong-subject fragments and unrelated removal,
+restart/source history, updating after inspection, refusing a multi-pet overview,
+required hosted tool selection, explicit deferral, and blocking premature prose.
+No microphone, playback, motion or new camera capture was used.
+
+Several authorized OpenAI replays used previously saved two-dog photos and isolated
+libraries. The final nine-turn replay saved both named entries, preserved the breed
+when adding color, asked for clarification on the unnamed fragment, and inspected
+freshly for both spatial questions. It nevertheless **misidentified the dogs in both
+answers** and generated an incorrect appearance description for a reference.
+It also returned an empty model response for the unfinished sentence. That replay
+sent the unfinished sentence to the model; the original live run interrupted it
+before generation, so this is not an exact timing reproduction.
+Private receipt: `local/validation/object-memory/hosted-c3e1dd5bf8684d2fa47d26094ed7b09a/`.
+Nine primary calls plus four image continuations; typed-input-to-text-completion
+median 1.94 s, maximum 6.09 s (includes the failed turn; no ASR/TTS/playback).
+This is a small functional probe, not a latency or recognition accuracy benchmark.
+
+Medium reasoning was also tried and removed: some inspections improved, but wrong
+identifications/skipped saves persisted and individual teaching turns reached
+14.71 s. The existing low reasoning setting remains. No resident models changed.
+
+The live affected record was restored from its last correct saved history, keeping
+its photo, recording maintenance provenance and backing up the prior catalog under
+ignored validation storage. Test entries were not imported into the live library.
+
+**Remaining limits:** selecting teaching intent and requesting an inspection still
+belong to the LLM; the executor cannot validate arbitrary plain-language claims.
+The save-or-defer guarantee starts after a teaching inspection is selected. Two-dog
+visual matching remains unreliable even with fresh pixels. Detector mistakes can
+also hide multiplicity. These changes protect memory and make teaching outcomes
+explicit; they do not establish reliable individual-animal recognition.

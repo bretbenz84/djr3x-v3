@@ -1022,3 +1022,12 @@ Self-reported names remain distinct from recognized speakers. See
 [implementation and verification](INTRODUCTION_RECOVERY.md): 379 blocked-I/O checks
 pass, including restart, conflicting-profile protection and production Session
 coverage. Live multi-person acceptance remains pending; personal data was unchanged.
+
+### September 17 photo-memory handling follow-up
+
+417 blocked-I/O checks pass. Selected photographic teaching must save or explicitly
+defer before speech; writes require a named current source, note additions preserve
+unrelated details, and multi-pet overview saves are rejected. Authorized saved-photo
+hosted replay confirmed both saves and fragment clarification, but still confused
+the dogs despite fresh comparisons. No new hardware capture/playback was performed.
+See [implementation, measured latency and remaining failures](OBJECT_PHOTO_MEMORY.md#teaching-and-correction-safeguards-september-17-follow-up).

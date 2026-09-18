@@ -302,6 +302,8 @@ class Session:
                         if first_token_at is None:
                             first_token_at = self.trace.clock()
                             self.trace.emit("model_first_text", turn_id=turn_id)
+                        if request.context.get('photo_inspection',{}).get('intent')=='teach':
+                            raise ProviderFailure('PhotoTeachingRequiresDecision')
                         generated += delta
                         if len(generated) > 4000:
                             raise ProviderFailure("ReplyLengthLimit")

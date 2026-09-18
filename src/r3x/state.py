@@ -55,6 +55,10 @@ class CoreState:
                 raise ValueError('StalePhotoRevision')
             if call.name=='remember_object' and call.arguments['evidence_id']!=context.get('photo_inspection',{}).get('evidence_id'):
                 raise ValueError('PhotoEvidenceNotOffered')
+            if call.name=='remember_object' and call.arguments.get('kind')=='pet':
+                pets=[r for r in context['photo_memory'].get('objects',[]) if r.get('label') in {'dog','cat'}]
+                if len(pets)>1 and not context.get('photo_inspection',{}).get('target',{}).get('target_id'):
+                    raise ValueError('PhotoTeachingNeedsSinglePetCrop')
             turn,capture,transcript,voice,attribution=self.current
             if not transcript.trusted or capture.echo_risk:raise ValueError('UntrustedPhotoTeaching')
             source={'turn_id':turn,'session_id':capture.session_id,'text':transcript.text,
