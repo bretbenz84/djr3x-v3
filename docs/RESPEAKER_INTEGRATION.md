@@ -53,6 +53,25 @@ remains unimplemented; this work does not satisfy that geometry requirement.
 
 ## Verification
 
+### Coordinate descriptions (September 17 follow-up)
+
+The room run exposed an LLM sign error: -97° and -122° were described as left
+despite rightward sensor evidence. `coordinates` now accompanies the full bearing
+and every cluster: explicit side, unrounded angular distance from forward and an
+arithmetic description (e.g. -97.4° → "97.4 degrees right of microphone-array
+forward (7.4 degrees behind its right side)"). This is not another observation
+or a quadrant-based identity rule. Full precision, spread, sample counts and
+clustering remain unchanged. Ambiguous/unavailable results have no overall label.
+Historical location corrections remain tied to their source utterance; the model
+is instructed to use new evidence when asked about a new location.
+
+401 blocked-I/O checks pass, including both live sign regressions, nearby front
+bearings, changed location windows, missing/ambiguous evidence, cardinal axes and
+angle wraparound. No live hardware or hosted model was used for this follow-up;
+the next room run must verify the model uses the descriptions correctly.
+
+### Initial integration
+
 - 398 blocked-I/O checks: synthetic PCM selection/clipping, wrong-output rejection,
   stale/weak/playback rejection, circular/competing clusters, USB errors and close,
   two voices at one bearing plus an unknown third voice, combined LLM context,

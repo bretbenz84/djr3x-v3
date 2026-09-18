@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from r3x.adapters.audio import Microphone, selected_pcm
 from r3x.adapters.flex import FlexControl
 from r3x.contracts import Capture, Cancellation, ProviderFailure, Transcript
-from r3x.direction import Direction, DirectionSample, summarize
+from r3x.direction import Direction, DirectionSample, coordinates, summarize
 from r3x.output import TextOutput
 from r3x.perception import Perception
 from r3x.session import Session
@@ -66,6 +66,34 @@ class DirectionTests(unittest.TestCase):
     def samples(self, bearings, energy=100000):
         return [DirectionSample(1+i*.1, 90, b, energy, True) for i,b in enumerate(bearings)]
 
+    def test_live_right_side_regressions_keep_precision_and_explain_sign(self):
+        for bearing in (-97.38890409951155, -121.56554351460355):
+            result = summarize(self.samples([bearing]*5), 0, 2)
+            self.assertAlmostEqual(result['bearing_deg'], bearing)
+            self.assertEqual(result['coordinates']['side'], 'right')
+            self.assertIn('behind its right side', result['coordinates']['description'])
+            self.assertEqual(result['clusters'][0]['coordinates'], result['coordinates'])
+            self.assertLess(result['clusters'][0]['spread_deg'], 1e-9)
+
+    def test_nearby_front_speakers_remain_distinct_and_motion_uses_new_window(self):
+        left = self.samples([18.125]*5)
+        right = [replace(r, at=r.at+3) for r in self.samples([-12.375]*5)]
+        a, b = summarize(left+right, 0, 2), summarize(left+right, 3, 5)
+        self.assertEqual(a['coordinates']['side'], 'left')
+        self.assertEqual(b['coordinates']['side'], 'right')
+        self.assertAlmostEqual(a['bearing_deg']-b['bearing_deg'], 30.5)
+        self.assertEqual(summarize(left+right,6,7)['coordinates'], None)
+
+    def test_axes_wrap_and_invalid_bearings(self):
+        self.assertEqual(coordinates(263),coordinates(-97))
+        self.assertIn('directly ahead',coordinates(0)['description'])
+        self.assertEqual(coordinates(180),coordinates(-180))
+        self.assertIn('directly behind',coordinates(180)['description'])
+        self.assertEqual(coordinates(90)['side'],'left')
+        self.assertEqual(coordinates(-90)['side'],'right')
+        for invalid in (float('nan'),float('inf'),None,True):
+            with self.assertRaises(ValueError): coordinates(invalid)
+
     def test_wraparound_and_stale_window(self):
         rows = self.samples([179,-179,180,-178])
         result = summarize(rows,1,2)
@@ -82,6 +110,7 @@ class DirectionTests(unittest.TestCase):
         result = summarize(self.samples([90,-90]*8),0,5)
         self.assertEqual(result['status'], 'ambiguous')
         self.assertIsNone(result['bearing_deg'])
+        self.assertIsNone(result['coordinates'])
         self.assertEqual(len(result['clusters']),2)
 
     def test_fresh_beam_beats_lagging_doa_and_self_audio_is_excluded(self):
@@ -98,6 +127,7 @@ class DirectionTests(unittest.TestCase):
         self.assertFalse(direction.samples[-1].eligible)
         direction.cancel()
         self.assertEqual(direction.during(99,101)['status'],'unavailable')
+        self.assertIsNone(direction.during(99,101)['coordinates'])
         direction.close()
         control.close.assert_called_once()
 

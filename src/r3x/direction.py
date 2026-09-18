@@ -13,6 +13,26 @@ def wrap(degrees):
     return (degrees + 180) % 360 - 180
 
 
+def coordinates(bearing):
+    """Explain an array-relative angle without quantizing the measurement."""
+    if type(bearing) not in (int, float) or not math.isfinite(bearing):
+        raise ValueError('InvalidDirectionBearing')
+    angle = wrap(bearing)
+    magnitude = abs(angle)
+    if angle == 0:
+        side, description = 'center', 'directly ahead of the microphone array'
+    elif magnitude == 180:
+        side, description = 'center', 'directly behind the microphone array'
+    else:
+        side = 'left' if angle > 0 else 'right'
+        description = f'{magnitude:.1f} degrees {side} of microphone-array forward'
+        if magnitude > 90:
+            description += f' ({magnitude-90:.1f} degrees behind its {side} side)'
+        elif magnitude == 90:
+            description += f' (directly to its {side})'
+    return {'side': side, 'degrees_from_forward': magnitude, 'description': description}
+
+
 @dataclass(frozen=True)
 class DirectionSample:
     at: float
@@ -33,7 +53,7 @@ def summarize(samples, start, end):
     result = {'status': 'unavailable', 'reason': 'too_few_speech_energy_samples',
               'frame': 'microphone_array', 'positive': 'left_counterclockwise',
               'started_at': start, 'ended_at': end, 'samples': len(rows),
-              'bearing_deg': None, 'clusters': [], 'identity_evidence': False,
+              'bearing_deg': None, 'coordinates': None, 'clusters': [], 'identity_evidence': False,
               'geometry': 'Arm/base motion not measured; no exact camera transform'}
     if len(rows) < 3:
         return result
@@ -49,6 +69,7 @@ def summarize(samples, start, end):
             sum(weights[j]*math.sin(math.radians(rows[j].beam)) for j in indices),
             sum(weights[j]*math.cos(math.radians(rows[j].beam)) for j in indices))))
         groups.append({'bearing_deg': centre, 'samples': len(indices),
+                       'coordinates': coordinates(centre),
                        'weight_share': weight / sum(weights),
                        'spread_deg': max(abs(wrap(rows[j].beam-centre)) for j in indices)})
         remaining.difference_update(indices)
@@ -60,7 +81,7 @@ def summarize(samples, start, end):
         result.update(status='ambiguous', reason='competing_directions')
     else:
         result.update(status='observed', reason='dominant_speech_energy_beam',
-                      bearing_deg=first['bearing_deg'])
+                      bearing_deg=first['bearing_deg'], coordinates=first['coordinates'])
     return result
 
 
@@ -123,7 +144,8 @@ class Direction:
         with self.lock:
             evidence = summarize(tuple(self.samples), start, end)
         if self.stop.is_set():
-            evidence.update(status='unavailable', reason='direction_provider_stopped', bearing_deg=None, clusters=[])
+            evidence.update(status='unavailable', reason='direction_provider_stopped',
+                            bearing_deg=None, coordinates=None, clusters=[])
         return evidence
 
     def cancel(self):
