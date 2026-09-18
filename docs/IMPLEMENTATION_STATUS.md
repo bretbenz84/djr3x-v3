@@ -91,3 +91,9 @@ individual-animal recognition remains open. See the
 User-requested [Luna comparison](LUNA_COMPARISON.md): saved-photo trials completed
 with isolated galleries and silent output. Luna was cheaper but slower in the small
 paired test and failed a breed-update acknowledgment; production remains Mini/low.
+
+The subsequent [Terra trial](LUNA_COMPARISON.md#terra-follow-up--september-17)
+completed the same five saved-photo turns with successful breed persistence and
+fresh inspections for both correct recognition answers. Median text completion was
+3.27 s; estimated cost was $0.18589, about 2.9 times the Mini trial. This remains a
+small provider comparison, not live acceptance; the production model is unchanged.

@@ -74,3 +74,36 @@ claiming it is an overall improvement. Production was not switched automatically
 
 Pricing sources: [Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna),
 [GPT-5.4 Mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini).
+
+## Terra follow-up — September 17
+
+The user next requested GPT-5.6 Terra. The same five-turn script, saved images,
+restart procedure, isolated storage and low reasoning setting were used. Terra ran
+later and alone; the original Mini/Luna trials ran concurrently. This is not a
+randomized or statistically powered comparison. Production remains unchanged.
+
+| Measure | GPT-5.4 Mini | GPT-5.6 Luna | GPT-5.6 Terra |
+| --- | ---: | ---: | ---: |
+| API calls | 8 | 10 | 9 |
+| First streamed token, median | 1.01 s | 1.51 s | 1.20 s |
+| First streamed token, maximum | 1.60 s | 2.27 s | 1.92 s |
+| Turn completion, median | 3.16 s | 4.81 s | 3.27 s |
+| Turn completion, maximum | 4.26 s | 6.21 s | 5.32 s |
+| Estimated five-turn cost | $0.06382 | $0.02140 | $0.18589 |
+| Spatial answers correct | 2/2 | 2/2 | 2/2 |
+| Fresh inspections for spatial answers | 1/2 | 2/2 | 2/2 |
+| Breed update saved | Yes | No | Yes |
+
+Terra saved both reference entries, preserved appearance when adding breed, and
+used fresh inspection for both correct recognition answers after restart. All five
+turns completed. It had the cleanest behavior on this small set, with median turn
+time close to Mini. Its observed cost was about 2.9 times Mini and 8.7 times Luna.
+This does not establish general two-dog accuracy or live speech latency.
+
+Returned Terra usage: 87,889 input tokens, zero cached tokens, 843 output tokens.
+Cost estimate uses standard $2/M input and $12/M output rates from the
+[Terra model page](https://developers.openai.com/api/docs/models/gpt-5.6-terra).
+Private receipt and summary:
+`local/validation/object-memory/compare-gpt-5.6-terra-1897d60749ed43bcab74512e1fbe724f/`.
+No microphone, fresh camera capture, playback or robot motion was used; the live
+photo library was not modified.
