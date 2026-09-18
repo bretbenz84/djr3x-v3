@@ -38,7 +38,10 @@ class App:
         scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
         from .inspection import CurrentView
         inspection = CurrentView(scene) if scene else None
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection) if p)
+        from .adapters.flex import FlexControl
+        from .direction import Direction
+        direction = Direction(FlexControl()) if self.settings.direction_enabled else None
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction) if p)
         self.owner = ProviderOwner(self.live_components)
 
     def readiness(self):
@@ -138,6 +141,11 @@ class App:
         inspection = next((p for p in optional if p.capability.name=='current_view'),None)
         output = OutputOwner(tts, sink, trace,inspection=inspection)
         mic.echo_risk = output.echo_risk
+        mic.trace = trace
+        direction = next((p for p in optional if p.capability.name=='direction'),None)
+        if direction:
+            direction.trace = trace
+            direction.echo_risk = output.echo_risk
         self.owner = ProviderOwner(self.live_components)
         runtime = None
         success = False
@@ -153,7 +161,7 @@ class App:
                 trace.emit("startup", report=self.doctor(), evidence="live", models=[p.capability.model for p in self.live_components if p.capability.model])
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None)
                 state.observations,state.scene_observer=public,scene
-                perception = Perception(asr,encoder,trace,camera)
+                perception = Perception(asr,encoder,trace,camera,direction)
                 session = Session(session_id, brain, output, trace, state=state)
                 recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,

@@ -1,4 +1,5 @@
-"""Explicit dev-Mac input/VAD and one PCM output stream; no robot adapters."""
+"""Explicit selected-channel input/VAD and one PCM output stream."""
+from array import array
 from collections import deque
 from queue import Empty, Full, Queue
 import threading
@@ -7,6 +8,23 @@ import time
 from ..capture import Frame
 from ..contracts import Cancellation, Cancelled, Playback, ProviderFailure
 from ..providers import Capability
+
+
+def selected_pcm(data, channels: int, gain: float) -> bytes:
+    """Select channel zero, never average raw capsules into processed audio."""
+    if channels == 1 and gain == 1:
+        return bytes(data)
+    import sys
+    samples = array('h')
+    samples.frombytes(bytes(data))
+    if sys.byteorder != 'little':
+        samples.byteswap()
+    if len(samples) % channels:
+        raise ValueError('IncompleteInterleavedFrame')
+    mono = array('h', (max(-32768, min(32767, round(v * gain))) for v in samples[::channels]))
+    if sys.byteorder != 'little':
+        mono.byteswap()
+    return mono.tobytes()
 
 
 def resolve_device(devices, name: str, index: int | None, kind: str):
@@ -29,8 +47,9 @@ def resolve_device(devices, name: str, index: int | None, kind: str):
 class Microphone:
     def __init__(self, settings, echo_risk, clock=time.monotonic):
         self.settings, self.echo_risk, self.clock = settings, echo_risk, clock
-        self.capability = Capability("capture", "sounddevice", "selected dev-Mac microphone",
-                                     dependencies=("sounddevice",), resources=("microphone",))
+        self.capability = Capability("capture", "sounddevice", "explicit selected-channel microphone",
+                                     dependencies=("sounddevice",), resources=(
+                                         f'{settings.microphone_mode}; channel 0; gain {settings.input_gain:g}',))
         self.frames = Queue(maxsize=128)
         self.stream = None
         self.dropped = 0
@@ -38,7 +57,14 @@ class Microphone:
         self.last_callback = 0.
         self.stopped = threading.Event()
         self.device_name = settings.input_device_name or "configured_index"
+        self.trace = None
+        self.channels = 2 if settings.microphone_mode == 'respeaker-flex' else 1
         self.clock_offset = None
+
+    @property
+    def source_device(self):
+        return (f'{self.device_name}; channel=0; gain={self.settings.input_gain:g}; '
+                f'mode={self.settings.microphone_mode}')
 
     def start(self):
         import sounddevice as sd
@@ -46,6 +72,11 @@ class Microphone:
         index = resolve_device(devices, self.settings.input_device_name,
                                self.settings.input_device_index, "input")
         self.device_name = devices[index]["name"]
+        if self.settings.microphone_mode == 'respeaker-flex':
+            output = resolve_device(devices, self.settings.output_device_name, None, 'output')
+            if ('xvf3800' not in self.device_name.lower() or output != index or
+                    devices[index]['max_input_channels'] < 2):
+                raise ProviderFailure('FlexRequiresSameSelectedInputAndOutputDevice')
         def callback(data, count, timing, status):
             now = self.clock()
             self.last_callback = now
@@ -54,13 +85,13 @@ class Microphone:
             # Preserve the stream clock mapping established before callbacks;
             # callback/GIL delay must not become a false gap in captured PCM.
             began = timing.inputBufferAdcTime + self.clock_offset
-            frame = Frame(bytes(data), began, began + count / 16000,
+            frame = Frame(selected_pcm(data, self.channels, self.settings.input_gain), began, began + count / 16000,
                           not self.settings.echo_isolated and self.echo_risk())
             try:
                 self.frames.put_nowait(frame)
             except Full:
                 self.dropped += 1
-        self.stream = sd.RawInputStream(device=index, samplerate=16000, channels=1,
+        self.stream = sd.RawInputStream(device=index, samplerate=16000, channels=self.channels,
                                         dtype="int16", blocksize=512, callback=callback)
         before=self.clock()
         stream_time=self.stream.time
@@ -68,6 +99,12 @@ class Microphone:
         self.clock_offset=(before+after)/2-stream_time
         self.last_callback = self.clock()
         self.stream.start()
+        if self.trace:
+            self.trace.emit('microphone_configuration', device=self.device_name,
+                mode=self.settings.microphone_mode, channels_opened=self.channels,
+                selected_channel=0, gain=self.settings.input_gain,
+                hardware_aec=self.settings.microphone_mode == 'respeaker-flex',
+                playback_suppression=not self.settings.echo_isolated)
 
     def read(self):
         if self.stopped.is_set():

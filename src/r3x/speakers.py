@@ -59,6 +59,7 @@ class VoiceObservation:
     mixed: bool = False
     reason: str = "unmeasured"
     direction_conflict: bool = False
+    direction: dict | None = None
 
 
 @dataclass(frozen=True)

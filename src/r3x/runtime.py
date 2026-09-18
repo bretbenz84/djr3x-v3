@@ -279,7 +279,7 @@ class VoiceRuntime:
                     self.session.note_speech(frame.ended_at)
                 capture = self.endpoint.push(frame, speech)
                 if capture:
-                    capture = replace(capture,device=getattr(self.mic,"device_name","configured_microphone"))
+                    capture = replace(capture,device=getattr(self.mic,"source_device",getattr(self.mic,"device_name","configured_microphone")))
                     if self.recorder:
                         self.recorder.save(capture)
                     self.trace.emit("capture", capture_id=capture.capture_id,

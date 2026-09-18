@@ -235,7 +235,9 @@ model. Bounded profile growth uses this same owner, not a passive second writer.
 
 ### Microphone geometry
 
-On the dev Mac, direction is unavailable. Do not invent a central bearing because
+On a standard dev Mac, direction is unavailable. The optional
+[ReSpeaker adapter](docs/RESPEAKER_INTEGRATION.md) supplies array-relative evidence,
+but no arm telemetry or exact camera transform. Do not invent a central bearing because
 the user is usually in front of the laptop. Support real two-person testing there.
 
 On the robot, the torso microphone moves with the hero-arm servo. Before enrollment,

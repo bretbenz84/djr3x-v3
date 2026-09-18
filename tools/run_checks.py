@@ -17,6 +17,7 @@ BLOCKED_MODULES = {
     "sounddevice", "pyaudio", "serial", "cv2", "torch", "torchaudio",
     "mlx", "mlx_audio", "silero_vad", "onnxruntime", "openai", "elevenlabs", "config",
     "intelligence", "audio", "memory", "hardware", "vision",
+    "usb", "libusb_package",
 }
 
 

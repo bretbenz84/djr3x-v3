@@ -1,5 +1,5 @@
 """Shared saved/live capture analysis. Providers return evidence, never identities."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .contracts import Capture, Cancellation, Transcript, Cancelled
 from .speakers import VoiceObservation, cosine
@@ -14,8 +14,9 @@ class PerceivedTurn:
 
 
 class Perception:
-    def __init__(self, asr, encoder, trace, camera=None):
+    def __init__(self, asr, encoder, trace, camera=None, direction=None):
         self.asr, self.encoder, self.trace, self.camera = asr, encoder, trace, camera
+        self.direction = direction
 
     def analyze_many(self, capture, cancel: Cancellation):
         from .segmentation import change_boundaries, split_capture
@@ -59,4 +60,9 @@ class Perception:
             minimum_pair_similarity=min((cosine(a[2],b[2]) for i,a in enumerate(voice.windows)
                                          for b in voice.windows[i+1:]),default=None))
         faces = self.camera.during(capture.started_at,capture.speech_ended_at) if self.camera else ()
+        if self.direction:
+            evidence = self.direction.during(capture.started_at,capture.speech_ended_at)
+            voice = replace(voice, direction=evidence,
+                            direction_conflict=voice.direction_conflict or evidence['status']=='ambiguous')
+            self.trace.emit('direction_evidence', capture_id=capture.capture_id, **evidence)
         return PerceivedTurn(capture,transcript,voice,tuple(faces))

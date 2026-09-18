@@ -49,6 +49,7 @@ def report(path: Path) -> dict:
     observation_receipts = Counter()
     token_usage = Counter()
     primary,continuations,underruns = 0,0,0
+    directions = Counter()
     evidence,models,failures = set(),set(),[]
     rss = []
     for number,line in enumerate(path.read_text().splitlines(),1):
@@ -60,6 +61,8 @@ def report(path: Path) -> dict:
             failures.append({"event":"trace_parse_failed","line":number})
             continue
         events[row["event"]] += 1
+        if row['event'] == 'direction_evidence':
+            directions[row['status']] += 1
         if row["event"] == "model_request":
             purposes[row.get('purpose','conversation')] += 1
             calls += 1
@@ -86,7 +89,8 @@ def report(path: Path) -> dict:
         if row['event']=='proactive_outcome':
             proactive[(row['kind'],row['status'],row['medium'],row['heard_complete_phrases'])] += 1
         for event,key in (("speaker_analysis","speaker_seconds"),("camera_frame","processing_seconds"),
-                          ("tts_first_pcm","tts_first_pcm_seconds"),("playback_started","playback_queue_seconds")):
+                          ("tts_first_pcm","tts_first_pcm_seconds"),("playback_started","playback_queue_seconds"),
+                          ("direction_sample","read_seconds")):
             if row["event"]==event and row.get(key) is not None:
                 latencies.setdefault(key,[]).append(row[key])
         if row["event"] == "transcript":
@@ -103,6 +107,7 @@ def report(path: Path) -> dict:
         return {"n": len(ordered), "median": statistics.median(ordered),
                 "p95": ordered[max(0, math.ceil(len(ordered)*.95)-1)]}
     return {"events": dict(events), "turn_outcomes": dict(outcomes), "model_calls": calls,
+            "direction_evidence": dict(directions),
             "model_calls_by_purpose":dict(purposes),"scene_image_inputs":images,"scene_image_bytes":image_bytes,
             "observation_deliveries":dict(observation_receipts),"reported_model_tokens":dict(token_usage),
             "proactive_outcomes":[{'kind':key[0],'status':key[1],'medium':key[2],

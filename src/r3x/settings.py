@@ -12,6 +12,9 @@ class Settings:
     input_device_name: str = ""
     input_device_index: int | None = None
     output_device_name: str = ""
+    microphone_mode: str = "standard"
+    input_gain: float = 1.0
+    direction_enabled: bool = False
     echo_isolated: bool = False
     vad_threshold: float = 0.5
     end_silence_seconds: float = 1.2
@@ -33,12 +36,16 @@ class Settings:
     def __post_init__(self) -> None:
         if self.profile != "dev-mac":
             raise ValueError("Only the dev-mac boot profile is implemented")
+        if self.microphone_mode not in ("standard", "respeaker-flex"):
+            raise ValueError("Unknown microphone_mode")
+        if self.direction_enabled and self.microphone_mode != "respeaker-flex":
+            raise ValueError("Direction requires the ReSpeaker Flex microphone")
         for name in ("input_device_name", "output_device_name", "camera_device_name"):
             if not isinstance(getattr(self, name), str):
                 raise ValueError(f"{name} must be text")
         if self.input_device_index is not None and (type(self.input_device_index) is not int or self.input_device_index < 0):
             raise ValueError("input_device_index must be a nonnegative integer")
-        for name in ("echo_isolated","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled"):
+        for name in ("echo_isolated","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","direction_enabled"):
             if type(getattr(self,name)) is not bool:
                 raise ValueError(f"{name} must be boolean")
         from .observations import https_url
@@ -60,7 +67,7 @@ class Settings:
                 raise ValueError(f"Invalid {name}")
         for name, lower, upper in (("vad_threshold", .01, .99), ("end_silence_seconds", .2, 2),
                                    ("asr_trust_logprob", -5, 0), ("proactive_lull_seconds", 3, 120),
-                                   ("camera_framerate", 1, 120.2)):
+                                   ("camera_framerate", 1, 120.2), ("input_gain", .1, 4)):
             value = getattr(self, name)
             if type(value) not in (int, float) or not math.isfinite(value) or not lower <= value <= upper:
                 raise ValueError(f"Invalid {name}")

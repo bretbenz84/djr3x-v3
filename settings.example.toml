@@ -13,6 +13,15 @@ output_device_name = ""
 # Set true only for an actually isolated headset/test setup. No AEC is implemented.
 echo_isolated = false
 
+# standard: first mono channel; respeaker-flex: open channels 0–1, select only
+# validated Conference/AEC channel 0. Flex requires the same named input/output.
+microphone_mode = "standard"
+# Saturating host gain (.1–4); V2's validated Flex setup uses 1.5.
+input_gain = 1.0
+# Read-only USB direction polling; requires respeaker-flex and USB dependencies.
+# Array-relative evidence only; no movement or camera-bearing calibration.
+direction_enabled = false
+
 # Silero speech probability threshold, valid .01-.99; needs room calibration.
 vad_threshold = 0.5
 # Endpoint silence, valid .2-2 seconds. Mic preroll is fixed at 256 ms.

@@ -221,6 +221,10 @@ now join the same proactive path. Hosted semantic reliability and live social ac
 The first end-to-end smoke test can omit camera integration, but it is not group
 acceptance. Group acceptance uses the real microphone, two people, and camera
 presence. Directional audio is optional; the dev Mac must work without it.
+The [ReSpeaker integration](docs/RESPEAKER_INTEGRATION.md) supplies explicit
+channel-0 capture and timestamped USB direction evidence to conversation context.
+Robot settings use V2's validated processed channel and 1.5× gain. Combined live
+direction and group acceptance remain pending.
 
 ## Deferred capabilities
 

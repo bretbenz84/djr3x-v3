@@ -202,7 +202,8 @@ class Session:
                 import json
                 self.history.append({"role":"developer","content":"Evidence for the immediately following utterance: "+json.dumps({
                     "speaker":context["speaker"],"source_turn_id":turn_id,
-                    "speech_ended_at":capture.speech_ended_at,"transcript_trusted":transcript.trusted},ensure_ascii=False)})
+                    "speech_ended_at":capture.speech_ended_at,"transcript_trusted":transcript.trusted,
+                    "faces":context["faces"]},ensure_ascii=False)})
             if not opportunity: self.history.append({"role": "user", "content": transcript.text})
             # A newer capture can arrive while the previous ASR result waits in
             # the queue. Retain its source/history, but do not answer it belatedly.

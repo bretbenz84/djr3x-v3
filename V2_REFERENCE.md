@@ -1,5 +1,30 @@
 # V2 reference and extraction map
 
+## ReSpeaker microphone/direction extraction — September 17, 2026
+
+Source: clean V2 `488780557ad70925e3b3c23fb542f544ed51a5b7`, verified before
+extraction. Relevant files: `audio/stream.py`, `audio/hardware_aec.py`,
+`hardware/flex_doa.py`, `tools/flex_ctl.py`, and
+`docs/respeaker_flex_xvf3800.md` including its September 7 field comparison.
+Older ReSpeaker Lite/channel-1 notes are superseded by the current Flex channel-0
+configuration. The owner reaffirmed channel-0 hardware AEC validation.
+
+Preserved: processed channel 0 only, 1.5 host gain, playback through the Flex;
+USB read protocol; selected beam over lagging DoA; 50,000 energy floor; circular,
+energy/recency-weighted direction evidence and playback exclusion. Dependencies:
+existing sounddevice plus pyusb 1.3.1 and libusb-package 1.0.30.0 (bundled libusb).
+V3 adaptation uses owned instances and injected clocks/output state, bounded
+read-only polling, exact speech windows, explicit unavailable/ambiguous results,
+source-linked model context and existing enrollment guards. No V2 global state,
+servo imports, writable USB commands, data copies or startup chain were reused.
+
+[Checks and remaining live validation](docs/RESPEAKER_INTEGRATION.md): 398 synthetic
+contract checks, live read-only USB routing/poll/lifecycle probe, dependency checks.
+The new worker's standalone measured cost is 0.042 CPU seconds over 5.09 seconds;
+combined-load latency and two-person direction accuracy remain unmeasured.
+No robot motion, audio playback or audio/video capture was performed. Physical
+enrollment hold, exact arm/camera transforms and talk-over are not implemented.
+
 This is a map to preserve implementation knowledge, not a dependency manifest or
 an instruction to copy all of v2. Start with [DESIGN.md](DESIGN.md) and the
 [initial test program](docs/INITIAL_TEST_PROGRAM.md). Extract a small integration

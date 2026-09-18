@@ -152,6 +152,7 @@ class Memory:
         evidence = {"attribution":asdict(attribution), "trusted":transcript.trusted,
                     "avg_logprob":transcript.avg_logprob, "namespace":observation.namespace,
                     "voiced_seconds":observation.voiced_seconds, "mixed":observation.mixed,
+                    "direction":observation.direction,
                     "echo_risk":capture.echo_risk, "device":capture.device,
                     "started_at":capture.started_at,"ended_at":capture.ended_at,
                     "parent_capture_id":capture.parent_capture_id,"source_offset":capture.source_offset,
@@ -243,6 +244,7 @@ class Memory:
                 break  # Bounded growth; never silently delete accepted original recordings.
             recording_id = uuid4().hex
             metadata = {"source_turn":turn_id,"session_id":capture.session_id,"capture_id":capture.capture_id,
+                        "direction":observation.direction,
                         "transcript":transcript.text,"voiced_seconds":observation.voiced_seconds,
                         "started_at":capture.started_at,"ended_at":capture.ended_at,"device":capture.device,
                         "avg_logprob":transcript.avg_logprob,"namespace":namespace,
