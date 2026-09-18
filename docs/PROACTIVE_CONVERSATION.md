@@ -252,3 +252,14 @@ scene opportunities and a named photo gallery now exist. This proposal adds rich
 motion/novelty evidence and camera-motion-aware interpretation; it is not implemented
 or validated by those earlier features. Physical reactive gaze remains separate
 future hardware work. This note authorizes no code or hardware operation.
+
+
+## Future direction: interest-aware banter and news
+
+September 17 owner request: progressively tailor idle conversation and news to
+people's learned interests, alongside games, impressions and exploration. General
+news/weather and the shared proactive decision path already exist; dedicated
+interest-aware retrieval/ranking is future work. Preserve source-linked interests,
+audience awareness, correction, topic variety, heard-remark deduplication and bounded
+API spending. See the [companion-feature roadmap](FUTURE_FEATURES.md) for scope.
+This is documentation, not an instruction to implement or start new background work.

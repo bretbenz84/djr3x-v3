@@ -516,3 +516,16 @@ category-keyed individual identity was transplanted. Live dependencies are alrea
 present in the V3 lock. Export/digest, focused checks, camera samples, hosted
 comparison failures/improvements and outstanding live acceptance are recorded in
 [object/photo memory](docs/OBJECT_PHOTO_MEMORY.md).
+
+## Supervisor and operator-console migration requirement — September 17
+
+Read-only review of clean V2 `488780557ad70925e3b3c23fb542f544ed51a5b7`:
+`rex_supervisor.py`, `tools/rex_servo_menubar.py`, `utils/single_instance.py`,
+`utils/port_handoff.py`, `scripts/install_supervisor.sh`, and `docs/supervisor.md`.
+Preserve useful off-program controls and clean handoff for both supervised and
+manual launches. Adapt independently to the V3 runner/environment/configuration;
+inventory battery/LED companion agents and plan an explicit LaunchAgent cutover.
+The active supervisor launches headless despite older GUI wording in its document.
+No code/dependencies were extracted and no installed services or hardware were
+changed. [Requirements and future acceptance](docs/OPERATOR_TOOLS_MIGRATION.md)
+are a prerequisite for physical hardware integration, not an implemented feature.

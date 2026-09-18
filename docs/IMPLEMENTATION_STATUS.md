@@ -52,11 +52,14 @@ separate categories.
 
 | Future capability | Boundary of current implementation |
 | --- | --- |
+| Public installer and optional hardware configuration | Future installer built around existing `local/settings.toml`, independent optional capabilities, clear missing-device behavior, selected dependency/model downloads and optional service setup. No new settings or installer implemented. [Public-install plan](PUBLIC_INSTALL_PLAN.md) |
+| Supervisor and off-program controls migration | Required before physical hardware integration: adapt the V2 supervisor and servo console into V3, implement microphone/serial ownership handoff, inventory related LED/battery tools, and migrate installed LaunchAgents with rollback. Documentation only; no services changed. [Migration requirements](OPERATOR_TOOLS_MIGRATION.md) |
 | Physical motion and expression | Attention slice 4: calibrated drivers, trajectories, limits, feedback, obstruction/manual takeover and movement/audio exclusion are not implemented. Current gestures and turning are simulated. |
 | Continuous speech/motion coordination | Before/after simulated gestures exist. Word-level alignment, overlapping trajectories and continuous gaze blending require hardware integration and measured timing. |
 | Live tracked-object attention after movement | Target/version contracts exist in simulation. Physical turning, tracked room-object targets and verified post-movement observations need real adapters. Current-camera descriptions do not supply those controllers. |
 | Optional vision extensions | Adaptive image detail, general inspection-request coalescing and supported cross-session visual association are future options, not missing requirements of the completed core. Exact-image description reuse already exists. |
 | Motion-aware proactive noticing (future idea only) | Distinguish subject motion/new visibility from Rex’s head/base motion and detection flicker; offer evidence to the LLM for memory lookup, curiosity, a reaction or silence. No implementation requested. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
+| Owner-requested companion features | Jeopardy, optional local voice-cloning/impersonation bits, room exploration, purposeful autonomous motion and progressively interest-tailored idle banter/news. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
 | Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search, offline conversational providers and a polished GUI remain separate future work. |
 
 Mouth-motion/active-speaker research is not an active implementation task. The user
