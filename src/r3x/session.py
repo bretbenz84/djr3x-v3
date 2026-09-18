@@ -266,6 +266,9 @@ class Session:
                 context['visual_novelty']['recent_selections'] = [r for r in self.state.visual_selections if r['audience']==visual_memory.audience(context)]
                 context['action_continuity'] = self.state.actions.context(visual_memory.audience(context))
             refresh_current_view(context)
+            if self.state and not self.state.frozen:
+                from .photo_flow import context as photo_context
+                context.update(photo_context(self.state))
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
                                 context, self.state is not None, images=scene_images)
@@ -305,6 +308,7 @@ class Session:
                         for phrase in splitter.add(delta):
                             put_phrase(phrases, phrase, cancel)
                     cancel.check()
+                    if calls and generated.strip():raise ProviderFailure("SpeechToolProtocolViolation")
                     return calls
                 finally:
                     close = getattr(stream, "close", None)
@@ -313,6 +317,15 @@ class Session:
             calls = generate(snapshot)
             if not calls and not generated.strip():
                 raise ProviderFailure('EmptyModelResponse')
+            if calls and len(calls)==1 and self.state and not generated.strip():
+                from .photo_memory import PHOTO_TOOLS
+                if calls[0].name in PHOTO_TOOLS:
+                    from .photo_flow import run as photo_run
+                    reply = photo_run(self,calls[0],snapshot,generate,cancel)
+                    if reply:
+                        generated += reply
+                        for phrase in splitter.add(reply):put_phrase(phrases,phrase,cancel)
+                    calls = []
             if calls:
                 if not self.state or len(calls) != 1 or generated.strip():
                     raise ProviderFailure("SpeechToolProtocolViolation")

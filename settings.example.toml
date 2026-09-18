@@ -67,3 +67,9 @@ weather_enabled = true
 weather_location = "Sacramento, CA"
 weather_latitude = 38.5816
 weather_longitude = -121.4944
+
+# Named pet/object photographic memory, with one shared RF-DETR Nano ONNX pass
+# every 1.5 seconds. Requires --camera and prepared local/models/objects weights.
+# Selective OpenAI image comparisons; PNG photos and JSON catalog are ordinary
+# files under local/visual-memory/. This upload choice is separate from scenes.
+object_memory_enabled = false

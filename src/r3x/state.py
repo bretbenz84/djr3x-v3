@@ -35,6 +35,8 @@ class CoreState:
         self.attention = AttentionState(trace.clock)
         self.observations = None
         self.scene_observer = None
+        self.objects = None
+        self.photo_memory = None
         self.wall_clock = time.time
         self.faces = ()
         self.face_associations = {}
@@ -43,6 +45,25 @@ class CoreState:
         self.min_face_epoch = 0
         from .proactive import Initiative
         self.initiative = Initiative()
+
+    def apply_photo(self,call,context,cancel):
+        cancel.check()
+        try:
+            if self.frozen or self.photo_memory is None or self.current is None or context.get('trigger'):
+                raise ValueError('PhotoTeachingNeedsHumanTurn')
+            if context['state_revision']!=self.store.revision or context['photo_memory']['revision']!=self.photo_memory.data['revision']:
+                raise ValueError('StalePhotoRevision')
+            if call.name=='remember_object' and call.arguments['evidence_id']!=context.get('photo_inspection',{}).get('evidence_id'):
+                raise ValueError('PhotoEvidenceNotOffered')
+            turn,capture,transcript,voice,attribution=self.current
+            if not transcript.trusted or capture.echo_risk:raise ValueError('UntrustedPhotoTeaching')
+            source={'turn_id':turn,'session_id':capture.session_id,'text':transcript.text,
+                    'speaker_id':attribution.person_id,'speaker_track':attribution.track_id,
+                    'attribution_state':attribution.state,'wall_time':self.wall_clock()}
+            result=self.photo_memory.apply(call,source,self.trace.clock())
+            return {'outcome':'ok','data':result}
+        except (ValueError,OSError) as exc:
+            return {'outcome':'rejected','reason':str(exc)}
 
     def save_visual(self, call, context, session_id, model, cancel):
         from . import visual_memory

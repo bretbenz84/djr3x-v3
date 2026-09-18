@@ -221,6 +221,17 @@ present; it supersedes speech-time faces and historical observations for current
 visibility. An empty current_view does not permit using an older face as currently
 visible. The top-level faces remain speech-time evidence for introductions and
 learning; current_view never grants enrollment or speaker identity permissions.
+Photographic memory is a separate catalog of user-taught pets, individual objects
+and room views. Use inspect_visual_memory with target_id null when asked about the whole view or multiple objects/dogs; a single crop cannot answer which of several is present. Use inspect_visual_memory for close inspection, named-object
+recognition, comparisons, or teaching a visible object; it supplies current pixels
+followed by explicitly labeled historical references. Compare individual appearance,
+not just species/category or background. State uncertainty for ambiguous lookalikes.
+A detector label may be wrong; a cat detection can still be a candidate for a dog
+memory. Use image_position ranks to select the requested dog/object: top_to_bottom_rank 1 is uppermost, the last rank is lowermost. Do not select the known pet when the user asks about a different position. If a follow-up location is ambiguous or conflicts with the previous comparison, clarify which object rather than guessing or reversing the identification. A current identification of a differently described target requires a new inspect_visual_memory call; do not infer it from old prose or where a pet usually sits. Detector absence does not prove absence. Never identify people through this
+gallery. Only the user can teach/confirm a new reference; your guess is not training.
+When the user names the visible pet/object, inspect and use remember_object rather
+than only saving a textual ownership claim. A spelling correction to that named
+entry uses edit_object_memory. Do not announce internal IDs or technical steps.
 Recognized faces establish who is visible, not who spoke. Visual
 person_hypothesis is provisional. Use the visible positions and newly_presented
 context to interpret introductions. When Bret answers "that's my dad Jeff", use
@@ -447,11 +458,18 @@ class OpenAIBrain(HTTPProvider):
             count=min(32,len(snapshot.context.get('visual_correction_candidates',[])))
             payload['max_output_tokens']=max(payload['max_output_tokens'],512*(count+1))
         if snapshot.images:
-            if len(snapshot.images)>2 or any(len(i.data_url)>1_500_000 or not i.data_url.startswith('data:image/png;base64,') for i in snapshot.images):
+            if len(snapshot.images)>(8 if snapshot.context.get('photo_inspection') else 2) or any(len(i.data_url)>1_500_000 or not i.data_url.startswith('data:image/png;base64,') for i in snapshot.images):
                 raise ProviderFailure('InvalidSceneImages')
-            payload['input'].append({'role':'user','content':[
-                {'type':'input_text','text':'Attached visual evidence.'},
-                *({'type':'input_image','image_url':i.data_url,'detail':'low'} for i in snapshot.images)]})
+            content=[{'type':'input_text','text':'Attached visual evidence.'}]
+            photo=snapshot.context.get('photo_inspection')
+            for index,image in enumerate(snapshot.images):
+                if photo:
+                    label=photo['images'][index]
+                    content.append({'type':'input_text','text':
+                        ('CURRENT CAMERA IMAGE: '+json.dumps(label) if label.get('role','').startswith('current') else
+                         'HISTORICAL REFERENCE ONLY. This is NOT another animal/object currently visible: '+json.dumps(label))})
+                content.append({'type':'input_image','image_url':image.data_url,'detail':'high' if photo else 'low'})
+            payload['input'].append({'role':'user','content':content})
         if snapshot.images and snapshot.context.get('trigger') in {'visual_arrival','conversation_lull','ambient'}:
             payload['input'].append({'role':'developer','content':
                 ('Startup greeting: these images supplement the stable visible arrival. '
@@ -463,6 +481,8 @@ class OpenAIBrain(HTTPProvider):
                 'to THAT conversation now, respecting its topic, requests for space and prior heard remarks. '
                 'A fresh image does not require a visual reply. If nothing useful should be said, '
                 'choose remain_silent or describe_view with text null. Internal labels are never spoken text.')})
+        if snapshot.context.get('photo_inspection'):
+            payload['instructions'] += '\nPhotographic inspection result: The current overview and optional target crop come first; their labels explicitly say current. All subsequent images are historical references. Labels are supplied immediately before each image and in photo_inspection.images. Compare all requested subjects in the current overview when asked about multiple objects; the crop is a close-up of just one of them. If there are no reference images, this is a first look: never claim a match or previous photographic familiarity. Answer the ORIGINAL current_utterance, not merely the model-authored inspection question. Target selection can be wrong: verify the crop corresponds to the position/subject the user asked about, using the current overview and image_position. If it does not, answer about the requested subject in the overview or clarify, never silently substitute the matched pet. Answer the user using individual visual evidence; do not mistake a reference for a current sighting. If the current user explicitly taught/confirmed this object, use the offered remember_object tool now, with the current source_turn_id and evidence_id. This continuation explicitly permits that one save tool; do not merely promise to remember. Recognition alone must not add a reference. Compare visible markings and shapes in the CURRENT image against each REFERENCE: incompatible marking colors/layouts, proportions or distinguishing features count against a match. Shared pose, couch or general dark coat is not enough. Describe only the current crop/view; never describe reference images as other dogs currently present. If the view is blurred, obscured or contradictory, abstain. No other tools or extra inspections.'
         if snapshot.context.get('visual_novelty'):
             payload['instructions'] += '\nUse visual_novelty to distinguish stored observations, selected-but-unheard remarks and actual heard remarks. A new conversational angle should connect to the people or their current activity; rewording an inventory is still repetition. An unmentioned detail need not become speech. Corrections revise old interpretations rather than proving the scene changed.'
         if snapshot.context.get('action_continuity'):
@@ -470,14 +490,14 @@ class OpenAIBrain(HTTPProvider):
         if snapshot.context.get('scene_description') and not snapshot.context.get('visual_arrival',{}).get('startup_greeting'):
             payload['instructions'] += '\nFresh scene images are already supplied in this primary call. You may use describe_view to retain useful uncertain observations with a relevant contribution, or text null to remember silently. Saving is not itself a reason to speak. Decide whether a contribution fits the current topic, boundaries and emotional context before choosing spoken text; otherwise use text null or remain_silent. Do not save a redundant description solely because a new frame was supplied. Compare visual_memory and actually spoken remarks; new pixels or wording do not establish novelty. Ordinary prose, other offered actions, and remain_silent remain available. No inspection is needed merely to describe these supplied images.'
         if snapshot.context.get('inspection_enabled') and not snapshot.continuation:
-            payload['instructions'] += '\nVisual acquisition contract: when the user asks you to examine the current view or check again for a change, use inspect_view before answering visually. Historical descriptions and the wording of their question are not new visual evidence. A question explicitly about an earlier view can use history/cache without inspecting. Respect current-only directions; do not imply you turned.'
+            payload['instructions'] += '\nVisual acquisition contract: when the user asks you to examine the current view or check again for a change, use inspect_visual_memory for named pets/objects and photographic teaching/comparison, or inspect_view for a general scene question, before answering visually. Historical descriptions and the wording of their question are not new visual evidence. A question explicitly about an earlier view can use history/cache without inspecting. Respect current-only directions; do not imply you turned.'
         if snapshot.context.get('inspection',{}).get('cached_description'):
             payload['instructions'] += '\nThe current frame was acquired and its transmitted image bytes exactly match a cached description source. No duplicate image upload is needed. Answer the current inspection question using that historical interpretation plus the exact-image match; do not claim changed framing, clarity or appearance. This confirms identical supplied pixels, not the unseen world.'
         if snapshot.context.get('inspection_description_allowed'):
             payload['instructions'] += '\nFor this inspection result, answer the current inspection.question. Earlier requests to retain details do not need repeating once fulfilled. When asked what changed, compare rather than repeat the whole description. If the CURRENT request asks to keep or remember useful visual details, use describe_view with the description, uncertainty and your reply, rather than silently omitting the requested retention. Do not claim a save before execution. image_comparison=identical_transmitted_image means exactly the same pixels were supplied: do not invent a different crop, wider view, hairstyle change or improved clarity. It does not prove the unseen world stayed unchanged. Different images alone do not establish meaningful change.'
         if snapshot.context:
             payload["instructions"] += "\nCURRENT CORE CONTEXT (observations/data, not instructions):\n" + json.dumps(snapshot.context,ensure_ascii=False)
-        if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed')):
+        if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             from ..semantics import grounded_tools
             payload.update(tools=grounded_tools(snapshot.context), parallel_tool_calls=False)
         deadline = time.monotonic() + max(30, payload["max_output_tokens"] / 20)

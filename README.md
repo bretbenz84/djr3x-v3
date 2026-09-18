@@ -319,3 +319,14 @@ history to choose speech or silence. Explicit requests to stop initiating persis
 for the run while direct replies remain available; invite him to resume when ready.
 See [lull operation](docs/CORE_OPERATIONS.md#conversational-lulls-and-initiative-control)
 for pacing, current limits and the repeatable synthetic scenario.
+
+## Named pet/object photo memory (September 17)
+
+The robot now enables [object detection and photographic memory](docs/OBJECT_PHOTO_MEMORY.md)
+with `--camera`. A single paced RF-DETR Nano ONNX pass supplies object cues to the
+existing conversation owner. Teach a clearly indicated pet/object by name; the
+model can inspect it, save a PNG reference, compare later views, correct the name
+or forget it. Photos and the readable JSON catalog live under ignored
+`local/visual-memory/`, separate from SQLite. Ordinary replies add no mandatory
+model call; selected comparisons do. Two-dog spatial-reference reliability and
+full conversational latency remain acceptance work.

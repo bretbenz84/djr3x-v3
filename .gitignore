@@ -235,3 +235,6 @@ __marimo__/
 
 # User-provided private visual evaluation recordings
 /samples/
+
+# Named photographic memories: ordinary image files and JSON catalog
+/local/visual-memory/

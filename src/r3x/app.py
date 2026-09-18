@@ -36,12 +36,15 @@ class App:
         from .scene import SceneObserver
         public = PublicObservations(self.settings) if camera and (self.settings.news_feed_urls or self.settings.weather_enabled) else None
         scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
+        from .objects import Objects
+        from .adapters.objects import ObjectDetector
+        objects = Objects(camera,ObjectDetector(self.paths.root / 'models/objects/rfdetr-nano.onnx'),scene=scene) if camera and self.settings.object_memory_enabled else None
         from .inspection import CurrentView
         inspection = CurrentView(scene) if scene else None
         from .adapters.flex import FlexControl
         from .direction import Direction
         direction = Direction(FlexControl()) if self.settings.direction_enabled else None
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects) if p)
         self.owner = ProviderOwner(self.live_components)
 
     def readiness(self):
@@ -66,6 +69,8 @@ class App:
                 for name in ("scrfd_10g.onnx", "edgeface_s_gamma_05.onnx"):
                     if not (self.paths.root / "models/faces" / name).is_file():
                         missing.append(name)
+            if self.settings.camera_enabled and self.settings.object_memory_enabled and not (self.paths.root / 'models/objects/rfdetr-nano.onnx').is_file():
+                missing.append('object_model_file')
             for provider in self.owner.providers:
                 missing.extend(name for name, version in dependency_status(provider.capability).items()
                                if version is None)
@@ -133,7 +138,8 @@ class App:
         camera = next((p for p in optional if p.capability.name=='camera'),None)
         public = next((p for p in optional if p.capability.name=='public_observations'),None)
         scene = next((p for p in optional if p.capability.name=='scene_observations'),None)
-        for provider in (public,scene):
+        objects = next((p for p in optional if p.capability.name=='objects'),None)
+        for provider in (public,scene,objects):
             if provider:provider.trace=trace
         if camera:
             camera.trace = trace
@@ -161,6 +167,11 @@ class App:
                 trace.emit("startup", report=self.doctor(), evidence="live", models=[p.capability.model for p in self.live_components if p.capability.model])
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None)
                 state.observations,state.scene_observer=public,scene
+                if objects:
+                    from .photo_memory import PhotoMemory
+                    state.objects=objects
+                    state.photo_memory=PhotoMemory(self.paths.root / 'visual-memory')
+                    state.photo_memory.start()
                 perception = Perception(asr,encoder,trace,camera,direction)
                 session = Session(session_id, brain, output, trace, state=state)
                 recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None
@@ -175,6 +186,7 @@ class App:
                 trace.emit("shutdown_failed", reason="active_worker_resources_retained_until_process_exit")
             else:
                 self.close()
+                if runtime and runtime.session.state.photo_memory:runtime.session.state.photo_memory.close()
                 memory.close()
                 trace.emit("shutdown", report=self.doctor())
             trace.close()

@@ -427,8 +427,9 @@ The authorized first two [attention slices](docs/ATTENTION_IMPLEMENTATION.md) im
 session-owned directional/visual-target attention and output-owned simulation through the same
 Session/tool path. Simulation is explicitly injected, never enabled by live startup.
 Synthetic face/object target grounding and post-movement frame validation are
-implemented. No live object-tracking adapter, physical gaze controller or coordinated
-hardware gesture runtime is implemented yet. Optional single-primitive gestures
+implemented. A paced live object observer and file-backed photographic memory are now implemented
+under the September 17 scoped extension; see docs/OBJECT_PHOTO_MEMORY.md. Physical
+gaze and coordinated hardware gesture runtimes remain unavailable. Optional single-primitive gestures
 can now be simulated before/after speech through the output owner, with independent
 receipts and a shared exclusive motion resource. Face tracking will serve chosen attention; it must not own social
 attention. Movement intent, physical completion and new perception remain distinct.

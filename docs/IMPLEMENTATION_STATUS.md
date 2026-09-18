@@ -72,3 +72,11 @@ proactive stage 5, whose news/weather/scene inputs are implemented.
 September 17 reply-time face context: fresh cached `current_view` is separate from
 speech-time attribution/enrollment evidence; 405 blocked-I/O tests pass. Live
 acceptance pending. See [face timing evidence](FACE_DISTANCE_FIX.md#reply-time-face-evidence-september-17).
+
+September 17 scoped object/photo addition: paced RF-DETR Nano ONNX detection and
+file-backed named photographic memory are implemented and enabled locally. The
+shared model can inspect/compare, teach, correct and forget pet/object references.
+413 blocked-I/O checks and bounded camera/hosted/load probes pass their documented
+contracts. Individual-animal accuracy, ambiguous spatial references and full live
+conversation acceptance remain limited; no dedicated room model was added. See
+[implementation and evidence](OBJECT_PHOTO_MEMORY.md).

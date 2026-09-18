@@ -493,3 +493,26 @@ process RSS, without devices, hosted requests or sustained inference. It is not
 combined-load acceptance or recognition evidence.
 Live conversation, combined-load performance and the required physical-robot
 enrollment microphone hold remain outstanding; no actuator adapter was added.
+
+## September 17: object detector and photographic memory
+
+Reference checkout clean at `488780557ad70925e3b3c23fb542f544ed51a5b7` before and
+after inspection. Relevant paths: `vision/animal_detector.py`,
+`perception/place_recognition.py`, `memory/room_model.py`. V2's active detector
+selects RF-DETR Nano with an older MediaPipe fallback; its room-object store is
+category keyed and its place recognizer compares enrolled image embeddings.
+
+Preserved: pretrained RF-DETR Nano category/box behavior, RGB conversion and one
+model serving animals and household objects. Used the public checkpoint only;
+no V2 personal database or profile was copied. One-time export used V2's installed
+RF-DETR 1.8.3/torch 2.12.0/ONNX 1.22.0 tooling and wrote exclusively into V3 local
+storage. V2's code, environment and local data were not modified.
+
+Adaptation: V3-owned ONNX CPU adapter, one thread, one shared detection pass every
+1.5 s, third bounded FrameHub consumer, temporary spatial tracks, one conversation
+owner, and a new file-backed named PNG reference gallery. No detector-framework
+runtime dependency, fallback, independent speaker, room model, global V2 config or
+category-keyed individual identity was transplanted. Live dependencies are already
+present in the V3 lock. Export/digest, focused checks, camera samples, hosted
+comparison failures/improvements and outstanding live acceptance are recorded in
+[object/photo memory](docs/OBJECT_PHOTO_MEMORY.md).
