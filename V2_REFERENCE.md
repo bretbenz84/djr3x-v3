@@ -435,3 +435,36 @@ identity and facts storage. No dependencies or data were copied. V3's planned
 adaptation and acceptance cases are in the
 [rich-vision design](docs/ATTENTION_IMPLEMENTATION.md#rich-visual-understanding-requested-design-addition).
 No new runtime capability or validation score is claimed by this documentation change.
+
+## Robot local setup (September 17, 2026)
+
+At the user's request, prepared the fresh v3 checkout on the base M2 / 16 GB
+Mac mini. V2 source was clean at
+`488780557ad70925e3b3c23fb542f544ed51a5b7`. The existing setup importer read selected
+device settings and literal credentials/voice selection without executing v2 code,
+and independently copied Qwen ASR files with digest verification. No personal
+profiles, memory or recordings were imported; v2 remains unchanged.
+
+V2's ReSpeaker input/output selection was resolved against OS device enumeration;
+its blank camera name was replaced with the actual enumerated camera name. The
+private `.env` records those hardware names. Runtime consumes `local/settings.toml`
+and `local/secrets.toml`; `.env` is not automatically loaded. The settings use v3's
+existing `dev-mac` profile, also on this Mac mini; no robot motion profile was added.
+
+Installed the repository's pinned build/live requirements in a new v3 `.venv`.
+Independently copied only the pinned CAM++ and SCRFD public assets from v2 and
+downloaded the pinned EdgeFace-S checkpoint with checksum verification. Private
+source/file digests are recorded in `local/v2-setup-import.json` and
+`local/models/robot-asset-copies.json`, with face preparation provenance alongside
+the model files. No v2 environment or startup machinery is a runtime dependency.
+
+Verification: 382 blocked-I/O synthetic checks passed; dependency consistency and
+camera-enabled non-starting readiness passed. OS capability queries confirmed
+16 kHz mono PCM16 input and 22.05 kHz mono PCM16 output on ReSpeaker. Enumeration
+and format checks do not establish capture, playback or camera-frame quality.
+The real local Silero, CAM++, Qwen and face models also loaded and closed together;
+Silero rejected synthetic silence. That single startup probe peaked at 2,912 MiB
+process RSS, without devices, hosted requests or sustained inference. It is not
+combined-load acceptance or recognition evidence.
+Live conversation, combined-load performance and the required physical-robot
+enrollment microphone hold remain outstanding; no actuator adapter was added.
