@@ -28,9 +28,10 @@ def select_camera(device_listing: str, name: str) -> int:
 
 
 class Camera:
-    def __init__(self, device_name, model_path, trace=None, width=1280, height=720):
+    def __init__(self, device_name, model_path, trace=None, width=1280, height=720, framerate=30.0):
         self.device_name, self.trace = device_name, trace
         self.width,self.height = width,height
+        self.framerate = framerate
         self.encoder = FaceEncoder(model_path)
         self.process = self.worker = self.analysis_worker = None
         self.stop = threading.Event()
@@ -44,7 +45,7 @@ class Camera:
         self.session_id = uuid4().hex
         self.capability = Capability("camera","AVFoundation ffmpeg + SCRFD/EdgeFace CPU",
             "optional persistent face recognition; separate from acoustic identity",NAMESPACE,
-            ("opencv-python","numpy","onnxruntime"),("named macOS camera", "ffmpeg", f"{width}x{height}; face analysis <=2fps"))
+            ("opencv-python","numpy","onnxruntime"),("named macOS camera", "ffmpeg", f"{width}x{height}@{framerate}fps; face analysis <=2fps"))
 
     def start(self):
         import subprocess
@@ -60,7 +61,7 @@ class Camera:
             raise ProviderFailure("CameraEnumerationTimedOut") from None
         index = select_camera(listing.stderr,self.device_name)
         self.process = subprocess.Popen([executable,"-nostdin","-loglevel","error","-f","avfoundation",
-            "-pixel_format","uyvy422","-framerate","30","-video_size",f"{self.width}x{self.height}","-i",str(index)+":none","-an",
+            "-pixel_format","uyvy422","-framerate",str(self.framerate),"-video_size",f"{self.width}x{self.height}","-i",str(index)+":none","-an",
             "-pix_fmt","bgr24","-f","rawvideo","pipe:1"],stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,bufsize=0)
         self.worker = threading.Thread(target=self._read,name="r3x-camera",daemon=True)
@@ -68,13 +69,13 @@ class Camera:
         self.worker.start()
         self.analysis_worker.start()
         if not self.ready.wait(10) or self.failure:
-            raise ProviderFailure("CameraDidNotProduceAnalyzedFrame")
+            raise ProviderFailure(self.failure or "CameraDidNotProduceAnalyzedFrame")
 
     def _failed(self,exc):
         if not self.stop.is_set():
-            self.failure = type(exc).__name__
+            self.failure = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
             self.ready.set()
-            if self.trace: self.trace.emit("provider_failed",capability="camera",error_type=self.failure)
+            if self.trace: self.trace.emit("provider_failed",capability="camera",error_type=type(exc).__name__,reason=self.failure)
             self.cancel()
 
     def _read(self):

@@ -81,7 +81,8 @@ class LiveConsole:
             message = "Stopping current reply…"
         elif event == "shutdown":
             message = "Rex stopped."
-            failures = [r for r in row.get("report", {}).get("results", []) if r.get("outcome") == "failed"]
+            failures = [r for r in row.get("report", {}).get("results", [])
+                        if r.get("outcome") == "failed" and r.get("operation") in {"cancel", "close"}]
             if failures:
                 message += " Cleanup error; see detailed log."
         elif event.endswith("_failed") or event in {"worker_stuck", "input_overflow", "capture_gap"}:

@@ -29,7 +29,9 @@ class App:
         sink = AudioSink(self.settings.output_device_name)
         mic = Microphone(self.settings, lambda: False)
         encoder = CAMPlus(self.paths.root / "models/campplus.onnx")
-        camera = Camera(self.settings.camera_device_name,self.paths.root / "models/faces") if self.settings.camera_enabled else None
+        camera = Camera(self.settings.camera_device_name,self.paths.root / "models/faces",
+                        width=self.settings.camera_width, height=self.settings.camera_height,
+                        framerate=self.settings.camera_framerate) if self.settings.camera_enabled else None
         from .observations import PublicObservations
         from .scene import SceneObserver
         public = PublicObservations(self.settings) if camera and (self.settings.news_feed_urls or self.settings.weather_enabled) else None

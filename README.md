@@ -92,7 +92,9 @@ evidence for the coverage tradeoff and unresolved overlap/boundary limitations.
 `local/settings.toml` contains the selected Mac microphone and camera names.
 [settings.example.toml](settings.example.toml) documents every setting and default.
 Names must resolve uniquely; the camera uses a fresh AVFoundation enumeration at
-explicit startup. Capture requests 1280×720 at 30 fps; a separate worker analyzes the latest frame
+explicit startup. Capture defaults to 1280×720 at 30 fps; the robot uses its verified
+[1920×1080 mode](docs/CORE_OPERATIONS.md#robot-camera-startup-september-17).
+A separate worker analyzes the latest frame
 at most twice per second using pinned SCRFD-10G and EdgeFace-S on one CPU thread.
 Clear compatible views can become persistent face references through introductions
 or a supported voice with a sole prominent face. Third-party introductions keep the

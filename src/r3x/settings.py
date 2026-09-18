@@ -18,6 +18,9 @@ class Settings:
     asr_trust_logprob: float = -0.35
     camera_enabled: bool = False
     camera_device_name: str = ""
+    camera_width: int = 1280
+    camera_height: int = 720
+    camera_framerate: float = 30.0
     record_evaluation: bool = False
     proactive_lull_seconds: float = 8.0
     scene_observations_enabled: bool = True
@@ -51,8 +54,13 @@ class Settings:
             if type(value) not in (int,float) or not math.isfinite(value) or not -limit<=value<=limit:raise ValueError('InvalidWeatherCoordinates')
         if self.camera_enabled and not self.camera_device_name.strip():
             raise ValueError("Enabled camera requires a device name")
+        for name, lower, upper in (("camera_width", 320, 1920), ("camera_height", 240, 1080)):
+            value = getattr(self, name)
+            if type(value) is not int or not lower <= value <= upper or value % 2:
+                raise ValueError(f"Invalid {name}")
         for name, lower, upper in (("vad_threshold", .01, .99), ("end_silence_seconds", .2, 2),
-                                   ("asr_trust_logprob", -5, 0), ("proactive_lull_seconds", 3, 120)):
+                                   ("asr_trust_logprob", -5, 0), ("proactive_lull_seconds", 3, 120),
+                                   ("camera_framerate", 1, 120.2)):
             value = getattr(self, name)
             if type(value) not in (int, float) or not math.isfinite(value) or not lower <= value <= upper:
                 raise ValueError(f"Invalid {name}")

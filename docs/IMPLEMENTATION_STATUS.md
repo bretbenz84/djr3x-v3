@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated September 14, 2026. This is the consolidated checklist for current scope.
+Updated September 17, 2026. This is the consolidated checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
@@ -20,8 +20,8 @@ Documentation does not authorize new hardware operation or feature expansion.
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **382 passing checks** after the
-[startup greeting repair](PROACTIVE_IMPLEMENTATION.md#startup-greeting-repair--september-14-2026).
+The latest blocked-I/O suite has **386 passing checks** after the
+[robot camera mode repair](CORE_OPERATIONS.md#robot-camera-startup-september-17).
 Prior counts in linked documents describe their dated checkpoints.
 
 ## Acceptance and defect investigation still open

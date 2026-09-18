@@ -5,6 +5,28 @@ no microphone, played no audio, captured no video, and imported no personal v2 d
 The synthetic participant used for integration checks lives only in separate
 `local/validation/` databases, never in the live store.
 
+## Robot camera startup (September 17)
+
+The M2 robot's `HD USB Camera` rejects the previous fixed 1280×720 at 30 fps
+request, including a retry after camera permission was granted. A discarded-frame
+probe succeeded at 1920×1080 at 30.00003 fps. Runtime now consumes explicit
+`camera_width`, `camera_height` and `camera_framerate` settings; the robot's private
+settings select that verified mode. Defaults remain 1280×720 at 30 fps. Face
+analysis remains capped at 2 Hz and scene uploads retain their 480-pixel bound.
+No automatic device/mode fallback was added.
+
+The production camera adapter started, analyzed a real frame and closed successfully
+in a single 1.829-second startup probe. Images were neither saved nor uploaded;
+no microphone, playback, hosted inference or actuator ran. This proves that camera
+startup path, not sustained combined-load performance, face accuracy or conversation
+acceptance. The original failed run's cleanup operations all succeeded; the console
+now reports cleanup errors only for failed cancel/close operations. Camera worker
+failures retain structured reasons instead of only the generic exception class.
+
+386 blocked-I/O synthetic checks pass, including configuration-to-capture wiring,
+invalid-mode rejection, camera failure reasons and accurate cleanup reporting.
+Restart the normal `live --camera` command to use the repaired local settings.
+
 ## First live session
 
 From `/Users/bbenziger/Local/djr3x-v3`, after stopping v2:

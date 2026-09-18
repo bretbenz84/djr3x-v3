@@ -25,6 +25,13 @@ asr_trust_logprob = -0.35
 # Normally enable for a test using `live --camera`; no camera in doctor or replay.
 camera_enabled = false
 camera_device_name = ""
+# Capture mode must be supported by the selected camera; no automatic fallback.
+# Width: even 320–1920; height: even 240–1080; frame rate: 1–120.2 fps.
+# Robot HD USB Camera uses 1920x1080 at 30.00003; defaults preserve dev-Mac mode.
+# Face analysis remains capped at 2 fps independently of capture.
+camera_width = 1280
+camera_height = 720
+camera_framerate = 30.0
 
 # Conversation worker: consider a lull after this much silence and completed work.
 # Default 8 seconds for social demos; valid 3-120. Requires --camera and a stable
