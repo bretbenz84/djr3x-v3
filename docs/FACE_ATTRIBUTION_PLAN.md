@@ -1,5 +1,9 @@
 # Face attribution and shared vision plan
 
+Current September 17 follow-up: [fresh camera frames and higher-detail detection](FACE_DISTANCE_FIX.md).
+Production detection now uses a 960-pixel long edge with rectangular padding;
+earlier settings and measurements below retain their historical scope.
+
 Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
 below preserve the evidence and limitations of their respective checkpoints.
 

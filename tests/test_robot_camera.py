@@ -32,7 +32,24 @@ class RobotCameraTests(unittest.TestCase):
             self.assertEqual(command[command.index('-video_size')+1], '1920x1080')
             self.assertEqual(command[command.index('-framerate')+1], '30.00003')
             self.assertEqual(command[command.index('-i')+1], '0:none')
+            self.assertEqual(command[command.index('-fps_mode')+1], 'passthrough')
             self.assertFalse(app.paths.root.exists())
+
+    def test_duplicate_pixels_do_not_refresh_camera_evidence(self):
+        from r3x.adapters.camera import Camera
+        camera = Camera('Fixture', Path('/fixture/models'), trace=Mock(),width=2,height=2)
+        first,changed=b'a'*12,b'b'*12
+        camera.process=Mock(stdout=io.BytesIO(first+first+first+changed))
+        camera.hub.publish=Mock()
+        camera._read()
+        frames=[call.args[0] for call in camera.hub.publish.call_args_list]
+        self.assertEqual([f.pixels for f in frames],[first,changed])
+        self.assertNotEqual(frames[0].frame_id,frames[1].frame_id)
+        events=camera.trace.emit.call_args_list
+        self.assertEqual(sum(c.args[0]=='camera_duplicate_frame' for c in events),1)
+        resumed=next(c for c in events if c.args[0]=='camera_frames_resumed')
+        self.assertEqual(resumed.kwargs['skipped_duplicates'],2)
+        self.assertEqual(camera.failure,'CameraStreamEnded')
 
     def test_invalid_modes_rejected_before_startup(self):
         for values in ({'camera_width':1921}, {'camera_height':0}, {'camera_width':True},

@@ -62,7 +62,7 @@ class Camera:
         index = select_camera(listing.stderr,self.device_name)
         self.process = subprocess.Popen([executable,"-nostdin","-loglevel","error","-f","avfoundation",
             "-pixel_format","uyvy422","-framerate",str(self.framerate),"-video_size",f"{self.width}x{self.height}","-i",str(index)+":none","-an",
-            "-pix_fmt","bgr24","-f","rawvideo","pipe:1"],stdin=subprocess.DEVNULL,
+            "-pix_fmt","bgr24","-fps_mode","passthrough","-f","rawvideo","pipe:1"],stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,bufsize=0)
         self.worker = threading.Thread(target=self._read,name="r3x-camera",daemon=True)
         self.analysis_worker = threading.Thread(target=self._analyze,name="r3x-faces",daemon=True)
@@ -81,6 +81,8 @@ class Camera:
     def _read(self):
         try:
             size = self.width*self.height*3
+            previous = None
+            duplicates = 0
             while not self.stop.is_set():
                 pixels = bytearray()
                 while len(pixels)<size and not self.stop.is_set():
@@ -88,8 +90,18 @@ class Camera:
                     if not chunk: raise ProviderFailure("CameraStreamEnded")
                     pixels.extend(chunk)
                 if not self.stop.is_set():
+                    current = bytes(pixels)
+                    if current == previous:
+                        duplicates += 1
+                        if duplicates == 1 and self.trace:
+                            self.trace.emit('camera_duplicate_frame', reason='identical_pixels_not_fresh_evidence')
+                        continue
+                    if duplicates and self.trace:
+                        self.trace.emit('camera_frames_resumed', skipped_duplicates=duplicates)
+                    duplicates = 0
+                    previous = current
                     self.hub.publish(Frame(uuid4().hex,self.device_name,self.session_id,time.monotonic(),
-                                           self.width,self.height,bytes(pixels)))
+                                           self.width,self.height,current))
         except Exception as exc: self._failed(exc)
 
     def _analyze(self):
@@ -109,6 +121,9 @@ class Camera:
                 if self.trace:
                     self.trace.emit("camera_frame",faces=len(rows),frame_id=frame.frame_id,
                         recognized=sum(r['identity'] is not None for r in rows),
+                        detector=getattr(self.encoder.detector,'diagnostics',{}),
+                        source_frame_sha256=getattr(self.encoder,'frame_digest',None),
+                        face_details=list(rows),
                         processing_seconds=time.monotonic()-began,source_age_seconds=began-frame.at)
                 del frame, detections
                 self.stop.wait(max(0,.5-(time.monotonic()-began)))

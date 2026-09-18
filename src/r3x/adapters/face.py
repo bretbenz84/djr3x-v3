@@ -23,26 +23,40 @@ class Detector:
         import onnxruntime as ort
         if file_digest(path)!=DETECTOR_SHA: raise ValueError('DetectorDigestMismatch')
         options=ort.SessionOptions();options.intra_op_num_threads=1;options.inter_op_num_threads=1
+        # Dynamic input works, but this export retains 640-square output metadata.
+        # Avoid repeating those warnings per frame; validate actual shapes below.
+        options.log_severity_level = 3
         # M5 changing-frame regression: ORT #28231. Keep bounded standard CPU kernels.
         options.add_session_config_entry("mlas.disable_kleidiai", "1")
         options.enable_cpu_mem_arena = False  # Release large detector temporaries on the 16 GB target.
         self.session=ort.InferenceSession(str(path),sess_options=options,providers=['CPUExecutionProvider'])
         self.name=self.session.get_inputs()[0].name;self.size=size
+        self.diagnostics = {}
         if len(self.session.get_outputs())!=9:raise ValueError('ExpectedSCRFDThreeLevelKeypointModel')
     def detect(self,frame):
         import cv2
         import numpy as np
         h,w=frame.shape[:2];scale=self.size/max(h,w)
         nw,nh=int(w*scale),int(h*scale)
-        resized=np.zeros((self.size,self.size,3),np.uint8)
+        # SCRFD accepts stride-aligned rectangular input. Preserve face detail
+        # without spending inference on the unused half of a padded square.
+        input_width = (nw+31)//32*32
+        input_height = (nh+31)//32*32
+        resized=np.zeros((input_height,input_width,3),np.uint8)
         resized[:nh,:nw]=cv2.resize(frame,(nw,nh))
-        blob=cv2.dnn.blobFromImage(resized,1/128.,(self.size,self.size),(127.5,)*3,swapRB=True)
+        blob=cv2.dnn.blobFromImage(resized,1/128.,(input_width,input_height),(127.5,)*3,swapRB=True)
         outputs=self.session.run(None,{self.name:blob});candidates=[]
+        self.diagnostics = {'input_size': self.size,
+                            'input_width': input_width, 'input_height': input_height,
+                            'maximum_score': max(float(np.max(scores)) for scores in outputs[:3])}
         for i,stride in enumerate((8,16,32)):
             scores=outputs[i].reshape(-1)
             distances=outputs[i+3].reshape(-1,4)*stride
             landmarks=outputs[i+6].reshape(-1,5,2)*stride
-            grid=np.stack(np.mgrid[:self.size//stride,:self.size//stride][::-1],axis=-1).reshape(-1,2)*stride
+            expected = 2*(input_height//stride)*(input_width//stride)
+            if len(scores)!=expected or len(distances)!=expected or len(landmarks)!=expected:
+                raise ProviderFailure('FaceDetectorOutputShapeMismatch')
+            grid=np.stack(np.mgrid[:input_height//stride,:input_width//stride][::-1],axis=-1).reshape(-1,2)*stride
             anchors=np.repeat(grid,2,axis=0)
             for j in np.where(scores>=.5)[0]:
                 x,y=anchors[j];l,t,r,b=distances[j]
@@ -57,6 +71,7 @@ class Detector:
                 inter=np.prod(np.maximum(0,b-a+1))
                 return inter/(np.prod(box[2:]-box[:2]+1)+np.prod(other[2:]-other[:2]+1)-inter)
             if not any(overlap(row[1])>.4 for row in kept):kept.append(candidate)
+        self.diagnostics.update(candidates=len(candidates), detections=len(kept))
         return kept
 
 
@@ -78,7 +93,7 @@ class FaceEncoder:
             path = self.root / name
             if path.resolve() != path.absolute() or not path.is_file() or file_digest(path) != digest:
                 raise ProviderFailure("FaceModelMissingOrDigestMismatch")
-        self.detector = Detector(self.root / "scrfd_10g.onnx", 640)
+        self.detector = Detector(self.root / "scrfd_10g.onnx", 960)
         options = ort.SessionOptions()
         # M5 changing-frame regression: ORT #28231. Keep bounded standard CPU kernels.
         options.add_session_config_entry("mlas.disable_kleidiai", "1")
@@ -107,6 +122,7 @@ class FaceEncoder:
         image = np.frombuffer(frame.pixels, dtype=np.uint8).reshape(frame.height,frame.width,3)
         import hashlib
         frame_digest = hashlib.sha256(frame.pixels).hexdigest()
+        self.frame_digest = frame_digest
         result = []
         for score, box, points in self.detector.detect(image)[:12]:
             x1,y1,x2,y2 = box

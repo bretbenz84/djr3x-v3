@@ -133,6 +133,10 @@ class FaceTracker:
                 'position':'left' if center<.33 else 'right' if center>.67 else 'center',
                 'identity':track.identity,'evidence':'face_match' if track.identity else 'face_unresolved',
                 'similarity':score,'margin':margin,'face_width_px':sample.width if sample else None,
+                'detector_score':sample.detector_score if sample else None,
+                'sharpness':sample.sharpness if sample else None,
+                'brightness':sample.brightness if sample else None,
+                'embedding_available':vector is not None,
                 'learning_quality':bool(sample and sample.eligible),
                 'needs_closer_look':bool(sample and sample.width<96)})
         # Keep only tracks observed now or briefly absent. A finite crowd cannot accumulate hidden crops.

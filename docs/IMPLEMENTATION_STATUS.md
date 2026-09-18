@@ -7,6 +7,10 @@ Documentation does not authorize new hardware operation or feature expansion.
 
 ## Completed software
 
+September 17: [camera freshness and face-distance fix](FACE_DISTANCE_FIX.md)
+removes repeated startup frames and raises detector detail to 960-pixel long edge.
+Camera-only recognition passed; combined conversation/group acceptance remains open.
+
 | Status | Capability | Implementation and evidence |
 | --- | --- | --- |
 | Implemented | Microphone capture, transcription, one conversation owner, streamed speech, cancellation, delivery receipts, bounded history and network retry | [Operations](CORE_OPERATIONS.md), [initial slices and evidence](INITIAL_TEST_PROGRAM.md) |

@@ -96,6 +96,9 @@ explicit startup. Capture defaults to 1280×720 at 30 fps; the robot uses its ve
 [1920×1080 mode](docs/CORE_OPERATIONS.md#robot-camera-startup-september-17).
 A separate worker analyzes the latest frame
 at most twice per second using pinned SCRFD-10G and EdgeFace-S on one CPU thread.
+The [September 17 camera fix](docs/FACE_DISTANCE_FIX.md) prevents FFmpeg from
+repeating old frames and raises detector detail to a 960-pixel long edge with
+rectangular padding (960×544 for the robot's full-resolution 1080p capture).
 Clear compatible views can become persistent face references through introductions
 or a supported voice with a sole prominent face. Third-party introductions keep the
 introducer's voice separate. Face identity never overrides acoustic identity.
