@@ -205,3 +205,50 @@ model-owned repetition judgment. Observing a stable appearance detail does not
 require commenting on it; prior observations and actual remarks provide context.
 Inspection-based descriptive memory and cache-use/correction tools are now
 implemented; live acquisition and real-model repetition evaluation remain pending.
+
+## Future idea: motion and new arrivals as attention cues
+
+**September 17 user direction — document only; do not implement yet.**
+
+Rex should feel alive: attentive, curious, proactive and reactive in ways that feel
+natural for a person or animal. Motion and newly appearing subjects deserve more
+attention than an unchanged scene. This is a design inspiration, not a requirement
+to comment on every movement or mechanically imitate animal behavior.
+
+Example: a dog enters the view after being absent. Supply that possible arrival to
+the conversational LLM, together with recent visibility, detection uncertainty,
+current conversation and relevant photographic memories. The LLM could choose to
+compare reference photos, recognize a familiar dog, ask about an unfamiliar dog,
+notice silently, or keep listening. The observation offers an opportunity; it does
+not directly trigger speech, a cloud call, enrollment or movement.
+
+Future work should distinguish:
+
+- **Subject motion or arrival:** something moves independently or becomes newly
+  visible, versus an already familiar stationary subject.
+- **Rex's own head/base motion:** a camera turn can move the entire image or reveal
+  a previously unseen area. Use available motion telemetry and/or estimated camera
+  motion, plus settling and continuity evidence, to avoid treating every pan as a
+  room full of new arrivals. Preserve uncertainty when the cause is unknown.
+- **Detection flicker and reappearance:** brief missed detections, occlusion,
+  lighting changes and track resets do not prove a new animal arrived. Distinguish
+  newly visible from newly present in the room, and both from a new individual.
+
+Candidate evidence could include source frames/timestamps, prior absence duration,
+track continuity, independent motion, camera-motion/settling status, possible
+identity matches and whether Rex already noticed or reacted to this subject.
+Photographic memory supplies comparison evidence rather than a guaranteed identity.
+Motion must not become mouth-motion evidence for speaker attribution or enrollment.
+
+Preserve the single conversation owner and existing human-floor, quiet, repetition
+and resource budgets. A quick silent noticing event and a later conversational
+reaction are different choices. Evaluate whether Rex feels attentive without being
+jumpy, repetitive or interruptive. Test stationary-camera arrivals, head pans over
+unchanged subjects, brief occlusion, two moving dogs and ongoing human conversation;
+measure false arrivals, missed arrivals, reaction timing and processing cost.
+
+**Existing foundation versus future work:** paced object detection, stable-detection
+scene opportunities and a named photo gallery now exist. This proposal adds richer
+motion/novelty evidence and camera-motion-aware interpretation; it is not implemented
+or validated by those earlier features. Physical reactive gaze remains separate
+future hardware work. This note authorizes no code or hardware operation.
