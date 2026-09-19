@@ -579,11 +579,18 @@ class OpenAIBrain(HTTPProvider):
                 'longer sufficient once their direction is known. Do this at meaningful topic changes, '
                 'not every follow-up; unchanged intentions need ordinary prose. A required identity, '
                 'memory, feedback or quiet action takes precedence. Suspended plans are never obligations.')
+        offered = None
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
-            from ..semantics import grounded_tools
-            payload.update(tools=grounded_tools(snapshot.context), parallel_tool_calls=False)
-            if snapshot.context.get('photo_inspection',{}).get('intent')=='teach':
-                payload['tool_choice']='required'
+            # Prompt caching matches the rendered prefix, and tool definitions precede the
+            # persona. Per-turn identifier enums in the transmitted tools left every call
+            # uncached. Send the byte-identical static list, restrict the offered subset
+            # with allowed_tools, and apply the snapshot's identifier grounding on return.
+            from ..semantics import TOOLS, grounded_tools
+            offered = grounded_tools(snapshot.context)
+            teach = snapshot.context.get('photo_inspection',{}).get('intent')=='teach'
+            payload.update(tools=list(TOOLS), parallel_tool_calls=False,
+                tool_choice={'type':'allowed_tools','mode':'required' if teach else 'auto',
+                             'tools':[{'type':'function','name':d['name']} for d in offered]} if offered else 'none')
         deadline = time.monotonic() + max(30, payload["max_output_tokens"] / 20)
         complete = False
         calls = []
@@ -624,13 +631,19 @@ class OpenAIBrain(HTTPProvider):
                         complete = True
                         usage=event.get('response',{}).get('usage',{})
                         if self.trace and usage:
-                            self.trace.emit('model_usage',**{k:v for k,v in usage.items()
-                                if k in {'input_tokens','output_tokens','total_tokens'} and type(v) is int and v>=0})
+                            counts = dict(usage,cached_tokens=(usage.get('input_tokens_details') or {}).get('cached_tokens'))
+                            self.trace.emit('model_usage',**{k:v for k,v in counts.items()
+                                if k in {'input_tokens','cached_tokens','output_tokens','total_tokens'} and type(v) is int and v>=0})
                     elif kind == "response.output_item.done" and event.get("item",{}).get("type")=="function_call":
                         item = event["item"]
                         if len(calls) >= 4 or len(item.get("arguments","")) > 8000:
                             raise ProviderFailure("ToolCallLimit")
-                        calls.append(ToolCall(item["call_id"],item["name"],json.loads(item["arguments"])))
+                        arguments = json.loads(item["arguments"])
+                        if offered is not None:
+                            from ..semantics import ground
+                            try: arguments = ground(item["name"],arguments,offered)
+                            except ValueError as exc: raise ProviderFailure(str(exc)) from None
+                        calls.append(ToolCall(item["call_id"],item["name"],arguments))
                     elif kind=="response.output_item.done" and event.get("item",{}).get("type")=="message" and event["item"].get("phase")=="commentary":
                         preambles.append(event["item"])
                     elif kind in {"error", "response.failed", "response.incomplete"}:

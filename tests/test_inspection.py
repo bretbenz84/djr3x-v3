@@ -125,7 +125,7 @@ class InspectionTests(MemoryFixture):
         list(brain.reply(self.brain.snapshots[-1],Cancellation()))
         payload=brain.client.calls[0][1]['json']
         self.assertEqual(payload['input'][-1]['content'][-1]['type'],'input_image')
-        self.assertEqual([t['name'] for t in payload['tools']],['describe_view'])
+        self.assertEqual([t['name'] for t in payload['tool_choice']['tools']],['describe_view'])
 
     def test_cancelled_settle_trace_retains_completed_motion(self):
         self.setup_session();self.adapter.wait_until=lambda *args:self.session.cancel()

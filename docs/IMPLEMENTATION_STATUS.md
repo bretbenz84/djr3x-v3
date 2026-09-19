@@ -26,8 +26,9 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **463 passing checks** including the
-[greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md).
+The latest blocked-I/O suite has **465 passing checks** including the
+[greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md) and the
+[prompt-caching repair](PROMPT_CACHING.md).
 Prior counts in linked documents describe their dated checkpoints.
 
 ## Acceptance and defect investigation still open
@@ -106,3 +107,9 @@ Latest [live-run conversation repairs](LIVE_RUN_CONVERSATION_REPAIRS.md) address
 presence-driven greeting cancellation, interrupted intent speech and transcript
 interpretation. [Model-selected JSON timing](NEXT_CONVERSATION_SCHEDULING.md) is next,
 not implemented. Acoustic and live playback acceptance remain pending.
+
+September 18 [prompt-caching repair](PROMPT_CACHING.md): per-turn identifier enums in
+transmitted tool schemas had left every tool-enabled request uncached. The adapter now
+sends a static tool list with `allowed_tools` and grounds returned identifiers locally.
+A paid synthetic probe measured 11,008 of about 12,400 input tokens cached per primary
+call. Hosted semantic suites and live conversation have not been rerun on this change.

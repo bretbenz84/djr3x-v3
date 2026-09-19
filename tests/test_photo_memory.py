@@ -212,8 +212,8 @@ class PhotoTests(MemoryFixture):
                          continuation=({'type':'function_call_output','call_id':'look','output':'{}'},),images=(image(),image()))
         list(brain.reply(request,Cancellation()))
         payload=brain.client.calls[0][1]['json']
-        self.assertEqual({d['name'] for d in payload['tools']},{'remember_object','defer_photo_teaching'})
-        self.assertEqual(payload['tool_choice'],'required')
+        self.assertEqual({d['name'] for d in payload['tool_choice']['tools']},{'remember_object','defer_photo_teaching'})
+        self.assertEqual(payload['tool_choice']['mode'],'required')
         self.assertEqual(sum(c['type']=='input_image' for c in payload['input'][-1]['content']),2)
 
     def test_cancelled_inspection_never_saves_or_delivers(self):

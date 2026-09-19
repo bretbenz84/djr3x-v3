@@ -200,6 +200,33 @@ def grounded_tools(context):
     return allowed
 
 
+def ground(name, args, offered):
+    """Apply the offered definitions' identifier constraints to a returned call.
+
+    The hosted request transmits the static TOOLS so its prefix stays cacheable;
+    per-snapshot enums therefore no longer constrain decoding. A single permitted
+    value carries no model choice and is supplied here, as strict decoding forced it.
+    Any other value outside the offered set is rejected, never repaired.
+    """
+    definition = next((d for d in offered if d['name'] == name), None)
+    if definition is None:
+        raise ValueError('ToolNotOffered')
+    def apply(spec, value):
+        if 'enum' in spec:
+            if len(spec['enum']) == 1: return spec['enum'][0]
+            if value not in spec['enum']: raise ValueError('UngroundedToolValue')
+            return value
+        if isinstance(value, dict) and 'properties' in spec:
+            return {k: apply(spec['properties'][k], v) if k in spec['properties'] else v for k, v in value.items()}
+        if isinstance(value, list) and 'items' in spec:
+            if spec.get('maxItems') == 0: return []
+            return [apply(spec['items'], v) for v in value]
+        return value
+    if not isinstance(args, dict):
+        raise ValueError('ToolFieldsMismatch')
+    return apply(definition['parameters'], args)
+
+
 def validate(name, args):
     definition = next((s for s in TOOLS if s["name"] == name), None)
     if definition is None or not isinstance(args, dict):

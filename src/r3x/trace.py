@@ -74,7 +74,7 @@ def report(path: Path) -> dict:
             primary += row.get("primary_calls",1)
             continuations += int(row.get("purpose")=="tool_result_continuation")
         if row["event"]=="model_usage":
-            for key in ("input_tokens","output_tokens","total_tokens"):token_usage[key]+=row.get(key,0)
+            for key in ("input_tokens","cached_tokens","output_tokens","total_tokens"):token_usage[key]+=row.get(key,0)
         if row["event"]=="observation_delivered":observation_receipts[row["kind"]]+=1
         if row["event"]=="observation_refresh" and row.get("outcome")=="failed":
             failures.append({k:row[k] for k in ("event","source","error_type") if k in row})

@@ -72,6 +72,39 @@ class AdapterTests(unittest.TestCase):
         next_tools=grounded_tools(dict(context,source_turn_id="next"))
         self.assertEqual(tools["record_claim"]["source_turn_id"]["enum"],["turn"])
 
+    def test_transmitted_tools_stay_byte_identical_while_offers_and_identifiers_change(self):
+        import json
+        payloads=[]
+        for context in ({"source_turn_id":"turn-id-alpha","people":[{"id":"person"}],"claims":[{"id":"claim"}]},
+                        {"source_turn_id":"second","trigger":"conversation_lull"}):
+            brain=OpenAIBrain("fixture")
+            brain.client=Client(Response([{"type":"response.output_text.delta","delta":"Hi."},{"type":"response.completed"}]))
+            list(brain.reply(Snapshot("s","t",0,(),context=context,tools_enabled=True),Cancellation()))
+            payloads.append(brain.client.calls[0][1]["json"])
+        self.assertEqual(json.dumps(payloads[0]["tools"]),json.dumps(payloads[1]["tools"]))
+        self.assertNotIn("turn-id-alpha",json.dumps(payloads[0]["tools"]))
+        offered=[{t["name"] for t in p["tool_choice"]["tools"]} for p in payloads]
+        self.assertEqual(offered[0],{t["name"] for t in grounded_tools({"source_turn_id":"turn-id-alpha","people":[{"id":"person"}],"claims":[{"id":"claim"}]})})
+        self.assertIn("record_claim",offered[0])
+        self.assertEqual(offered[1],{"remain_silent"})
+        self.assertTrue(all(p["tool_choice"]["mode"]=="auto" and p["tool_choice"]["type"]=="allowed_tools" for p in payloads))
+
+    def test_returned_identifiers_are_grounded_locally(self):
+        context={"source_turn_id":"turn","people":[{"id":"person"},{"id":"other"}],"claims":[{"id":"claim"}]}
+        def call(name,arguments):
+            import json
+            brain=OpenAIBrain("fixture")
+            brain.client=Client(Response([{"type":"response.output_item.done","item":{"type":"function_call","call_id":"c","name":name,"arguments":json.dumps(arguments)}},
+                                          {"type":"response.completed"}]))
+            return list(brain.reply(Snapshot("s","t",0,(),context=context,tools_enabled=True),Cancellation()))[0]
+        claim={"subject_id":"person","subject_reference":None,"predicate":"hobby","value":"sailing","kind":"self_report","source_turn_id":"invented"}
+        # One permitted value is no model choice: it is supplied, as the strict enum forced it.
+        self.assertEqual(call("record_claim",claim).arguments["source_turn_id"],"turn")
+        with self.assertRaisesRegex(ProviderFailure,"UngroundedToolValue"):call("record_claim",dict(claim,subject_id="fabricated"))
+        with self.assertRaisesRegex(ProviderFailure,"UngroundedToolValue"):call("recall",{"subject_id":"fabricated"})
+        with self.assertRaisesRegex(ProviderFailure,"ToolNotOffered"):call("inspect_view",{"direction":"current","question":"What is there?"})
+        self.assertIsNone(call("recall",{"subject_id":None}).arguments["subject_id"])
+
     def test_openai_one_stream_preserves_text_and_checks_completion(self):
         response = Response([{"type":"response.output_text.delta", "delta":"Hello."}, {"type":"response.completed"}])
         brain = OpenAIBrain("synthetic-key")
