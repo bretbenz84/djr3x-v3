@@ -133,7 +133,8 @@ class Camera:
         with self.lock:
             if self.failure or self.stop.is_set() or not self.tracker.history: return ()
             at, rows = self.tracker.history[-1]
-            return rows if 0<=now-at<=1. else ()
+            from ..faces import VISIBLE_FACE_MAX_AGE
+            return rows if 0<=now-at<=VISIBLE_FACE_MAX_AGE else ()
 
     def during(self,start,end):
         with self.lock:

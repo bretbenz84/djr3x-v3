@@ -442,3 +442,22 @@ class InitiativeCoreTests(MemoryFixture):
         self.visible(140);self.runtime.proactive_tick();self.assertEqual(brain.calls,2)
         self.session.output=TextOutput(trace)
         self.visible(141);self.runtime.proactive_tick();self.assertEqual(brain.calls,3)
+
+    def test_processing_latency_between_camera_publications_does_not_cancel_greeting(self):
+        self.setup_core();self.visible(108)
+        runtime,trace=self.runtime,self.trace
+        # Captured 0.6 s before publication; next 2 Hz result is not published yet.
+        latest=[face(107.4,track='visitor')]
+        runtime.camera.latest=lambda now:tuple(latest)
+        runtime.arrivals.seen['visitor']['used']=False
+        class Delayed(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1
+                trace.at=108.5;runtime.audio_seen_at=108.5
+                cancel.check()
+                yield 'Hello there.'
+        brain=Delayed();self.session.brain=brain
+        runtime.proactive_tick()
+        self.assertEqual(brain.calls,1)
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
+        self.assertFalse(any(r['event']=='proactive_invalidated' for r in trace.rows))

@@ -408,3 +408,7 @@ deadlines. Model and TTS latency follow reconsideration. **459 blocked-I/O check
 pass**, including an additional slow-output test proving the delay starts after
 completion. The previous hosted dialogue probe used the earlier spacing; the revised
 spacing has synthetic runtime evidence only and has not been tested on hardware.
+
+
+Next agreed work: [model-selected JSON scheduling](NEXT_CONVERSATION_SCHEDULING.md).
+This is a proposal, not an implemented timer tool.

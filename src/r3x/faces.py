@@ -5,6 +5,11 @@ from uuid import uuid4
 from .speakers import cosine
 
 
+# Presence only: a 2 Hz analysis pass can publish ~0.6 s after capture.
+# Keep one update interval of headroom; acoustic attribution uses its own windows.
+VISIBLE_FACE_MAX_AGE = 1.5
+
+
 @dataclass(frozen=True)
 class FaceSample:
     vector: tuple[float, ...] | None

@@ -1059,3 +1059,8 @@ Following the user's pacing correction, the continuation intervals are now
 8/15/30/60 seconds after completion. **459 blocked-I/O checks pass**, including
 slow-output timing; the shared rolling call budget and configured lull minimum
 remain in force. This timing revision has no new hosted or live acceptance claim.
+
+
+Latest-run repair evidence: **463 blocked-I/O checks pass** plus four hosted fictional
+text probes. See [findings, fixes and limits](LIVE_RUN_CONVERSATION_REPAIRS.md). No
+new live device test or acoustic accuracy measurement was performed.

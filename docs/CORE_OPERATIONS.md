@@ -680,3 +680,10 @@ The evaluator paces requests to reduce token-rate failures and saves dialogues,
 usage, timing and provider failure metadata under ignored validation storage.
 Read actual conversation wording as well as structural outcomes. See the
 [implementation/evidence](CONVERSATIONAL_INTENT_PLAN.md) before interpreting results.
+
+
+Presence-only camera freshness uses a shared 1.5-second window to accommodate the
+2 Hz face-analysis pipeline. Empty frames and true stale evidence still invalidate
+new audience-bound speech. General intention speech already audible can finish
+through a visual gap; targeted questions and private memory retain audience guards.
+See [latest-run repair evidence](LIVE_RUN_CONVERSATION_REPAIRS.md).

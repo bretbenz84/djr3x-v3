@@ -26,7 +26,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **459 passing checks** including the
+The latest blocked-I/O suite has **463 passing checks** including the
 [greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md).
 Prior counts in linked documents describe their dated checkpoints.
 
@@ -101,3 +101,8 @@ completed the same five saved-photo turns with successful breed persistence and
 fresh inspections for both correct recognition answers. Median text completion was
 3.27 s; estimated cost was $0.18589, about 2.9 times the Mini trial. This remains a
 small provider comparison, not live acceptance; the production model is unchanged.
+
+Latest [live-run conversation repairs](LIVE_RUN_CONVERSATION_REPAIRS.md) address
+presence-driven greeting cancellation, interrupted intent speech and transcript
+interpretation. [Model-selected JSON timing](NEXT_CONVERSATION_SCHEDULING.md) is next,
+not implemented. Acoustic and live playback acceptance remain pending.

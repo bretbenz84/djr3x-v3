@@ -72,3 +72,14 @@ class RobotCameraTests(unittest.TestCase):
                 LiveConsole()({'event':'shutdown','report':{'results':[
                     {'operation':operation, 'outcome':'failed'}]}})
             self.assertEqual('Cleanup error' in output.getvalue(), expected)
+
+    def test_presence_cache_covers_analysis_interval_but_expires_and_preserves_empty_frame(self):
+        from r3x.adapters.camera import Camera
+        from tests.test_proactive import face
+        camera=Camera('fixture',Path('/unused'))
+        rows=(face(100),)
+        camera.tracker.history.append((100,rows))
+        self.assertEqual(camera.latest(101.1),rows)
+        self.assertEqual(camera.latest(101.51),())
+        camera.tracker.history.append((101.2,()))
+        self.assertEqual(camera.latest(101.3),())

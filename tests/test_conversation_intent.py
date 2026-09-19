@@ -411,3 +411,30 @@ class ConversationIntentTests(MemoryFixture):
         self.begin('A newer request.')
         result=self.state.execute(call,self.store.revision,Cancellation(),context=ctx)
         self.assertEqual(result.reason,'IntentSourceMismatch')
+
+    def test_general_intent_reply_finishes_when_camera_drops_after_audio_starts(self):
+        self.greet();current=[face(110)]
+        class DisappearingSink(SyntheticSink):
+            def play(self,chunks,cancel,on_start):
+                def started(at):
+                    on_start(at);current.clear();cancel.check()
+                return super().play(chunks,cancel,started)
+        self.session.output=OutputOwner(SyntheticTTS(),DisappearingSink(),self.state.trace)
+        self.session.brain=IntentBrain()
+        result=self.human('Hello again.',latest_faces=lambda now:current)
+        self.assertEqual(result.status,'completed')
+        self.assertTrue(result.completed_text)
+
+    def test_targeted_intent_question_still_cancels_if_audience_leaves_during_audio(self):
+        self.greet();current=[face(110)]
+        class DisappearingSink(SyntheticSink):
+            def play(self,chunks,cancel,on_start):
+                def started(at):
+                    on_start(at);current.clear();cancel.check()
+                return super().play(chunks,cancel,started)
+        self.session.output=OutputOwner(SyntheticTTS(),DisappearingSink(),self.state.trace)
+        self.session.brain=IntentBrain(lambda c:ToolCall('ask','ask_face_question',dict(
+            text='What should I call you?',face_track_id='face',intent_update=proposal(c))))
+        result=self.human('Hello again.',latest_faces=lambda now:current)
+        self.assertEqual(result.status,'interrupted')
+        self.assertIsNone(self.state.pending)

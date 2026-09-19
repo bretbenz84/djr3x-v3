@@ -195,7 +195,10 @@ class VoiceRuntime:
             intention = self.session.state.conversation_intent.record
             from .conversation_intent import audience
             intent_audience_changed = (intention is not None and intention.source_id == event.event_id
-                and intention.audience != audience({'faces':self.arrivals.faces}))
+                and intention.audience != audience({'faces':self.arrivals.faces})
+                and (self.session._proactive_delivery is None or
+                     self.session._proactive_delivery.first_audio_at is None or
+                     self.session._audience_bound_output or bool(intention.memory_ids)))
             reason = ('intent_audience_changed' if intent_audience_changed else
                       'shutdown' if self.stop.is_set() else
                       'human_speech' if self.session._latest_speech!=event.speech_marker else

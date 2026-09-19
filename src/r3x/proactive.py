@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import threading
 from uuid import uuid4
 from .contracts import Cancellation
+from .faces import VISIBLE_FACE_MAX_AGE
 
 
 @dataclass(frozen=True)
@@ -127,7 +128,7 @@ class Arrivals:
     def observe(self, faces, now):
         with self.lock:
             self.faces = tuple({k:v for k,v in f.items() if not k.startswith('_')} for f in faces
-                               if 0<=now-f['at']<=1.)
+                               if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE)
             epochs = {f.get('face_epoch',0) for f in self.faces}
             if epochs and self.epoch not in epochs:
                 self.seen.clear()
@@ -161,7 +162,7 @@ class Arrivals:
             if now-self.last_attempt<self.global_cooldown: return None
             candidates = []
             for face in self.faces:
-                if not 0<=now-face['at']<=1.: continue
+                if not 0<=now-face['at']<=VISIBLE_FACE_MAX_AGE: continue
                 person = face.get('identity')
                 if person and sum(f.get('identity')==person for f in self.faces)!=1: continue
                 if not person and self.unknown_attempted: continue
@@ -185,11 +186,11 @@ class Arrivals:
         with self.lock:
             if event.kind in {"conversation_lull","ambient"}:
                 keys = lambda faces: {(f['track_id'],f.get('identity'),f.get('face_epoch',0)) for f in faces}
-                fresh = [f for f in self.faces if 0<=now-f['at']<=1]
+                fresh = [f for f in self.faces if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE]
                 return bool(event.faces) and keys(fresh) == keys(event.faces)
             return any(f['track_id']==event.target_track and f.get('identity')==event.person_id and
                        f.get('face_epoch')==next(t.get('face_epoch') for t in event.faces if t['track_id']==event.target_track) and
-                       0<=now-f['at']<=1. for f in self.faces)
+                       0<=now-f['at']<=VISIBLE_FACE_MAX_AGE for f in self.faces)
 
     def finished(self, event, delivery):
         """An interrupted unheard arrival is eligible again after normal pacing.
@@ -224,7 +225,7 @@ class Arrivals:
                 entry = self.seen.get(face.get('identity') or face['track_id'])
                 box = face.get('box',(0,0,0,0))
                 if (entry and entry['track']==face['track_id'] and
-                    0<=now-face['at']<=1 and entry['last']-entry['first']>=self.stable_seconds and
+                    0<=now-face['at']<=VISIBLE_FACE_MAX_AGE and entry['last']-entry['first']>=self.stable_seconds and
                     (face.get('face_width_px') or 0)>=48 and box[2]*box[3]>=.006):
                     result.append(face)
-            return tuple(f for f in self.faces if 0<=now-f['at']<=1) if result else ()
+            return tuple(f for f in self.faces if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE) if result else ()

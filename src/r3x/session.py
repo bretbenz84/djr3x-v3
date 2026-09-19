@@ -113,12 +113,13 @@ class Session:
             if latest_faces is None or opportunity or not self.state:
                 return
             from .face_attribution import public_face
+            from .faces import VISIBLE_FACE_MAX_AGE
             now = self.trace.clock()
             rows = latest_faces(now)
             people = {p['id'] for p in self.state.store.people()}
             visible = []
             for row in rows:
-                if not 0 <= now-row['at'] <= 1.0 or row.get('face_epoch',0) < self.state.min_face_epoch:
+                if not 0 <= now-row['at'] <= VISIBLE_FACE_MAX_AGE or row.get('face_epoch',0) < self.state.min_face_epoch:
                     continue
                 face = public_face(row)
                 if face.get('identity') not in people:
@@ -383,11 +384,23 @@ class Session:
                         raise ProviderFailure(result.reason)
                     if result.outcome=='ok' and call.arguments.get('intent_update') is not None and latest_faces:
                         previous_guard = cancel.guard
+                        intent_bound = (call.name in {'ask_face_question','use_memory_opportunity'}
+                            or bool(call.arguments['intent_update'].get('memory_ids')))
+                        intent_rejection_logged = False
                         def intent_output_valid():
+                            nonlocal intent_rejection_logged
                             if previous_guard is not None and not previous_guard():return False
+                            # General words already playing may finish through a camera gap.
+                            # Targeted questions/private memory retain their audience guard.
+                            if delivery.first_audio_at is not None and not intent_bound:return True
                             fresh = latest_faces(self.trace.clock())
                             current = {'current_view':{'faces':fresh}, 'speaker':context.get('speaker',{})}
-                            return intent_audience(current) == request_audience
+                            valid = intent_audience(current) == request_audience
+                            if not valid and not intent_rejection_logged:
+                                intent_rejection_logged = True
+                                self.trace.emit('intent_output_rejected',turn_id=turn_id,
+                                    reason='audience_changed_or_stale',speech_started=delivery.first_audio_at is not None)
+                            return valid
                         cancel.guard = intent_output_valid
                     if result.outcome=='ok' and call.name in {'inspect_view','shift_attention','respond_with_gesture'}:
                         from .visual_memory import audience
