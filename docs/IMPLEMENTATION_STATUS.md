@@ -52,6 +52,7 @@ separate categories.
 
 | Future capability | Boundary of current implementation |
 | --- | --- |
+| Greeting-led conversational intentions | Proposed session-only, revisable intentions created with greetings and updated through the same conversation owner. No planner call or scheduler change in the first version. [Implementation plan](CONVERSATIONAL_INTENT_PLAN.md); not implemented. |
 | Public installer and optional hardware configuration | Future installer built around existing `local/settings.toml`, independent optional capabilities, clear missing-device behavior, selected dependency/model downloads and optional service setup. No new settings or installer implemented. [Public-install plan](PUBLIC_INSTALL_PLAN.md) |
 | Supervisor and off-program controls migration | Required before physical hardware integration: adapt the V2 supervisor and servo console into V3, implement microphone/serial ownership handoff, inventory related LED/battery tools, and migrate installed LaunchAgents with rollback. Documentation only; no services changed. [Migration requirements](OPERATOR_TOOLS_MIGRATION.md) |
 | Physical motion and expression | Attention slice 4: calibrated drivers, trajectories, limits, feedback, obstruction/manual takeover and movement/audio exclusion are not implemented. Current gestures and turning are simulated. |
