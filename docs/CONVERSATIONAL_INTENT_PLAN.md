@@ -1,8 +1,9 @@
 # Greeting-led conversational intentions
 
-Status: proposed implementation plan, September 18, 2026. No runtime changes or
-validation have been performed. This document plans the user's brainstorming
-request; it does not authorize implementation, hosted trials or hardware operation.
+Status: software implemented September 18, 2026 following the user's request to
+implement this plan. The design and staged acceptance protocol below distinguish
+software contracts from hosted semantic evidence and live visitor acceptance.
+No live hardware or personal database was operated for this implementation.
 
 ## Intended behavior
 
@@ -22,7 +23,7 @@ and switch from getting acquainted to that discussion. For a familiar visitor wi
 an eligible trip memory, offer one follow-up; if they change the subject, follow
 them instead of pursuing the trip.
 
-## Current foundations and gaps
+## Foundations and gaps when proposed
 
 - `runtime.py::proactive_tick` offers arrivals, conversation lulls and ambient cues.
   It currently requires a stable visible audience; a normal lull is offered once
@@ -32,11 +33,12 @@ them instead of pursuing the trip.
   context, including eligible dated memories and participant boundaries.
 - `Session` already separates proposed actions from actual speech delivery. It
   currently accepts one tool call per response and forbids mixed tool/prose output.
-- Startup greeting checks in schemas, Session and state currently restrict tool
+- Before this implementation, startup greeting checks restricted tool
   choices to `ask_face_question`; ordinary greeting prose is also supported.
-- There is no explicit retained conversational intention or model-selected wakeup.
+- Before this implementation, there was no explicit retained conversational intention.
+  Model-selected wakeups remain outside this implementation.
 
-## First-version scope
+## Original first-version scope
 
 Implement greeting-led, session-only intentions and their revision during existing
 turns. Preserve ordinary streaming replies and the single primary generation.
@@ -222,10 +224,187 @@ live participants find it natural rather than an interview. Retain unresolved
 semantic failures explicitly. Synthetic success alone completes only the software
 contract, not social acceptance.
 
-## Later decision: model-selected reconsideration
+## Later decision: model-selected reconsideration (still deferred)
 
 After this version is evaluated, consider a bounded `reconsider_after` request or
 event condition. It would schedule an opportunity through the same owner and
 existing budgets, never scheduled speech. It needs separate expiry, deduplication,
 quiet/floor handling and cost tests. Long-lull thought experiments, richer
 motion-aware noticing and audio-only initiative remain separately scoped work.
+
+
+## Implementation details
+
+`conversation_intent.py` now owns the typed bounded record under CoreState. The
+shared Session supplies context to ordinary/proactive calls; no new opportunity,
+scheduler, provider, model or setting was added. `respond_with_intent` and optional
+updates on name questions, memory contributions, feedback and silence use the same
+primary generation. Unchanged replies continue streaming normally.
+
+Hosted strict schemas include nullable `intent_update`; programmatic core callers
+may omit it. A supplied update is fully validated. There are no fallback planning
+handlers or model-prose parsers. Rejected combined updates produce an explicit
+failure without applying their associated feedback or adding a recovery generation.
+
+Implementation bounds: one intention, two openings, three selected targets, eight
+memory references, eight transition receipts, 32 idempotence receipts and 2,000
+serialized characters of model-facing intention context. At most six typed target
+choices are offered. Oversized plans reject; history receipts are omitted first.
+Expired or audience-ineligible text is withheld rather than truncated into a new
+meaning. Completed/abandoned records also expire. Explicit stop suspends an intent.
+
+New sessions clear intentions even when a harness reuses CoreState. Forgetting, association cancellation, face-identity reset, or claim correction/retraction
+conservatively clears the whole intention. Audience changes
+suspend and hide its text; a replacement for another audience drops old transition
+text. A brief camera gap suspends; 30 seconds without a selected target (or any original group member for a
+group-scoped intention) clears it. This is presence bookkeeping, not proof that someone physically left the room.
+
+Already-delivered follow-ups remain eligible as source references while the claim,
+date and audience permit them. They remain excluded from proactive delivery
+candidates, preventing the intention from rearming a check-in. Existing text history
+still requires model discretion; this feature does not retroactively redact all
+previous dialogue when someone joins.
+
+Speech and plan outcomes remain separate. Updated intentions initially have no
+associated delivery; completed phrases, text-only results, interruption and failure
+are recorded explicitly. Planning cannot confirm a name, save a personal interest,
+or infer that a question was answered. Traces/report summaries include intention
+transitions and rejected proposals; full private diagnostics remain under `local/`.
+
+## Verification evidence
+
+The final blocked-I/O suite passed **451 checks**, including 34 new intention
+contracts. These use synthetic voices/output and temporary databases; no real model
+or device runs inside this suite. Two last lifecycle regressions first failed,
+then passed after fixing selected-target departure with a remaining bystander and
+cached human results after a newer source turn.
+
+Hosted development comparison: **12 families × 3 repeats × 2 arms**, 36 conversations
+and 105 scheduled turns per arm, using `gpt-5.4-mini` with low reasoning.
+
+| Observed metric | Baseline | With intentions |
+| --- | ---: | ---: |
+| Primary model calls | 99 | 99 |
+| Existing tool-result continuations | 1 | 0 |
+| First usable text, median / p95 | 0.837 / 2.423 s | 1.591 / 2.617 s |
+| First usable text sample count | 86 | 88 |
+| Turn completion, median / p95 | 0.978 / 2.044 s | 1.549 / 2.611 s |
+| Reported input tokens | 792,932 | 938,129 |
+| Reported output tokens | 6,118 | 16,746 |
+| Final retained conversation failures | 0 | 0 |
+
+First text measures model-request to the first `text_reply`, not audible speech.
+Completion includes suppressed turns, so its distribution has a different sample
+mix. Request pacing is excluded. First model delta median/p95 was 0.693/1.309 s
+for 74 instrumented baseline requests and 0.801/1.558 s for 99 candidate requests;
+older retained baseline traces lack this extra instrumentation. Function-argument
+deltas are not usable speech. Structured replies increased first-text median by
+about 0.75 s in this sample; 65 of 99 candidate primary calls used
+`respond_with_intent`. No extra planning generation was introduced.
+
+Offered intention context measured 881 characters median, 1,164 p95. A separate
+1,000-call synthetic three-face context microbenchmark measured 0.067 ms median,
+0.081 ms p95 and 24.7 MB process lifetime peak RSS. That small empty-store process
+is not a combined-load robot benchmark. Raw tokens are provider-reported usage,
+not a billed-dollar estimate.
+
+Ignored evidence directory:
+`local/validation/conversation-intentions-0236719d2ac64a4db96bb8689fd51cc1/`
+contains `evidence.json`, `summary.json`, `review.json`, individual traces, preserved
+prior attempts and `contract-checks.log`. The separate context measurement is
+`local/validation/intent-context-microbenchmark.json`. Final hosted candidate runs
+used one consistent prompt/schema/module revision. The two subsequent lifecycle
+fixes are covered by contract checks; these fixed-audience hosted scenarios do not
+exercise those branches.
+
+Hosted trials use fictional visitors, synthetic speaker evidence, temporary databases
+and silent TextOutput through the production Session. They do not establish actual
+greeting delivery, acoustic accuracy or social acceptance. The baseline adapter and
+schemas come from `a510502`; both arms use the shared current core. Several prompt
+variants were tried on these families, so these are development probes, not a fully
+held-out or randomized benchmark. Early token-rate failures and prior attempts are
+preserved separately; repaired final conversations must not be interpreted as zero
+failures across all attempts.
+
+Manual review found useful explicit continuity from welcome to bird photography,
+sailing/navigation, music and movies. Quiet requests, thinking pauses and human-floor
+holds kept intentions suspended while direct questions could still receive answers.
+No private sailing detail appeared in the bystander scenarios reviewed. This is a
+small observed result, not a guarantee against all privacy failures.
+
+Semantic limitations remain: some generic welcome objectives linger, a recognized
+visitor was sometimes asked for their name, and one unanswered-greeting probe
+produced unnecessary reassurance. Both arms already followed many topic changes;
+these probes demonstrate retained state, not proven superiority in naturalness.
+TextOutput is explicitly marked unheard, so the unanswered-greeting result cannot
+establish how Rex behaves after actual audible delivery. Name-seeking prose in
+`respond_with_intent` does not create the pending-question state owned by
+`ask_face_question`; model tool selection still matters. Familiar-visitor check-ins
+remain optional, and these probes do not prove reliable spontaneous recall.
+
+Live visitor acceptance, actual first audio, interruption/playback quality and
+combined-load M2 performance remain unmeasured. No local model, camera, microphone,
+speaker, motor or personal database was opened. No new resident model was added.
+
+
+## Follow-up implementation: continuing lulls
+
+The user subsequently requested that proactive conversation actually use the plan
+when a visitor stops talking, rather than stop after one lull contribution. The
+runtime now reoffers the same conversation owner an opportunity while a plan is
+active and its original audience remains eligible. It also works after a greeting
+with no human source; state validates that case against the active audience-bound
+intention rather than inventing a human turn.
+
+After the initial human-turn lull, same-source reconsideration backs off through
+8, 15, 30 and 60 seconds after attempts finish. With no human turn after a greeting,
+the first reconsideration waits eight seconds after greeting delivery. A new processed human turn restores
+normal first-lull eligibility without resetting the global call budget. All attempts,
+including failures and silence, count; changes to plan wording cannot reset pacing.
+A model-selected delay/tool remains deferred: this implementation uses the existing
+idle worker and a bounded pacing policy, not another scheduler or model.
+
+An active plan is permission to reconsider, not a promise to talk. The prompt asks
+for a new contribution relevant to the plan, makes listening without responding a
+valid interaction, and favors remarks over repeated questions. Existing receipts
+show what actually played. Silence can preserve a plan for later; completion,
+abandonment, suspension, expiry or changed audience prevents repeated plan lulls.
+Quiet, pending questions, speech/capture priority, floor holds and the rolling
+six-attempt/five-minute limit remain effective. No model, device or configuration
+switch was added.
+
+Verification: **458 blocked-I/O checks pass**, including seven new production-runtime
+contracts for repeated lulls, greeting-only starts, silence/completion, changed
+audience, quiet/pending questions, failure backoff and new-human-turn pacing. Fake
+TTS/sink delivery verifies that the next opportunity sees prior heard contributions;
+no real audio played. Hosted follow-up evidence is recorded below separately.
+
+
+Hosted development probe: one five-turn dialogue per arm, using fictional bird
+photography interest followed by three opportunities without further human input.
+The candidate retained the objective and contributed distinct framing, eye-sharpness
+and movement-prediction ideas. Both arms used five primary calls, zero continuations
+and reported no provider failures. The baseline also offered ideas but announced a
+lack of fresh angles before contributing again. No comparative quality claim follows
+from this single example.
+
+Evidence: `local/validation/conversation-intentions-417b9edd9c804631ba5450e468dcde77/`
+contains dialogue, summary, review and contract-check results. This probe explicitly
+uses fake TTS/sink **simulated delivery receipts**, not real playback, and directly
+offers ambient events through Session; runtime backoff is covered separately by
+fake-clock tests. Thus it demonstrates semantic continuation, not measured real-world
+spacing, audio latency or sustained novelty. Reproduce with:
+
+```sh
+.venv/bin/python tools/check_conversation_intentions.py --repetitions 1 --families listening_lulls --synthetic-delivery
+```
+
+
+The user rejected the initial 30-second follow-up wait as socially too slow. Current
+pacing is **8, 15, 30, then 60 seconds after the preceding attempt finishes**, not
+from generation start. The normal configured lull minimum and shared six-attempt
+rolling budget still apply, so these are earliest reconsideration times, not speech
+deadlines. Model and TTS latency follow reconsideration. **459 blocked-I/O checks
+pass**, including an additional slow-output test proving the delay starts after
+completion. The previous hosted dialogue probe used the earlier spacing; the revised
+spacing has synthetic runtime evidence only and has not been tested on hardware.

@@ -110,7 +110,7 @@ class ProactiveSessionTests(MemoryFixture):
         self.assertEqual(snapshot.speaker,'unresolved')
         self.assertFalse(any(m.get('role')=='user' for m in snapshot.messages))
         self.assertIn('Jordan',json.dumps(snapshot.context))
-        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)}, {'ask_face_question'})
+        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)}, {'ask_face_question','respond_with_intent'})
         self.assertTrue(snapshot.context['visual_arrival']['startup_greeting'])
 
     def test_startup_cannot_choose_silence_and_later_arrival_keeps_that_choice(self):

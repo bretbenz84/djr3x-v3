@@ -45,6 +45,8 @@ class CoreState:
         self.min_face_epoch = 0
         from .proactive import Initiative
         self.initiative = Initiative()
+        from .conversation_intent import ConversationIntent
+        self.conversation_intent = ConversationIntent(trace)
 
     def apply_photo(self,call,context,cancel):
         cancel.check()
@@ -252,8 +254,14 @@ class CoreState:
         if not faces: raise ValueError('VisualTargetStale')
         if event.kind=='visual_arrival' and not any(f['track_id']==event.target_track for f in faces):
             raise ValueError('VisualTargetStale')
-        if event.kind=='conversation_lull' and (not self.current or event.source_turn_id!=self.current[0]):
-            raise ValueError('StaleLullSource')
+        if event.kind=='conversation_lull':
+            if event.source_turn_id != (self.current[0] if self.current else None):
+                raise ValueError('StaleLullSource')
+            if self.current is None:
+                from .conversation_intent import audience
+                intent = self.conversation_intent.record
+                if intent is None or intent.status != 'active' or intent.audience != audience({'faces':faces}):
+                    raise ValueError('LullRequiresConversationOrActiveIntent')
         cues=[cue.public() for cue in event.public_cues if self.observation_available(cue.public())]
         if event.scene_id and event.scene_images:
             scene={'cue_id':event.scene_id,'kind':'scene','source':'current camera snapshots',
@@ -276,16 +284,76 @@ class CoreState:
                 'faces':faces,'people':people,'claims':[],
                 'pending_question':self.pending,'frozen_evaluation':self.frozen}
 
+    def intent_context(self, context, *, human=False):
+        from .conversation_intent import faces_for
+        from .memory_opportunities import candidates
+        memories = candidates(self.store, faces_for(context), self.calendar_today(), limit=128, include_delivered=True)
+        self.conversation_intent.refresh(context, [r['claim_id'] for r in memories], human=human)
+        # Ordinary turns may maintain existing references but don't gain a new memory scheduler.
+        if not context.get('trigger'):
+            keep = set(self.conversation_intent.record.memory_ids) if self.conversation_intent.record else set()
+            context['memory_opportunities'] = [r for r in memories if r['claim_id'] in keep]
+        context['conversation_intent'] = self.conversation_intent.context(context)
+        return context
+
+    def _with_intent(self, call, context, cancel, execute):
+        from .conversation_intent import UPDATE_TOOLS, faces_for, audience
+        from .memory_opportunities import candidates
+        value = call.arguments.get('intent_update')
+        if call.name not in UPDATE_TOOLS or (value is None and call.name != 'respond_with_intent'):
+            return execute()
+        source = context.get('event_id') or context.get('source_turn_id')
+        request_id = str(source) + ':' + call.call_id
+        fingerprint = hashlib.sha256(json.dumps({'name':call.name,'args':call.arguments},sort_keys=True).encode()).hexdigest()
+        intents = self.conversation_intent
+        try:
+            cancel.check()
+            validate(call.name,call.arguments)
+            if self.frozen:raise ValueError('FrozenEvaluationDisallowsMutation')
+            if not context.get('trigger'):
+                if self.current is None or source != self.current[0]:raise ValueError('IntentSourceMismatch')
+                self._source_allowed({}, call.name)
+            prior = intents.requests.get(request_id)
+            if prior:
+                if prior[0] != fingerprint:raise ValueError('RequestIdReusedWithDifferentArguments')
+                if prior[2] != audience(context):raise ValueError('IntentAudienceChanged')
+                if prior[1].revision != self.store.revision:raise ValueError('StaleStateRevision')
+                return prior[1]
+            if context.get('state_revision') != self.store.revision:raise ValueError('StaleStateRevision')
+            memories = candidates(self.store, faces_for(context), self.calendar_today(), limit=128, include_delivered=True)
+            row = intents.prepare(value, context, [r['claim_id'] for r in memories])
+            cancel.check()
+            result = execute()
+            if result.outcome == 'ok':
+                intents.commit(row)
+                if call.name == 'conversation_feedback' and result.data['action'] in {'topic_closed','topic_avoid','invitation_declined'}:
+                    intents.suspend('participant_boundary')
+                if call.name == 'remain_silent' and result.data['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:
+                    intents.suspend('human_floor')
+                if self.initiative.quiet:intents.suspend('initiative_quiet')
+                intents.requests[request_id] = (fingerprint, result, audience(context))
+                if len(intents.requests)>32:del intents.requests[next(iter(intents.requests))]
+            return result
+        except ValueError as exc:
+            self.trace.emit('conversation_intent_rejected',source_id=source,reason=str(exc))
+            return ToolResult(request_id,'rejected',str(exc),self.store.revision)
+
     def execute_opportunity(self, call, context, cancel):
+        return self._with_intent(call,context,cancel,
+            lambda:self._execute_opportunity(call,context,cancel))
+
+    def _execute_opportunity(self, call, context, cancel):
         """Visual cues can ask or stay quiet, never create identity or personal facts."""
         request_id = context['event_id']+':'+call.call_id
         try:
             cancel.check()
             validate(call.name,call.arguments)
             if self.store.revision!=context['state_revision']: raise ValueError('StaleStateRevision')
-            if context.get('visual_arrival',{}).get('startup_greeting') and call.name!='ask_face_question':
+            if context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
                 raise ValueError('StartupGreetingRequiresSpeech')
-            if call.name=='use_visual_memory':
+            if call.name=='respond_with_intent':
+                data={'text':call.arguments['text']}
+            elif call.name=='use_visual_memory':
                 from . import visual_memory
                 offered={r['id'] for r in context.get('visual_memory',[])}
                 current=visual_memory.context(self.store,self.attention.scene.session_id,visual_memory.audience(context))
@@ -337,7 +405,15 @@ class CoreState:
                          (selected['claim_id'],selected['occasion'],self.calendar_today().isoformat()))
             if written.rowcount:self.store.advance(conn)
 
-    def execute(self, call, expected_revision, cancel):
+    def execute(self, call, expected_revision, cancel, context=None):
+        if call.arguments.get('intent_update') is not None or call.name == 'respond_with_intent':
+            context = context if context is not None else self.intent_context(self.context())
+            context = dict(context, state_revision=expected_revision)
+            return self._with_intent(call,context,cancel,
+                lambda:self._execute(call,expected_revision,cancel))
+        return self._execute(call,expected_revision,cancel)
+
+    def _execute(self, call, expected_revision, cancel):
         turn_id,capture,transcript,observation,attribution = self.current
         request_id = capture.session_id + ":" + call.call_id
         fingerprint = hashlib.sha256(json.dumps({"name":call.name,"args":call.arguments},sort_keys=True).encode()).hexdigest()
@@ -346,6 +422,10 @@ class CoreState:
             validate(call.name,call.arguments)
             if self.frozen and call.name not in {"recall","ask_question","ask_face_question","settle_question","remain_silent"}:
                 raise ValueError("FrozenEvaluationDisallowsMutation")
+            if call.name == 'respond_with_intent':
+                cancel.check()
+                if revision != expected_revision:raise ValueError('StaleStateRevision')
+                return ToolResult(request_id,'ok','executed',revision,{'text':call.arguments['text']})
             with self.store.transaction() as conn:
                 cancel.check()
                 previous = conn.execute("SELECT * FROM operations WHERE request_id=?",(request_id,)).fetchone()
@@ -676,9 +756,13 @@ class CoreState:
         raise ValueError("UnknownTool")
 
     def _after(self,name,data):
+        if name in {'forget_person','cancel_association','reset_face_identity','correct_claim','retract_claim'}:
+            self.conversation_intent.clear(name)
         if name=='remain_silent' and 'feedback' in data:
             self._after('conversation_feedback',data['feedback'])
         if name=='conversation_feedback':
+            if data['action'] in {'topic_closed','topic_avoid','invitation_declined','yield_floor'}:
+                self.conversation_intent.suspend('participant_boundary')
             if data['action'] in {'retract','floor_resolved'}:
                 self.initiative.feedback = deque((r for r in self.initiative.feedback
                     if r['id'] != data['reference_id']), maxlen=32)
@@ -692,6 +776,7 @@ class CoreState:
         if name=='set_initiative':
             self.initiative.quiet = data['mode']=='quiet'
             self.initiative.policy_source = data['source_turn_id']
+            if self.initiative.quiet:self.conversation_intent.suspend('initiative_quiet')
         if name=="introduce_person" and data.get("face_track_id"):
             key = data['face_track_id']
             self.face_associations[key] = data["person_id"]

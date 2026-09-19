@@ -32,6 +32,13 @@ LLM-selected descriptions together. The [core integration pass](docs/CORE_INTEGR
 adds detail-preserving revisions, visual novelty context, action continuity across
 interruption and combined contract tests. Live descriptive quality remains unvalidated.
 
+Greeting-led [conversational intentions](docs/CONVERSATIONAL_INTENT_PLAN.md) now
+retain an optional, revisable direction for the visit through the same model call.
+Later replies can follow the visitor's agenda without a separate planner. These are
+session context, not personal facts or scheduled speech. Active intentions now
+permit spaced follow-up opportunities during continuing silence; the same model
+chooses whether and how to speak, within existing quiet/floor and call-budget gates. Live social acceptance remains open.
+
 ## Run the core
 
 The dev Mac already has its independent `.venv`, selected devices, credentials,

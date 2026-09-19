@@ -1031,3 +1031,31 @@ unrelated details, and multi-pet overview saves are rejected. Authorized saved-p
 hosted replay confirmed both saves and fragment clarification, but still confused
 the dogs despite fresh comparisons. No new hardware capture/playback was performed.
 See [implementation, measured latency and remaining failures](OBJECT_PHOTO_MEMORY.md#teaching-and-correction-safeguards-september-17-follow-up).
+
+
+### September 18 greeting-led conversational intentions
+
+The same primary generation can now create or revise a bounded session intention
+alongside a greeting, name invitation, memory check-in, reply, feedback or silence.
+Intentions retain audience/source references and actual delivery separately; they
+cannot write biography, identify speakers or schedule speech. Existing proactive
+triggers remain unchanged. The blocked-I/O suite passes **451 checks**, including
+34 new intention scenarios with synthetic voices/output and temporary stores.
+Hosted fictional comparison evidence and live limitations are recorded in the
+[implementation plan](CONVERSATIONAL_INTENT_PLAN.md#verification-evidence).
+No live devices or personal databases were operated for this work.
+
+
+The follow-up request to continue conversation across silence is implemented through
+active-plan lull reconsideration. **458 blocked-I/O checks pass**, including seven
+new runtime contracts; earlier counts above describe their original runs. Follow-up
+opportunities back off without requiring another human turn. Quiet/floor/pending
+questions, cancellation, audience scope and attempt budgets still apply. See the
+[continuation evidence](CONVERSATIONAL_INTENT_PLAN.md#follow-up-implementation-continuing-lulls).
+Live naturalness and timing remain unmeasured.
+
+
+Following the user's pacing correction, the continuation intervals are now
+8/15/30/60 seconds after completion. **459 blocked-I/O checks pass**, including
+slow-output timing; the shared rolling call budget and configured lull minimum
+remain in force. This timing revision has no new hosted or live acceptance claim.

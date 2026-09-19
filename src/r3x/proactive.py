@@ -46,6 +46,7 @@ class Initiative:
         self.attempts = deque(maxlen=16)
         self.outcomes = deque(maxlen=16)
         self.lull_source = None
+        self.lull_attempts = 0
         self.feedback = deque(maxlen=32)
 
     def floor_held(self, now: float) -> bool:
@@ -56,10 +57,24 @@ class Initiative:
         return not self.quiet and not self.floor_held(now) and len(recent) < 6 and (
             not self.attempts or now-self.attempts[-1] >= 8)
 
+    def lull_due(self, now: float, source: str | None, active_intent: bool) -> bool:
+        """Reconsider an active visit without treating silence as a human response."""
+        if source is not None and source != self.lull_source:
+            return True
+        if not active_intent:
+            return False
+        delay = (8., 15., 30., 60.)[min(max(self.lull_attempts - 1, 0), 3)]
+        last_finished = self.outcomes[-1]['at'] if self.outcomes else float('-inf')
+        last_attempt = self.attempts[-1] if self.attempts else float('-inf')
+        return now - max(last_attempt, last_finished) >= delay
+
     def attempted(self, event: Opportunity) -> None:
         self.attempts.append(event.at)
         if event.kind in {"conversation_lull","ambient"}:
+            if self.lull_source != event.source_turn_id:
+                self.lull_attempts = 0
             self.lull_source = event.source_turn_id
+            self.lull_attempts = min(4, self.lull_attempts + 1)
 
     def finished(self, event: Opportunity, delivery, now: float) -> dict:
         heard = bool(delivery.completed_text) and delivery.medium == "audio"
@@ -75,6 +90,7 @@ class Initiative:
     def context(self, now: float | None = None) -> dict:
         return {"initiative_quiet": self.quiet, "policy_source_turn_id": self.policy_source,
                 "recent_opportunities": list(self.outcomes),
+                "lull_attempts_since_source": self.lull_attempts,
                 "feedback": [dict(row) for row in self.feedback
                              if row["expires_at"] is None or now is None or now < row["expires_at"]]}
 
@@ -89,6 +105,7 @@ class Initiative:
         self.outcomes.clear()
         self.feedback.clear()
         self.lull_source = None
+        self.lull_attempts = 0
 
 
 class Arrivals:

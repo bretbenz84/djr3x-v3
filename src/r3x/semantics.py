@@ -81,14 +81,27 @@ TOOLS = (
 )
 
 
+# Planning is optional in core calls; the hosted strict schema spells out nullable fields.
+from .conversation_intent import UPDATE_TOOLS, update_schema, validate_update
+TOOLS += (schema('respond_with_intent',
+    'Give a natural greeting or reply while optionally creating, revising or ending the session conversational intention. '
+    'Use when a visitor first supplies their conversational direction or explicitly changes the topic: replace a generic welcome agenda with that concrete direction while answering naturally. Otherwise stream ordinary prose. Not biography or a questionnaire. '
+    'No extra generation. Memory-based proactive speech must use use_memory_opportunity instead.',
+    {'text': TEXT, 'intent_update': update_schema()}),)
+for _definition in TOOLS:
+    if _definition['name'] in UPDATE_TOOLS:
+        _definition['parameters']['properties']['intent_update'] = update_schema()
+        _definition['parameters']['required'] = list(_definition['parameters']['properties'])
+
+
 def grounded_tools(context):
     """Constrain identifier syntax to the current snapshot, independently revalidated on apply."""
     import copy
     definitions = copy.deepcopy(TOOLS)
     if context.get('trigger')=='visual_arrival':
-        definitions = [d for d in definitions if d['name'] in {'remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
+        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
     elif context.get('trigger') in {'conversation_lull','ambient'}:
-        definitions = [d for d in definitions if d['name'] in {'remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
+        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
     if context.get('inspection_description_allowed'):
         definitions = copy.deepcopy([d for d in TOOLS if d['name']=='describe_view'])
     if context.get('photo_inspection'):
@@ -100,7 +113,7 @@ def grounded_tools(context):
     if context.get('visual_arrival',{}).get('startup_greeting'):
         # Startup is an explicit social opening, not an optional visual riff.
         # Ordinary model prose and an audible name invitation are sufficient.
-        definitions = [d for d in definitions if d['name']=='ask_face_question']
+        definitions = [d for d in definitions if d['name'] in {'ask_face_question','respond_with_intent','use_memory_opportunity'}]
     people = [p["id"] for p in context.get("people",[])]
     claims = [c["id"] for c in context.get("claims",[])]
     faces = [f["track_id"] for f in context.get("faces",[])]
@@ -108,6 +121,7 @@ def grounded_tools(context):
     allowed = []
     for definition in definitions:
         name = definition["name"]
+        if name == 'respond_with_intent' and (context.get('frozen_evaluation') or not context.get('conversation_intent')):continue
         if name in {'inspect_visual_memory','remember_object','edit_object_memory'} and not context.get('photo_memory'):continue
         if name=='defer_photo_teaching' and context.get('photo_inspection',{}).get('intent')!='teach':continue
         if name=='remember_object' and not context.get('photo_inspection'):continue
@@ -120,7 +134,7 @@ def grounded_tools(context):
         if name=="shift_attention" and not context.get("attention_enabled"):continue
         if name=='use_observation' and not context.get('observations'):continue
         if name=='remember_followup' and not context.get('speaker',{}).get('person_id'):continue
-        if name=='use_memory_opportunity' and not context.get('memory_opportunities'):continue
+        if name=='use_memory_opportunity' and (not context.get('trigger') or not context.get('memory_opportunities')):continue
         identity_targets = context.get("identity_action_targets", {}).get(name, [])
         if name in {"rename_person", "forget_person"} and not identity_targets:
             continue
@@ -138,6 +152,18 @@ def grounded_tools(context):
             continue
         for key,spec in definition["parameters"]["properties"].items():
             values = None
+            if key == 'intent_update':
+                offered = context.get('conversation_intent', {})
+                fields = spec['properties']
+                fields['revision']['enum'] = [offered.get('revision', 0)]
+                fields['intent_id']['enum'] = [offered.get('intent_id')]
+                if offered.get('source_id'):fields['source_id']['enum'] = [offered['source_id']]
+                for field, ids in (('target_ids', offered.get('target_ids', [])),
+                                   ('memory_ids', [r['claim_id'] for r in context.get('memory_opportunities', [])])):
+                    if ids:fields[field]['items']['enum'] = ids
+                    else:fields[field]['maxItems'] = 0
+                if context.get('frozen_evaluation') or not offered:spec['enum'] = [None]
+                continue
             if name=='inspect_visual_memory' and key=='target_id':values=[r['target_id'] for r in context['photo_memory']['objects']]
             if name=='inspect_visual_memory' and key=='entity_ids':
                 spec['items']['enum']=[r['entity_id'] for r in context['photo_memory']['entities']]
@@ -179,9 +205,12 @@ def validate(name, args):
     if definition is None or not isinstance(args, dict):
         raise ValueError("UnknownTool")
     properties = definition["parameters"]["properties"]
-    if args.keys() != properties.keys():
+    if args.keys() - properties.keys() or properties.keys() - args.keys() - {'intent_update'}:
         raise ValueError("ToolFieldsMismatch")
     for key, spec in properties.items():
+        if key == 'intent_update':
+            validate_update(args.get(key))
+            continue
         value = args[key]
         if value is None and isinstance(spec["type"], list) and "null" in spec["type"]:
             continue

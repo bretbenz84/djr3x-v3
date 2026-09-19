@@ -312,3 +312,20 @@ resumed speech before playback, sensitive conversations and repeat sessions.
 Evaluate whether questions are enjoyable, varied and appropriately timed; verify
 that silence/declines back off, canceled speech is not counted as heard, and
 question generation stays within the shared proactive call/cost limits.
+
+
+## Greeting-led conversational intentions (September 18)
+
+An optional session intention can now accompany a greeting, name invitation or
+eligible remembered check-in. The same owner may revise or abandon it on a later
+turn; ordinary replies need no planning annotation. There is one bounded intention
+for the visit, not competing per-person agendas or a fixed onboarding interview.
+Audience changes, quiet/floor boundaries, correction, forgetting and actual delivery
+constrain its use. See [implementation and evaluation](CONVERSATIONAL_INTENT_PLAN.md).
+The subsequently requested continuation behavior now reconsiders an active plan
+across continuing lulls, after 8/15/30/60 seconds after attempts finish. The existing
+idle worker offers these opportunities; there is no separate planner or worker.
+Quiet, pending audible questions, human-floor holds, audience freshness, expiry and
+the shared six-attempt/five-minute budget still constrain it. The model sees prior
+deliveries and should advance an interest with contributions that need no response,
+rather than repeat greetings or interview questions. Social timing remains unvalidated.

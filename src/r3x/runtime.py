@@ -131,6 +131,13 @@ class VoiceRuntime:
         if not self.camera or not self.session.state or self.session.state.frozen: return
         now = self.trace.clock()
         with self.control_lock:
+            # Session maintenance only; does not create an opportunity or an LLM call.
+            with self.session._lock:
+                intentions = self.session.state.conversation_intent
+                if intentions.record:
+                    intentions.refresh({'faces': self.camera.latest(now),
+                        'participation': self.session.state.initiative.context(now)},
+                        intentions.record.memory_ids)
             if (self.stop.is_set() or self.session.closed or now-self.started_at<8 or
                 not 0<=now-self.audio_seen_at<=.5 or self.asr_busy.is_set() or
                 not self.captures.empty() or not self.turns.empty() or
@@ -145,7 +152,11 @@ class VoiceRuntime:
                 current = self.session.state.current
                 source = current[0] if current else None
                 audience = self.arrivals.audience(now)
-                if source and source!=initiative.lull_source and audience and self.session.history.turns:
+                from .conversation_intent import audience as intent_audience
+                row = intentions.record
+                active_intent = (row is not None and row.status == 'active'
+                    and row.audience == intent_audience({'faces': audience}))
+                if audience and self.session.history.turns and initiative.lull_due(now,source,active_intent):
                     from .proactive import Opportunity
                     from uuid import uuid4
                     event = Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
@@ -181,7 +192,12 @@ class VoiceRuntime:
             # the main loop last polled. Validate the latest evidence, not that
             # older polling snapshot. This reads cache only; no device work.
             self.arrivals.observe(self.camera.latest(now),now)
-            reason = ('shutdown' if self.stop.is_set() else
+            intention = self.session.state.conversation_intent.record
+            from .conversation_intent import audience
+            intent_audience_changed = (intention is not None and intention.source_id == event.event_id
+                and intention.audience != audience({'faces':self.arrivals.faces}))
+            reason = ('intent_audience_changed' if intent_audience_changed else
+                      'shutdown' if self.stop.is_set() else
                       'human_speech' if self.session._latest_speech!=event.speech_marker else
                       'capture_queued' if not self.captures.empty() else
                       'turn_queued' if not self.turns.empty() else

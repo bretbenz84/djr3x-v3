@@ -23,7 +23,7 @@ def occasion(kind: str, scheduled: str | None, today: date) -> str | None:
     return scheduled if -7<=days<=7 else None
 
 
-def candidates(store, faces, today: date, offset: int = 0, limit: int = 6) -> list[dict]:
+def candidates(store, faces, today: date, offset: int = 0, limit: int = 6, *, include_delivered: bool = False) -> list[dict]:
     visible={f.get('identity') for f in faces if f.get('identity')}
     if not visible:return []
     rows=store.rows('''SELECT f.*,c.subject_id,c.predicate,c.value,c.source_turn,c.said_by,
@@ -38,7 +38,7 @@ def candidates(store, faces, today: date, offset: int = 0, limit: int = 6) -> li
         if row['audience']=='subject_only' and (len(faces)!=1 or len(visible)!=1):continue
         key=occasion(row['kind'],row['on_date'],today)
         if key is None:continue
-        if store.rows('SELECT 1 FROM memory_followup_delivery WHERE claim_id=? AND occasion=?',
+        if not include_delivered and store.rows('SELECT 1 FROM memory_followup_delivery WHERE claim_id=? AND occasion=?',
                       (row['claim_id'],key)):continue
         result.append({**row,'occasion':key})
     # Dated opportunities are time limited; callbacks rotate as receipts are delivered.

@@ -26,6 +26,7 @@ class Session:
         self.state = state
         if state is not None:
             state.attention.scene.session_id = session_id
+            state.conversation_intent.clear("new_session")
         self._latest_speech = float("-inf")
         self._capture_end = float("inf")
         self.proactive_hold_until = float("-inf")
@@ -38,6 +39,7 @@ class Session:
             if self._cancel:
                 self._cancel.event.set()
             if self.state:
+                self.state.conversation_intent.suspend("explicit_stop")
                 self.state.cancel()
         self.output.cancel()
         self.trace.emit("cancel", revision=self.revision)
@@ -267,8 +269,12 @@ class Session:
                 context['action_continuity'] = self.state.actions.context(visual_memory.audience(context))
             refresh_current_view(context)
             if self.state and not self.state.frozen:
+                with self._lock:
+                    self.state.intent_context(context, human=not opportunity)
                 from .photo_flow import context as photo_context
                 context.update(photo_context(self.state))
+            from .conversation_intent import audience as intent_audience
+            request_audience = intent_audience(context)
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
                                 context, self.state is not None, images=scene_images)
@@ -332,11 +338,15 @@ class Session:
                 if not self.state or len(calls) != 1 or generated.strip():
                     raise ProviderFailure("SpeechToolProtocolViolation")
                 call = calls[0]
-                if context.get('visual_arrival',{}).get('startup_greeting') and call.name!='ask_face_question':
+                if context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
                     raise ProviderFailure('StartupGreetingRequiresSpeech')
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=call.arguments)
                 with self._lock:
                     cancel.check()
+                    if call.arguments.get('intent_update') is not None or call.name == 'respond_with_intent':
+                        refresh_current_view(context)
+                        if intent_audience(context) != request_audience:
+                            raise ProviderFailure('IntentAudienceChanged')
                     if call.name == 'describe_view':
                         from .contracts import ToolResult
                         model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
@@ -368,8 +378,17 @@ class Session:
                         from .contracts import ToolResult
                         result = ToolResult(attention_intent.request_id, 'ok', 'AttentionProposed', self.state.store.revision)
                     else:
-                        result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel)
-                    if opportunity and result.outcome!='ok': raise ProviderFailure(result.reason)
+                        result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel,context=context)
+                    if result.outcome!='ok' and (opportunity or call.arguments.get('intent_update') is not None or call.name=='respond_with_intent'):
+                        raise ProviderFailure(result.reason)
+                    if result.outcome=='ok' and call.arguments.get('intent_update') is not None and latest_faces:
+                        previous_guard = cancel.guard
+                        def intent_output_valid():
+                            if previous_guard is not None and not previous_guard():return False
+                            fresh = latest_faces(self.trace.clock())
+                            current = {'current_view':{'faces':fresh}, 'speaker':context.get('speaker',{})}
+                            return intent_audience(current) == request_audience
+                        cancel.guard = intent_output_valid
                     if result.outcome=='ok' and call.name in {'inspect_view','shift_attention','respond_with_gesture'}:
                         from .visual_memory import audience
                         self.state.actions.begin(result.request_id,call.name,call.arguments.get('question') or call.arguments.get('purpose') or call.arguments.get('text'),turn_id,audience(context),self.trace.clock())
@@ -494,7 +513,7 @@ class Session:
                         call.name=='remain_silent' and result.data['reason']!='no_response_needed'):
                         self.proactive_hold_until = self.trace.clock()+120
                     self.history.extend((
-                        {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps(call.arguments)},
+                        {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {})})},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                     self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
                 elif result.outcome=='ok' and call.name=='use_visual_memory':
@@ -533,7 +552,7 @@ class Session:
                     cancel.valid = lambda: (previous_valid() and self.state.store.revision==selected_revision
                         and self.state.calendar_today().isoformat()==selected_day)
                     put_phrase(phrases,result.data['text'],cancel)
-                elif result.outcome=="ok" and call.name=="conversation_feedback":
+                elif result.outcome=="ok" and call.name in {"conversation_feedback","respond_with_intent"}:
                     put_phrase(phrases,result.data['text'],cancel)
                 elif result.outcome=="ok" and call.name in {"ask_question","ask_face_question"}:
                     question = result.data
@@ -543,11 +562,13 @@ class Session:
                     import json
                     context = self.state.context(faces)
                     refresh_current_view(context)
+                    if not self.state.frozen:
+                        with self._lock:self.state.intent_context(context)
                     if call.name=='set_initiative' and result.outcome=='ok':
                         self.proactive_hold_until = float('-inf')
                     continuation = (*call.preamble,
                         {"type":"function_call","call_id":call.call_id,"name":call.name,
-                         "arguments":json.dumps(call.arguments)},
+                         "arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {})})},
                         {"type":"function_call_output","call_id":call.call_id,
                          "output":json.dumps(asdict(result))})
                     # Forgotten information is not sent back in the continuation history.
@@ -608,6 +629,8 @@ class Session:
             if self.state and state_started and (opportunity or not self.state.forgotten):
                 try:
                     with self._lock:
+                        self.state.conversation_intent.delivered(
+                            opportunity.event_id if opportunity else turn_id,turn_id,delivery)
                         from .output import plain_text
                         def fully_heard(text):
                             return (delivery.medium=='audio' and bool(delivery.completed_text) and

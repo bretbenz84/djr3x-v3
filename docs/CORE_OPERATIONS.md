@@ -431,11 +431,19 @@ grief and explicit boundaries. Tiredness or a short answer does not mechanically
 set an energy mode. History retains each source's speaker uncertainty; the lull
 does not invent a new speaker or turn someone's face into acoustic identity.
 
-Initial pacing is one lull attempt per processed human source turn, at least eight
-seconds between proactive attempts and at most six attempts in a rolling five-minute
-window across both arrivals and lulls. Human turns do not reset the rolling cap.
-Arrivals retain their additional visit/cooldown rules. A model silence decision or
-terminal stop retains the two-minute hold. Attempts cancelled before generation
+The first lull remains eligible after eight seconds of quiet following a processed
+human turn. An active, audience-matched conversational intention now allows further
+opportunities without another human turn, including after an unanswered greeting.
+Reconsideration waits 8, 15, 30, then 60 seconds after successive same-source
+attempts finish (60 remains the ceiling). These are opportunities for the shared model to
+continue its plan, remain silent or finish it, never prewritten or mandatory speech.
+Absent an active plan, the one-lull-per-human-turn rule remains. There are still at
+least eight seconds between proactive attempts and at most six attempts in a rolling
+five-minute window across arrivals, lulls and ambient cues. Human turns do not reset the rolling cap.
+Arrivals retain their additional visit/cooldown rules. A floor-related silence decision or
+terminal stop retains the two-minute hold. Ordinary `no_response_needed` silence
+can retain an active intention for later reconsideration. Completed, abandoned,
+suspended, expired or audience-ineligible intentions do not reopen lulls. Attempts cancelled before generation
 also consume pacing, preventing a failed freshness check from spinning every tick.
 This policy is provisional social calibration, not a verified ideal conversation rate.
 
@@ -645,3 +653,30 @@ start a fresh provisional voice group when old unnamed groups are ambiguous.
 Your existing supported profiles are preserved. See
 [introduction-first learning](INTRODUCTION_RECOVERY.md) for the implementation,
 379-check evidence and outstanding live acceptance.
+
+
+### Greeting-led conversational intentions
+
+Normal camera-enabled operation now permits the greeting generation to retain a
+short intention for the visit, such as getting acquainted or an eligible check-in.
+Subsequent replies can revise it as the humans choose a topic. There is no new
+setting or planner call. An active intention permits spaced repeat lull opportunities as described above;
+it cannot force a remark or override quiet mode.
+
+Intentions reset on restart and are separate from names, voice/face profiles and
+personal memory. Changed audiences hide stale intention text; explicit stop and
+quiet suspend it. Logs include `conversation_intent_transition`,
+`conversation_intent_rejected` and `conversation_intent_delivery`; reports summarize
+transitions and rejections. A recorded intention is not proof its greeting played.
+
+Explicit hosted evaluation, with fictional visitors, temporary stores and silent
+output (API usage; no hardware):
+
+```sh
+.venv/bin/python tools/check_conversation_intentions.py --repetitions 3
+```
+
+The evaluator paces requests to reduce token-rate failures and saves dialogues,
+usage, timing and provider failure metadata under ignored validation storage.
+Read actual conversation wording as well as structural outcomes. See the
+[implementation/evidence](CONVERSATIONAL_INTENT_PLAN.md) before interpreting results.

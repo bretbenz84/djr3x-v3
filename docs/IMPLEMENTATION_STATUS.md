@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated September 17, 2026. This is the consolidated checklist for current scope.
+Updated September 18, 2026. This is the consolidated checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
@@ -13,6 +13,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 | Status | Capability | Implementation and evidence |
 | --- | --- | --- |
+| Implemented; live acceptance pending | Greeting-led session intentions, one-call revisions, spaced continuing-lull opportunities, audience/memory filtering and delivery-aware lifecycle | [Plan and implementation](CONVERSATIONAL_INTENT_PLAN.md) |
 | Implemented | Microphone capture, transcription, one conversation owner, streamed speech, cancellation, delivery receipts, bounded history and network retry | [Operations](CORE_OPERATIONS.md), [initial slices and evidence](INITIAL_TEST_PROGRAM.md) |
 | Implemented; combined live acceptance pending | ReSpeaker channel-0 capture, V2 host gain, read-only direction provider, source-linked voice/face/direction context and competing-direction learning guard | [ReSpeaker evidence and limits](RESPEAKER_INTEGRATION.md) |
 | Implemented; live reliability incomplete | Persistent face/voice profiles, self-introduced names, compatible conversational enrollment, restart, correction and forgetting | [Face path](FACE_ATTRIBUTION_PLAN.md), [introduction-first recovery](INTRODUCTION_RECOVERY.md) |
@@ -25,8 +26,8 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **386 passing checks** after the
-[robot camera mode repair](CORE_OPERATIONS.md#robot-camera-startup-september-17).
+The latest blocked-I/O suite has **459 passing checks** including the
+[greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md).
 Prior counts in linked documents describe their dated checkpoints.
 
 ## Acceptance and defect investigation still open
@@ -52,7 +53,6 @@ separate categories.
 
 | Future capability | Boundary of current implementation |
 | --- | --- |
-| Greeting-led conversational intentions | Proposed session-only, revisable intentions created with greetings and updated through the same conversation owner. No planner call or scheduler change in the first version. [Implementation plan](CONVERSATIONAL_INTENT_PLAN.md); not implemented. |
 | Public installer and optional hardware configuration | Future installer built around existing `local/settings.toml`, independent optional capabilities, clear missing-device behavior, selected dependency/model downloads and optional service setup. No new settings or installer implemented. [Public-install plan](PUBLIC_INSTALL_PLAN.md) |
 | Supervisor and off-program controls migration | Required before physical hardware integration: adapt the V2 supervisor and servo console into V3, implement microphone/serial ownership handoff, inventory related LED/battery tools, and migrate installed LaunchAgents with rollback. Documentation only; no services changed. [Migration requirements](OPERATOR_TOOLS_MIGRATION.md) |
 | Physical motion and expression | Attention slice 4: calibrated drivers, trajectories, limits, feedback, obstruction/manual takeover and movement/audio exclusion are not implemented. Current gestures and turning are simulated. |
