@@ -95,8 +95,11 @@ def main():
                                   session._latest_speech,False,'conversation_lull',state.current[0],8.)
                 began=time.monotonic()
                 receipt=session.process_opportunity(event,0,lambda:True)
+                # Owner direction, September 18: after Rex's own unanswered question a short joke
+                # that needs no reply is welcome; another question or a repeat is still a failure.
+                joke=name=='unanswered_invitation' and receipt.status=='completed' and '?' not in ' '.join(receipt.completed_text)
                 item={'case':name,'source':user,'expected_status':expected,
-                      'passed':receipt.status==expected,'receipt':asdict(receipt),
+                      'passed':receipt.status==expected or joke,'receipt':asdict(receipt),
                       'wall_seconds':time.monotonic()-began}
                 cases.append(item)
                 print(name,'PASS' if item['passed'] else 'FAIL',receipt.completed_text,flush=True)

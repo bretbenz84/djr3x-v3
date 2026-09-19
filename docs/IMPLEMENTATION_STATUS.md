@@ -26,7 +26,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **465 passing checks** including the
+The latest blocked-I/O suite has **467 passing checks** including the
 [greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md) and the
 [prompt-caching repair](PROMPT_CACHING.md).
 Prior counts in linked documents describe their dated checkpoints.
@@ -113,3 +113,11 @@ transmitted tool schemas had left every tool-enabled request uncached. The adapt
 sends a static tool list with `allowed_tools` and grounds returned identifiers locally.
 A paid synthetic probe measured 11,008 of about 12,400 input tokens cached per primary
 call. Hosted semantic suites and live conversation have not been rerun on this change.
+
+September 19 [persona consolidation](PERSONA_REWRITE.md): the conversation prompt was
+rewritten from 423 to 242 lines with one priority order, the owner's rulings on names,
+appearance, intentions and unanswered questions, and the request context moved after the
+history. An invalid intention note no longer fails a turn, and unknown identifiers are
+rejected by the state owner rather than the adapter. Paced hosted suites scored 141/168
+against 135/168 for the previous prompt, as development evidence only. 467 blocked-I/O
+checks pass. Live conversation has not been rerun.

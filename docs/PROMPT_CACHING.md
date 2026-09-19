@@ -25,10 +25,13 @@ them could be reused.
   what is offered and which identifiers are valid.
 - `semantics.ground` applies that snapshot grounding to each returned call before it
   leaves the adapter. A field with exactly one permitted value (for example
-  `source_turn_id`) is supplied, exactly as the strict enum previously forced it. Any
-  other identifier outside the offered set, or a tool that was not offered, fails the
-  turn with `UngroundedToolValue` / `ToolNotOffered`. Nothing is repaired or guessed.
-  State-owner revalidation is unchanged.
+  `source_turn_id`) is supplied, exactly as the strict enum previously forced it. A
+  tool that was not offered fails the turn with `ToolNotOffered`. Other identifiers
+  pass to the state owner, whose existing revalidation rejects unknown or unoffered
+  targets with a structured result. (The first version of this repair failed the whole
+  turn with `UngroundedToolValue` instead; hosted checks showed that silenced an unknown
+  speaker's request, so it was changed on September 19. See
+  [persona consolidation](PERSONA_REWRITE.md).)
 - `model_usage` trace events and `report` now include `cached_tokens`.
 
 No model, prompt text, tool contract, setting or extra request was added. The model now
@@ -67,15 +70,16 @@ produces one uncached call.
 
 ## Not done
 
-- **Context after history.** `CURRENT CORE CONTEXT` and the conditional instruction
-  appendices still follow the persona inside `instructions`, so conversation history
-  is never cached. The experiment above cached 91% of a ten-turn request. Moving them
-  changes what the model reads last and breaks evaluators that parse `instructions`;
-  it needs its own hosted semantic comparison before adoption.
+- **Context after history** was adopted on September 19 together with the
+  [persona consolidation](PERSONA_REWRITE.md): `instructions` is the static persona and
+  the request-specific notes and context follow the history. The experiment above
+  cached 91% of a ten-turn request in that layout. Its hosted comparison was run jointly
+  with the new persona, not separately.
 - History eviction shifts the prefix every turn once the 32-exchange / 24,000-character
   budget is full. Evicting in larger steps would preserve more cache; unmeasured.
 - Extended cache retention and `prompt_cache_key` were not adopted or evaluated.
 - `tools/check_conversation_intentions.py` swaps `grounded_tools` for its baseline arm;
   the transmitted static list now always comes from the current `TOOLS`, so that
   historical baseline comparison is no longer exact.
-- Hosted semantic suites and live conversation have not been rerun on this change.
+- Live conversation has not been rerun on this change. The hosted semantic suites were
+  rerun on September 19; results are in [persona consolidation](PERSONA_REWRITE.md).

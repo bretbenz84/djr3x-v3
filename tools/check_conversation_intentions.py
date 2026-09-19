@@ -80,10 +80,16 @@ class InstrumentedClient:
             began=time.monotonic()
             payload=kwargs.get('json',{})
             marker='CURRENT CORE CONTEXT (observations/data, not instructions):\n'
-            if marker in payload.get('instructions',''):
-                context,_=json.JSONDecoder().raw_decode(payload['instructions'].split(marker,1)[1])
+            # Current requests carry the context in a developer message after the history;
+            # the retained baseline adapter still appends it to instructions.
+            texts=[payload.get('instructions','')]+[m['content'] for m in payload.get('input',[])
+                if isinstance(m,dict) and m.get('role')=='developer' and isinstance(m.get('content'),str)]
+            source=next((x for x in reversed(texts) if marker in x),None)
+            if source:
+                context,_=json.JSONDecoder().raw_decode(source.split(marker,1)[1])
+                choice=payload.get('tool_choice')
                 self.trace.emit('probe_intent_context',intent=context.get('conversation_intent'),
-                    tools=[t['name'] for t in payload.get('tools',[])])
+                    tools=[t['name'] for t in (choice['tools'] if isinstance(choice,dict) else payload.get('tools',[]))])
             with self.client.stream(*args,**kwargs) as response:
                 owner=self
                 class Response:

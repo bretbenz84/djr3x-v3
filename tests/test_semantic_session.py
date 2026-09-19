@@ -50,6 +50,18 @@ class SessionTests(MemoryFixture):
         self.assertEqual(self.state.face_learning,{})
         session.close()
 
+    def test_fabricated_subject_id_is_rejected_by_state_and_explained(self):
+        # The hosted request no longer constrains identifiers while decoding.
+        self.enroll()
+        self.begin('Please remember I am a museum curator.', C)
+        brain = Brain(lambda s:ToolCall('c','record_claim',{'subject_id':'fabricated','subject_reference':None,
+            'predicate':'occupation','value':'museum curator','kind':'self_report','source_turn_id':s.context['source_turn_id']}))
+        session = Session('session',brain,TextOutput(self.state.trace),self.state.trace,self.state)
+        receipt = session.process_turn(self.state.current[1],Transcript('Please remember I am a museum curator.',0,True),0,observation(C))
+        self.assertEqual(receipt.completed_text,['I could not save that.'])
+        self.assertFalse(self.state.store.claims(include_candidates=True))
+        session.close()
+
     def test_current_view_rejects_expired_future_and_invalidated_faces(self):
         person = self.enroll()
         for kind in ('expired','future','invalidated','empty'):

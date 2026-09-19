@@ -45,6 +45,9 @@ class ConversationIntentTests(MemoryFixture):
             OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace), self.state.trace, self.state)
         return self.session
 
+    def rejections(self):
+        return [r['reason'] for r in self.state.trace.rows if r['event']=='conversation_intent_rejected']
+
     def greet(self, brain=None, output=None):
         self.setup_session(brain, output)
         result = self.session.process_opportunity(event(), 0, lambda:True)
@@ -159,18 +162,20 @@ class ConversationIntentTests(MemoryFixture):
         self.assertEqual(self.state.conversation_intent.revision,version)
         self.assertEqual(result.completed_text,[])
 
-    def test_boundary_update_and_plan_are_atomic(self):
-        self.greet()
+    def test_invalid_plan_is_dropped_without_losing_the_boundary_or_reply(self):
+        # An optional planning note must not cost the person their boundary or Rex's reply.
+        self.greet();before=self.state.conversation_intent.record
         def choose(c):
             return ToolCall('bad','conversation_feedback',dict(action='topic_avoid',reference_id=None,
                 topic='work',source_turn_id=c['source_turn_id'],text='Okay.',
                 intent_update=proposal(c,target_ids=['person:invented'])))
         self.session.brain=IntentBrain(choose)
         result=self.human('Do not talk about work.')
-        self.assertEqual(result.error,'IntentTargetNotOffered')
-        self.assertEqual(list(self.state.initiative.feedback),[])
-        self.assertEqual(result.completed_text,[])
+        self.assertIsNone(result.error)
+        self.assertEqual([r['action'] for r in self.state.initiative.feedback],['topic_avoid'])
+        self.assertEqual(result.completed_text,['Okay.'])
         self.assertEqual(self.session.brain.calls,1)
+        self.assertEqual(self.state.conversation_intent.record.objective,before.objective)
 
     def test_topic_boundary_suspends_even_without_a_plan_update(self):
         self.greet()
@@ -198,7 +203,7 @@ class ConversationIntentTests(MemoryFixture):
         self.assertTrue(self.state.initiative.quiet)
         self.assertEqual(self.state.conversation_intent.record.status,'suspended')
 
-    def test_stale_revision_source_and_fabricated_memory_reject_without_change(self):
+    def test_stale_revision_source_and_fabricated_memory_leave_intention_unchanged(self):
         self.greet()
         for changes,reason in [({'revision':0},'StaleIntentRevision'),
                                ({'source_id':'invented'},'IntentSourceMismatch'),
@@ -207,8 +212,9 @@ class ConversationIntentTests(MemoryFixture):
             revision=self.state.conversation_intent.revision
             result=self.state.execute_opportunity(ToolCall(uuid4().hex,'respond_with_intent',dict(
                 text='Hello',intent_update=proposal(ctx,**changes))),ctx,Cancellation())
-            self.assertEqual(result.reason,reason)
+            self.assertEqual(result.outcome,'ok')
             self.assertEqual(self.state.conversation_intent.revision,revision)
+            self.assertEqual(self.rejections()[-1],reason)
 
     def test_retry_is_idempotent_and_different_payload_cannot_reuse_id(self):
         self.setup_session();ctx=self.state.intent_context(self.state.opportunity_context(event()))
@@ -367,7 +373,9 @@ class ConversationIntentTests(MemoryFixture):
             self.state.execute_opportunity(ToolCall(uuid4().hex,'respond_with_intent',dict(text='Hello',
                 intent_update=proposal(fresh))),fresh,Cancellation())
         self.assertLessEqual(len(self.state.conversation_intent.requests),32)
-        self.assertEqual(self.state.execute_opportunity(call,ctx,Cancellation()).reason,'StaleIntentRevision')
+        current=self.state.conversation_intent.record
+        self.state.execute_opportunity(call,ctx,Cancellation())
+        self.assertIs(self.state.conversation_intent.record,current)
 
     def test_cached_result_cannot_cross_audience_or_frozen_boundary(self):
         self.setup_session();ctx=self.state.intent_context(self.state.opportunity_context(event()))

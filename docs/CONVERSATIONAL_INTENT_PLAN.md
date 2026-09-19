@@ -412,3 +412,15 @@ spacing has synthetic runtime evidence only and has not been tested on hardware.
 
 Next agreed work: [model-selected JSON scheduling](NEXT_CONVERSATION_SCHEDULING.md).
 This is a proposal, not an implemented timer tool.
+
+
+## September 19 revision: an invalid plan no longer fails the turn
+
+Hosted checks showed whole turns failing on planning errors (`NoIntentToFinish`,
+`IntentObjectiveRequired`), including a topic boundary that was never recorded. The
+all-or-nothing rule above is superseded: a malformed, stale or unoffered `intent_update`
+is dropped and traced, and the reply, feedback or silence decision proceeds without it.
+State staleness, source trust and frozen evaluation still reject the whole operation.
+The per-turn "Conversation continuity" instruction was also removed; the persona states
+once that the intention tool is for the greeting and for real changes of direction.
+See [persona consolidation](PERSONA_REWRITE.md).

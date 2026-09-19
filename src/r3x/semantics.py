@@ -206,16 +206,16 @@ def ground(name, args, offered):
     The hosted request transmits the static TOOLS so its prefix stays cacheable;
     per-snapshot enums therefore no longer constrain decoding. A single permitted
     value carries no model choice and is supplied here, as strict decoding forced it.
-    Any other value outside the offered set is rejected, never repaired.
+    Any other identifier passes through unchanged: the state owner rejects unknown
+    or unoffered targets with a structured result the model can explain, rather
+    than this adapter failing the whole turn.
     """
     definition = next((d for d in offered if d['name'] == name), None)
     if definition is None:
         raise ValueError('ToolNotOffered')
     def apply(spec, value):
         if 'enum' in spec:
-            if len(spec['enum']) == 1: return spec['enum'][0]
-            if value not in spec['enum']: raise ValueError('UngroundedToolValue')
-            return value
+            return spec['enum'][0] if len(spec['enum']) == 1 else value
         if isinstance(value, dict) and 'properties' in spec:
             return {k: apply(spec['properties'][k], v) if k in spec['properties'] else v for k, v in value.items()}
         if isinstance(value, list) and 'items' in spec:

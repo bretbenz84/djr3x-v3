@@ -89,6 +89,24 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(offered[1],{"remain_silent"})
         self.assertTrue(all(p["tool_choice"]["mode"]=="auto" and p["tool_choice"]["type"]=="allowed_tools" for p in payloads))
 
+    def test_instructions_stay_static_and_request_context_follows_history(self):
+        from r3x.adapters.hosted import PERSONA
+        history=({"role":"user","content":"earlier words"},{"role":"assistant","content":"earlier reply"})
+        payloads=[]
+        for context in ({"source_turn_id":"turn-id-alpha","photo_memory":{"entities":[],"objects":[]}},{"source_turn_id":"turn-id-beta"}):
+            brain=OpenAIBrain("fixture")
+            brain.client=Client(Response([{"type":"response.output_text.delta","delta":"Hi."},{"type":"response.completed"}]))
+            list(brain.reply(Snapshot("s","t",0,history,context=context,tools_enabled=True),Cancellation()))
+            payloads.append(brain.client.calls[0][1]["json"])
+        self.assertTrue(all(p["instructions"]==PERSONA for p in payloads))
+        for payload,turn in zip(payloads,("turn-id-alpha","turn-id-beta")):
+            self.assertEqual(payload["input"][:2],list(history))
+            self.assertEqual(payload["input"][2]["role"],"developer")
+            self.assertIn("CURRENT CORE CONTEXT",payload["input"][2]["content"])
+            self.assertIn(turn,payload["input"][2]["content"])
+        self.assertIn("PHOTO MEMORY DECISION",payloads[0]["input"][2]["content"])
+        self.assertNotIn("PHOTO MEMORY DECISION",payloads[1]["input"][2]["content"])
+
     def test_returned_identifiers_are_grounded_locally(self):
         context={"source_turn_id":"turn","people":[{"id":"person"},{"id":"other"}],"claims":[{"id":"claim"}]}
         def call(name,arguments):
@@ -100,8 +118,8 @@ class AdapterTests(unittest.TestCase):
         claim={"subject_id":"person","subject_reference":None,"predicate":"hobby","value":"sailing","kind":"self_report","source_turn_id":"invented"}
         # One permitted value is no model choice: it is supplied, as the strict enum forced it.
         self.assertEqual(call("record_claim",claim).arguments["source_turn_id"],"turn")
-        with self.assertRaisesRegex(ProviderFailure,"UngroundedToolValue"):call("record_claim",dict(claim,subject_id="fabricated"))
-        with self.assertRaisesRegex(ProviderFailure,"UngroundedToolValue"):call("recall",{"subject_id":"fabricated"})
+        # Other identifiers reach the state owner, whose rejection the model can explain.
+        self.assertEqual(call("record_claim",dict(claim,subject_id="fabricated")).arguments["subject_id"],"fabricated")
         with self.assertRaisesRegex(ProviderFailure,"ToolNotOffered"):call("inspect_view",{"direction":"current","question":"What is there?"})
         self.assertIsNone(call("recall",{"subject_id":None}).arguments["subject_id"])
 

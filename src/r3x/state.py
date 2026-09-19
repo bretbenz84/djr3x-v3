@@ -301,14 +301,13 @@ class CoreState:
         from .memory_opportunities import candidates
         value = call.arguments.get('intent_update')
         if call.name not in UPDATE_TOOLS or (value is None and call.name != 'respond_with_intent'):
-            return execute()
+            return execute(call)
         source = context.get('event_id') or context.get('source_turn_id')
         request_id = str(source) + ':' + call.call_id
         fingerprint = hashlib.sha256(json.dumps({'name':call.name,'args':call.arguments},sort_keys=True).encode()).hexdigest()
         intents = self.conversation_intent
         try:
             cancel.check()
-            validate(call.name,call.arguments)
             if self.frozen:raise ValueError('FrozenEvaluationDisallowsMutation')
             if not context.get('trigger'):
                 if self.current is None or source != self.current[0]:raise ValueError('IntentSourceMismatch')
@@ -321,11 +320,20 @@ class CoreState:
                 return prior[1]
             if context.get('state_revision') != self.store.revision:raise ValueError('StaleStateRevision')
             memories = candidates(self.store, faces_for(context), self.calendar_today(), limit=128, include_delivered=True)
-            row = intents.prepare(value, context, [r['claim_id'] for r in memories])
+            try:
+                row = intents.prepare(value, context, [r['claim_id'] for r in memories])
+            except ValueError as exc:
+                # The intention is an optional note. A malformed or stale note is dropped;
+                # it must not cost the person their reply, boundary or silence decision.
+                if str(exc) == 'FrozenEvaluationDisallowsMutation':raise
+                self.trace.emit('conversation_intent_rejected',source_id=source,reason=str(exc),operation='continued_without_intent')
+                row = None
+                call = replace(call, arguments={**call.arguments,'intent_update':None})
+            validate(call.name,call.arguments)
             cancel.check()
-            result = execute()
+            result = execute(call)
             if result.outcome == 'ok':
-                intents.commit(row)
+                if row is not None:intents.commit(row)
                 if call.name == 'conversation_feedback' and result.data['action'] in {'topic_closed','topic_avoid','invitation_declined'}:
                     intents.suspend('participant_boundary')
                 if call.name == 'remain_silent' and result.data['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:
@@ -340,7 +348,7 @@ class CoreState:
 
     def execute_opportunity(self, call, context, cancel):
         return self._with_intent(call,context,cancel,
-            lambda:self._execute_opportunity(call,context,cancel))
+            lambda call:self._execute_opportunity(call,context,cancel))
 
     def _execute_opportunity(self, call, context, cancel):
         """Visual cues can ask or stay quiet, never create identity or personal facts."""
@@ -410,7 +418,7 @@ class CoreState:
             context = context if context is not None else self.intent_context(self.context())
             context = dict(context, state_revision=expected_revision)
             return self._with_intent(call,context,cancel,
-                lambda:self._execute(call,expected_revision,cancel))
+                lambda call:self._execute(call,expected_revision,cancel))
         return self._execute(call,expected_revision,cancel)
 
     def _execute(self, call, expected_revision, cancel):

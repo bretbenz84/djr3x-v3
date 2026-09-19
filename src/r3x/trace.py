@@ -49,6 +49,7 @@ def report(path: Path) -> dict:
     images,image_bytes = 0,0
     observation_receipts = Counter()
     token_usage = Counter()
+    tools_proposed = Counter()
     primary,continuations,underruns = 0,0,0
     directions = Counter()
     evidence,models,failures = set(),set(),[]
@@ -73,6 +74,7 @@ def report(path: Path) -> dict:
             image_bytes += row.get("image_bytes",0)
             primary += row.get("primary_calls",1)
             continuations += int(row.get("purpose")=="tool_result_continuation")
+        if row["event"]=="tool_proposed":tools_proposed[row.get("name","unknown")] += 1
         if row["event"]=="model_usage":
             for key in ("input_tokens","cached_tokens","output_tokens","total_tokens"):token_usage[key]+=row.get(key,0)
         if row["event"]=="observation_delivered":observation_receipts[row["kind"]]+=1
@@ -113,7 +115,7 @@ def report(path: Path) -> dict:
             "direction_evidence": dict(directions),
             "conversation_intentions": {"transitions":dict(intent_transitions), "rejections":dict(intent_rejections)},
             "model_calls_by_purpose":dict(purposes),"scene_image_inputs":images,"scene_image_bytes":image_bytes,
-            "observation_deliveries":dict(observation_receipts),"reported_model_tokens":dict(token_usage),
+            "observation_deliveries":dict(observation_receipts),"reported_model_tokens":dict(token_usage),"tools_proposed":dict(tools_proposed),
             "proactive_outcomes":[{'kind':key[0],'status':key[1],'medium':key[2],
                                     'heard_complete_phrases':key[3],'count':count}
                                    for key,count in proactive.items()],
