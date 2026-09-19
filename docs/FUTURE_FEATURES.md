@@ -7,7 +7,7 @@ These additions follow the core reliability/cost work and applicable
 [operator-tool migration](OPERATOR_TOOLS_MIGRATION.md) and
 [optional-hardware installation](PUBLIC_INSTALL_PLAN.md) prerequisites.
 
-## Features the owner wants to bring forward
+## Requested future features
 
 | Feature | Intended V3 experience | Integration boundary |
 | --- | --- | --- |
@@ -16,6 +16,7 @@ These additions follow the core reliability/cost work and applicable
 | Room exploration | Rex can look around, investigate unfamiliar things and build useful remembered observations about his surroundings. | Stage observation, optional physical inspection and memory; an inspected image is evidence, not proof of a complete room map. Dedicated room recognition is optional, not an assumed prerequisite. |
 | Autonomous motion | Eventually choose purposeful movement as part of attention, exploration and social interaction, beyond explicit drive commands. | Depends on calibrated physical adapters, exclusive ownership, localization/target confidence appropriate to the action, obstacle feedback, cancellation and manual takeover. Begin with bounded behaviors; do not infer that roaming, navigation or mapping already works in V3. |
 | Interest-aware idle banter and news | As Rex learns a person's interests, bring up relevant events, callbacks and follow-ups naturally. | Extend the existing proactive core and sourced news inputs; dedicated interest-aware retrieval/ranking and its acceptance checks remain future work. Do not create a separate news-speaking agent or periodic chatter loop. |
+| “Do you ever think” | After a long lull, spark conversation with a fresh LLM-generated hypothetical, such as everyone winning the lottery on the same day. | September 18 addition; use the shared proactive owner, optional participation, varied topics, heard-prompt history and existing call budgets. No fixed lull duration or implementation yet. [Feature details](PROACTIVE_CONVERSATION.md#future-feature-do-you-ever-think) |
 
 ## Personalization should develop through conversation
 

@@ -263,3 +263,52 @@ interest-aware retrieval/ranking is future work. Preserve source-linked interest
 audience awareness, correction, topic variety, heard-remark deduplication and bounded
 API spending. See the [companion-feature roadmap](FUTURE_FEATURES.md) for scope.
 This is documentation, not an instruction to implement or start new background work.
+
+## Future feature: “Do you ever think”
+
+**September 18, 2026 user request — roadmap only; not implemented.**
+
+After a long, genuine lull, Rex may spark conversation with a short, LLM-generated
+thought experiment or imaginative “what if” question. The aim is shared curiosity,
+humor and an interesting exchange, rather than a quiz or a monologue.
+
+Owner example:
+
+> “Do you ever think, what would happen if everyone won the lottery on the same day?”
+
+Other illustrative possibilities (not a canned runtime phrase bank):
+
+- “Do you ever think about what the world would be like if nobody needed sleep?”
+- “What if dogs could talk, but only for five minutes a day?”
+
+### Intended behavior
+
+- Treat a long lull as an opportunity for the existing conversational owner to
+  consider this contribution, not an automatic timer-to-speech rule. The threshold
+  remains to be chosen and evaluated; do not equate it with the current eight-second
+  general-lull setting or add an unused configuration option now.
+- Generate the question in the shared proactive decision call. No separate idea
+  generator, mandatory classifier, continuous polling of the LLM or extra routine
+  reply call. Apply the existing participation and API-spending budgets.
+- Consider the audience, recent conversation, accepted interests and the mood of
+  the exchange. Topics may be personalized when supported, but general curiosity
+  must remain possible without a recognized person or a known interest profile.
+- Respect quiet requests, unfinished thoughts, human-to-human conversation and
+  sensitive moments. A long silence alone does not establish boredom or permission
+  to demand engagement. The model can choose another contribution or remain silent.
+- Offer one concise question and leave space for an answer. If someone engages,
+  explore their response through normal conversation. Do not immediately answer
+  Rex's own question, turn it into a lecture, or repeatedly prod after no response.
+- Vary subjects and phrasing; “Do you ever think” names the feature, not a required
+  opening for every prompt. Track topics actually spoken, not just generated text,
+  so paraphrases of the same hypothetical do not masquerade as new material.
+- Keep imaginary premises clearly hypothetical. Neither a fabricated scenario nor
+  a playful answer becomes a real-world event or an accepted personal fact.
+
+### Future acceptance
+
+Exercise long versus brief lulls, welcomed responses, no response, quiet mode,
+resumed speech before playback, sensitive conversations and repeat sessions.
+Evaluate whether questions are enjoyable, varied and appropriately timed; verify
+that silence/declines back off, canceled speech is not counted as heard, and
+question generation stays within the shared proactive call/cost limits.
