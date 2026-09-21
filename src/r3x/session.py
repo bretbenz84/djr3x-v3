@@ -39,6 +39,7 @@ class Session:
             if self._cancel:
                 self._cancel.event.set()
             if self.state:
+                self.state.initiative.lull_retry_until = float('-inf')
                 self.state.conversation_intent.suspend("explicit_stop")
                 self.state.cancel()
         self.output.cancel()
@@ -51,6 +52,8 @@ class Session:
         original user history so the continuation can be understood normally.
         """
         with self._lock:
+            if self.state and ended_at > self._latest_speech:
+                self.state.initiative.lull_retry_until = float('-inf')
             self._latest_speech = max(self._latest_speech, ended_at)
             if self._cancel and ended_at > self._capture_end and not self._cancel.event.is_set():
                 self._cancel.event.set()

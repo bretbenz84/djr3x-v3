@@ -437,7 +437,12 @@ opportunities without another human turn, including after an unanswered greeting
 Reconsideration waits 8, 15, 30, then 60 seconds after successive same-source
 attempts finish (60 remains the ceiling). These are opportunities for the shared model to
 continue its plan, remain silent or finish it, never prewritten or mandatory speech.
-Absent an active plan, the one-lull-per-human-turn rule remains. There are still at
+Absent an active plan, the one-lull-per-human-turn rule remains, with one recovery
+exception: an unheard lull cancelled by camera audience validation can be reconsidered
+once, after at least eight seconds and within 30 seconds of cancellation. It uses
+fresh context; it does not replay the abandoned reply. New speech or explicit stop
+clears that retry, and all quiet/floor/pending-question and call-budget gates remain.
+There are still at
 least eight seconds between proactive attempts and at most six attempts in a rolling
 five-minute window across arrivals, lulls and ambient cues. Human turns do not reset the rolling cap.
 Arrivals retain their additional visit/cooldown rules. A floor-related silence decision or
@@ -687,3 +692,14 @@ Presence-only camera freshness uses a shared 1.5-second window to accommodate th
 new audience-bound speech. General intention speech already audible can finish
 through a visual gap; targeted questions and private memory retain audience guards.
 See [latest-run repair evidence](LIVE_RUN_CONVERSATION_REPAIRS.md).
+
+September 20: proactive scheduling reads the latest camera cache before selecting
+an opportunity and waits for three seconds of settled audience membership. All
+fresh faces, including small/uncertain background detections, remain in context;
+an unsettled group defers new work without spending an attempt or model call.
+General lull/ambient speech can preserve presence across a track replacement only
+with a unique matching recognized identity, overlapping boxes, fresh adjacent
+observations and unchanged camera epoch. No name is inferred for an unresolved
+replacement. Targeted/tools-based speech keeps raw track/identity validation;
+new faces still invalidate unheard work and private output immediately. The new
+`proactive_retry_pending` event records camera-cancellation recovery eligibility.

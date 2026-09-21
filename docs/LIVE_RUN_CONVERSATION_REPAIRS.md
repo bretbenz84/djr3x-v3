@@ -65,3 +65,102 @@ Ignored evidence:
 Reproducible fictional semantic probe: `.venv/bin/python tools/check_transcript_context.py`.
 The [next JSON scheduling implementation](NEXT_CONVERSATION_SCHEDULING.md) is documented
 separately and remains unimplemented.
+
+## September 20: audience continuity and unheard-lull recovery
+
+The solo script's user-run session completed its startup greeting but no later
+proactive speech. Three ambient decisions chose silence, one lull retained a visual
+description silently, and two lulls were cancelled by audience validation. The
+operator confirmed that the audience did not change. Camera metadata showed a
+recognized face replaced by an unresolved track, and later a brief additional
+low-score face detection. These are false audience changes in that run, not evidence
+that the user departed. No prompt rule can repair an opportunity cancelled before
+the model is called.
+
+Implemented in `proactive.py`, `runtime.py` and `session.py`:
+
+- Select opportunities from the latest camera cache. Wait for the existing
+  three-second stability interval to cover the full observed group before generating.
+  A brief extra detection postpones dispatch without spending an attempt. Do not
+  remove uncertain faces from privacy context or claim they are definitely false.
+- Maintain bounded presence continuity separately from face identity evidence.
+  For general lull/ambient speech, a new track can retain presence only with a unique
+  matching recognized identity, spatial overlap above the existing tracker IoU gate,
+  adjacent observations within the presence freshness window and unchanged epoch.
+  Unknown/conflicting identities, ambiguous duplicates, gaps and spatial jumps do not
+  inherit continuity. Targeted questions and tool operations still validate raw IDs.
+- After a camera-only cancellation with no audio started, allow one fresh lull
+  reconsideration per source turn: at least eight seconds after completion, expiring
+  after 30 seconds. Keep attempts spent and the existing rolling cap. Another camera
+  cancellation cannot rearm that recovery. Human speech/stop clears it; quiet, floor,
+  pending questions, source validation and shutdown still take precedence.
+
+No persona/schema instructions, acoustic/face recognition thresholds, models,
+providers or settings were added or changed. Existing strict checks for new audiences
+remain, including private speech during playback. Transient detections arriving
+mid-generation can still cancel unheard work; recovery is deliberately bounded.
+The unrelated missing/abandoned conversational intention was not automatically
+recreated. The model still chooses whether to speak at an eligible opportunity.
+
+**Verification:** 477 blocked-I/O checks pass (ten new tests plus updated scheduling
+expectations). Synthetic production-runtime/Session/output cases cover stale polling,
+brief extra detection and settled recovery, known-track continuity, unknown/conflict/
+epoch/gap/departure rejection, one retry with fresh context, second cancellation,
+quiet/floor/stop/input/call-budget/expiry gates, and private/targeted speech rejection
+before and during playback. Temporary stores, scripted decisions and synthetic audio
+only; no hardware or paid providers were started.
+
+Read-only replay of the supplied log's camera metadata through the new audience
+tracker found settled membership 4.02 and 4.51 seconds after the two original
+cancellations. This checks the settling policy on recorded observations, not image
+recognition, actual model decisions, playback or a complete live replay. New live
+acceptance remains open; no personal state or original logs were changed.
+
+### Short solo retest
+
+No second person is needed. From the v3 checkout run:
+
+```sh
+.venv/bin/python -m r3x live --camera --record-evaluation
+```
+
+1. Wait for `Listening` and the greeting. Say: **“Rex, let's talk about ridiculous
+   spaceships. Invent one that runs on toast.”**
+2. After the reply ends, remain in view for 45 seconds. Move your head/look toward
+   the laptop normally; no need to hold still. Note any spontaneous speech or silence.
+3. Say: **“Rex, stop starting conversations until I tell you to start again.”**
+   Wait 20 seconds. Say: **“Rex, what is seven plus five?”** Wait for the answer.
+4. Say: **“Rex, you can start conversations again. Let's keep talking about that
+   ridiculous spaceship.”** After his reply, remain in view for 45 seconds.
+5. Type `quit` and share the printed session path plus what you heard.
+
+Silence alone is not a failed scheduler test: inspect whether the model deliberately
+chose it, the audience was still unsettled, or a cancelled opportunity failed to
+recover. This retest also checks that quiet/direct replies still work. It does not
+promise a spoken follow-up on every lull or establish two-person acceptance.
+
+### Solo retest evidence
+
+The subsequent user-run camera/audio session completed its greeting and two further
+proactive audio contributions (one lull, one ambient). Five opportunities all reached
+the model; none were audience-cancelled. Two later opportunities, after successful
+quiet/resume, explicitly selected `remain_silent`. Camera metadata changed track/
+identity membership five times during the run. No retry was needed, so live retry
+recovery itself remains unexercised. This is a successful solo dispatch/playback
+check, not complete social or group acceptance.
+
+Quiet mode held between its successful application and explicit resume. No direct
+question was transcribed during that quiet interval, so direct-answer-while-quiet
+was not retested. All five speech deliveries completed, with zero reported underruns.
+The two human-triggered audible replies took about 5.85 seconds median from end of
+speech to first audio; this small sample remains slower than the desired roughly
+four-second response. Proactive first audio followed opportunity creation by a
+median 2.82 seconds across three spoken opportunities.
+
+The two unsolicited contributions repeated substantially the same room/captain/
+spaceship premise. No conversational intention was created. Repetition quality and
+intentional follow-through remain separate open issues. `CameraStreamEnded` was
+logged about 0.28 seconds after shutdown cancellation, not during an active exchange;
+all lifecycle close operations reported success. Its shutdown classification has
+not been repaired by this work. The original private trace remains under ignored
+`local/sessions/`; no new providers or devices were operated during log review.

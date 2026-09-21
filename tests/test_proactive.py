@@ -50,17 +50,20 @@ class ArrivalTests(unittest.TestCase):
         self.visible(a,105,109,track='visitor')
         self.assertIsNotNone(a.take('s',109,0))
 
-    def test_lull_is_valid_at_creation_with_small_or_new_background_face(self):
+    def test_background_face_settles_before_lull_and_is_not_hidden_from_context(self):
         for width in (32,150):
             with self.subTest(width=width):
                 a=Arrivals();self.visible(a,0,4)
                 a.observe([face(4),face(4,track='background',width=width)],4)
-                audience=a.audience(4)
+                self.assertEqual(a.audience(4),())
+                for at in (4.5,5,5.5,6,6.5,7):
+                    a.observe([face(at),face(at,track='background',width=width)],at)
+                audience=a.audience(7)
                 self.assertEqual(len(audience),2)
-                opportunity=Opportunity('event','s',4,None,None,audience,0,False,'ambient')
-                self.assertTrue(a.valid(opportunity,4))
-                a.observe([face(4.5),face(4.5,track='background',width=width),face(4.5,track='new')],4.5)
-                self.assertFalse(a.valid(opportunity,4.5))
+                opportunity=Opportunity('event','s',7,None,None,audience,0,False,'ambient')
+                self.assertTrue(a.valid(opportunity,7))
+                a.observe([face(7.5),face(7.5,track='background',width=width),face(7.5,track='new')],7.5)
+                self.assertFalse(a.valid(opportunity,7.5))
 
     def test_unheard_cancelled_arrival_can_retry_but_partial_audio_cannot(self):
         from r3x.output import Delivery

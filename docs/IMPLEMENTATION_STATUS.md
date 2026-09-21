@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated September 18, 2026. This is the consolidated checklist for current scope.
+Updated September 20, 2026. This is the consolidated checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
@@ -26,10 +26,24 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **467 passing checks** including the
+The latest blocked-I/O suite has **477 passing checks** including the
 [greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md) and the
 [prompt-caching repair](PROMPT_CACHING.md).
 Prior counts in linked documents describe their dated checkpoints.
+
+September 20: [audience continuity and unheard-lull recovery](LIVE_RUN_CONVERSATION_REPAIRS.md#september-20-audience-continuity-and-unheard-lull-recovery)
+now settle the full camera audience before new proactive work, preserve supported
+named presence across spatially continuous track replacements for general speech,
+and allow one paced retry of an unheard camera-cancelled lull. Prompt text and
+identity/enrollment policies are unchanged. Synthetic contracts and recorded-camera
+metadata were checked before the solo retest below.
+
+Subsequent [solo retest](LIVE_RUN_CONVERSATION_REPAIRS.md#solo-retest-evidence): greeting
+plus two proactive contributions completed, with no audience cancellations and no
+playback underruns. Quiet/resume executed successfully; later silence was explicitly
+model-selected. Live retry recovery was not exercised. Repeated visual remarks,
+roughly 5.85-second first-audio latency on two direct replies, and missing conversational
+intentions remain open; group acceptance is unchanged.
 
 ## Acceptance and defect investigation still open
 

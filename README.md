@@ -178,6 +178,8 @@ latency/resource observations. A clean synthetic suite is not Bret/Jeff acceptan
 | Document | What it answers |
 | --- | --- |
 | [Current implementation checklist](docs/IMPLEMENTATION_STATUS.md) | Current software completion, validation gaps and future coding scope. |
+| [Live test script](docs/LIVE_TEST_SCRIPT.md) | Commands to run, exact lines to say, actions to take and results to check. Start here for hands-on testing. |
+| [Feature validation plan](docs/FEATURE_VALIDATION_PLAN.md) | Broader feature coverage, accuracy gates and evidence requirements. |
 | [DESIGN.md](DESIGN.md) | Who makes each decision, how turns flow, how identity and memory work, and which choices remain proposals. |
 | [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex should initiate, delight and participate sensitively as part of the core; software implemented; social acceptance remains open. |
 | [Proactive implementation plan](docs/PROACTIVE_IMPLEMENTATION.md) | Implemented proactive stages, dated evidence and remaining social acceptance. |

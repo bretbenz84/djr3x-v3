@@ -326,7 +326,7 @@ class InitiativeCoreTests(MemoryFixture):
 
     def test_invalid_audience_attempt_is_paced_instead_of_retried_each_tick(self):
         self.setup_core();self.turn();self.visible(108)
-        self.runtime.arrivals.valid=lambda event,now:False
+        self.runtime.arrivals.valid=lambda event,now,**kwargs:False
         for _ in range(5):self.runtime.proactive_tick()
         self.assertEqual(self.brain.calls,1)
         self.assertEqual(len(self.state.initiative.attempts),1)
@@ -448,6 +448,10 @@ class InitiativeCoreTests(MemoryFixture):
         runtime,trace=self.runtime,self.trace
         # Captured 0.6 s before publication; next 2 Hz result is not published yet.
         latest=[face(107.4,track='visitor')]
+        from r3x.proactive import Arrivals
+        runtime.arrivals=Arrivals()
+        for at in (103.4,104.4,105.4,106.4,107.4):
+            runtime.arrivals.observe([face(at,track='visitor')],at+.6)
         runtime.camera.latest=lambda now:tuple(latest)
         runtime.arrivals.seen['visitor']['used']=False
         class Delayed(Brain):

@@ -131,6 +131,8 @@ class VoiceRuntime:
         if not self.camera or not self.session.state or self.session.state.frozen: return
         now = self.trace.clock()
         with self.control_lock:
+            # Build and validate from the same latest cache, not the last UI poll.
+            self.arrivals.observe(self.camera.latest(now),now)
             # Session maintenance only; does not create an opportunity or an LLM call.
             with self.session._lock:
                 intentions = self.session.state.conversation_intent
@@ -151,7 +153,7 @@ class VoiceRuntime:
             if event is None:
                 current = self.session.state.current
                 source = current[0] if current else None
-                audience = self.arrivals.audience(now)
+                audience, audience_key = self.arrivals.audience_snapshot(now)
                 from .conversation_intent import audience as intent_audience
                 row = intentions.record
                 active_intent = (row is not None and row.status == 'active'
@@ -161,20 +163,22 @@ class VoiceRuntime:
                     from uuid import uuid4
                     event = Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
                                         self.session._latest_speech,False,'conversation_lull',source,
-                                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at))
+                                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at),
+                                        audience_key=audience_key)
             cues=tuple(c for c in self.observations.candidates() if self.session.state.observation_available(c.public())) if self.observations else ()
             scene=self.scene_observer.snapshot() if self.scene_observer else None
             if scene and self.session.state.store.rows('SELECT 1 FROM observation_delivery WHERE cue_id=? AND delivered_at>?',
                     (scene[0],self.session.state.wall_clock()-86400)):scene=None
             if event is None and (cues or scene):
-                audience=self.arrivals.audience(now)
+                audience,audience_key=self.arrivals.audience_snapshot(now)
                 if audience:
                     from .proactive import Opportunity
                     from uuid import uuid4
                     current=self.session.state.current
                     event=Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
                         self.session._latest_speech,False,'ambient',current[0] if current else None,
-                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at))
+                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at),
+                        audience_key=audience_key)
             if event is None:return
             event=replace(event,public_cues=cues,scene_id=scene[0] if scene else None,scene_images=scene[1] if scene else ())
             if self.observations:self.observations.attempted([c.cue_id for c in cues])
@@ -183,6 +187,7 @@ class VoiceRuntime:
         self.trace.emit('proactive_opportunity',event_id=event.event_id,kind=event.kind,
                         face_track_id=event.target_track,person_id=event.person_id)
         def valid():
+            nonlocal invalidation_reason
             # Sample the producer timestamp before the clock: a microphone frame
             # arriving between these reads must not look like future audio.
             audio_seen_at = self.audio_seen_at
@@ -207,18 +212,28 @@ class VoiceRuntime:
                       'recognition_busy' if self.asr_busy.is_set() else
                       'audio_timestamp_ahead' if audio_age<0 else
                       'audio_stale' if audio_age>.5 else
-                      'audience_changed_or_stale' if (not self.arrivals.valid(event,now) and
+                      'audience_changed_or_stale' if (not self.arrivals.valid(event,now,
+                          audience_bound=self.session._audience_bound_output) and
                           (self.session._proactive_delivery is None or
                            self.session._proactive_delivery.first_audio_at is None or
                            self.session._audience_bound_output)) else None)
             if reason and not invalidated.is_set():
+                invalidation_reason = reason
                 invalidated.set()
                 self.trace.emit('proactive_invalidated',event_id=event.event_id,kind=event.kind,
                                 reason=reason,audio_age_seconds=audio_age)
             return reason is None
         invalidated = threading.Event()
+        invalidation_reason = None
         result = self.session.process_opportunity(event,revision,valid)
         self.arrivals.finished(event,result)
+        with self.session._lock:
+            if (revision == self.session.revision and self.session._latest_speech == event.speech_marker
+                    and not self.stop.is_set() and not self.session.closed
+                    and initiative.retry_unheard(event,result,invalidation_reason,self.trace.clock())):
+                self.trace.emit('proactive_retry_pending',event_id=event.event_id,
+                                source_turn_id=event.source_turn_id,reason=invalidation_reason,
+                                expires_at=initiative.lull_retry_until)
         self.trace.emit('proactive_opportunity_done',event_id=event.event_id,kind=event.kind,status=result.status,medium=result.medium,
                         delivered=bool(result.completed_text),failed=result.error)
 

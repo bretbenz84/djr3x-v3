@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import threading
 from uuid import uuid4
 from .contracts import Cancellation
-from .faces import VISIBLE_FACE_MAX_AGE
+from .faces import VISIBLE_FACE_MAX_AGE, iou
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,7 @@ class Opportunity:
     public_cues: tuple = ()
     scene_id: str | None = None
     scene_images: tuple = ()
+    audience_key: tuple = ()
 
 
 class OpportunityCancellation(Cancellation):
@@ -49,6 +50,8 @@ class Initiative:
         self.lull_source = None
         self.lull_attempts = 0
         self.feedback = deque(maxlen=32)
+        self.lull_retry_until = float('-inf')
+        self.lull_retry_used = False
 
     def floor_held(self, now: float) -> bool:
         return any(r['action']=='yield_floor' and now < r['expires_at'] for r in self.feedback)
@@ -62,6 +65,9 @@ class Initiative:
         """Reconsider an active visit without treating silence as a human response."""
         if source is not None and source != self.lull_source:
             return True
+        if (source == self.lull_source and now < self.lull_retry_until and
+                self.outcomes and now-self.outcomes[-1]['at'] >= 8):
+            return True
         if not active_intent:
             return False
         delay = (8., 15., 30., 60.)[min(max(self.lull_attempts - 1, 0), 3)]
@@ -74,8 +80,24 @@ class Initiative:
         if event.kind in {"conversation_lull","ambient"}:
             if self.lull_source != event.source_turn_id:
                 self.lull_attempts = 0
+                self.lull_retry_used = False
+                self.lull_retry_until = float('-inf')
+            if event.kind == 'conversation_lull':
+                self.lull_retry_until = float('-inf')
             self.lull_source = event.source_turn_id
             self.lull_attempts = min(4, self.lull_attempts + 1)
+
+    def retry_unheard(self, event, delivery, reason, now):
+        """One fresh reconsideration, not replay, after a camera-only cancellation."""
+        if (event.kind != 'conversation_lull' or self.lull_retry_used or
+                event.source_turn_id != self.lull_source or
+                reason not in {'audience_changed_or_stale', 'intent_audience_changed'} or
+                delivery.status != 'interrupted' or delivery.first_audio_at is not None or
+                delivery.completed_text):
+            return False
+        self.lull_retry_used = True
+        self.lull_retry_until = now + 30
+        return True
 
     def finished(self, event: Opportunity, delivery, now: float) -> dict:
         heard = bool(delivery.completed_text) and delivery.medium == "audio"
@@ -107,6 +129,8 @@ class Initiative:
         self.feedback.clear()
         self.lull_source = None
         self.lull_attempts = 0
+        self.lull_retry_until = float('-inf')
+        self.lull_retry_used = False
 
 
 class Arrivals:
@@ -124,11 +148,46 @@ class Arrivals:
         self.unknown_target = None
         self.epoch = None
         self.last_attempt = float('-inf')
+        self._members = ()
+        self._audience_key = ()
+        self._audience_since = float('inf')
+
+    def _observe_members(self, faces):
+        # Presence continuity only. Never replace face IDs or identity evidence
+        # in the model context, attribution, enrollment or targeted tools.
+        members = []
+        used = set()
+        for face in faces:
+            matches = []
+            for old, token in self._members:
+                if token in used or old.get('face_epoch',0) != face.get('face_epoch',0):
+                    continue
+                if old.get('identity') != face.get('identity'):
+                    continue
+                if not 0 <= face['at']-old['at'] <= VISIBLE_FACE_MAX_AGE:
+                    continue
+                same_track = old['track_id'] == face['track_id']
+                named = face.get('identity')
+                unique = named and sum(f.get('identity') == named for f in faces) == 1
+                unique = unique and sum(f.get('identity') == named for f,_ in self._members) == 1
+                if same_track or (unique and iou(old['box'],face['box']) > .15):
+                    matches.append(token)
+            token = matches[0] if len(matches) == 1 else uuid4().hex
+            used.add(token)
+            members.append((face,token))
+        key = tuple(sorted((token,f.get('identity'),f.get('face_epoch',0)) for f,token in members))
+        if key != self._audience_key:
+            self._audience_since = max((f['at'] for f in faces), default=float('inf'))
+        self._members, self._audience_key = tuple(members), key
 
     def observe(self, faces, now):
         with self.lock:
+            previous = self._members
             self.faces = tuple({k:v for k,v in f.items() if not k.startswith('_')} for f in faces
                                if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE)
+            self._observe_members(self.faces)
+            continuous = {f['track_id'] for f,token in self._members
+                          if any(old_token == token for _,old_token in previous)}
             epochs = {f.get('face_epoch',0) for f in self.faces}
             if epochs and self.epoch not in epochs:
                 self.seen.clear()
@@ -147,8 +206,10 @@ class Arrivals:
                 elif face['at']-entry['last']>=self.absent_seconds:
                     entry.update(first=face['at'],used=False,returning=True,track=face['track_id'])
                 elif entry['track']!=face['track_id'] or face['at']-entry['last']>1.5:
-                    # A replacement track must restabilize, but does not reopen a used visit.
-                    entry.update(first=face['at'],track=face['track_id'])
+                    # Only supported, spatially continuous replacements retain
+                    # presence stability. Neither case reopens a used visit.
+                    entry.update(first=entry['first'] if face['track_id'] in continuous else face['at'],
+                                 track=face['track_id'])
                 entry['last'] = face['at']
                 if face['track_id']==self.unknown_target and face.get('identity'):
                     # Naming a previously invited visitor is not a second arrival.
@@ -160,6 +221,7 @@ class Arrivals:
     def take(self, session_id, now, speech_marker):
         with self.lock:
             if now-self.last_attempt<self.global_cooldown: return None
+            if not self.audience(now): return None
             candidates = []
             for face in self.faces:
                 if not 0<=now-face['at']<=VISIBLE_FACE_MAX_AGE: continue
@@ -180,13 +242,15 @@ class Arrivals:
                 self.unknown_attempted = True
                 self.unknown_target = target['track_id']
             return Opportunity(uuid4().hex,session_id,now,target['track_id'],target.get('identity'),
-                                 self.faces,speech_marker,entry['returning'])
+                                 self.faces,speech_marker,entry['returning'],audience_key=self._audience_key)
 
-    def valid(self, event, now):
+    def valid(self, event, now, *, audience_bound=True):
         with self.lock:
             if event.kind in {"conversation_lull","ambient"}:
                 keys = lambda faces: {(f['track_id'],f.get('identity'),f.get('face_epoch',0)) for f in faces}
                 fresh = [f for f in self.faces if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE]
+                if not audience_bound and event.audience_key:
+                    return bool(fresh) and len(fresh)==len(self.faces) and event.audience_key==self._audience_key
                 return bool(event.faces) and keys(fresh) == keys(event.faces)
             return any(f['track_id']==event.target_track and f.get('identity')==event.person_id and
                        f.get('face_epoch')==next(t.get('face_epoch') for t in event.faces if t['track_id']==event.target_track) and
@@ -214,12 +278,14 @@ class Arrivals:
                 self.unknown_target = None
 
     def audience(self, now):
-        """Full fresh audience, eligible when at least one prominent face is stable.
+        """Full fresh audience after three seconds of settled membership.
 
         Stability gates initiative, not membership. The event and its validity
         check must describe the same visible group, including background faces.
         """
         with self.lock:
+            if (not self.faces or min(f['at'] for f in self.faces)-self._audience_since < self.stable_seconds):
+                return ()
             result = []
             for face in self.faces:
                 entry = self.seen.get(face.get('identity') or face['track_id'])
@@ -229,3 +295,7 @@ class Arrivals:
                     (face.get('face_width_px') or 0)>=48 and box[2]*box[3]>=.006):
                     result.append(face)
             return tuple(f for f in self.faces if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE) if result else ()
+
+    def audience_snapshot(self, now):
+        with self.lock:
+            return self.audience(now), self._audience_key
