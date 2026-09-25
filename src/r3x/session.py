@@ -452,7 +452,11 @@ class Session:
                     inspection_novelty['recent_selections']=context.get('visual_novelty',{}).get('recent_selections',[])
                     cached = next((r for r in context.get('visual_memory',[]) if data.get('image_digest') and
                         r['source'].get('image_digest')==data['image_digest']),None)
-                    if images and cached:
+                    from .photo_flow import comparison
+                    comparison_context,comparison_images=comparison(self.state,images)
+                    if comparison_context:
+                        self.trace.emit('photo_inspection',turn_id=turn_id,**comparison_context['photo_inspection'],image_count=len(comparison_images))
+                    if images and cached and not comparison_context:
                         data['cached_description'] = {key:cached[key] for key in ('id','description','uncertainty','spoken')}
                         data['image_reused_without_upload'] = True
                         images = ()
@@ -461,9 +465,10 @@ class Session:
                     continuation = (*call.preamble,
                         {'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
                         {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(asdict(result))})
+                    images=comparison_images if comparison_context else images
                     followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
                         snapshot.speaker,{**{k:v for k,v in context.items() if k!='scene_description'},'attention':self.state.attention.context(),'inspection':data,
-                            'inspection_description_allowed':bool(images),'visual_novelty':inspection_novelty,'action_continuity':self.state.actions.context(visual_memory.audience(context))},bool(images),continuation,images)
+                            **comparison_context,'inspection_description_allowed':bool(images),'visual_novelty':inspection_novelty,'action_continuity':self.state.actions.context(visual_memory.audience(context))},bool(images),continuation,images)
                     self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,
                         purpose='inspection_result_continuation',image_count=len(images),image_bytes=sum(len(i.data_url) for i in images))
                     description_calls = generate(followup)

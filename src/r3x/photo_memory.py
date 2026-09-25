@@ -59,13 +59,17 @@ class PhotoMemory:
         self.evidence[key]={'image':image,'target':target,'offered_at':now}
         return key
 
-    def references(self,ids):
+    def references(self,ids=None):
         images=[];labels=[]
-        if len(ids)>3 or len(set(ids))!=len(ids):raise ValueError('AtMostThreePhotoCandidates')
+        automatic = ids is None
+        # A small library fits beside two current images within the eight-image budget.
+        # Larger libraries require model-selected candidates, never an arbitrary subset.
+        if automatic:ids=list(self.data['entities']) if len(self.data['entities'])<=6 else []
+        elif len(ids)>3 or len(set(ids))!=len(ids):raise ValueError('AtMostThreePhotoCandidates')
         for key in ids:
             entity=self.data['entities'].get(key)
             if not entity:raise ValueError('UnknownPhotoEntity')
-            for reference in entity['references'][-2:]:
+            for reference in entity['references'][-1 if automatic else -2:]:
                 data=self._path(reference['file']).read_bytes()
                 if len(data)>1_100_000 or hashlib.sha256(data).hexdigest()!=reference['sha256']:raise ValueError('PhotoReferenceChanged')
                 images.append(SceneImage(reference['sha256'],reference['captured_at'],'data:image/png;base64,'+base64.b64encode(data).decode()))

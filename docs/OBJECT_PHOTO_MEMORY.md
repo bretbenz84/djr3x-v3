@@ -19,8 +19,14 @@ conversation with `.venv/bin/python -m r3x live --camera`.
   Detection itself never makes a model call, speaks, enrolls or writes a photo.
 - Ordinary turns get a small catalog and current detection metadata. The model
   chooses `inspect_visual_memory` for teaching/comparison. It receives a current
-  overview, optional target crop, and up to two references each for at most three
-  selected entities (eight images maximum). Per-image labels distinguish current
+  overview and optional target crop. Teaching receives only current images and the
+  current human statement, with catalog names/IDs but no old appearance notes or
+  conversation descriptions. Comparison receives up to two references each for
+  at most three selected entities (eight images maximum). An empty candidate list
+  automatically includes one reference per entry when the library has at most six
+  entries. Ordinary `inspect_view` also includes that small-library comparison,
+  preserving its existing description-saving path. Larger libraries still require
+  model-selected candidates; an unavailable comparison is explicitly labeled. Per-image labels distinguish current
   images from historical references. Crops/overview preserve up to a 960-pixel edge;
   hosted photo comparisons use high detail. A missed detector target can be inspected
   through the full view. Detector dog/cat category is not a memory lookup gate.
@@ -195,3 +201,53 @@ The save-or-defer guarantee starts after a teaching inspection is selected. Two-
 visual matching remains unreliable even with fresh pixels. Detector mistakes can
 also hide multiplicity. These changes protect memory and make teaching outcomes
 explicit; they do not establish reliable individual-animal recognition.
+
+## September 20 object teaching and restart repair
+
+The live teaching run saved the blue toy's picture with an unrelated yellow-bone
+appearance description; teaching had supplied that older reference alongside the
+current view. The restart run used ordinary inspection without any reference
+photos, then denied having a saved name despite the entries still being on disk.
+
+Teaching now excludes historical images, appearance notes, prior conversation and
+the model-authored inspection question from its continuation. It retains the exact
+human statement, current images, catalog identifiers and state validation. Ordinary
+inspection now supplies the bounded small gallery automatically, with high-detail
+current/reference labels. Exact-image description reuse cannot bypass photographic
+comparison. A corrupt reference leaves the current image usable and reports the
+comparison failure. Photographic instructions were shortened rather than appended.
+
+**480 blocked-I/O checks pass**, including production-session teaching isolation,
+four-entry restart comparison with description retention, unchanged photo state on
+recognition, the eight-image bound and corrupt-reference handling. These checks use
+synthetic images/providers and temporary databases; they do not prove recognition
+accuracy. No camera or playback hardware was operated. The subsequently authorized hosted saved-photo checks are recorded below. Existing live photos and notes were
+preserved, including the erroneous toy description, which still needs an explicit
+correction. Fresh-angle recognition and multi-pet discrimination remain unvalidated.
+
+### Authorized hosted recheck
+
+The user approved retrying saved-photo checks. Three trials used independent gallery
+copies, the production Session and gpt-5.4-mini, with synthetic audio and no devices.
+The first exposed a KeyError: comparison metadata incorrectly replaced ordinary
+inspection's describe_view tool permissions with photo-save tools. Tool grounding
+now preserves the ordinary inspection permissions, and the production-session
+regression exercises that grounding. A later trial chose the observation-only tool
+for teaching and did not save; its schema now explicitly distinguishes named-photo
+teaching. The existing acquisition instruction also covers questions phrased as
+remembering the name of a currently held object.
+
+Final trial: current inspection supplied all four references for both objects.
+The model described the toy as a blue textured ball (3.80 seconds), named the iPhone
+and rose case (3.44 seconds), and used current-only teaching plus remember_object
+with blue ball appearance notes (4.65 seconds). Median 3.80 seconds, maximum 4.65;
+three cases are too few for a meaningful tail estimate. Each used one primary call
+and one continuation. Executor success confirmed the teaching operation in the copy.
+Existing-entry teaching adds/deduplicates a reference and intentionally preserves
+old notes; it did not repair the already incorrect yellow-bone description.
+
+Private evidence: `local/validation/photo-recheck-1f52a1df40654108a173b441c1c119ee/`.
+Earlier failures remain in the other photo-recheck folders. The current images were
+identical to saved references, not held-out views. Generic toy description alone is
+not proof of named recall. Live recognition and new-view accuracy remain pending;
+the live gallery was unchanged. All 480 blocked-I/O tests still pass.

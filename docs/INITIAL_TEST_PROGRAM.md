@@ -1064,3 +1064,13 @@ remain in force. This timing revision has no new hosted or live acceptance claim
 Latest-run repair evidence: **463 blocked-I/O checks pass** plus four hosted fictional
 text probes. See [findings, fixes and limits](LIVE_RUN_CONVERSATION_REPAIRS.md). No
 new live device test or acoustic accuracy measurement was performed.
+
+### September 20 photo-memory repair
+
+480 blocked-I/O checks pass. Teaching no longer receives unrelated historical
+photos/descriptions; ordinary current-view inspection compares the complete saved
+gallery when it contains at most six entries. Tests cover teaching, restart,
+description retention, bounded uploads and failed references using synthetic
+images and temporary stores. An authorized saved-photo hosted recheck inspected both objects and completed
+teaching in an isolated copy; it also exposed and led to a tool-grounding fix.
+Live recognition on new views remains pending. See [details and limits](OBJECT_PHOTO_MEMORY.md#september-20-object-teaching-and-restart-repair).

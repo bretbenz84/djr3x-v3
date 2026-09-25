@@ -55,6 +55,90 @@ class PhotoTests(MemoryFixture):
         session.close()
         return self.album.catalog()[0]['entity_id']
 
+    def test_teaching_excludes_old_reference_notes_and_history(self):
+        key=self.teach()
+        class Brain:
+            def reply(brain,snapshot,cancel):
+                if not snapshot.continuation:
+                    yield ToolCall('teach','inspect_visual_memory',{'intent':'teach','target_id':None,
+                        'entity_ids':[key],'question':'Remember the old dark dog appearance.'})
+                else:
+                    assert len(snapshot.images)==2
+                    assert all(x.get('role','').startswith('current') for x in snapshot.context['photo_inspection']['images'])
+                    assert 'notes' not in snapshot.context['photo_memory']['entities'][0]
+                    assert snapshot.messages==({'role':'user','content':'This different object is dog toy. Remember it.'},)
+                    assert snapshot.context['photo_inspection']['question']=='This different object is dog toy. Remember it.'
+                    yield ToolCall('save-toy','remember_object',{'evidence_id':snapshot.context['photo_inspection']['evidence_id'],
+                        'entity_id':None,'name':'dog toy','kind':'object','notes':'Blue round toy.',
+                        'source_turn_id':snapshot.context['source_turn_id'],'text':'Saved dog toy.'})
+        utterance='This different object is dog toy. Remember it.'
+        self.begin(utterance,C)
+        session=Session('session',Brain(),TextOutput(self.state.trace),self.state.trace,self.state)
+        session.history.append({'role':'assistant','content':'The previous object is a small yellow bone-shaped toy.'})
+        receipt=session.process_turn(self.state.current[1],Transcript(utterance,0,True),0,observation(C));session.close()
+        self.assertEqual(receipt.completed_text,['Saved dog toy.'])
+        restarted=PhotoMemory(self.album.root);restarted.start()
+        self.assertEqual(restarted.catalog()[-1]['notes'],'Blue round toy.')
+        self.assertEqual(restarted.catalog()[0]['entity_id'],key)
+
+    def test_ordinary_inspection_compares_restart_gallery_and_saves_description(self):
+        from copy import deepcopy
+        from r3x.inspection import CurrentView
+        from r3x.output import OutputOwner
+        from r3x.scenario import SyntheticTTS,SyntheticSink
+        key=self.teach()
+        data=deepcopy(self.album.data)
+        for index in range(3):
+            data['entities']['other-'+str(index)]=deepcopy(data['entities'][key])
+            data['entities']['other-'+str(index)]['name']='Object '+str(index)
+        self.album._commit(data)
+        self.album.close();self.album=PhotoMemory(self.album.root);self.album.start();self.state.photo_memory=self.album
+        before=deepcopy(self.album.data)
+        requests=[]
+        class Brain:
+            def reply(brain,snapshot,cancel):
+                requests.append(snapshot)
+                if not snapshot.continuation:
+                    yield ToolCall('inspect','inspect_view',{'direction':'current','question':'What is in my hand?'})
+                else:
+                    photo=snapshot.context['photo_inspection']
+                    assert {t['name'] for t in grounded_tools(snapshot.context)}=={'describe_view'}
+                    assert len(snapshot.images)==5
+                    assert photo['reference_coverage']=='complete'
+                    assert {x['entity_id'] for x in photo['images'][1:]}==set(before['entities'])
+                    yield ToolCall('description','describe_view',{'observation_id':snapshot.context['inspection']['request_id'],
+                        'description':'A toy matching a saved reference.','uncertainty':'Synthetic comparison.',
+                        'text':'That matches the saved toy.'})
+        view=CurrentView(SimpleNamespace(snapshot=lambda *args:('scene',(image(),))),clock=lambda:100.)
+        view.start();self.addCleanup(view.close)
+        self.begin('What am I holding?',C)
+        session=Session('session',Brain(),OutputOwner(SyntheticTTS(),SyntheticSink(),self.state.trace,inspection=view),self.state.trace,self.state)
+        receipt=session.process_turn(self.state.current[1],Transcript('What am I holding?',0,True),0,observation(C))
+        session.close()
+        self.assertEqual(receipt.completed_text,['That matches the saved toy.'])
+        self.assertEqual(self.album.data,before)
+        self.assertEqual(len(self.store.rows('SELECT * FROM visual_observations')),1)
+        self.assertEqual(len(requests),2)
+
+    def test_automatic_comparison_bounds_and_reference_failure_keep_current_view(self):
+        from copy import deepcopy
+        from r3x.photo_flow import comparison
+        key=self.teach()
+        entity=self.album.data['entities'][key]
+        for index in range(5):self.album.data['entities'][str(index)]=deepcopy(entity)
+        ctx,images=comparison(self.state,(image(),image()))
+        self.assertEqual(len(images),8)
+        self.assertEqual(ctx['photo_inspection']['reference_coverage'],'complete')
+        self.album.data['entities']['sixth']=deepcopy(entity)
+        ctx,images=comparison(self.state,(image(),))
+        self.assertEqual(len(images),1)
+        self.assertEqual(ctx['photo_inspection']['reference_coverage'],'unavailable')
+        self.album.data['entities']={key:entity}
+        (self.album.root/entity['references'][0]['file']).write_bytes(b'changed')
+        ctx,images=comparison(self.state,(image(),))
+        self.assertEqual(len(images),1)
+        self.assertEqual(ctx['photo_inspection']['reference_error'],'PhotoReferenceChanged')
+
     def test_teach_restart_compare_correct_and_forget_visible_files(self):
         key=self.teach()
         files=list(self.album.root.glob('*/*.png'));self.assertEqual(len(files),1)

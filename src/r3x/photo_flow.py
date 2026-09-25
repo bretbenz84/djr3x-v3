@@ -15,6 +15,21 @@ def context(state):
         'meaning':'Named objects/pets and reference photos. Detector labels and tracks are uncertain, not permanent identity. No person identity or ownership inferred.'}}
 
 
+def comparison(state, images):
+    """Give ordinary current-view inspection the same bounded reference evidence."""
+    if state.photo_memory is None or not images:return {},images
+    try:
+        references,labels=state.photo_memory.references()
+        error=None
+    except (ValueError,OSError) as exc:
+        references,labels=(),[];error=str(exc)
+    entries=state.photo_memory.catalog()
+    data={'intent':'look','images':[{'role':'current overview','frame_id':i.frame_id} for i in images]+labels,
+          'reference_coverage':'complete' if len(labels)==len(entries) and error is None else 'unavailable',
+          'reference_error':error}
+    return {'photo_inspection':data},(*images,*references)
+
+
 def run(session,call,snapshot,generate,cancel):
     """Returns executor-authorized acknowledgment or lets generate stream the reply."""
     state=session.state;album=state.photo_memory
@@ -36,7 +51,8 @@ def run(session,call,snapshot,generate,cancel):
         try:
             if not state.objects:raise ValueError('ObjectCameraUnavailable')
             image,target,overview=state.objects.inspect(call.arguments['target_id'])
-            references,labels=album.references(call.arguments['entity_ids'])
+            teaching=call.arguments['intent']=='teach'
+            references,labels=((),[]) if teaching else album.references(call.arguments['entity_ids'] or None)
             evidence_id=album.offer(image,target,session.trace.clock())
             views=(overview,image) if target.get('target_id') else (image,)
             labels_current=[{'role':'current overview','frame_id':overview.frame_id}]
@@ -52,7 +68,17 @@ def run(session,call,snapshot,generate,cancel):
         session.trace.emit('photo_inspection',turn_id=snapshot.turn_id,**data,image_count=len(images))
     continuation=(*call.preamble,{'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
                   {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(data)})
-    followup=replace(snapshot,context=ctx,continuation=continuation,images=images,tools_enabled=bool(images) and not ctx.get('trigger'))
+    messages=snapshot.messages
+    if data.get('intent')=='teach':
+        # Teaching starts from the human's words and current pixels. Old model prose,
+        # appearance notes and historical photos must not describe a different object.
+        ctx={k:ctx[k] for k in ('state_revision','source_turn_id','current_utterance','photo_memory','photo_inspection','trigger') if k in ctx}
+        ctx['photo_memory']={**ctx['photo_memory'],'entities':[
+            {k:v for k,v in entry.items() if k!='notes'} for entry in ctx['photo_memory']['entities']]}
+        data['question']=ctx.get('current_utterance','')
+        messages=({'role':'user','content':ctx.get('current_utterance','')},)
+        continuation=({'role':'developer','content':'Current photographic teaching evidence: '+json.dumps(data)},)
+    followup=replace(snapshot,messages=messages,context=ctx,continuation=continuation,images=images,tools_enabled=bool(images) and not ctx.get('trigger'))
     session.trace.emit('model_request',turn_id=snapshot.turn_id,primary_calls=0,purpose='photo_memory_continuation',
                        image_count=len(images),image_bytes=sum(len(i.data_url) for i in images),
                        reasoning_effort=getattr(session.brain,'reasoning_effort',None))
