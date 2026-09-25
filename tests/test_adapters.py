@@ -204,11 +204,14 @@ class AdapterTests(unittest.TestCase):
             def close(self): self.worker.join(2)
         sink = AudioSink()
         sink.sd = SimpleNamespace(RawOutputStream=Stream, CallbackStop=Stop, CallbackAbort=Abort)
+        observed = []
+        sink.on_pcm = lambda data,at: observed.append(data)
         expected = b"\x01\x02" * 5000
         parts = iter([expected[:3], expected[3:4096], expected[4096:8192], expected[8192:]])
         starts = []
         receipt = sink.play(parts, Cancellation(), starts.append)
         self.assertEqual(receipt.frames, 5000)
         self.assertEqual(bytes(captured[:len(expected)]), expected)
+        self.assertEqual(b"".join(observed)[:len(expected)],expected)
         self.assertEqual(len(starts), 1)
         self.assertIsNone(sink.stream)

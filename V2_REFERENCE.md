@@ -1,5 +1,47 @@
 # V2 reference and extraction map
 
+## LED protocol and playback extraction — September 25, 2026
+
+Read-only V2 HEAD `663fee5ef4dd050b56b5ffda1e8e529284171c37`; the same dirty
+working tree listed in the servo extraction below was present, including `config.py`.
+Active driver, audio, sequence and Arduino sources were used instead of historical
+LED notes. The installed firmware was not queried or flashed.
+
+| Source | SHA-256 |
+| --- | --- |
+| `hardware/leds_head.py` | `e5d4d772e860e7268d0a05bca30846bf96eaf8acd4f8be5cf8d6e8fe06bbc5a2` |
+| `hardware/leds_chest.py` | `26f77c47897e744a43cfdf988e604eb390c09af17c9a1f758397a7a0855e959e` |
+| `arduino/head_nano/head_nano.ino` | `72a946e432a475c1ffbd15f28d7036f555fe42367068001b7da394972cae3aa6` |
+| `arduino/chest_nano/chest_nano.ino` | `1619abfe5619fb04eed7f8b9155799266f863443b67da16bec38800d3155c7aa` |
+| `audio/tts.py` | `6d91a6554eab59a41b07c13f14362c1dea9f69e7370406756ffe118b54e8cd4a` |
+| `tools/rex_led_menubar.py` | `5c2592dd963eec36feb5367e90de42d4ee11a49ece1d723f39b60bb9ade725d4` |
+| `config.py` | `38853dc4b15a9aa4f1cf1f874ca54c97bde85057ce0c71acc49c8ba95e53a9c8` |
+| `sequences/animations.py` | `e5451f2883fbe9be329c10073b4e16f82698eb94d2ffb54989fe4692596432de` |
+
+Preserved behavior: chest startup, warm startup eyes, six speaking color styles,
+RMS scale 800 and delta eight, repeated mouth stop plus eye-blink rearm, compliment
+sparkles and four-second shutdown fade. Firmware handles mouth GRB conversion;
+Python sends ordinary RGB. Head firmware needs level keepalives every <1.5 seconds,
+not just an initial SPEAK command. Chest curious falls back to neutral by design.
+
+Adaptation: V3-owned explicit ports/pyserial dependency, a single lifecycle/serial
+owner and bounded PCM mailbox driven by the production audio sink; no V2 imports,
+global config/state, independent conversational handlers or reconnect loops. The
+existing state owner validates the LLM's bounded `animate_lights` proposal and the
+existing output owner executes it with command-only receipts. No new model,
+framework, firmware fork or always-running service was added. Off-program V2 LED
+and battery tools remain installed; confirmed descriptor release supplements their
+shared controller-lock handoff before V3 may open the boards. The adapter does not
+import, spawn or depend on those scripts. Independent V3 menus are future work.
+
+Focused evidence: **548 blocked-I/O tests**, including 20 new synthetic LED
+contracts and the production sink PCM-observer check. No real model, personal data,
+audio device or serial port was used. A new ignored cutover bundle was prepared;
+default settings, installed services and V2 files were not modified. See
+[LED integration](docs/LED_INTEGRATION.md) for behavior, resource limits and pending
+live firmware/color/timing/audio-load/handoff acceptance. No visible LED success or
+measured hardware latency is inferred from fake serial writes.
+
 ## Servo lifecycle and talking-motion extraction — September 25, 2026
 
 Follow-on implementation: explicit serial opening, cross-version controller/resource

@@ -1,5 +1,13 @@
 # Initial test program and acceptance plan
 
+### September 25 LED integration
+
+The [LED adaptation](LED_INTEGRATION.md) adds lifecycle lights, playback PCM-driven
+speaking and one-call model-selected animations. **548 blocked-I/O checks pass**,
+including 20 new LED contracts with fake serial/audio and production Session/output.
+No hardware or hosted model was used. The refreshed cutover bundle is prepared only;
+V2 services remain unchanged. Visual, timing and live handoff gates remain pending.
+
 ### September 25 servo foundation
 
 The separately authorized [servo integration](SERVO_INTEGRATION.md) adds a Maestro

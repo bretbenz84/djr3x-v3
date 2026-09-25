@@ -19,6 +19,7 @@ class RobotServos:
         self.wait = wait
         self.closed = False
         self.started = False
+        self.before_shutdown = lambda: None
 
     def _sequence(self, kind):
         result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.),Cancellation())
@@ -55,6 +56,10 @@ class RobotServos:
         self.owner.release_microphone_hold()
         try:
             if self.started and self.owner.state in {'active','stopped','ready'}:
+                try:
+                    self.before_shutdown()
+                except Exception as exc:
+                    if self.trace: self.trace.emit('led_fault',reason=type(exc).__name__)
                 self._sequence('shutdown')
             elif self.started and self.owner.state not in {'parked','closed'}:
                 raise ProviderFailure('ServoParkUnavailableAfterFault')

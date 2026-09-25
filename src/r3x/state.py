@@ -104,6 +104,23 @@ class CoreState:
         return InspectionRequest(source+':'+call.call_id,call.arguments['direction'],
             call.arguments['question'],self.attention.scene.view_epoch,self.trace.clock())
 
+    def propose_lights(self, call, context, cancel):
+        from .leds import LightRequest
+        cancel.check()
+        validate(call.name,call.arguments)
+        if self.frozen or not context.get('led_enabled'):
+            raise ValueError('LEDUnavailable')
+        if self.store.revision != context['state_revision']:
+            raise ValueError('StaleStateRevision')
+        args = call.arguments
+        if args['pattern'] not in context['led_patterns']:
+            raise ValueError('LEDPatternUnavailable')
+        if args['timing']=='during_speech' and (args['text'] is None or args['pattern']=='compliment'):
+            raise ValueError('InvalidSpeakingAnimation')
+        source = context.get('event_id') or context['source_turn_id']
+        return LightRequest(source+':'+call.call_id,args['pattern'],
+            1. if args['duration']=='brief' else 2.5,self.trace.clock()+30,context['led_version'])
+
     def propose_performance(self, call, context, cancel):
         from .performance import Gesture
         cancel.check()

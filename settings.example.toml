@@ -76,3 +76,9 @@ object_memory_enabled = false
 # Optional physical servos. Empty by default; requires operator handoff and
 # commissioned nonzero readback before live startup. No port auto-detection.
 servo_port = ""
+
+# Optional LED boards: each empty value disables that zone. Explicit /dev/cu.*
+# paths must differ from each other and the Maestro. No discovery or reconnect.
+# Consumed by live LED lifecycle/output and exclusive controller handoff.
+head_led_port = ""
+chest_led_port = ""

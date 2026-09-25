@@ -7,6 +7,7 @@ import time
 
 from .contracts import Cancellation, Cancelled, ProviderFailure, Sink, TTS
 from .performance import Performance
+from .leds import LightPerformance
 
 
 TAGS = frozenset({"sarcastic", "curious", "excited", "mischievously", "laughs",
@@ -65,16 +66,18 @@ class Delivery:
     medium: str = "audio"
     gestures: list[dict] = field(default_factory=list)
     completed_at: float | None = None
+    lights: list[dict] = field(default_factory=list)
 
 
 class OutputOwner:
     def __init__(self, tts: TTS, sink: Sink, trace, *, attention=None, gestures=None, inspection=None,
-                 speech_motion=None):
+                 speech_motion=None, leds=None):
         self.tts, self.sink, self.trace = tts, sink, trace
         self.attention = attention
         self.gestures = gestures
         self.inspection = inspection
         self.speech_motion = speech_motion
+        self.leds = leds
         self._motion_lock = threading.Lock()
         self.active = threading.Event()
         self.echo_until = 0.
@@ -141,6 +144,50 @@ class OutputOwner:
         self.trace.emit('gesture_delivery', turn_id=turn_id, **row)
         cancel.check()
 
+    def _light_result(self, delivery, turn_id, request, status, reason=None):
+        row = dict(request_id=request.request_id if request else turn_id+':speaking',
+            pattern=request.pattern if request else 'neutral',status=status,reason=reason,
+            at=self.trace.clock(),medium='serial',evidence='commands_only_display_unverified')
+        delivery.lights.append(row)
+        self.trace.emit('led_delivery',turn_id=turn_id,**row)
+
+    def _begin_lights(self, light, cancel):
+        cancel.check()
+        if not self.leds: raise ProviderFailure('LEDUnavailable')
+        if light and (not light.valid() or self.trace.clock()>=light.request.expires_at):
+            raise ProviderFailure('StaleLEDRequest')
+        return self.leds.begin(light.request.pattern if light else 'neutral',
+            speaking=light is None or light.timing=='during_speech',
+            request=light.request if light else None)
+
+    def _finish_lights(self, token, light, delivery, turn_id, status=None):
+        try:
+            result = self.leds.finish(token)
+            self._light_result(delivery,turn_id,light.request if light else None,
+                status if result=='commands_sent' and status else result)
+        except Exception as exc:
+            self._light_result(delivery,turn_id,light.request if light else None,'failed',str(exc) if isinstance(exc,ProviderFailure) else type(exc).__name__)
+
+    def _light_demo(self, light, cancel, delivery, turn_id):
+        token = None
+        status = None
+        try:
+            token = self._begin_lights(light,cancel)
+            deadline = self.leds.clock()+light.request.duration
+            while self.leds.clock()<deadline:
+                cancel.check()
+                if not light.valid(): raise ProviderFailure('StaleLEDRequest')
+                self.leds.wait(min(.05,deadline-self.leds.clock()))
+        except Cancelled:
+            status = 'cancelled'
+        except Exception as exc:
+            status = 'failed'
+            if token is None:
+                self._light_result(delivery,turn_id,light.request,status,type(exc).__name__)
+        finally:
+            if token is not None: self._finish_lights(token,light,delivery,turn_id,status)
+        cancel.check()
+
     def echo_risk(self) -> bool:
         return self.active.is_set() or self.trace.clock() < self.echo_until
 
@@ -151,6 +198,7 @@ class OutputOwner:
 
     def run(self, phrases: Queue, cancel: Cancellation, turn_id: str, delivery: Delivery) -> None:
         performance = None
+        light = None
         try:
             while True:
                 cancel.check()
@@ -160,6 +208,15 @@ class OutputOwner:
                     continue
                 if text is None:
                     break
+                light = text if isinstance(text,LightPerformance) else None
+                if light:
+                    text = light.text or ''
+                    if light.timing=='before_speech':
+                        self._light_demo(light,cancel,delivery,turn_id)
+                        light = None
+                    if not text:
+                        delivery.status,delivery.medium = 'suppressed','none'
+                        continue
                 performance = text if isinstance(text, Performance) else None
                 if performance:
                     text = performance.text
@@ -172,6 +229,9 @@ class OutputOwner:
                 synthesis_at = self.trace.clock()
                 first_pcm_at = None
                 talking_started = False
+                light_token = None
+                light_attempted = False
+                if self.leds: self.leds.clear_pcm()
                 def chunks():
                     nonlocal first_pcm_at
                     stream = self.tts.synthesize(text,cancel)
@@ -190,11 +250,17 @@ class OutputOwner:
                         if close:
                             close()
                 def started(at):
-                    nonlocal talking_started
+                    nonlocal talking_started, light_token, light_attempted
                     delivery.first_audio_at = delivery.first_audio_at or at
                     delivery.status = "started"
                     self.trace.emit("playback_started", turn_id=turn_id, at_device=at,
                                     playback_queue_seconds=at-first_pcm_at if first_pcm_at is not None else None)
+                    if self.leds:
+                        light_attempted = True
+                        try:
+                            light_token = self._begin_lights(light,cancel)
+                        except Exception as exc:
+                            self._light_result(delivery,turn_id,light.request if light else None,'failed',str(exc) if isinstance(exc,ProviderFailure) else type(exc).__name__)
                     if self.speech_motion and self._motion_lock.acquire(blocking=False):
                         try:
                             cancel.check()
@@ -207,6 +273,11 @@ class OutputOwner:
                 try:
                     receipt = self.sink.play(chunks(), cancel, started)
                 finally:
+                    if light_token is not None:
+                        self._finish_lights(light_token,light,delivery,turn_id,
+                            'cancelled' if cancel.event.is_set() else None)
+                    elif light and not light_attempted:
+                        self._light_result(delivery,turn_id,light.request,'cancelled','PlaybackNotStarted')
                     if talking_started:
                         try:
                             motion_receipt = self.speech_motion.stop()

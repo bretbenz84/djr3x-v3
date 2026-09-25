@@ -15,6 +15,7 @@ class App:
         self.owner = owner if owner is not None else ProviderOwner()
         self.live_components = None
         self.robot = None
+        self.leds = None
         self.hardware_handoff = None
 
     def configure_live(self):
@@ -46,13 +47,18 @@ class App:
         from .adapters.flex import FlexControl
         from .direction import Direction
         direction = Direction(FlexControl()) if self.settings.direction_enabled else None
+        led_ports = {zone:port for zone,port in (
+            ('head',self.settings.head_led_port),('chest',self.settings.chest_led_port)) if port}
+        if led_ports:
+            from .leds import LEDs
+            self.leds = LEDs(led_ports)
         if self.settings.servo_port:
             from .robot_servos import RobotServos
             self.robot = RobotServos(self.settings.servo_port)
         self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects) if p)
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
-        self.owner = ProviderOwner(((self.robot,) if self.robot else ()) + self.live_components)
+        self.owner = ProviderOwner(((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + self.live_components)
 
     def readiness(self):
         missing = []
@@ -135,7 +141,9 @@ class App:
         self.live_lease = lease  # Retain if cleanup fails while the process remains alive.
         from .hardware_ownership import ControllerHandoff, HardwareLocks
         from .contracts import Cancellation
-        self.hardware_handoff = ControllerHandoff(HardwareLocks(),port=self.settings.servo_port or None)
+        self.hardware_handoff = ControllerHandoff(HardwareLocks(),port=self.settings.servo_port or None,
+            led_ports={zone:port for zone,port in (("head_led",self.settings.head_led_port),
+                ("chest_led",self.settings.chest_led_port)) if port})
         try:
             self.hardware_handoff.acquire(Cancellation())
         except BaseException:
@@ -163,7 +171,12 @@ class App:
         memory = Memory(self.paths.root / "core.sqlite3")
         inspection = next((p for p in optional if p.capability.name=='current_view'),None)
         output = OutputOwner(tts, sink, trace,inspection=inspection,
-                             speech_motion=self.robot.talking if self.robot else None)
+                             speech_motion=self.robot.talking if self.robot else None, leds=self.leds)
+        if self.leds:
+            self.leds.trace = trace
+            sink.on_pcm = self.leds.pcm
+            if self.robot:
+                self.robot.before_shutdown = self.leds.cancel
         mic.echo_risk = output.echo_risk
         mic.trace = trace
         if self.robot:

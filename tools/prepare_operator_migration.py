@@ -11,13 +11,15 @@ from datetime import datetime, timezone
 from r3x.settings import Settings, ScratchPaths
 
 
-def prepare(project: Path, source: Path, servo_port: str, agents: Path) -> Path:
+def prepare(project: Path, source: Path, servo_port: str, agents: Path, *, head_led_port: str | None = None, chest_led_port: str | None = None) -> Path:
     paths = ScratchPaths.for_project(project)
     paths.prepare()
     settings_path = paths.root/'settings.toml'
     current = Settings.load(settings_path) if settings_path.exists() else Settings()
     values = asdict(current)
     values['servo_port'] = servo_port
+    if head_led_port is not None: values['head_led_port'] = head_led_port
+    if chest_led_port is not None: values['chest_led_port'] = chest_led_port
     Settings(**values)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     bundle = paths.root/'operator-migration'/stamp
@@ -70,6 +72,8 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wake-source',type=Path,required=True)
     parser.add_argument('--servo-port',required=True)
+    parser.add_argument('--head-led-port')
+    parser.add_argument('--chest-led-port')
     args=parser.parse_args()
     print(prepare(Path(__file__).resolve().parents[1],args.wake_source,args.servo_port,
-                  Path.home()/'Library/LaunchAgents'))
+                  Path.home()/'Library/LaunchAgents',head_led_port=args.head_led_port,chest_led_port=args.chest_led_port))

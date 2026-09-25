@@ -16,6 +16,8 @@ class Settings:
     input_gain: float = 1.0
     direction_enabled: bool = False
     servo_port: str = ""  # Empty disables physical servos; explicit device path opts in.
+    head_led_port: str = ""
+    chest_led_port: str = ""
     echo_isolated: bool = False
     vad_threshold: float = 0.5
     end_silence_seconds: float = 1.2
@@ -42,13 +44,16 @@ class Settings:
             raise ValueError("Unknown microphone_mode")
         if self.direction_enabled and self.microphone_mode != "respeaker-flex":
             raise ValueError("Direction requires the ReSpeaker Flex microphone")
-        for name in ("input_device_name", "output_device_name", "camera_device_name", "servo_port"):
+        for name in ("input_device_name", "output_device_name", "camera_device_name", "servo_port", "head_led_port", "chest_led_port"):
             if not isinstance(getattr(self, name), str):
                 raise ValueError(f"{name} must be text")
-        if self.servo_port and (not self.servo_port.startswith('/dev/cu.') or
-                                any(c.isspace() for c in self.servo_port) or
-                                '..' in self.servo_port or '/' in self.servo_port[5:]):
-            raise ValueError('servo_port must be an explicit macOS /dev/cu. device')
+        ports = [self.servo_port,self.head_led_port,self.chest_led_port]
+        if len([p for p in ports if p]) != len({p for p in ports if p}):
+            raise ValueError('Hardware ports must be distinct')
+        for port in ports:
+            if port and (not port.startswith('/dev/cu.') or any(c.isspace() for c in port)
+                         or '..' in port or '/' in port[5:]):
+                raise ValueError('Hardware port must be an explicit macOS /dev/cu. device')
         if self.input_device_index is not None and (type(self.input_device_index) is not int or self.input_device_index < 0):
             raise ValueError("input_device_index must be a nonnegative integer")
         for name in ("echo_isolated","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","direction_enabled","object_memory_enabled"):

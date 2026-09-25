@@ -49,7 +49,7 @@ class HardwareLocks:
         self.controller = self.controller.expanduser().absolute()
 
     def lease(self, resource: str) -> FileLease:
-        if resource not in {'controller','microphone','maestro','supervisor','console'}:
+        if resource not in {'controller','microphone','maestro','supervisor','console','head_led','chest_led'}:
             raise ValueError('UnknownHardwareResource')
         path = self.controller if resource == 'controller' else self.controller.with_name(
             self.controller.name + '.v3-' + resource)
@@ -97,11 +97,12 @@ def serial_port_free(path: str) -> bool:
 
 
 class ControllerHandoff:
-    def __init__(self, locks: HardwareLocks, *, port: str | None = None,
+    def __init__(self, locks: HardwareLocks, *, port: str | None = None, led_ports=None,
                  port_free=serial_port_free, legacy_active=legacy_supervisor_active,
                  clock=time.monotonic, wait=time.sleep):
         self.locks, self.port, self.port_free = locks, port, port_free
         self.legacy_active, self.clock, self.wait = legacy_active, clock, wait
+        self.ports = ({"maestro":port} if port else {}) | dict(led_ports or {})
         self.held = []
 
     def acquire(self, cancel: Cancellation, timeout: float = 8.) -> None:
@@ -115,7 +116,7 @@ class ControllerHandoff:
                 raise ProviderFailure('AnotherControllerOwnsRobot')
             self.held.append(intent)
             deadline = self.clock() + timeout
-            for resource in ('microphone',) + (('maestro',) if self.port else ()):
+            for resource in ('microphone',) + tuple(self.ports):
                 lease = self.locks.lease(resource)
                 while True:
                     cancel.check()
@@ -125,7 +126,7 @@ class ControllerHandoff:
                         self.held.append(lease)
                         break
                     self.wait(.05)
-            while self.port and not self.port_free(self.port):
+            while any(not self.port_free(path) for path in self.ports.values()):
                 cancel.check()
                 if self.clock() >= deadline:
                     raise ProviderFailure('SerialHandoffTimeout')

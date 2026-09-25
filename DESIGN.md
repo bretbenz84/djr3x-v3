@@ -430,6 +430,11 @@ microphone holds. It is not exposed as model-selected physical attention/gesture
 Pulse-readback receipts are distinct from measured joint arrival. Service cutover,
 cold-start commissioning and live movement/enrollment validation remain pending.
 
+The [LED integration](docs/LED_INTEGRATION.md) adds optional head/chest lifecycle
+and playback effects, plus bounded model-selected animations validated by the state
+owner and scheduled by the output owner. Serial receipts establish commands sent,
+not visible display success. Live LED activation remains pending.
+
 The authorized first two [attention slices](docs/ATTENTION_IMPLEMENTATION.md) implement
 session-owned directional/visual-target attention and output-owned simulation through the same
 Session/tool path. Simulation is explicitly injected, never enabled by live startup.

@@ -21,16 +21,18 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 | Implemented | Tool-selected current-camera inspection, rich visual descriptions, bounded visual memory and exact-image description reuse | [Current-view inspection](CURRENT_VIEW_VALIDATION.md), [attention slices](ATTENTION_IMPLEMENTATION.md) |
 | Implemented | Related-record withdrawal, detail-preserving revisions, visual novelty context and actual spoken-remark records | [Visual correction](VISUAL_CORRECTION.md), [integration pass](CORE_INTEGRATION_PASS.md) |
 | Implemented with simulated movement | Grounded attention intents, before/after speech gestures, movement/settle/capture sequencing, exclusive motion ownership and separate executor/speech outcomes | [Attention slices 1–3](ATTENTION_IMPLEMENTATION.md) |
+| Implemented; live activation pending | Head/chest startup/fade, playback-driven speaking LEDs and validated LLM animation tool | [LED integration and gates](LED_INTEGRATION.md) |
 | Implemented; live activation pending | Servo lifecycle including throttle, playback-driven talking motion, bounded microphone holds, cross-version resource handoff, supervisor and servo console | [Servo integration and gates](SERVO_INTEGRATION.md), [cutover](OPERATOR_CUTOVER.md) |
 | Implemented | Action continuity after interruption, bounded outcome history, no automatic resumption of abandoned work | [Integration pass](CORE_INTEGRATION_PASS.md) |
 | Implemented | External-review repairs, scene-change cutoff repair and introduction recovery | [Review follow-up](REVIEW_2026_09_13.md), [introduction recovery](INTRODUCTION_RECOVERY.md) |
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **528 passing checks** including the
+The latest blocked-I/O suite has **548 passing checks** including the
 [greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md) and the
 [prompt-caching repair](PROMPT_CACHING.md), plus 48 new
-[servo/operator/robot contracts](SERVO_INTEGRATION.md#verification).
+[servo/operator/robot contracts](SERVO_INTEGRATION.md#verification) and 20
+[LED contracts](LED_INTEGRATION.md#verification-and-remaining-acceptance).
 Prior counts in linked documents describe their dated checkpoints.
 
 September 20: [audience continuity and unheard-lull recovery](LIVE_RUN_CONVERSATION_REPAIRS.md#september-20-audience-continuity-and-unheard-lull-recovery)

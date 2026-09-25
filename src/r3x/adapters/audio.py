@@ -175,6 +175,7 @@ class AudioSink:
         self.sd = None
         self.stream = None
         self.index = None
+        self.on_pcm = None
 
     def start(self):
         import sounddevice as sd
@@ -228,6 +229,8 @@ class AudioSink:
                 frames += actual // 2
                 if started_at is None:
                     started_at = self.clock() + timing.outputBufferDacTime - timing.currentTime
+            if self.on_pcm:
+                self.on_pcm(bytes(outdata),self.clock()+timing.outputBufferDacTime-timing.currentTime)
             if actual < wanted:
                 if eof.is_set() and queue.empty() and not pending:
                     drained.set()

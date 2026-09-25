@@ -41,9 +41,10 @@ does not reconnect after a wire failure. V2's newer measurement logs, recording 
 playback of arbitrary throttle sequences remain separate commissioning extras;
 they were inventoried, not silently copied. Board home is distinct from V3 park.
 
-The battery/base and LED agents can remain V2 for this servo-only cutover: they use
-different ports and already observe the shared controller lock. V3 does not open
-their ports. Their eventual adapters/services still require their own migration.
+The battery/base and LED agents remain V2 off-program controls and already observe
+the shared controller lock. The [LED adaptation](LED_INTEGRATION.md) now optionally
+opens head/chest ports only after confirmed descriptor release. Independent V3
+LED/battery menus remain future work.
 No live cross-agent acceptance is claimed from this source inspection.
 
 This is a prerequisite for physical LED/servo/base integration, not optional

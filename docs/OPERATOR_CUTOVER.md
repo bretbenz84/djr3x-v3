@@ -2,8 +2,10 @@
 
 **Not executed.** September 25: the owner chose to keep V2 running and commission
 later. V3's default settings were not changed. The prepared bundle is under
-`local/operator-migration/20260925T191225654301Z/`; it contains robot settings,
+`local/operator-migration/20260925T193611891369Z/`; it contains robot settings,
 two new LaunchAgent definitions, four original plist backups and digest inventory.
+This refreshed bundle includes head/chest LED ports; the previous servo-only bundle
+is preserved. LED visual/timing acceptance is pending ([details](LED_INTEGRATION.md)).
 Wake models are independent copies under `local/models/wake/`. Optional packages
 are installed in V3's `.venv` and pinned in `requirements-robot.txt`.
 
@@ -24,7 +26,9 @@ anything:
 ```sh
 .venv/bin/python tools/prepare_operator_migration.py \
   --wake-source /path/to/v2/assets/models/wake_word \
-  --servo-port /dev/cu.YOUR_MAESTRO
+  --servo-port /dev/cu.YOUR_MAESTRO \
+  --head-led-port /dev/cu.YOUR_HEAD \
+  --chest-led-port /dev/cu.YOUR_CHEST
 ```
 
 All commands below are for that future supervised session. Set `BUNDLE` to the
@@ -35,7 +39,9 @@ without checking the result of each stage.
 
 Disable login/KeepAlive restart as well as unloading the jobs. Keep the original
 plist files and the prepared backups. LED and battery jobs stay installed for this
-servo-only migration and yield to the same controller lock.
+migration and yield to the same controller lock. V3 now waits for both configured
+LED ports to actually close before opening either. Verify menu/battery recovery
+after exit along with the LED startup, speaking, cancellation and fade effects.
 
 ```sh
 launchctl disable "gui/$(id -u)/com.djr3x.supervisor"

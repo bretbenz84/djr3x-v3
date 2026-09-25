@@ -248,7 +248,12 @@ running at the owner's request. Physical commissioning and live validation remai
 Every V3 live run now uses the cross-version controller/microphone handoff; unload
 the old V2 supervisor before live testing. See the [cutover guide](docs/OPERATOR_CUTOVER.md).
 
-Wheel/LED control, games, impersonations, rich biographies,
+The [LED integration](docs/LED_INTEGRATION.md) adds optional head/chest startup and
+shutdown effects, playback-driven speaking lights, and validated LLM-selected
+animations through the same output owner. Activation and visual acceptance remain
+pending; the refreshed cutover bundle enables both ports without changing services.
+
+Wheel control, games, impersonations, rich biographies,
 relationship scoring, semantic memory retrieval,
 and a polished GUI follow the core's acceptance gates. Offline mode and additional
 providers are later explicit profiles, not a default collection of loaded models.

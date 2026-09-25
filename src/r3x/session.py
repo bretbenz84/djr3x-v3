@@ -146,6 +146,7 @@ class Session:
             return ready
         attention_intent = None
         performance_gesture = None
+        light_request = None
         visual_selected = None
         visual_proposed_text = None
         action_started = False
@@ -248,6 +249,11 @@ class Session:
                     context['gesture_enabled'] = getattr(self.output,'gestures',None) is not None
                     context['recent_performances'] = list(self.state.performances)
                     context['attention'] = self.state.attention.context()
+            if self.state and not self.state.frozen and getattr(self.output,'leds',None):
+                from .leds import PATTERNS
+                led = self.output.leds
+                context.update(led_enabled=led.state=='ready',led_version=led.version,
+                    led_patterns=[p for p in PATTERNS if p!='compliment' or 'chest' in led.ports])
             scene_images = opportunity.scene_images if opportunity and any(c['kind']=='scene' for c in context.get('observations',[])) else ()
             if self.state and not self.state.frozen:
                 from . import visual_memory
@@ -372,6 +378,10 @@ class Session:
                         inspection_request = self.state.propose_inspection(call,context,cancel)
                         from .contracts import ToolResult
                         result = ToolResult(inspection_request.request_id,'ok','InspectionProposed',self.state.store.revision)
+                    elif call.name == 'animate_lights':
+                        light_request = self.state.propose_lights(call,context,cancel)
+                        from .contracts import ToolResult
+                        result = ToolResult(light_request.request_id,'ok','LEDProposed',self.state.store.revision)
                     elif call.name == 'respond_with_gesture':
                         gesture, anchor = self.state.propose_performance(call, context, cancel)
                         performance_gesture = gesture
@@ -410,7 +420,7 @@ class Session:
                         self.state.actions.begin(result.request_id,call.name,call.arguments.get('question') or call.arguments.get('purpose') or call.arguments.get('text'),turn_id,audience(context),self.trace.clock())
                         action_started=True
                         self.trace.emit('action_started',turn_id=turn_id,request_id=result.request_id,kind=call.name)
-                self.trace.emit("tool_validated" if call.name in {"shift_attention","respond_with_gesture","inspect_view"} else "tool_executed",
+                self.trace.emit("tool_validated" if call.name in {"shift_attention","respond_with_gesture","inspect_view","animate_lights"} else "tool_executed",
                                 turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
                 if (result.outcome=='ok' and call.name=='conversation_feedback' and
                     result.data['action']=='floor_resolved' and not self.state.initiative.floor_held(self.trace.clock())):
@@ -488,6 +498,14 @@ class Session:
                         else:
                             delivery.status,delivery.medium='suppressed','none'
                     self.history.append({'role':'developer','content':'Inspection result (see medium and motion status): '+json.dumps(data)})
+                elif result.outcome=='ok' and call.name=='animate_lights':
+                    from .leds import LightPerformance
+                    expected_revision = result.revision
+                    def valid_lights():
+                        with self._lock:
+                            return not self.state.frozen and self.state.store.revision==expected_revision
+                    put_phrase(phrases,LightPerformance(light_request,call.arguments['text'],
+                        call.arguments['timing'],valid_lights),cancel)
                 elif result.outcome=='ok' and call.name=='respond_with_gesture':
                     from .performance import Performance
                     expected_revision = result.revision
@@ -675,6 +693,12 @@ class Session:
                        'timing':call.arguments['timing']}
                 delivery.gestures.append(row)
                 self.trace.emit('gesture_delivery',turn_id=turn_id,**row)
+            if light_request and not delivery.lights:
+                delivery.lights.append(dict(request_id=light_request.request_id,status='cancelled',
+                    reason='OutputNotReached',medium='serial',evidence='commands_only_display_unverified'))
+            if delivery.lights:
+                import json
+                self.history.append({'role':'developer','content':'LED command outcomes (visible display unverified): '+json.dumps(delivery.lights)})
             if self.state and delivery.gestures:
                 self.state.performances.extend(delivery.gestures)
                 import json

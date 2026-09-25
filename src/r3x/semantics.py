@@ -13,6 +13,10 @@ NULL_TEXT = {"type":["string","null"]}
 
 
 TOOLS = (
+    schema('animate_lights', 'Request a bounded LED animation for a conversational purpose or an explicit light request. Patterns are neutral amber, happy cyan/green, excited gold, sad blue, angry red, curious purple, and compliment chest sparkles. during_speech styles actual playback and requires text; before_speech runs for brief (1 second) or normal (2.5 seconds), then optionally speaks text. Do not infer a human emotion from the requested style. No physical gesture or identity action. Do not claim the lights succeeded in text: serial command receipts cannot verify the visible display. Ordinary replies automatically animate speaking and need no tool. No extra generation.',
+        {'pattern':{'type':'string','enum':['neutral','happy','excited','sad','angry','curious','compliment']},
+         'timing':{'type':'string','enum':['before_speech','during_speech']},
+         'duration':{'type':'string','enum':['brief','normal']},'text':NULL_TEXT}),
     schema('inspect_visual_memory', 'Look closely at a current object/pet and compare with up to three named photographic memories. Select an offered target_id for a close-up, or null for the whole view. Use null for questions about multiple subjects or the whole room, or if detection missed the target. Select entity_ids semantically from the catalog; dog/cat labels are not identity gates. Use intent teach when the user names/confirms a visible pet or object for photographic memory, including natural introductions without saying remember. The continuation must save or explicitly defer. Use look for recognition/questions without teaching. Use before recognizing a named object or teaching a new one. When teaching a pet with multiple dog/cat detections, select a single target_id; saving the whole multi-pet view is rejected. If the intended crop is unclear, ask for a clear position or marking before teaching. Repeated stationary detections do not require inspection or speech. No room-recognition model or physical movement.',
            {'target_id':NULL_TEXT,'entity_ids':{'type':'array','items':TEXT,'maxItems':3},'question':TEXT,'intent':{'type':'string','enum':['look','teach']}}),
     schema('defer_photo_teaching', 'End a teaching inspection without saving because the intended subject, name, or image is ambiguous. text briefly explains that nothing was saved and asks a useful clarification. Never imply successful memory. No other actions or model call.', {'text':TEXT}),
@@ -99,9 +103,9 @@ def grounded_tools(context):
     import copy
     definitions = copy.deepcopy(TOOLS)
     if context.get('trigger')=='visual_arrival':
-        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
+        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
     elif context.get('trigger') in {'conversation_lull','ambient'}:
-        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
+        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
     if context.get('inspection_description_allowed'):
         definitions = copy.deepcopy([d for d in TOOLS if d['name']=='describe_view'])
     elif context.get('photo_inspection'):
@@ -130,6 +134,9 @@ def grounded_tools(context):
         if name=='use_visual_memory' and not context.get('visual_memory'):continue
         if name in {'retract_visual','revise_visual'} and not context.get('visual_correction_candidates'):continue
         if name=="inspect_view" and not context.get("inspection_enabled"):continue
+        if name=='animate_lights':
+            if not context.get('led_enabled'): continue
+            definition['parameters']['properties']['pattern']['enum'] = context['led_patterns']
         if name=="respond_with_gesture" and not context.get("gesture_enabled"):continue
         if name=="shift_attention" and not context.get("attention_enabled"):continue
         if name=='use_observation' and not context.get('observations'):continue
