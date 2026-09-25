@@ -423,6 +423,13 @@ or face can override them. Exact gates and saved-audio evidence are documented i
 
 ## Intentional attention and action groundwork
 
+The September 25 [servo foundation](docs/SERVO_INTEGRATION.md) adds a single injected-
+transport executor for lifecycle choreography and optional playback-driven talking
+motion. Its follow-on adds explicit live composition, operator handoff and bounded
+microphone holds. It is not exposed as model-selected physical attention/gestures.
+Pulse-readback receipts are distinct from measured joint arrival. Service cutover,
+cold-start commissioning and live movement/enrollment validation remain pending.
+
 The authorized first two [attention slices](docs/ATTENTION_IMPLEMENTATION.md) implement
 session-owned directional/visual-target attention and output-owned simulation through the same
 Session/tool path. Simulation is explicitly injected, never enabled by live startup.

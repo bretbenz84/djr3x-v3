@@ -58,6 +58,7 @@ class Microphone:
         self.stopped = threading.Event()
         self.device_name = settings.input_device_name or "configured_index"
         self.trace = None
+        self.motion_risk = lambda: False
         self.channels = 2 if settings.microphone_mode == 'respeaker-flex' else 1
         self.clock_offset = None
 
@@ -86,7 +87,7 @@ class Microphone:
             # callback/GIL delay must not become a false gap in captured PCM.
             began = timing.inputBufferAdcTime + self.clock_offset
             frame = Frame(selected_pcm(data, self.channels, self.settings.input_gain), began, began + count / 16000,
-                          not self.settings.echo_isolated and self.echo_risk())
+                          self.motion_risk() or (not self.settings.echo_isolated and self.echo_risk()))
             try:
                 self.frames.put_nowait(frame)
             except Full:

@@ -11,6 +11,13 @@ from .contracts import ProviderFailure
 
 
 def main() -> int:
+    if len(sys.argv)>1 and sys.argv[1]=='operator':
+        from .operator_cli import main as operator_main
+        try:
+            return operator_main(sys.argv[2:],Path(__file__).resolve().parents[2])
+        except (ValueError,OSError,ProviderFailure,ImportError) as exc:
+            print(json.dumps({'outcome':'failed','reason':str(exc) if isinstance(exc,(ValueError,ProviderFailure)) else type(exc).__name__}),file=sys.stderr)
+            return 1
     if len(sys.argv)>1 and sys.argv[1]=="profiles":
         from .management import main as manage
         from .settings import ScratchPaths

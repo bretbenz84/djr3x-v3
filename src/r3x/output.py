@@ -68,11 +68,13 @@ class Delivery:
 
 
 class OutputOwner:
-    def __init__(self, tts: TTS, sink: Sink, trace, *, attention=None, gestures=None, inspection=None):
+    def __init__(self, tts: TTS, sink: Sink, trace, *, attention=None, gestures=None, inspection=None,
+                 speech_motion=None):
         self.tts, self.sink, self.trace = tts, sink, trace
         self.attention = attention
         self.gestures = gestures
         self.inspection = inspection
+        self.speech_motion = speech_motion
         self._motion_lock = threading.Lock()
         self.active = threading.Event()
         self.echo_until = 0.
@@ -143,6 +145,8 @@ class OutputOwner:
         return self.active.is_set() or self.trace.clock() < self.echo_until
 
     def cancel(self) -> None:
+        if self.speech_motion:
+            self.speech_motion.cancel()
         self.sink.cancel()
 
     def run(self, phrases: Queue, cancel: Cancellation, turn_id: str, delivery: Delivery) -> None:
@@ -167,6 +171,7 @@ class OutputOwner:
                 self.trace.emit("speech_generated", turn_id=turn_id, text=text)
                 synthesis_at = self.trace.clock()
                 first_pcm_at = None
+                talking_started = False
                 def chunks():
                     nonlocal first_pcm_at
                     stream = self.tts.synthesize(text,cancel)
@@ -185,13 +190,35 @@ class OutputOwner:
                         if close:
                             close()
                 def started(at):
+                    nonlocal talking_started
                     delivery.first_audio_at = delivery.first_audio_at or at
                     delivery.status = "started"
                     self.trace.emit("playback_started", turn_id=turn_id, at_device=at,
                                     playback_queue_seconds=at-first_pcm_at if first_pcm_at is not None else None)
+                    if self.speech_motion and self._motion_lock.acquire(blocking=False):
+                        try:
+                            cancel.check()
+                            self.speech_motion.start(turn_id, cancel)
+                            talking_started = True
+                        except Exception as exc:
+                            self._motion_lock.release()
+                            self.trace.emit('talking_motion', turn_id=turn_id, status='failed',
+                                            reason=type(exc).__name__)
                 try:
                     receipt = self.sink.play(chunks(), cancel, started)
                 finally:
+                    if talking_started:
+                        try:
+                            motion_receipt = self.speech_motion.stop()
+                            if motion_receipt:
+                                from dataclasses import asdict
+                                self.trace.emit('talking_motion', turn_id=turn_id, **asdict(motion_receipt))
+                        except Exception as exc:
+                            # Keep the resource reserved if the worker did not stop.
+                            self.trace.emit('talking_motion', turn_id=turn_id, status='failed',
+                                            reason=type(exc).__name__)
+                        else:
+                            self._motion_lock.release()
                     if first_pcm_at is not None:
                         self.echo_until = self.trace.clock() + .3
                     self.active.clear()

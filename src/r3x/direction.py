@@ -155,6 +155,11 @@ class Direction:
     def cancel(self):
         self.stop.set()
 
+    def invalidate(self):
+        with self.lock:
+            self.samples.clear()
+            self.last_echo = self.clock()
+
     def close(self):
         self.cancel()
         if self.worker:

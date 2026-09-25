@@ -21,7 +21,8 @@ class Enrollment:
 
     def add(self, capture, transcript, observation, attribution, turn_id):
         self.last_reason = "quality_or_attribution_not_eligible"
-        if (attribution.track_id != self.track_id or not attribution.learning_eligible or
+        if (capture.robot_microphone_hold is False or
+                attribution.track_id != self.track_id or not attribution.learning_eligible or
                 not transcript.trusted or capture.echo_risk or capture.truncated or capture.parent_capture_id is not None or
                 capture.overlap is True or observation.mixed or observation.direction_conflict or
                 observation.voiced_seconds < 1 or len(transcript.text.split()) < 4 or
@@ -30,6 +31,11 @@ class Enrollment:
         if cosine(self.anchor, observation.embedding) < .5:
             self.last_reason = "anchor_disagreement"
             return False
+        if capture.robot_microphone_hold is True:
+            # A robot session must gather its own held geometry, rather than
+            # completing a pending chain of unheld/dev-Mac captures after restart.
+            self.samples = [s for s in self.samples if s[0].robot_microphone_hold is True]
+            self.digests = {hashlib.sha256(s[0].pcm).hexdigest() for s in self.samples}
         references = [s[2].embedding for s in self.samples]
         if references and (cosine(centroid(references),observation.embedding)<.55 or
                            any(cosine(v,observation.embedding)<.45 for v in references)):

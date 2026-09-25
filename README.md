@@ -240,7 +240,15 @@ direction and group acceptance remain pending.
 
 ## Deferred capabilities
 
-Physical wheel/servo/LED control, games, impersonations, rich biographies,
+The [servo integration](docs/SERVO_INTEGRATION.md) implements concurrent startup/park
+choreography including the throttle arm, playback-driven talking motion, microphone
+holds and exclusive operator handoff. An explicit `servo_port` enables it in `live`.
+The V3 supervisor/servo console and cutover bundle are prepared; V2 services remain
+running at the owner's request. Physical commissioning and live validation remain.
+Every V3 live run now uses the cross-version controller/microphone handoff; unload
+the old V2 supervisor before live testing. See the [cutover guide](docs/OPERATOR_CUTOVER.md).
+
+Wheel/LED control, games, impersonations, rich biographies,
 relationship scoring, semantic memory retrieval,
 and a polished GUI follow the core's acceptance gates. Offline mode and additional
 providers are later explicit profiles, not a default collection of loaded models.

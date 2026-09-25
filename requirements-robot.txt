@@ -1,0 +1,16 @@
+# Optional operator/hardware dependencies, separate from the conversation core.
+pyserial==3.5
+rumps==0.4.0
+openwakeword==0.6.0
+# Resolved additions on the dev Mac, September 25, 2026. Core dependencies remain
+# locked in requirements-live.txt; these do not replace its selected providers.
+pyobjc-core==12.2.2
+pyobjc-framework-Cocoa==12.2.2
+requests==2.34.2
+charset-normalizer==3.5.1
+urllib3==2.8.0
+scikit-learn==1.9.1
+joblib==1.6.0
+cloudpickle==3.1.2
+narwhals==2.26.0
+threadpoolctl==3.7.0

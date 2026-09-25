@@ -1,5 +1,79 @@
 # V2 reference and extraction map
 
+## Servo lifecycle and talking-motion extraction — September 25, 2026
+
+Follow-on implementation: explicit serial opening, cross-version controller/resource
+leases, V3 supervisor and servo console, robot lifecycle/microphone holds and a
+prepared LaunchAgent cutover. V2 services remain running at the owner's request.
+Additional active-source digests at the same revision/dirty state:
+
+| Source | SHA-256 |
+| --- | --- |
+| `rex_supervisor.py` | `6c547312e8eaf051bf341feb5b9ba37dfbce384938dde88b859af26c01683928` |
+| `tools/rex_servo_menubar.py` | `59d5ce7aeb934f35fa0a0ee4f1cb766958b383a4d1e40e06af3351120c46bb16` |
+| `utils/single_instance.py` | `c57c4a6b406e0182ffc2cf991c394c608a1e47a486d4b531a8a48472098df341` |
+| `utils/port_handoff.py` | `2ca72b334426cf0eaed78be644ee2bde4a6ac01a76d18a1651a4e676d78f3421` |
+
+Preserve selected-channel wake detection (0.92, four 80-ms frames), off-program
+sliders/readback and explicit board home, lock-driven dormancy and reverse resource
+release. Replace blind timeout continuation with failed handoff; queued commands
+carry connection generations and cannot survive handoff. Do not copy automatic Git
+updates, independent servo writers or V2's environment/config loader. The newer V2
+sequence-recording UI was inventoried but is not included in this initial console.
+
+Dependencies: optional `pyserial==3.5`, `rumps==0.4.0`, `openwakeword==0.6.0` and
+resolved additions are pinned in `requirements-robot.txt`, installed only in V3.
+The wake classifier and two feature ONNX models were independently copied by
+`tools/prepare_operator_migration.py`; source paths/digests are recorded in ignored
+`local/models/wake/manifest.json`. Effective V2 servo limit overrides were inspected
+and empty; the Maestro device path went only into the independent prepared local
+configuration. No personal database, recording or voiceprint was imported.
+
+Validation: 528 blocked-I/O tests pass (48 new across both servo slices); one real
+wake-model run used synthetic silence with no audio device. Measurements and pending
+live gates are in [servo evidence](docs/SERVO_INTEGRATION.md#verification). The prepared
+bundle records and backs up all four installed V2 agents. No job was changed or
+hardware operated. The source-only first-slice description below is historical;
+its no-serial-opener limitation is superseded by this follow-on.
+
+Read-only V2 HEAD `663fee5ef4dd050b56b5ffda1e8e529284171c37`. The working tree
+was **dirty**: `CONTEXT.md`, `README.md`, `config.py`, `hardware/throttle_motion.py`,
+`sequences/throttle_arm.py`, and three throttle test files. The user explicitly
+selected the current throttle working tree; the commit alone does not contain it.
+No V2 files, local data or running services were changed.
+
+| Inspected source | SHA-256 at extraction |
+| --- | --- |
+| `hardware/servos.py` | `20437af716ed2cc22a6787dcb0e985188c52a7625245a788e453afebdb1c5bd9` |
+| `hardware/throttle_motion.py` | `dac2c35a31bc2589cbc87d5e76e270b6f410a1c1aaf890a60273116be8a6bfa0` |
+| `sequences/animations.py` | `e5451f2883fbe9be329c10073b4e16f82698eb94d2ffb54989fe4692596432de` |
+| `sequences/throttle_arm.py` | `5de60a4fffae3e097d0b60547ab1ea33590bff93a4a82548a898bbc4db3e075b` |
+| `config.py` (servo sections only; not copied/imported) | `38853dc4b15a9aa4f1cf1f874ca54c97bde85057ce0c71acc49c8ba95e53a9c8` |
+
+Preserved: overlapping head raise/neck scan/throttle unfold, coordinated head droop
+and elbow rest, tuck/park routes including full-down recovery, atomic throttle
+targets, bounded profiles, cancellation and actual-output evidence. Preserve talking
+movement: an initial pair of V2 throttle speech poses plus bounded headlift motion
+now follows actual playback through V3's output owner. Richer V2 expression remains
+an explicit follow-on, not a second mood/idle controller.
+
+Adaptation: `servo_poses.py`, `servos.py`, and `adapters/maestro.py` own independent
+typed requests, calibrated source constants, one executor, structured receipts and
+an injected transport. `output.py` supplies optional audio-start/stop coordination.
+V2 dependencies on pyserial, global config/state, world state, LED modules and
+multiple workers are not imported. This slice adds only standard-library code;
+there is no serial opener or new live dependency. V2's obsolete 1984 headlift floor
+is replaced with its effective configured clamp at 2600. Pulse readback is never
+called measured shaft feedback. Cold zero/partial state is rejected rather than
+trusting V2's park marker or stale pose cache.
+
+Focused checks use synthetic ports/clocks and the production executor/output path;
+no V2 tests were run (the historical park test can operate real hardware).
+[Slice details, verification and outstanding live gates](docs/SERVO_INTEGRATION.md)
+cover handoff, commissioning, mechanical clearance, talking motion, microphone
+holds/audio exclusion, physical timing and combined-load measurements. Existing
+operator-tools migration remains required before live activation.
+
 ## ReSpeaker microphone/direction extraction — September 17, 2026
 
 Source: clean V2 `488780557ad70925e3b3c23fb542f544ed51a5b7`, verified before

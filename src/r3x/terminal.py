@@ -12,6 +12,9 @@ class LiveConsole:
         message = None
         if event == "starting":
             message = f"Starting Rex… Detailed log: {row['log_path']}"
+        elif event == 'servo_lifecycle':
+            message = f"Servos {clean(row['kind'])}: {clean(row['status'])} (controller pulses, not joint feedback)."
+            if row.get('reason'): message += ' ' + clean(row['reason'])
         elif event == "listening":
             message = "Listening — speak normally. Enter stops a reply; quit + Enter exits."
         elif event == "visual_opportunity":

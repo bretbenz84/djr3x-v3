@@ -14,6 +14,8 @@ class App:
         self.paths = ScratchPaths.for_project(project)
         self.owner = owner if owner is not None else ProviderOwner()
         self.live_components = None
+        self.robot = None
+        self.hardware_handoff = None
 
     def configure_live(self):
         from .adapters.asr import QwenASR
@@ -44,8 +46,13 @@ class App:
         from .adapters.flex import FlexControl
         from .direction import Direction
         direction = Direction(FlexControl()) if self.settings.direction_enabled else None
+        if self.settings.servo_port:
+            from .robot_servos import RobotServos
+            self.robot = RobotServos(self.settings.servo_port)
         self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects) if p)
-        self.owner = ProviderOwner(self.live_components)
+        # Servo wake/settle completes before microphone or camera starts. Keep
+        # tuple indexing stable for core composition; only lifecycle order changes.
+        self.owner = ProviderOwner(((self.robot,) if self.robot else ()) + self.live_components)
 
     def readiness(self):
         missing = []
@@ -125,12 +132,22 @@ class App:
         self.paths.prepare()
         lease = LiveLease(self.paths.root / "sessions/live.lock")
         lease.acquire()
+        self.live_lease = lease  # Retain if cleanup fails while the process remains alive.
+        from .hardware_ownership import ControllerHandoff, HardwareLocks
+        from .contracts import Cancellation
+        self.hardware_handoff = ControllerHandoff(HardwareLocks(),port=self.settings.servo_port or None)
+        try:
+            self.hardware_handoff.acquire(Cancellation())
+        except BaseException:
+            lease.close()
+            raise
         session_id = uuid4().hex
         try:
             log_path = self.paths.root / "sessions" / (session_id + ".jsonl")
             trace = Trace(session_id, log_path, display=LiveConsole())
             trace.emit("starting", log_path=str(log_path))
         except BaseException:
+            self.hardware_handoff.close()
             lease.close()
             raise
         asr, vad, encoder, brain, tts, sink, mic, *optional = self.live_components
@@ -145,16 +162,25 @@ class App:
             camera.trace = trace
         memory = Memory(self.paths.root / "core.sqlite3")
         inspection = next((p for p in optional if p.capability.name=='current_view'),None)
-        output = OutputOwner(tts, sink, trace,inspection=inspection)
+        output = OutputOwner(tts, sink, trace,inspection=inspection,
+                             speech_motion=self.robot.talking if self.robot else None)
         mic.echo_risk = output.echo_risk
         mic.trace = trace
+        if self.robot:
+            self.robot.trace = trace
+            mic.motion_risk = self.robot.owner.motion_risk
         direction = next((p for p in optional if p.capability.name=='direction'),None)
         if direction:
             direction.trace = trace
-            direction.echo_risk = output.echo_risk
-        self.owner = ProviderOwner(self.live_components)
+            direction.echo_risk = lambda: output.echo_risk() or (self.robot is not None and self.robot.owner.motion_risk())
+            if self.robot:
+                self.robot.owner.on_motion = direction.invalidate
         runtime = None
         success = False
+        import signal
+        def terminate(*_):
+            raise KeyboardInterrupt()
+        previous_sigterm = signal.signal(signal.SIGTERM,terminate)
         try:
             memory.start()
             if camera:
@@ -165,7 +191,8 @@ class App:
                 trace.emit("startup_failed", report=self.doctor())
             else:
                 trace.emit("startup", report=self.doctor(), evidence="live", models=[p.capability.model for p in self.live_components if p.capability.model])
-                state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None)
+                state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
+                                  require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene
                 if objects:
                     from .photo_memory import PhotoMemory
@@ -176,7 +203,7 @@ class App:
                 session = Session(session_id, brain, output, trace, state=state)
                 recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
-                                       lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene)
+                                       lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot)
                 runtime.run()
                 success = True
         finally:
@@ -189,6 +216,12 @@ class App:
                 if runtime and runtime.session.state.photo_memory:runtime.session.state.photo_memory.close()
                 memory.close()
                 trace.emit("shutdown", report=self.doctor())
+                # Only acknowledge handoff after device closure, including failed
+                # startup cleanup. A stuck/failed closer retains the leases.
+                if self.owner.state == 'closed':
+                    self.hardware_handoff.close()
             trace.close()
-            lease.close()
+            if self.owner.state == 'closed':
+                lease.close()
+            signal.signal(signal.SIGTERM,previous_sigterm)
         return success and self.owner.state == "closed"

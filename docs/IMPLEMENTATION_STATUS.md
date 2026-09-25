@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated September 20, 2026. This is the consolidated checklist for current scope.
+Updated September 25, 2026. This is the consolidated checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
@@ -21,14 +21,16 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 | Implemented | Tool-selected current-camera inspection, rich visual descriptions, bounded visual memory and exact-image description reuse | [Current-view inspection](CURRENT_VIEW_VALIDATION.md), [attention slices](ATTENTION_IMPLEMENTATION.md) |
 | Implemented | Related-record withdrawal, detail-preserving revisions, visual novelty context and actual spoken-remark records | [Visual correction](VISUAL_CORRECTION.md), [integration pass](CORE_INTEGRATION_PASS.md) |
 | Implemented with simulated movement | Grounded attention intents, before/after speech gestures, movement/settle/capture sequencing, exclusive motion ownership and separate executor/speech outcomes | [Attention slices 1–3](ATTENTION_IMPLEMENTATION.md) |
+| Implemented; live activation pending | Servo lifecycle including throttle, playback-driven talking motion, bounded microphone holds, cross-version resource handoff, supervisor and servo console | [Servo integration and gates](SERVO_INTEGRATION.md), [cutover](OPERATOR_CUTOVER.md) |
 | Implemented | Action continuity after interruption, bounded outcome history, no automatic resumption of abandoned work | [Integration pass](CORE_INTEGRATION_PASS.md) |
 | Implemented | External-review repairs, scene-change cutoff repair and introduction recovery | [Review follow-up](REVIEW_2026_09_13.md), [introduction recovery](INTRODUCTION_RECOVERY.md) |
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **477 passing checks** including the
+The latest blocked-I/O suite has **528 passing checks** including the
 [greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md) and the
-[prompt-caching repair](PROMPT_CACHING.md).
+[prompt-caching repair](PROMPT_CACHING.md), plus 48 new
+[servo/operator/robot contracts](SERVO_INTEGRATION.md#verification).
 Prior counts in linked documents describe their dated checkpoints.
 
 September 20: [audience continuity and unheard-lull recovery](LIVE_RUN_CONVERSATION_REPAIRS.md#september-20-audience-continuity-and-unheard-lull-recovery)
@@ -69,9 +71,9 @@ separate categories.
 | Future capability | Boundary of current implementation |
 | --- | --- |
 | Public installer and optional hardware configuration | Future installer built around existing `local/settings.toml`, independent optional capabilities, clear missing-device behavior, selected dependency/model downloads and optional service setup. No new settings or installer implemented. [Public-install plan](PUBLIC_INSTALL_PLAN.md) |
-| Supervisor and off-program controls migration | Required before physical hardware integration: adapt the V2 supervisor and servo console into V3, implement microphone/serial ownership handoff, inventory related LED/battery tools, and migrate installed LaunchAgents with rollback. Documentation only; no services changed. [Migration requirements](OPERATOR_TOOLS_MIGRATION.md) |
-| Physical motion and expression | Attention slice 4: calibrated drivers, trajectories, limits, feedback, obstruction/manual takeover and movement/audio exclusion are not implemented. Current gestures and turning are simulated. |
-| Continuous speech/motion coordination | Before/after simulated gestures exist. Word-level alignment, overlapping trajectories and continuous gaze blending require hardware integration and measured timing. |
+| Supervisor and off-program controls migration | V3 supervisor/console, acknowledged resource handoff, inventory and backed-up LaunchAgent bundle are implemented/prepared. Installed cutover and live acceptance remain; V2 services are unchanged. Sequence-recording/commissioning extras from the newer V2 console are not yet migrated. [Migration status](OPERATOR_TOOLS_MIGRATION.md) |
+| Physical motion and expression | [Servo integration](SERVO_INTEGRATION.md) includes explicit live composition and motion/enrollment guards. Physical commissioning, obstruction feedback, live manual-takeover acceptance and model-selected physical attention/gestures remain. Conversational gestures/turning are still simulated. |
+| Continuous speech/motion coordination | Playback-driven talking motion shares the servo owner; synthetic checks cover actual audio start/stop and failures. Live validation, richer V2 expression, word-level alignment and continuous gaze blending remain. |
 | Live tracked-object attention after movement | Target/version contracts exist in simulation. Physical turning, tracked room-object targets and verified post-movement observations need real adapters. Current-camera descriptions do not supply those controllers. |
 | Optional vision extensions | Adaptive image detail, general inspection-request coalescing and supported cross-session visual association are future options, not missing requirements of the completed core. Exact-image description reuse already exists. |
 | Motion-aware proactive noticing (future idea only) | Distinguish subject motion/new visibility from Rex’s head/base motion and detection flicker; offer evidence to the LLM for memory lookup, curiosity, a reaction or silence. No implementation requested. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |

@@ -18,6 +18,7 @@ BLOCKED_MODULES = {
     "mlx", "mlx_audio", "silero_vad", "onnxruntime", "openai", "elevenlabs", "config",
     "intelligence", "audio", "memory", "hardware", "vision",
     "usb", "libusb_package",
+    "openwakeword", "rumps", "AppKit", "Foundation",
 }
 
 

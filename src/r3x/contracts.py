@@ -40,6 +40,7 @@ class Capture:
     device: str = "unspecified"
     parent_capture_id: str | None = None
     source_offset: float = 0.  # Derived PCM offset in the independently retained original.
+    robot_microphone_hold: bool | None = None  # None: non-robot capture; True: bounded hold covered full PCM.
 
 
 @dataclass(frozen=True)

@@ -14,7 +14,7 @@ from .semantics import validate
 
 
 class CoreState:
-    def __init__(self, store, tracker, trace, frozen=False, face_invalidator=None):
+    def __init__(self, store, tracker, trace, frozen=False, face_invalidator=None, require_microphone_hold=False):
         self.store, self.tracker, self.trace = store, tracker, trace
         self.enrollments = {}
         self.evidence = {}
@@ -23,6 +23,7 @@ class CoreState:
         self.current = None
         self.forgotten = False
         self.frozen = frozen
+        self.require_microphone_hold = require_microphone_hold
         from datetime import date
         self.calendar_today = date.today
         self.memory_cursor = 0
@@ -193,7 +194,8 @@ class CoreState:
                             if p.track_id in self.tracker.tracks}
         if self.pending and capture.ended_at-self.pending["delivered_at"] > 120:
             self.pending = None
-        if capture.parent_capture_id is not None:
+        if (capture.parent_capture_id is not None or capture.robot_microphone_hold is False or
+                (self.require_microphone_hold and capture.robot_microphone_hold is not True)):
             attribution = replace(attribution,learning_eligible=False)
         self.current = (turn_id,capture,transcript,observation,attribution)
         self.faces = tuple(f for f in faces if f.get("face_epoch",0)>=self.min_face_epoch)
@@ -624,7 +626,9 @@ class CoreState:
                 raise ValueError("AmbiguousName")
             fresh_track = False
             introduction_attribution = attribution
-            voice_usable = (observation.embedding is not None and
+            voice_usable = (capture.robot_microphone_hold is not False and
+                            (not self.require_microphone_hold or capture.robot_microphone_hold is True) and
+                            observation.embedding is not None and
                             observation.namespace == self.tracker.namespace and
                             observation.consistency is not None and
                             observation.consistency >= self.tracker.policy.track_threshold and
@@ -818,7 +822,7 @@ class CoreState:
                         conn.execute('DELETE FROM voice_candidates WHERE track_id=?',(old_key,))
             attribution = replace(attribution,track_id=key,state='supported' if attribution.person_id else 'hypothesis',
                                   reason='acoustic_match' if attribution.person_id else 'self_introduction',
-                                  learning_eligible=observation.voiced_seconds>=1)
+                                  learning_eligible=capture.robot_microphone_hold is not False and observation.voiced_seconds>=1)
             self.current = (turn_id,capture,transcript,observation,attribution)
             with self.store.transaction() as conn:
                 evidence = json.loads(conn.execute('SELECT evidence FROM turns WHERE id=?',(turn_id,)).fetchone()[0])
@@ -960,10 +964,15 @@ class CoreState:
         if self.frozen:
             return
         turn_id,capture,transcript,observation,attribution = self.current
+        if capture.robot_microphone_hold is False or (self.require_microphone_hold and capture.robot_microphone_hold is not True):
+            return
         proposal = self.enrollments.get(attribution.track_id)
         if proposal:
             self.trace.emit("voice_learning_progress", **proposal.progress(), reason=proposal.last_reason)
             if proposal.ready:
+                if self.require_microphone_hold and any(s[0].robot_microphone_hold is not True for s in proposal.samples):
+                    self.trace.emit('voice_learning_deferred',reason='prior_samples_lack_robot_microphone_hold')
+                    return
                 try:
                     self._source_allowed({}, "rename_person")
                 except ValueError:

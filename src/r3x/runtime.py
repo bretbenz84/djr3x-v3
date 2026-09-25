@@ -10,7 +10,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None):
+    def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
         self.endpoint = Endpoint(session.session_id, silence)
         self.perception, self.recorder = perception, recorder
@@ -29,8 +29,11 @@ class VoiceRuntime:
         self.audio_seen_at = float('-inf')
         self.lull_seconds = lull_seconds
         self.observations,self.scene_observer = observations,scene_observer
+        self.robot = robot
 
     def cancel(self):
+        if self.robot:
+            self.robot.owner.release_microphone_hold()
         with self.control_lock:
             self.cancel_before = self.trace.clock()
             self.session.cancel()
@@ -268,6 +271,8 @@ class VoiceRuntime:
         import select
         try:
             while not self.stop.is_set():
+                if self.robot:
+                    self.robot.before_frame()
                 now = self.trace.clock()
                 if now>=next_visual:
                     self.observe_visual(now)
@@ -315,12 +320,15 @@ class VoiceRuntime:
                 capture = self.endpoint.push(frame, speech)
                 if capture:
                     capture = replace(capture,device=getattr(self.mic,"source_device",getattr(self.mic,"device_name","configured_microphone")))
+                    if self.robot:
+                        capture = replace(capture,robot_microphone_hold=self.robot.capture_held(capture))
                     if self.recorder:
                         self.recorder.save(capture)
                     self.trace.emit("capture", capture_id=capture.capture_id,
                         started_at=capture.started_at, ended_at=capture.ended_at,
                         speech_ended_at=capture.speech_ended_at, truncated=capture.truncated,
-                        echo_risk=capture.echo_risk, pcm_bytes=len(capture.pcm))
+                        echo_risk=capture.echo_risk, pcm_bytes=len(capture.pcm),
+                        robot_microphone_hold=capture.robot_microphone_hold)
                     self.enqueue(self.captures, (capture, self.session.revision), "captures")
         except KeyboardInterrupt:
             pass

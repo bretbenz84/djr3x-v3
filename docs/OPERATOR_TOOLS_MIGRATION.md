@@ -1,10 +1,50 @@
 # Supervisor and off-program controls: V3 migration
 
-Status: **documented requirement only; not implemented or deployed.**
+Status, September 25: **software adaptation and cutover bundle prepared; not deployed.**
+The [servo integration](SERVO_INTEGRATION.md) now has explicit live composition,
+confirmed resource handoff, a V3 wake supervisor and a V3 servo menu. The owner
+asked to prepare cutover for later and keep V2 running. All installed jobs remain V2.
+Use the [commissioning/cutover guide](OPERATOR_CUTOVER.md) for the next live session.
 User direction, September 17, 2026: preserve the useful V2 Rex supervisor and
 servo-control program in V3, ensure clean hardware handoff, and migrate the macOS
 LaunchAgents. No code, installed agents, processes or hardware were changed for
 this documentation task.
+
+## September 25 implementation and inventory
+
+Read-only inspection found all four `com.djr3x` LaunchAgents installed and running:
+supervisor, servo, LED and battery, each launching the V2 interpreter/script.
+`tools/prepare_operator_migration.py` has prepared independent wake-model files and
+digest manifest, a separate robot settings file, backups/digests of all four plists,
+and new `com.djr3x.v3.supervisor` / `com.djr3x.v3.servo` plists under ignored
+`local/operator-migration/`. Nothing was installed, unloaded or signaled.
+
+`hardware_ownership.py` preserves V2's controller-lock path and adds V3 resource
+leases. Companion close must succeed before the lease is released. Startup times
+out rather than forcing takeover; read-only `lsof` handles the legacy servo console
+without probing the port. Loaded/manual V2 supervisors block V3 live startup because
+the old supervisor cannot acknowledge microphone closure. OS descriptor cleanup
+releases locks after process exit; stale PID files are not used to decide ownership.
+
+The new supervisor retains the `wake up rex` model, selected channel-0 audio, 0.92
+threshold and four consecutive 80-ms frames. It closes capture before spawning
+V3's runner, recognizes manual controllers through the shared lock, and resumes
+only after child exit/resource release. No automatic Git updates or crash relaunch
+policy was copied. Its model is released while the controller is active. The V3
+runner handles terminal quit/Ctrl-C and SIGTERM; V2's voice shutdown command and
+ready/charger audio effects are not implemented by this adaptation.
+
+The servo menu supplies all eleven calibrated sliders, live output-pulse readback,
+coalesced writes, generation-based stale-command rejection, explicit board-home
+confirmation and bounded throttle clearance checks. It yields while Rex runs and
+does not reconnect after a wire failure. V2's newer measurement logs, recording and
+playback of arbitrary throttle sequences remain separate commissioning extras;
+they were inventoried, not silently copied. Board home is distinct from V3 park.
+
+The battery/base and LED agents can remain V2 for this servo-only cutover: they use
+different ports and already observe the shared controller lock. V3 does not open
+their ports. Their eventual adapters/services still require their own migration.
+No live cross-agent acceptance is claimed from this source inspection.
 
 This is a prerequisite for physical LED/servo/base integration, not optional
 cleanup after the drivers are connected. The operator must retain convenient

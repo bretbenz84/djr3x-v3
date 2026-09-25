@@ -1,5 +1,17 @@
 # Initial test program and acceptance plan
 
+### September 25 servo foundation
+
+The separately authorized [servo integration](SERVO_INTEGRATION.md) adds a Maestro
+executor, concurrent startup/shutdown/park including throttle, playback-driven talking
+motion, explicit live composition, resource handoff and held-microphone enrollment.
+**528 blocked-I/O checks pass**, including 48 new synthetic servo/operator/robot
+contracts. A separate real wake-model benchmark used synthetic silence only. No
+hardware, hosted provider or personal database was used. V3 operator jobs and rollback
+artifacts are prepared; the owner asked to keep V2 running until later commissioning.
+Live handoff/mechanical/acoustic acceptance remains pending; this does not establish
+the original core's group-acceptance gate.
+
 Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
 below preserve the evidence and limitations of their respective checkpoints.
 
