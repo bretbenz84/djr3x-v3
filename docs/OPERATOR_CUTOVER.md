@@ -1,13 +1,29 @@
 # Prepared operator cutover
 
-**Not executed.** September 25: the owner chose to keep V2 running and commission
-later. V3's default settings were not changed. The prepared bundle is under
+**V3 service migration not executed.** September 25: the owner chose to keep V2
+running and commission later. A subsequent approved one-time V2 supervisor restart
+loads the cooperative microphone handoff described below. V3's default settings were not changed. The prepared bundle is under
 `local/operator-migration/20260925T193611891369Z/`; it contains robot settings,
 two new LaunchAgent definitions, four original plist backups and digest inventory.
 This refreshed bundle includes head/chest LED ports; the previous servo-only bundle
 is preserved. LED visual/timing acceptance is pending ([details](LED_INTEGRATION.md)).
 Wake models are independent copies under `local/models/wake/`. Optional packages
 are installed in V3's `.venv` and pinned in `requirements-robot.txt`.
+
+## Manual V3 testing while V2 menus remain installed
+
+The V2 supervisor now supports protocol-v1 microphone leases. Once its one-time
+update/restart has completed, leave the supervisor, servo, LED and battery menus
+running. Shut down any **V2 controller** normally first; V3 never steals control
+from a running robot program. Manual V3 `live` claims the shared controller lock,
+waits for confirmed microphone/serial release, and permits the V2 supervisor to
+resume automatically after V3 exits or fails startup. No per-test launchctl commands
+are needed. Stale registrations or an older supervisor cause
+`V2SupervisorHandoffUpgradeRequired`; failed release still times out safely.
+
+Use the prepared `robot-settings.toml` explicitly. Start with the foreground checks
+below. The disable/unload/install instructions are only for **replacing** V2's
+operator services with the prepared V3 services, not for each manual test.
 
 ## Before changing services
 
@@ -50,8 +66,8 @@ launchctl bootout "gui/$(id -u)/com.djr3x.supervisor"
 launchctl bootout "gui/$(id -u)/com.djr3x.servo"
 ```
 
-Verify both jobs and their child processes have exited. A manually started V2
-supervisor also blocks V3. V3's global controller intent makes legacy console
+For service replacement, verify both old jobs and their child processes have exited.
+Manual testing can retain an updated V2 supervisor; an older unregistered one blocks V3. V3's global controller intent makes legacy console
 writers yield; resource leases and `lsof` must then confirm release. A timeout or
 unknown probe result is a failure, never permission to force the port open.
 

@@ -17,13 +17,17 @@ supervisor, servo, LED and battery, each launching the V2 interpreter/script.
 `tools/prepare_operator_migration.py` has prepared independent wake-model files and
 digest manifest, a separate robot settings file, backups/digests of all four plists,
 and new `com.djr3x.v3.supervisor` / `com.djr3x.v3.servo` plists under ignored
-`local/operator-migration/`. Nothing was installed, unloaded or signaled.
+`local/operator-migration/`. No V3 jobs were installed or loaded. The later, approved V2 supervisor restart
+loads cooperative handoff without replacing its LaunchAgent.
 
 `hardware_ownership.py` preserves V2's controller-lock path and adds V3 resource
 leases. Companion close must succeed before the lease is released. Startup times
 out rather than forcing takeover; read-only `lsof` handles the legacy servo console
-without probing the port. Loaded/manual V2 supervisors block V3 live startup because
-the old supervisor cannot acknowledge microphone closure. OS descriptor cleanup
+without probing the port. Updated V2 supervisors register a protocol-v1 OS lease and hold the shared
+microphone lease until stream close succeeds. Manual V3 runs now wait for that
+acknowledgment and leave V2 listening again after exit. Older/unregistered
+supervisors still block startup. The owner approved one restart to load this
+narrow compatibility update; replacement V3 LaunchAgents remain uninstalled. OS descriptor cleanup
 releases locks after process exit; stale PID files are not used to decide ownership.
 
 The new supervisor retains the `wake up rex` model, selected channel-0 audio, 0.92

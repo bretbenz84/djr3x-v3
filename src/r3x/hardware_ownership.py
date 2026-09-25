@@ -6,6 +6,7 @@ their device has actually closed. No lock is unlinked or recovered from a PID.
 import os
 from pathlib import Path
 import subprocess
+import shlex
 import tempfile
 import time
 
@@ -70,7 +71,7 @@ class HardwareLocks:
 
 
 def legacy_supervisor_active() -> bool:
-    """Old supervisor has no microphone-release acknowledgment; do not coexist.
+    """Detect a loaded or manually started legacy supervisor.
 
     Inspect processes, including manually launched supervisors. Unknown probe
     results block activation rather than opening audio optimistically.
@@ -83,6 +84,35 @@ def legacy_supervisor_active() -> bool:
     if result.returncode:
         raise ProviderFailure('LegacySupervisorProbeFailed')
     return any('rex_supervisor.py' in line and 'djr3x-v2' in line for line in result.stdout.splitlines())
+
+
+
+def legacy_supervisor_ready(locks: HardwareLocks) -> bool:
+    """Every live V2 listener must hold its protocol-v1 registration lease.
+
+    No cached PID/status files: stale files and a loaded job between restarts do
+    not establish readiness. The microphone lease separately proves release.
+    """
+    result = subprocess.run(['/bin/ps','-axo','pid=,command='],capture_output=True,text=True,timeout=2.)
+    if result.returncode:
+        raise ProviderFailure('LegacySupervisorProbeFailed')
+    pids = []
+    for line in result.stdout.splitlines():
+        fields = line.strip().split(None,1)
+        if len(fields)!=2: continue
+        try: argv = shlex.split(fields[1])
+        except ValueError: continue
+        if argv and Path(argv[0]).name.startswith('python') and any(
+                Path(arg).name=='rex_supervisor.py' for arg in argv[1:]):
+            pids.append(int(fields[0]))
+    if not pids:
+        return False
+    for pid in pids:
+        probe = FileLease(locks.controller.with_name(locks.controller.name+'.v3-supervisor-v1-'+str(pid)))
+        if probe.acquire():
+            probe.close()
+            return False
+    return True
 
 
 def serial_port_free(path: str) -> bool:
@@ -98,19 +128,20 @@ def serial_port_free(path: str) -> bool:
 
 class ControllerHandoff:
     def __init__(self, locks: HardwareLocks, *, port: str | None = None, led_ports=None,
-                 port_free=serial_port_free, legacy_active=legacy_supervisor_active,
+                 port_free=serial_port_free, legacy_active=legacy_supervisor_active, legacy_ready=None,
                  clock=time.monotonic, wait=time.sleep):
         self.locks, self.port, self.port_free = locks, port, port_free
         self.legacy_active, self.clock, self.wait = legacy_active, clock, wait
         self.ports = ({"maestro":port} if port else {}) | dict(led_ports or {})
+        self.legacy_ready = legacy_ready or (lambda: legacy_supervisor_ready(locks))
         self.held = []
 
     def acquire(self, cancel: Cancellation, timeout: float = 8.) -> None:
         if self.held:
             raise ProviderFailure('ControllerHandoffAlreadyAcquired')
         try:
-            if self.legacy_active():
-                raise ProviderFailure('V2SupervisorMustBeStoppedBeforeV3Handoff')
+            if self.legacy_active() and not self.legacy_ready():
+                raise ProviderFailure('V2SupervisorHandoffUpgradeRequired')
             intent = self.locks.lease('controller')
             if not intent.acquire():
                 raise ProviderFailure('AnotherControllerOwnsRobot')
@@ -134,6 +165,8 @@ class ControllerHandoff:
             if self.clock() >= deadline:
                 raise ProviderFailure('HardwareHandoffTimeout')
             cancel.check()
+            if self.legacy_active() and not self.legacy_ready():
+                raise ProviderFailure('V2SupervisorHandoffChanged')
         except BaseException:
             self.close()
             raise

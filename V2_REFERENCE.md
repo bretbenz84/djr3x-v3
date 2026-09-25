@@ -1,5 +1,44 @@
 # V2 reference and extraction map
 
+## Cooperative supervisor handoff — September 25, 2026
+
+The user explicitly requested that manual V3 launches make the V2 supervisor yield,
+and approved one restart to load the update. This is a scoped exception to the
+read-only V2 baseline: only `rex_supervisor.py`, a new independent stdlib
+`utils/supervisor_handoff.py`, and its new tests were changed for this request.
+Previously dirty V2 files were preserved. V3 has no import dependency on V2.
+
+The existing V2 controller-lock behavior remains. The new protocol adds a per-PID
+OS-held registration and a shared microphone lease held through successful stream
+close. Registration is verified for every live legacy listener; stale files are
+not proof. Recheck after handoff rejects a supervisor restart race. Failed microphone
+close prevents launch/reopen and retains its lease. Process exit releases the locks.
+An updated supervisor resumes listening when manual V3 releases controller ownership;
+an old unregistered supervisor still fails closed. A running V2 controller remains
+exclusive and is never stopped by V3. Installing a replacement V3 wake supervisor
+still requires unloading the V2 supervisor to avoid competing wake listeners.
+
+Post-change SHA-256 at V2 HEAD `663fee5ef4dd050b56b5ffda1e8e529284171c37` plus the
+recorded dirty tree:
+
+| Source | SHA-256 |
+| --- | --- |
+| `rex_supervisor.py` | `1c5a9a09cee51ffe320c180c396c8739adcce5338d3c62ea96408802049c1c96` |
+| `utils/supervisor_handoff.py` | `8e7fa293897e5ef9177cb6ff4e0cf7b21a081c23411186f75b0a27eba991d24b` |
+
+Evidence: 552 V3 blocked-I/O tests pass. V2's venv/isolated lean runner passes five
+new fake-stream/lease tests and ten existing wedge-policy tests. Its broader
+supervisor module passes 26/28, with two old default assertions (0.7/three frames)
+conflicting with unchanged HEAD behavior (0.92/four); those functions were compared
+structurally against HEAD. That module includes the real wake model on synthetic
+silence, not a live accuracy test. No thresholds or unrelated tests were changed.
+
+The approved graceful SIGTERM/KeepAlive restart completed. Read-only process and
+OS-lock probes confirmed the replacement V2 supervisor is active, holds protocol-v1
+registration and has reacquired its microphone lease. No V3 controller, microphone,
+servo or LED was started for validation. Full live takeover/recovery and visual/
+mechanical acceptance remain pending; the restart resumes V2's existing listener.
+
 ## LED protocol and playback extraction — September 25, 2026
 
 Read-only V2 HEAD `663fee5ef4dd050b56b5ffda1e8e529284171c37`; the same dirty

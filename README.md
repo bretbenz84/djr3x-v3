@@ -245,8 +245,9 @@ choreography including the throttle arm, playback-driven talking motion, microph
 holds and exclusive operator handoff. An explicit `servo_port` enables it in `live`.
 The V3 supervisor/servo console and cutover bundle are prepared; V2 services remain
 running at the owner's request. Physical commissioning and live validation remain.
-Every V3 live run now uses the cross-version controller/microphone handoff; unload
-the old V2 supervisor before live testing. See the [cutover guide](docs/OPERATOR_CUTOVER.md).
+Every V3 live run uses the cross-version controller/microphone handoff. The updated
+V2 supervisor yields automatically for manual V3 runs and resumes after exit; only
+a running V2 controller or an older, unregistered supervisor blocks startup. See the [cutover guide](docs/OPERATOR_CUTOVER.md).
 
 The [LED integration](docs/LED_INTEGRATION.md) adds optional head/chest startup and
 shutdown effects, playback-driven speaking lights, and validated LLM-selected

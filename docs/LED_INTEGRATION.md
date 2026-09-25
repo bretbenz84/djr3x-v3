@@ -59,7 +59,9 @@ backups and digests. Default settings and installed jobs were not changed. The
 previous servo-only bundle is preserved. The preparation utility now accepts
 `--head-led-port` and `--chest-led-port`.
 
-Follow [the cutover guide](OPERATOR_CUTOVER.md) only in a future supervised session.
+Follow [the cutover guide](OPERATOR_CUTOVER.md) in a supervised session. The updated
+V2 wake supervisor now yields its microphone automatically to manual V3 runs; it
+needs only the one-time update/restart, not per-run unloading.
 The existing V2 LED menu and battery menu retain off-program controls and yield to
 the shared controller lock. V3 claims both configured LED resource leases and
 checks actual descriptor release with `lsof` before opening either board. Failure

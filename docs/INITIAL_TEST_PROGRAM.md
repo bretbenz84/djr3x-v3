@@ -1,5 +1,15 @@
 # Initial test program and acceptance plan
 
+### September 25 cooperative V2 supervisor handoff
+
+Manual V3 startup now accepts an updated V2 supervisor, waits for its microphone
+lease to release, and lets it resume after V3 exits. The user authorized a one-time
+V2 supervisor restart. **552 V3 blocked-I/O tests pass**. The V2 lean runner passes
+five new fake-stream/OS-lease tests and ten wedge-policy tests; its broader supervisor
+module passes 26/28, with two pre-existing expectations for old wake defaults (0.7,
+three frames versus unchanged 0.92, four). That module also loads the real wake
+model on synthetic silence. No V3 microphone, servo or LED activation was performed.
+
 ### September 25 LED integration
 
 The [LED adaptation](LED_INTEGRATION.md) adds lifecycle lights, playback PCM-driven

@@ -42,7 +42,7 @@ def main(argv, project: Path):
     paths = ScratchPaths.for_project(project)
     paths.prepare()
     locks = HardwareLocks()
-    if legacy_supervisor_active():
+    if args.operation in {'supervisor','servo-console'} and legacy_supervisor_active():
         raise ProviderFailure('V2SupervisorMustBeStoppedBeforeOperatorMigration')
     from .adapters.maestro import Maestro,open_serial
     if args.operation != 'supervisor' and not settings.servo_port:

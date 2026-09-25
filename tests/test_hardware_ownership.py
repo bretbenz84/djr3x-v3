@@ -77,8 +77,8 @@ class OwnershipTests(unittest.TestCase):
         self.assertFalse(self.locks.controller_running())
 
     def test_old_supervisor_blocks_even_without_servo_port(self):
-        handoff = ControllerHandoff(self.locks,legacy_active=lambda:True)
-        with self.assertRaisesRegex(ProviderFailure,'V2Supervisor'):
+        handoff = ControllerHandoff(self.locks,legacy_active=lambda:True,legacy_ready=lambda:False)
+        with self.assertRaisesRegex(ProviderFailure,'V2SupervisorHandoffUpgrade'):
             handoff.acquire(Cancellation())
         self.assertFalse(self.locks.controller_running())
 
@@ -257,3 +257,60 @@ class OwnershipTests(unittest.TestCase):
             stream.read=lambda _: (bytes(2560),True)
             self.assertFalse(listener.heard())
             self.assertEqual(listener.consecutive,0)
+
+
+class LegacyCooperationTests(unittest.TestCase):
+    def test_registered_supervisor_yields_and_reacquires_after_controller_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            locks=HardwareLocks(Path(directory)/'controller')
+            clock=Clock()
+            microphone=locks.lease('microphone')
+            self.assertTrue(microphone.acquire())
+            def wait(seconds):
+                self.assertTrue(locks.controller_running())
+                microphone.close()
+                clock.wait(seconds)
+            handoff=ControllerHandoff(locks,legacy_active=lambda:True,legacy_ready=lambda:True,
+                clock=clock,wait=wait)
+            handoff.acquire(Cancellation())
+            self.assertFalse(microphone.acquire())
+            handoff.close()
+            self.assertTrue(microphone.acquire());microphone.close()
+
+    def test_ready_supervisor_without_microphone_release_times_out(self):
+        with tempfile.TemporaryDirectory() as directory:
+            locks=HardwareLocks(Path(directory)/'controller');clock=Clock()
+            microphone=locks.lease('microphone');microphone.acquire()
+            try:
+                handoff=ControllerHandoff(locks,legacy_active=lambda:True,legacy_ready=lambda:True,
+                    clock=clock,wait=clock.wait)
+                with self.assertRaisesRegex(ProviderFailure,'Timeout'):
+                    handoff.acquire(Cancellation(),timeout=.2)
+                self.assertFalse(locks.controller_running())
+            finally: microphone.close()
+
+    def test_registration_requires_live_lock_for_every_process_not_stale_files(self):
+        from r3x.hardware_ownership import legacy_supervisor_ready,FileLease
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            locks=HardwareLocks(Path(directory)/'controller')
+            result=SimpleNamespace(returncode=0,stdout='123 python /v2/rex_supervisor.py\n')
+            with patch('r3x.hardware_ownership.subprocess.run',return_value=result):
+                self.assertFalse(legacy_supervisor_ready(locks))
+                registration=FileLease(locks.controller.with_name('controller.v3-supervisor-v1-123'))
+                registration.acquire()
+                try:
+                    self.assertTrue(legacy_supervisor_ready(locks))
+                    result.stdout+='456 python /v2/rex_supervisor.py\n'
+                    self.assertFalse(legacy_supervisor_ready(locks))
+                finally: registration.close()
+                self.assertFalse(legacy_supervisor_ready(locks))
+
+    def test_supervisor_restart_during_handoff_rejects_and_releases_intent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            locks=HardwareLocks(Path(directory)/'controller')
+            results=iter((True,False))
+            handoff=ControllerHandoff(locks,legacy_active=lambda:True,legacy_ready=lambda:next(results))
+            with self.assertRaisesRegex(ProviderFailure,'HandoffChanged'):
+                handoff.acquire(Cancellation())
+            self.assertFalse(locks.controller_running())

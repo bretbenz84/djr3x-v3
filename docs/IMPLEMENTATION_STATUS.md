@@ -28,11 +28,13 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **548 passing checks** including the
+The latest blocked-I/O suite has **552 passing checks** including the
 [greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md) and the
 [prompt-caching repair](PROMPT_CACHING.md), plus 48 new
 [servo/operator/robot contracts](SERVO_INTEGRATION.md#verification) and 20
 [LED contracts](LED_INTEGRATION.md#verification-and-remaining-acceptance).
+Four additional V3 tests cover cooperative legacy-supervisor registration,
+acknowledged release, timeout and restart rejection.
 Prior counts in linked documents describe their dated checkpoints.
 
 September 20: [audience continuity and unheard-lull recovery](LIVE_RUN_CONVERSATION_REPAIRS.md#september-20-audience-continuity-and-unheard-lull-recovery)
