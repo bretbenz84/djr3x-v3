@@ -1173,3 +1173,5 @@ animations execute silently and generic animation guidance selects chest sparkle
 Evidence is synthetic, with no new hosted or hardware run. See SERVO_INTEGRATION.md
 and LED_INTEGRATION.md. Live selection/clearance and the clipped-audio cause remain
 unverified.
+
+September 27 greeting-cutoff repair: 600 blocked-I/O checks pass. General proactive intent replies now finish across face-track changes after audio starts; pre-playback audience validation and targeted-question cancellation remain. Tests use synthetic audio/camera providers through the production runtime validator. No live hardware or hosted calls; audible acceptance remains pending. See [cutoff evidence](PROACTIVE_IMPLEMENTATION.md#september-27-greeting-interrupted-by-face-track-churn).

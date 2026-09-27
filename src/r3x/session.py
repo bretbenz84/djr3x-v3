@@ -317,7 +317,11 @@ class Session:
                     for delta in stream:
                         cancel.check()
                         if isinstance(delta, ToolCall):
-                            self._audience_bound_output = True
+                            # General intent replies follow ordinary prose once audible.
+                            # Questions and memory-bearing tools retain audience guards.
+                            update = delta.arguments.get('intent_update') or {}
+                            self._audience_bound_output = (delta.name != 'respond_with_intent'
+                                or bool(update.get('memory_ids')))
                             calls.append(delta)
                             continue
                         if first_token_at is None:

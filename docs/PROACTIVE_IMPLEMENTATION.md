@@ -433,3 +433,25 @@ nonretryable authentication failure, and no replay after released text. Producti
 Session coverage confirms that new speech during an outage preserves earlier user
 words and answers the latest turn. Queue tests preserve transcribed order. No live
 network, model, microphone or speaker was operated for this change.
+
+## September 27: greeting interrupted by face-track churn
+
+In session `89c11091d03241de84f9485eca3236e5`, the complete “Well, hello
+there. I’ve got company again…” greeting reached TTS. Playback began at 2434.030
+and proactive validation cancelled it at 2435.998 with `intent_audience_changed`,
+after new face tracks appeared. The explicit user stop came later, at 2439.947.
+This is a logged program cancellation, not evidence of truncated TTS synthesis.
+
+Session incorrectly marked every tool response as audience-bound, including a
+general `respond_with_intent` greeting with no memory references. Such replies now
+use the existing ordinary-prose policy: check the audience before audio starts,
+then allow the phrase to finish across camera/track changes. Targeted questions,
+memory-bearing replies, explicit stop, human-floor and runtime health cancellation
+retain their existing guards. No provider, model, audio buffering or hardware
+configuration changed. Future intention eligibility still uses current audience.
+
+Regression checks exercise the actual VoiceRuntime opportunity validator and
+Session output path with fake camera tracks and synthetic audio: a general intent
+reply completes across track replacement after playback starts, the same change
+before playback cancels, and a targeted question still cancels during playback.
+Live camera/motion behavior and audible completion remain to be retested.

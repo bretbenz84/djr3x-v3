@@ -465,3 +465,54 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(brain.calls,1)
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
         self.assertFalse(any(r['event']=='proactive_invalidated' for r in trace.rows))
+
+    def test_general_proactive_intent_finishes_after_face_track_churn(self):
+        self.setup_core();self.turn();self.visible(108)
+        self.plan_brain()
+        runtime=self.runtime
+        class ChurningSink(SyntheticSink):
+            def play(inner,chunks,cancel,on_start):
+                def started(at):
+                    on_start(at)
+                    runtime.camera.latest=lambda now:[face(now,track='replacement')]
+                    runtime.session.check_opportunity()
+                    cancel.check()
+                return super().play(chunks,cancel,started)
+        self.session.output=OutputOwner(SyntheticTTS(),ChurningSink(),self.trace)
+        self.runtime.proactive_tick()
+        outcome=self.state.initiative.outcomes[-1]
+        self.assertEqual(outcome['status'],'completed')
+        self.assertTrue(outcome['heard_complete_phrases'])
+        self.assertFalse(any(r['event']=='proactive_invalidated' for r in self.trace.rows))
+
+    def test_general_proactive_intent_still_cancels_on_face_change_before_audio(self):
+        self.setup_core();self.turn();self.visible(108)
+        self.plan_brain()
+        runtime=self.runtime
+        class ChurningTTS(SyntheticTTS):
+            def synthesize(inner,text,cancel):
+                runtime.camera.latest=lambda now:[face(now,track='replacement')]
+                runtime.session.check_opportunity()
+                yield from super().synthesize(text,cancel)
+        self.session.output=OutputOwner(ChurningTTS(),SyntheticSink(),self.trace)
+        self.runtime.proactive_tick()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
+        self.assertFalse(any(r['event']=='playback_started' for r in self.trace.rows))
+
+    def test_targeted_proactive_question_still_cancels_on_face_change_during_audio(self):
+        self.setup_core();self.turn();self.visible(108)
+        self.session.brain=Brain(ToolCall('question','ask_face_question',
+            {'face_track_id':'visitor','text':'What should I call you?'}))
+        runtime=self.runtime
+        class ChurningSink(SyntheticSink):
+            def play(inner,chunks,cancel,on_start):
+                def started(at):
+                    on_start(at)
+                    runtime.camera.latest=lambda now:[face(now,track='replacement')]
+                    runtime.session.check_opportunity()
+                    cancel.check()
+                return super().play(chunks,cancel,started)
+        self.session.output=OutputOwner(SyntheticTTS(),ChurningSink(),self.trace)
+        self.runtime.proactive_tick()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
+        self.assertIsNone(self.state.pending)
