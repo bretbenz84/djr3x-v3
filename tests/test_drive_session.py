@@ -330,6 +330,23 @@ class FakePlanner:
         return self.route, {'input_tokens': 1}
 
 
+class WheelsDownTests(MemoryFixture):
+    def test_configured_wheels_that_failed_to_start_are_explained_not_denied(self):
+        brain = DriveBrain(drive_call(step('move', meters=1.5)), followup='My wheels are not connected right now.')
+        output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace)
+        output.drive_unavailable = 'wheel_controller_not_connected:DriveConfigUnacknowledged'
+        session = Session('session', brain, output, self.state.trace, self.state)
+        self.addCleanup(session.close)
+        delivery = session.process_turn(Capture(uuid4().hex, 'session', bytes(1024), 98, 99, 99.6),
+                                        Transcript('Move forward five feet.', -.01, True), session.revision)
+        drive = brain.snapshots[0].context['drive']
+        self.assertFalse(drive['available'])
+        self.assertIn('not_connected', drive['unavailable_reason'])
+        output_json = json.loads(brain.snapshots[-1].continuation[-1]['output'])
+        self.assertTrue(output_json['reason'].startswith('DriveUnavailable:wheel_controller_not_connected'))
+        self.assertEqual(delivery.completed_text, ['My wheels are not connected right now.'])
+
+
 class DriveContractTests(unittest.TestCase):
     def context(self, **extra):
         return {'source_turn_id': 't', 'drive': {'available': True, 'origin': 'requested', 'targets': [

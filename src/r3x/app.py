@@ -240,6 +240,10 @@ class App:
                 output.robot = self.robot
                 output.speech_motion = self.robot.talking if self.robot else None
                 output.leds = self.leds
+                if self.drive and 'drive_base' not in active:
+                    # Configured wheels that failed to start: Rex still knows he has them.
+                    failure = next((r for r in self.owner.results if r.capability=='drive_base' and r.operation=='start'),None)
+                    output.drive_unavailable = 'wheel_controller_not_connected' + (':'+failure.reason if failure and failure.reason else '')
                 if self.drive and 'drive_base' in active:
                     output.drive = self.drive
                     self.drive.servos = self.robot if self.robot and 'robot_servos' in active else None

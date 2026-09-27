@@ -74,7 +74,13 @@ class FakeBase:
         if name == 'hello':
             self.emit(type='hello', proto=1, fw='test', caps=self.caps, boot_id=7)
         elif name == 'config':
-            self.emit(type='ack', seq=seq, accepted=True, reason=None)
+            # Real firmware echoes every effective parameter: a line well over 512 bytes.
+            echo = {key: 0.123456 for key in ('max_lin', 'max_ang', 'slow_zone_m', 'stop_zone_m', 'default_turn_deg',
+                'default_turn_rate', 'watchdog_ms', 'drive_expiry_ms', 'manual_idle_return_secs', 'kp', 'ki', 'kd',
+                'kff', 'min_duty', 'breakaway_duty', 'accel_lin', 'accel_ang', 'counts_per_meter_l',
+                'counts_per_meter_r', 'track_width_m', 'assist_engage_mm', 'assist_gain')}
+            self.emit(type='ack', seq=seq, accepted=True, reason=None,
+                      config={**echo, 'manual_autoreturn': True, 'assist_enabled': True})
         elif name in {'turn', 'move'}:
             if self.owner == 'manual':
                 self.emit(type='ack', seq=seq, accepted=False, reason='manual_override')
@@ -215,6 +221,8 @@ class DriveOwnerTests(unittest.TestCase):
     def test_connect_pushes_owner_limits_heartbeats_and_stops_on_close(self):
         self.start()
         self.assertEqual(self.drive.state, 'ready')
+        config_ack = next(a for a in self.drive.link.acks.values() if 'config' in a)
+        self.assertGreater(len(json.dumps(config_ack)), 512)
         config = next(c for c in self.fake.commands if c['cmd'] == 'config')
         self.assertEqual(config['max_lin'], .25)
         self.assertEqual(config, {**CONFIG, 'v': 1, 'cmd': 'config', 'seq': config['seq']})

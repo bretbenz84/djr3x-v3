@@ -278,13 +278,16 @@ class DriveBase:
         hello = self.link.open({})
         if not {'drive', 'turn', 'move', 'stop'}.issubset(hello.get('caps') or ()):
             raise ProviderFailure('DriveCapabilitiesMissing')
-        ack = self._await_ack(self.link.send({'cmd': 'config', **CONFIG}), 1.5, self._closing.wait)
-        if not ack or not ack.get('accepted'):
-            raise ProviderFailure('DriveConfigRejected')
+        # Startup is real serial I/O: bound its waits by wall time, not the injected clock.
+        ack = self._await_ack(self.link.send({'cmd': 'config', **CONFIG}), 1.5, self._closing.wait, time.monotonic)
+        if ack is None:
+            raise ProviderFailure('DriveConfigUnacknowledged')
+        if not ack.get('accepted'):
+            raise ProviderFailure('DriveConfigRejected:' + str(ack.get('reason')))
         self._spawn('heartbeat', self._heartbeat)
-        deadline = self.clock() + 1.5
+        deadline = time.monotonic() + 1.5
         while self.link.snapshot()[0] is None:
-            if self.link.failure or self.clock() >= deadline:
+            if self.link.failure or time.monotonic() >= deadline:
                 raise ProviderFailure(self.link.failure or 'DriveTelemetryMissing')
             self._closing.wait(.02)
         odom = (self.link.snapshot()[0].get('odom') or {})
@@ -444,9 +447,10 @@ class DriveBase:
             self._check(cancel)
             self.wait(min(.05, deadline - self.clock()))
 
-    def _await_ack(self, seq, timeout, wait):
-        deadline = self.clock() + timeout
-        while self.clock() < deadline:
+    def _await_ack(self, seq, timeout, wait, clock=None):
+        clock = clock or self.clock
+        deadline = clock() + timeout
+        while clock() < deadline:
             ack = self.link.ack(seq)
             if ack is not None or self.link.failure:
                 return ack

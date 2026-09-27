@@ -14,7 +14,8 @@ import time
 from ..contracts import ProviderFailure
 
 PROTOCOL = 1
-MAX_LINE = 512
+MAX_LINE = 512          # Commands we send (protocol v1 limit).
+MAX_INBOUND = 4096     # Firmware replies exceed 512: the config ack echoes ~27 values (TX buffer 1024).
 
 
 def open_serial(path: str):
@@ -93,7 +94,7 @@ class NDJSONLink:
                 line = line.strip()
                 if not line:
                     continue
-                if len(line) > MAX_LINE:
+                if len(line) > MAX_INBOUND:
                     self.parse_errors += 1
                     continue
                 try:
@@ -113,7 +114,7 @@ class NDJSONLink:
                     self.dispatch(message, received)
                 except Exception:
                     self.parse_errors += 1
-            if len(buffer) > MAX_LINE:
+            if len(buffer) > MAX_INBOUND:
                 buffer = b''
                 self.parse_errors += 1
 

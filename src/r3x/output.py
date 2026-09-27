@@ -80,6 +80,7 @@ class OutputOwner:
         self.speech_motion = speech_motion
         self.leds = leds
         self.drive = drive
+        self.drive_unavailable = None  # Reason when configured wheels failed to start.
         self._motion_lock = threading.Lock()
         self.active = threading.Event()
         self.echo_until = 0.
