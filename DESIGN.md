@@ -426,7 +426,7 @@ or face can override them. Exact gates and saved-audio evidence are documented i
 The September 25 [servo foundation](docs/SERVO_INTEGRATION.md) adds a single injected-
 transport executor for lifecycle choreography and optional playback-driven talking
 motion. Its follow-on adds explicit live composition, operator handoff and bounded
-microphone holds. It is not exposed as model-selected physical attention/gestures.
+microphone holds. Explicit requested poses and bounded control of all eleven joints are exposed through the same state/output/servo owners; autonomous physical attention remains pending.
 Pulse-readback receipts are distinct from measured joint arrival. Service cutover,
 cold-start commissioning and live movement/enrollment validation remain pending.
 
@@ -440,8 +440,8 @@ session-owned directional/visual-target attention and output-owned simulation th
 Session/tool path. Simulation is explicitly injected, never enabled by live startup.
 Synthetic face/object target grounding and post-movement frame validation are
 implemented. A paced live object observer and file-backed photographic memory are now implemented
-under the September 17 scoped extension; see docs/OBJECT_PHOTO_MEMORY.md. Physical
-gaze and coordinated hardware gesture runtimes remain unavailable. Optional single-primitive gestures
+under the September 17 scoped extension; see docs/OBJECT_PHOTO_MEMORY.md. Autonomous physical
+gaze and composite hardware gesture runtimes remain unavailable; explicit requested head turns and joint poses use the servo owner. Optional single-primitive gestures
 can now be simulated before/after speech through the output owner, with independent
 receipts and a shared exclusive motion resource. Face tracking will serve chosen attention; it must not own social
 attention. Movement intent, physical completion and new perception remain distinct.
@@ -461,8 +461,8 @@ spoken remarks. No regex semantic extraction or automatic cross-person/session
 association is added. Live description/repetition quality remains untested.
 
 Current-view acquisition is now wired to the existing scene cache in camera-enabled
-runs with scene uploads enabled. Only current-view inspection is offered; physical
-motion remains unavailable. Exact-image cached descriptions may avoid a duplicate
+runs with scene uploads enabled. Only current-view inspection is offered; composite physical
+inspection motion remains unavailable; explicit joint commands use the separate servo tool. Exact-image cached descriptions may avoid a duplicate
 upload. [Hosted evidence](docs/CURRENT_VIEW_VALIDATION.md) now includes actual model
 calls on synthetic saved images, with explicit residual semantic errors.
 

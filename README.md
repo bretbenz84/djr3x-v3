@@ -21,7 +21,7 @@ grounded synthetic visual targets, post-movement evidence checks, and gestures
 coordinated before/after speech through the same
 conversation owner. An LLM-selected inspection can also sequence simulated movement,
 settling and image capture before a model continuation. Camera-enabled startup now offers [current-view inspection](docs/CURRENT_VIEW_VALIDATION.md)
-through the same LLM tool. Physical turning and composite motion remain unavailable. Inspection descriptions can now be saved
+through the same LLM tool. Explicit requested head turns and bounded control of all eleven servos are available with the servo provider; composite physical inspection remains unavailable. Inspection descriptions can now be saved
 as bounded, source-linked visual observations and reused through LLM tools. Fresh
 proactive scene images can also be described and retained silently or with a remark
 in the primary call, with

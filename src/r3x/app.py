@@ -1,5 +1,5 @@
 """Explicit composition of the complete core; no hardware starts during inspection."""
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 import platform
 
@@ -55,10 +55,15 @@ class App:
         if self.settings.servo_port:
             from .robot_servos import RobotServos
             self.robot = RobotServos(self.settings.servo_port)
+        # A disconnected camera removes its dependents for this run, not the setting.
+        for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',))):
+            if provider:
+                provider.capability = replace(provider.capability,requires=requires)
         self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects) if p)
+        # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
-        self.owner = ProviderOwner(((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + self.live_components)
+        self.owner = ProviderOwner((tts,sink) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + tuple(p for p in self.live_components if p not in (tts,sink)))
 
     def readiness(self):
         missing = []
@@ -170,8 +175,7 @@ class App:
             camera.trace = trace
         memory = Memory(self.paths.root / "core.sqlite3")
         inspection = next((p for p in optional if p.capability.name=='current_view'),None)
-        output = OutputOwner(tts, sink, trace,inspection=inspection,
-                             speech_motion=self.robot.talking if self.robot else None, leds=self.leds)
+        output = OutputOwner(tts, sink, trace,inspection=inspection)
         if self.leds:
             self.leds.trace = trace
             sink.on_pcm = self.leds.pcm
@@ -200,10 +204,22 @@ class App:
                 from .adapters.face import NAMESPACE as FACE_NAMESPACE
                 camera.session_id = session_id
                 camera.profiles = lambda: memory.face_profiles(FACE_NAMESPACE)
-            if not self.owner.start():
+            from .startup_notice import announce
+            if not self.owner.start(on_required_failure=lambda:announce(
+                    self.settings,self.owner,output,trace,failed=True)):
                 trace.emit("startup_failed", report=self.doctor())
             else:
                 trace.emit("startup", report=self.doctor(), evidence="live", models=[p.capability.model for p in self.live_components if p.capability.model])
+                active = {r.capability for r in self.owner.results if r.operation=='start' and r.outcome=='ok'}
+                camera = camera if 'camera' in active else None
+                scene = scene if 'scene_observations' in active else None
+                objects = objects if 'objects' in active else None
+                output.inspection = inspection if 'current_view' in active else None
+                startup_delivery = announce(self.settings,self.owner,output,trace)
+                mic.discard_pending()
+                output.robot = self.robot
+                output.speech_motion = self.robot.talking if self.robot else None
+                output.leds = self.leds
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene
@@ -214,6 +230,11 @@ class App:
                     state.photo_memory.start()
                 perception = Perception(asr,encoder,trace,camera,direction)
                 session = Session(session_id, brain, output, trace, state=state)
+                if startup_delivery and startup_delivery.completed_text:
+                    session.history.append({'role':'assistant','content':' '.join(startup_delivery.completed_text)})
+                if self.settings.camera_enabled and camera is None:
+                    session.history.append({'role':'developer','content':
+                        'Camera unavailable at startup. No current visual evidence is available this run; do not claim to see.'})
                 recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
                                        lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot)

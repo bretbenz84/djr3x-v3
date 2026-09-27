@@ -45,7 +45,7 @@ class Camera:
         self.session_id = uuid4().hex
         self.capability = Capability("camera","AVFoundation ffmpeg + SCRFD/EdgeFace CPU",
             "optional persistent face recognition; separate from acoustic identity",NAMESPACE,
-            ("opencv-python","numpy","onnxruntime"),("named macOS camera", "ffmpeg", f"{width}x{height}@{framerate}fps; face analysis <=2fps"))
+            ("opencv-python","numpy","onnxruntime"),("named macOS camera", "ffmpeg", f"{width}x{height}@{framerate}fps; face analysis <=2fps"),required=False)
 
     def start(self):
         import subprocess
@@ -53,13 +53,13 @@ class Camera:
             raise ProviderFailure("CameraNameMissingOrInvalid")
         executable = shutil.which("ffmpeg")
         if not executable: raise ProviderFailure("FFmpegMissing")
-        self.encoder.start()
         try:
             listing = subprocess.run([executable,"-hide_banner","-f","avfoundation","-list_devices","true","-i",""],
                 stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=5)
         except subprocess.TimeoutExpired:
             raise ProviderFailure("CameraEnumerationTimedOut") from None
         index = select_camera(listing.stderr,self.device_name)
+        self.encoder.start()
         self.process = subprocess.Popen([executable,"-nostdin","-loglevel","error","-f","avfoundation",
             "-pixel_format","uyvy422","-framerate",str(self.framerate),"-video_size",f"{self.width}x{self.height}","-i",str(index)+":none","-an",
             "-pix_fmt","bgr24","-fps_mode","passthrough","-f","rawvideo","pipe:1"],stdin=subprocess.DEVNULL,

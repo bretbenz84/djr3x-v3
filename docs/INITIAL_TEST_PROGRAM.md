@@ -1,5 +1,26 @@
 # Initial test program and acceptance plan
 
+### September 25 idle arms and elbow lifecycle
+
+Implemented the user's requested random awake hero/poker arm movement and elbow
+startup rise through the same servo owner. Idle yields to capture, recognition,
+conversation and output; it joins before talking/park, invalidates microphone/direction
+evidence and returns the hero axis to center for a fresh hold. The existing shutdown
+elbow rest now follows a visible wake rise. **561 blocked-I/O checks pass**, including
+six new fake-pulse/clock contracts. No hardware run was performed; live motion/noise,
+listening gaps and learning coverage remain pending ([details](SERVO_INTEGRATION.md#idle-arms-and-elbow-lifecycle)).
+
+### September 25 talking-motion live-feedback repair
+
+The user's first live report identified missing head and hero-arm elbow/wrist motion.
+The trace confirms the worker ran; the initial sequence omitted those arm channels
+and neck rotation, and its headlift beat waited for the slow throttle cycle. The
+[repair](SERVO_INTEGRATION.md#september-25-live-feedback-repair) adds bounded head,
+elbow/wrist lanes that repeat independently while preserving channel-7 microphone
+hold and cancellation. **555 blocked-I/O checks pass**; movement feel, clearance and
+acoustic impact still need the owner's live retest. No hardware was operated for
+this repair.
+
 ### September 25 cooperative V2 supervisor handoff
 
 Manual V3 startup now accepts an updated V2 supervisor, waits for its microphone
@@ -1104,3 +1125,51 @@ description retention, bounded uploads and failed references using synthetic
 images and temporary stores. An authorized saved-photo hosted recheck inspected both objects and completed
 teaching in an isolated copy; it also exposed and led to a tool-grounding fix.
 Live recognition on new views remains pending. See [details and limits](OBJECT_PHOTO_MEMORY.md#september-20-object-teaching-and-restart-repair).
+
+September 25 follow-up: named robot pose tools, held joints through speech, explicit
+three-eye-blink animation, and separate motion/echo capture evidence implemented.
+573 blocked-I/O checks pass; tests use synthetic pulse/LED transports, scripted model
+choices, synthetic PCM and embeddings. Speech beginning during motion is retained
+for ASR but excluded from identity/enrollment. Live acceptance: request happy lights
+while idle arms move; lower/raise visor; offer hand, high-five, lower/rest throttle;
+speak while poses hold; release poses; interrupt movement/blinks; verify shutdown
+parks/fades. No hardware or hosted model was used for this follow-up.
+
+Resume-motion repair: user confirmed blinking/hand offering on hardware, but the
+logged resume utterance received prose without a release tool call. Added live
+hold-state context and explicit release guidance, plus an offer/intervening-turn/
+release/talking regression. 574 synthetic blocked-I/O checks pass; live selection
+of the release tool remains to be retested. No hardware operated during repair.
+
+September 25 startup health: [spoken hardware notices](STARTUP_HEALTH.md) implemented.
+584 blocked-I/O checks pass. The configured camera stays enabled; a failed open
+warns and skips visual dependents for that run while voice continues. Required
+hardware failures can speak before cleanup when audio is ready. Prepared-config
+inert doctor passes with camera enabled. No new live hardware/TTS test performed.
+
+Throttle idle / spoken exit follow-up: 588 blocked-I/O checks pass. V2 throttle idle
+poses now use the shared owner/scheduler with hold exclusion and release coverage.
+Trusted standalone “shut down” exits via runtime worker drain and normal application
+cleanup; discussion/untrusted transcripts stay conversational. Fake-controller
+integration verifies shutdown parks and closes the port. Live movement/voice exit
+acceptance remains pending; no hardware was operated for this change.
+
+September 27 short-speech repair: 590 blocked-I/O checks pass. Removed silent
+160 ms accumulated-VAD capture veto; one-frame VAD triggers now reach ASR with
+existing preroll/tail. Regression verifies shutdown while the conversation worker
+is blocked. Added VAD confidence/duration diagnostics. Latest logs show short-VAD
+bursts without captures, plus zero-VAD loud bursts that remain unexplained without
+waveforms. No live acoustic accuracy claim; see [evidence](SHORT_SPEECH_CAPTURE.md).
+
+September 27 wrist tuning: throttle channel 10 speed/acceleration pacing halved
+through the shared profile generator after user-reported noise. 590 blocked-I/O
+checks pass; live noise/ASR benefit remains unmeasured. No hardware operated.
+
+September 27 all-joint/animation repair: 597 blocked-I/O checks pass. All eleven
+servos are model-accessible through bounded joint percentages and existing named
+poses, now including head left/right/center. Held arm joints survive idle and
+microphone maintenance; throttle route checks remain authoritative. Empty-text
+animations execute silently and generic animation guidance selects chest sparkles.
+Evidence is synthetic, with no new hosted or hardware run. See SERVO_INTEGRATION.md
+and LED_INTEGRATION.md. Live selection/clearance and the clipped-audio cause remain
+unverified.

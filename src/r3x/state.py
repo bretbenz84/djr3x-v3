@@ -104,6 +104,18 @@ class CoreState:
         return InspectionRequest(source+':'+call.call_id,call.arguments['direction'],
             call.arguments['question'],self.attention.scene.view_epoch,self.trace.clock())
 
+    def propose_pose(self, call, context, cancel):
+        from .servo_poses import POSE_COMMANDS
+        cancel.check()
+        validate(call.name,call.arguments)
+        if self.frozen or not context.get('robot_pose_enabled'): raise ValueError('RobotPoseUnavailable')
+        if self.store.revision != context['state_revision']: raise ValueError('StaleStateRevision')
+        if call.name == 'set_robot_joints':
+            from .servo_poses import joint_targets
+            return joint_targets(call.arguments['positions'])
+        if call.arguments['pose'] not in POSE_COMMANDS: raise ValueError('UnknownRobotPose')
+        return call.arguments['pose']
+
     def propose_lights(self, call, context, cancel):
         from .leds import LightRequest
         cancel.check()
@@ -115,7 +127,7 @@ class CoreState:
         args = call.arguments
         if args['pattern'] not in context['led_patterns']:
             raise ValueError('LEDPatternUnavailable')
-        if args['timing']=='during_speech' and (args['text'] is None or args['pattern']=='compliment'):
+        if args['timing']=='during_speech' and (args['text'] is None or args['pattern'] in {'compliment','blink'}):
             raise ValueError('InvalidSpeakingAnimation')
         source = context.get('event_id') or context['source_turn_id']
         return LightRequest(source+':'+call.call_id,args['pattern'],
@@ -203,6 +215,9 @@ class CoreState:
         for key in self.evidence:
             if key in self.tracker.tracks:
                 self.tracker.tracks[key].retained = True
+        if capture.motion_risk:
+            from .speakers import VoiceObservation
+            observation = VoiceObservation(self.tracker.namespace,reason="robot_motion")
         if capture.overlap is True:
             observation = replace(observation, mixed=True)
         attribution = self.tracker.observe(observation, capture.ended_at,
@@ -211,7 +226,7 @@ class CoreState:
                             if p.track_id in self.tracker.tracks}
         if self.pending and capture.ended_at-self.pending["delivered_at"] > 120:
             self.pending = None
-        if (capture.parent_capture_id is not None or capture.robot_microphone_hold is False or
+        if (capture.motion_risk or capture.parent_capture_id is not None or capture.robot_microphone_hold is False or
                 (self.require_microphone_hold and capture.robot_microphone_hold is not True)):
             attribution = replace(attribution,learning_eligible=False)
         self.current = (turn_id,capture,transcript,observation,attribution)

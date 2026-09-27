@@ -100,7 +100,7 @@ class RobotServoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             app=App(Settings(servo_port='/dev/cu.synthetic'),Path(temporary))
             app.configure_live()
-            self.assertEqual(app.owner.providers[0].capability.name,'robot_servos')
+            self.assertEqual([p.capability.name for p in app.owner.providers[:3]],['tts','playback','robot_servos'])
             self.assertIsNone(app.robot.owner._bus)
             self.assertFalse((Path(temporary)/'local').exists())
         for value in ('/dev/tty.bad','auto','/dev/cu.bad path','/dev/cu.bad/child'):
@@ -122,7 +122,9 @@ class RobotServoTests(unittest.TestCase):
             mic.motion_risk=lambda:True
             mic.start()
         mic.stream.callback(bytes(1024),512,SimpleNamespace(inputBufferAdcTime=1.),False)
-        self.assertTrue(mic.read().echo_risk)
+        frame = mic.read()
+        self.assertFalse(frame.echo_risk)
+        self.assertTrue(frame.motion_risk)
         mic.close()
 
 

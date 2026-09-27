@@ -33,6 +33,7 @@ class VoiceRuntime:
 
     def cancel(self):
         if self.robot:
+            self.robot.idle.stop()
             self.robot.owner.release_microphone_hold()
         with self.control_lock:
             self.cancel_before = self.trace.clock()
@@ -99,7 +100,13 @@ class VoiceRuntime:
                     if revision != self.session.revision or self.stop.is_set():
                         self.trace.emit("transcript_rejected", capture_id=part.capture_id, reason="stale")
                         break
-                    if transcript.trusted and transcript.text.strip().lower().rstrip(".!?") in {"stop", "cancel", "stop rex", "rex stop"}:
+                    command = transcript.text.strip().lower().rstrip('.!?')
+                    if transcript.trusted and command in {'shut down','shutdown','rex shut down','rex, shut down','shut down rex'}:
+                        self.trace.emit('shutdown_requested',source='voice',capture_id=part.capture_id)
+                        self.stop.set()
+                        self.cancel()
+                        break
+                    if transcript.trusted and command in {"stop", "cancel", "stop rex", "rex stop"}:
                         self.cancel()  # Bypasses a busy conversational generation.
                         break
                     else:
@@ -262,7 +269,7 @@ class VoiceRuntime:
         from .input_health import InputHealth
         health = InputHealth(self.trace,getattr(self.mic,'device_name','configured_microphone'))
         self.start_workers()
-        self.trace.emit("listening", controls="Enter or 'stop' cancels; 'quit' or Ctrl-C exits")
+        self.trace.emit("listening", controls="Enter or 'stop' cancels; say 'shut down', type 'quit', or Ctrl-C to exit")
         previous_dropped = (0, 0)
         previous_end = None
         next_resources = 0.
@@ -272,7 +279,11 @@ class VoiceRuntime:
         try:
             while not self.stop.is_set():
                 if self.robot:
-                    self.robot.before_frame()
+                    capturing = bool(self.endpoint.frames)
+                    self.robot.before_frame(capturing=capturing or self.session._processing.locked(), allow_idle=(
+                        not capturing and self.captures.empty() and self.turns.empty()
+                        and not self.asr_busy.is_set() and not self.session._processing.locked()
+                        and self.trace.clock()-self.audio_seen_at<=.5))
                 now = self.trace.clock()
                 if now>=next_visual:
                     self.observe_visual(now)
@@ -287,7 +298,7 @@ class VoiceRuntime:
                     next_resources = now+30
                 if sys.stdin.isatty() and select.select([sys.stdin], [], [], 0)[0]:
                     command = sys.stdin.readline().strip().lower()
-                    if command in {"quit", "exit"}:
+                    if command in {"quit", "exit", "shut down", "shutdown"}:
                         break
                     if command in {"", "stop", "cancel"}:
                         self.cancel()
@@ -314,7 +325,12 @@ class VoiceRuntime:
                     self.endpoint.reset()
                     continue
                 speech = self.vad.is_speech(frame.pcm)
-                health.observe(frame,speech,self.endpoint.frames)
+                if speech and self.robot:
+                    # Even motion-contaminated VAD activity stops decorative idle
+                    # motion. Existing echo/hold guards still exclude it from learning.
+                    self.robot.note_speech()
+                health.observe(frame,speech,self.endpoint.frames,
+                    vad_probability=getattr(self.vad,'last_probability',None))
                 if speech and not frame.echo_risk:
                     self.session.note_speech(frame.ended_at)
                 capture = self.endpoint.push(frame, speech)
@@ -327,7 +343,8 @@ class VoiceRuntime:
                     self.trace.emit("capture", capture_id=capture.capture_id,
                         started_at=capture.started_at, ended_at=capture.ended_at,
                         speech_ended_at=capture.speech_ended_at, truncated=capture.truncated,
-                        echo_risk=capture.echo_risk, pcm_bytes=len(capture.pcm),
+                        echo_risk=capture.echo_risk, motion_risk=capture.motion_risk, pcm_bytes=len(capture.pcm),
+                        vad_voiced_seconds=sum(b-a for a,b in capture.voiced_intervals),
                         robot_microphone_hold=capture.robot_microphone_hold)
                     self.enqueue(self.captures, (capture, self.session.revision), "captures")
         except KeyboardInterrupt:

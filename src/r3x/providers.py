@@ -18,6 +18,7 @@ class Capability:
     dependencies: tuple[str, ...] = ()  # Installed distribution names; never imports.
     resources: tuple[str, ...] = ()
     required: bool = True
+    requires: tuple[str, ...] = ()  # Earlier live providers; skip dependents when unavailable.
     startup: str = "explicit start"
     shutdown: str = "cancel then close; release partial allocations"
 
@@ -75,12 +76,17 @@ class ProviderOwner:
         self._call(provider, "cancel")
         self._call(provider, "close")
 
-    def start(self) -> bool:
+    def start(self, on_required_failure=None) -> bool:
         if self.state != "new":
             raise RuntimeError("A lifecycle owner can only start once")
         self.state = "starting"
         try:
             for provider in self.providers:
+                ready_names = {p.capability.name for p in self._active}
+                if any(name not in ready_names for name in provider.capability.requires):
+                    self.results.append(LifecycleResult(provider.capability.name,'start',
+                        'skipped',reason='RequiredCapabilityUnavailable'))
+                    continue
                 if any(value is None for value in dependency_status(provider.capability).values()):
                     self.results.append(LifecycleResult(provider.capability.name, "start",
                                                         "failed", "MissingDependency"))
@@ -92,6 +98,11 @@ class ProviderOwner:
                         self._release(provider)
                         self._active.pop()
                 if not ready and provider.capability.required:
+                    if on_required_failure:
+                        try:
+                            on_required_failure()
+                        except Exception as exc:
+                            self.results.append(LifecycleResult('startup_notice','announce','failed',type(exc).__name__))
                     self.close()
                     return False
         except BaseException:

@@ -71,11 +71,12 @@ class Delivery:
 
 class OutputOwner:
     def __init__(self, tts: TTS, sink: Sink, trace, *, attention=None, gestures=None, inspection=None,
-                 speech_motion=None, leds=None):
+                 speech_motion=None, leds=None, robot=None):
         self.tts, self.sink, self.trace = tts, sink, trace
         self.attention = attention
         self.gestures = gestures
         self.inspection = inspection
+        self.robot = robot
         self.speech_motion = speech_motion
         self.leds = leds
         self._motion_lock = threading.Lock()
@@ -92,6 +93,12 @@ class OutputOwner:
             return self.inspection.execute(request,cancel,valid)
         finally:
             self._motion_lock.release()
+
+    def execute_pose(self, name, cancel, request_id):
+        if self.robot is None: raise ProviderFailure('RobotPoseUnavailable')
+        with self._motion_lock:
+            cancel.check()
+            return self.robot.execute_pose(name,cancel,request_id)
 
     def execute_attention(self, intent, cancel):
         if self.attention is None:
@@ -172,6 +179,10 @@ class OutputOwner:
         token = None
         status = None
         try:
+            if light.request.pattern=='blink':
+                result = self.leds.blink(light.request,cancel,light.valid)
+                self._light_result(delivery,turn_id,light.request,result)
+                return
             token = self._begin_lights(light,cancel)
             deadline = self.leds.clock()+light.request.duration
             while self.leds.clock()<deadline:
@@ -180,6 +191,8 @@ class OutputOwner:
                 self.leds.wait(min(.05,deadline-self.leds.clock()))
         except Cancelled:
             status = 'cancelled'
+            if token is None:
+                self._light_result(delivery,turn_id,light.request,status)
         except Exception as exc:
             status = 'failed'
             if token is None:

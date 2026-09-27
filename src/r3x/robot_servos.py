@@ -5,16 +5,19 @@ from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
 from .servos import ServoOwner, ServoRequest, TalkingMotion
+from .idle_motion import IdleMotion
 
 
 class RobotServos:
-    capability = Capability('robot_servos','Pololu Maestro','startup, talking, microphone hold and park',
+    capability = Capability('robot_servos','Pololu Maestro','startup, idle arms, talking, microphone hold and park',
         dependencies=('pyserial',),resources=('exclusive Maestro; eleven calibrated channels',),
-        shutdown='join talking; park; close port; acknowledge ownership release')
+        shutdown='join idle/talking; park; close port; acknowledge ownership release')
 
     def __init__(self, port, *, open_port=None, clock=time.monotonic, wait=time.sleep):
         self.owner = ServoOwner(open_port or (lambda:open_serial(port)),medium='controller',clock=clock)
+        self.idle = IdleMotion(self.owner)
         self.talking = TalkingMotion(self.owner)
+        self.talking.before_start = self.idle.stop
         self.trace = None
         self.wait = wait
         self.closed = False
@@ -38,20 +41,34 @@ class RobotServos:
         self.wait(1.5)
 
     def cancel(self):
+        self.idle.close()
         self.talking.cancel()
         self.owner.cancel()
 
-    def before_frame(self):
-        self.owner.refresh_microphone_hold()
+    def before_frame(self, *, allow_idle=False, capturing=False):
+        self.idle.trace = self.trace
+        self.idle.tick(allow_idle and self.talking._thread is None)
+        if not capturing and self.talking._thread is None and self.idle._thread is None:
+            self.owner.refresh_microphone_hold()
+
+    def execute_pose(self, name, cancel, request_id):
+        self.idle.stop()
+        self.talking.stop()
+        return self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
+            self.owner.clock()+60,pose=name),cancel)
+
+    def note_speech(self):
+        self.idle.stop()
 
     def capture_held(self,capture):
-        valid = self.owner.microphone_held_during(capture.started_at,capture.ended_at)
+        valid = not capture.motion_risk and self.owner.microphone_held_during(capture.started_at,capture.ended_at)
         self.owner.release_microphone_hold()
         return valid
 
     def close(self):
         if self.closed:
             return
+        self.idle.close()
         self.talking.stop()  # Failure retains ownership; no close under a worker.
         self.owner.release_microphone_hold()
         try:

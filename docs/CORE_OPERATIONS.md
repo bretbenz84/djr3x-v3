@@ -35,9 +35,12 @@ From `/Users/bbenziger/Local/djr3x-v3`, after stopping v2:
 .venv/bin/python -m r3x live --camera --record-evaluation
 ```
 
-Omit `--camera` for an audio-only test. Omit `--record-evaluation` to retain only
-accepted enrollment audio and bounded unverified candidate audio, rather than all endpointed test captures. The copied
-camera selection remains disabled in settings; the flag enables it for this run.
+For an intentional audio-only test, use settings with `camera_enabled = false` and omit
+`--camera`; omitting the flag alone preserves the configured choice. Omit `--record-evaluation` to retain only
+accepted enrollment audio and bounded unverified candidate audio, rather than all endpointed test captures. The
+camera selection can also be enabled in settings; the local robot settings now enable it.
+A disconnected camera produces a startup warning and voice-only operation for that run;
+see [startup hardware health](STARTUP_HEALTH.md).
 macOS permission prompts and actual device formats have not been tested in v3.
 The camera requires ffmpeg, a unique AVFoundation video-device name, and the pinned
 SCRFD-10G and EdgeFace-S models in `local/models/faces/`. It requests 1280×720

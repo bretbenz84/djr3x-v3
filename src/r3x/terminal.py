@@ -15,8 +15,14 @@ class LiveConsole:
         elif event == 'servo_lifecycle':
             message = f"Servos {clean(row['kind'])}: {clean(row['status'])} (controller pulses, not joint feedback)."
             if row.get('reason'): message += ' ' + clean(row['reason'])
+        elif event == 'startup_notice':
+            message = 'Startup notice: '+clean(row['text'])
+        elif event == 'startup_notice_delivery' and row['status']=='unavailable':
+            message = 'Startup notice could not be spoken: audio output is not ready.'
+        elif event == 'shutdown_requested':
+            message = 'Shutting down Rex normally…'
         elif event == "listening":
-            message = "Listening — speak normally. Enter stops a reply; quit + Enter exits."
+            message = "Listening — speak normally. Enter stops a reply; say 'shut down' or type quit + Enter to exit."
         elif event == "visual_opportunity":
             message = "Rex noticed an arrival and is considering a greeting…"
         elif event == "transcript":

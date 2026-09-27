@@ -111,7 +111,7 @@ class LEDTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             app=App(Settings(head_led_port='/dev/cu.head',chest_led_port='/dev/cu.chest'),Path(directory))
             app.configure_live()
-            self.assertEqual(app.owner.providers[0].capability.name,'robot_leds')
+            self.assertEqual([p.capability.name for p in app.owner.providers[:3]],['tts','playback','robot_leds'])
             self.assertEqual(app.leds.devices,{})
         for kwargs in ({'head_led_port':'auto'},{'chest_led_port':'/dev/tty.foo'},
                        {'head_led_port':'/dev/cu.x','servo_port':'/dev/cu.x'}):
@@ -193,11 +193,26 @@ class LEDSessionTests(MemoryFixture):
         self.assertEqual(result.status,'failed')
         self.assertNotIn('animate_lights',{t['name'] for t in grounded_tools(self.brain.snapshots[-1].context)})
 
-    def test_invalid_speaking_silent_or_compliment_rejected(self):
-        for call in (choice(text=None),choice(pattern='compliment'),choice(pattern='OFF\nSLEEP')):
+    def test_logged_empty_speech_animation_runs_silently(self):
+        self.setup_session(choice(text=''))
+        result=self.turn()
+        self.assertEqual(result.status,'suppressed')
+        self.assertEqual(result.lights[0]['status'],'commands_sent')
+        self.assertEqual(result.completed_text,[])
+        self.assertEqual(self.brain.calls,1)
+
+    def test_silent_and_standalone_patterns_normalize_to_demo(self):
+        for call in (choice(text=None),choice(pattern='compliment')):
             self.setup_session(call)
-            self.assertEqual(self.turn().status,'failed')
+            result=self.turn()
+            self.assertEqual(result.lights[0]['status'],'commands_sent')
+            if call.arguments['pattern']=='compliment':
+                self.assertIn('COMPLIMENT',self.ports['chest'].commands)
             self.session.close();self.led.close()
+
+    def test_unknown_pattern_still_rejected(self):
+        self.setup_session(choice(pattern='OFF\nSLEEP'))
+        self.assertEqual(self.turn().status,'failed')
 
     def test_wire_failure_preserves_successful_audio(self):
         self.setup_session();self.ports['head'].fail=True

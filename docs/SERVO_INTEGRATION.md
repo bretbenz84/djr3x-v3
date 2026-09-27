@@ -24,17 +24,21 @@ hardware.** The owner asked to leave V2 running and prepare cutover for later.
   before any lane moves and rechecked against fresh pulses before each target.
   The latest full-down retraction corridor is included. Lifecycle profiles retain
   the current V2 throttle pace. The directional full-down-to-high-five exception
-  is not needed for this slice and is not exposed as a gesture.
+  is not used: named high-five requests use the validated retraction bridge.
 - The production `OutputOwner` accepts optional talking motion. Actual playback
   start launches its worker; normal completion, failure and cancellation stop it.
   TTS generation and queued PCM do not start movement. The worker shares the servo
   executor and output's motion reservation; callbacks never write serial. A stopped
   phrase holds current output pulses rather than issuing a late neutral/visor reset.
   Motion receipts and errors are recorded separately from speech delivery.
-- The initial talking repertoire uses small headlift emphasis and two V2 throttle
-  speech poses. It repeats only during playback. Heavy headtilt, gaze and the
-  microphone-bearing hero arm are left alone. This is a bounded initial adaptation,
-  not all of V2's emotion-dependent body/visor motion or amplitude following.
+- Talking now includes neck/lift emphasis, a slow modest headtilt sway, a speaking
+  visor lane, hero-arm
+  elbow (channel 4), wrist (channel 5) and two V2 throttle poses. Independent lanes
+  repeat while slower lanes finish; sent targets drain before a successful cycle
+  receipt. Head anchors are captured after startup, preventing interrupted phrases
+  from ratcheting the pose. Channel 7 stays fixed for the microphone hold. This
+  preserves visible speaking movement with bounded beats, not V2's random per-frame,
+  emotion-dependent or amplitude-driven body policy.
 - Cancellation best-effort holds touched channels at fresh controller pulses;
   partial transport failure faults the owner without retry/replay. Requests have
   no deferred queue. Stop/join talking motion before submitting park. A busy owner
@@ -54,7 +58,8 @@ hardware.** The owner asked to leave V2 running and prepare cutover for later.
   sequence release the hold. Samples must be wholly covered to qualify for voice
   enrollment. Renewing never retroactively qualifies audio. A robot chain discards
   unheld pending sample references before collecting held ones; accepted profiles
-  are unchanged. Motion and settling gate microphone input even with isolated audio;
+  are unchanged. Motion and settling exclude speaker identification/enrollment even with isolated audio;
+  transcription retains human speech through movement, with separate motion-risk evidence;
   servo movement also invalidates old direction samples.
 
 ## Calibration and evidence boundaries
@@ -83,6 +88,36 @@ the prepared robot configuration is a separate ignored file. The existing
 attention/gesture simulations remain simulations; they do not accept these receipts
 as physical attention evidence.
 
+## Idle arms and elbow lifecycle
+
+The user requested random hero/poker arm movement while awake. A low-priority
+`IdleMotion` scheduler now waits a random 4–9 seconds of eligible quiet, then submits
+one finite request through the existing ServoOwner. V2's broad hero excursion range
+(1300–2000 quarter-microseconds from center) and quieter poker range (800–1500) are
+retained, clamped to calibrated bounds. Positions cross center when an arm is already
+offset. No new service, device owner, model or configuration switch is introduced.
+
+Idle moves yield to VAD activity, an active capture, queued recognition/conversation,
+model/output work and shutdown. Talking joins idle before its first target; shutdown
+joins both workers before park. An idle request cannot queue behind speech or restart
+after lifecycle cancellation. The normal hero excursion returns channel 7 to 5984;
+cancellation holds current pulses, and the ordinary microphone hold recenters later.
+Recentring does not begin mid-capture or while a reply is being generated/played.
+Idle motion invalidates direction/hold evidence and retains existing motion-noise
+exclusion. Input overlapping motion/settling may be rejected or lack enrollment
+permission; validate the resulting listening gaps and movement feel on the robot.
+
+Startup now raises the hero-arm elbow (channel 4) to V2's 6720 neutral alongside the
+slow head wake. Shutdown already targets its 6300 gravity rest; the new startup rise
+makes that droop visible even if Rex never spoke. The slower lifecycle profiles are
+retained.
+
+**561 blocked-I/O checks pass**, including six new idle/elbow contracts using fake
+pulses/clocks: random bounds/return, startup-to-shutdown elbow, quiet scheduling,
+speech preemption, hold invalidation/settling and shutdown latching. No additional
+hardware run was performed. Live range/clearance, servo noise, interruption response,
+voice-learning coverage, latency and CPU cost remain acceptance checks.
+
 ## Next integration gates
 
 1. Perform the prepared [operator-tools cutover](OPERATOR_TOOLS_MIGRATION.md) with
@@ -98,7 +133,45 @@ as physical attention evidence.
    physical evidence and fresh post-motion vision. Adapt richer speech expression
    from actual audio timing; avoid independent mood/idle motion authorities.
 
-## Verification
+## September 25 live-feedback repair
+
+The owner reported that the hero-arm elbow/wrist and head did not visibly move
+while talking. The live trace showed the talking worker executing and being
+cancelled at playback completion; this is the normal stop mechanism, not evidence
+of a rejected start. Inspection found that the first adaptation never targeted
+channels 4/5 or the neck, and its tiny headlift cycle waited for the slow throttle
+lane before repeating. The repaired sequence restores those channels and lets
+shorter lanes repeat independently. No V2 source or running service changed for
+this repair, and no additional hardware test was operated by the agent.
+
+**555 blocked-I/O checks pass** after this fix. Three added contracts cover repeated
+head/elbow/wrist beats, drain completion with delayed fake pulse arrival, and bounds;
+existing tests now require all five expressive head/arm channels through the actual
+OutputOwner/TalkingMotion path and check interrupted head anchors. Live confirmation
+of visibility, comfortable pace and acoustic impact remains pending.
+
+### Speaking visor addition
+
+At the owner's request, speaking now includes a separate visor lane between 6000
+and 6640 quarter-microseconds, based on V2's 6000 speech floor. It repeats alongside
+the existing gentle headtilt sway (startup anchor ±120), neck turns, elbow/wrist and
+throttle. Neck turns retain their accepted pattern. Production playback coverage
+now requires channels 0–5 plus throttle, with cancellation and delayed arrival
+checks covering the additional lane. The 555-check blocked-I/O suite passes; live
+visor visibility/camera occlusion and motion feel remain to be judged on the robot.
+
+### Lifecycle pace adjustment after live feedback
+
+The owner found startup/shutdown head movement much faster than V2. V2 combines
+Maestro caps with software-stepped targets; V3 sends final targets directly. The
+startup head/visor and neck sweep, and shutdown/park head/visor/elbow lane, now use
+speed 12 and acceleration 3 instead of startup 30/28 with acceleration 8 and
+shutdown 70/14. Positions and dwell times are retained. These lower controller
+caps produce a slower glide without adding a second interpolation writer. This is
+a first live-feedback tuning pass, not measured timing parity with V2; the owner
+still needs to judge the physical pace.
+
+## Verification (initial servo/operator checkpoint)
 
 `.venv/bin/python tools/run_checks.py`: **528 checks passed**, including 48 new
 servo/output, handoff, operator and robot-enrollment contracts across both slices.
@@ -118,3 +191,115 @@ audio. One dev-Mac run measured 17.54 s model/import startup, 1.85 ms median and
 2.19 ms p95 inference per 80-ms frame, and 190,627,840 bytes (~182 MiB) process peak
 RSS. Maximum silence score was 0.000763, below the retained 0.92/four-frame trigger.
 This is overhead/silence evidence, not positive wake accuracy or a live-M2 benchmark.
+
+## September 25: model-selected held poses and capture repair
+
+`set_robot_pose` is available for human turns when the live robot owner is active.
+CoreState validates the named command and revision; OutputOwner reserves movement,
+stops idle/talking, and delegates to the same versioned ServoOwner. There are no
+raw model pulse targets or additional model calls. Commands are `visor_down`,
+`visor_up`, `throttle_offer` (hold out the hand), `throttle_high_five`,
+`throttle_down`, `throttle_rest`, and `release_poses` (resume normal movement).
+Requested joints remain held through subsequent speech; other speaking and idle
+lanes continue. Release routes the throttle to rest before re-enabling its speech
+lane. Shutdown overrides held poses and parks normally. Cancellation holds current
+pulses; a failed action cannot speak its proposed success acknowledgment.
+
+V2's offer/high-five/rest/down targets are retained. Full-down transitions use
+shoulder-only raising and established retraction waypoints, with all stages checked
+before execution; V2's special coordinated direct high-five exception is not used.
+Readback establishes controller pulse arrival, never observed shaft position.
+
+The reported clipped requests coincided with `playback_echo_risk` rejection after
+idle motion. Motion had been folded into echo, causing endpoint splits when motion
+stopped. Frames/captures now carry separate `motion_risk`; endpointing preserves
+speech across that transition and ASR can process the whole utterance. Perception
+skips voice embedding, CoreState abstains attribution/learning, and microphone-hold
+qualification remains false for motion-contaminated audio. Actual playback echo
+still follows its existing rejection path. This fixes an identified clipping path;
+logs without retained waveforms cannot explain every missed word.
+
+Blocked-I/O verification: **573 checks passed** with synthetic devices, speech and
+embeddings, including pose transitions/holding/release, cancellation/rejection,
+execution-before-acknowledgment, blink shutdown and complete capture across motion.
+Live ASR accuracy, natural-language model selection, physical clearance and animation
+feel remain pending. No hardware was operated for this update; no added dependency
+or resident model, and no measured live latency/resource figures.
+
+### Resume-motion follow-up
+
+Live user feedback confirmed eye blinks and offering the hand. The next request,
+“You can resume normal motion now,” was correctly transcribed, but the model
+answered in prose without executing `release_poses`; no release receipt exists
+for that turn. The controller correctly retained its previous hold.
+
+Each human-turn snapshot now includes current held body parts, and pose history
+names the executed pose. The semantic tool description and hosted request guidance
+explicitly require `release_poses` for requests to resume/relax after a hold,
+including permission phrasing. No transcript regex or extra classifier was added.
+A production-session regression covers offer, intervening conversation, release
+before acknowledgment, renewed throttle speech movement, and cleared hold context.
+574 blocked-I/O checks pass; scripted choices verify execution/context, not live
+LLM selection. A fresh live language test after restarting V3 remains pending.
+
+### Throttle idle and spoken shutdown
+
+Throttle channels 8–10 now join idle hero/poker movement, using V2's five idle
+poses, excluding the current pose, with 2.3–3.3-second motion and lower idle
+profiles. The existing single idle scheduler owns cadence and cancellation;
+there is no new writer. Held throttle poses remain fixed. Releasing poses restores
+both idle and speech motion. Speech/capture still preempts idle, and shutdown parks.
+
+A trusted standalone “shut down” or “shutdown” (also “Rex, shut down”) requests
+normal runtime exit without an LLM call. It cancels ongoing work, lets the main
+loop drain workers, then uses existing application cleanup for LED fade, servo
+park, port closure and V2 handoff. It does not power off macOS. “Stop” remains
+cancellation; longer discussion or untrusted transcripts do not trigger shutdown.
+Existing playback-echo rejection still applies; reliable voice barge-in is not
+newly provided. Terminal `shut down`/`shutdown` also exit normally.
+
+588 blocked-I/O checks pass, including the shared runtime exit followed by park
+and closed fake transport. All new evidence is synthetic; no robot or hosted
+provider was operated. User confirmed the preceding resume/camera repairs worked.
+
+### September 27: quieter throttle wrist
+
+User reported throttle-wrist noise. Channel 10's pace multiplier is reduced from
+2.2 to 1.1, scaling both speed and acceleration caps and proportional travel to
+roughly half their prior values. This applies to idle, speech, requested poses,
+startup and parking; shoulder/elbow multipliers and all position/clearance limits
+are retained. Existing pulse-arrival waits still gate sequence progression.
+This is a physical tuning change based on feedback, not measured acoustic evidence.
+590 synthetic blocked-I/O checks pass; actual noise reduction and live motion pace
+remain to be evaluated. No hardware was operated for this adjustment.
+
+### September 27: all eleven model-selected joints
+
+Session `6e3cf34ffd9b48ebbc26f83a79806aaa` started the servo provider,
+but the correctly transcribed head-turn request received a refusal: the tool only
+exposed visor/throttle poses. `set_robot_pose` now adds head left/right/center using
+the existing startup neck targets (4000/8000/5472). `set_robot_joints` exposes neck,
+head lift/tilt, visor, hero elbow/wrist, poker arm, microphone-bearing hero arm,
+and throttle shoulder/elbow/wrist. Each field is null (unchanged) or a finite
+0–100 percentage of the existing calibrated pulse range, not an angle. No raw
+serial command, speed override, extra model or V2 extraction was added.
+
+Partial throttle requests fill unspecified throttle axes from fresh controller
+readback and retain the three-channel batch, existing bridge routes and clearance
+validation. The whole route is validated before any joint writes. Arbitrary
+combinations can be rejected; calibrated endpoints do not guarantee every combined
+pose is mechanically clear. Acknowledgment follows pulse arrival, not visual proof.
+
+Every selected joint holds through speech and idle motion. Holding channel 7 also
+prevents microphone recentering; identity enrollment remains unavailable until
+release and a newly settled microphone hold. `release_poses` clears all holds;
+shutdown overrides them. Context names all held body parts. The model uses these
+tools for explicit human requests; autonomous physical gaze remains separate.
+
+597 blocked-I/O checks pass with synthetic serial/PCM, fake clocks and scripted
+model choices. New coverage exercises every joint through Session, head motion
+before speech, hold persistence, partial throttle batches, unsafe-route rejection
+without writes, cancellation, release/reacquisition and park. No hardware or hosted
+model calls were made. Live natural-language selection, directions, clearance and
+motion feel still require validation. The reported clipped transcription remains
+unresolved without recorded audio; this servo change does not claim an ASR fix.

@@ -87,3 +87,27 @@ amplitude, blinking and animation timing; startup/park fade synchronization;
 interruption/disconnect behavior; playback underruns and CPU/RSS/median-tail latency
 under robot load. No real LED timing, added resident memory, acoustic or hardware
 acceptance measurements were made in this slice.
+
+## September 25: requested eye blinks
+
+The existing `animate_lights` tool now offers `blink` with a configured head board,
+only `before_speech`. It sends three 150 ms dark / 200 ms restored-color eye cycles
+through the LED owner, without changing chest or mouth modes. It restores the last
+host-requested eye color after interruption; shutdown/version changes prevent late
+restoration. Uses existing `EYE:` firmware commands, with no firmware update.
+Included in the 573 passing blocked-I/O checks; installed-board rendering and live
+language selection remain unverified. Receipts report commands, not visible success.
+
+## September 27: animation request repair
+
+The logged fancy-animation request selected excited/during_speech with empty text,
+which failed validation as InvalidToolText before LED execution. Optional empty
+animation text now becomes null; silent requests and standalone compliment/blink
+patterns execute before speech. The trace preserves the original proposal and
+records the prepared request. The model is explicitly directed to use compliment
+chest sparkles for a generic animation/sparkle request. Unknown patterns and
+unavailable capabilities remain rejected. No regex interprets human speech.
+
+The 597 blocked-I/O checks include the logged argument combination, silent
+execution without TTS or another model call, and chest COMPLIMENT execution.
+Live model selection and visible rendering remain unverified by these tests.

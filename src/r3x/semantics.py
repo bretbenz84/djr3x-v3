@@ -12,9 +12,17 @@ TEXT = {"type":"string"}
 NULL_TEXT = {"type":["string","null"]}
 
 
+from .servo_poses import JOINTS, POSE_COMMANDS
+
 TOOLS = (
-    schema('animate_lights', 'Request a bounded LED animation for a conversational purpose or an explicit light request. Patterns are neutral amber, happy cyan/green, excited gold, sad blue, angry red, curious purple, and compliment chest sparkles. during_speech styles actual playback and requires text; before_speech runs for brief (1 second) or normal (2.5 seconds), then optionally speaks text. Do not infer a human emotion from the requested style. No physical gesture or identity action. Do not claim the lights succeeded in text: serial command receipts cannot verify the visible display. Ordinary replies automatically animate speaking and need no tool. No extra generation.',
-        {'pattern':{'type':'string','enum':['neutral','happy','excited','sad','angry','curious','compliment']},
+    schema('set_robot_joints', 'Move and hold any of the eleven physical robot servos for an explicit human request. positions contains each joint, null to leave it alone or a percentage from 0 (calibrated minimum) to 100 (maximum). These are pulse-range percentages, not degrees. neck: low left/high right; head_lift: low lowered/high raised; visor: low down/high up. Other axes use calibrated low/high travel; do not invent a physical direction if unknown. Prefer set_robot_pose for head left/right/center, visor, hand offering, high five, lowering/resting throttle or release. Throttle joints move together with clearance validation; unsafe combinations are rejected. Held hero_arm prevents microphone recentering and voice enrollment until release_poses. Optional text follows successful pulse arrival. Never claim visually verified motion.',
+        {'positions': {'type':'object', 'additionalProperties':False,
+            'properties':{name:{'type':['number','null'],'minimum':0,'maximum':100} for name in JOINTS},
+            'required':list(JOINTS)}, 'text':NULL_TEXT}),
+    schema('set_robot_pose', 'Execute an explicit human request for a physical pose and hold it until another pose or release_poses. head_left/head_right turn the neck left/right; head_center faces forward. visor_down lowers the visor; visor_up raises it. throttle_offer holds out the hand (throttle arm); throttle_high_five presents a high five; throttle_down lowers the arm; throttle_rest rests it. release_poses cancels ALL held poses and resumes ordinary speaking motion. Requests such as "resume normal motion", "move normally again", or "you can relax now" after a held pose require this tool with pose release_poses; a spoken acknowledgment alone does not release anything. Consult robot_pose_state.held_parts. Use these calibrated poses, never invent positions. text is optional and spoken only after controller pulses arrive; this is not visual confirmation. Only for explicit user requests.',
+        {'pose':{'type':'string','enum':list(POSE_COMMANDS)}, 'text':NULL_TEXT}),
+    schema('animate_lights', 'Request a bounded LED animation for a conversational purpose or an explicit light request. For a request to show an animation or sparkle the chest, select compliment with before_speech. Use null text for silent animation, never an empty string. Compliment and blink are before_speech only. Patterns are neutral amber, happy cyan/green, excited gold, sad blue, angry red, curious purple, compliment chest sparkles, and blink (three eye blinks, before_speech only). during_speech styles actual playback and requires text; before_speech runs for brief (1 second) or normal (2.5 seconds), then optionally speaks text. Do not infer a human emotion from the requested style. No physical gesture or identity action. Do not claim the lights succeeded in text: serial command receipts cannot verify the visible display. Ordinary replies automatically animate speaking and need no tool. No extra generation.',
+        {'pattern':{'type':'string','enum':['neutral','happy','excited','sad','angry','curious','compliment','blink']},
          'timing':{'type':'string','enum':['before_speech','during_speech']},
          'duration':{'type':'string','enum':['brief','normal']},'text':NULL_TEXT}),
     schema('inspect_visual_memory', 'Look closely at a current object/pet and compare with up to three named photographic memories. Select an offered target_id for a close-up, or null for the whole view. Use null for questions about multiple subjects or the whole room, or if detection missed the target. Select entity_ids semantically from the catalog; dog/cat labels are not identity gates. Use intent teach when the user names/confirms a visible pet or object for photographic memory, including natural introductions without saying remember. The continuation must save or explicitly defer. Use look for recognition/questions without teaching. Use before recognizing a named object or teaching a new one. When teaching a pet with multiple dog/cat detections, select a single target_id; saving the whole multi-pet view is rejected. If the intended crop is unclear, ask for a clear position or marking before teaching. Repeated stationary detections do not require inspection or speech. No room-recognition model or physical movement.',
@@ -134,6 +142,7 @@ def grounded_tools(context):
         if name=='use_visual_memory' and not context.get('visual_memory'):continue
         if name in {'retract_visual','revise_visual'} and not context.get('visual_correction_candidates'):continue
         if name=="inspect_view" and not context.get("inspection_enabled"):continue
+        if name in {'set_robot_pose','set_robot_joints'} and not context.get('robot_pose_enabled'):continue
         if name=='animate_lights':
             if not context.get('led_enabled'): continue
             definition['parameters']['properties']['pattern']['enum'] = context['led_patterns']
@@ -248,7 +257,10 @@ def validate(name, args):
         value = args[key]
         if value is None and isinstance(spec["type"], list) and "null" in spec["type"]:
             continue
-        if name=='revise_visual' and key=='revisions':
+        if name=='set_robot_joints' and key=='positions':
+            from .servo_poses import joint_targets
+            joint_targets(value)
+        elif name=='revise_visual' and key=='revisions':
             if not isinstance(value,list) or not 1<=len(value)<=32:
                 raise ValueError('InvalidVisualRevisions')
             ids=[]

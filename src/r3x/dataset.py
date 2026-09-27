@@ -47,7 +47,7 @@ class CaptureRecorder:
         if pcm:
             self.input_pcm.extend(pcm)
             self.input_frames.append({'offset_seconds':offset/32000,'started_at':frame.started_at,
-                'ended_at':frame.ended_at,'pcm_bytes':len(pcm),'echo_risk':frame.echo_risk})
+                'ended_at':frame.ended_at,'pcm_bytes':len(pcm),'echo_risk':frame.echo_risk,'motion_risk':frame.motion_risk})
         if len(self.input_pcm)>=30*32000:return self.close()
         return None
 
@@ -73,7 +73,7 @@ class CaptureRecorder:
         item = {"id":capture.capture_id,"file":path.name,"sha256":hashlib.sha256(path.read_bytes()).hexdigest(),
                 "session":capture.session_id,"device":capture.device,"condition":"unlabeled",
                 "split":"unreviewed","segments":[],"resolvable":None,"overlap":None,
-                "capture_evidence":{"echo_risk":capture.echo_risk,"truncated":capture.truncated,
+                "capture_evidence":{"motion_risk":capture.motion_risk,"echo_risk":capture.echo_risk,"truncated":capture.truncated,
                     "voiced_intervals":capture.voiced_intervals,"started_at":capture.started_at}}
         with (self.root/"unreviewed.jsonl").open("a") as handle:
             handle.write(json.dumps(item)+"\n")

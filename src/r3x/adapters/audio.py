@@ -87,7 +87,7 @@ class Microphone:
             # callback/GIL delay must not become a false gap in captured PCM.
             began = timing.inputBufferAdcTime + self.clock_offset
             frame = Frame(selected_pcm(data, self.channels, self.settings.input_gain), began, began + count / 16000,
-                          self.motion_risk() or (not self.settings.echo_isolated and self.echo_risk()))
+                          not self.settings.echo_isolated and self.echo_risk(), self.motion_risk())
             try:
                 self.frames.put_nowait(frame)
             except Full:
@@ -106,6 +106,12 @@ class Microphone:
                 selected_channel=0, gain=self.settings.input_gain,
                 hardware_aec=self.settings.microphone_mode == 'respeaker-flex',
                 playback_suppression=not self.settings.echo_isolated)
+
+    def discard_pending(self):
+        """Listening begins after startup speech; never replay its queued PCM."""
+        while True:
+            try: self.frames.get_nowait()
+            except Empty: break
 
     def read(self):
         if self.stopped.is_set():
@@ -130,6 +136,7 @@ class Microphone:
 class SileroVAD:
     def __init__(self, threshold: float):
         self.threshold = threshold
+        self.last_probability = None
         self.model = None
         self.capability = Capability("vad", "silero-vad", "speech endpoint detection",
                                      "Silero 6.2.1", ("silero-vad", "torch", "torchaudio", "numpy"), ("CPU",))
@@ -153,7 +160,8 @@ class SileroVAD:
             raise ProviderFailure("VADNotStarted")
         audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768
         with torch.inference_mode():
-            return self.model(torch.from_numpy(audio), 16000).item() >= self.threshold
+            self.last_probability = self.model(torch.from_numpy(audio), 16000).item()
+            return self.last_probability >= self.threshold
 
     def reset(self):
         if self.model:

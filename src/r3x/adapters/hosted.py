@@ -393,6 +393,14 @@ class OpenAIBrain(HTTPProvider):
                     'user-supplied details/corrections may use edit_object_memory. No extra inspection.')
         if snapshot.context.get('visual_novelty'):
             notes.append('\nUse visual_novelty to distinguish stored observations, selected-but-unheard remarks and actual heard remarks. A new conversational angle should connect to the people or their current activity; rewording an inventory is still repetition. An unmentioned detail need not become speech. Corrections revise old interpretations rather than proving the scene changed.')
+        if snapshot.context.get('robot_pose_enabled'):
+            notes.append('\nRobot motion: You can physically move all eleven servos using set_robot_pose or set_robot_joints. '
+                'Use head_left/head_right/head_center for head turns; do not substitute a camera inspection. '
+                'robot_pose_state.held_parts reports controller holds that persist across turns and speech. '
+                'An explicit request to resume normal motion, stop holding a pose, or relax after a pose requires '
+                'set_robot_pose with pose release_poses. Execute the tool even when phrased as permission ("you can resume now"). '
+                'Never claim movement resumed using ordinary prose alone. The tool may include a short acknowledgment '
+                'in text, which is spoken only after execution succeeds. Other physical pose requests likewise require the tool.')
         if snapshot.context.get('action_continuity'):
             notes.append('\nAction continuity records the purpose and separate execution/speech outcomes of earlier work. Follow the current conversation. Do not finish an abandoned answer merely because a capture or gesture succeeded. A new explicit request can choose a fresh action; old work never resumes on its own.')
         if snapshot.context.get('scene_description') and not snapshot.context.get('visual_arrival',{}).get('startup_greeting'):

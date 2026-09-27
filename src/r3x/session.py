@@ -253,7 +253,12 @@ class Session:
                 from .leds import PATTERNS
                 led = self.output.leds
                 context.update(led_enabled=led.state=='ready',led_version=led.version,
-                    led_patterns=[p for p in PATTERNS if p!='compliment' or 'chest' in led.ports])
+                    led_patterns=[p for p in PATTERNS if (p!='compliment' or 'chest' in led.ports) and (p!='blink' or 'head' in led.ports)])
+            context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and not opportunity and getattr(self.output,'robot',None) and self.output.robot.owner.state=='active')
+            if context['robot_pose_enabled']:
+                held = set(getattr(self.output.robot.owner,'held_channels',()))
+                context['robot_pose_state'] = {'held_parts':
+                    [name for name,channels in (('neck',{0}),('head_lift',{1}),('head_tilt',{2}),('visor',{3}),('hero_elbow',{4}),('hero_wrist',{5}),('poker_arm',{6}),('hero_arm',{7}),('throttle_arm',{8,9,10})) if held.intersection(channels)]}
             scene_images = opportunity.scene_images if opportunity and any(c['kind']=='scene' for c in context.get('observations',[])) else ()
             if self.state and not self.state.frozen:
                 from . import visual_memory
@@ -350,7 +355,7 @@ class Session:
                 call = calls[0]
                 if context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
                     raise ProviderFailure('StartupGreetingRequiresSpeech')
-                self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=call.arguments)
+                self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=dict(call.arguments))
                 with self._lock:
                     cancel.check()
                     if call.arguments.get('intent_update') is not None or call.name == 'respond_with_intent':
@@ -378,7 +383,16 @@ class Session:
                         inspection_request = self.state.propose_inspection(call,context,cancel)
                         from .contracts import ToolResult
                         result = ToolResult(inspection_request.request_id,'ok','InspectionProposed',self.state.store.revision)
+                    elif call.name in {'set_robot_pose','set_robot_joints'}:
+                        pose = self.state.propose_pose(call,context,cancel)
+                        from .contracts import ToolResult
+                        result = ToolResult(call.call_id,'ok','PoseProposed',self.state.store.revision)
                     elif call.name == 'animate_lights':
+                        if isinstance(call.arguments.get('text'), str) and not call.arguments['text'].strip():
+                            call.arguments['text'] = None
+                        if call.arguments.get('text') is None or call.arguments.get('pattern') in {'compliment','blink'}:
+                            call.arguments['timing'] = 'before_speech'
+                        self.trace.emit('light_request_prepared',turn_id=turn_id,arguments=dict(call.arguments))
                         light_request = self.state.propose_lights(call,context,cancel)
                         from .contracts import ToolResult
                         result = ToolResult(light_request.request_id,'ok','LEDProposed',self.state.store.revision)
@@ -420,7 +434,7 @@ class Session:
                         self.state.actions.begin(result.request_id,call.name,call.arguments.get('question') or call.arguments.get('purpose') or call.arguments.get('text'),turn_id,audience(context),self.trace.clock())
                         action_started=True
                         self.trace.emit('action_started',turn_id=turn_id,request_id=result.request_id,kind=call.name)
-                self.trace.emit("tool_validated" if call.name in {"shift_attention","respond_with_gesture","inspect_view","animate_lights"} else "tool_executed",
+                self.trace.emit("tool_validated" if call.name in {"shift_attention","respond_with_gesture","inspect_view","animate_lights","set_robot_pose","set_robot_joints"} else "tool_executed",
                                 turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
                 if (result.outcome=='ok' and call.name=='conversation_feedback' and
                     result.data['action']=='floor_resolved' and not self.state.initiative.floor_held(self.trace.clock())):
@@ -498,6 +512,21 @@ class Session:
                         else:
                             delivery.status,delivery.medium='suppressed','none'
                     self.history.append({'role':'developer','content':'Inspection result (see medium and motion status): '+json.dumps(data)})
+                elif result.outcome=='ok' and call.name in {'set_robot_pose','set_robot_joints'}:
+                    from dataclasses import asdict
+                    expected_revision = result.revision
+                    previous_guard = cancel.guard
+                    cancel.guard = lambda: (previous_guard is None or previous_guard()) and not self.state.frozen and self.state.store.revision==expected_revision
+                    receipt = self.output.execute_pose(pose,cancel,turn_id+':'+call.call_id)
+                    self.trace.emit('robot_pose_result',turn_id=turn_id,pose=pose,**asdict(receipt))
+                    self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps({'pose':pose,**asdict(receipt)})})
+                    cancel.check()
+                    if receipt.status != 'pulses_reached':
+                        put_phrase(phrases,"I couldn't complete that movement.",cancel)
+                    elif call.arguments['text'] is not None:
+                        put_phrase(phrases,call.arguments['text'],cancel)
+                    else:
+                        delivery.status,delivery.medium='suppressed','none'
                 elif result.outcome=='ok' and call.name=='animate_lights':
                     from .leds import LightPerformance
                     expected_revision = result.revision

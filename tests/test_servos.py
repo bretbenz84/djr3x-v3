@@ -180,14 +180,72 @@ class ServoTests(unittest.TestCase):
             self.assertEqual(self.execute('park').reason, 'ServoBusy')
         self.assertEqual(self.port.targets, [])
 
-    def test_talking_requires_wake_and_keeps_hero_arm_fixed(self):
+    def test_talking_requires_wake_and_keeps_microphone_axis_fixed(self):
         self.owner.start()
         self.assertEqual(self.execute('talking').status, 'rejected')
         self.execute()
         self.port.packets.clear()
         self.assertEqual(self.execute('talking').status, 'pulses_reached')
         self.assertTrue(any(p[0]==0x9F for p in self.port.targets))
-        self.assertFalse(any(p[:2]==bytes((0x84,7)) for p in self.port.targets))
+        channels = {p[1] for p in self.port.targets if p[0]==0x84}
+        self.assertTrue({0,1,2,3,4,5} <= channels)
+        self.assertNotIn(7,channels)
+
+    def test_head_elbow_and_wrist_repeat_without_waiting_for_throttle_lane(self):
+        self.owner.start()
+        self.execute()
+        self.port.packets.clear()
+        result = self.execute('talking')
+        self.assertEqual(result.status,'pulses_reached')
+        self.assertEqual(result.completed_lanes,(0,1,2,3,4,5))
+        def targets(ch):
+            return [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,ch))]
+        self.assertGreater(len(targets(0)),3)
+        self.assertGreater(len(targets(3)),4)
+        self.assertEqual(set(targets(3)),{6000,6200,6520,6640})
+        self.assertEqual(set(targets(2)),{4200,4320,4440})
+        self.assertGreater(len(targets(4)),2)
+        self.assertGreater(len(targets(5)),2)
+        self.assertGreater(len(set(targets(0))),1)
+        self.assertEqual(set(targets(4)),{7100,6740})
+        self.assertEqual(set(targets(5)),{7120,4880})
+
+    def test_repeating_lanes_drain_sent_targets_before_success(self):
+        self.owner.start()
+        self.execute()
+        pending = {}
+        original_write,original_read = self.port.write,self.port.read
+        def delayed_write(packet):
+            previous = dict(self.port.pose)
+            result = original_write(packet)
+            if packet[0] in (0x84,0x9F):
+                channels = (packet[1],) if packet[0]==0x84 else range(packet[2],packet[2]+packet[1])
+                for ch in channels:
+                    pending[ch] = [self.port.pose[ch],20 if ch==5 else 3]
+                    self.port.pose[ch] = previous[ch]
+            return result
+        def delayed_read(count):
+            ch = self.port.channel
+            if ch in pending:
+                pending[ch][1] -= 1
+                if pending[ch][1]<=0:
+                    self.port.pose[ch] = pending.pop(ch)[0]
+            return original_read(count)
+        self.port.write,self.port.read = delayed_write,delayed_read
+        self.assertEqual(self.execute('talking').status,'pulses_reached')
+        self.assertEqual(pending,{})
+
+    def test_talking_head_offsets_clamp_at_calibrated_limits(self):
+        from r3x.servo_poses import talking_lanes,LIMITS
+        current = {**self.port.pose,**dict(REST)}
+        for endpoint in (0,1):
+            anchor = {ch:LIMITS[ch][endpoint] for ch in (0,1,2)}
+            lanes = talking_lanes(current,anchor)
+            for lane in lanes[:2]:
+                for beat in lane:
+                    for ch,value in beat.targets:
+                        self.assertLessEqual(LIMITS[ch][0],value)
+                        self.assertLessEqual(value,LIMITS[ch][1])
 
     def test_talking_worker_stops_before_park_and_never_resumes(self):
         self.owner.start()
@@ -231,14 +289,19 @@ class ServoTests(unittest.TestCase):
             self.port.on_target = token.event.set
             result = self.owner.execute(self.request('talking'),token)
             self.assertEqual(result.status,'cancelled')
-            self.assertEqual(self.port.pose[1],3780)
+            self.assertEqual(self.port.pose[1],3760)
+            self.assertEqual(self.port.pose[0],5732)
 
     def test_production_output_drives_real_executor_with_synthetic_port(self):
         self.owner.start()
         self.execute()
         self.port.packets.clear()
         moved = threading.Event()
-        self.port.on_target = moved.set
+        def observe():
+            channels = {p[1] for p in self.port.targets if p[0]==0x84}
+            if {0,1,2,3,4,5} <= channels:
+                moved.set()
+        self.port.on_target = observe
         motion = TalkingMotion(self.owner)
         case = self
         class TTS:

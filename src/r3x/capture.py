@@ -12,6 +12,7 @@ class Frame:
     started_at: float
     ended_at: float
     echo_risk: bool = False
+    motion_risk: bool = False
 
 
 class Endpoint:
@@ -58,9 +59,13 @@ class Endpoint:
 
     def finish(self, truncated=False):
         result = None
-        if self.frames and self.voiced >= .16:
+        # VAD has already admitted speech. Short commands may have only one or
+        # two confident frames among unvoiced consonants; a second duration gate
+        # silently loses them before ASR can examine the complete buffered PCM.
+        if self.frames and self.voiced > 0:
             result = Capture(uuid4().hex, self.session_id, b"".join(f.pcm for f in self.frames),
                              self.frames[0].started_at, self.last_speech, self.frames[-1].ended_at,
+                             motion_risk=any(f.motion_risk for f in self.frames),
                              echo_risk=any(f.echo_risk for f in self.frames), truncated=truncated,
                              voiced_intervals=tuple((a-self.frames[0].started_at,b-self.frames[0].started_at) for a,b in self.intervals))
         self.reset()

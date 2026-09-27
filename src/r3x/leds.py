@@ -13,7 +13,7 @@ from .providers import Capability
 
 COLORS = {'neutral':(0,180,255), 'happy':(0,255,100), 'excited':(255,200,0),
           'sad':(0,50,200), 'angry':(255,0,0), 'curious':(180,0,255)}
-PATTERNS = (*COLORS, 'compliment')
+PATTERNS = (*COLORS, 'compliment', 'blink')
 
 
 @dataclass(frozen=True)
@@ -63,6 +63,7 @@ class LEDs:
         self.stop_event = threading.Event()
         self.worker = None
         self.fade_at = None
+        self.eye_color = (255,200,0)
         self.trace = None
 
     def _send(self, zone, command):
@@ -141,10 +142,40 @@ class LEDs:
                     self.trace.emit('led_fault',reason=type(exc).__name__)
                 return
 
+    def blink(self, request, cancel, valid):
+        with self.lock:
+            if self.state!='ready' or 'head' not in self.devices: raise ProviderFailure('HeadLEDUnavailable')
+            if request.pattern!='blink' or request.version!=self.version or self.clock()>=request.expires_at:
+                raise ProviderFailure('StaleLEDRequest')
+            cancel.check()
+            if not valid(): raise ProviderFailure('StaleLEDRequest')
+            self.version += 1
+            token = self.version
+            restore = 'EYE:'+','.join(map(str,self.eye_color))
+        try:
+            for _ in range(3):
+                for command,seconds in (('EYE:0,0,0',.15),(restore,.2)):
+                    with self.lock:
+                        cancel.check()
+                        if not valid() or self.state!='ready' or token!=self.version or self.clock()>=request.expires_at:
+                            raise ProviderFailure('StaleLEDRequest')
+                        self._send('head',command)
+                    deadline=self.clock()+seconds
+                    while self.clock()<deadline:
+                        cancel.check()
+                        self.wait(min(.025,deadline-self.clock()))
+            return 'commands_sent'
+        finally:
+            with self.lock:
+                # Restore an interrupted blink, but never override shutdown/new work.
+                if self.state=='ready' and token==self.version:
+                    self._send('head',restore)
+                    self.version += 1
+
     def begin(self, pattern='neutral', *, speaking=False, request=None):
         with self.lock:
             if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
-            if pattern not in PATTERNS: raise ProviderFailure('UnknownLEDPattern')
+            if pattern not in PATTERNS or pattern=='blink': raise ProviderFailure('UnknownLEDPattern')
             if pattern=='compliment' and 'chest' not in self.devices:
                 raise ProviderFailure('ChestLEDUnavailable')
             if request and (request.version!=self.version or self.clock()>=request.expires_at):
@@ -153,7 +184,8 @@ class LEDs:
             self.speaking,self.demo = speaking,not speaking
             self.last_level,self.last_sent = -1,float('-inf')
             emotion = 'happy' if pattern=='compliment' else pattern
-            self._send('head','EYE:'+','.join(map(str,COLORS[emotion])))
+            self.eye_color = COLORS[emotion]
+            self._send('head','EYE:'+','.join(map(str,self.eye_color)))
             self._send('head','SPEAK:'+emotion)
             self._send('chest','COMPLIMENT' if pattern=='compliment' else 'SPEAK:'+emotion)
             return self.version

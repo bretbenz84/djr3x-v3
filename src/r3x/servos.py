@@ -5,6 +5,7 @@ must have exclusive ownership and bounded I/O. No automatic reconnect or replay.
 """
 from dataclasses import dataclass
 import math
+import random
 import threading
 import time
 from typing import Callable
@@ -13,7 +14,7 @@ from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles,
-                          talking_lanes, throttle_clear, validate_pose)
+                          talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, NAMED_POSES)
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class ServoRequest:
     kind: str
     expires_at: float
     first_look: str = 'left'
+    pose: str | dict[int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -43,17 +45,19 @@ class ServoOwner:
                             shutdown='cancel; explicit park request; close (never implicit motion)')
 
     def __init__(self, open_port: Callable[[], Port], *, medium: str,
-                 clock=time.monotonic, wait=None):
+                 clock=time.monotonic, wait=None, rng=None):
         if medium not in {'simulation', 'controller'}:
             raise ValueError('InvalidServoMedium')
         self.open_port, self.medium, self.clock = open_port, medium, clock
+        self.rng = rng or random.Random()
         self._cancel = threading.Event()
         self.wait = wait or self._cancel.wait
         self._lock = threading.Lock()
         self._bus: Maestro | None = None
         self.state = 'new'
         self.version = 0
-        self._talking_lift_origin: int | None = None
+        self.held_channels = set()
+        self._talking_head_origin: dict[int, int] | None = None
         self._motion = threading.Event()
         self.motion_until = 0.
         self.microphone_hold = (0., 0.)
@@ -92,13 +96,13 @@ class ServoOwner:
     def refresh_microphone_hold(self):
         """Bounded 30-second lease, centered before any qualifying robot capture.
 
-        No other live pose targets channel 7. All execution invalidates the hold;
-        talking/park wins the lock and prevents collection until a new hold settles.
+        Idle excursions can target channel 7 and invalidate the hold. Motion wins
+        the lock; learning waits for recentering and a new settled hold.
         """
         if self.clock() < self.microphone_hold[1] or not self._lock.acquire(blocking=False):
             return
         try:
-            if self.state != 'active' or not self._bus or self.motion_risk():
+            if self.state != 'active' or not self._bus or self.motion_risk() or 7 in self.held_channels:
                 return
             center = sum(LIMITS[7]) // 2
             current = self._bus.positions((7,))[7]
@@ -151,17 +155,21 @@ class ServoOwner:
             if (request.version != self.version or not request.request_id or
                     not math.isfinite(request.expires_at) or self.clock() >= request.expires_at):
                 return receipt('rejected', 'StaleServoRequest')
-            if request.kind == 'talking' and self.state != 'active':
-                return receipt('rejected', 'TalkingRequiresCompletedStartup')
+            if request.kind in {'talking','idle','pose'} and self.state != 'active':
+                return receipt('rejected', {'idle':'IdleRequiresCompletedStartup','talking':'TalkingRequiresCompletedStartup','pose':'PoseRequiresCompletedStartup'}[request.kind])
             if request.kind == 'startup' and self.state != 'ready':
                 return receipt('rejected', 'StartupAlreadyConsumed')
             self._cancel.clear()
             cancel.check()
             current = self._bus.positions(LIMITS)
             validate_pose(current)
-            lanes = (talking_lanes(current, self._talking_lift_origin) if request.kind == 'talking' else
+            lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels) if request.kind == 'talking' else
+                     idle_lanes(current,self.rng,self.held_channels) if request.kind == 'idle' else
+                     pose_lanes(request.pose,current) if request.kind == 'pose' else
                      lifecycle_lanes(request.kind, current, request.first_look))
             self.version += 1
+            if request.kind == 'pose' and request.pose != 'release_poses':
+                self.held_channels.update(ch for lane in lanes for beat in lane for ch, _ in beat.targets)
             accepted = True
             self.release_microphone_hold()
             self._motion.set()
@@ -170,7 +178,7 @@ class ServoOwner:
             # Each lane owns disjoint channels. One loop owns every wire operation.
             indices = [0] * len(lanes)
             active = {}
-            while len(completed) < len(lanes):
+            while len(completed) < len(lanes) or active:
                 cancel.check()
                 if self._cancel.is_set():
                     raise Cancelled()
@@ -179,7 +187,8 @@ class ServoOwner:
                     raise ProviderFailure('ServoRequestExpired')
                 for lane_id, lane in enumerate(lanes):
                     if lane_id in completed:
-                        continue
+                        if request.kind != 'talking' or (len(completed)==len(lanes) and lane_id not in active):
+                            continue
                     if lane_id not in active:
                         beat = lane[indices[lane_id]]
                         targets = dict(beat.targets)
@@ -208,11 +217,13 @@ class ServoOwner:
                             del active[lane_id]
                             if indices[lane_id] == len(lane):
                                 completed.add(lane_id)
+                                if request.kind == 'talking':
+                                    indices[lane_id] = 0  # Fast lanes repeat while slower ones finish.
                     else:
                         active[lane_id][1] = None
                         if self.clock() >= deadline:
                             raise ProviderFailure('ServoArrivalTimeout')
-                if len(completed) < len(lanes):
+                if len(completed) < len(lanes) or active:
                     self.wait(.025)
             cancel.check()
             if self._cancel.is_set():
@@ -220,14 +231,16 @@ class ServoOwner:
             if self.clock() >= request.expires_at:
                 raise ProviderFailure('ServoRequestExpired')
             self.state = 'parked' if request.kind in {'park', 'shutdown'} else 'active'
+            if request.kind == 'pose' and request.pose == 'release_poses':
+                self.held_channels.clear()
             if request.kind == 'startup':
-                self._talking_lift_origin = self._bus.positions((1,))[1]
+                self._talking_head_origin = self._bus.positions((0,1,2))
             return receipt('pulses_reached')
         except (Cancelled, KeyboardInterrupt):
             if accepted:
                 try:
                     self._hold(touched)
-                    self.state = 'active' if request.kind == 'talking' else 'stopped'
+                    self.state = 'active' if request.kind in {'talking','idle','pose'} else 'stopped'
                 except Exception:
                     self.state = 'faulted'
                     return receipt('failed', 'ServoCancelHoldFailed')
@@ -273,8 +286,10 @@ class TalkingMotion:
         self._thread = None
         self._token = None
         self.result = None
+        self.before_start = lambda: None
 
     def start(self, turn_id: str, cancel: Cancellation) -> None:
+        self.before_start()
         if self._thread is not None:
             raise ProviderFailure('TalkingMotionAlreadyActive')
         def valid():

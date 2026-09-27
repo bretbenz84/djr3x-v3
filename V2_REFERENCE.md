@@ -1,5 +1,75 @@
 # V2 reference and extraction map
 
+## Idle arms and elbow wake/rest — September 25, 2026
+
+User-authorized expansion: restore random awake hero/poker arm motion and add elbow
+wake/shutdown movement. Re-inspected `_idle_arm_wander_targets`, `arm_wander_thread`,
+arm ranges, elbow neutral/rest and the current enabled hero-wander setting. V2 HEAD
+remains `663fee5ef4dd050b56b5ffda1e8e529284171c37`, with the previously recorded dirty
+working tree and authorized supervisor changes. No V2 file changed in this slice.
+`sequences/animations.py` SHA-256 remains
+`e5451f2883fbe9be329c10073b4e16f82698eb94d2ffb54989fe4692596432de`; `config.py` remains
+`38853dc4b15a9aa4f1cf1f874ca54c97bde85057ce0c71acc49c8ba95e53a9c8`.
+
+Preserve 4–9 second idle scheduling, broad hero and quieter poker excursions, opposite
+side bias from offset poses, and elbow neutral 6720/rest 6300. V3 submits one bounded
+idle request to the sole servo executor and stops/joins it before speech or shutdown.
+It does not copy V2's forever-running independent servo writers or global flags.
+V2's current config explicitly enables hero wander despite an older microphone caveat;
+V3 permits the requested motion but keeps its microphone/direction evidence guards,
+returns channel 7 to center, and reacquires a settled hold before learning. No extra
+dependencies or settings. Six new fake-pulse/clock tests bring V3 to 561 passing
+blocked-I/O checks. Live clearance, movement feel, listening gaps, enrollment coverage
+and added runtime cost remain unmeasured; no hardware was operated for this change.
+
+## Speaking visor addition — September 25, 2026
+
+The user requested visor/headtilt expression while retaining the new neck turns.
+Reused the existing recorded `hardware/servos.py` speech visor behavior and
+`config.py` `VISOR_SPEECH_FLOOR_QUS=6000` (same revision/digests below). V3 adds a
+bounded, independently repeating channel-3 lane from 6000 to 6640; existing slow
+channel-2 sway and neck turns remain. No V2 changes, dependencies or configuration
+switches. Strengthened existing tests require all channels 0–5 during production
+playback, visor range/repetition, headtilt range, cancellation and pulse drain.
+555 blocked-I/O checks pass; physical timing/visibility and visor camera occlusion
+remain live validation, with no hardware operated for this change.
+
+## Lifecycle pace adjustment — September 25, 2026
+
+Rechecked V2 `sequences/animations.py` startup/shutdown at the recorded revision and
+dirty-tree status below (source digest remains
+`e5451f2883fbe9be329c10073b4e16f82698eb94d2ffb54989fe4692596432de`). V2's stepped
+`move_to` target stream adds pacing beyond its Maestro caps. Following the owner's
+live report that V3 moved too fast, the V3 head lifecycle caps are reduced to speed
+12 / acceleration 3 for startup lift/visor/neck and shutdown/park droop. No additional
+dependencies, V2 edits, new workers or settings. Existing synthetic lifecycle checks
+cover profiles/arrival/cancellation; physical speed and V2 timing parity remain for
+live retest. See [pace adjustment](docs/SERVO_INTEGRATION.md#lifecycle-pace-adjustment-after-live-feedback).
+
+## Talking-motion repair from live feedback — September 25, 2026
+
+Re-inspected active `hardware/servos.py` (`begin_speech_motion` and
+`speech_reactive_move`) plus relevant `config.py` ranges/profiles at the same V2
+HEAD `663fee5ef4dd050b56b5ffda1e8e529284171c37`. Source SHA-256 values remain
+`20437af716ed2cc22a6787dcb0e985188c52a7625245a788e453afebdb1c5bd9` and
+`38853dc4b15a9aa4f1cf1f874ca54c97bde85057ce0c71acc49c8ba95e53a9c8`, respectively.
+The tree remains dirty as recorded below, additionally retaining the authorized
+supervisor handoff changes and two new files; no V2 file changed in this repair.
+
+The original V3 extraction omitted the hero-arm elbow/wrist and neck motion, and
+its small headlift beat stalled behind the throttle cycle. Preserve V2's normal
+head/arm movement ranges and profiles through explicit independent lanes in the
+single V3 servo executor. Head anchors stay stable across cancelled phrases; the
+microphone-bearing channel 7 remains fixed. No extra dependencies, V2 mood/global
+state, random per-frame writes or separate motion workers were imported. Visor,
+poker-arm and amplitude-driven styling remain outside this specific correction.
+
+555 blocked-I/O V3 checks pass, with three new delayed-pulse/repetition/bounds
+contracts and strengthened production playback/channel coverage. The user's live
+trace shows a running talking worker, not visible joint arrival. Live retesting of
+the repaired movement, microphone contamination, clearances and latency remains
+pending; see [servo evidence](docs/SERVO_INTEGRATION.md).
+
 ## Cooperative supervisor handoff — September 25, 2026
 
 The user explicitly requested that manual V3 launches make the V2 supervisor yield,
@@ -684,3 +754,47 @@ The active supervisor launches headless despite older GUI wording in its documen
 No code/dependencies were extracted and no installed services or hardware were
 changed. [Requirements and future acceptance](docs/OPERATOR_TOOLS_MIGRATION.md)
 are a prerequisite for physical hardware integration, not an implemented feature.
+
+## September 25: named throttle poses and explicit eye blink extraction
+
+Source HEAD `663fee5ef4dd050b56b5ffda1e8e529284171c37`; inspected working tree,
+not a clean-HEAD assumption. `sequences/throttle_arm.py` and
+`hardware/throttle_motion.py` are modified. SHA-256 respectively:
+`5de60a4fffae3e097d0b60547ab1ea33590bff93a4a82548a898bbc4db3e075b`,
+`dac2c35a31bc2589cbc87d5e76e270b6f410a1c1aaf890a60273116be8a6bfa0`.
+`arduino/head_nano/head_nano.ino` is unmodified, SHA-256
+`72a946e432a475c1ffbd15f28d7036f555fe42367068001b7da394972cae3aa6`.
+Other existing dirty V2 files include config, supervisor/handoff, throttle tests
+and documentation; none changed for this extraction.
+
+Preserve offer (2176/2601/5938), high-five (2176/9361/6302), rest and full-down
+calibration, plus existing eye-color commands. Adapt to V3's semantic proposal,
+output reservation and sole servo/LED owners. Named holds suppress only affected
+speaking lanes; release restores ordinary motion. Clearance uses validated bridges
+rather than the V2 coordinated direct high-five exception. Blink is three bounded
+host eye-color cycles with cancellation/shutdown precedence. No V2 runtime import,
+new dependency, firmware flash, copied interaction router or global state.
+
+Focused contracts and full 573-check blocked-I/O suite cover route combinations,
+held poses, release, rejected/cancelled/failed movement, truthful acknowledgment,
+three blinks and shutdown, and the related motion-vs-echo capture fix. All evidence
+is synthetic; live mechanical clearance, blink rendering, model tool choice and
+microphone/ASR accuracy remain to be commissioned.
+
+## September 25: throttle idle follow-up
+
+Source remains HEAD `663fee5ef4dd050b56b5ffda1e8e529284171c37` with modified
+`sequences/throttle_arm.py` and `config.py`. Inspected working-tree SHA-256:
+`5de60a4fffae3e097d0b60547ab1ea33590bff93a4a82548a898bbc4db3e075b`
+and `38853dc4b15a9aa4f1cf1f874ca54c97bde85057ce0c71acc49c8ba95e53a9c8`.
+No V2 files were changed. Preserve five idle poses (including rest), non-repeating
+selection, 2.3–3.3-second target duration and idle speed/acceleration caps
+14/32/36 and 3/6/7, scaled by the already extracted throttle pace.
+
+V3 adds a throttle lane to its existing idle scheduler rather than a separate
+controller thread: completed motion is followed by its shared 4–9-second quiet
+delay. Full three-joint batches and clearance checks remain in the sole owner;
+held throttle poses exclude this lane until release. No new dependency/settings.
+Synthetic contracts cover varying poses, pulse limits, held-arm exclusion, release,
+speech preemption and park. Live motion feel/clearance and idle cadence remain
+unverified for this change; 588 blocked-I/O checks pass including spoken exit.

@@ -12,7 +12,31 @@ LIMITS = MappingProxyType({
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
     8: (2176, 9088), 9: (2048, 9984), 10: (2048, 9984),
 })
+JOINTS = {
+    'neck': 0, 'head_lift': 1, 'head_tilt': 2, 'visor': 3,
+    'hero_elbow': 4, 'hero_wrist': 5, 'poker_arm': 6, 'hero_arm': 7,
+    'throttle_shoulder': 8, 'throttle_elbow': 9, 'throttle_wrist': 10,
+}
 THROTTLE = (8, 9, 10)
+
+
+def joint_targets(positions):
+    """Map bounded model percentages into calibrated pulses, without wire access."""
+    import math
+    if not isinstance(positions, dict) or set(positions) != set(JOINTS):
+        raise ValueError('InvalidJointFields')
+    targets = {}
+    for name, value in positions.items():
+        if value is None:
+            continue
+        if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 100:
+            raise ValueError('InvalidJointPosition')
+        channel = JOINTS[name]
+        low, high = LIMITS[channel]
+        targets[channel] = round(low + (high-low)*value/100)
+    if not targets:
+        raise ValueError('EmptyJointRequest')
+    return targets
 PARK = ((8, 9088), (9, 9984), (10, 2048))
 TUCK = ((8, 6544), (9, 8400), (10, 2048))
 REST = ((8, 4200), (9, 7720), (10, 5120))
@@ -61,6 +85,7 @@ class Beat:
     acceleration: int = 8
     dwell: float = 0.
     throttle_duration: float | None = None
+    throttle_idle: bool = False
 
 
 def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left') -> tuple[tuple[Beat, ...], ...]:
@@ -77,17 +102,19 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
                   ((8, RAISED), (9, 8400), (10, 2048)))
     if kind == 'startup':
         first, second = (4000, 8000) if first_look == 'left' else (8000, 4000)
-        head = (Beat(((1, 3600), (2, 4320), (3, 6400)), speed=30),)
-        neck = (Beat(((0, first),), speed=28, dwell=.3),
-                Beat(((0, second),), speed=28, dwell=.3),
-                Beat(((0, 5472),), speed=28, dwell=.2))
+        # Slower lifecycle glide: V2 also paced intermediate targets in software.
+        # Direct V3 targets need lower Maestro speed/acceleration caps.
+        head = (Beat(((1, 3600), (2, 4320), (3, 6400), (4, 6720)), speed=12, acceleration=3),)
+        neck = (Beat(((0, first),), speed=12, acceleration=3, dwell=.3),
+                Beat(((0, second),), speed=12, acceleration=3, dwell=.3),
+                Beat(((0, 5472),), speed=12, acceleration=3, dwell=.2))
         throttle = bridge + (TUCK, ((8, 4800), (9, 8000), (10, 3800)),
                              ((8, 3680), (9, 8720), (10, 5920)), REST)
         lanes = (head, neck, tuple(Beat(p, throttle_duration=1.25) for p in throttle))
     else:
         # V2's coordinated head/visor/elbow droop, alongside tuck then park.
         # Decorative channels 5–7 keep their current pose, as in V2 shutdown.
-        lanes = ((Beat(HEAD_PARK, speed=70, acceleration=14, dwell=.8),),
+        lanes = ((Beat(HEAD_PARK, speed=12, acceleration=3, dwell=.8),),
                  tuple(Beat(p, throttle_duration=1.5) for p in bridge + (TUCK, PARK)))
     # Reject an unsafe route BEFORE any lane begins to move.
     for lane in lanes:
@@ -105,10 +132,12 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
     target = dict(beat.targets)
     if beat.throttle_duration is None:
         return {ch: (beat.speed, beat.acceleration) for ch in target}
-    # V2's current working-tree pace, applied both to caps and proportional travel.
-    pace = {8: 1.375, 9: 1.76, 10: 2.2}
-    speed = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (26, 60, 65))}
-    accel = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (5, 10, 12))}
+    # Retain V2 shoulder/elbow pacing. Halve throttle-wrist pacing to reduce
+    # mechanical noise across idle, speech, requested poses and lifecycle moves.
+    # Scale both caps and proportional travel, including acceleration.
+    pace = {8: 1.375, 9: 1.76, 10: 1.1}
+    speed = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (14,32,36) if beat.throttle_idle else (26,60,65))}
+    accel = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (3,6,7) if beat.throttle_idle else (5,10,12))}
     distance = {ch: abs(target[ch] - current[ch]) for ch in THROTTLE if target[ch] != current[ch]}
     if not distance:
         return {ch: (speed[ch], accel[ch]) for ch in THROTTLE}
@@ -121,19 +150,113 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
     return {ch: result.get(ch, (speed[ch], accel[ch])) for ch in THROTTLE}
 
 
-def talking_lanes(current: dict[int, int], lift_origin: int | None = None) -> tuple[tuple[Beat, ...], ...]:
-    """Phrase-scale motion; no emotion inference and no microphone-arm movement."""
+def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = None, held=frozenset()) -> tuple[tuple[Beat, ...], ...]:
+    """Independent speech lanes around stable head anchors, not interrupted poses.
+
+    V2's neck/lift ranges and head/arm profiles, with smooth bounded beats instead
+    of random per-frame reversals. Talking leaves microphone-hold channel 7 fixed.
+    """
     targets = (((8, 3360), (9, 8560), (10, 7920)),
                ((8, 4000), (9, 7800), (10, 3800)))
+    if set(THROTTLE).intersection(held):
+        targets = ()
     previous = current
     for pose in targets:
         if not throttle_clear(previous, dict(pose)):
             raise ValueError('TalkingRouteOutsideClearance')
         previous = dict(pose)
-    # Small headlift emphasis. Heavy headtilt is deliberately not oscillated.
-    # Visor and gaze remain where the lifecycle/attention owner put them.
-    origin = current[1] if lift_origin is None else lift_origin
-    lift = min(LIMITS[1][1], origin + 180)
-    return ((Beat(((1, lift),), speed=30, dwell=.25),
-             Beat(((1, origin),), speed=30, dwell=.5)),
-            tuple(Beat(p, dwell=1., throttle_duration=1.7) for p in targets))
+    origin = current if head_origin is None else head_origin
+    def offset(ch, amount):
+        return max(LIMITS[ch][0], min(LIMITS[ch][1], origin[ch]+amount))
+    head = tuple(Beat(((0,offset(0,neck)),(1,offset(1,lift))),
+                     speed=45,acceleration=8,dwell=.25)
+                 for neck,lift in ((260,160),(-260,-160),(0,0)))
+    # The thin headtilt linkage gets a slower, modest sway, never jitter.
+    tilt = tuple(Beat(((2,offset(2,amount)),),speed=20,acceleration=6,dwell=.6)
+                 for amount in (120,-120,0))
+    # V2's speech floor permits visible expression instead of pinning the visor
+    # at neutral. Keep it in the upper part of calibrated travel while speaking.
+    visor = tuple(Beat(((3,target),),speed=45,acceleration=8,dwell=.15)
+                  for target in (6520,6000,6640,6200))
+    # V2 neutral-expression elbow/wrist range, with independent pacing. These
+    # are channels 4/5, not channel 7 (the microphone-bearing hero-arm axis).
+    elbow = tuple(Beat(((4,target),),speed=35,acceleration=8,dwell=.35)
+                  for target in (7100,6740))
+    wrist = tuple(Beat(((5,target),),speed=35,acceleration=8,dwell=.25)
+                  for target in (7120,4880))
+    lanes = (head,tilt,visor,elbow,wrist,
+             tuple(Beat(p,dwell=1.,throttle_duration=1.7) for p in targets))
+    lanes = tuple(lane for lane in lanes if lane and not set(dict(lane[0].targets)).intersection(held))
+    for lane in lanes:
+        for beat in lane:
+            validate_pose(dict(beat.targets))
+    return lanes
+
+
+def idle_lanes(current: dict[int, int], rng, held=frozenset()) -> tuple[tuple[Beat, ...], ...]:
+    """V2 arm wander ranges; return the microphone axis before listening settles."""
+    def target(ch, center, amplitude, minimum):
+        direction = (-1 if current[ch]>=center+minimum else
+                     1 if current[ch]<=center-minimum else rng.choice((-1,1)))
+        return max(LIMITS[ch][0], min(LIMITS[ch][1],
+            center+direction*rng.randint(*amplitude)))
+    hero = target(7,5984,(1300,2000),900)
+    poker = target(6,6000,(800,1500),550)
+    lanes = ((Beat(((7,hero),),speed=16,acceleration=4,dwell=.6),
+             Beat(((7,5984),),speed=16,acceleration=4)),
+            (Beat(((6,poker),),speed=35,acceleration=6),))
+    if not set(THROTTLE).intersection(held):
+        choices = (((8,4400),(9,7480),(10,4760)),
+                   ((8,3920),(9,8080),(10,5600)),
+                   ((8,4080),(9,7840),(10,4920)),
+                   ((8,4480),(9,7640),(10,5360)),REST)
+        target = rng.choice([p for p in choices if any(abs(current[ch]-v)>2 for ch,v in p)])
+        route = (() if throttle_clear(current,dict(target)) else pose_lanes('throttle_rest',current)[0])
+        previous = dict(route[-1].targets) if route else current
+        if not throttle_clear(previous,dict(target)): raise ValueError('IdleRouteOutsideClearance')
+        lanes += (route+(Beat(target,throttle_duration=rng.uniform(2.3,3.3),throttle_idle=True),),)
+    return tuple(lane for lane in lanes if not set(dict(lane[0].targets)).intersection(held))
+
+
+NAMED_POSES = {
+    'head_left': ((0,4000),), 'head_right': ((0,8000),), 'head_center': ((0,5472),),
+    'visor_down': ((3,4544),), 'visor_up': ((3,6400),),
+    'throttle_offer': ((8,2176),(9,2601),(10,5938)),
+    'throttle_high_five': ((8,2176),(9,9361),(10,6302)),
+    'throttle_down': FULL_DOWN, 'throttle_rest': REST,
+}
+POSE_COMMANDS = (*NAMED_POSES, 'release_poses')
+
+
+def pose_lanes(name, current):
+    if isinstance(name, dict):
+        target = dict(name)
+        if set(target).intersection(THROTTLE):
+            target = {**{ch: current[ch] for ch in THROTTLE}, **target}
+        validate_pose(target)
+    elif name == 'release_poses':
+        # Resume from rest, so the next speech loop has a valid clearance route.
+        target = dict(REST)
+    else:
+        if name not in NAMED_POSES: raise ValueError('UnknownRobotPose')
+        target = dict(NAMED_POSES[name])
+    if not set(target).intersection(THROTTLE):
+        return ((Beat(tuple(target.items()),speed=20,acceleration=5),),)
+    other = {ch: value for ch, value in target.items() if ch not in THROTTLE}
+    target = {ch: target[ch] for ch in THROTTLE}
+    start = {ch:current[ch] for ch in THROTTLE}
+    stages = [target]
+    if not throttle_clear(start,target):
+        if full_down_corridor(start):
+            stages = [{8:RAISED,9:5589,10:9511}, {8:RAISED,9:8400,10:2048},target]
+        elif full_down_corridor(target):
+            stages = [{**start,8:RAISED},{**target,8:RAISED},target]
+        else:
+            stages = [dict(REST),target]
+    previous = start
+    for stage in stages:
+        validate_pose(stage)
+        if not throttle_clear(previous,stage): raise ValueError('ThrottleRouteOutsideClearance')
+        previous = stage
+    lanes = (tuple(Beat(tuple(stage.items()),throttle_duration=1.7) for stage in stages),)
+    return lanes + (((Beat(tuple(other.items()), speed=20, acceleration=5),),) if other else ())
