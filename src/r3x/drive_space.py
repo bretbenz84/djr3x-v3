@@ -15,10 +15,17 @@ ARMS = (('front-left arm', 45., .73), ('back-left arm', 135., .73))  # V2 eyebal
 SWING_MARGIN = .10
 SWING_PAD = 20.
 MIN_TURN = 10.
-HALF_FOV = 25.          # V2 MOTION_COME_CAM_HALF_FOV_DEG for the head camera.
+# Wide-angle head camera at the robot's 1920x1080 capture. Measured September 27:
+# an IMU-verified 20 degree base turn moved a face 22.5% of the frame width
+# (about 44 degrees per half frame), and face range then matched the owner's
+# 4-5 ft estimate. V2's 25 degrees came from a commanded turn that overshoots.
+HALF_FOV = 45.
+NECK_CENTER = 5472
+NECK_PULSES_PER_DEG = (5472 - 1984) / 45.  # V2 owner: neck sweeps about 90 degrees in total.
 FACE_WIDTH = .16
 MATRIX_CLEAR = 3.5
 FRONT_MARGIN = .35      # Host stop short of a front return; firmware still stops at its zone.
+PERSON_MARGIN = .22     # Approaching a person: knees/chair legs may be this close, never closer.
 REAR_MARGIN = .30
 
 
@@ -151,10 +158,14 @@ def allowed_turn(degrees: float, telemetry) -> tuple[float, str | None]:
     return sign * limit, 'turn_shortened: ' + limiter
 
 
-def image_bearing(box) -> float:
-    """Camera bearing, +left, valid only with the neck centered on the base."""
+def image_bearing(box, neck_deg: float = 0.) -> float:
+    """Base-relative bearing, +left: camera angle plus the neck's current angle."""
     x, _, w, _ = box
-    return (.5 - (x + w/2)) * 2 * HALF_FOV
+    return (.5 - (x + w/2)) * 2 * HALF_FOV + neck_deg
+
+
+def neck_degrees(pulse) -> float:
+    return (NECK_CENTER - pulse) / NECK_PULSES_PER_DEG   # head_left is the low pulse.
 
 
 def face_range(box) -> float | None:

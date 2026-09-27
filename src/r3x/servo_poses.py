@@ -150,7 +150,8 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
     return {ch: result.get(ch, (speed[ch], accel[ch])) for ch in THROTTLE}
 
 
-def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = None, held=frozenset()) -> tuple[tuple[Beat, ...], ...]:
+def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = None, held=frozenset(),
+                  neck: int | None = None) -> tuple[tuple[Beat, ...], ...]:
     """Independent speech lanes around stable head anchors, not interrupted poses.
 
     V2's neck/lift ranges and head/arm profiles, with smooth bounded beats instead
@@ -165,12 +166,14 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
         if not throttle_clear(previous, dict(pose)):
             raise ValueError('TalkingRouteOutsideClearance')
         previous = dict(pose)
-    origin = current if head_origin is None else head_origin
+    origin = dict(current if head_origin is None else head_origin)
+    if neck is not None:
+        origin[0] = max(LIMITS[0][0], min(LIMITS[0][1], int(neck)))
     def offset(ch, amount):
         return max(LIMITS[ch][0], min(LIMITS[ch][1], origin[ch]+amount))
     head = tuple(Beat(((0,offset(0,neck)),(1,offset(1,lift))),
                      speed=45,acceleration=8,dwell=.25)
-                 for neck,lift in ((260,160),(-260,-160),(0,0)))
+                 for neck,lift in ((520,160),(-520,-160),(0,0)))  # About +/-7 degrees; V2's 260 barely read.
     # The thin headtilt linkage gets a slower, modest sway, never jitter.
     tilt = tuple(Beat(((2,offset(2,amount)),),speed=20,acceleration=6,dwell=.6)
                  for amount in (120,-120,0))

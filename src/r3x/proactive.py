@@ -32,7 +32,7 @@ class OpportunityCancellation(Cancellation):
         self.valid = valid
 
     def check(self):
-        if not self.valid(): self.event.set()
+        if not (self.committed and self.committed()) and not self.valid(): self.event.set()
         super().check()
 
 

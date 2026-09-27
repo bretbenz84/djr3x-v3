@@ -190,7 +190,8 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
         self.assertTrue(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
 
-    def test_human_speech_after_first_audio_still_interrupts(self):
+    def test_audible_proactive_speech_finishes_through_human_speech(self):
+        # Owner rule, September 27: only an explicit stop cuts off audible speech.
         self.setup_core();self.turn();self.visible(108)
         session=self.session
         class InterruptingSink(SyntheticSink):
@@ -202,8 +203,22 @@ class InitiativeCoreTests(MemoryFixture):
                 return super().play(chunks,cancel,started)
         self.session.output=OutputOwner(SyntheticTTS(),InterruptingSink(),self.trace)
         self.runtime.proactive_tick()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
+        self.assertTrue(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
+
+    def test_explicit_stop_still_cuts_off_audible_speech(self):
+        self.setup_core();self.turn();self.visible(108)
+        session=self.session
+        class StoppingSink(SyntheticSink):
+            def play(self,chunks,cancel,on_start):
+                def started(at):
+                    on_start(at)
+                    session.cancel()
+                    cancel.check()
+                return super().play(chunks,cancel,started)
+        self.session.output=OutputOwner(SyntheticTTS(),StoppingSink(),self.trace)
+        self.runtime.proactive_tick()
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
-        self.assertFalse(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
 
     def test_queue_race_invalidates_opportunity_before_generation(self):
         self.setup_core();self.turn();self.visible(108)
@@ -499,7 +514,7 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
         self.assertFalse(any(r['event']=='playback_started' for r in self.trace.rows))
 
-    def test_targeted_proactive_question_still_cancels_on_face_change_during_audio(self):
+    def test_audible_targeted_question_finishes_through_face_change(self):
         self.setup_core();self.turn();self.visible(108)
         self.session.brain=Brain(ToolCall('question','ask_face_question',
             {'face_track_id':'visitor','text':'What should I call you?'}))
@@ -514,5 +529,4 @@ class InitiativeCoreTests(MemoryFixture):
                 return super().play(chunks,cancel,started)
         self.session.output=OutputOwner(SyntheticTTS(),ChurningSink(),self.trace)
         self.runtime.proactive_tick()
-        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
-        self.assertIsNone(self.state.pending)
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')

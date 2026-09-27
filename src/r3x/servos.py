@@ -64,6 +64,8 @@ class ServoOwner:
         self.motion_until = 0.
         self.microphone_hold = (0., 0.)
         self.on_motion = lambda: None
+        self.commanded: dict[int, int] = {}   # Last pulses sent or read back; camera bearings use the neck.
+        self.talking_neck: int | None = None  # Gaze anchor for the current reply's talking lanes.
 
     def start(self) -> None:
         with self._lock:
@@ -73,7 +75,9 @@ class ServoOwner:
             try:
                 self._bus = Maestro(self.open_port())
                 # Read-only startup. Zero/partial readback cannot locate a cold joint.
-                validate_pose(self._bus.positions(LIMITS))
+                readback = self._bus.positions(LIMITS)
+                validate_pose(readback)
+                self.commanded = dict(readback)
                 self.state = 'ready'
             except Exception:
                 self.state = 'faulted'
@@ -84,6 +88,10 @@ class ServoOwner:
     def cancel(self) -> None:
         self._cancel.set()
         self.release_microphone_hold()
+
+    def neck_degrees(self) -> float:
+        from .drive_space import neck_degrees
+        return neck_degrees(self.commanded.get(0, 5472))
 
     def motion_risk(self) -> bool:
         return self._motion.is_set() or self.clock() < self.motion_until
@@ -114,6 +122,7 @@ class ServoOwner:
                 self.on_motion()
                 self._bus.profiles({7:(22,6)})
                 self._bus.targets({7:center})
+                self.commanded[7] = center
                 deadline = self.clock() + 5.
                 while abs(self._bus.positions((7,))[7]-center)>2:
                     if self._cancel.is_set() or self.clock() >= deadline:
@@ -165,7 +174,7 @@ class ServoOwner:
             cancel.check()
             current = self._bus.positions(LIMITS)
             validate_pose(current)
-            lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels) if request.kind == 'talking' else
+            lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels, self.talking_neck) if request.kind == 'talking' else
                      idle_lanes(current,self.rng,self.held_channels) if request.kind == 'idle' else
                      pose_lanes(request.pose,current) if request.kind == 'pose' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
@@ -210,6 +219,7 @@ class ServoOwner:
                             raise ProviderFailure('ServoRequestExpired')
                         touched.update(targets)  # Include partially sent batches on failure.
                         self._bus.targets(targets)
+                        self.commanded.update(targets)
                         active[lane_id] = [now + 25., None]
                     beat = lane[indices[lane_id]]
                     deadline, arrived = active[lane_id]
@@ -281,6 +291,7 @@ class ServoOwner:
             pose = self._bus.positions(sorted(channels))
             validate_pose(pose)
             self._bus.targets(pose)
+            self.commanded.update(pose)
 
 
 class TalkingMotion:
@@ -295,6 +306,7 @@ class TalkingMotion:
         self._token = None
         self.result = None
         self.before_start = lambda: None
+        self.gaze = None   # callable -> neck pulse toward the addressee, or None
 
     def start(self, turn_id: str, cancel: Cancellation) -> None:
         self.before_start()
@@ -305,6 +317,11 @@ class TalkingMotion:
             return True
         self._token = Cancellation(guard=valid)
         self.result = None
+        try:
+            # Look toward the person being answered; talking sway centres there.
+            self.owner.talking_neck = self.gaze() if self.gaze else None
+        except Exception:
+            self.owner.talking_neck = None
         def run():
             index = 0
             while not self._token.event.is_set():

@@ -443,9 +443,11 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(move_allowance(-.5, space), (0., 'rear_clearance_unknown'))
         self.assertEqual(allowed_turn(45., {}), (0., 'turn_clearance_unknown'))
 
-    def test_camera_bearing_and_face_range(self):
-        self.assertAlmostEqual(image_bearing([.0, .3, .2, .2]), 20.)
-        self.assertAlmostEqual(face_range([.4, .3, .1718, .2]), 1., places=1)
+    def test_wide_angle_camera_bearing_range_and_neck_offset(self):
+        # September 27 calibration: a 20 degree turn moved a face 22.5% of the frame.
+        self.assertAlmostEqual(image_bearing([.275, .3, .0, .0]) - image_bearing([.5, .3, .0, .0]), 20.25)
+        self.assertAlmostEqual(image_bearing([.4, .3, .2, .2], neck_deg=15.), 15.)
+        self.assertAlmostEqual(face_range([.468, .3, .064, .1]), 1.25, places=2)   # The owner's 4-5 ft.
         self.assertIsNone(face_range([.4, .3, 0, .2]))
 
     def test_radar_bodies_need_persistence_and_merge_seams(self):

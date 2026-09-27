@@ -16,9 +16,12 @@ class ProviderFailure(Exception):
 class Cancellation:
     event: Event = field(default_factory=Event)
     guard: Callable[[], bool] | None = field(default=None, repr=False)
+    # Once true (speech audible), freshness guards no longer cancel; only an
+    # explicit event (stop command, shutdown, output failure) does.
+    committed: Callable[[], bool] | None = field(default=None, repr=False)
 
     def check(self) -> None:
-        if self.guard is not None and not self.guard():
+        if self.guard is not None and not (self.committed and self.committed()) and not self.guard():
             self.event.set()
         if self.event.is_set():
             raise Cancelled()

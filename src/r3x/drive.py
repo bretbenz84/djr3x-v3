@@ -15,7 +15,7 @@ from uuid import uuid4
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .drive_space import (allowed_turn, clearance, describe_bearing, face_range, image_bearing,
-                          move_allowance, radar_bodies, wrap, FRONT_MARGIN)
+                          move_allowance, radar_bodies, wrap, FRONT_MARGIN, PERSON_MARGIN)
 from .providers import Capability
 
 # Owner-approved first-test limits (September 27): 0.25 m/s, 1.5 m/step, 3 m/plan.
@@ -26,7 +26,8 @@ LIMITS = {
 ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person')
 TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns used 40.
 CORRECTION_RATE = 20.
-DEFAULT_STOP_AT = {'face': 1.0, 'nearest_person': 1.0, 'object': .6, 'radar_body': 1.2, 'voice_direction': 1.2}
+# Owner feedback September 27: stopping 4-5 ft away was too far.
+DEFAULT_STOP_AT = {'face': .8, 'nearest_person': .8, 'object': .6, 'radar_body': .9, 'voice_direction': .9}
 # Pushed at every connect; config can only lower firmware hard caps.
 CONFIG = {'max_lin': .25, 'max_ang': round(math.radians(60), 3), 'accel_lin': .35, 'accel_ang': 2.,
           'stop_zone_m': .15, 'slow_zone_m': .6, 'default_turn_rate': TURN_RATE,
@@ -162,10 +163,9 @@ class Approach:
             return 0., 0., ('blocked' if now - self.block_since >= 5 else None), 'front obstacle; holding'
         self.block_since = None
         brake = speed_now*speed_now/(2*self.accel) + speed_now*.3
-        radial = [v for v in (space.get('front_left_m'), space.get('front_right_m')) if v is not None]
-        budget = front - FRONT_MARGIN
-        if self.kind == 'face' and radial:
-            budget = min(budget, min(radial) - self.stop_at - .10)
+        # Front sensors see knees and chair legs, not the face: they bound collision
+        # only. Personal distance comes from the calibrated face range below.
+        budget = front - (PERSON_MARGIN if self.kind == 'face' else FRONT_MARGIN)
         if budget <= max(.03, brake):
             self.front_near_since = self.front_near_since or now
             if now - self.front_near_since >= .6 and speed_now <= .08:
@@ -372,6 +372,13 @@ class DriveBase:
         theta = (telemetry.get('odom') or {}).get('theta')
         return math.degrees(float(theta)) if isinstance(theta, (int, float)) else None
 
+    def _neck(self):
+        """Current neck angle; plans centre the neck before resolving camera targets."""
+        try:
+            return self.servos.owner.neck_degrees() if self.servos is not None else 0.
+        except Exception:
+            return 0.
+
     def _fresh_faces(self, now):
         from .faces import VISIBLE_FACE_MAX_AGE
         if self.faces is None:
@@ -394,7 +401,7 @@ class DriveBase:
             blocked = clear - FRONT_MARGIN < (distance - 1. if distance else 1.)
             return {'clear_to_m': round(clear, 1), 'direct_approach': 'blocked_early' if blocked else 'clear'}
         for face in faces:
-            bearing = image_bearing(face['box'])
+            bearing = image_bearing(face['box'], self._neck())
             rng = face_range(face['box'])
             targets.append({'target_id': face['track_id'], 'kind': 'face', 'person_id': face.get('identity'),
                             'bearing_deg': round(bearing), 'where': describe_bearing(bearing),
@@ -403,7 +410,7 @@ class DriveBase:
             targets.append({'target_id': 'nearest_person', 'kind': 'nearest_person',
                             'where': 'largest visible face, resolved when the step runs'})
         for row in (self.objects() if self.objects else ())[:8]:
-            bearing = image_bearing(row['box'])
+            bearing = image_bearing(row['box'], self._neck())
             targets.append({'target_id': row['target_id'], 'kind': 'object', 'label': row['label'],
                             'bearing_deg': round(bearing), 'where': describe_bearing(bearing), 'path': path(bearing)})
         bodies = self.radar.bodies() if self.radar else None
@@ -568,7 +575,7 @@ class DriveBase:
                     match = faces[0]  # Track IDs change as the view rotates; one face is unambiguous.
             if match is None:
                 return None
-            return {'kind': 'face', 'bearing_deg': image_bearing(match['box']), 'range_m': face_range(match['box']),
+            return {'kind': 'face', 'bearing_deg': image_bearing(match['box'], self._neck()), 'range_m': face_range(match['box']),
                     'box_width': match['box'][2], 'track_id': match['track_id'], 'person_id': match.get('identity')}
         if kind == 'object':
             rows = list(self.objects() if self.objects else ())
@@ -578,7 +585,7 @@ class DriveBase:
                 match = same[0] if len(same) == 1 else None
             if match is None:
                 return None
-            return {'kind': 'object', 'bearing_deg': image_bearing(match['box']), 'range_m': None,
+            return {'kind': 'object', 'bearing_deg': image_bearing(match['box'], self._neck()), 'range_m': None,
                     'box_width': match['box'][2], 'label': match['label']}
         if kind == 'radar_body':
             bodies = (self.radar.bodies() if self.radar else None) or []
@@ -630,7 +637,7 @@ class DriveBase:
             turned = facing.get('turned_deg', 0.)
             if facing['status'] != 'completed':
                 return {**row, **{k: v for k, v in facing.items() if k not in {'action', 'target'}}, 'travelled_m': 0.}
-            ahead = [f for f in self._fresh_faces(self.clock()) if abs(image_bearing(f['box'])) <= 20]
+            ahead = [f for f in self._fresh_faces(self.clock()) if abs(image_bearing(f['box'], self._neck())) <= 20]
             if ahead:
                 step = DriveStep('approach', target=max(ahead, key=lambda f: f['box'][2])['track_id'], stop_at_m=stop_at)
                 plan = DrivePlan(plan.request_id, plan.steps, plan.origin, plan.purpose,
@@ -675,8 +682,10 @@ class DriveBase:
             self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
             self.link.send({'cmd': 'stop'})
         final = self._resolve(step.target, plan, self.clock())
+        space = self.space()
         return {**row, 'status': result, 'reason': reason, 'travelled_m': round(controller.travel, 2),
                 'turned_deg': turned, 'stop_at_m': stop_at,
+                'clearance_at_stop_m': {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()},
                 'final_approx_range_m': round(final['range_m'], 1) if final and final.get('range_m') else None}
 
     def _find_person(self, step, plan, cancel):

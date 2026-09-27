@@ -290,7 +290,7 @@ class ServoTests(unittest.TestCase):
             result = self.owner.execute(self.request('talking'),token)
             self.assertEqual(result.status,'cancelled')
             self.assertEqual(self.port.pose[1],3760)
-            self.assertEqual(self.port.pose[0],5732)
+            self.assertEqual(self.port.pose[0],5992)
 
     def test_production_output_drives_real_executor_with_synthetic_port(self):
         self.owner.start()

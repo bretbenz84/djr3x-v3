@@ -9,6 +9,9 @@ from .speakers import VoiceObservation
 from .history import TurnHistory
 from .output import Delivery, OutputOwner, Phrases, put_phrase
 
+# Syntax-only emergency controls; the only way to cut off audible speech.
+STOP_COMMANDS = frozenset({"stop","cancel","stop rex","rex stop","shut up","shut up rex","rex shut up","stop talking","stop talking rex","rex stop talking","be quiet","rex be quiet","be quiet rex","quiet","hush"})
+
 
 class Session:
     def __init__(self, session_id: str, brain: Brain | None, output: OutputOwner, trace, state=None):
@@ -18,6 +21,7 @@ class Session:
         self._lock = threading.RLock()
         self._processing = threading.Lock()
         self._cancel: Cancellation | None = None
+        self._delivery = None
         self._opportunity_guard = None
         self._proactive_delivery = None
         self._audience_bound_output = False
@@ -57,14 +61,16 @@ class Session:
             if self.state and ended_at > self._latest_speech:
                 self.state.initiative.lull_retry_until = float('-inf')
             self._latest_speech = max(self._latest_speech, ended_at)
-            if self._cancel and ended_at > self._capture_end and not self._cancel.event.is_set():
+            audible = self._delivery is not None and self._delivery.first_audio_at is not None
+            if self._cancel and ended_at > self._capture_end and not self._cancel.event.is_set() and not audible:
                 self._cancel.event.set()
                 self.trace.emit("reply_yielded", reason="user_resumed_speaking")
 
     def check_opportunity(self):
         cancel_output = False
         with self._lock:
-            if self._opportunity_guard and self._cancel and not self._cancel.event.is_set() and not self._opportunity_guard():
+            audible = self._proactive_delivery is not None and self._proactive_delivery.first_audio_at is not None
+            if self._opportunity_guard and self._cancel and not self._cancel.event.is_set() and not audible and not self._opportunity_guard():
                 self._cancel.event.set()
                 cancel_output = True
         if cancel_output: self.output.cancel()
@@ -104,6 +110,8 @@ class Session:
         began = self.trace.clock()
         from .proactive import OpportunityCancellation
         cancel = OpportunityCancellation(still_valid) if opportunity else Cancellation()
+        # Owner rule: audible speech finishes unless explicitly stopped.
+        cancel.committed = lambda: delivery.first_audio_at is not None
         source_session = opportunity.session_id if opportunity else capture.session_id
         source_id = opportunity.event_id if opportunity else capture.capture_id
         source_end = opportunity.at if opportunity else capture.ended_at
@@ -163,6 +171,7 @@ class Session:
                     delivery.status = "rejected"
                     return delivery
                 self._cancel = cancel
+                self._delivery = delivery
                 self._opportunity_guard = still_valid if opportunity else None
                 self._proactive_delivery = delivery if opportunity else None
                 self._audience_bound_output = False
@@ -190,7 +199,7 @@ class Session:
                                 reason="echo_risk" if capture.echo_risk else "empty_transcript")
                 return delivery
             # Syntax-only emergency control. No names/facts are parsed in Python.
-            if not opportunity and transcript.trusted and transcript.text.strip().lower().rstrip(".!?") in {"stop", "cancel", "stop rex", "rex stop"}:
+            if not opportunity and transcript.trusted and transcript.text.strip().lower().rstrip(".!?").replace(',','') in STOP_COMMANDS:
                 self.cancel()
                 delivery.status = "interrupted"
                 return delivery
@@ -890,6 +899,7 @@ class Session:
                         self.trace.emit('action_finished',turn_id=turn_id,**outcome)
             with self._lock:
                 self._cancel = None
+                self._delivery = None
                 self._opportunity_guard = None
                 self._proactive_delivery = None
                 self._audience_bound_output = False

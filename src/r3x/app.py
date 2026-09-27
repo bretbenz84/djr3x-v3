@@ -259,6 +259,17 @@ class App:
                     state.photo_memory.start()
                 perception = Perception(asr,encoder,trace,camera,direction)
                 session = Session(session_id, brain, output, trace, state=state)
+                if self.robot and camera:
+                    from .gaze import addressee_neck
+                    from .faces import VISIBLE_FACE_MAX_AGE
+                    def gaze():
+                        now = trace.clock()
+                        faces = [f for f in camera.latest(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
+                        current = state.current
+                        speaker = current[4].person_id if current else None
+                        direction = getattr(current[3], 'direction', None) if current else None
+                        return addressee_neck(faces, self.robot.owner.neck_degrees(), speaker, direction)
+                    self.robot.talking.gaze = gaze
                 planner = next((p for p in optional if p.capability.name=='route_planner'),None)
                 if planner and output.drive and 'route_planner' in active:
                     planner.trace = trace

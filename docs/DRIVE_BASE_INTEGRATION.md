@@ -165,3 +165,28 @@ M2 load and social welcome of self-initiated motion are unmeasured. There is no 
 localization, cliff sensing or obstacle memory; the geometry constants are V2 estimates.
 The V2 battery menu app keeps its port only while V3 is off; V3 battery/base menus remain
 future work. Room exploration and no-drive rooms are not implemented.
+
+## First floor run and repairs — September 27
+
+The owner ran the robot: moves, turns and approaches executed. Findings and changes:
+
+- **Wide-angle camera.** An IMU-verified 20° turn moved a face 22.5% of the frame, so
+  the head camera sees about ±45°, not V2's ±25°. Distances had been read as 3 m instead
+  of about 1.25 m and bearings roughly halved. `HALF_FOV` is now 45°; camera bearings
+  add the current neck angle.
+- **Stopped 4–5 ft away.** The approach also enforced personal distance from the front
+  ToF sensors, which saw a seated person's knees or chair, not the face. Person
+  approaches now use the calibrated face range, a 0.22 m obstacle gap and a 0.8 m
+  default stop; each approach receipt records clearance where it stopped.
+- **Clipped "You can come here".** The 256 ms pre-speech buffer missed onsets the
+  detector recognized late: 8 of 41 recent captures began at speech level. It is 1 s.
+- **Cut-off speech.** Owner rule: audible speech finishes unless explicitly stopped.
+  Freshness guards (audience, observation, store revision) and resumed speech no longer
+  cancel once audio starts; "stop", "shut up", "stop talking", "be quiet" and similar are
+  the explicit stops. Echo gating still hides speech during playback, so a mid-sentence
+  spoken stop works only with isolated audio.
+- **Little head motion.** Talking now anchors the neck toward the addressee (attributed
+  speaker's face, else the microphone-array bearing, else the largest face, at most 40°)
+  and sways about ±7° (V2's ±3.4° barely read). V2's idle head wander is not restored.
+- **Microphone direction** gave a bearing on 3 of 8 turns; short commands often have too
+  few loud samples, and it then reports unavailable rather than guessing.
