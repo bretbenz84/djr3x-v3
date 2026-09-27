@@ -205,8 +205,11 @@ class AudienceRecoveryTests(MemoryFixture):
                     ChangedSink() if during_audio else SyntheticSink(),self.trace)
                 runtime.proactive_tick()
                 self.assertEqual(self.session.brain.calls,1)
-                self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
-                self.assertFalse(self.store.rows('SELECT * FROM memory_followup_delivery'))
+                # Before audio a newcomer still withholds the private memory. Once audible,
+                # the owner's September 27 rule lets the sentence finish.
+                self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed' if during_audio else 'interrupted')
+                if not during_audio:
+                    self.assertFalse(self.store.rows('SELECT * FROM memory_followup_delivery'))
                 self.assertEqual(self.state.initiative.lull_retry_used,not during_audio)
                 self.state.initiative.forget();self.state.initiative.attempts.clear()
 

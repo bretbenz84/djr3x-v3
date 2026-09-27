@@ -118,15 +118,15 @@ class PerformanceTests(MemoryFixture):
         self.assertEqual(result.status,'completed')
         self.assertEqual(result.gestures[0]['reason'],'GestureEvidenceStale')
 
-    def test_new_speech_at_audio_completion_preserves_receipt_and_cancels_gesture(self):
+    def test_new_speech_after_audible_reply_does_not_cancel_it(self):
+        # Owner rule, September 27: audible speech finishes unless explicitly stopped.
         owner=self
         class InterruptedSink(SyntheticSink):
             def play(self,*args,**kwargs):
                 receipt=super().play(*args,**kwargs);owner.session.note_speech(101);return receipt
         self.setup_session(sink=InterruptedSink());result=self.turn()
-        self.assertEqual(result.status,'interrupted')
+        self.assertEqual(result.status,'completed')
         self.assertTrue(result.completed_text)
-        self.assertEqual(result.gestures[0]['status'],'cancelled')
 
     def test_visual_target_loss_during_speech_skips_gesture(self):
         from r3x.attention_scene import AttentionFrame,VisualTarget
@@ -144,13 +144,12 @@ class PerformanceTests(MemoryFixture):
         self.assertEqual(result.status,'completed')
         self.assertEqual(result.gestures[0]['reason'],'GestureEvidenceStale')
 
-    def test_proactive_guard_change_after_audio_cancels_the_gesture(self):
+    def test_proactive_guard_change_after_audio_does_not_cut_the_reply(self):
         valid=[True]
         class ChangedSink(SyntheticSink):
             def play(self,*args,**kwargs):
                 receipt=super().play(*args,**kwargs);valid[0]=False;return receipt
         self.setup_session(sink=ChangedSink())
         result=self.session.process_opportunity(replace(event(),kind="ambient",target_track=None),0,lambda:valid[0])
-        self.assertEqual(result.status,'interrupted')
+        self.assertEqual(result.status,'completed')
         self.assertTrue(result.completed_text)
-        self.assertEqual(result.gestures[0]['status'],'cancelled')

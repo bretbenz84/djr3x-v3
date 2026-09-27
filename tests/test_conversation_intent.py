@@ -433,7 +433,7 @@ class ConversationIntentTests(MemoryFixture):
         self.assertEqual(result.status,'completed')
         self.assertTrue(result.completed_text)
 
-    def test_targeted_intent_question_still_cancels_if_audience_leaves_during_audio(self):
+    def test_audible_targeted_question_finishes_if_audience_leaves(self):
         self.greet();current=[face(110)]
         class DisappearingSink(SyntheticSink):
             def play(self,chunks,cancel,on_start):
@@ -444,5 +444,4 @@ class ConversationIntentTests(MemoryFixture):
         self.session.brain=IntentBrain(lambda c:ToolCall('ask','ask_face_question',dict(
             text='What should I call you?',face_track_id='face',intent_update=proposal(c))))
         result=self.human('Hello again.',latest_faces=lambda now:current)
-        self.assertEqual(result.status,'interrupted')
-        self.assertIsNone(self.state.pending)
+        self.assertEqual(result.status,'completed')
