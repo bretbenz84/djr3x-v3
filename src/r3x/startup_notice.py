@@ -7,7 +7,7 @@ from .output import Delivery
 
 HARDWARE = {'camera':'camera', 'capture':'microphone', 'playback':'audio output',
             'direction':'microphone direction sensor', 'robot_servos':'servo controller',
-            'robot_leds':'LED controllers'}
+            'robot_leds':'LED controllers', 'drive_base':'wheel controller', 'radar':'radar ring'}
 
 
 def notice_text(settings, results, *, failed=False):

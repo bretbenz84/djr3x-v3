@@ -401,6 +401,16 @@ class OpenAIBrain(HTTPProvider):
                 'set_robot_pose with pose release_poses. Execute the tool even when phrased as permission ("you can resume now"). '
                 'Never claim movement resumed using ordinary prose alone. The tool may include a short acknowledgment '
                 'in text, which is spoken only after execution succeeds. Other physical pose requests likewise require the tool.')
+        if snapshot.context.get('drive') and not snapshot.continuation:
+            notes.append('\nWheeled base: you can drive with drive_base. Moving is part of how you express yourself. '
+                'When it genuinely adds something, roll toward someone who just arrived, turn to face a voice from outside '
+                'your camera view, or go get a closer look at what is being discussed. Do not move on every turn; keep '
+                'self-initiated moves short, and stay put when anyone asked you to stay, be still or stop moving. '
+                'Explicit movement requests always use drive_base, with stacked requests as ordered steps. Compute turns '
+                'from drive.targets bearings. If the direct path is blocked, plan a route around it from drive.clearance_m '
+                '(for example turn, move, then face the target) or say you cannot; never invent clearance. If drive.available '
+                'is false, explain drive.unavailable_reason in character. Never claim you moved, arrived or saw something '
+                'before the drive receipt.')
         if snapshot.context.get('action_continuity'):
             notes.append('\nAction continuity records the purpose and separate execution/speech outcomes of earlier work. Follow the current conversation. Do not finish an abandoned answer merely because a capture or gesture succeeded. A new explicit request can choose a fresh action; old work never resumes on its own.')
         if snapshot.context.get('scene_description') and not snapshot.context.get('visual_arrival',{}).get('startup_greeting'):
@@ -543,3 +553,64 @@ class ElevenLabsTTS(HTTPProvider):
             raise
         except Exception as exc:
             raise ProviderFailure("ElevenLabs" + type(exc).__name__) from None
+
+
+ROUTE_PLANNER = """You plan short routes for Rex, a small differential-drive droid: body about 0.55 m wide, arms on its left side, no map.
+You know only current clearance by direction and target bearings (positive = left). The straight path to the goal target is
+blocked early by an obstacle. Return one drive_base call whose steps go around the obstacle through the most open direction,
+then face or approach the goal target. Turns are relative to the heading after previous steps; use direction words with
+positive numbers. Prefer few decisive steps within the limits. If no safe route exists, return a single face step toward the
+target. Only steps are used; purpose, text, speak and look_after are replaced by the conversation's own choice."""
+ROUTE_BUDGET = 20  # Blocked-path escalations per run; afterwards the direct plan runs and reports its block.
+
+
+class OpenAIRoutePlanner(HTTPProvider):
+    """Rare, bounded route planning for blocked paths; never speaks or talks to people.
+
+    Measured September 27: gpt-5.4-mini (low and medium reasoning) routed 0/7 blocked
+    synthetic approaches, gpt-5.6-terra 3/3. The conversation model still owns the
+    decision to move; this only replaces the steps of a plan whose direct path is blocked.
+    """
+    reasoning_effort = "low"
+
+    def __init__(self, key: str, model: str = "gpt-5.6-terra"):
+        super().__init__()
+        self.key, self.trace, self.calls = key, None, 0
+        self.capability = Capability("route_planner", "OpenAI Responses", "rare blocked-path drive routes",
+                                     model, ("httpx",), ("network",), required=False)
+
+    def available(self) -> bool:
+        return self.client is not None and self.calls < ROUTE_BUDGET
+
+    def plan(self, request: str | None, draft: dict, drive: dict, cancel: Cancellation):
+        import httpx
+        from ..semantics import grounded_tools
+        if self.client is None:
+            raise ProviderFailure("RoutePlannerNotStarted")
+        self.calls += 1
+        tools = [d for d in grounded_tools({'drive': drive, 'source_turn_id': 'route'}) if d['name'] == 'drive_base']
+        facts = {'request': request, 'draft_plan': draft,
+                 'drive': {k: drive.get(k) for k in ('clearance_m', 'targets', 'limits', 'sensor_notes')}}
+        payload = {'model': self.capability.model, 'instructions': ROUTE_PLANNER, 'store': False,
+                   'input': [{'role': 'user', 'content': json.dumps(facts, ensure_ascii=False)}],
+                   'tools': tools, 'tool_choice': {'type': 'function', 'name': 'drive_base'},
+                   'parallel_tool_calls': False, 'reasoning': {'effort': self.reasoning_effort},
+                   'max_output_tokens': 1500}
+        cancel.check()
+        try:
+            response = self.client.post("https://api.openai.com/v1/responses", json=payload,
+                                        headers={"Authorization": f"Bearer {self.key}"},
+                                        timeout=httpx.Timeout(20, connect=5))
+        except httpx.HTTPError as exc:
+            raise ProviderFailure("OpenAI" + type(exc).__name__)
+        if response.status_code != 200:
+            raise ProviderFailure(f"OpenAIHTTP{response.status_code}")
+        body = response.json()
+        cancel.check()
+        for item in body.get('output', []):
+            if item.get('type') == 'function_call' and item.get('name') == 'drive_base':
+                try:
+                    return json.loads(item['arguments']), body.get('usage', {})
+                except (TypeError, ValueError):
+                    raise ProviderFailure("RoutePlanMalformed")
+        raise ProviderFailure("RoutePlanMissing")

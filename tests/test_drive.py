@@ -1,0 +1,464 @@
+"""Drive-base contracts against a simulated V2 ESP32; no serial port or motor opens."""
+from collections import deque
+import json
+import math
+import threading
+import time
+import unittest
+
+from r3x.contracts import Cancellation, Capture, ToolCall, Transcript
+from r3x.drive import DriveBase, DrivePlan, DriveStep, Flinch, Radar, LIMITS, CONFIG
+from r3x.drive_space import (allowed_turn, clearance, face_range, image_bearing, matrix_sectors,
+                             move_allowance, radar_bodies, FACE_WIDTH, HALF_FOV)
+from r3x.adapters.esp32 import seam_merge
+
+
+class Clock:
+    """Fake monotonic time; waits advance it and yield briefly to reader threads."""
+    def __init__(self):
+        self.now = 100.
+
+    def __call__(self):
+        return self.now
+
+    def wait(self, seconds):
+        self.now += max(0., seconds)
+        time.sleep(.002)
+        return False
+
+
+class FakeBase:
+    """V2 protocol v1 subset: hello, acks, telemetry, tofmx, finite turn/move, drive, stop."""
+    def __init__(self, clock, caps=('drive', 'turn', 'move', 'stop')):
+        self.clock, self.caps = clock, list(caps)
+        self.lock = threading.Lock()
+        self.out = deque()
+        self.commands = []
+        self.x = self.y = self.theta = 0.   # metres, degrees (+left)
+        self.pending = None
+        self.turn_scale = 1.
+        self.block_after = None
+        self.owner, self.state, self.charging, self.fault = 'auto', 'idle', False, None
+        self.tof = {'fl': 3000, 'fr': 3000, 'fl_radial': 3000, 'fr_radial': 3000, 'rl': 2000, 'rr': 2000,
+                    'lf': 1500, 'lb': 1500, 'rf': 1500, 'rb': 1500}
+        self.front = None                   # callable -> metres to a front obstacle, or None
+        self.matrix = True
+        self.closed = False
+        self.last_telemetry = 0.
+
+    def emit(self, **message):
+        self.out.append((json.dumps({'v': 1, **message}) + '\n').encode())
+
+    def write(self, data):
+        for line in data.decode().splitlines():
+            command = json.loads(line)
+            with self.lock:
+                self.handle(command)
+        return len(data)
+
+    def _finish(self, result, fraction=1.):
+        seq, kind, amount = self.pending[:3]
+        if kind == 'turn':
+            self.theta += amount * fraction * self.turn_scale
+        else:
+            travelled = amount * fraction
+            self.x += travelled * math.cos(math.radians(self.theta))
+            self.y += travelled * math.sin(math.radians(self.theta))
+        self.pending = None
+        self.state = 'blocked' if result == 'blocked' else 'idle'
+        self.emit(type='done', seq=seq, result=result, odom=self.odom())
+
+    def handle(self, command):
+        self.commands.append(command)
+        name, seq = command['cmd'], command['seq']
+        if name == 'hello':
+            self.emit(type='hello', proto=1, fw='test', caps=self.caps, boot_id=7)
+        elif name == 'config':
+            self.emit(type='ack', seq=seq, accepted=True, reason=None)
+        elif name in {'turn', 'move'}:
+            if self.owner == 'manual':
+                self.emit(type='ack', seq=seq, accepted=False, reason='manual_override')
+                return
+            self.emit(type='ack', seq=seq, accepted=True, reason=None)
+            if self.pending:
+                self._finish('superseded', self._progress())
+            amount = command['deg'] if name == 'turn' else command['dist']
+            rate = command.get('rate', 45.) if name == 'turn' else command.get('speed', .2)
+            duration = abs(amount) / rate
+            self.pending = (seq, name, amount, self.clock(), duration)
+            self.state = 'moving'
+        elif name == 'stop':
+            self.emit(type='ack', seq=seq, accepted=True, reason=None)
+            if self.pending:
+                self._finish('superseded', self._progress())
+        elif name == 'drive':
+            dt = .15
+            self.theta += math.degrees(command['ang']) * dt
+            self.x += command['lin'] * dt * math.cos(math.radians(self.theta))
+            self.y += command['lin'] * dt * math.sin(math.radians(self.theta))
+            self.linear = command['lin']
+
+    def _progress(self):
+        _, _, _, started, duration = self.pending
+        return min(1., (self.clock() - started) / duration) if duration else 1.
+
+    def _advance(self):
+        if not self.pending:
+            return
+        seq, kind, amount, started, duration = self.pending
+        if kind == 'move' and self.block_after is not None and abs(amount) > self.block_after:
+            if self._progress() >= self.block_after / abs(amount):
+                self._finish('blocked', self.block_after / abs(amount))
+                return
+        if self._progress() >= 1.:
+            self._finish('completed')
+
+    def odom(self):
+        return {'x': round(self.x, 3), 'y': round(self.y, 3), 'theta': math.radians(self.theta),
+                'lin': getattr(self, 'linear', 0.), 'ang': 0.}
+
+    def read(self, size):
+        time.sleep(.0005)
+        with self.lock:
+            self._advance()
+            if time.monotonic() - self.last_telemetry > .002:
+                self.last_telemetry = time.monotonic()
+                tof = dict(self.tof)
+                front = self.front() if self.front else None
+                if front is not None:
+                    mm = int(max(20, front*1000))
+                    tof.update(fl=mm, fr=mm, fl_radial=mm, fr_radial=mm)
+                self.emit(type='telemetry', state=self.state, owner=self.owner, fault=self.fault,
+                          blocked_dir='front' if self.state == 'blocked' else 'none', odom=self.odom(),
+                          tof_mm=tof, batt_mv=12800, charging=self.charging,
+                          imu={'ok': True, 'pitch': 0, 'roll': 0, 'yaw': self.theta})
+                if self.matrix:
+                    mm = int(max(25, front*1000)) if front is not None else 3500
+                    self.emit(type='tofmx', g=f'{min(mm, 4095):03x}'*64, rej=[4095]*8)
+            lines, self.out = b''.join(self.out), deque()
+        return lines
+
+    def close(self):
+        self.closed = True
+
+
+class World:
+    """People and objects at fixed room positions, seen through the head camera."""
+    def __init__(self, base):
+        self.base, self.people, self.objects = base, [], []
+
+    def relative(self, px, py):
+        dx, dy = px - self.base.x, py - self.base.y
+        heading = math.radians(self.base.theta)
+        forward = dx*math.cos(heading) + dy*math.sin(heading)
+        left = -dx*math.sin(heading) + dy*math.cos(heading)
+        return math.hypot(forward, left), math.degrees(math.atan2(left, forward)), forward, left
+
+    def faces(self, now):
+        rows = []
+        for track, identity, px, py in self.people:
+            distance, bearing, _, _ = self.relative(px, py)
+            if abs(bearing) >= HALF_FOV or distance < .3:
+                continue
+            width = FACE_WIDTH / (2*math.tan(math.radians(HALF_FOV))*distance)
+            centre = .5 - bearing/(2*HALF_FOV)
+            rows.append({'track_id': track, 'identity': identity, 'face_epoch': 0, 'at': now,
+                         'box': [centre - width/2, .3, width, width*1.2]})
+        return rows
+
+    def detections(self):
+        rows = []
+        for target, label, px, py in self.objects:
+            distance, bearing, _, _ = self.relative(px, py)
+            if abs(bearing) >= HALF_FOV:
+                continue
+            width = min(.9, .3/max(distance, .2))
+            centre = .5 - bearing/(2*HALF_FOV)
+            rows.append({'target_id': target, 'label': label, 'box': [centre - width/2, .4, width, width], 'samples': 3})
+        return rows
+
+    def front_obstacle(self):
+        values = [forward - .27 for _, _, px, py in self.objects
+                  for _, _, forward, left in [self.relative(px, py)] if forward > 0 and abs(left) < .35]
+        return min(values) if values else None
+
+
+def base_setup(test, *, caps=None, radar=None, reflex=False):
+    clock = Clock()
+    fake = FakeBase(clock, caps) if caps else FakeBase(clock)
+    drive = DriveBase('fake', open_port=lambda: fake, clock=clock, wait=clock.wait, radar=radar, reflex=reflex)
+    world = World(fake)
+    drive.faces = world.faces
+    drive.objects = world.detections
+    fake.front = world.front_obstacle
+    return clock, fake, drive, world
+
+
+def settle():
+    time.sleep(.03)  # Let the simulated controller publish telemetry for a changed room.
+
+
+def plan(*steps, origin='requested', targets=None, clock=None):
+    return DrivePlan('plan-1', tuple(steps), origin, 'test', targets or {}, (clock() if clock else 100.) + 60)
+
+
+class DriveOwnerTests(unittest.TestCase):
+    def start(self, **kwargs):
+        self.clock, self.fake, self.drive, self.world = base_setup(self, **kwargs)
+        self.drive.start()
+        self.addCleanup(self.close)
+
+    def close(self):
+        if self.drive.state != 'closed':
+            self.drive.close()
+
+    def test_connect_pushes_owner_limits_heartbeats_and_stops_on_close(self):
+        self.start()
+        self.assertEqual(self.drive.state, 'ready')
+        config = next(c for c in self.fake.commands if c['cmd'] == 'config')
+        self.assertEqual(config['max_lin'], .25)
+        self.assertEqual(config, {**CONFIG, 'v': 1, 'cmd': 'config', 'seq': config['seq']})
+        deadline = time.monotonic() + 1.
+        while not any(c['cmd'] == 'ping' for c in self.fake.commands) and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue(any(c['cmd'] == 'ping' for c in self.fake.commands))
+        self.drive.close()
+        self.assertEqual(self.fake.commands[-1]['cmd'], 'stop')
+        self.assertTrue(self.fake.closed)
+        # Connecting never commands motion.
+        self.assertFalse(any(c['cmd'] in {'turn', 'move', 'drive'} for c in self.fake.commands))
+
+    def test_missing_firmware_capability_refuses_start(self):
+        clock, fake, drive, _ = base_setup(self, caps=('drive', 'stop'))
+        with self.assertRaisesRegex(Exception, 'DriveCapabilitiesMissing'):
+            drive.start()
+        drive.link.close()
+
+    def test_turn_is_verified_against_imu_and_corrected_once(self):
+        self.start()
+        self.fake.turn_scale = .8   # Undershoot: 90 commanded, 72 actually turned.
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=90.)), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+        step = receipt.steps[0]
+        self.assertEqual(step['commanded_deg'], 90.)
+        self.assertEqual(step['correction']['status'], 'completed')
+        self.assertAlmostEqual(step['measured_deg'], 90., delta=4.)
+        turns = [c for c in self.fake.commands if c['cmd'] == 'turn']
+        self.assertEqual(turns[0]['rate'], 45.)
+        self.assertEqual(turns[1]['rate'], 20.)
+
+    def test_move_is_shortened_to_front_clearance(self):
+        self.start()
+        self.world.objects.append(('object-a', 'chair', 1.27, 0.))  # 1.0 m of front clearance.
+        settle()
+        receipt = self.drive.execute(plan(DriveStep('move', meters=1.5)), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+        self.assertEqual(receipt.steps[0]['commanded_m'], .65)
+        self.assertEqual(receipt.steps[0]['reason'], 'shortened_by_clearance')
+        self.assertAlmostEqual(self.fake.x, .65, places=2)
+        move = next(c for c in self.fake.commands if c['cmd'] == 'move')
+        self.assertLessEqual(move['speed'], .25)
+
+    def test_blocked_move_ends_the_plan_as_partial(self):
+        self.start()
+        self.fake.block_after = .3
+        receipt = self.drive.execute(plan(DriveStep('move', meters=1.), DriveStep('turn', degrees=90.)), Cancellation())
+        self.assertEqual(receipt.status, 'partial')
+        self.assertEqual([s['status'] for s in receipt.steps], ['blocked'])
+        self.assertAlmostEqual(receipt.travelled_m, .3, places=2)
+        self.assertFalse(any(c['cmd'] == 'turn' for c in self.fake.commands))
+
+    def test_swing_check_refuses_a_turn_that_sweeps_an_arm_into_a_shelf(self):
+        self.start()
+        self.fake.tof['lb'] = 100   # Something close behind-left.
+        settle()
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=90.)), Cancellation())
+        self.assertEqual(receipt.status, 'refused')
+        self.assertIn('turn_path_blocked', receipt.reason)
+        self.assertFalse(any(c['cmd'] == 'turn' for c in self.fake.commands))
+
+    def test_charging_gamepad_and_missing_depth_refuse_before_motion(self):
+        self.start()
+        for change, reason in ((lambda: setattr(self.fake, 'charging', True), 'charging'),
+                               (lambda: setattr(self.fake, 'owner', 'manual'), 'gamepad_in_control'),
+                               (lambda: setattr(self.fake, 'matrix', False), 'front_depth_matrix_unavailable')):
+            self.fake.charging, self.fake.owner, self.fake.matrix = False, 'auto', True
+            change()
+            self.clock.wait(1.2)
+            time.sleep(.02)
+            receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
+            self.assertEqual((receipt.status, receipt.reason), ('refused', reason))
+        self.assertFalse(any(c['cmd'] in {'turn', 'move'} for c in self.fake.commands))
+
+    def test_stop_halts_a_running_plan_and_commands_a_stop(self):
+        self.start()
+        result = {}
+        worker = threading.Thread(target=lambda: result.update(r=self.drive.execute(
+            plan(DriveStep('move', meters=1.5)), Cancellation())))
+        worker.start()
+        deadline = time.monotonic() + 2
+        while not any(c['cmd'] == 'move' for c in self.fake.commands) and time.monotonic() < deadline:
+            time.sleep(.005)
+        self.drive.cancel()
+        worker.join(3)
+        self.assertEqual(result['r'].status, 'cancelled')
+        self.assertIn('stop', [c['cmd'] for c in self.fake.commands[self.fake.commands.index(
+            next(c for c in self.fake.commands if c['cmd'] == 'move')):]])
+        self.assertLess(self.fake.x, 1.5)
+
+    def test_face_step_turns_to_the_camera_bearing(self):
+        self.start()
+        self.world.people.append(('face-1', None, 2., math.tan(math.radians(20))*2.))  # ~20 degrees left
+        targets = {'face-1': {'target_id': 'face-1', 'kind': 'face', 'person_id': None}}
+        receipt = self.drive.execute(plan(DriveStep('face', target='face-1'), targets=targets), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+        self.assertAlmostEqual(self.fake.theta, 20., delta=6.)
+        self.assertEqual(receipt.steps[0]['faces_visible_after'], 1)
+
+    def test_person_approach_stops_near_the_requested_standoff(self):
+        self.start()
+        self.world.people.append(('face-1', 'person-1', 2.6, 0.))
+        targets = {'face-1': {'target_id': 'face-1', 'kind': 'face', 'person_id': 'person-1'}}
+        receipt = self.drive.execute(plan(DriveStep('approach', target='face-1'), targets=targets), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        distance = math.hypot(2.6 - self.fake.x, self.fake.y)
+        self.assertGreater(distance, .85)
+        self.assertLess(distance, 1.35)
+        self.assertEqual(self.fake.commands[-1]['cmd'], 'stop')
+        self.assertTrue(all(c['lin'] <= .25 for c in self.fake.commands if c['cmd'] == 'drive'))
+
+    def test_object_approach_arrives_at_the_front_standoff_not_a_collision(self):
+        self.start()
+        self.world.objects.append(('object-dog', 'dog', 2., 0.))
+        targets = {'object-dog': {'target_id': 'object-dog', 'kind': 'object', 'label': 'dog'}}
+        receipt = self.drive.execute(plan(DriveStep('approach', target='object-dog'), targets=targets), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertGreater(self.world.front_obstacle(), .2)
+
+    def test_find_person_turns_toward_radar_bodies_before_sweeping(self):
+        radar = FakeRadar()
+        self.start(radar=radar)
+        radar.bodies_list = [{'target_id': 'radar:-120', 'bearing_deg': -120., 'range_m': 2., 'confidence': .7,
+                              'moving': True, 'frames': 5}]
+        self.world.people.append(('face-9', None, -1., -1.73))   # behind on the right, ~-120 degrees
+        receipt = self.drive.execute(plan(DriveStep('find_person')), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        first = next(c for c in self.fake.commands if c['cmd'] == 'turn')
+        self.assertLess(first['deg'], -100)
+        self.assertEqual(receipt.steps[0]['reason'], 'person_in_view')
+
+    def test_radar_approach_turns_then_approaches_the_face_it_finds(self):
+        radar = FakeRadar()
+        self.start(radar=radar)
+        radar.bodies_list = [{'target_id': 'radar:+150', 'bearing_deg': 150., 'range_m': 2.5, 'confidence': .6,
+                              'moving': True, 'frames': 4}]
+        self.world.people.append(('face-2', None, -2.6, 1.5))
+        targets = {'radar:+150': {'target_id': 'radar:+150', 'kind': 'radar_body', 'bearing_deg': 150., 'range_m': 2.5}}
+        receipt = self.drive.execute(plan(DriveStep('approach', target='radar:+150'), targets=targets), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertLess(math.hypot(-2.6 - self.fake.x, 1.5 - self.fake.y), 1.5)
+
+    def test_flinch_needs_radial_corroboration_and_backs_off_within_rear_room(self):
+        self.start()
+        flinch = Flinch()
+        open_front = {'fl': .9, 'fr': .9, 'fl_radial': .9, 'fr_radial': None}
+        self.assertFalse(flinch.observe(open_front, 0.))
+        matrix_only = {'fl': .15, 'fr': .9, 'fl_radial': .9, 'fr_radial': None}
+        self.assertFalse(any(flinch.observe(matrix_only, t) for t in (1., 2., 3., 4.)))
+        self.drive.flinch = Flinch()
+        for _ in range(2):
+            self.drive.tick_reflex()
+        self.fake.tof.update(fl=150, fr=150, fl_radial=150)
+        receipts = []
+        for _ in range(4):
+            self.clock.wait(1.)
+            settle()
+            receipts.append(self.drive.tick_reflex())
+        receipt = next(r for r in receipts if r)
+        self.assertEqual(receipt.status, 'completed')
+        move = next(c for c in self.fake.commands if c['cmd'] == 'move')
+        self.assertAlmostEqual(move['dist'], -.3)
+
+
+class FakeRadar:
+    def __init__(self):
+        self.bodies_list = []
+
+    def bodies(self, window=1.5):
+        return list(self.bodies_list)
+
+
+class ArmParkTests(unittest.TestCase):
+    def test_arm_parks_and_neck_centers_before_wheels_then_returns_to_rest(self):
+        from tests.test_servos import Clock as ServoClock, PulsePort
+        from r3x.robot_servos import RobotServos
+        from r3x.servo_poses import PARK, REST
+        servo_clock, port = ServoClock(), PulsePort()
+        robot = RobotServos('fake', open_port=lambda: port, clock=servo_clock, wait=servo_clock.wait)
+        robot.owner.wait = servo_clock.wait
+        robot.start()
+        self.addCleanup(robot.close)
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        drive.servos = robot
+        seen = {}
+        original = fake.handle
+        def handle(command):
+            if command['cmd'] == 'turn' and 'throttle' not in seen:
+                seen['throttle'] = {ch: port.pose[ch] for ch, _ in PARK}
+                seen['neck'] = port.pose[0]
+            original(command)
+        fake.handle = handle
+        receipt = drive.execute(plan(DriveStep('turn', degrees=30.)), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+        self.assertEqual(seen['throttle'], dict(PARK))
+        self.assertEqual(seen['neck'], 5472)
+        robot._arm_return.join(5)
+        self.assertEqual({ch: port.pose[ch] for ch, _ in REST}, dict(REST))
+        self.assertFalse(robot.owner.held_channels & {0, 8, 9, 10})
+
+
+class GeometryTests(unittest.TestCase):
+    def test_matrix_bands_ignore_floor_and_single_speckles(self):
+        grid = [3500]*64
+        grid[10] = 400                      # one speckle in the left band
+        grid[4*8+3] = grid[5*8+4] = 900     # two centre zones: a real obstacle
+        grid[7*8+6] = 300                   # bottom-row floor return beyond its threshold
+        rej = [4095]*7 + [250]
+        sectors = matrix_sectors({'grid': grid, 'rej': rej})
+        self.assertEqual(sectors, {'left': 3.5, 'center': .9, 'right': 3.5})
+
+    def test_unknown_rear_or_depth_refuses_instead_of_assuming_clear(self):
+        space = {'front_m': None, 'rear_m': None, 'health': ['front_depth_matrix_unavailable']}
+        self.assertEqual(move_allowance(.5, space), (0., 'front_clearance_unknown'))
+        self.assertEqual(move_allowance(-.5, space), (0., 'rear_clearance_unknown'))
+        self.assertEqual(allowed_turn(45., {}), (0., 'turn_clearance_unknown'))
+
+    def test_camera_bearing_and_face_range(self):
+        self.assertAlmostEqual(image_bearing([.0, .3, .2, .2]), 20.)
+        self.assertAlmostEqual(face_range([.4, .3, .1718, .2]), 1., places=1)
+        self.assertIsNone(face_range([.4, .3, 0, .2]))
+
+    def test_radar_bodies_need_persistence_and_merge_seams(self):
+        target = {'bearing_deg': 90., 'range_m': 2., 'confidence': .8, 'speed_mps': .3, 'sensors': 1}
+        flicker = {'bearing_deg': -40., 'range_m': 1., 'confidence': .9, 'speed_mps': .3, 'sensors': 2}
+        frames = [(t, [dict(target)] + ([dict(flicker)] if t == 0 else [])) for t in range(4)]
+        bodies = radar_bodies(frames)
+        self.assertEqual([b['target_id'] for b in bodies], ['radar:+90'])
+        seam = seam_merge([{'bearing_deg': 118., 'range_m': 2., 'confidence': .4, 'speed_mps': 0., 'sensors': 1},
+                           {'bearing_deg': 124., 'range_m': 2.2, 'confidence': .4, 'speed_mps': 0., 'sensors': 2}])
+        self.assertEqual(len(seam), 1)
+        self.assertEqual(seam[0]['sensors'], 3)
+
+    def test_clearance_reports_front_right_sensor_fault(self):
+        telemetry = {'received_at': 1., 'tof_mm': {'fl': 900, 'fr': 700, 'fl_radial': 1800, 'fr_radial': -1,
+                                                   'rl': 900, 'rr': 1000, 'lf': 500, 'lb': 600, 'rf': 400, 'rb': 450}}
+        space = clearance(telemetry, {'grid': [3500]*64, 'rej': [4095]*8, 'received_at': 1.}, 1.)
+        self.assertIn('front_right_radial_unavailable', space['health'])
+        self.assertEqual(space['front_m'], 1.8)
+        self.assertEqual((space['left_m'], space['right_m'], space['rear_m']), (.5, .4, .9))
+
+
+if __name__ == '__main__':
+    unittest.main()

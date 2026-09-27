@@ -16,6 +16,8 @@ class App:
         self.live_components = None
         self.robot = None
         self.leds = None
+        self.drive = None
+        self.radar = None
         self.hardware_handoff = None
 
     def configure_live(self):
@@ -55,15 +57,24 @@ class App:
         if self.settings.servo_port:
             from .robot_servos import RobotServos
             self.robot = RobotServos(self.settings.servo_port)
+        route_planner = None
+        if self.settings.drive_port:
+            from .drive import DriveBase, Radar
+            from .adapters.hosted import OpenAIRoutePlanner
+            self.radar = Radar(self.settings.radar_port) if self.settings.radar_port else None
+            self.drive = DriveBase(self.settings.drive_port, radar=self.radar)
+            route_planner = OpenAIRoutePlanner(secrets.openai_api_key)
         # A disconnected camera removes its dependents for this run, not the setting.
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,route_planner) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
-        self.owner = ProviderOwner((tts,sink) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + tuple(p for p in self.live_components if p not in (tts,sink)))
+        # Wheels connect after servo wake; connecting never moves the base.
+        wheels = tuple(p for p in (self.radar, self.drive) if p)
+        self.owner = ProviderOwner((tts,sink) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(p for p in self.live_components if p not in (tts,sink)))
 
     def readiness(self):
         missing = []
@@ -148,7 +159,8 @@ class App:
         from .contracts import Cancellation
         self.hardware_handoff = ControllerHandoff(HardwareLocks(),port=self.settings.servo_port or None,
             led_ports={zone:port for zone,port in (("head_led",self.settings.head_led_port),
-                ("chest_led",self.settings.chest_led_port)) if port})
+                ("chest_led",self.settings.chest_led_port),("drive_base",self.settings.drive_port),
+                ("radar",self.settings.radar_port)) if port})
         try:
             self.hardware_handoff.acquire(Cancellation())
         except BaseException:
@@ -185,13 +197,21 @@ class App:
         mic.trace = trace
         if self.robot:
             self.robot.trace = trace
-            mic.motion_risk = self.robot.owner.motion_risk
+        if self.drive:
+            self.drive.trace = trace
+        def motion_risk():
+            return ((self.robot is not None and self.robot.owner.motion_risk()) or
+                    (self.drive is not None and self.drive.motion_risk()))
+        if self.robot or self.drive:
+            mic.motion_risk = motion_risk
         direction = next((p for p in optional if p.capability.name=='direction'),None)
         if direction:
             direction.trace = trace
-            direction.echo_risk = lambda: output.echo_risk() or (self.robot is not None and self.robot.owner.motion_risk())
+            direction.echo_risk = lambda: output.echo_risk() or motion_risk()
             if self.robot:
                 self.robot.owner.on_motion = direction.invalidate
+            if self.drive:
+                self.drive.on_motion.append(lambda plan: direction.invalidate())
         runtime = None
         success = False
         import signal
@@ -220,6 +240,11 @@ class App:
                 output.robot = self.robot
                 output.speech_motion = self.robot.talking if self.robot else None
                 output.leds = self.leds
+                if self.drive and 'drive_base' in active:
+                    output.drive = self.drive
+                    self.drive.servos = self.robot if self.robot and 'robot_servos' in active else None
+                    self.drive.faces = camera.latest if camera else None
+                    self.drive.objects = objects.snapshot if objects else None
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene
@@ -230,6 +255,10 @@ class App:
                     state.photo_memory.start()
                 perception = Perception(asr,encoder,trace,camera,direction)
                 session = Session(session_id, brain, output, trace, state=state)
+                planner = next((p for p in optional if p.capability.name=='route_planner'),None)
+                if planner and output.drive and 'route_planner' in active:
+                    planner.trace = trace
+                    session.route_planner = planner
                 if startup_delivery and startup_delivery.completed_text:
                     session.history.append({'role':'assistant','content':' '.join(startup_delivery.completed_text)})
                 if self.settings.camera_enabled and camera is None:
@@ -237,7 +266,11 @@ class App:
                         'Camera unavailable at startup. No current visual evidence is available this run; do not claim to see.'})
                 recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
-                                       lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot)
+                                       lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot,
+                                       drive=output.drive)
+                if output.drive:
+                    output.drive.on_motion.append(lambda plan: runtime.arrivals.note_base_motion(
+                        trace.clock(), allow_new=bool(plan and plan.allow_new_arrivals)))
                 runtime.run()
                 success = True
         finally:

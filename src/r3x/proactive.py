@@ -151,6 +151,14 @@ class Arrivals:
         self._members = ()
         self._audience_key = ()
         self._audience_since = float('inf')
+        self.moved_at = float('-inf')
+        self.moved_allows_new = False
+
+    def note_base_motion(self, now, allow_new=False):
+        """Rotating/driving re-frames the room; faces newly tracked right after it
+        are the same visit, not arrivals, unless the move went to investigate."""
+        with self.lock:
+            self.moved_at, self.moved_allows_new = now, allow_new
 
     def _observe_members(self, faces):
         # Presence continuity only. Never replace face IDs or identity evidence
@@ -200,8 +208,9 @@ class Arrivals:
                 key = face.get('identity') or face['track_id']
                 entry = self.seen.get(key)
                 if entry is None:
+                    reframed = 0 <= face['at']-self.moved_at <= 6 and not self.moved_allows_new
                     entry = {'first':face['at'],'last':face['at'],'attempt':float('-inf'),
-                             'used':False,'returning':False,'track':face['track_id']}
+                             'used':reframed,'returning':False,'track':face['track_id']}
                     self.seen[key] = entry
                 elif face['at']-entry['last']>=self.absent_seconds:
                     entry.update(first=face['at'],used=False,returning=True,track=face['track_id'])
@@ -246,6 +255,8 @@ class Arrivals:
 
     def valid(self, event, now, *, audience_bound=True):
         with self.lock:
+            if event.kind == 'unseen_presence':
+                return True  # Radar prior; speech/queue/shutdown guards still apply.
             if event.kind in {"conversation_lull","ambient"}:
                 keys = lambda faces: {(f['track_id'],f.get('identity'),f.get('face_epoch',0)) for f in faces}
                 fresh = [f for f in self.faces if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE]

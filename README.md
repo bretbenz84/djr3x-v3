@@ -254,7 +254,12 @@ shutdown effects, playback-driven speaking lights, and validated LLM-selected
 animations through the same output owner. Activation and visual acceptance remain
 pending; the refreshed cutover bundle enables both ports without changing services.
 
-Wheel control, games, impersonations, rich biographies,
+The [drive base](docs/DRIVE_BASE_INTEGRATION.md) lets the conversation model turn,
+drive, approach people or objects and look again, using V2's unchanged ESP32 firmware
+and radar ring, with a geometry-triggered route planner for blocked paths. Set
+`drive_port` (and optionally `radar_port`) to enable it; the floor test is pending.
+
+Games, impersonations, rich biographies,
 relationship scoring, semantic memory retrieval,
 and a polished GUI follow the core's acceptance gates. Offline mode and additional
 providers are later explicit profiles, not a default collection of loaded models.

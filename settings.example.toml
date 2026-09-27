@@ -82,3 +82,14 @@ servo_port = ""
 # Consumed by live LED lifecycle/output and exclusive controller handoff.
 head_led_port = ""
 chest_led_port = ""
+
+# Optional drive base (V2 ESP32 firmware, unchanged). Empty disables wheels.
+# Explicit /dev/cu.* path, distinct from other ports; the V2 battery menu app
+# yields it through the controller handoff. Connecting never moves the base.
+# Consumed by live drive_base tool, back-off reflex and handoff. Robot: /dev/cu.usbserial-110
+drive_port = ""
+
+# Optional LD2450 radar ring; requires drive_port. A bearing prior for where to
+# look, never identity. Consumed by drive targets, find_person and unseen-presence
+# opportunities. Robot: /dev/cu.usbmodem2301 (USB serial 28:84:85:4D:1C:80).
+radar_port = ""

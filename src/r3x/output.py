@@ -71,7 +71,7 @@ class Delivery:
 
 class OutputOwner:
     def __init__(self, tts: TTS, sink: Sink, trace, *, attention=None, gestures=None, inspection=None,
-                 speech_motion=None, leds=None, robot=None):
+                 speech_motion=None, leds=None, robot=None, drive=None):
         self.tts, self.sink, self.trace = tts, sink, trace
         self.attention = attention
         self.gestures = gestures
@@ -79,6 +79,7 @@ class OutputOwner:
         self.robot = robot
         self.speech_motion = speech_motion
         self.leds = leds
+        self.drive = drive
         self._motion_lock = threading.Lock()
         self.active = threading.Event()
         self.echo_until = 0.
@@ -205,9 +206,27 @@ class OutputOwner:
         return self.active.is_set() or self.trace.clock() < self.echo_until
 
     def cancel(self) -> None:
+        if self.drive:
+            self.drive.cancel()  # Stop the wheels first; speech cancellation follows.
         if self.speech_motion:
             self.speech_motion.cancel()
         self.sink.cancel()
+
+    def _drive(self, action, cancel, turn_id):
+        from .drive import DriveReceipt
+        try:
+            if self.drive is None:
+                action.receipt = DriveReceipt(action.plan.request_id, 'failed', 'DriveUnavailable')
+            elif not self._motion_lock.acquire(timeout=5.):
+                action.receipt = DriveReceipt(action.plan.request_id, 'refused', 'MotionResourceBusy')
+            else:
+                try:
+                    action.receipt = self.drive.execute(action.plan, cancel)
+                finally:
+                    self._motion_lock.release()
+        finally:
+            action.done.set()
+        cancel.check()
 
     def run(self, phrases: Queue, cancel: Cancellation, turn_id: str, delivery: Delivery) -> None:
         performance = None
@@ -221,6 +240,10 @@ class OutputOwner:
                     continue
                 if text is None:
                     break
+                from .drive import DriveAction
+                if isinstance(text, DriveAction):
+                    self._drive(text, cancel, turn_id)
+                    continue
                 light = text if isinstance(text,LightPerformance) else None
                 if light:
                     text = light.text or ''

@@ -218,6 +218,44 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset()) -> tuple[tuple[Be
     return tuple(lane for lane in lanes if not set(dict(lane[0].targets)).intersection(held))
 
 
+def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ...]:
+    """Throttle park plus centered neck before base motion, and the return to rest.
+
+    V2 parks the throttle arm before every non-reverse base command. The neck is
+    centered so head-camera bearings are base-relative. Return uses the validated
+    startup route from PARK. Routes are checked before any lane moves.
+    """
+    if kind not in {'base_park', 'base_release'}:
+        raise ValueError('UnknownBaseSequence')
+    validate_pose(current)
+    start = {ch: current[ch] for ch in THROTTLE}
+    at = lambda pose: all(abs(start[ch] - value) <= 2 for ch, value in pose)
+    if kind == 'base_park':
+        if at(PARK):
+            stages = []
+        elif full_down_corridor(start):
+            stages = [{8: RAISED, 9: 5589, 10: 9511}, {8: RAISED, 9: 8400, 10: 2048}, dict(TUCK), dict(PARK)]
+        elif throttle_clear(start, dict(TUCK)):
+            stages = [dict(TUCK), dict(PARK)]
+        else:
+            stages = [dict(REST), dict(TUCK), dict(PARK)]
+    else:
+        route = [dict(TUCK), {8: 4800, 9: 8000, 10: 3800}, {8: 3680, 9: 8720, 10: 5920}, dict(REST)]
+        stages = [] if at(REST) else route if at(PARK) or throttle_clear(start, route[0]) else [dict(REST)]
+    previous = start
+    for stage in stages:
+        validate_pose(stage)
+        if not throttle_clear(previous, stage):
+            raise ValueError('ThrottleRouteOutsideClearance')
+        previous = stage
+    lanes = ()
+    if stages:
+        lanes += (tuple(Beat(tuple(stage.items()), throttle_duration=1.25) for stage in stages),)
+    if kind == 'base_park' and abs(current.get(0, 5472) - 5472) > 2:
+        lanes += ((Beat(((0, 5472),), speed=20, acceleration=5),),)
+    return lanes
+
+
 NAMED_POSES = {
     'head_left': ((0,4000),), 'head_right': ((0,8000),), 'head_center': ((0,5472),),
     'visor_down': ((3,4544),), 'visor_up': ((3,6400),),

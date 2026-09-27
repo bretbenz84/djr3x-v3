@@ -88,6 +88,15 @@ TOOLS = (
            {"text":TEXT,"addressee_id":NULL_TEXT}),
     schema("settle_question", "Mark a delivered pending question answered, declined, or superseded based on the meaning of this turn. Does not store a personal fact or confirm identity.",
            {"status":{"type":"string","enum":["answered","declined","superseded"]}}),
+    schema('drive_base', 'Physically drive the wheeled base. Use for every explicit movement request (turn around, come here, back up, spin, go look at something), including stacked requests as ordered steps. When it genuinely adds something you may also move on your own: roll toward someone who arrived, turn toward a voice or radar body outside the camera view, or get a closer look at what is being discussed. Steps run in order and stop at the first incomplete step. turn: direction left or right with positive degrees. move: direction forward or backward with positive meters. face: turn toward target. approach: drive toward target, stopping stop_at_m away (null: 1 m for people, 0.6 m for objects). find_person: turn until a face is visible, looking first at the optional target, then radar bodies, the voice direction and sweeps; it does not approach (add an approach to nearest_person only when one is offered). Unused fields are null. Use only offered drive.targets ids; radar bodies and speaker direction say where to look, not who. A move longer than drive.limits.step_m runs as several legs with clearance rechecked; the plan total must fit drive.limits.total_m, so for a longer request do the part that fits and say so. If a target path.direct_approach is blocked_early, route around through a more open direction in drive.clearance_m (turn, move, then face or approach the target) or explain. look_after is null or a natural-language question to answer from a fresh camera frame after arriving, such as "What is the dog doing?". text is optional speech: before_motion plays first; after_motion plays only if every step completed. On refusal or incomplete motion you receive the receipt to explain. Never claim motion, arrival or sight before a receipt. purpose is a brief internal reason, not speech.',
+        {'steps':{'type':'array','minItems':1,'maxItems':6,'items':{'type':'object','additionalProperties':False,
+            'properties':{'action':{'type':'string','enum':['turn','move','face','approach','find_person']},
+                          'direction':{'type':['string','null'],'enum':['left','right','forward','backward',None]},
+                          'degrees':{'type':['number','null']},'meters':{'type':['number','null']},
+                          'target':{'type':['string','null']},'stop_at_m':{'type':['number','null']}},
+            'required':['action','direction','degrees','meters','target','stop_at_m']}},
+         'purpose':TEXT,'look_after':NULL_TEXT,'text':NULL_TEXT,
+         'speak':{'type':'string','enum':['before_motion','after_motion']}}),
     schema("remain_silent", "End this turn without speech for an unfinished thought/thinking pause, clear external conversation/device announcements, or an uninvited fragment. Use unfinished_thought when a clause is still waiting for its action/object/destination or the speaker asks for time to think; do not ask them to finish. Explicit requests to stop unsolicited conversation use set_initiative(quiet) when available; addressee corrections require silence, never an acknowledgment. Complete introductions, ordinary questions, and replies in our conversation normally deserve speech. Unknown speaker identity does not justify silence. No follow-up model call; no acoustic synthetic-voice claim.",
            {"reason":{"type":"string","enum":["other_addressee","device_speech","background_conversation","no_response_needed","unfinished_thought"]}}),
 )
@@ -111,9 +120,11 @@ def grounded_tools(context):
     import copy
     definitions = copy.deepcopy(TOOLS)
     if context.get('trigger')=='visual_arrival':
-        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
+        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
     elif context.get('trigger') in {'conversation_lull','ambient'}:
-        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory'}]
+        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
+    elif context.get('trigger')=='unseen_presence':
+        definitions = [d for d in definitions if d['name'] in {'drive_base','remain_silent'}]
     if context.get('inspection_description_allowed'):
         definitions = copy.deepcopy([d for d in TOOLS if d['name']=='describe_view'])
     elif context.get('photo_inspection'):
@@ -143,6 +154,10 @@ def grounded_tools(context):
         if name in {'retract_visual','revise_visual'} and not context.get('visual_correction_candidates'):continue
         if name=="inspect_view" and not context.get("inspection_enabled"):continue
         if name in {'set_robot_pose','set_robot_joints'} and not context.get('robot_pose_enabled'):continue
+        if name=='drive_base':
+            if not context.get('drive'):continue
+            definition['parameters']['properties']['steps']['items']['properties']['target']['enum'] = [t['target_id'] for t in context['drive']['targets']]+[None]
+            if not context.get('inspection_enabled'):definition['parameters']['properties']['look_after']['enum']=[None]
         if name=='animate_lights':
             if not context.get('led_enabled'): continue
             definition['parameters']['properties']['pattern']['enum'] = context['led_patterns']
@@ -260,6 +275,23 @@ def validate(name, args):
         if name=='set_robot_joints' and key=='positions':
             from .servo_poses import joint_targets
             joint_targets(value)
+        elif name=='drive_base' and key=='steps':
+            if not isinstance(value,list) or not 1<=len(value)<=6:
+                raise ValueError('InvalidDriveSteps')
+            import math
+            for step in value:
+                if not isinstance(step,dict) or step.keys()!={'action','direction','degrees','meters','target','stop_at_m'}:
+                    raise ValueError('InvalidDriveSteps')
+                if step['action'] not in {'turn','move','face','approach','find_person'}:
+                    raise ValueError('InvalidDriveAction')
+                if step['direction'] not in {'left','right','forward','backward',None}:
+                    raise ValueError('InvalidDriveDirection')
+                for field in ('degrees','meters','stop_at_m'):
+                    number = step[field]
+                    if number is not None and (type(number) not in (int,float) or not math.isfinite(number)):
+                        raise ValueError('InvalidDriveNumber')
+                if step['target'] is not None and (not isinstance(step['target'],str) or not 0<len(step['target'])<=120):
+                    raise ValueError('InvalidDriveTarget')
         elif name=='revise_visual' and key=='revisions':
             if not isinstance(value,list) or not 1<=len(value)<=32:
                 raise ValueError('InvalidVisualRevisions')

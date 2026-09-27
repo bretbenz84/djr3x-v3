@@ -10,7 +10,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None):
+    def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
         self.endpoint = Endpoint(session.session_id, silence)
         self.perception, self.recorder = perception, recorder
@@ -30,6 +30,9 @@ class VoiceRuntime:
         self.lull_seconds = lull_seconds
         self.observations,self.scene_observer = observations,scene_observer
         self.robot = robot
+        self.drive = drive
+        self.faces_seen_at = float('-inf')
+        self.last_unseen = float('-inf')
 
     def cancel(self):
         if self.robot:
@@ -143,6 +146,8 @@ class VoiceRuntime:
         with self.control_lock:
             # Build and validate from the same latest cache, not the last UI poll.
             self.arrivals.observe(self.camera.latest(now),now)
+            if self.arrivals.faces:
+                self.faces_seen_at = now
             # Session maintenance only; does not create an opportunity or an LLM call.
             with self.session._lock:
                 intentions = self.session.state.conversation_intent
@@ -189,6 +194,19 @@ class VoiceRuntime:
                         self.session._latest_speech,False,'ambient',current[0] if current else None,
                         min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at),
                         audience_key=audience_key)
+            if (event is None and self.drive is not None and self.drive.radar is not None and not self.arrivals.faces
+                    and now-self.faces_seen_at>=5 and now-self.last_unseen>=90 and self.drive.availability(now)[0]):
+                # A moving body outside the camera view: the model may turn to look or stay put.
+                bodies = [b for b in (self.drive.radar.bodies() or ()) if b['moving']]
+                if bodies:
+                    from .proactive import Opportunity
+                    from uuid import uuid4
+                    current=self.session.state.current
+                    event=Opportunity(uuid4().hex,self.session.session_id,now,None,None,(),
+                        self.session._latest_speech,False,'unseen_presence',current[0] if current else None,
+                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at))
+                    self.last_unseen=now
+                    cues,scene=(),None
             if event is None:return
             event=replace(event,public_cues=cues,scene_id=scene[0] if scene else None,scene_images=scene[1] if scene else ())
             if self.observations:self.observations.attempted([c.cue_id for c in cues])
@@ -209,7 +227,8 @@ class VoiceRuntime:
             self.arrivals.observe(self.camera.latest(now),now)
             intention = self.session.state.conversation_intent.record
             from .conversation_intent import audience
-            intent_audience_changed = (intention is not None and intention.source_id == event.event_id
+            committed = self.session.motion_committed
+            intent_audience_changed = (not committed and intention is not None and intention.source_id == event.event_id
                 and intention.audience != audience({'faces':self.arrivals.faces})
                 and (self.session._proactive_delivery is None or
                      self.session._proactive_delivery.first_audio_at is None or
@@ -222,7 +241,7 @@ class VoiceRuntime:
                       'recognition_busy' if self.asr_busy.is_set() else
                       'audio_timestamp_ahead' if audio_age<0 else
                       'audio_stale' if audio_age>.5 else
-                      'audience_changed_or_stale' if (not self.arrivals.valid(event,now,
+                      'audience_changed_or_stale' if (not committed and not self.arrivals.valid(event,now,
                           audience_bound=self.session._audience_bound_output) and
                           (self.session._proactive_delivery is None or
                            self.session._proactive_delivery.first_audio_at is None or
@@ -283,6 +302,7 @@ class VoiceRuntime:
                     self.robot.before_frame(capturing=capturing or self.session._processing.locked(), allow_idle=(
                         not capturing and self.captures.empty() and self.turns.empty()
                         and not self.asr_busy.is_set() and not self.session._processing.locked()
+                        and not (self.drive is not None and self.drive.motion_risk())
                         and self.trace.clock()-self.audio_seen_at<=.5))
                 now = self.trace.clock()
                 if now>=next_visual:
@@ -331,7 +351,9 @@ class VoiceRuntime:
                     self.robot.note_speech()
                 health.observe(frame,speech,self.endpoint.frames,
                     vad_probability=getattr(self.vad,'last_probability',None))
-                if speech and not frame.echo_risk:
+                if speech and not frame.echo_risk and not (self.drive is not None and self.drive.moving.is_set()):
+                    # Motor noise or talk while the wheels run does not yield the plan;
+                    # the capture still becomes a turn, and a spoken stop still halts.
                     self.session.note_speech(frame.ended_at)
                 capture = self.endpoint.push(frame, speech)
                 if capture:

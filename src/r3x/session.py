@@ -31,6 +31,8 @@ class Session:
         self._capture_end = float("inf")
         self.proactive_hold_until = float("-inf")
         self.last_interaction_at = float("-inf")
+        self.route_planner = None  # Optional blocked-path drive planner; never speaks.
+        self.motion_committed = False  # Wheels were handed a plan in the current turn.
 
     def cancel(self) -> None:
         with self._lock:
@@ -152,6 +154,8 @@ class Session:
         action_started = False
         state_started = False
         opportunity_attempted = False
+        drive_action = None
+        drive_noted = False
         try:
             with self._lock:
                 if self.closed or source_session != self.session_id or submitted_revision != self.revision:
@@ -222,6 +226,10 @@ class Session:
                     ('Startup greeting: a stable person is visible and no human has spoken in this run. '
                      'Say a brief hello now; choose natural wording and optionally invite an unknown person to share their name. '
                      if context.get('visual_arrival',{}).get('startup_greeting') else
+                    'Proactive opportunity; nobody spoke and no face is visible, but the base radar reports a moving body '
+                    'outside the camera view (see drive.targets). Nobody has been identified. You may turn to look with '
+                    'drive_base (face or find_person), optionally saying something, or use remain_silent. '
+                     if opportunity.kind=='unseen_presence' else
                     'Proactive opportunity; nobody spoke. The previous exchange was already processed. '
                     'There is no new human reply; do not answer the earlier utterance again. '
                     'Choose whether a new contribution is welcome or use remain_silent. ')+'Observation: '+json.dumps(evidence)})
@@ -259,6 +267,9 @@ class Session:
                 held = set(getattr(self.output.robot.owner,'held_channels',()))
                 context['robot_pose_state'] = {'held_parts':
                     [name for name,channels in (('neck',{0}),('head_lift',{1}),('head_tilt',{2}),('visor',{3}),('hero_elbow',{4}),('hero_wrist',{5}),('poker_arm',{6}),('hero_arm',{7}),('throttle_arm',{8,9,10})) if held.intersection(channels)]}
+            if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:
+                context['drive'] = self.output.drive.context('self_initiated' if opportunity else 'requested',
+                    speaker_direction=None if opportunity else (context.get('speaker') or {}).get('direction'))
             scene_images = opportunity.scene_images if opportunity and any(c['kind']=='scene' for c in context.get('observations',[])) else ()
             if self.state and not self.state.frozen:
                 from . import visual_memory
@@ -387,6 +398,15 @@ class Session:
                         inspection_request = self.state.propose_inspection(call,context,cancel)
                         from .contracts import ToolResult
                         result = ToolResult(inspection_request.request_id,'ok','InspectionProposed',self.state.store.revision)
+                    elif call.name == 'drive_base':
+                        from .contracts import ToolResult
+                        try:
+                            drive_plan = self.state.propose_drive(call,context,cancel)
+                            result = ToolResult(drive_plan.request_id,'ok','DriveProposed',self.state.store.revision)
+                        except ValueError as exc:
+                            drive_plan = None
+                            result = ToolResult(call.call_id,'rejected',str(exc),self.state.store.revision)
+                            self.trace.emit('drive_rejected',turn_id=turn_id,reason=str(exc))
                     elif call.name in {'set_robot_pose','set_robot_joints'}:
                         pose = self.state.propose_pose(call,context,cancel)
                         from .contracts import ToolResult
@@ -433,12 +453,12 @@ class Session:
                                     reason='audience_changed_or_stale',speech_started=delivery.first_audio_at is not None)
                             return valid
                         cancel.guard = intent_output_valid
-                    if result.outcome=='ok' and call.name in {'inspect_view','shift_attention','respond_with_gesture'}:
+                    if result.outcome=='ok' and call.name in {'inspect_view','shift_attention','respond_with_gesture','drive_base'}:
                         from .visual_memory import audience
                         self.state.actions.begin(result.request_id,call.name,call.arguments.get('question') or call.arguments.get('purpose') or call.arguments.get('text'),turn_id,audience(context),self.trace.clock())
                         action_started=True
                         self.trace.emit('action_started',turn_id=turn_id,request_id=result.request_id,kind=call.name)
-                self.trace.emit("tool_validated" if call.name in {"shift_attention","respond_with_gesture","inspect_view","animate_lights","set_robot_pose","set_robot_joints"} else "tool_executed",
+                self.trace.emit("tool_validated" if call.name in {"shift_attention","respond_with_gesture","inspect_view","animate_lights","set_robot_pose","set_robot_joints","drive_base"} else "tool_executed",
                                 turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
                 if (result.outcome=='ok' and call.name=='conversation_feedback' and
                     result.data['action']=='floor_resolved' and not self.state.initiative.floor_held(self.trace.clock())):
@@ -516,6 +536,111 @@ class Session:
                         else:
                             delivery.status,delivery.medium='suppressed','none'
                     self.history.append({'role':'developer','content':'Inspection result (see medium and motion status): '+json.dumps(data)})
+                elif call.name=='drive_base':
+                    import json
+                    from dataclasses import asdict
+                    from .drive import DriveAction
+                    args = call.arguments
+                    spoke = False
+                    origin = 'self_initiated' if opportunity else 'requested'
+                    def speak(text):
+                        nonlocal spoke
+                        spoke = True
+                        delivery.status, delivery.medium = 'requested', 'audio'
+                        put_phrase(phrases,text,cancel)
+                    def drive_followup(output, images=(), inspection=None):
+                        # One bounded continuation: explain a refusal/incomplete motion,
+                        # or answer look_after from a frame captured after motion.
+                        continuation = (*call.preamble,
+                            {'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
+                            {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(output)})
+                        followup_context = {**{k:v for k,v in context.items() if k!='scene_description'},
+                            'drive':self.output.drive.context(origin) if self.output.drive else None}
+                        if inspection is not None:
+                            followup_context.update(inspection=inspection,inspection_description_allowed=bool(images))
+                        followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),snapshot.speaker,
+                                            followup_context,bool(images),continuation,images)
+                        self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='drive_result_continuation',
+                                        image_count=len(images),reasoning_effort=getattr(self.brain,'reasoning_effort',None))
+                        delivery.status, delivery.medium = 'requested', 'audio'
+                        return followup, generate(followup)
+                    receipt = None
+                    if result.outcome=='ok':
+                        if args['text'] and args['speak']=='before_motion':
+                            speak(args['text'])
+                        # A direct approach the base sensors already show blocked is the one
+                        # measured weakness of the conversation model. Geometry, not wording,
+                        # triggers one bounded route-planner call while the line above plays.
+                        blocked = [s.target for s in drive_plan.steps if s.action in {'face','approach'} and
+                                   (drive_plan.targets.get(s.target) or {}).get('path',{}).get('direct_approach')=='blocked_early']
+                        if not any(s.action=='approach' or s.action=='move' and s.meters>0 for s in drive_plan.steps):
+                            blocked = []  # Only turning toward it: nothing will run into the obstacle.
+                        if blocked and self.route_planner is not None and self.route_planner.available():
+                            self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='drive_route_planning',
+                                            model=self.route_planner.capability.model,blocked_targets=blocked)
+                            try:
+                                route, usage = self.route_planner.plan(None if opportunity else transcript.text,
+                                    {'steps':args['steps'],'purpose':args['purpose']},context['drive'],cancel)
+                                routed = ToolCall(call.call_id+':route','drive_base',{**route,'purpose':args['purpose'],
+                                    'look_after':args['look_after'],'text':args['text'],'speak':args['speak']})
+                                with self._lock:
+                                    drive_plan = self.state.propose_drive(routed,context,cancel)
+                                self.trace.emit('drive_route_planned',turn_id=turn_id,steps=route.get('steps'),usage=usage)
+                                self.history.append({'role':'developer','content':
+                                    'The direct path was blocked, so a route planner replaced the steps (same purpose): '+json.dumps(route.get('steps'))})
+                            except (ProviderFailure, ValueError) as exc:
+                                # The original validated plan still runs; its block is reported truthfully.
+                                self.trace.emit('drive_route_failed',turn_id=turn_id,reason=str(exc))
+                        drive_action = DriveAction(drive_plan)
+                        # Once queued, re-identified faces from the moving camera no longer
+                        # invalidate a self-initiated plan; explicit stop still halts it.
+                        self.motion_committed = True
+                        put_phrase(phrases,drive_action,cancel)
+                        while not drive_action.done.wait(.05):
+                            cancel.check()
+                            if not worker.is_alive():
+                                raise ProviderFailure('OutputWorkerStopped')
+                        receipt = asdict(drive_action.receipt)
+                        drive_noted = True
+                        self.trace.emit('drive_result',turn_id=turn_id,**receipt)
+                        with self._lock:
+                            self.state.actions.observed({'status':receipt['status'],'stage':'complete','reason':receipt['reason'],
+                                                         'medium':receipt['medium'],'motion_status':receipt['status']})
+                        self.history.append({'role':'developer','content':
+                            'Drive controller receipt (firmware/odometry/IMU, not visual confirmation): '+json.dumps(receipt)})
+                        cancel.check()
+                    if receipt and receipt['status'] in {'completed','partial'} and args['look_after']:
+                        from .inspection import InspectionRequest
+                        with self._lock:
+                            self.state.attention.scene.invalidate(self.trace.clock())
+                            look = InspectionRequest(drive_plan.request_id+':look','current',args['look_after'],
+                                self.state.attention.scene.view_epoch,self.trace.clock(),captured_after=(drive_action.receipt.finished_at or self.trace.clock())+.3)
+                        data, images = self.output.execute_inspection(look,cancel,lambda: True)
+                        data = {**data,'question':args['look_after'],'source_turn_id':context.get('source_turn_id'),
+                                'event_id':context.get('event_id'),'after_drive':receipt['status']}
+                        self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
+                        followup, look_calls = drive_followup({'drive':receipt,'inspection':data},images,data)
+                        if look_calls:
+                            if len(look_calls)!=1 or look_calls[0].name!='describe_view' or not images:
+                                raise ProviderFailure('ToolContinuationLimit')
+                            with self._lock:
+                                cancel.check()
+                                model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
+                                self.state.save_visual(look_calls[0],followup.context,self.session_id,model,cancel)
+                            visual_selected = data['request_id']
+                            if look_calls[0].arguments['text'] is not None:
+                                visual_proposed_text = look_calls[0].arguments['text']
+                                speak(visual_proposed_text)
+                        self.history.append({'role':'developer','content':'Inspection after driving: '+json.dumps(data)})
+                    elif receipt and receipt['status']=='completed':
+                        if args['text'] and args['speak']=='after_motion':
+                            speak(args['text'])
+                    elif not opportunity:
+                        # Refused, rejected or incomplete: the model explains from the receipt.
+                        if drive_followup({'drive':receipt} if receipt else asdict(result))[1]:
+                            raise ProviderFailure('ToolContinuationLimit')
+                    if not spoke and not generated.strip():
+                        delivery.status, delivery.medium = 'suppressed', 'none'
                 elif result.outcome=='ok' and call.name in {'set_robot_pose','set_robot_joints'}:
                     from dataclasses import asdict
                     expected_revision = result.revision
@@ -671,6 +796,13 @@ class Session:
             self.trace.emit("turn_failed", turn_id=turn_id, reason=delivery.error)
             cancel.event.set()
         finally:
+            if drive_action is not None and not drive_noted:
+                drive_action.done.wait(5.)
+                if drive_action.receipt is not None:
+                    import json
+                    from dataclasses import asdict
+                    self.history.append({'role':'developer','content':
+                        'Drive controller receipt (turn interrupted): '+json.dumps(asdict(drive_action.receipt))})
             if attention_intent:
                 with self._lock:
                     if self.state.attention.pending == attention_intent:
@@ -755,6 +887,7 @@ class Session:
                 self._opportunity_guard = None
                 self._proactive_delivery = None
                 self._audience_bound_output = False
+                self.motion_committed = False
             audio_at = delivery.first_audio_at
             self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, medium=delivery.medium, timings={
                 "endpoint": None if opportunity else source_end - speech_end,

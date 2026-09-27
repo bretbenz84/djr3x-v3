@@ -10,6 +10,7 @@ class InspectionRequest:
     question: str
     view_epoch: int
     requested_at: float
+    captured_after: float | None = None  # Physical base motion: only frames after it settled.
 
 
 @dataclass(frozen=True)
@@ -119,15 +120,16 @@ class CurrentView:
         self.cancel();self.started=False
 
     def execute(self, request, cancel, valid):
+        moved = request.captured_after is not None
         result={'request_id':request.request_id,'direction':request.direction,'view_epoch':request.view_epoch,
-                'medium':'camera','stage':'capture','motion_status':'not_requested','status':'failed'}
+                'medium':'camera','stage':'capture','motion_status':'base_motion_finished' if moved else 'not_requested','status':'failed'}
         if not self.started or self.stop.is_set():
             return {**result,'reason':'CurrentViewNotStarted'},()
         if request.direction!='current':
             return {**result,'reason':'MotionUnavailable'},()
-        deadline=self.clock()+2
+        deadline=self.clock()+(3 if moved else 2)
         import time
-        wall_deadline=time.monotonic()+2
+        wall_deadline=time.monotonic()+(3 if moved else 2)
         while True:
             cancel.check()
             if not valid():return {**result,'reason':'InspectionSuperseded'},()
@@ -139,11 +141,12 @@ class CurrentView:
             if snapshot:
                 image=snapshot[1][-1]
                 age=self.clock()-image.at
-                if 0<=age<=2:
+                if 0<=age<=2 and (not moved or image.at>=request.captured_after):
                     from hashlib import sha256
                     return {**result,'image_digest':sha256(image.data_url.encode()).hexdigest(),'status':'observed','stage':'complete','frame_id':image.frame_id,
                         'captured_at':image.at,'capture_age_seconds':age,'shared_frame':True,
-                        'reason':'Current camera view; no movement requested or performed.'},(image,)
+                        'reason':'Camera view captured after the base stopped moving.' if moved else
+                                 'Current camera view; no movement requested or performed.'},(image,)
             if self.clock()>=deadline or time.monotonic()>=wall_deadline:
                 return {**result,'reason':'FreshCurrentViewUnavailable'},()
             cancel.event.wait(.05)

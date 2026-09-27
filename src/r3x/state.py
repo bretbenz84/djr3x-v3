@@ -116,6 +116,66 @@ class CoreState:
         if call.arguments['pose'] not in POSE_COMMANDS: raise ValueError('UnknownRobotPose')
         return call.arguments['pose']
 
+    def propose_drive(self, call, context, cancel):
+        """Validate a model-selected base plan against offered targets and limits.
+
+        Rejections carry a reason the model can explain; nothing moves here.
+        Self-initiated plans (proactive opportunities) get the smaller limits.
+        """
+        from .drive import DrivePlan, DriveStep, LIMITS
+        cancel.check()
+        validate(call.name, call.arguments)
+        drive = context.get('drive') or {}
+        if self.frozen or not drive:
+            raise ValueError('DriveUnavailable')
+        if not drive.get('available'):
+            raise ValueError('DriveUnavailable:' + str(drive.get('unavailable_reason')))
+        if self.store.revision != context['state_revision']:
+            raise ValueError('StaleStateRevision')
+        origin = drive['origin']
+        limits = LIMITS[origin]
+        args = call.arguments
+        offered = {t['target_id']: t for t in drive['targets']}
+        if len(args['steps']) > limits['max_steps']:
+            raise ValueError('DriveTooManySteps')
+        steps, meters, degrees = [], 0., 0.
+        for raw in args['steps']:
+            action = raw['action']
+            used = {k for k in ('direction', 'degrees', 'meters', 'target', 'stop_at_m') if raw[k] is not None}
+            required = {'turn': {'direction', 'degrees'}, 'move': {'direction', 'meters'}, 'face': {'target'},
+                        'approach': {'target'}, 'find_person': set()}[action]
+            allowed = required | ({'stop_at_m'} if action == 'approach' else {'target'} if action == 'find_person' else set())
+            if not required <= used or not used <= allowed:
+                raise ValueError('DriveStepFieldsMismatch:' + action)
+            if raw['direction'] is not None and raw['direction'] not in (
+                    {'left', 'right'} if action == 'turn' else {'forward', 'backward'}):
+                raise ValueError('DriveDirectionMismatch:' + action)
+            if action == 'turn' and not 1 <= raw['degrees'] <= limits['turn_deg']:
+                raise ValueError('DriveTurnOutOfRange')
+            if action == 'move' and not .05 <= raw['meters'] <= limits['total_m']:
+                raise ValueError('DriveMoveOutOfRange')
+            if (action in {'face', 'approach'} or raw['target'] is not None) and raw['target'] not in offered:
+                raise ValueError('DriveTargetNotOffered')
+            if raw['stop_at_m'] is not None and not .4 <= raw['stop_at_m'] <= 2.5:
+                raise ValueError('DriveStopDistanceOutOfRange')
+            if action == 'find_person' and any(s.action == 'find_person' for s in steps):
+                raise ValueError('DriveRepeatedSearch')
+            meters += abs(raw['meters'] or 0.)
+            degrees += abs(raw['degrees'] or 0.)
+            # Robot-frame signs are applied here, never chosen by the model: +left, +forward.
+            sign = -1. if raw['direction'] in {'right', 'backward'} else 1.
+            steps.append(DriveStep(action, sign*raw['degrees'] if raw['degrees'] is not None else None,
+                                   sign*raw['meters'] if raw['meters'] is not None else None,
+                                   raw['target'], raw['stop_at_m']))
+        if meters > limits['total_m'] or degrees > limits['total_turn_deg']:
+            raise ValueError('DrivePlanExceedsLimits')
+        if args['look_after'] is not None and not context.get('inspection_enabled'):
+            raise ValueError('InspectionUnavailable')
+        source = context.get('event_id') or context['source_turn_id']
+        return DrivePlan(source + ':' + call.call_id, tuple(steps), origin, args['purpose'][:200],
+                         {k: dict(v) for k, v in offered.items()}, self.trace.clock() + 20.,
+                         args['look_after'], allow_new_arrivals=context.get('trigger') == 'unseen_presence')
+
     def propose_lights(self, call, context, cancel):
         from .leds import LightRequest
         cancel.check()
@@ -283,9 +343,9 @@ class CoreState:
         faces = [public_face(f) for f in event.faces if f.get('face_epoch',0)>=self.min_face_epoch]
         people = self.store.people()
         person_ids = {p['id'] for p in people}
-        if event.kind not in {'visual_arrival','conversation_lull','ambient'}: raise ValueError('UnknownOpportunity')
+        if event.kind not in {'visual_arrival','conversation_lull','ambient','unseen_presence'}: raise ValueError('UnknownOpportunity')
         if event.person_id and event.person_id not in person_ids: raise ValueError('VisualPersonNoLongerAvailable')
-        if not faces: raise ValueError('VisualTargetStale')
+        if not faces and event.kind!='unseen_presence': raise ValueError('VisualTargetStale')
         if event.kind=='visual_arrival' and not any(f['track_id']==event.target_track for f in faces):
             raise ValueError('VisualTargetStale')
         if event.kind=='conversation_lull':
@@ -309,7 +369,8 @@ class CoreState:
                 'participation':self.initiative.context(self.trace.clock()),
                 'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
                                'quiet_seconds':event.quiet_seconds,
-                               'audience':'arrival_target' if event.kind=='visual_arrival' else 'visible_group'},
+                               'audience':'arrival_target' if event.kind=='visual_arrival' else
+                                          'nobody_visible' if event.kind=='unseen_presence' else 'visible_group'},
                 **({'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
                                      'returning_this_session':event.returning,
                                      'startup_greeting':event.speech_marker==float('-inf') and self.current is None

@@ -16,6 +16,9 @@ camera, paid conversation/TTS providers and local evaluation recordings. Use the
 dev Mac for new voice enrollment; robot enrollment still requires the unimplemented
 microphone servo hold. Stop v2 before starting. Do not clear existing profiles.
 
+Wheel tests are separate: see the [drive-base floor test](DRIVE_BASE_INTEGRATION.md#floor-test--only-after-the-owner-says-to-run-it).
+Leave `drive_port` unset for these conversation runs.
+
 ## Solo tests
 
 ### Run 1 — Start Rex and test basic conversation — about 10 minutes

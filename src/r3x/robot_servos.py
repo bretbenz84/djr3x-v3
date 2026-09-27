@@ -23,6 +23,7 @@ class RobotServos:
         self.closed = False
         self.started = False
         self.before_shutdown = lambda: None
+        self._arm_return = None
 
     def _sequence(self, kind):
         result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.),Cancellation())
@@ -57,6 +58,38 @@ class RobotServos:
         return self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
             self.owner.clock()+60,pose=name),cancel)
 
+    def prepare_base_motion(self, cancel):
+        """Park the throttle arm and center the neck before any non-reverse base motion."""
+        self.idle.stop()
+        self.talking.stop()
+        if self._arm_return is not None:
+            self._arm_return.join(15.)
+            if self._arm_return.is_alive():
+                from .servos import ServoReceipt
+                return ServoReceipt('base-park', 'rejected', self.owner.version, self.owner.clock(),
+                                    self.owner.medium, reason='ArmReturnStillActive')
+            self._arm_return = None
+        receipt = self.owner.execute(ServoRequest('base-park', self.owner.version, 'base_park',
+                                                  self.owner.clock()+30.), cancel)
+        if self.trace:
+            self.trace.emit('servo_base_park', **asdict(receipt))
+        return receipt
+
+    def finish_base_motion(self):
+        """Return the arm to rest in the background; speech need not wait for it.
+
+        Talking motion is rejected (ServoBusy) while the return runs; audio is not.
+        A later drive plan or shutdown joins this worker before using the owner.
+        """
+        import threading
+        def run():
+            receipt = self.owner.execute(ServoRequest('base-release', self.owner.version, 'base_release',
+                                                      self.owner.clock()+30.), Cancellation())
+            if self.trace:
+                self.trace.emit('servo_base_release', **asdict(receipt))
+        self._arm_return = threading.Thread(target=run, name='r3x-arm-return', daemon=True)
+        self._arm_return.start()
+
     def note_speech(self):
         self.idle.stop()
 
@@ -70,6 +103,10 @@ class RobotServos:
             return
         self.idle.close()
         self.talking.stop()  # Failure retains ownership; no close under a worker.
+        if self._arm_return is not None:
+            self._arm_return.join(15.)
+            if self._arm_return.is_alive():
+                raise ProviderFailure('ArmReturnStillActive')
         self.owner.release_microphone_hold()
         try:
             if self.started and self.owner.state in {'active','stopped','ready'}:

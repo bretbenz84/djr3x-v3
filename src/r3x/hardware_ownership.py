@@ -50,7 +50,7 @@ class HardwareLocks:
         self.controller = self.controller.expanduser().absolute()
 
     def lease(self, resource: str) -> FileLease:
-        if resource not in {'controller','microphone','maestro','supervisor','console','head_led','chest_led'}:
+        if resource not in {'controller','microphone','maestro','supervisor','console','head_led','chest_led','drive_base','radar'}:
             raise ValueError('UnknownHardwareResource')
         path = self.controller if resource == 'controller' else self.controller.with_name(
             self.controller.name + '.v3-' + resource)

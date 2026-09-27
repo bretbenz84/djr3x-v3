@@ -1,5 +1,27 @@
 # V2 reference and extraction map
 
+## Drive base and radar extraction — September 27, 2026
+
+User-authorized scope: LLM-directed base motion with radar evidence and no firmware
+change. Source HEAD `777b38c803782cd4657e29ff544dfe7c1ca958ad`, clean working tree
+(`git status --short` empty). SHA-256: `hardware/motion.py` `afe325f9…6d8da4`,
+`hardware/radar.py` `98c0621a…fabe3`, `intelligence/approach.py` `f39e0216…610e97d`,
+`intelligence/motion_swing.py` `ab57d0af…88cc95`, `intelligence/motion_agency.py`
+`bde9bffe…67d73`, `docs/motion_protocol.md` `93a37741…1cac`, `config.py` `e1a061a0…aa0258`.
+
+Preserved: protocol v1 framing, default port open (no DTR drop), hello/caps, 150 ms
+heartbeat, config push, seq-correlated ack/done, tofmx decoding, V2's swing check
+geometry and arm extents, throttle park before non-reverse motion, the approach
+controller's arrival/blocked/lost rules, radar persistence and seam merge, the flinch
+baselines and corroboration, charger voltage lockout and matrix/ring presence gates.
+Adapted: one V3 owner and tool instead of timers, regex routes and an LLM route rescue;
+V2's fixed 0.55 m fused-front subtraction replaced by a 0.35 m stand-off over per-band
+matrix minima; explicit ports (radar by path, V2 resolved it by USB serial); no
+reconnect, compass, place gating, games/DJ holds or motion sounds. Dependencies:
+pyserial (already locked). No V2 file, firmware or data changed. Checks: 45 synthetic
+tests and paced hosted planning probes; live floor, clearance and overshoot validation
+remain. See [drive base integration](docs/DRIVE_BASE_INTEGRATION.md).
+
 ## Idle arms and elbow wake/rest — September 25, 2026
 
 User-authorized expansion: restore random awake hero/poker arm motion and add elbow
