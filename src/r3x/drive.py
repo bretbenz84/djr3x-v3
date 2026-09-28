@@ -38,6 +38,7 @@ SIDE_OPEN_M = .5          # A front band this much past the stand-off counts as 
 PERSON_REACH = .8         # Face range minus a front return within this may be knees, feet or chair legs.
 CRUISE_LOOK_S = 2.        # While rolling, a new look starts at most this often (hosted looks take 2-5 s).
 AIM_DEG = 15.             # Re-aim only past this while the path ahead is open (legs re-locate anyway).
+VOICE_LEG_M = 2.           # With only a voice to go on, roll this far toward it looking for a face.
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
 NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
@@ -779,18 +780,32 @@ class DriveBase:
             return {**row, 'status': 'lost' if turned else 'refused', 'reason': missing, 'travelled_m': 0., 'turned_deg': turned}
         kind = target['kind']
         stop_at = step.stop_at_m or DEFAULT_STOP_AT[kind]
+        travelled, extra = 0., {}
         if kind in {'radar_body', 'voice_direction'}:
-            # Priors only: turn toward them, then approach a face the camera actually sees.
+            # Priors: turn toward them, then approach a face the camera actually sees.
             facing = self._face_target(step, plan, cancel)
             turned = facing.get('turned_deg', 0.)
             if facing['status'] != 'completed':
                 return {**row, **{k: v for k, v in facing.items() if k not in {'action', 'target'}}, 'travelled_m': 0.}
-            ahead = [f for f in self._fresh_faces(self.clock()) if abs(image_bearing(f['box'], self._neck())) <= 20]
+            ahead = self._faces_ahead()
+            if not ahead and kind == 'voice_direction':
+                # Owner, September 27: "come towards me" needs only a voice. Roll toward it and
+                # switch to the face approach as soon as a face comes into view.
+                moved, outcome = self._toward_voice(plan, cancel, min(budget_m, VOICE_LEG_M))
+                travelled += moved
+                ahead = self._faces_ahead()
+                if not ahead:
+                    return {**row, 'status': 'blocked' if outcome == 'blocked' else 'completed',
+                            'reason': ('path blocked on the way toward the voice; no face seen' if outcome == 'blocked'
+                                       else 'moved toward the voice; no face seen'),
+                            'travelled_m': round(travelled, 2), 'turned_deg': turned, 'toward_voice': True}
+                extra['toward_voice_m'] = round(moved, 2)
             if ahead:
                 step = DriveStep('approach', target=max(ahead, key=lambda f: f['box'][2])['track_id'], stop_at_m=stop_at)
                 plan = DrivePlan(plan.request_id, plan.steps, plan.origin, plan.purpose,
                                  {**plan.targets, step.target: {'kind': 'face'}}, plan.expires_at)
                 target, kind = self._resolve(step.target, plan, self.clock()), 'face'
+                stop_at = step.stop_at_m or DEFAULT_STOP_AT['face']
             elif target.get('range_m'):
                 distance = min(budget_m, target['range_m'] - stop_at)
                 if distance < .05:
@@ -802,17 +817,60 @@ class DriveBase:
             else:
                 return {**row, 'status': 'lost', 'reason': 'no_face_in_view_after_turn', 'travelled_m': 0., 'turned_deg': turned}
         if target is None:
-            return {**row, 'status': 'lost', 'reason': 'target_not_redetected', 'travelled_m': 0., 'turned_deg': turned}
+            return {**row, 'status': 'lost', 'reason': 'target_not_redetected', 'travelled_m': round(travelled, 2), 'turned_deg': turned}
         if abs(target['bearing_deg']) > 12:
             facing = self._turn(max(-180., min(180., target['bearing_deg'])), plan, cancel)
             turned += facing.get('turned_deg', 0.)
             if facing['status'] != 'completed':
                 return {**row, **{k: v for k, v in facing.items() if k not in {'action'}}, 'travelled_m': 0., 'turned_deg': turned}
             self._sleep(.8, cancel)
+        detours = []
+        while True:
+            result, reason, moved, last = self._run_approach(step, plan, cancel, kind, stop_at, budget_m - travelled)
+            travelled += moved
+            far = (last is not None and last.get('range_m') is not None and last['range_m'] - stop_at > .5)
+            if result != 'blocked' or kind not in {'face', 'nearest_person'} or not far or len(detours) >= MAX_DETOURS:
+                break
+            # September 27: a trash can ahead-left stopped "come to me" with the right side open.
+            # Go around it as the sought approach does, then face where the person was.
+            telemetry, _ = self.link.snapshot()
+            heading = self._heading(telemetry) if telemetry else None
+            person_heading = wrap(heading + last['bearing_deg']) if heading is not None else None
+            side = self._open_side(self.space(), FRONT_MARGIN, last['bearing_deg'])
+            if side is None:
+                break
+            detour = self._detour(side, plan, cancel, budget_m - travelled)
+            turned += detour['turned_deg']
+            travelled += detour['travelled_m']
+            detours.append({k: detour[k] for k in ('side', 'travelled_m', 'status')})
+            if detour['status'] != 'completed':
+                break
+            now_heading = self._heading(self.link.snapshot()[0] or {}) if self.link.snapshot()[0] else None
+            if person_heading is not None and now_heading is not None:
+                back = self._turn(max(-90., min(90., wrap(person_heading - now_heading))), plan, cancel, escape=False)
+                turned += back.get('turned_deg', 0.)
+            if self._acquire(step, plan, cancel) is None:
+                result, reason = 'lost', 'person_not_refound_after_going_around'
+                break
+        final = self._resolve(step.target, plan, self.clock(), fresh=False)
+        space = self.space()
+        out = {**row, 'status': result, 'reason': reason, 'travelled_m': round(travelled, 2),
+               'turned_deg': turned, 'stop_at_m': stop_at, **extra,
+               'clearance_at_stop_m': {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()},
+               'final_approx_range_m': round(final['range_m'], 1) if final and final.get('range_m') else None}
+        if detours:
+            out['detours'] = detours
+        return out
+
+    def _faces_ahead(self):
+        return [f for f in self._fresh_faces(self.clock()) if abs(image_bearing(f['box'], self._neck())) <= 20]
+
+    def _run_approach(self, step, plan, cancel, kind, stop_at, budget_m):
+        """One closed-loop run toward a camera target; returns (result, reason, travel, last seen)."""
         self._ensure_parked(cancel)
         controller = Approach(self.clock(), 'face' if kind in {'face', 'nearest_person'} else 'object',
                               stop_at, LIMITS[plan.origin]['speed_mps'], budget_m)
-        result, reason = None, None
+        result, reason, last = None, None, None
         if self.sounds:
             self.sounds.start('move', self._origin)
         try:
@@ -826,6 +884,8 @@ class DriveBase:
                     break
                 self._view_since = now - 1.6   # Continuous motion: the latest detections are the view.
                 current = self._resolve(step.target, plan, now)
+                if current is not None:
+                    last = current
                 lin, ang, result, reason = controller.step(now, telemetry, self.space(now), current)
                 if result is None:
                     self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
@@ -835,12 +895,66 @@ class DriveBase:
             self.link.send({'cmd': 'stop'})
             if self.sounds:
                 self.sounds.stop()
-        final = self._resolve(step.target, plan, self.clock(), fresh=False)
-        space = self.space()
-        return {**row, 'status': result, 'reason': reason, 'travelled_m': round(controller.travel, 2),
-                'turned_deg': turned, 'stop_at_m': stop_at,
-                'clearance_at_stop_m': {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()},
-                'final_approx_range_m': round(final['range_m'], 1) if final and final.get('range_m') else None}
+        return result, reason, controller.travel, last
+
+    def _detour(self, side, plan, cancel, budget_m):
+        """Turn toward the open side (30°, then 55° if still in the path) and roll past."""
+        turned = 0.
+        for degrees in (DETOUR_DEG, DETOUR_MORE_DEG):
+            turn = self._turn(side * degrees, plan, cancel, escape=False)
+            turned += turn.get('turned_deg', 0.)
+            if turn['status'] != 'completed':
+                return {'side': 'left' if side > 0 else 'right', 'status': 'blocked', 'travelled_m': 0., 'turned_deg': turned}
+            if move_allowance(DETOUR_M, self.space())[0] >= .15:
+                break
+        move = self._move(min(DETOUR_M, budget_m), plan, cancel)
+        return {'side': 'left' if side > 0 else 'right', 'status': move['status'],
+                'travelled_m': move.get('travelled_m', 0.), 'turned_deg': turned}
+
+    def _toward_voice(self, plan, cancel, distance_m):
+        """Roll straight on the current heading toward a voice until a face comes into view,
+        the path closes, or distance_m; returns (travelled, outcome)."""
+        self._ensure_parked(cancel)
+        start = self._telemetry().get('odom') or {}
+        hold = self._heading(self._telemetry())
+        speed = LIMITS[plan.origin]['speed_mps']
+        outcome, travelled = 'distance', 0.
+        if self.sounds:
+            self.sounds.start('move', self._origin)
+        try:
+            while True:
+                self._check(cancel)
+                now = self.clock()
+                telemetry = self._telemetry()
+                ok, _ = self.availability(now)
+                if not ok:
+                    outcome = 'stopped'
+                    break
+                odom = telemetry.get('odom') or {}
+                travelled = math.hypot(float(odom.get('x', 0)) - float(start.get('x', 0)),
+                                       float(odom.get('y', 0)) - float(start.get('y', 0)))
+                if travelled >= distance_m - .05:
+                    break
+                self._view_since = now - 1.6
+                if self._faces_ahead():
+                    outcome = 'face'
+                    break
+                room = (self.space(now).get('path_m') or 0.) - FRONT_MARGIN
+                speed_now = max(0., float(odom.get('lin', 0)))
+                if room <= max(.03, speed_now*speed_now/(2*CONFIG['accel_lin']) + speed_now*.3):
+                    outcome = 'blocked'
+                    break
+                heading = self._heading(telemetry)
+                ang = 0. if hold is None or heading is None else max(-.2, min(.2, math.radians(wrap(hold - heading))*1.2))
+                lin = max(.05, min(speed, math.sqrt(2*CONFIG['accel_lin']*max(0., room)), (distance_m - travelled)/.6))
+                self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
+                self.wait(.15)
+        finally:
+            self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
+            self.link.send({'cmd': 'stop'})
+            if self.sounds:
+                self.sounds.stop()
+        return travelled, outcome
 
     def _locate(self, description, cancel, sought=None, settle=True):
         """One fresh sharp look plus one hosted locate; bearing is base-relative.
@@ -1103,20 +1217,14 @@ class DriveBase:
             if side is None or len(detours) >= MAX_DETOURS:
                 return result('blocked', 'obstacle_before_target' if side is None else 'still_blocked_after_detours',
                               clearance_at_stop_m=clearance, target_still_far=True)
-            for degrees in (DETOUR_DEG, DETOUR_MORE_DEG):
-                turn = self._turn(side * degrees, plan, cancel, escape=False)
-                turned += turn.get('turned_deg', 0.)
-                if turn['status'] != 'completed':
-                    return result('blocked' if turn['status'] == 'refused' else turn['status'], turn['reason'],
-                                  clearance_at_stop_m=clearance, target_still_far=True)
-                if move_allowance(DETOUR_M, self.space())[0] >= .15:
-                    break
-            move = self._move(min(DETOUR_M, budget_m - travelled), plan, cancel)
-            travelled += move.get('travelled_m', 0.)
-            detours.append({'side': 'left' if side > 0 else 'right', 'travelled_m': move.get('travelled_m', 0.),
-                            'status': move['status']})
-            if move['status'] not in {'completed', 'blocked', 'refused'}:
-                return result(move['status'], move['reason'])
+            detour = self._detour(side, plan, cancel, budget_m - travelled)
+            turned += detour['turned_deg']
+            travelled += detour['travelled_m']
+            detours.append({k: detour[k] for k in ('side', 'travelled_m', 'status')})
+            if detour['status'] == 'blocked' and not detour['travelled_m'] and detour['turned_deg'] == 0.:
+                return result('blocked', 'detour_turn_refused', clearance_at_stop_m=clearance, target_still_far=True)
+            if detour['status'] not in {'completed', 'blocked', 'refused'}:
+                return result(detour['status'], 'detour_' + detour['status'])
 
     def _find_person(self, step, plan, cancel):
         row = {'action': 'find_person'}

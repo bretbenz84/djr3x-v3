@@ -437,3 +437,19 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   readings goes from refused to the full 180°. Firmware does not gate spins (V2
   `control.cpp`), so no firmware change or flash was needed; gamepad support is untouched.
 
+## Voice-only approach and going around to a person — September 27
+
+- **"Come towards my voice" needed a face.** The microphone bearing only turned him; with
+  no face in view the approach gave up. Now, after facing the voice, he rolls up to 2 m
+  on that heading (IMU hold, path clearance, stand-off braking). As soon as a face comes
+  into view within ±20°, the normal face approach takes over and stops at about 1 m.
+  Without a face, the receipt says he moved toward the voice without seeing anyone.
+- **A trash can stopped "come to me".** Person approaches had no way around; the can was
+  0.31 m ahead-left with the right side clear. When blocked with the person still more
+  than 0.5 m beyond the stand-off, he now uses the shared detour: open side, 30°/55°,
+  0.6 m. Then he turns back to the person's remembered heading, re-finds them and
+  continues, at most twice. The sought approach uses the same detour step.
+- **Simulated only.** Voice direction on the robot is noisy (the log showed 129° then
+  31° for the same speaker), so a voice-only leg can head somewhat off; obstacles and the
+  face handover bound it.
+

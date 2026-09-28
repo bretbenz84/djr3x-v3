@@ -773,3 +773,62 @@ class TuckedArmTurnTests(unittest.TestCase):
         self.assertIs(drive._arms(), ARMS_TUCKED)
         drive._plan_parks = False                   # Straight reflex reverse: arms not parked.
         self.assertIs(drive._arms(), ARMS)
+
+
+class VoiceAndObstacleApproachTests(unittest.TestCase):
+    """September 27: "come towards my voice" needed a face; a trash can stopped "come to me"."""
+    def start(self):
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        return clock, fake, drive, world
+
+    def run_plan(self, clock, drive, targets, step):
+        return drive.execute(DrivePlan('p', (step,), 'requested', 'come to me', targets, clock()+120), Cancellation())
+
+    def test_a_voice_alone_is_enough_to_come_closer(self):
+        clock, fake, drive, world = self.start()
+        settle()
+        receipt = self.run_plan(clock, drive, {'speaker': {'target_id': 'speaker', 'kind': 'voice_direction', 'bearing_deg': 30}},
+                                DriveStep('approach', target='speaker'))
+        step = receipt.steps[-1]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertTrue(step['toward_voice'])
+        self.assertAlmostEqual(fake.theta, 30., delta=6.)
+        self.assertGreater(math.hypot(fake.x, fake.y), 1.5)
+
+    def test_a_face_seen_on_the_way_takes_over_and_stops_near_the_person(self):
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, 3.6*math.cos(math.radians(30)), 3.6*math.sin(math.radians(30))))
+        seen = world.faces
+        drive.faces = lambda now: [f for f in seen(now) if f['box'][2] > FACE_WIDTH_AT(2.4)]   # Too far to detect at first.
+        settle()
+        receipt = self.run_plan(clock, drive, {'speaker': {'target_id': 'speaker', 'kind': 'voice_direction', 'bearing_deg': 30}},
+                                DriveStep('approach', target='speaker'))
+        self.assertEqual(receipt.steps[-1]['status'], 'completed', receipt)
+        self.assertIn('toward_voice_m', receipt.steps[-1])
+        px, py = world.people[0][2:]
+        self.assertLess(math.hypot(px - fake.x, py - fake.y), 1.4)
+
+    def test_goes_around_a_trash_can_on_the_open_side_to_reach_the_person(self):
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, 3.2, 0.))
+        fake.sensors = shaped_room(world, [(0.9, .15, .18)])    # Can ahead and slightly left; right open.
+        class Servos:   # As on the robot: arms tucked before the wheels move.
+            def prepare_base_motion(self, cancel):
+                return type('R', (), {'status': 'pulses_reached', 'reason': None})()
+            def finish_base_motion(self):
+                pass
+        drive.servos = Servos()
+        settle()
+        receipt = self.run_plan(clock, drive, {'face-1': {'target_id': 'face-1', 'kind': 'face', 'bearing_deg': 0}},
+                                DriveStep('approach', target='face-1'))
+        step = receipt.steps[-1]
+        self.assertIn('detours', step, receipt)
+        self.assertEqual(step['detours'][0]['side'], 'right')
+        self.assertLess(math.hypot(3.2 - fake.x, fake.y), 1.5, receipt)
+
+
+def FACE_WIDTH_AT(distance):
+    from r3x.drive_space import FACE_WIDTH, HALF_FOV
+    return FACE_WIDTH / (2*math.tan(math.radians(HALF_FOV))*distance)
