@@ -34,10 +34,10 @@ class Perception:
             yield self.analyze(capture,cancel,voice,seconds)
 
     def _voice(self,capture,cancel):
-        if capture.motion_risk:
-            return VoiceObservation(self.encoder.capability.model,reason="robot_motion")
         try:
-            return self.encoder.analyze(capture,cancel)
+            voice = self.encoder.analyze(capture,cancel)
+            # Motion lowers confidence in the tracker; the evidence is kept.
+            return replace(voice, motion=True) if capture.motion_risk else voice
         except Cancelled:
             raise
         except Exception as exc:

@@ -229,3 +229,7 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   ElevenLabs read, so shutdown skipped all hardware release. A stop now closes the
   in-flight TTS stream, and hardware (wheels, servos, LEDs) is released even when a
   worker is stuck; only models stay loaded until the process exits.
+- **Owner ruling: motion lowers confidence, never discards evidence.** Motion-flagged
+  speech is always embedded and matched, with the identity bar raised from 0.50/0.07
+  to 0.55/0.10 (score/margin). It never creates or extends a voice track and never
+  enrolls; transcripts and bearings are kept. Playback-echo captures are still rejected.

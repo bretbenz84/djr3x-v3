@@ -36,17 +36,20 @@ class CaptureMotionTests(MemoryFixture):
         self.assertIsNone(attribution.track_id)
         self.assertFalse(attribution.learning_eligible)
 
-    def test_motion_audio_reaches_asr_without_encoder(self):
+    def test_motion_audio_is_analyzed_and_flagged_not_discarded(self):
+        # Owner ruling, September 27: motion lowers confidence; evidence is kept.
         from r3x.perception import Perception
+        from r3x.speakers import VoiceObservation
         class Encoder:
             capability=SimpleNamespace(model='synthetic:3')
-            def analyze(self,*args): raise AssertionError('no motion embedding')
+            def analyze(self,*args): return VoiceObservation('synthetic:3',(1.,0.,0.),(),2.,1.,reason='synthetic')
         class ASR:
             def transcribe(self,capture,cancel): return Transcript('Show me a happy light animation',-.01,True)
         capture=Capture('c','s',bytes(1024),0,1,1,motion_risk=True)
         turns=list(Perception(ASR(),Encoder(),self.state.trace).analyze_many(capture,Cancellation()))
         self.assertEqual(turns[0].transcript.text,'Show me a happy light animation')
-        self.assertEqual(turns[0].voice.reason,'robot_motion')
+        self.assertTrue(turns[0].voice.motion)
+        self.assertEqual(turns[0].voice.embedding,(1.,0.,0.))
 
 
 class PoseTests(unittest.TestCase):

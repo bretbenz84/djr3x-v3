@@ -60,6 +60,12 @@ class VoiceObservation:
     reason: str = "unmeasured"
     direction_conflict: bool = False
     direction: dict | None = None
+    motion: bool = False   # Servo/base motion overlapped the speech: lower confidence, never discard.
+
+
+# Owner ruling, September 27: motion lowers confidence rather than discarding evidence.
+MOTION_THRESHOLD_BONUS = .05
+MOTION_MARGIN_BONUS = .03
 
 
 @dataclass(frozen=True)
@@ -141,17 +147,29 @@ class SpeakerTracker:
         alternatives = tuple(ranked[:3])
         if not trusted or truncated or observation.voiced_seconds < .5:
             return Attribution(reason="short_or_untrusted", candidates=alternatives)
+        threshold = p.identity_threshold + (MOTION_THRESHOLD_BONUS if observation.motion else 0.)
+        margin = p.margin + (MOTION_MARGIN_BONUS if observation.motion else 0.)
         person_id = None
-        if ranked and ranked[0][1] >= p.identity_threshold:
-            if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < p.margin:
+        if ranked and ranked[0][1] >= threshold:
+            if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < margin:
                 return Attribution(reason="ambiguous_profiles", candidates=alternatives)
             # Each window must agree with the selected profile, not just the pooled voice.
             if any(not (r := self.rank(window[2], profiles)) or r[0][0] != ranked[0][0] or
-                   r[0][1] < p.identity_threshold or (len(r) > 1 and r[0][1]-r[1][1] < p.margin)
+                   r[0][1] < threshold or (len(r) > 1 and r[0][1]-r[1][1] < margin)
                    for window in observation.windows):
                 return Attribution(reason="window_identity_conflict", candidates=alternatives)
             if observation.voiced_seconds >= p.min_named_seconds:
                 person_id = ranked[0][0]
+        if observation.motion:
+            # Match against what is known, but servo noise never becomes a track
+            # reference or a new voice group.
+            track = next((t for t in self.tracks.values() if person_id and t.person_id == person_id), None)
+            if track is not None:
+                track.last_at = at
+            return Attribution(track.track_id if track else None, person_id,
+                               "supported" if person_id else "unresolved",
+                               "acoustic_match_during_motion" if person_id else "motion_low_confidence",
+                               alternatives, False)
         tracks = sorted(((key, statistics.mean(cosine(vector, ref) for ref in track.references))
                          for key, track in self.tracks.items()), key=lambda row: row[1], reverse=True)
         if (person_id is None and tracks and

@@ -165,3 +165,22 @@ class MotionFlagTests(unittest.TestCase):
 
     def test_motion_through_the_speech_still_voids_identity(self):
         self.assertTrue(self.speak(motion_pre=False, motion_voiced=12).motion_risk)
+
+
+class MotionConfidenceTests(unittest.TestCase):
+    def observe(self, similarity, motion):
+        from r3x.speakers import SpeakerTracker, VoiceObservation
+        tracker = SpeakerTracker('synthetic:3')
+        vector = (similarity, math.sqrt(1 - similarity**2), 0.)
+        voice = VoiceObservation('synthetic:3', vector, (), 3., 1., reason='synthetic', motion=motion)
+        attribution = tracker.observe(voice, 100., {'bret': [(1., 0., 0.)]})
+        return tracker, attribution
+
+    def test_motion_raises_the_bar_but_still_recognizes_a_clear_voice(self):
+        self.assertEqual(self.observe(.52, False)[1].person_id, 'bret')
+        self.assertIsNone(self.observe(.52, True)[1].person_id)        # Borderline under motion: unresolved.
+        tracker, clear = self.observe(.62, True)
+        self.assertEqual(clear.person_id, 'bret')
+        self.assertEqual(clear.reason, 'acoustic_match_during_motion')
+        self.assertFalse(clear.learning_eligible)
+        self.assertEqual(tracker.tracks, {})   # Servo-noise audio never becomes a stored reference.

@@ -275,12 +275,8 @@ class CoreState:
         for key in self.evidence:
             if key in self.tracker.tracks:
                 self.tracker.tracks[key].retained = True
-        if capture.motion_risk:
-            from .speakers import VoiceObservation
-            # Motion voids voice identity, not where the sound came from: keep the
-            # microphone bearing so Rex can still turn toward the speaker.
-            observation = VoiceObservation(self.tracker.namespace,reason="robot_motion",
-                                           direction=observation.direction,direction_conflict=observation.direction_conflict)
+        if capture.motion_risk and not observation.motion:
+            observation = replace(observation, motion=True)
         if capture.overlap is True:
             observation = replace(observation, mixed=True)
         attribution = self.tracker.observe(observation, capture.ended_at,

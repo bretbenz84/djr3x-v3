@@ -71,9 +71,8 @@ class Endpoint:
         if self.frames and self.voiced > 0:
             result = Capture(uuid4().hex, self.session_id, b"".join(f.pcm for f in self.frames),
                              self.frames[0].started_at, self.last_speech, self.frames[-1].ended_at,
-                             # Motion voids voice identity only when it overlaps a real share
-                             # of the speech, not the 1 s pre-roll or a last idle beat (September
-                             # 27: 15/19 captures were voided and Rex could not recognize Bret).
+                             # Motion lowers voice confidence when it overlaps a real share of
+                             # the speech, not the 1 s pre-roll or a last idle beat.
                              motion_risk=self.voiced_motion >= .3*self.voiced,
                              echo_risk=any(f.echo_risk for f in self.frames), truncated=truncated,
                              voiced_intervals=tuple((a-self.frames[0].started_at,b-self.frames[0].started_at) for a,b in self.intervals))
