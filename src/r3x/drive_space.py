@@ -89,6 +89,10 @@ def clearance(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
         'left_m': least([ring.get('lf'), ring.get('lb')]),
         'right_m': least([ring.get('rf'), ring.get('rb')]),
         'rear_m': least([ring.get('rl'), ring.get('rr')]),
+        'front_radial_left_m': least([ring.get('fl_radial') or ring.get('fl')]),
+        'front_radial_right_m': least([ring.get('fr_radial') or ring.get('fr')]),
+        'front_band_left_m': sectors['left'] if sectors else None,
+        'front_band_right_m': sectors['right'] if sectors else None,
         'health': health,
     }
     if ring and all(ring.get(key) is None for key, _ in RING):
@@ -110,6 +114,32 @@ def move_allowance(meters: float, space: dict) -> tuple[float, str | None]:
     if allowed < .05:
         return 0., 'path_blocked'
     return math.copysign(allowed, meters), None if allowed >= abs(meters) - 1e-6 else 'shortened_by_clearance'
+
+
+BODY_HALF_WIDTH = .27   # About the sensor ring radius.
+
+
+def detour_allowance(meters: float, space: dict, side: int) -> tuple[float, str | None]:
+    """Forward room while stepping around something just turned away from (side +1 = left).
+
+    The matrix and the radial on the near side count in full. On the far side the matrix
+    still counts in full, but the 22.5 degree radial counts only when what it sees is inside
+    the body's path: after a detour turn the obstacle it sees is usually beside the path."""
+    if meters <= 0 or space['front_center_m'] is None or 'front_depth_matrix_unavailable' in space['health']:
+        return 0., 'front_clearance_unknown'
+    near = 'left' if side > 0 else 'right'
+    far = 'right' if side > 0 else 'left'
+    limits = [space['front_center_m'], space['front_band_' + near + '_m'], space['front_radial_' + near + '_m'],
+              space['front_band_' + far + '_m']]
+    radial = space['front_radial_' + far + '_m']
+    sine, cosine = math.sin(math.radians(22.5)), math.cos(math.radians(22.5))
+    if radial is not None and RING_RADIUS*sine + radial*sine < BODY_HALF_WIDTH + SWING_MARGIN:
+        limits.append(radial*cosine)
+    room = min(v for v in limits if v is not None) - FRONT_MARGIN
+    allowed = max(0., min(meters, room))
+    if allowed < .05:
+        return 0., 'path_blocked'
+    return allowed, None if allowed >= meters - 1e-6 else 'shortened_by_clearance'
 
 
 def _pivot(bearing, radius):

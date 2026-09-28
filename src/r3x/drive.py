@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .drive_space import (allowed_turn, clearance, describe_bearing, face_range, image_bearing,
+from .drive_space import (allowed_turn, clearance, describe_bearing, detour_allowance, face_range, image_bearing,
                           move_allowance, radar_bodies, wrap, FRONT_MARGIN, PERSON_MARGIN)
 from .providers import Capability
 
@@ -26,7 +26,15 @@ LIMITS = {
 ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek')
 SEEK_SWEEP_DEG = 80.      # Just under the ~90 degree camera view, so consecutive looks overlap.
 SEEK_LOOKS = 4            # Current view plus three turns: about a full circle.
-PLAN_VISION_CALLS = 8     # Hosted locator calls per plan (search plus vision-guided approach).
+PLAN_VISION_CALLS = 12    # Hosted locator calls per plan (search, vision-guided legs, detours).
+# Going around what blocks a vision-guided approach (owner request September 27: he stopped
+# 15 ft short of a door with open floor beside the obstacle, or pointed slightly into a wall).
+DETOUR_DEG = 30.          # The sought thing stays inside the ~90 degree view after the turn.
+DETOUR_MORE_DEG = 25.     # Once more when the first turn leaves the obstacle in the path.
+DETOUR_M = .6
+MAX_DETOURS = 2
+SIDE_OPEN_M = .5          # A front band this much past the stand-off counts as a way around.
+NEAR_WIDTH = .3           # Box width at which a blocked approach has really arrived (~1-2 m).
 TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns used 40.
 # Owner feedback September 27: stopping 4-5 ft away was too far.
 DEFAULT_STOP_AT = {'face': .8, 'nearest_person': .8, 'object': .6, 'radar_body': .9, 'voice_direction': .9}
@@ -38,6 +46,10 @@ CONFIG = {'max_lin': .25, 'max_ang': round(math.radians(60), 3), 'accel_lin': .3
           'manual_autoreturn': True, 'manual_idle_return_secs': 4}
 CHARGER_MV = 13600
 CAMERA_KINDS = {'face', 'nearest_person', 'object'}
+
+
+class ArmParkFailed(ProviderFailure):
+    """The throttle arm did not park before wheel motion; the plan is refused unmoved."""
 
 
 @dataclass(frozen=True)
@@ -279,8 +291,10 @@ class DriveBase:
         self.object_tracks = None     # objects including single-frame re-detections after motion
         self.locator = None           # (description, image, cancel) -> hosted vision geometry
         self.look = None              # (after) -> fresh sharp camera image, or None
-        self._sought = None
+        self._sought = None           # description, note and absolute heading of the last thing sought
         self._vision_calls = 0
+        self._parked = False
+        self._plan_parks = False
         self._view_since = float('-inf')
         self._start_heading = None
 
@@ -539,6 +553,12 @@ class DriveBase:
                 return {**retry, 'escape': moved, 'travelled_m': moved.get('travelled_m', 0.)}
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note}
+        if not self._parked and self.servos is not None and self._plan_parks:
+            self._ensure_parked(cancel)
+            telemetry = self._telemetry()
+            allowed, note = allowed_turn(degrees, telemetry)
+            if not allowed:
+                return {**row, 'status': 'refused', 'reason': note}
         before, before_odom = self._heading(telemetry), self._odom_heading(telemetry)
         status, reason, _ = self._finite({'cmd': 'turn', 'deg': round(allowed, 1), 'rate': TURN_RATE},
                                          max(8., abs(allowed)/TURN_RATE + 8.), cancel)
@@ -560,9 +580,25 @@ class DriveBase:
         row['turned_deg'] = abs(measured if agreed else allowed if status == 'completed' else 0.)
         return row
 
-    def _move(self, meters, plan, cancel, speed=None):
-        allowed, note = move_allowance(meters, self.space())
+    def _ensure_parked(self, cancel):
+        """Arm in and neck centred right before the wheels first move, not at plan start:
+        a plan that ends without moving makes no false 'about to go' gesture (September 27)."""
+        if self._parked or self.servos is None or not self._plan_parks:
+            return
+        park = self.servos.prepare_base_motion(cancel)
+        if park.status != 'pulses_reached':
+            raise ArmParkFailed('ArmParkFailed:' + str(park.reason or park.status))
+        self._parked = True
+        self._view_since = self.clock() + .3   # Only detections of the centred-neck view.
+        self._sleep(.6, cancel)
+
+    def _move(self, meters, plan, cancel, speed=None, allowance=move_allowance):
+        allowed, note = allowance(meters, self.space())
         row = {'action': 'move', 'requested_m': round(meters, 2)}
+        if not allowed:
+            return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
+        self._ensure_parked(cancel)
+        allowed, note = allowance(meters, self.space())   # Clearance after the park settles.
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
         start = self._telemetry().get('odom') or {}
@@ -737,6 +773,7 @@ class DriveBase:
             if facing['status'] != 'completed':
                 return {**row, **{k: v for k, v in facing.items() if k not in {'action'}}, 'travelled_m': 0., 'turned_deg': turned}
             self._sleep(.8, cancel)
+        self._ensure_parked(cancel)
         controller = Approach(self.clock(), 'face' if kind in {'face', 'nearest_person'} else 'object',
                               stop_at, LIMITS[plan.origin]['speed_mps'], budget_m)
         result, reason = None, None
@@ -765,21 +802,52 @@ class DriveBase:
                 'clearance_at_stop_m': {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()},
                 'final_approx_range_m': round(final['range_m'], 1) if final and final.get('range_m') else None}
 
-    def _locate(self, description, cancel):
-        """One fresh sharp look plus one hosted locate; bearing is base-relative."""
+    def _locate(self, description, cancel, sought=None):
+        """One fresh sharp look plus one hosted locate; bearing is base-relative.
+
+        With a remembered sighting, the locator is told which match it chose and where it
+        should now be, and a match far from there is a different one (September 27: three
+        looks for "door" chose three different doors and the base zig-zagged between them)."""
         if self._vision_calls >= PLAN_VISION_CALLS:
             raise ProviderFailure('PlanVisionBudgetReached')
         self._sleep(.4, cancel)   # Let the head camera settle after motion.
         image = self.look(max(self._view_since, self.clock() - .5))
         if image is None:
             return None, 'no_fresh_camera_frame'
+        from .drive_space import HALF_FOV
+        telemetry, _ = self.link.snapshot()
+        heading = self._heading(telemetry) if telemetry else None
+        expected = None
+        if sought and sought.get('heading') is not None and heading is not None:
+            expected = wrap(sought['heading'] - heading)
         self._vision_calls += 1
-        result = self.locator(description, image, cancel)
+        if sought and sought.get('note'):
+            hint = 'Earlier you matched it as: ' + sought['note'] + '.'
+            if expected is not None and abs(expected - self._neck()) < HALF_FOV:
+                hint += f' It should now be near x={.5 - (expected - self._neck())/(2*HALF_FOV):.2f}; if several match, report the one nearest there.'
+            result = self.locator(description, image, cancel, hint=hint)
+        else:
+            result = self.locator(description, image, cancel)
         if not result.get('found') or result.get('confidence') == 'low':
             return None, result.get('note') or 'not_found'
-        from .drive_space import HALF_FOV
         bearing = (.5 - float(result['x'])) * 2 * HALF_FOV + self._neck()
-        return {'bearing_deg': bearing, 'box_width': float(result['width']), 'note': result.get('note')}, None
+        if expected is not None and abs(wrap(bearing - expected)) > 25:
+            return None, 'a_different_match_off_to_the_side'
+        return {'bearing_deg': bearing, 'box_width': float(result['width']), 'note': result.get('note'),
+                'heading': wrap(heading + bearing) if heading is not None else None}, None
+
+    def _expected_sought(self):
+        """Base-relative bearing where the remembered thing should be, from the IMU heading."""
+        telemetry, _ = self.link.snapshot()
+        heading = self._heading(telemetry) if telemetry else None
+        if not self._sought or self._sought.get('heading') is None or heading is None:
+            return None
+        return wrap(self._sought['heading'] - heading)
+
+    def _remember_sought(self, description, found):
+        """The thing's absolute heading survives this plan, so "keep going" finds the same one."""
+        self._sought = {'description': description, 'note': found.get('note'),
+                        'heading': found.get('heading'), 'box_width': found['box_width']}
 
     def _seek(self, step, plan, cancel):
         """Look for a described thing the detector cannot name; sweep until found."""
@@ -797,7 +865,7 @@ class DriveBase:
                     turned += turn.get('turned_deg', 0.)
                     if turn['status'] != 'completed':
                         return {**row, 'status': turn['status'], 'reason': turn['reason'], 'turned_deg': turned, 'looks': looks}
-                self._sought = {'description': step.description, 'box_width': found['box_width']}
+                self._remember_sought(step.description, found)
                 return {**row, 'status': 'completed', 'reason': 'found', 'note': found['note'],
                         'turned_deg': turned, 'looks': looks, 'vision_calls': self._vision_calls}
             notes.append(why)
@@ -809,40 +877,100 @@ class DriveBase:
         return {**row, 'status': 'not_found', 'reason': 'not_seen_in_any_look', 'turned_deg': turned,
                 'looks': looks, 'notes': notes[-2:], 'vision_calls': self._vision_calls}
 
+    def _room(self, stand_off):
+        space = self.space()
+        front = space['front_m']
+        return space, (front if front is not None else 0.) - stand_off
+
+    @staticmethod
+    def _open_side(space, stand_off, bearing):
+        """+1 left / -1 right: a front band with a way around, preferring the target's side."""
+        room = {1: space.get('front_left_m'), -1: space.get('front_right_m')}
+        open_sides = [side for side, value in room.items() if value is not None and value - stand_off >= SIDE_OPEN_M]
+        if len(open_sides) == 2:
+            if abs(bearing) > 2:
+                return 1 if bearing > 0 else -1
+            return max(open_sides, key=lambda side: room[side])
+        return open_sides[0] if open_sides else None
+
     def _approach_sought(self, step, plan, cancel, budget_m):
-        """Vision-guided legs toward what seek found: re-locate, re-aim, move, repeat."""
+        """Vision-guided legs toward what seek found: re-locate, re-aim, move, repeat.
+
+        An obstacle is not arrival: while the thing still looks far away, a blocked leg first
+        re-aims precisely (pointed slightly into a wall beside a door), then goes around on
+        an open front band, and otherwise reports blocked."""
         row = {'action': 'approach', 'target': 'sought'}
-        if step.description:
-            self._sought = {'description': step.description, 'box_width': 0.}
+        if step.description and (self._sought is None or self._sought['description'] != step.description):
+            self._sought = {'description': step.description}
         if self._sought is None:
             return {**row, 'status': 'refused', 'reason': 'nothing_sought_yet', 'travelled_m': 0.}
         stand_off = max(FRONT_MARGIN, step.stop_at_m or DEFAULT_STOP_AT['object'])
-        travelled, turned, misses = 0., 0., 0
+        travelled, turned, misses, detours = 0., 0., 0, []
+        def result(status, reason, **extra):
+            out = {**row, 'status': status, 'reason': reason, 'travelled_m': round(travelled, 2),
+                   'turned_deg': round(turned, 1), **extra}
+            if detours:
+                out['detours'] = detours
+            return out
         while True:
-            found, why = self._locate(self._sought['description'], cancel)
+            if self._vision_calls >= PLAN_VISION_CALLS:
+                return result('budget_reached', 'vision_budget_reached')
+            expected = self._expected_sought()
+            if expected is not None and abs(expected) > 35:
+                # Out of view after a detour: face where the thing should be before looking.
+                turn = self._turn(max(-90., min(90., expected)), plan, cancel)
+                turned += turn.get('turned_deg', 0.)
+                if turn['status'] != 'completed':
+                    return result(turn['status'], turn['reason'])
+            found, why = self._locate(self._sought['description'], cancel, self._sought)
             if found is None:
                 misses += 1
                 if misses >= 2:
-                    return {**row, 'status': 'lost', 'reason': why, 'travelled_m': round(travelled, 2), 'turned_deg': turned}
+                    return result('lost', why)
                 continue
             misses = 0
+            self._remember_sought(self._sought['description'], found)
             if found['box_width'] >= .45:
-                return {**row, 'status': 'completed', 'reason': 'target_fills_the_view', 'travelled_m': round(travelled, 2), 'turned_deg': turned}
-            if abs(found['bearing_deg']) > 8:
-                turn = self._turn(max(-90., min(90., found['bearing_deg'])), plan, cancel)
+                return result('completed', 'target_fills_the_view')
+            if budget_m - travelled < .1:
+                return result('budget_reached', 'travel_budget_reached')
+            bearing = found['bearing_deg']
+            space, room = self._room(stand_off)
+            if abs(bearing) > 8 or (room < .1 and abs(bearing) > 3):
+                turn = self._turn(max(-90., min(90., bearing)), plan, cancel)
                 turned += turn.get('turned_deg', 0.)
                 if turn['status'] != 'completed':
-                    return {**row, 'status': turn['status'], 'reason': turn['reason'], 'travelled_m': round(travelled, 2), 'turned_deg': turned}
-            front = self.space()['front_m']
-            leg = min(.8, budget_m - travelled, (front if front is not None else 0.) - stand_off)
-            if leg < .1:
-                reason = 'reached_front_stand_off' if budget_m - travelled >= .1 else 'travel_budget_reached'
-                return {**row, 'status': 'completed' if reason.startswith('reached') else 'budget_reached',
-                        'reason': reason, 'travelled_m': round(travelled, 2), 'turned_deg': turned}
-            move = self._move(leg, plan, cancel)
+                    return result(turn['status'], turn['reason'])
+                bearing = 0.
+                space, room = self._room(stand_off)
+            leg = min(.8, budget_m - travelled, room)
+            if leg >= .1:
+                move = self._move(leg, plan, cancel)
+                travelled += move.get('travelled_m', 0.)
+                if move['status'] not in {'completed', 'blocked'}:
+                    return result(move['status'], move['reason'])
+                continue
+            clearance = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()}
+            if found['box_width'] >= NEAR_WIDTH:
+                return result('completed', 'reached_stand_off_near_target', clearance_at_stop_m=clearance)
+            side = self._open_side(space, stand_off, bearing)
+            if side is None or len(detours) >= MAX_DETOURS:
+                return result('blocked', 'obstacle_before_target' if side is None else 'still_blocked_after_detours',
+                              clearance_at_stop_m=clearance, target_still_far=True)
+            around = lambda meters, space, side=side: detour_allowance(meters, space, side)
+            for degrees in (DETOUR_DEG, DETOUR_MORE_DEG):
+                turn = self._turn(side * degrees, plan, cancel)
+                turned += turn.get('turned_deg', 0.)
+                if turn['status'] != 'completed':
+                    return result(turn['status'], turn['reason'], clearance_at_stop_m=clearance, target_still_far=True)
+                if around(DETOUR_M, self.space())[0] >= .15:
+                    break
+            move = self._move(min(DETOUR_M, budget_m - travelled), plan, cancel, allowance=around)
             travelled += move.get('travelled_m', 0.)
-            if move['status'] != 'completed':
-                return {**row, 'status': move['status'], 'reason': move['reason'], 'travelled_m': round(travelled, 2), 'turned_deg': turned}
+            detours.append({'side': 'left' if side > 0 else 'right', 'travelled_m': move.get('travelled_m', 0.),
+                            'status': move['status']})
+            if move['status'] not in {'completed', 'blocked', 'refused'}:
+                return result(move['status'], move['reason'])
 
     def _find_person(self, step, plan, cancel):
         row = {'action': 'find_person'}
@@ -884,7 +1012,7 @@ class DriveBase:
         if not self._lock.acquire(blocking=False):
             receipt.status, receipt.reason = 'refused', 'DriveBusy'
             return receipt
-        prepared = False
+        self._parked = False
         try:
             self._halt.clear()
             ok, reason = self.availability()
@@ -896,14 +1024,8 @@ class DriveBase:
             self._vision_calls = 0   # The last sought thing persists across plans ("keep going").
             start = self.link.snapshot()[0]
             self._start_heading = self._odom_heading(start) if start else None
-            if self.servos is not None and plan.park_arm:
-                park = self.servos.prepare_base_motion(cancel)
-                if park.status != 'pulses_reached':
-                    receipt.status, receipt.reason = 'refused', 'ArmParkFailed:' + str(park.reason or park.status)
-                    return receipt
-                prepared = True
-                self._view_since = self.clock() + .3   # Only detections of the centred-neck view.
-                self._sleep(.6, cancel)
+            self._plan_parks = plan.park_arm   # The arm parks right before the first wheel command.
+            self._view_since = self.clock()
             budget = LIMITS[plan.origin]['total_m']
             for step in plan.steps:
                 self._check(cancel)
@@ -943,6 +1065,8 @@ class DriveBase:
                 receipt.reason = last.get('reason')
         except Cancelled:
             receipt.status, receipt.reason = 'cancelled', 'stop_requested'
+        except ArmParkFailed as exc:
+            receipt.status, receipt.reason = 'refused', str(exc)   # Nothing moved: the park precedes wheels.
         except ProviderFailure as exc:
             receipt.status, receipt.reason = 'failed', str(exc)
         finally:
@@ -951,7 +1075,8 @@ class DriveBase:
                     self.link.send({'cmd': 'stop'})
             except ProviderFailure:
                 pass
-            if prepared:
+            if self._parked:
+                self._parked = False
                 self.servos.finish_base_motion()
             self.motion_until = self.clock() + 1.
             self.moving.clear()

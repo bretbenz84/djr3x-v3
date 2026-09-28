@@ -673,7 +673,7 @@ class OpenAIVisualLocator(HTTPProvider):
     def available(self) -> bool:
         return self.client is not None and self.calls < LOCATE_BUDGET
 
-    def locate(self, description: str, image, cancel: Cancellation) -> dict:
+    def locate(self, description: str, image, cancel: Cancellation, hint: str | None = None) -> dict:
         import httpx
         if not self.available():
             raise ProviderFailure("VisualLocatorUnavailable")
@@ -688,7 +688,7 @@ class OpenAIVisualLocator(HTTPProvider):
                    "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 600,
                    "text": {"format": {"type": "json_schema", "name": "location", "strict": True, "schema": schema}},
                    "input": [{"role": "user", "content": [
-                       {"type": "input_text", "text": "Find: " + description},
+                       {"type": "input_text", "text": "Find: " + description + ("\n" + hint if hint else "")},
                        {"type": "input_image", "image_url": image.data_url, "detail": getattr(image, "detail", "high")}]}]}
         cancel.check()
         try:
@@ -708,6 +708,6 @@ class OpenAIVisualLocator(HTTPProvider):
         except ValueError:
             raise ProviderFailure("LocatorResultMalformed")
         if self.trace:
-            self.trace.emit("visual_locate", description=description, frame_id=image.frame_id,
+            self.trace.emit("visual_locate", description=description, hint=hint, frame_id=image.frame_id,
                             result=result, usage=body.get("usage", {}))
         return result

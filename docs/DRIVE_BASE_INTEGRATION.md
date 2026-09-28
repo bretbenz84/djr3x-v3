@@ -245,8 +245,29 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   A separate bounded locator call (gpt-5.4-mini, structured output) returns the thing's
   image box or "not found"; the drive owner turns to its bearing, or sweeps 80° (preferred
   side first) for up to four looks. `approach sought` re-locates between legs of at most
-  0.8 m and stops when the target fills 45% of the view, at the front stand-off, or at the
-  plan budget. At most 8 locator calls per plan and 60 per run.
+  0.8 m and stops when the target fills 45% of the view, near it at the front stand-off, or
+  at the plan budget. At most 12 locator calls per plan and 60 per run.
 - **Measured on a saved robot frame:** doorway and laptop located at the correct image
   positions; an absent clock photo returned not found. About 2 s and roughly 820 input /
   150 output tokens per look. Live accuracy while driving is untested.
+
+## Door run repairs — September 27
+
+- **Stopped 15 ft short of a door and said "Here I am."** A front obstacle slightly right
+  ended `approach sought` as arrival. Stopping at the stand-off is now arrival only when
+  the target box is at least 30% of the view. Otherwise he re-aims precisely (a wall beside
+  the door with the heading a few degrees off), then goes around on an open front band:
+  turn 30° (55° if the obstacle is still in the path), move up to 0.6 m, face the
+  remembered heading and re-locate. At most two detours; then `blocked` with
+  `target_still_far`, which the model must explain. During a detour the far-side 22.5°
+  radial counts only when its return is inside the body's path.
+- **Zig-zag between doors.** Re-locates for "door" chose three different doors. The
+  locator now receives its earlier match note and expected image position, and a match
+  more than 25° from the remembered IMU heading is treated as not seen.
+- **Arm pulled back, then nothing.** The throttle-arm park and neck centring now happen
+  right before the first wheel command, not at plan start; a plan that does not move
+  makes no gesture.
+- **Simulated only.** Checked in the fake base with shaped front sensors (box slightly
+  right, wall ahead-right, wide wall, alternating locator). Real sensor cones, band
+  geometry and the detour clearance rule are unmeasured on the floor.
+

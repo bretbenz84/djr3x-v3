@@ -42,6 +42,7 @@ class FakeBase:
         self.tof = {'fl': 3000, 'fr': 3000, 'fl_radial': 3000, 'fr_radial': 3000, 'rl': 2000, 'rr': 2000,
                     'lf': 1500, 'lb': 1500, 'rf': 1500, 'rb': 1500}
         self.front = None                   # callable -> metres to a front obstacle, or None
+        self.sensors = None                 # callable -> (ToF overrides in mm, 64-zone grid in mm): shaped rooms
         self.imu_drift = 0.                 # degrees added to IMU yaw per completed turn
         self.matrix = True
         self.closed = False
@@ -136,11 +137,17 @@ class FakeBase:
                 if front is not None:
                     mm = int(max(20, front*1000))
                     tof.update(fl=mm, fr=mm, fl_radial=mm, fr_radial=mm)
+                grid = None
+                if self.sensors:
+                    overrides, grid = self.sensors()
+                    tof.update(overrides)
                 self.emit(type='telemetry', state=self.state, owner=self.owner, fault=self.fault,
                           blocked_dir='front' if self.state == 'blocked' else 'none', odom=self.odom(),
                           tof_mm=tof, batt_mv=12800, charging=self.charging,
                           imu={'ok': True, 'pitch': 0, 'roll': 0, 'yaw': self.theta + getattr(self, 'imu_offset', 0.)})
-                if self.matrix:
+                if self.matrix and grid is not None:
+                    self.emit(type='tofmx', g=''.join(f'{min(max(25, v), 4095):03x}' for v in grid), rej=[4095]*8)
+                elif self.matrix:
                     mm = int(max(25, front*1000)) if front is not None else 3500
                     self.emit(type='tofmx', g=f'{min(mm, 4095):03x}'*64, rej=[4095]*8)
             lines, self.out = b''.join(self.out), deque()

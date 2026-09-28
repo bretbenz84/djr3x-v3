@@ -196,7 +196,7 @@ class SeekTests(unittest.TestCase):
         self.calls = []
         def look(after):
             return type('Image', (), {'frame_id': 'f', 'detail': 'high'})()
-        def locate(description, image, cancel):
+        def locate(description, image, cancel, hint=None):
             self.calls.append(description)
             for _, label, px, py in world.objects:
                 distance, bearing, _, _ = world.relative(px, py)
@@ -271,6 +271,99 @@ class SeekTests(unittest.TestCase):
                     state.propose_drive(drive_call(seek), {**offered, 'drive': {**offered['drive'], 'vision_seek': False}}, Cancellation())
             finally:
                 store.close()
+
+
+def shaped_room(world, blocks):
+    """Front sensors for boxes at room positions: (x, y, half-width in metres).
+
+    The 8x8 matrix spans about 45 degrees (column 0 is the left edge); the radial front
+    sensors look 22.5 degrees either side with a cone of about 13 degrees."""
+    def seen(lo, hi):
+        values = []
+        for px, py, half in blocks:
+            distance, bearing, forward, _ = world.relative(px, py)
+            if forward <= 0:
+                continue
+            spread = math.degrees(math.atan2(half, forward))
+            if bearing + spread >= lo and bearing - spread <= hi:
+                values.append(forward - .27)
+        return int(min(values)*1000) if values else 4000
+    def sensors():
+        columns = [seen(22.5 - 5.625*(c+1), 22.5 - 5.625*c) for c in range(8)]
+        left, right = seen(9.5, 35.5), seen(-35.5, -9.5)
+        return {'fl': left, 'fr': right, 'fl_radial': left, 'fr_radial': right}, columns*8
+    return sensors
+
+
+class GoingAroundTests(SeekTests):
+    """September 27 floor run: stopped 15 ft short of a door and called it arrived."""
+    def test_obstacle_slightly_right_is_passed_on_the_left(self):
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = shaped_room(world, [(1.0, -.2, .2)])   # A box just right of the path.
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        step = receipt.steps[-1]
+        self.assertIn('detours', step, receipt)
+        self.assertEqual(step['detours'][0]['side'], 'left')
+        self.assertGreater(fake.x, 1.3)   # Past the box, not parked in front of it.
+        self.assertNotEqual(step['reason'], 'reached_stand_off_near_target')
+
+    def test_pointed_slightly_into_a_wall_re_aims_before_calling_it_blocked(self):
+        clock, fake, drive, world = self.start([('door', 'door', 4., .4)])   # ~6 degrees left.
+        wall = [(1.1, -.3 - i*.2, .12) for i in range(6)]    # Wall ahead-right; the door's line is open.
+        fake.sensors = shaped_room(world, wall)
+        drive.execute(DrivePlan('p', (DriveStep('turn', degrees=-2.),), 'requested', 'x', {}, clock()+60), Cancellation())
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        self.assertGreater(fake.x, 1.2, receipt)
+
+    def test_blocked_with_no_way_around_is_reported_not_claimed_as_arrival(self):
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = shaped_room(world, [(.9, y/10, .12) for y in range(-12, 13, 2)])   # A wide wall.
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        self.assertEqual(receipt.steps[-1]['status'], 'blocked', receipt)
+        self.assertEqual(receipt.steps[-1]['reason'], 'obstacle_before_target')
+        self.assertTrue(receipt.steps[-1]['target_still_far'])
+        self.assertNotEqual(receipt.status, 'completed')
+
+    def test_a_different_door_off_to_the_side_is_not_chased(self):
+        clock, fake, drive, world = self.start([('door-a', 'door', 3., -.3), ('door-b', 'door', 1.5, 1.2)])
+        hints, answers = [], iter(range(100))
+        def locate(description, image, cancel, hint=None):
+            hints.append(hint)
+            rows = [world.relative(px, py) for _, _, px, py in world.objects]
+            visible = [(d, b) for d, b, _, _ in rows if abs(b) < 45]
+            d, b = visible[next(answers) % len(visible)]   # An inconsistent locator alternates doors.
+            return {'found': True, 'x': .5 - b/90, 'y': .5, 'width': min(.9, .4/d), 'height': .3,
+                    'confidence': 'high', 'note': 'white door'}
+        drive.locator = locate
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        self.assertTrue(any(h and 'white door' in h for h in hints))
+        self.assertLess(fake.theta, 15., receipt)   # Never swung toward door B on the left.
+        self.assertLess(math.hypot(3. - fake.x, -.3 - fake.y), 1.6, receipt)
+
+    def test_arm_parks_only_when_the_wheels_are_about_to_move(self):
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = shaped_room(world, [(.9, y/10, .12) for y in range(-12, 13, 2)])
+        events = []
+        class Servos:
+            def prepare_base_motion(self, cancel):
+                events.append('park')
+                return type('R', (), {'status': 'pulses_reached', 'reason': None})()
+            def finish_base_motion(self):
+                events.append('release')
+        drive.servos = Servos()
+        drive._sought = {'description': 'door'}
+        receipt = self.run_plan(clock, drive, DriveStep('approach', target='sought'))   # "Keep going" into a wall.
+        self.assertEqual(receipt.travelled_m, 0.)
+        self.assertEqual(events, [])      # No arm pull-back for a trip that goes nowhere.
+        world.objects[:] = [('door', 'door', 1.5, 1.2)]
+        fake.sensors = None
+        settle()
+        self.run_plan(clock, drive, DriveStep('seek', description='door'))
+        self.assertEqual(events, ['park', 'release'])
 
 
 class SoughtAcrossPlansTests(SeekTests):
