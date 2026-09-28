@@ -594,8 +594,8 @@ class Session:
                         args = call.arguments
                         receipt = None
                         if result.outcome=='ok':
-                            if args['text'] and args['speak']=='before_motion':
-                                speak(args['text'])
+                            if args['say_before']:
+                                speak(args['say_before'])
                             # A direct approach the base sensors already show blocked is the one
                             # measured weakness of the conversation model. Geometry, not wording,
                             # triggers one bounded route-planner call while the line above plays.
@@ -610,7 +610,7 @@ class Session:
                                     route, usage = self.route_planner.plan(None if opportunity else transcript.text,
                                         {'steps':args['steps'],'purpose':args['purpose']},drive_context,cancel)
                                     routed = ToolCall(call.call_id+':route','drive_base',{**route,'purpose':args['purpose'],
-                                        'look_after':args['look_after'],'text':args['text'],'speak':args['speak']})
+                                        'look_after':args['look_after'],'say_before':args['say_before'],'say_after':args['say_after']})
                                     with self._lock:
                                         drive_plan = self.state.propose_drive(routed,{**context,'drive':drive_context},cancel)
                                     self.trace.emit('drive_route_planned',turn_id=turn_id,steps=route.get('steps'),usage=usage)
@@ -676,8 +676,8 @@ class Session:
                                     visual_proposed_text = chosen.arguments['text']
                                     speak(visual_proposed_text)
                         elif receipt and receipt['status']=='completed':
-                            if args['text'] and args['speak']=='after_motion':
-                                speak(args['text'])
+                            if args['say_after']:
+                                speak(args['say_after'])
                         elif not opportunity:
                             # Refused, rejected or incomplete: the model explains from the receipt.
                             output = {'drive':receipt} if receipt else {**asdict(result),'nothing_moved':True,

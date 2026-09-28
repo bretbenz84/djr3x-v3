@@ -141,6 +141,11 @@ class CoreState:
         steps, meters, degrees = [], 0., 0.
         for raw in args['steps']:
             action = raw['action']
+            if (action == 'approach' and raw.get('target') not in offered and raw.get('target') != 'sought' and
+                    (any(s.action == 'seek' for s in steps) or drive.get('last_sought'))):
+                # An approach naming anything unrecognized right after a seek can only mean
+                # what was just sought (September 27: the model wrote "drive.last_sought").
+                raw = {**raw, 'target': 'sought'}
             used = {k for k in ('direction', 'degrees', 'meters', 'target', 'stop_at_m', 'description') if raw.get(k) is not None}
             required = {'turn': {'direction', 'degrees'}, 'move': {'direction', 'meters'}, 'face': {'target'},
                         'approach': {'target'}, 'find_person': set(), 'seek': {'description'}}[action]

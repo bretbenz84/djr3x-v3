@@ -33,8 +33,10 @@ def step(action, degrees=None, meters=None, target=None, stop_at_m=None):
 
 
 def drive_call(*steps, text=None, speak='before_motion', look_after=None, purpose='asked to move'):
+    """Tests write a line and when it plays; the tool has separate before/after slots."""
     return ToolCall('drive', 'drive_base', {'steps': list(steps), 'purpose': purpose, 'look_after': look_after,
-                                             'text': text, 'speak': speak})
+                                             'say_before': text if speak == 'before_motion' else None,
+                                             'say_after': text if speak == 'after_motion' else None})
 
 
 class DriveBrain:
@@ -222,7 +224,7 @@ class DriveSessionTests(MemoryFixture):
                 elif len(calls) == 2:
                     target = next(t['target_id'] for t in snapshot.context['drive']['targets'] if t.get('label') == 'clock')
                     yield ToolCall('next', 'drive_base', {'steps': [step('approach', target=target)], 'purpose': 'go to the photo',
-                                                          'look_after': None, 'text': 'There it is!', 'speak': 'after_motion'})
+                                                          'look_after': None, 'say_before': None, 'say_after': 'There it is!'})
                 else:
                     yield 'Done.'
         self.setup_drive(drive_call(step('turn', degrees=90.)), inspection=True)

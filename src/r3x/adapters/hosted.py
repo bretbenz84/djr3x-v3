@@ -414,8 +414,8 @@ class OpenAIBrain(HTTPProvider):
                 'detector knows only common categories and misses doors, photos, pictures and small things. If the described '
                 'thing is not in drive.targets, use seek with a short description (after any turn they asked for first). '
                 'Any request to go to, move toward, head for or approach a described thing needs BOTH seek and then approach '
-                'target sought in the same plan; seek alone only turns to face it. "Keep going" toward it is approach target '
-                'sought alone, which re-finds drive.last_sought; when drive.vision_seek is false, turn that way with look_after '
+                'target "sought" in the same plan; seek alone only turns to face it. "Keep going" toward it is approach with '
+                'target "sought" alone, which re-finds the thing named in last_sought; when drive.vision_seek is false, turn that way with look_after '
                 'asking about it and plan one more move from the fresh image. The camera spans about '
                 '90 degrees: the left image edge is about 45 degrees left of where the head points.')
         if snapshot.context.get('action_continuity'):

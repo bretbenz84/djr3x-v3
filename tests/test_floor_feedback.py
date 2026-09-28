@@ -305,3 +305,30 @@ class SoughtAcrossPlansTests(SeekTests):
                 self.assertEqual(plan.steps[0].description, 'the door')
             finally:
                 store.close()
+
+
+class SoughtTargetSpellingTests(unittest.TestCase):
+    def test_an_unrecognized_approach_target_after_seek_means_the_sought_thing(self):
+        from tests.test_drive_session import drive_call, step
+        from r3x.memory import Memory
+        from r3x.speakers import SpeakerTracker
+        from r3x.state import CoreState
+        from tests.test_voice_core import Trace
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            store = Memory(Path(temp).resolve()/'core.sqlite3')
+            store.start()
+            try:
+                state = CoreState(store, SpeakerTracker('synthetic:3'), Trace())
+                drive = {'available': True, 'origin': 'requested', 'targets': [], 'vision_seek': True, 'last_sought': None}
+                context = {'source_turn_id': 't', 'state_revision': store.revision, 'drive': drive}
+                seek = {**step('seek'), 'description': 'door'}
+                plan = state.propose_drive(drive_call(step('turn', degrees=90.), seek,
+                                                      step('approach', target='drive.last_sought')), context, Cancellation())
+                self.assertEqual([s.action for s in plan.steps], ['turn', 'seek', 'approach'])
+                self.assertEqual(plan.steps[-1].target, 'sought')
+                with self.assertRaisesRegex(ValueError, 'DriveTargetNotOffered'):   # No seek: still rejected.
+                    state.propose_drive(drive_call(step('approach', target='face-invented')), context, Cancellation())
+            finally:
+                store.close()
