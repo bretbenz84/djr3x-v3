@@ -93,6 +93,35 @@ class StartupAudioTests(unittest.TestCase):
         audio.stop()
         self.assertEqual(events[:4], ['play', 'talk_start', 'play', 'talk_stop'])
 
+    def test_readiness_lets_the_line_finish_but_cuts_the_filler(self):
+        line_bytes = b'\x01\x00' * 400
+        outcome = {}
+        filler = read_clip('droid_startup.wav')
+        class Sink(RecordingSink):
+            def play(inner, chunks, cancel, on_start):
+                data = b''.join(chunks)
+                if data == line_bytes:
+                    outcome['line_started'] = True
+                    time.sleep(.3)   # The line is audible while startup finishes.
+                    outcome['line_cut'] = cancel.event.is_set()
+                if data == filler:
+                    outcome['filler_started'] = True
+                    while not cancel.event.is_set():
+                        time.sleep(.005)
+                    cancel.check()
+                return Playback(len(data)//2, 0., 0., 0)
+        audio = StartupAudio(CountingTTS(), Sink(), self.dir)
+        audio.start()
+        deadline = time.monotonic() + 3
+        while 'line_started' not in outcome and time.monotonic() < deadline:
+            time.sleep(.005)
+        self.assertTrue(audio.stop())
+        self.assertFalse(outcome['line_cut'])
+        self.assertNotIn('filler_started', outcome)   # Readiness arrived before the filler: it never starts.
+
+    def test_startup_lines_are_short(self):
+        self.assertTrue(all(len(line.split()) <= 7 for line in BOOT_LINES + READY_LINES))
+
     def test_lines_do_not_repeat_until_every_line_has_played(self):
         cycle = LineCycle(self.dir / 'state.json', random.Random(3))
         picks = [LineCycle(self.dir / 'state.json').pick('ready', READY_LINES) for _ in READY_LINES]
