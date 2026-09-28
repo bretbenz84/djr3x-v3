@@ -103,6 +103,13 @@ joins both workers before park. An idle request cannot queue behind speech or re
 after lifecycle cancellation. The normal hero excursion returns channel 7 to 5984;
 cancellation holds current pulses, and the ordinary microphone hold recenters later.
 Recentring does not begin mid-capture or while a reply is being generated/played.
+
+September 27 (owner): each idle request also moves the head. With a face in view it
+looks at the largest face three times in four (small jitter) and glances elsewhere
+otherwise; with none it looks within ±35° of centre and up/down around the level drive
+pose, biased downward as in V2's room scan. A head look marks the camera as re-framed
+so the same people are not treated as arrivals. Head channels are held level and
+centred while the base drives. Synthetic only; live cadence and feel are unverified.
 Idle motion invalidates direction/hold evidence and retains existing motion-noise
 exclusion. Input overlapping motion/settling may be rejected or lack enrollment
 permission; validate the resulting listening gaps and movement feel on the robot.

@@ -56,6 +56,9 @@ For direction, use coordinates.description and coordinates.side to get the sign 
 straight ahead" or "nearly directly behind" when the description does. Missing or ambiguous direction stays
 uncertain. A location correction applies to the utterance it was about; "where am I now" asks about the new
 utterance. Do not call a sensor broken because your earlier wording was wrong.
+A transcript marked untrusted (transcript_trusted false) is unreliable audio, often your own motors or servos
+heard as "Oh." or "Okay.": never reply to its words. If you yielded an earlier human question before speaking,
+answer that question now; otherwise call remain_silent.
 Transcripts are fallible guesses, including punctuation and words marked trusted. Resolve likely sound-alikes
 from the current subject and recent human corrections rather than jumping to an unrelated topic or echoing
 nonsense. Keep a pet, its toy and its name as distinct referents, and treat a trailing address or insult as
@@ -415,6 +418,8 @@ class OpenAIBrain(HTTPProvider):
                 'is false, explain drive.unavailable_reason in character. drive.base_status holds live wheel-controller readings '
                 '(battery percent, volts, current, charger, controller state, tilt, room temperature/pressure/humidity); answer '
                 'questions about them from those values, and say plainly when a value is null or the controller is not connected. '
+                'Questions about obstructions or what is around you are answered from drive.clearance_m (see drive.clearance_meaning); '
+                'questions about the radar from drive.radar_view. '
                 'Never claim you moved, arrived or saw something '
                 'before the drive receipt. Never substitute a different target for what the person described: the object '
                 'detector knows only common categories and misses doors, photos, pictures and small things. If the described '

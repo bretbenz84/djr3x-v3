@@ -27,6 +27,7 @@ class ServoRequest:
     expires_at: float
     first_look: str = 'left'
     pose: str | dict[int, int] | None = None
+    face_neck: int | None = None   # Idle: neck pulse of the face in front, when one is visible
 
 
 @dataclass(frozen=True)
@@ -181,7 +182,7 @@ class ServoOwner:
             current = self._bus.positions(LIMITS)
             validate_pose(current)
             lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels, self.talking_neck) if request.kind == 'talking' else
-                     idle_lanes(current,self.rng,self.held_channels) if request.kind == 'idle' else
+                     idle_lanes(current,self.rng,self.held_channels,request.face_neck) if request.kind == 'idle' else
                      pose_lanes(request.pose,current) if request.kind == 'pose' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))

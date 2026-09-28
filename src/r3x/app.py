@@ -306,6 +306,11 @@ class App:
                         direction = getattr(current[3], 'direction', None) if current else None
                         return addressee_neck(faces, self.robot.owner.neck_degrees(), speaker, direction)
                     self.robot.talking.gaze = gaze
+                    def idle_face():
+                        now = trace.clock()
+                        faces = [f for f in camera.latest(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
+                        return addressee_neck(faces, self.robot.owner.neck_degrees()) if faces else None
+                    self.robot.idle.face = idle_face
                 planner = next((p for p in optional if p.capability.name=='route_planner'),None)
                 if planner and output.drive and 'route_planner' in active:
                     planner.trace = trace
@@ -319,6 +324,9 @@ class App:
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
                                        lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot,
                                        drive=output.drive)
+                if self.robot:
+                    # An idle head look re-frames the room like a base turn: not an arrival.
+                    self.robot.idle.on_head_move = lambda: runtime.arrivals.note_base_motion(trace.clock())
                 if output.drive:
                     output.drive.on_motion.append(lambda plan: runtime.arrivals.note_base_motion(
                         trace.clock(), allow_new=bool(plan and plan.allow_new_arrivals)))

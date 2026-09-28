@@ -472,6 +472,15 @@ class DriveBase:
                             'heading_change_deg': round(wrap(heading - self.origin[2])) if heading is not None and self.origin[2] is not None else None}
         return {'available': ok, 'unavailable_reason': reason, 'base_status': self.base_status(),
                 'clearance_m': {k: (round(v, 1) if isinstance(v, float) else v) for k, v in space.items() if k != 'health'},
+                'clearance_meaning': ('Nearest time-of-flight return in meters by direction, measured now. path_m is what the '
+                    'body would drive into straight ahead; front_m is the nearest front return even beside the path; '
+                    'left_m/right_m are the sides and rear_m behind. 3.5 or more means nothing within range; null means '
+                    'not reporting. The sensors see objects, not what they are.'),
+                'radar_view': {'status': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
+                    'bodies': [{k: b.get(k) for k in ('bearing_deg', 'range_m', 'moving')} | {'where': describe_bearing(b['bearing_deg'])}
+                               for b in bodies or ()],
+                    'meaning': ('LD2450 radar ring on its own controller, all around the base. It tracks moving or recently '
+                                'moving bodies only: a still person can vanish, and a body is not an identity.')},
                 'sensor_notes': space['health'], 'targets': targets,
                 'radar': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
                 'vision_seek': self.locator is not None and self.look is not None,

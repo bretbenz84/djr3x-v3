@@ -206,8 +206,31 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     return lanes
 
 
-def idle_lanes(current: dict[int, int], rng, held=frozenset()) -> tuple[tuple[Beat, ...], ...]:
-    """V2 arm wander ranges; return the microphone axis before listening settles."""
+LOOK_NECK_DEG = 35.       # Idle glances stay inside the talking gaze range.
+NECK_PER_DEG = (5472 - 1984) / 45.
+
+
+def idle_head(current: dict[int, int], rng, face_neck=None) -> Beat:
+    """Owner request September 27: when still, look at the face in front of him, or look
+    around left/right and up/down. V2's room scan biased pitch downward (people sit)."""
+    lift0, tilt0 = dict(DRIVE_HEAD)[1], dict(DRIVE_HEAD)[2]
+    if face_neck is not None and rng.random() < .75:
+        neck = face_neck + rng.randint(-40, 40)          # Hold on the face, never frozen.
+        vertical = rng.uniform(-.1, .25)
+        dwell = rng.uniform(1.5, 3.)
+    else:
+        neck = round(NECK_CENTER + rng.uniform(-LOOK_NECK_DEG, LOOK_NECK_DEG) * NECK_PER_DEG)
+        vertical = rng.uniform(-.35, 1.)                 # Negative looks up, positive down.
+        dwell = rng.uniform(.8, 2.)
+    # Tilt is inverted (higher pulse looks lower); lift lowers the head with smaller pulses.
+    tilt = tilt0 + vertical * .65 * ((LIMITS[2][1] - tilt0) if vertical >= 0 else (tilt0 - LIMITS[2][0]))
+    lift = lift0 - vertical * 200
+    clamp = lambda ch, v: max(LIMITS[ch][0], min(LIMITS[ch][1], round(v)))
+    return Beat(((0, clamp(0, neck)), (1, clamp(1, lift)), (2, clamp(2, tilt))), speed=18, acceleration=4, dwell=dwell)
+
+
+def idle_lanes(current: dict[int, int], rng, held=frozenset(), face_neck=None) -> tuple[tuple[Beat, ...], ...]:
+    """V2 arm wander ranges plus a head look; return the microphone axis before listening settles."""
     def target(ch, center, amplitude, minimum):
         direction = (-1 if current[ch]>=center+minimum else
                      1 if current[ch]<=center-minimum else rng.choice((-1,1)))
@@ -228,6 +251,8 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset()) -> tuple[tuple[Be
         previous = dict(route[-1].targets) if route else current
         if not throttle_clear(previous,dict(target)): raise ValueError('IdleRouteOutsideClearance')
         lanes += (route+(Beat(target,throttle_duration=rng.uniform(2.3,3.3),throttle_idle=True),),)
+    if not {0, 1, 2}.intersection(held):
+        lanes += ((idle_head(current, rng, face_neck),),)
     return tuple(lane for lane in lanes if not set(dict(lane[0].targets)).intersection(held))
 
 

@@ -597,6 +597,11 @@ class Session:
                                                     drive_replan_allowed=replan and bool(images))
                         status = (output.get('drive') or {}).get('status') if isinstance(output, dict) else None
                         messages = self.history_messages()
+                        if inspection is not None:
+                            # September 27: every arrival became a paragraph about the hallway.
+                            messages = (*messages, {'role':'developer','content':
+                                'Answer the look question in one short sentence about what matters for the request. '
+                                'Describe the scene in detail only if the person asked what you see.'})
                         if status != 'completed':
                             # September 27: after a refused plan Rex repeated "I'm on it".
                             messages = (*messages, {'role':'developer','content':

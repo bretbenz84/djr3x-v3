@@ -344,3 +344,16 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
 - **Simulated only.** Motion blur on looks while rolling, steering feel and the reported
   battery percent's accuracy are unverified.
 
+## Talkative arrivals, noise replies, surroundings — September 27
+
+- **Paragraphs on arrival.** The model attached `look_after` to every approach, so each
+  arrival became a scene description. `look_after` is now only for a person's question
+  about what is there or a next move that depends on the view, and a look after driving
+  is answered in one short sentence unless the person asked what he sees.
+- **Replies to noise.** Motor noise transcribed as an untrusted "Oh."/"Okay." yielded a
+  real question (the battery question) and got "Mm-hm." Untrusted transcripts are kept
+  but never answered; the model answers a yielded question instead or stays silent.
+- **Obstructions and radar.** `drive.clearance_meaning` explains the time-of-flight
+  readings and `drive.radar_view` lists radar ring status and bodies, so "any
+  obstructions?" and "what's on your radar?" are answered from live data.
+

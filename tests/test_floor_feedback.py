@@ -659,3 +659,54 @@ class BaseStatusTests(unittest.TestCase):
         self.assertIsNone(status['battery']['percent'])        # The fake controller reports no estimate.
         self.assertFalse(status['battery']['on_charger'])
         self.assertIsNone(status['room'])                      # No climate sensor: nothing invented.
+
+
+
+class SurroundingsTests(unittest.TestCase):
+    def test_obstructions_and_radar_status_reach_the_model(self):
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        world.objects.append(('box', 'box', 1.2, 0.))
+        settle()
+        context = drive.context('requested')
+        self.assertAlmostEqual(context['clearance_m']['path_m'], .9, delta=.1)
+        self.assertIn('path_m', context['clearance_meaning'])
+        self.assertEqual(context['radar_view']['status'], 'not_configured')
+        self.assertEqual(context['radar_view']['bodies'], [])
+
+
+class IdleHeadTests(unittest.TestCase):
+    def test_looks_at_the_face_in_front_or_around_and_never_while_driving(self):
+        import random
+        from r3x.servo_poses import LIMITS, NECK_CENTER, idle_lanes
+        current = {ch: (low + high)//2 for ch, (low, high) in LIMITS.items()}
+        current.update({8: 4200, 9: 7720, 10: 5120})
+        rng = random.Random(4)
+        heads = lambda face: [dict(l[0].targets) for l in idle_lanes(current, rng, face_neck=face) if 0 in dict(l[0].targets)]
+        facing = [heads(4000)[0][0] for _ in range(40)]
+        self.assertGreater(sum(abs(n - 4000) <= 40 for n in facing), 20)      # Mostly on the face...
+        self.assertTrue(any(abs(n - 4000) > 40 for n in facing))               # ...with glances away.
+        around = [heads(None)[0] for _ in range(40)]
+        self.assertGreater(max(h[0] for h in around) - min(h[0] for h in around), 3000)   # Left and right.
+        self.assertGreater(max(h[2] for h in around) - min(h[2] for h in around), 500)    # Up and down.
+        self.assertTrue(all(abs(h[0] - NECK_CENTER) <= 35*77.6 for h in around))
+        driving = idle_lanes(current, rng, held=frozenset({0, 1, 2, 4, 6, 8, 9, 10}), face_neck=4000)
+        self.assertFalse(any({0, 1, 2}.intersection(dict(l[0].targets)) for l in driving))
+
+    def test_a_head_look_is_announced_so_reframing_is_not_an_arrival(self):
+        from r3x.idle_motion import IdleMotion
+        calls = []
+        class Owner:
+            state, version, held_channels = 'active', 1, set()
+            clock = staticmethod(lambda: 100.)
+            def motion_risk(self): return False
+            def execute(self, request, cancel):
+                calls.append(('execute', request.face_neck))
+        idle = IdleMotion(Owner())
+        idle.face = lambda: 4100
+        idle.on_head_move = lambda: calls.append(('reframe',))
+        idle._allowed, idle._next = True, 0.
+        idle.tick(True)
+        idle._thread.join(1.)
+        self.assertEqual(calls[:2], [('reframe',), ('execute', 4100)])

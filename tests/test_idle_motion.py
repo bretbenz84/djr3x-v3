@@ -31,7 +31,7 @@ class IdleTests(unittest.TestCase):
         self.assertEqual(self.execute('shutdown').status,'pulses_reached')
         self.assertEqual(self.port.pose[4],6300)
 
-    def test_idle_uses_only_arms_with_calibrated_random_excursions_and_return(self):
+    def test_idle_moves_arms_and_head_with_calibrated_random_excursions_and_return(self):
         self.assertEqual(self.execute('idle').status,'rejected')
         self.execute('startup')
         choices=[]
@@ -42,7 +42,7 @@ class IdleTests(unittest.TestCase):
             for p in self.port.targets:
                 commands.extend([(p[1],p[2]+128*p[3])] if p[0]==0x84 else
                     [(p[2]+i,p[3+i*2]+128*p[4+i*2]) for i in range(p[1])])
-            self.assertEqual({ch for ch,_ in commands},{6,7,8,9,10})
+            self.assertEqual({ch for ch,_ in commands},{0,1,2,6,7,8,9,10})   # Owner: the head looks around too.
             for ch,value in commands:
                 self.assertTrue(LIMITS[ch][0]<=value<=LIMITS[ch][1])
             hero=next(value for ch,value in commands if ch==7)
