@@ -278,19 +278,22 @@ def shaped_room(world, blocks):
 
     The 8x8 matrix spans about 45 degrees (column 0 is the left edge); the radial front
     sensors look 22.5 degrees either side with a cone of about 13 degrees."""
-    def seen(lo, hi):
+    def seen(lo, hi, sensor=None):
         values = []
         for px, py, half in blocks:
-            distance, bearing, forward, _ = world.relative(px, py)
+            distance, bearing, forward, left = world.relative(px, py)
             if forward <= 0:
                 continue
-            spread = math.degrees(math.atan2(half, forward))
+            spread = math.degrees(math.atan2(half, distance))
             if bearing + spread >= lo and bearing - spread <= hi:
-                values.append(forward - .27)
-        return int(min(values)*1000) if values else 4000
+                # The matrix reports depth; a radial reports range from its spot on the ring.
+                values.append(forward - .27 if sensor is None else
+                              math.hypot(forward - sensor[0], left - sensor[1]) - half)
+        return int(max(.02, min(values))*1000) if values else 4000
     def sensors():
         columns = [seen(22.5 - 5.625*(c+1), 22.5 - 5.625*c) for c in range(8)]
-        left, right = seen(9.5, 35.5), seen(-35.5, -9.5)
+        spot = (.27*math.cos(math.radians(22.5)), .27*math.sin(math.radians(22.5)))
+        left, right = seen(9.5, 35.5, spot), seen(-35.5, -9.5, (spot[0], -spot[1]))
         return {'fl': left, 'fr': right, 'fl_radial': left, 'fr_radial': right}, columns*8
     return sensors
 
@@ -364,6 +367,35 @@ class GoingAroundTests(SeekTests):
         settle()
         self.run_plan(clock, drive, DriveStep('seek', description='door'))
         self.assertEqual(events, ['park', 'release'])
+
+
+class HallwayTests(SeekTests):
+    """September 27 hallway run: a corner at front-left stopped him 13 ft from the door."""
+    def test_recorded_readings_leave_the_hallway_open(self):
+        from r3x.drive_space import clearance, move_allowance
+        # Where he stopped: centre band 3.34 m, left band 1.65 m, front-left radial 0.67 m.
+        tof = {'fl': 670, 'fl_radial': 670, 'fr': 3500, 'rl': 1720, 'rr': 1720, 'lf': 2000, 'lb': 2000, 'rf': 830, 'rb': 830}
+        columns = [1650]*3 + [3340]*2 + [3500]*3
+        space = clearance({'received_at': 10., 'tof_mm': tof}, {'received_at': 10., 'grid': columns*8, 'rej': [4095]*8}, 10.)
+        self.assertAlmostEqual(space['front_m'], .67)          # The corner is still reported...
+        self.assertGreater(space['path_m'], 1.5)               # ...but it is beside the path.
+        self.assertEqual(move_allowance(.8, space), (.8, None))
+        tof.update(fl=400, fl_radial=400)                      # Closer: inside the body's path.
+        space = clearance({'received_at': 10., 'tof_mm': tof}, {'received_at': 10., 'grid': columns*8, 'rej': [4095]*8}, 10.)
+        self.assertAlmostEqual(space['path_m'], .4)
+
+    def test_corner_beside_the_path_and_an_oversized_door_box_do_not_stop_the_approach(self):
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = shaped_room(world, [(.75, .55, .08)])   # Hallway corner at front-left.
+        def locate(description, image, cancel, hint=None):
+            distance, bearing, _, _ = world.relative(4.5, 0.)
+            return {'found': True, 'x': .5 - bearing/90, 'y': .6, 'width': .4, 'height': .86,
+                    'confidence': 'medium', 'note': 'bright white center hallway door'}
+        drive.locator = locate
+        drive._sought = {'description': 'door'}
+        receipt = self.run_plan(clock, drive, DriveStep('approach', target='sought'))   # "Keep going."
+        self.assertGreater(fake.x, 2.5, receipt)
+        self.assertNotEqual(receipt.steps[0]['reason'], 'reached_stand_off_at_target')
 
 
 class SoughtAcrossPlansTests(SeekTests):

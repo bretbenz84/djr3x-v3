@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .drive_space import (allowed_turn, clearance, describe_bearing, detour_allowance, face_range, image_bearing,
+from .drive_space import (allowed_turn, clearance, describe_bearing, face_range, image_bearing,
                           move_allowance, radar_bodies, wrap, FRONT_MARGIN, PERSON_MARGIN)
 from .providers import Capability
 
@@ -34,7 +34,10 @@ DETOUR_MORE_DEG = 25.     # Once more when the first turn leaves the obstacle in
 DETOUR_M = .6
 MAX_DETOURS = 2
 SIDE_OPEN_M = .5          # A front band this much past the stand-off counts as a way around.
-NEAR_WIDTH = .3           # Box width at which a blocked approach has really arrived (~1-2 m).
+NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
+NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
+# Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
+FILLS_VIEW = .6
 TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns used 40.
 # Owner feedback September 27: stopping 4-5 ft away was too far.
 DEFAULT_STOP_AT = {'face': .8, 'nearest_person': .8, 'object': .6, 'radar_body': .9, 'voice_direction': .9}
@@ -533,7 +536,7 @@ class DriveBase:
     def _escape_for_turn(self, degrees, plan, cancel):
         """V2 swing escape, generalized: earn room by backing up (or pulling forward), then retry once."""
         space = self.space()
-        rear, front = space['rear_m'], space['front_m']
+        rear, front = space['rear_m'], space.get('path_m')
         if rear is not None and rear - .35 >= .2:
             leg = -min(.5, rear - .35)
         elif front is not None and front - FRONT_MARGIN >= .3:
@@ -592,13 +595,13 @@ class DriveBase:
         self._view_since = self.clock() + .3   # Only detections of the centred-neck view.
         self._sleep(.6, cancel)
 
-    def _move(self, meters, plan, cancel, speed=None, allowance=move_allowance):
-        allowed, note = allowance(meters, self.space())
+    def _move(self, meters, plan, cancel, speed=None):
+        allowed, note = move_allowance(meters, self.space())
         row = {'action': 'move', 'requested_m': round(meters, 2)}
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
         self._ensure_parked(cancel)
-        allowed, note = allowance(meters, self.space())   # Clearance after the park settles.
+        allowed, note = move_allowance(meters, self.space())   # Clearance after the park settles.
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
         start = self._telemetry().get('odom') or {}
@@ -879,7 +882,7 @@ class DriveBase:
 
     def _room(self, stand_off):
         space = self.space()
-        front = space['front_m']
+        front = space.get('path_m')
         return space, (front if front is not None else 0.) - stand_off
 
     @staticmethod
@@ -930,7 +933,7 @@ class DriveBase:
                 continue
             misses = 0
             self._remember_sought(self._sought['description'], found)
-            if found['box_width'] >= .45:
+            if found['box_width'] >= FILLS_VIEW:
                 return result('completed', 'target_fills_the_view')
             if budget_m - travelled < .1:
                 return result('budget_reached', 'travel_budget_reached')
@@ -951,21 +954,24 @@ class DriveBase:
                     return result(move['status'], move['reason'])
                 continue
             clearance = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()}
-            if found['box_width'] >= NEAR_WIDTH:
-                return result('completed', 'reached_stand_off_near_target', clearance_at_stop_m=clearance)
+            ahead = space.get('front_center_m')
+            if (ahead is not None and ahead - stand_off < NEAR_AHEAD_M and abs(bearing) <= 8
+                    and found['box_width'] >= NEAR_WIDTH):
+                # Blocked straight ahead where the thing is, and it looks near: arrived. Side
+                # returns (a hallway corner) never make arrival; they are for going around.
+                return result('completed', 'reached_stand_off_at_target', clearance_at_stop_m=clearance)
             side = self._open_side(space, stand_off, bearing)
             if side is None or len(detours) >= MAX_DETOURS:
                 return result('blocked', 'obstacle_before_target' if side is None else 'still_blocked_after_detours',
                               clearance_at_stop_m=clearance, target_still_far=True)
-            around = lambda meters, space, side=side: detour_allowance(meters, space, side)
             for degrees in (DETOUR_DEG, DETOUR_MORE_DEG):
                 turn = self._turn(side * degrees, plan, cancel)
                 turned += turn.get('turned_deg', 0.)
                 if turn['status'] != 'completed':
                     return result(turn['status'], turn['reason'], clearance_at_stop_m=clearance, target_still_far=True)
-                if around(DETOUR_M, self.space())[0] >= .15:
+                if move_allowance(DETOUR_M, self.space())[0] >= .15:
                     break
-            move = self._move(min(DETOUR_M, budget_m - travelled), plan, cancel, allowance=around)
+            move = self._move(min(DETOUR_M, budget_m - travelled), plan, cancel)
             travelled += move.get('travelled_m', 0.)
             detours.append({'side': 'left' if side > 0 else 'right', 'travelled_m': move.get('travelled_m', 0.),
                             'status': move['status']})

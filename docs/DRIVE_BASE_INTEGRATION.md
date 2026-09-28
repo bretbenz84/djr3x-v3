@@ -254,13 +254,12 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
 ## Door run repairs — September 27
 
 - **Stopped 15 ft short of a door and said "Here I am."** A front obstacle slightly right
-  ended `approach sought` as arrival. Stopping at the stand-off is now arrival only when
-  the target box is at least 30% of the view. Otherwise he re-aims precisely (a wall beside
+  ended `approach sought` as arrival. See the hallway repairs for the arrival rule.
+  Otherwise he re-aims precisely (a wall beside
   the door with the heading a few degrees off), then goes around on an open front band:
   turn 30° (55° if the obstacle is still in the path), move up to 0.6 m, face the
   remembered heading and re-locate. At most two detours; then `blocked` with
-  `target_still_far`, which the model must explain. During a detour the far-side 22.5°
-  radial counts only when its return is inside the body's path.
+  `target_still_far`, which the model must explain.
 - **Zig-zag between doors.** Re-locates for "door" chose three different doors. The
   locator now receives its earlier match note and expected image position, and a match
   more than 25° from the remembered IMU heading is treated as not seen.
@@ -270,4 +269,18 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
 - **Simulated only.** Checked in the fake base with shaped front sensors (box slightly
   right, wall ahead-right, wide wall, alternating locator). Real sensor cones, band
   geometry and the detour clearance rule are unmeasured on the floor.
+
+## Hallway repairs — September 27
+
+- **Refused an open hallway; "got there" twice, 13 ft short.** At the stop the centre
+  matrix band read 3.3 m and the right 3.5 m, but the front-left radial read 0.67 m off a
+  protruding hallway corner. Straight moves took the nearest of all front returns. They now
+  use `path_m`: the matrix counts in full; a 22.5° radial counts in full unless the matrix
+  band on its side is clear beyond its return, which places the return outside the matrix
+  view and then counts only if inside the body's path (half-width 0.27 m + 0.05 m).
+  `front_m` is still reported and still bounds the person-approach controller.
+- **Door box 40% wide from 4 m.** Locator boxes are not distances. Arrival now needs the
+  centre band within 0.4 m of the stand-off with the target aimed and at least 30% wide;
+  a box alone ends the approach only at 60%. A corner beside the path never makes arrival.
+- **Simulated only.** Replay of the recorded clearance readings plus shaped-room runs.
 
