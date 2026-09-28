@@ -1,5 +1,15 @@
 # V2 reference and extraction map
 
+## Authorized V2 battery menu fix — September 27, 2026
+
+Owner-approved V2 change (not an extraction): after V3 quit, V2's battery menu app
+logged `CHARGE:52:0` sent to the chest Nano, but the gauge stayed dark. Opening the
+port resets the Nano and the app waited only 2 s, so a slow bootloader can swallow the
+line, and its level de-duplication then waits up to 30 minutes. `tools/rex_battery_menubar.py`
+now repeats the command 2.5 s later on the same open (no second reset). Committed
+locally in V2 on top of `777b38c`; only `com.djr3x.battery` was restarted, and its
+first paint logged the repeated send. V3 code is unchanged.
+
 ## Speech leveling and startup audio — September 27, 2026
 
 Owner request. Source HEAD `777b38c803782cd4657e29ff544dfe7c1ca958ad`, clean tree; no V2
