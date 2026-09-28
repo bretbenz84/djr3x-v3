@@ -12,6 +12,12 @@ programs run.
 | `com.djr3x.led` | `operator_tools/tools/rex_led_menubar.py` | Head/chest LED animation buttons. Battery-meter mode (default) leaves both boards to the battery app. |
 | `com.djr3x.servo` | `operator_tools/tools/rex_servo_menubar.py` | Sliders for all eleven servos, throttle nudges, measurement mode, throttle sequence recording/playback and Pololu restart. |
 
+Each plist sets `PATH` to include `/opt/homebrew/bin`. launchd's default path lacks
+it, so the first voice launch on September 27 exited at once: V3's camera readiness
+check could not find Homebrew's `ffmpeg`, although the same command worked from
+Terminal. A failed start is silent. The reason is in the readiness report's `missing`
+list in `controller.console.log`.
+
 Logs are in `local/logs/` (`supervisor`, `battery_menubar`, `led_menubar`,
 `servo_menubar`, and `controller.console.log` for a supervisor-launched Rex). Console
 state, throttle sequences and measurements are in `local/operator/`.
