@@ -13,10 +13,10 @@ optional natural conversation.
 
 These commands use the existing v3 configuration and saved memory, real microphones,
 camera, paid conversation/TTS providers and local evaluation recordings. Use the
-dev Mac for new voice enrollment; robot enrollment still requires the unimplemented
-microphone servo hold. Stop v2 before starting. Do not clear existing profiles.
+dev Mac for new voice enrollment; on the robot, enrollment depends on the servo
+microphone hold, which is implemented but not yet accepted live. Stop v2 before starting. Do not clear existing profiles.
 
-Wheel tests are separate: see the [drive-base floor test](DRIVE_BASE_INTEGRATION.md#floor-test--only-after-the-owner-says-to-run-it).
+Wheel tests are separate: see the [drive-base floor test](DRIVE_BASE_INTEGRATION.md#floor-test-script).
 Leave `drive_port` unset for these conversation runs.
 
 ## Solo tests

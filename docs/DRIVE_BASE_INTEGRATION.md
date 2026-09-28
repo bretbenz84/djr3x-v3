@@ -1,10 +1,57 @@
 # Drive base: LLM-directed motion
 
-Status, September 27, 2026: **implemented in software with a simulated ESP32; not yet
-run on the robot.** The owner asked for purposeful, more frequent movement decided by the
-conversation model, V2's radar as turning evidence, no firmware changes, the full scope
-in one day, and a measured decision on a stronger model. The wheels have not moved: live
-floor acceptance waits for the owner's explicit go-ahead.
+Status, September 27, 2026: **implemented and in live floor testing on the robot.** The
+owner has run several floor sessions (turns, "come here", find-and-drive-to-a-door,
+back up/turn around/come back). Each run's findings and repairs are recorded in the
+dated sections below. The newest changes are checked in the simulated ESP32 only:
+continuous sought approach, base status, the obstruction/radar context and the
+hallway no-reverse rule. No firmware was changed.
+
+## Current behaviour at a glance
+
+- **Planning.** One `drive_base` tool call in the ordinary reply: up to six ordered steps
+  (`turn`, `move`, `face`, `approach`, `find_person`, `seek`). It carries optional
+  `say_before`/`say_after` lines, and `look_after` only when the person asked what is
+  there or the next move depends on the view.
+  - `nearest_person` is always offered, so "turn around and come to me" works with
+    nobody in view.
+  - The `gpt-5.6-terra` route planner runs only when a direct approach is already
+    blocked.
+- **Seeking described things.** `seek` uses hosted vision looks (gpt-5.4-mini) to find
+  things the detector cannot name. `approach sought` then rolls continuously toward it,
+  steering by the remembered IMU heading while the next look runs in the background.
+  - Each look is told which match it chose before; matches far from the remembered
+    heading are ignored.
+  - Arrival needs a near straight-ahead return and a reasonably large target, not a box
+    size alone.
+- **Obstacles.** Straight moves judge room along the body's path (`path_m`). A hallway
+  corner beside the path does not block.
+  - When blocked short of the target he re-aims, then detours on an open side (at most
+    twice), then reports blocked.
+  - While seeking he never reverses to make arm room. Explicit turns still may.
+- **Safety and stance.**
+  - The throttle arm parks, the hero elbow (7424) and poker arm (8000) are raised, and
+    the head is centred and level, right before the first wheel command. All are held
+    until the drive ends.
+  - Arm-swing checks gate turns. Firmware stop zones stay active.
+  - Stop phrases ("stop", "whoa", "Oh, stop!") halt the wheels and silence the motion
+    sounds at once.
+  - Limits for requested motion: 0.25 m/s, 3 m per plan. Self-initiated motion is
+    smaller.
+- **Honesty.** Receipts report firmware results, odometry and IMU heading. A stopped or
+  blocked trip is reported as such, with the distance actually travelled.
+- **Sound.** V2's drive and turn whirs loop while the wheels move (50% volume; a quarter
+  of that for self-initiated moves). Blocked stops play the slow-down accent and
+  arrivals the arrival chirp.
+- **What the model can report.** `drive.base_status` gives battery percent, volts,
+  current, charger, controller state, tilt and room climate. `drive.clearance_m` with
+  `clearance_meaning` covers obstructions, and `drive.radar_view` the radar ring's
+  bodies.
+- **Not used yet.** The QMC5883L compass and V2's compass fusion are not ported. The
+  accelerometer is used only inside the firmware.
+
+The sections below are the original design and then dated floor-run findings; later
+sections supersede earlier details where they differ.
 
 ## Why V2 moved little and without intention
 
@@ -127,44 +174,55 @@ escalation and fallback, grounding, settings, leases, arrival reframing, startup
 the unseen-presence opportunity, and a self-initiated move that survives the face-track
 churn its own motion causes (verified to fail without that rule).
 
-## Floor test — only after the owner says to run it
+## Floor test script
 
-Hardwood room, no drop-offs. Clear 1.5 m around Rex. Keep the gamepad in hand: any stick
-push takes over, **B** is emergency stop. Stop V2 first. Add to `local/settings.toml`:
+Run only when the owner chooses to. Hardwood room or hallway, no drop-offs. Keep the
+gamepad in hand: any stick push takes over, **B** is emergency stop. Stop V2 first.
+`drive_port` and `radar_port` are set in `local/settings.toml` on the robot.
 
-```toml
-drive_port = "/dev/cu.usbserial-110"
-radar_port = "/dev/cu.usbmodem2301"
-```
+Start with `.venv/bin/python -m r3x live --record-evaluation`. Expect no wheel motion at
+startup. Then, one at a time:
 
-Start with `.venv/bin/python -m r3x live --camera --record-evaluation`. Expect no wheel
-motion at startup. Then, one at a time:
-
-1. Say **"Turn left."** Rex turns about 90° left. Check the direction and that it stops.
-2. Say **"Back up a little."** A short reverse.
-3. Say **"Spin all the way around, back up a bit, then come to me."** Steps in order;
+1. **"Turn left."** About 90° left, with the turning sound; the head stays level.
+2. **"Back up a little."** A short reverse.
+3. **"Back up a bit, turn around, and come towards me."** All three parts run in order;
    ends facing you about a metre away.
-4. Stand about 3 m away and say **"Come here."** It should get to about 1 m, not stall
-   after a few centimetres (the V2 failure).
-5. Walk behind Rex and say **"Rex, over here!"** It should turn toward your voice.
-6. Mid-drive, say **"Stop."** Wheels stop at once.
-7. Put a box between Rex and an object it can see and ask it to take a closer look.
-   It should go around (route planner) or explain the block.
-8. Say **"Stay right there,"** then chat. It should not drive itself.
-9. Slowly put a hand about 20 cm in front of it. It should back up once.
+4. From about 3 m away: **"Come here."** Reaches about 1 m without stalling.
+5. **"Turn left, find a door and drive to it."** He finds a door and rolls toward it
+   without stopping for each look, goes around things beside the path, and says briefly
+   that he arrived or why he stopped. A 3 m trip limit may need **"Keep going."**
+6. Mid-drive: **"Oh, stop!"** Wheels and whir stop at once.
+7. **"Do you sense any obstructions?"**, **"What do you see on your radar?"**, **"What's
+   your battery level?"** Answers come from live readings, or say plainly what is
+   unknown.
+8. **"Stay right there,"** then chat. He should not drive himself.
+9. Slowly put a hand about 20 cm in front of him. He should back up once.
 
 Report which failed and the session-log path. The owner-visible success is purposeful
 motion; logs alone cannot establish clearance, overshoot or social welcome.
 
 ## Remaining acceptance and limits
 
-Physical turn overshoot and correction, stand-off distances, the matrix phantom returns,
-the back-off threshold, arm clearance during turns, camera bearing (25° half-FOV) and
-face-range accuracy, radar persistence, microphone contamination while driving, combined
-M2 load and social welcome of self-initiated motion are unmeasured. There is no map,
-localization, cliff sensing or obstacle memory; the geometry constants are V2 estimates.
-The V2 battery menu app keeps its port only while V3 is off; V3 battery/base menus remain
-future work. Room exploration and no-drive rooms are not implemented.
+Updated September 27 after the floor runs.
+
+**Seen working on the floor:** turns with IMU-measured angles, approaching a person to
+about 1 m, finding a door and reaching it (in stop-and-go legs before the continuous
+approach), going around a hallway corner, and a plain "Stop." halting within 0.2 s.
+
+**Still unmeasured or unverified:**
+- The continuous sought approach, including motion blur on looks while rolling.
+- The hallway no-reverse rule and the arm-swing geometry now that the arms are raised
+  while driving. V2 estimates of arm reach sometimes shortened turns (a 180° turn became
+  37°).
+- The matrix phantom returns, the back-off threshold and radar persistence.
+- Microphone contamination while driving. Motor noise still produces unreliable "Oh."
+  transcripts.
+- The accuracy of the controller's battery percent, combined M2 load and the social
+  welcome of self-initiated motion.
+
+**Not implemented:** a map, localization, cliff sensing, obstacle memory, compass
+heading, room exploration and no-drive rooms. The V2 battery menu app keeps its port
+only while V3 is off; V3 battery/base menus remain future work.
 
 ## First floor run and repairs — September 27
 
