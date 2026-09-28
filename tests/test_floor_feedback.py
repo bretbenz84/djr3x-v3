@@ -184,3 +184,90 @@ class MotionConfidenceTests(unittest.TestCase):
         self.assertEqual(clear.reason, 'acoustic_match_during_motion')
         self.assertFalse(clear.learning_eligible)
         self.assertEqual(tracker.tracks, {})   # Servo-noise audio never becomes a stored reference.
+
+
+class SeekTests(unittest.TestCase):
+    """Vision seek against the simulated room: the fake locator sees only within ±45 degrees."""
+    def start(self, things):
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        world.objects[:] = things
+        self.calls = []
+        def look(after):
+            return type('Image', (), {'frame_id': 'f', 'detail': 'high'})()
+        def locate(description, image, cancel):
+            self.calls.append(description)
+            for _, label, px, py in world.objects:
+                distance, bearing, _, _ = world.relative(px, py)
+                if label == description and abs(bearing) < 45:
+                    return {'found': True, 'x': .5 - bearing/90, 'y': .5, 'width': min(.9, .4/max(distance, .1)),
+                            'height': .3, 'confidence': 'high', 'note': 'matched'}
+            return {'found': False, 'x': 0, 'y': 0, 'width': 0, 'height': 0, 'confidence': 'low', 'note': 'not visible'}
+        drive.look, drive.locator = look, locate
+        settle()
+        return clock, fake, drive, world
+
+    def run_plan(self, clock, drive, *steps):
+        return drive.execute(DrivePlan('p', tuple(steps), 'requested', 'find it', {}, clock()+120), Cancellation())
+
+    def test_thing_in_view_is_faced_after_one_look(self):
+        clock, fake, drive, world = self.start([('door', 'door', 2., 1.2)])   # ~31 degrees left
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertAlmostEqual(fake.theta, 31., delta=5.)
+        self.assertEqual(self.calls, ['door'])
+
+    def test_sweeps_the_preferred_way_until_found(self):
+        clock, fake, drive, world = self.start([('photo', 'photo of a clock', -.5, -2.)])   # behind on the right
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='photo of a clock', prefer='right'))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        first = next(c for c in fake.commands if c['cmd'] == 'turn')
+        self.assertLess(first['deg'], 0)   # Swept right first, as asked.
+        self.assertGreater(len(self.calls), 1)
+
+    def test_not_found_after_four_looks_reports_honestly(self):
+        clock, fake, drive, world = self.start([])
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='a unicorn'))
+        self.assertEqual(receipt.status, 'partial')   # Turned and looked, found nothing.
+        self.assertEqual(receipt.steps[0]['status'], 'not_found')
+        self.assertEqual(len(self.calls), 4)
+
+    def test_approach_sought_uses_vision_legs_and_stops_short(self):
+        clock, fake, drive, world = self.start([('door', 'door', 2.6, .3)])
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        remaining = math.hypot(2.6 - fake.x, .3 - fake.y)
+        self.assertLess(remaining, 1.2)
+        self.assertGreater(world.front_obstacle(), .3)
+        self.assertLessEqual(len(self.calls), 8)
+
+    def test_validation_requires_vision_and_a_seek_before_sought(self):
+        from r3x.semantics import grounded_tools
+        from tests.test_drive_session import drive_call, step
+        offered = {'source_turn_id': 't', 'state_revision': 0, 'drive': {'available': True, 'origin': 'requested',
+                   'targets': [], 'vision_seek': True}}
+        tools = {d['name']: d for d in grounded_tools(offered)}
+        self.assertIn('sought', tools['drive_base']['parameters']['properties']['steps']['items']['properties']['target']['enum'])
+        seek = {**step('seek'), 'description': 'the door'}
+        from r3x.memory import Memory
+        from r3x.speakers import SpeakerTracker
+        from r3x.state import CoreState
+        from tests.test_voice_core import Trace
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            store = Memory(Path(temp).resolve()/'core.sqlite3')
+            store.start()
+            try:
+                state = CoreState(store, SpeakerTracker('synthetic:3'), Trace())
+                offered['state_revision'] = store.revision
+                plan = state.propose_drive(drive_call(seek, step('approach', target='sought')), offered, Cancellation())
+                self.assertEqual([s.action for s in plan.steps], ['seek', 'approach'])
+                with self.assertRaisesRegex(ValueError, 'ApproachSoughtNeedsSeek'):
+                    state.propose_drive(drive_call(step('approach', target='sought')), offered, Cancellation())
+                with self.assertRaisesRegex(ValueError, 'VisionSeekUnavailable'):
+                    state.propose_drive(drive_call(seek), {**offered, 'drive': {**offered['drive'], 'vision_seek': False}}, Cancellation())
+            finally:
+                store.close()

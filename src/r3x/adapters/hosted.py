@@ -349,7 +349,7 @@ class OpenAIBrain(HTTPProvider):
                     content.append({'type':'input_text','text':
                         ('CURRENT CAMERA IMAGE: '+json.dumps(label) if label.get('role','').startswith('current') else
                          'HISTORICAL REFERENCE ONLY. This is NOT another animal/object currently visible: '+json.dumps(label))})
-                content.append({'type':'input_image','image_url':image.data_url,'detail':'high' if photo else 'low'})
+                content.append({'type':'input_image','image_url':image.data_url,'detail':'high' if photo else getattr(image,'detail','low')})
             payload['input'].append({'role':'user','content':content})
         if snapshot.images and snapshot.context.get('trigger') in {'visual_arrival','conversation_lull','ambient'}:
             payload['input'].append({'role':'developer','content':
@@ -411,9 +411,10 @@ class OpenAIBrain(HTTPProvider):
                 '(for example turn, move, then face the target) or say you cannot; never invent clearance. If drive.available '
                 'is false, explain drive.unavailable_reason in character. Never claim you moved, arrived or saw something '
                 'before the drive receipt. Never substitute a different target for what the person described: the object '
-                'detector knows only common categories and misses photos, pictures and small things. If the described '
-                'thing is not in drive.targets, or they tell you to turn first, turn that way with look_after asking about it; '
-                'the fresh camera image comes back and you may then plan one more move toward it. The camera spans about '
+                'detector knows only common categories and misses doors, photos, pictures and small things. If the described '
+                'thing is not in drive.targets, use seek with a short description (after any turn they asked for first), '
+                'then approach target sought to go to it; when drive.vision_seek is false, turn that way with look_after '
+                'asking about it and plan one more move from the fresh image. The camera spans about '
                 '90 degrees: the left image edge is about 45 degrees left of where the head points.')
         if snapshot.context.get('action_continuity'):
             notes.append('\nAction continuity records the purpose and separate execution/speech outcomes of earlier work. Follow the current conversation. Do not finish an abandoned answer merely because a capture or gesture succeeded. A new explicit request can choose a fresh action; old work never resumes on its own.')
@@ -642,3 +643,69 @@ class OpenAIRoutePlanner(HTTPProvider):
                 except (TypeError, ValueError):
                     raise ProviderFailure("RoutePlanMalformed")
         raise ProviderFailure("RoutePlanMissing")
+
+
+LOCATOR = """You locate one described thing in a photo from a small robot's wide-angle head camera
+(about 90 degrees across). If it is clearly visible, report its bounding box as fractions of the
+image: x and y are the box centre (0 = left/top edge, 1 = right/bottom edge), width and height are
+its size. If it is not visible, too small to identify, or you are unsure, set found to false and put
+zeros in the numbers. Never guess a location for something you cannot see. note is a few words on
+what you matched or why not."""
+LOCATE_BUDGET = 60   # Vision locator calls per run; search and approach use a few each.
+
+
+class OpenAIVisualLocator(HTTPProvider):
+    """Bounded vision grounding for drive 'seek': where a described thing is in one image.
+
+    The conversation model chooses to look; this returns only image geometry, which the
+    drive owner converts to a bearing. It never speaks, names people or saves anything.
+    """
+    reasoning_effort = "low"
+
+    def __init__(self, key: str, model: str = "gpt-5.4-mini"):
+        super().__init__()
+        self.key, self.trace, self.calls = key, None, 0
+        self.capability = Capability("visual_locator", "OpenAI Responses", "locate described things for drive seek",
+                                     model, ("httpx",), ("network",), required=False)
+
+    def available(self) -> bool:
+        return self.client is not None and self.calls < LOCATE_BUDGET
+
+    def locate(self, description: str, image, cancel: Cancellation) -> dict:
+        import httpx
+        if not self.available():
+            raise ProviderFailure("VisualLocatorUnavailable")
+        self.calls += 1
+        number = {"type": "number", "minimum": 0, "maximum": 1}
+        schema = {"type": "object", "additionalProperties": False,
+                  "required": ["found", "x", "y", "width", "height", "confidence", "note"],
+                  "properties": {"found": {"type": "boolean"}, "x": number, "y": number, "width": number,
+                                 "height": number, "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                                 "note": {"type": "string"}}}
+        payload = {"model": self.capability.model, "instructions": LOCATOR, "store": False,
+                   "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 600,
+                   "text": {"format": {"type": "json_schema", "name": "location", "strict": True, "schema": schema}},
+                   "input": [{"role": "user", "content": [
+                       {"type": "input_text", "text": "Find: " + description},
+                       {"type": "input_image", "image_url": image.data_url, "detail": getattr(image, "detail", "high")}]}]}
+        cancel.check()
+        try:
+            response = self.client.post("https://api.openai.com/v1/responses", json=payload,
+                                        headers={"Authorization": f"Bearer {self.key}"},
+                                        timeout=httpx.Timeout(20, connect=5))
+        except httpx.HTTPError as exc:
+            raise ProviderFailure("OpenAI" + type(exc).__name__)
+        if response.status_code != 200:
+            raise ProviderFailure(f"OpenAIHTTP{response.status_code}")
+        body = response.json()
+        cancel.check()
+        text = "".join(part.get("text", "") for item in body.get("output", []) if item.get("type") == "message"
+                       for part in item.get("content", []) if part.get("type") == "output_text")
+        try:
+            result = json.loads(text)
+        except ValueError:
+            raise ProviderFailure("LocatorResultMalformed")
+        if self.trace:
+            self.trace.emit("visual_locate", description=description, frame_id=image.frame_id,
+                            result=result, usage=body.get("usage", {}))
+        return result

@@ -233,3 +233,20 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   speech is always embedded and matched, with the identity bar raised from 0.50/0.07
   to 0.55/0.10 (score/margin). It never creates or extends a voice track and never
   enrolls; transcripts and bearings are kept. Playback-echo captures are still rejected.
+
+## Vision seek and sharp looks — September 27
+
+- **Sharp deliberate looks.** Inspections and looks after driving now send a fresh frame
+  resized to 1280 px as JPEG at high detail. They were 480 px PNG thumbnails at low detail,
+  where a framed photo on a wide-angle view is a few pixels. Background scene snapshots
+  stay 480 px/low detail.
+- **`seek` and `approach sought`.** For things the object detector cannot name (doors,
+  photos, particular objects) the model adds a `seek` step with a short description.
+  A separate bounded locator call (gpt-5.4-mini, structured output) returns the thing's
+  image box or "not found"; the drive owner turns to its bearing, or sweeps 80° (preferred
+  side first) for up to four looks. `approach sought` re-locates between legs of at most
+  0.8 m and stops when the target fills 45% of the view, at the front stand-off, or at the
+  plan budget. At most 8 locator calls per plan and 60 per run.
+- **Measured on a saved robot frame:** doorway and laptop located at the correct image
+  positions; an absent clock photo returned not found. About 2 s and roughly 820 input /
+  150 output tokens per look. Live accuracy while driving is untested.

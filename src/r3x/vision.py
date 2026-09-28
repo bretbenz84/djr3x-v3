@@ -40,6 +40,11 @@ class FrameHub:
                 self.latest = frame
                 self.condition.notify_all()
 
+    def peek(self):
+        """Newest frame without consuming a consumer slot (deliberate looks)."""
+        with self.condition:
+            return None if self.closed else self.latest
+
     def take(self,name,after=None,timeout=.5):
         with self.condition:
             if name not in self.consumers: raise ValueError('UnregisteredVisualConsumer')

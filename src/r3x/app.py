@@ -48,7 +48,7 @@ class App:
         from .adapters.objects import ObjectDetector
         objects = Objects(camera,ObjectDetector(self.paths.root / 'models/objects/rfdetr-nano.onnx'),scene=scene) if camera and self.settings.object_memory_enabled else None
         from .inspection import CurrentView
-        inspection = CurrentView(scene) if scene else None
+        inspection = CurrentView(scene, camera=camera) if scene else None
         from .adapters.flex import FlexControl
         from .direction import Direction
         direction = Direction(FlexControl()) if self.settings.direction_enabled else None
@@ -60,18 +60,21 @@ class App:
         if self.settings.servo_port:
             from .robot_servos import RobotServos
             self.robot = RobotServos(self.settings.servo_port)
-        route_planner = None
+        route_planner = locator = None
         if self.settings.drive_port:
             from .drive import DriveBase, Radar
             from .adapters.hosted import OpenAIRoutePlanner
             self.radar = Radar(self.settings.radar_port) if self.settings.radar_port else None
             self.drive = DriveBase(self.settings.drive_port, radar=self.radar)
             route_planner = OpenAIRoutePlanner(secrets.openai_api_key)
+            if camera:
+                from .adapters.hosted import OpenAIVisualLocator
+                locator = OpenAIVisualLocator(secrets.openai_api_key)
         # A disconnected camera removes its dependents for this run, not the setting.
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,route_planner) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,route_planner,locator) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -274,6 +277,12 @@ class App:
                     self.drive.objects = objects.snapshot if objects else None
                     # After motion every track restarts; re-finding a target cannot wait two samples.
                     self.drive.object_tracks = (lambda: objects.snapshot(min_samples=1)) if objects else None
+                    finder = next((p for p in optional if p.capability.name=='visual_locator'),None)
+                    if finder and camera and 'visual_locator' in active:
+                        from .looking import fresh_look
+                        finder.trace = trace
+                        self.drive.locator = finder.locate
+                        self.drive.look = lambda after: fresh_look(camera, after)
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene

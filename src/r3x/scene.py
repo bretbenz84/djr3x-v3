@@ -17,6 +17,7 @@ class SceneImage:
     frame_id: str
     at: float
     data_url: str = field(repr=False)
+    detail: str = 'low'   # 'high' for deliberate looks sent at full detail.
 
 
 def encode_frame(frame):

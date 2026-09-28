@@ -23,7 +23,10 @@ LIMITS = {
     'requested': {'speed_mps': .25, 'step_m': 1.5, 'total_m': 3., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
     'self_initiated': {'speed_mps': .18, 'step_m': .75, 'total_m': 1.5, 'turn_deg': 180., 'total_turn_deg': 360., 'max_steps': 4},
 }
-ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person')
+ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek')
+SEEK_SWEEP_DEG = 80.      # Just under the ~90 degree camera view, so consecutive looks overlap.
+SEEK_LOOKS = 4            # Current view plus three turns: about a full circle.
+PLAN_VISION_CALLS = 8     # Hosted locator calls per plan (search plus vision-guided approach).
 TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns used 40.
 # Owner feedback September 27: stopping 4-5 ft away was too far.
 DEFAULT_STOP_AT = {'face': .8, 'nearest_person': .8, 'object': .6, 'radar_body': .9, 'voice_direction': .9}
@@ -44,6 +47,8 @@ class DriveStep:
     meters: float | None = None
     target: str | None = None
     stop_at_m: float | None = None
+    description: str | None = None   # seek: what to look for, in the person's words.
+    prefer: str | None = None        # seek: sweep left or right first.
 
 
 @dataclass(frozen=True)
@@ -272,6 +277,10 @@ class DriveBase:
         self.flinch = Flinch()
         self.origin = None
         self.object_tracks = None     # objects including single-frame re-detections after motion
+        self.locator = None           # (description, image, cancel) -> hosted vision geometry
+        self.look = None              # (after) -> fresh sharp camera image, or None
+        self._sought = None
+        self._vision_calls = 0
         self._view_since = float('-inf')
         self._start_heading = None
 
@@ -435,6 +444,7 @@ class DriveBase:
                 'clearance_m': {k: (round(v, 1) if isinstance(v, float) else v) for k, v in space.items() if k != 'health'},
                 'sensor_notes': space['health'], 'targets': targets,
                 'radar': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
+                'vision_seek': self.locator is not None and self.look is not None,
                 'limits': dict(LIMITS[origin]), 'origin': origin,
                 'displacement_since_startup': displacement,
                 'recent_motion': list(self.history),
@@ -754,6 +764,83 @@ class DriveBase:
                 'clearance_at_stop_m': {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()},
                 'final_approx_range_m': round(final['range_m'], 1) if final and final.get('range_m') else None}
 
+    def _locate(self, description, cancel):
+        """One fresh sharp look plus one hosted locate; bearing is base-relative."""
+        if self._vision_calls >= PLAN_VISION_CALLS:
+            raise ProviderFailure('PlanVisionBudgetReached')
+        self._sleep(.4, cancel)   # Let the head camera settle after motion.
+        image = self.look(max(self._view_since, self.clock() - .5))
+        if image is None:
+            return None, 'no_fresh_camera_frame'
+        self._vision_calls += 1
+        result = self.locator(description, image, cancel)
+        if not result.get('found') or result.get('confidence') == 'low':
+            return None, result.get('note') or 'not_found'
+        from .drive_space import HALF_FOV
+        bearing = (.5 - float(result['x'])) * 2 * HALF_FOV + self._neck()
+        return {'bearing_deg': bearing, 'box_width': float(result['width']), 'note': result.get('note')}, None
+
+    def _seek(self, step, plan, cancel):
+        """Look for a described thing the detector cannot name; sweep until found."""
+        row = {'action': 'seek', 'description': step.description}
+        if self.locator is None or self.look is None:
+            return {**row, 'status': 'refused', 'reason': 'vision_seek_unavailable', 'turned_deg': 0.}
+        sign = -1. if step.prefer == 'right' else 1.
+        turned, looks, notes = 0., 0, []
+        while looks < SEEK_LOOKS:
+            found, why = self._locate(step.description, cancel)
+            looks += 1
+            if found is not None:
+                if abs(found['bearing_deg']) > 8:
+                    turn = self._turn(max(-180., min(180., found['bearing_deg'])), plan, cancel)
+                    turned += turn.get('turned_deg', 0.)
+                    if turn['status'] != 'completed':
+                        return {**row, 'status': turn['status'], 'reason': turn['reason'], 'turned_deg': turned, 'looks': looks}
+                self._sought = {'description': step.description, 'box_width': found['box_width']}
+                return {**row, 'status': 'completed', 'reason': 'found', 'note': found['note'],
+                        'turned_deg': turned, 'looks': looks, 'vision_calls': self._vision_calls}
+            notes.append(why)
+            if looks < SEEK_LOOKS:
+                turn = self._turn(sign * SEEK_SWEEP_DEG, plan, cancel)
+                turned += turn.get('turned_deg', 0.)
+                if turn['status'] != 'completed':
+                    return {**row, 'status': turn['status'], 'reason': turn['reason'], 'turned_deg': turned, 'looks': looks}
+        return {**row, 'status': 'not_found', 'reason': 'not_seen_in_any_look', 'turned_deg': turned,
+                'looks': looks, 'notes': notes[-2:], 'vision_calls': self._vision_calls}
+
+    def _approach_sought(self, step, plan, cancel, budget_m):
+        """Vision-guided legs toward what seek found: re-locate, re-aim, move, repeat."""
+        row = {'action': 'approach', 'target': 'sought'}
+        if self._sought is None:
+            return {**row, 'status': 'refused', 'reason': 'nothing_sought_yet', 'travelled_m': 0.}
+        stand_off = max(FRONT_MARGIN, step.stop_at_m or DEFAULT_STOP_AT['object'])
+        travelled, turned, misses = 0., 0., 0
+        while True:
+            found, why = self._locate(self._sought['description'], cancel)
+            if found is None:
+                misses += 1
+                if misses >= 2:
+                    return {**row, 'status': 'lost', 'reason': why, 'travelled_m': round(travelled, 2), 'turned_deg': turned}
+                continue
+            misses = 0
+            if found['box_width'] >= .45:
+                return {**row, 'status': 'completed', 'reason': 'target_fills_the_view', 'travelled_m': round(travelled, 2), 'turned_deg': turned}
+            if abs(found['bearing_deg']) > 8:
+                turn = self._turn(max(-90., min(90., found['bearing_deg'])), plan, cancel)
+                turned += turn.get('turned_deg', 0.)
+                if turn['status'] != 'completed':
+                    return {**row, 'status': turn['status'], 'reason': turn['reason'], 'travelled_m': round(travelled, 2), 'turned_deg': turned}
+            front = self.space()['front_m']
+            leg = min(.8, budget_m - travelled, (front if front is not None else 0.) - stand_off)
+            if leg < .1:
+                reason = 'reached_front_stand_off' if budget_m - travelled >= .1 else 'travel_budget_reached'
+                return {**row, 'status': 'completed' if reason.startswith('reached') else 'budget_reached',
+                        'reason': reason, 'travelled_m': round(travelled, 2), 'turned_deg': turned}
+            move = self._move(leg, plan, cancel)
+            travelled += move.get('travelled_m', 0.)
+            if move['status'] != 'completed':
+                return {**row, 'status': move['status'], 'reason': move['reason'], 'travelled_m': round(travelled, 2), 'turned_deg': turned}
+
     def _find_person(self, step, plan, cancel):
         row = {'action': 'find_person'}
         if self._fresh_faces(self.clock()):
@@ -803,6 +890,7 @@ class DriveBase:
                 return receipt
             self.moving.set()
             self._notify(plan)
+            self._sought, self._vision_calls = None, 0
             start = self.link.snapshot()[0]
             self._start_heading = self._odom_heading(start) if start else None
             if self.servos is not None and plan.park_arm:
@@ -826,9 +914,13 @@ class DriveBase:
                     row = self._legs(step.meters, plan, cancel)
                 elif step.action == 'face':
                     row = self._face_target(step, plan, cancel)
+                elif step.action == 'approach' and step.target == 'sought':
+                    row = self._approach_sought(step, plan, cancel, max(0., budget - receipt.travelled_m))
                 elif step.action == 'approach':
                     # Closed-loop approach is bounded by the plan total, not the straight-move step cap.
                     row = self._approach(step, plan, cancel, max(0., budget - receipt.travelled_m))
+                elif step.action == 'seek':
+                    row = self._seek(step, plan, cancel)
                 else:
                     row = self._find_person(step, plan, cancel)
                 receipt.steps.append(row)

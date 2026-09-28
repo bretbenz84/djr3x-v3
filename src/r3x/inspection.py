@@ -101,11 +101,11 @@ class CurrentView:
     """Reuse the shared scene encoder; no motor access or second camera consumer."""
     directions = ('current',)
 
-    def __init__(self, scene, clock=None):
+    def __init__(self, scene, clock=None, camera=None):
         import time
         from .providers import Capability
         from threading import Event
-        self.scene, self.clock = scene, clock or time.monotonic
+        self.scene, self.clock, self.camera = scene, clock or time.monotonic, camera
         self.stop, self.started = Event(), False
         self.capability = Capability('current_view','shared camera scene cache',
             'tool-selected current-view visual questions',None,(),('one <=480px image per requested inspection',),required=False)
@@ -127,6 +127,22 @@ class CurrentView:
             return {**result,'reason':'CurrentViewNotStarted'},()
         if request.direction!='current':
             return {**result,'reason':'MotionUnavailable'},()
+        if self.camera is not None:
+            # A deliberate look: fresh full-detail frame, not the 480 px scene thumbnail.
+            from .looking import fresh_look
+            try:
+                image=fresh_look(self.camera,request.captured_after if moved else request.requested_at-1.,
+                                 timeout=3.,clock=self.clock,wait=cancel.event.wait)
+            except Exception as exc:
+                return {**result,'reason':type(exc).__name__},()
+            cancel.check()
+            if image is None:
+                return {**result,'reason':'FreshCurrentViewUnavailable'},()
+            from hashlib import sha256
+            return {**result,'image_digest':sha256(image.data_url.encode()).hexdigest(),'status':'observed','stage':'complete',
+                'frame_id':image.frame_id,'captured_at':image.at,'capture_age_seconds':self.clock()-image.at,'shared_frame':True,
+                'detail':'high','reason':'Camera view captured after the base stopped moving.' if moved else
+                         'Current camera view; no movement requested or performed.'},(image,)
         deadline=self.clock()+(3 if moved else 2)
         import time
         wall_deadline=time.monotonic()+(3 if moved else 2)

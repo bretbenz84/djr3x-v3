@@ -29,7 +29,7 @@ def step(action, degrees=None, meters=None, target=None, stop_at_m=None):
     if meters is not None:
         direction, meters = ('forward' if meters > 0 else 'backward'), abs(meters)
     return {'action': action, 'direction': direction, 'degrees': degrees, 'meters': meters,
-            'target': target, 'stop_at_m': stop_at_m}
+            'target': target, 'stop_at_m': stop_at_m, 'description': None}
 
 
 def drive_call(*steps, text=None, speak='before_motion', look_after=None, purpose='asked to move'):

@@ -141,19 +141,32 @@ class CoreState:
         steps, meters, degrees = [], 0., 0.
         for raw in args['steps']:
             action = raw['action']
-            used = {k for k in ('direction', 'degrees', 'meters', 'target', 'stop_at_m') if raw[k] is not None}
+            used = {k for k in ('direction', 'degrees', 'meters', 'target', 'stop_at_m', 'description') if raw.get(k) is not None}
             required = {'turn': {'direction', 'degrees'}, 'move': {'direction', 'meters'}, 'face': {'target'},
-                        'approach': {'target'}, 'find_person': set()}[action]
-            allowed = required | ({'stop_at_m'} if action == 'approach' else {'target'} if action == 'find_person' else set())
+                        'approach': {'target'}, 'find_person': set(), 'seek': {'description'}}[action]
+            allowed = required | ({'stop_at_m'} if action == 'approach' else {'target'} if action == 'find_person' else
+                                  {'direction'} if action == 'seek' else set())
             if not required <= used or not used <= allowed:
                 raise ValueError('DriveStepFieldsMismatch:' + action)
             if raw['direction'] is not None and raw['direction'] not in (
-                    {'left', 'right'} if action == 'turn' else {'forward', 'backward'}):
+                    {'left', 'right'} if action in {'turn', 'seek'} else {'forward', 'backward'}):
                 raise ValueError('DriveDirectionMismatch:' + action)
+            if action == 'seek' and not drive.get('vision_seek'):
+                raise ValueError('VisionSeekUnavailable')
+            if action == 'approach' and raw['target'] == 'sought':
+                if not any(s.action == 'seek' for s in steps):
+                    raise ValueError('ApproachSoughtNeedsSeek')
+                if raw['stop_at_m'] is not None and not .4 <= raw['stop_at_m'] <= 2.5:
+                    raise ValueError('DriveStopDistanceOutOfRange')
+                steps.append(DriveStep(action, target='sought', stop_at_m=raw['stop_at_m']))
+                continue
             if action == 'turn' and not 1 <= raw['degrees'] <= limits['turn_deg']:
                 raise ValueError('DriveTurnOutOfRange')
             if action == 'move' and not .05 <= raw['meters'] <= limits['total_m']:
                 raise ValueError('DriveMoveOutOfRange')
+            if action == 'seek':
+                steps.append(DriveStep('seek', description=raw['description'].strip(), prefer=raw['direction']))
+                continue
             if (action in {'face', 'approach'} or raw['target'] is not None) and raw['target'] not in offered:
                 raise ValueError('DriveTargetNotOffered')
             if raw['stop_at_m'] is not None and not .4 <= raw['stop_at_m'] <= 2.5:
