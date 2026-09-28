@@ -427,3 +427,13 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
 - **Also observed:** the voice-launched V3 run started and "shut down" returned to the
   supervisor; two short unrequested reverses were the close-approach back-off reflex.
 
+## Left turns with tucked arms — September 27
+
+- **Left turns refused or shortened beside walls.** The host swing check still used V2's
+  arms-out reach (0.73 m at 45° and 135° left), so a 180° turn stopped at 44° and door
+  re-aims failed with a wall about 0.4–0.9 m away. The drive stance now tucks those arms
+  (owner). Plans whose servo owner parks the arms use a tucked reach of 0.33 m (6 cm past
+  the ring, an estimate); unknown arm positions keep V2's reach. A replay of the logged
+  readings goes from refused to the full 180°. Firmware does not gate spins (V2
+  `control.cpp`), so no firmware change or flash was needed; gamepad support is untouched.
+

@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .drive_space import (allowed_turn, clearance, describe_bearing, face_range, image_bearing,
+from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, clearance, describe_bearing, face_range, image_bearing,
                           move_allowance, radar_bodies, wrap, FRONT_MARGIN, PERSON_MARGIN)
 from .providers import Capability
 
@@ -575,7 +575,7 @@ class DriveBase:
 
     def _turn(self, degrees, plan, cancel, verify=True, escape=True):
         telemetry = self._telemetry()
-        allowed, note = allowed_turn(degrees, telemetry)
+        allowed, note = allowed_turn(degrees, telemetry, self._arms())
         row = {'action': 'turn', 'requested_deg': round(degrees, 1)}
         if not allowed and escape and note and note.startswith('turn_path_blocked'):
             moved = self._escape_for_turn(degrees, plan, cancel)
@@ -587,7 +587,7 @@ class DriveBase:
         if not self._parked and self.servos is not None and self._plan_parks:
             self._ensure_parked(cancel)
             telemetry = self._telemetry()
-            allowed, note = allowed_turn(degrees, telemetry)
+            allowed, note = allowed_turn(degrees, telemetry, self._arms())
             if not allowed:
                 return {**row, 'status': 'refused', 'reason': note}
         before, before_odom = self._heading(telemetry), self._odom_heading(telemetry)
@@ -610,6 +610,11 @@ class DriveBase:
         agreed = measured is not None and odom is not None and abs(measured - odom) <= 5
         row['turned_deg'] = abs(measured if agreed else allowed if status == 'completed' else 0.)
         return row
+
+    def _arms(self):
+        """Arm reach for the swing check: tucked when the servo owner parks them before any
+        wheel command of this plan; V2's arms-out estimate when their position is unknown."""
+        return ARMS_TUCKED if self.servos is not None and self._plan_parks else ARMS
 
     def _ensure_parked(self, cancel):
         """Arm in and neck centred right before the wheels first move, not at plan start:

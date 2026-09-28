@@ -11,7 +11,11 @@ RING = (('fl', 22.5), ('fr', -22.5), ('rl', 157.5), ('rr', -157.5),
         ('lf', 67.5), ('lb', 112.5), ('rf', -67.5), ('rb', -112.5))
 AXLE_AFT = .23          # V2 estimate; spin pivots about the rear axle midpoint.
 RING_RADIUS = .27
-ARMS = (('front-left arm', 45., .73), ('back-left arm', 135., .73))  # V2 eyeball estimates.
+ARMS = (('front-left arm', 45., .73), ('back-left arm', 135., .73))  # V2 eyeball estimates, arms out.
+# Owner, September 27: the drive stance now tucks the left arms (hero elbow up, throttle parked),
+# so they no longer hang out. Estimated 6 cm beyond the ring; the long reach refused left turns
+# beside any wall within ~0.9 m. Used only when the servo owner parks the arms before wheels move.
+ARMS_TUCKED = (('front-left arm (tucked)', 45., .33), ('back-left arm (tucked)', 135., .33))
 SWING_MARGIN = .10
 SWING_PAD = 20.
 MIN_TURN = 10.
@@ -149,7 +153,7 @@ def _pivot(bearing, radius):
     return math.hypot(x, y), math.degrees(math.atan2(y, x))
 
 
-def allowed_turn(degrees: float, telemetry) -> tuple[float, str | None]:
+def allowed_turn(degrees: float, telemetry, arms=ARMS) -> tuple[float, str | None]:
     """V2 swing check: largest same-sign spin keeping body and arms clear of returns.
 
     Firmware does not gate spins, and the base pivots about its rear axle with
@@ -164,7 +168,7 @@ def allowed_turn(degrees: float, telemetry) -> tuple[float, str | None]:
     sign = 1. if degrees > 0 else -1.
     limit, limiter = abs(degrees), None
     extents = [(f'ring@{d}',) + _pivot(float(d), RING_RADIUS) for d in range(0, 360, 45)]
-    extents += [(label,) + _pivot(bearing, radius) for label, bearing, radius in ARMS]
+    extents += [(label,) + _pivot(bearing, radius) for label, bearing, radius in arms]
     returns = []
     for key, bearing in RING:
         value = _meters(tof.get(key))

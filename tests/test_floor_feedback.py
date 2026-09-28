@@ -750,3 +750,26 @@ class PlanValidationRepairTests(unittest.TestCase):
         from tests.test_drive_session import step
         plan = self.propose(step('move', meters=.3048), step('turn', degrees=-90), step('move', meters=3.048))
         self.assertEqual(len(plan.steps), 3)
+
+
+class TuckedArmTurnTests(unittest.TestCase):
+    """September 27: V2's arms-out reach refused left turns beside walls after the arms tucked."""
+    WALL_LEFT = {'tof_mm': {'fl': 4000, 'fr': 230, 'fl_radial': 4000, 'fr_radial': 230, 'lf': 430, 'lb': 870,
+                            'rf': 1030, 'rb': 1030, 'rl': 1340, 'rr': 1340}}
+
+    def test_tucked_arms_turn_beside_a_left_wall_that_arms_out_could_not(self):
+        from r3x.drive_space import ARMS, ARMS_TUCKED, allowed_turn
+        self.assertEqual(allowed_turn(180., self.WALL_LEFT, ARMS)[0], 0.)
+        self.assertEqual(allowed_turn(180., self.WALL_LEFT, ARMS_TUCKED), (180., None))
+        close = {'tof_mm': {**self.WALL_LEFT['tof_mm'], 'lf': 60, 'lb': 60}}
+        self.assertEqual(allowed_turn(180., close, ARMS_TUCKED)[0], 0.)   # A wall at the body still blocks.
+
+    def test_drive_uses_tucked_reach_only_when_its_servos_park_the_arms(self):
+        from r3x.drive_space import ARMS, ARMS_TUCKED
+        clock, fake, drive, world = base_setup(self)
+        drive._plan_parks = True
+        self.assertIs(drive._arms(), ARMS)          # No servo owner: arm position unknown.
+        drive.servos = object()
+        self.assertIs(drive._arms(), ARMS_TUCKED)
+        drive._plan_parks = False                   # Straight reflex reverse: arms not parked.
+        self.assertIs(drive._arms(), ARMS)
