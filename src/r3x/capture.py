@@ -25,6 +25,7 @@ class Endpoint:
         self.last_speech = None
         self.voiced = 0.
         self.intervals = []
+        self.voiced_motion = 0.
 
     def reset(self):
         self.pre.clear()
@@ -32,6 +33,7 @@ class Endpoint:
         self.last_speech = None
         self.voiced = 0.
         self.intervals.clear()
+        self.voiced_motion = 0.
 
     def push(self, frame: Frame, speech: bool) -> Capture | None:
         boundary = None
@@ -50,6 +52,8 @@ class Endpoint:
         if speech:
             self.last_speech = frame.ended_at
             self.voiced += frame.ended_at - frame.started_at
+            if frame.motion_risk:
+                self.voiced_motion += frame.ended_at - frame.started_at
             if self.intervals and abs(self.intervals[-1][1]-frame.started_at) < .002:
                 self.intervals[-1] = (self.intervals[-1][0],frame.ended_at)
             else:
@@ -67,7 +71,10 @@ class Endpoint:
         if self.frames and self.voiced > 0:
             result = Capture(uuid4().hex, self.session_id, b"".join(f.pcm for f in self.frames),
                              self.frames[0].started_at, self.last_speech, self.frames[-1].ended_at,
-                             motion_risk=any(f.motion_risk for f in self.frames),
+                             # Motion voids voice identity only when it overlaps a real share
+                             # of the speech, not the 1 s pre-roll or a last idle beat (September
+                             # 27: 15/19 captures were voided and Rex could not recognize Bret).
+                             motion_risk=self.voiced_motion >= .3*self.voiced,
                              echo_risk=any(f.echo_risk for f in self.frames), truncated=truncated,
                              voiced_intervals=tuple((a-self.frames[0].started_at,b-self.frames[0].started_at) for a,b in self.intervals))
         self.reset()

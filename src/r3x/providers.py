@@ -115,6 +115,12 @@ class ProviderOwner:
         for provider in reversed(self._active):
             self._call(provider, "cancel")
 
+    def close_only(self, names) -> None:
+        """Release selected providers (hardware) while stuck workers keep the rest."""
+        for provider in [p for p in reversed(self._active) if p.capability.name in names]:
+            self._active.remove(provider)
+            self._release(provider)
+
     def close(self) -> None:
         while self._active:
             self._release(self._active.pop())

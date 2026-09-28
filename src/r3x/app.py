@@ -207,7 +207,11 @@ class App:
         direction = next((p for p in optional if p.capability.name=='direction'),None)
         if direction:
             direction.trace = trace
-            direction.echo_risk = lambda: output.echo_risk() or motion_risk()
+            # Only playback, the microphone arm or the wheels invalidate a bearing; talking
+            # head sway and the other arms do not move the array (September 27: 0 samples).
+            direction.echo_risk = lambda: (output.echo_risk() or
+                (self.robot is not None and self.robot.owner.microphone_moving()) or
+                (self.drive is not None and self.drive.motion_risk()))
             if self.robot:
                 self.robot.owner.on_motion = direction.invalidate
             if self.drive:
@@ -293,8 +297,11 @@ class App:
         finally:
             if runtime and (any(w.is_alive() for w in runtime.workers) or
                             (runtime.session.output_worker is not None and runtime.session.output_worker.is_alive())):
-                # Do not unload native models under an unfinished worker.
-                trace.emit("shutdown_failed", reason="active_worker_resources_retained_until_process_exit")
+                # Do not unload native models under an unfinished worker, but still stop the
+                # wheels, park the servos and fade the lights: they never wait on those workers.
+                self.owner.close_only({'drive_base','radar','robot_servos','robot_leds'})
+                trace.emit("shutdown_failed", reason="active_worker_resources_retained_until_process_exit",
+                           hardware_released=[r.capability for r in self.owner.results if r.operation=='close'])
             else:
                 self.close()
                 if runtime and runtime.session.state.photo_memory:runtime.session.state.photo_memory.close()

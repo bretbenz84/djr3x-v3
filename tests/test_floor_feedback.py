@@ -125,3 +125,43 @@ class ReacquisitionTests(unittest.TestCase):
         receipt = drive.execute(plan, Cancellation())
         self.assertEqual(receipt.status, 'completed', receipt)
         self.assertAlmostEqual(fake.theta, 60., delta=8.)
+
+
+from tests.test_memory_core import MemoryFixture, observation
+
+
+class DirectionUnderMotionTests(MemoryFixture):
+    def test_motion_voids_voice_identity_but_keeps_the_microphone_bearing(self):
+        from dataclasses import replace
+        from uuid import uuid4
+        from r3x.contracts import Capture, Transcript
+        bearing = {'status': 'observed', 'bearing_deg': -132., 'samples': 17, 'reason': 'dominant_speech_energy_beam'}
+        voice = replace(observation(), direction=bearing)
+        capture = Capture(uuid4().hex, 'session', b'\x00'*64000, 110, 112, 112, motion_risk=True)
+        self.state.begin(uuid4().hex, capture, Transcript("I'm over here.", -.01, True), voice)
+        context = self.state.context()
+        self.assertEqual(context['speaker']['direction'], bearing)
+        self.assertIsNone(context['speaker']['person_id'])   # Still no identity from moving-robot audio.
+
+
+class MotionFlagTests(unittest.TestCase):
+    def speak(self, motion_pre, motion_voiced):
+        endpoint = Endpoint('s', silence=.2)
+        step, at = 512/16000, 0.
+        for i in range(20):
+            endpoint.push(Frame(b'\x01\x00'*512, at, at+step, motion_risk=motion_pre), False)
+            at += step
+        for i in range(20):
+            endpoint.push(Frame(b'\x02\x00'*512, at, at+step, motion_risk=i < motion_voiced), True)
+            at += step
+        capture = None
+        while capture is None:
+            capture = endpoint.push(Frame(b'\x00\x00'*512, at, at+step), False)
+            at += step
+        return capture
+
+    def test_motion_in_the_pre_roll_or_one_beat_does_not_void_identity(self):
+        self.assertFalse(self.speak(motion_pre=True, motion_voiced=2).motion_risk)
+
+    def test_motion_through_the_speech_still_voids_identity(self):
+        self.assertTrue(self.speak(motion_pre=False, motion_voiced=12).motion_risk)

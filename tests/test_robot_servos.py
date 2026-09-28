@@ -79,14 +79,17 @@ class RobotServoTests(unittest.TestCase):
         self.clock.wait(1.5)
         self.assertFalse(self.robot.owner.motion_risk())
 
-    def test_direction_invalidation_occurs_at_motion_start(self):
+    def test_direction_invalidation_only_when_the_microphone_arm_moves(self):
+        from r3x.contracts import Cancellation
         invalidated=[]
         self.robot.owner.on_motion=lambda:invalidated.append(self.clock())
-        self.robot.start()
-        self.assertTrue(invalidated)
-        before=len(invalidated)
+        self.robot.start()                      # Head/throttle choreography: array unmoved.
+        self.assertFalse(invalidated)
+        self.assertFalse(self.robot.owner.microphone_moving())
+        self.robot.execute_pose({7:5000},Cancellation(),'mic-arm')
+        self.assertEqual(len(invalidated),1)    # Hero arm carries the array.
+        self.assertTrue(self.robot.owner.microphone_moving())
         self.robot.close()
-        self.assertGreater(len(invalidated),before)
 
     def test_faulted_link_reports_park_failure_but_closes_port(self):
         self.robot.start()

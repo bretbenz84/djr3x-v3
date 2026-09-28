@@ -212,6 +212,9 @@ class OutputOwner:
         if self.speech_motion:
             self.speech_motion.cancel()
         self.sink.cancel()
+        interrupt = getattr(self.tts, 'interrupt', None)
+        if interrupt:
+            interrupt()   # A stalled network read must not outlive a stop or shutdown.
 
     def _drive(self, action, cancel, turn_id):
         from .drive import DriveReceipt

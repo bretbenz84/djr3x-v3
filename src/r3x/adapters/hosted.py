@@ -522,6 +522,7 @@ class ElevenLabsTTS(HTTPProvider):
     def __init__(self, key: str, voice_id: str):
         super().__init__()
         self.key, self.voice_id = key, voice_id
+        self._active = None
         self.capability = Capability("tts", "ElevenLabs", "Rex speech synthesis",
                                      "eleven_v3_conversational", ("httpx",), ("network",))
 
@@ -538,6 +539,7 @@ class ElevenLabsTTS(HTTPProvider):
         try:
             with self.client.stream("POST", url, params={"output_format": "pcm_22050"},
                                     headers={"xi-api-key": self.key}, json=payload) as response:
+                self._active = response
                 if response.status_code != 200:
                     raise ProviderFailure(f"ElevenLabsHTTP{response.status_code}")
                 for chunk in response.iter_bytes(chunk_size=4096):
@@ -556,7 +558,19 @@ class ElevenLabsTTS(HTTPProvider):
         except (Cancelled, ProviderFailure):
             raise
         except Exception as exc:
+            cancel.check()   # An interrupted read after stop is a cancellation, not a TTS failure.
             raise ProviderFailure("ElevenLabs" + type(exc).__name__) from None
+        finally:
+            self._active = None
+
+    def interrupt(self):
+        """Explicit stop: close the in-flight stream so a stalled read returns now."""
+        response = self._active
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
 
 ROUTE_PLANNER = """You plan short routes for Rex, a small differential-drive droid: body about 0.55 m wide, arms on its left side, no map.

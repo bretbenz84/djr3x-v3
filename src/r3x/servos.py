@@ -66,6 +66,7 @@ class ServoOwner:
         self.on_motion = lambda: None
         self.commanded: dict[int, int] = {}   # Last pulses sent or read back; camera bearings use the neck.
         self.talking_neck: int | None = None  # Gaze anchor for the current reply's talking lanes.
+        self.microphone_moved_until = 0.       # Channel 7 carries the microphone array.
 
     def start(self) -> None:
         with self._lock:
@@ -88,6 +89,9 @@ class ServoOwner:
     def cancel(self) -> None:
         self._cancel.set()
         self.release_microphone_hold()
+
+    def microphone_moving(self) -> bool:
+        return self.clock() < self.microphone_moved_until
 
     def neck_degrees(self) -> float:
         from .drive_space import neck_degrees
@@ -124,6 +128,7 @@ class ServoOwner:
                 self._bus.profiles({7:(22,6)})
                 self._bus.targets({7:center})
                 self.commanded[7] = center
+                self.microphone_moved_until = self.clock() + 5.5
                 deadline = self.clock() + 5.
                 while abs(self._bus.positions((7,))[7]-center)>2:
                     if self._cancel.is_set() or self.clock() >= deadline:
@@ -189,7 +194,6 @@ class ServoOwner:
             accepted = True
             self.release_microphone_hold()
             self._motion.set()
-            self.on_motion()
             self.state = 'parking' if request.kind in {'park', 'shutdown'} else 'moving'
             # Each lane owns disjoint channels. One loop owns every wire operation.
             indices = [0] * len(lanes)
@@ -221,6 +225,9 @@ class ServoOwner:
                         touched.update(targets)  # Include partially sent batches on failure.
                         self._bus.targets(targets)
                         self.commanded.update(targets)
+                        if 7 in targets:
+                            self.microphone_moved_until = float('inf')
+                            self.on_motion()   # The array moved: earlier bearings no longer apply.
                         active[lane_id] = [now + 25., None]
                     beat = lane[indices[lane_id]]
                     deadline, arrived = active[lane_id]
@@ -282,6 +289,8 @@ class ServoOwner:
         finally:
             if accepted:
                 self.motion_until = self.clock() + .5
+                if self.microphone_moved_until == float('inf'):
+                    self.microphone_moved_until = self.motion_until
                 self._motion.clear()
             self._lock.release()
 

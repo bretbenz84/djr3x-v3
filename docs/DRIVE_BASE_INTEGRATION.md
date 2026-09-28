@@ -214,3 +214,18 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   odometry angles are both recorded. "A little" means about 45° (owner).
 - **Neck off-centre and head cocked up while driving.** `NECK_CENTER` and `DRIVE_HEAD`
   (lift/tilt) are single constants applied at every drive, awaiting console values.
+
+## Third run repairs — September 27
+
+- **"I need a direction" with a −132° bearing measured.** Motion-flagged captures had
+  their whole voice observation replaced, discarding the microphone bearing; it is now
+  kept (identity stays void). Bearings are invalidated only when the microphone arm
+  (channel 7) or the wheels move, not by talking sway or other arms, which had left
+  short phrases with zero samples. Radar only tracks moving bodies; a seated owner gave none.
+- **Asked Bret's name, then refused his existing profile.** 15 of 19 captures were
+  motion-flagged, voiding voice identity; the 1 s pre-roll made it worse. Motion now
+  voids identity only when it overlaps at least 30% of voiced speech.
+- **No park at shutdown.** Quitting mid-sentence left the speech worker blocked in an
+  ElevenLabs read, so shutdown skipped all hardware release. A stop now closes the
+  in-flight TTS stream, and hardware (wheels, servos, LEDs) is released even when a
+  worker is stuck; only models stay loaded until the process exits.
