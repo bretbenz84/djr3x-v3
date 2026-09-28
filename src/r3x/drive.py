@@ -35,6 +35,7 @@ DETOUR_M = .6
 MAX_DETOURS = 2
 SIDE_OPEN_M = .5          # A front band this much past the stand-off counts as a way around.
 PERSON_REACH = .8         # Face range minus a front return within this may be knees, feet or chair legs.
+AIM_DEG = 15.             # Re-aim only past this while the path ahead is open (legs re-locate anyway).
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
 NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
@@ -928,10 +929,12 @@ class DriveBase:
         if self._sought is None:
             return {**row, 'status': 'refused', 'reason': 'nothing_sought_yet', 'travelled_m': 0.}
         stand_off = max(FRONT_MARGIN, step.stop_at_m or DEFAULT_STOP_AT['object'])
-        travelled, turned, misses, detours = 0., 0., 0, []
+        travelled, turned, misses, detours, swing_refusals = 0., 0., 0, [], 0
         def result(status, reason, **extra):
             out = {**row, 'status': status, 'reason': reason, 'travelled_m': round(travelled, 2),
                    'turned_deg': round(turned, 1), **extra}
+            if swing_refusals:
+                out['aim_turns_refused_for_arm_clearance'] = swing_refusals
             if detours:
                 out['detours'] = detours
             return out
@@ -941,9 +944,11 @@ class DriveBase:
             expected = self._expected_sought()
             if expected is not None and abs(expected) > 35:
                 # Out of view after a detour: face where the thing should be before looking.
-                turn = self._turn(max(-90., min(90., expected)), plan, cancel)
+                # Never back up to make room here (September 27: a hallway corner beside
+                # the arms turned every re-aim into a reverse, and he looped).
+                turn = self._turn(max(-90., min(90., expected)), plan, cancel, escape=False)
                 turned += turn.get('turned_deg', 0.)
-                if turn['status'] != 'completed':
+                if turn['status'] not in {'completed', 'refused'}:
                     return result(turn['status'], turn['reason'])
             found, why = self._locate(self._sought['description'], cancel, self._sought)
             if found is None:
@@ -959,12 +964,15 @@ class DriveBase:
                 return result('budget_reached', 'travel_budget_reached')
             bearing = found['bearing_deg']
             space, room = self._room(stand_off)
-            if abs(bearing) > 8 or (room < .1 and abs(bearing) > 3):
-                turn = self._turn(max(-90., min(90., bearing)), plan, cancel)
+            if abs(bearing) > AIM_DEG or (room < .1 and abs(bearing) > 3):
+                turn = self._turn(max(-90., min(90., bearing)), plan, cancel, escape=False)
                 turned += turn.get('turned_deg', 0.)
-                if turn['status'] != 'completed':
+                if turn['status'] == 'completed':
+                    bearing = 0.
+                elif turn['status'] != 'refused':
                     return result(turn['status'], turn['reason'])
-                bearing = 0.
+                else:
+                    swing_refusals += 1   # Arms near something: keep going forward and aim once past it.
                 space, room = self._room(stand_off)
             leg = min(.8, budget_m - travelled, room)
             if leg >= .1:
@@ -985,10 +993,11 @@ class DriveBase:
                 return result('blocked', 'obstacle_before_target' if side is None else 'still_blocked_after_detours',
                               clearance_at_stop_m=clearance, target_still_far=True)
             for degrees in (DETOUR_DEG, DETOUR_MORE_DEG):
-                turn = self._turn(side * degrees, plan, cancel)
+                turn = self._turn(side * degrees, plan, cancel, escape=False)
                 turned += turn.get('turned_deg', 0.)
                 if turn['status'] != 'completed':
-                    return result(turn['status'], turn['reason'], clearance_at_stop_m=clearance, target_still_far=True)
+                    return result('blocked' if turn['status'] == 'refused' else turn['status'], turn['reason'],
+                                  clearance_at_stop_m=clearance, target_still_far=True)
                 if move_allowance(DETOUR_M, self.space())[0] >= .15:
                     break
             move = self._move(min(DETOUR_M, budget_m - travelled), plan, cancel)

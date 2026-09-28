@@ -402,6 +402,26 @@ class HallwayTests(SeekTests):
         self.assertNotEqual(receipt.steps[0]['reason'], 'reached_stand_off_at_target')
 
 
+class TightHallwayTests(SeekTests):
+    """September 27: near a hallway corner every re-aim reversed to make arm room; he looped."""
+    def test_tight_hallway_goes_forward_and_never_reverses(self):
+        clock, fake, drive, world = self.start([('door', 'door', 5., .7)])   # ~8 degrees left, far.
+        fake.tof.update(lf=300, lb=300, rf=450, rb=450)   # Walls close on both sides; arms on the left.
+        receipt = self.run_plan(clock, drive, DriveStep('approach', description='door', target='sought'))
+        backward = [c for c in fake.commands if c['cmd'] == 'move' and c['dist'] < 0]
+        self.assertEqual(backward, [], receipt)
+        self.assertGreater(fake.x, 2.5, receipt)
+
+    def test_a_refused_aim_turn_keeps_going_forward(self):
+        clock, fake, drive, world = self.start([('door', 'door', 3., 1.5)])   # ~27 degrees left.
+        fake.tof.update(lf=300, lb=300)                    # Left arm swing blocked.
+        receipt = self.run_plan(clock, drive, DriveStep('approach', description='door', target='sought'))
+        step = receipt.steps[-1]
+        self.assertGreater(step.get('aim_turns_refused_for_arm_clearance', 0), 0, receipt)
+        self.assertEqual([c for c in fake.commands if c['cmd'] == 'move' and c['dist'] < 0], [])
+        self.assertGreater(fake.x, .5, receipt)
+
+
 class SoughtAcrossPlansTests(SeekTests):
     def test_keep_going_re_finds_the_last_sought_thing_in_a_new_plan(self):
         clock, fake, drive, world = self.start([('door', 'door', 3.2, 0.)])

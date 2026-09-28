@@ -315,3 +315,14 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   firmware's accelerometer pitch/roll and the QMC5883L compass are not used; V2's
   compass fusion and calibration are not ported.
 
+## Hallway loop repair — September 27
+
+- **Backed up instead of going around; looped.** The door stayed 5–16° left while a
+  hallway corner sat by the left arms. Every re-aim toward the door hit the arm swing
+  check, and the swing escape reversed up to 0.5 m before retrying. During `approach
+  sought` turns never escape by reversing. Re-aims happen only past 15° (or when blocked
+  straight ahead); a refused aim keeps driving forward while the path is open and aims
+  again once past; a refused detour turn reports blocked. Explicit turns keep the escape.
+  Owner: hallways are tight left and right but open forward, and the firmware steers.
+- **Simulated only.** Tight-walls runs command no reverse; the previous code reversed.
+
