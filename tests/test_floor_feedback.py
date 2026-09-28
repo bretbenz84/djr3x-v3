@@ -237,7 +237,8 @@ class SeekTests(unittest.TestCase):
         self.assertEqual(receipt.steps[0]['status'], 'not_found')
         self.assertEqual(len(self.calls), 4)
 
-    def test_approach_sought_uses_vision_legs_and_stops_short(self):
+    def test_approach_sought_rolls_continuously_and_stops_short(self):
+        from r3x.drive import PLAN_VISION_CALLS
         clock, fake, drive, world = self.start([('door', 'door', 2.6, .3)])
         receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
                                 DriveStep('approach', target='sought'))
@@ -245,7 +246,9 @@ class SeekTests(unittest.TestCase):
         remaining = math.hypot(2.6 - fake.x, .3 - fake.y)
         self.assertLess(remaining, 1.2)
         self.assertGreater(world.front_obstacle(), .3)
-        self.assertLessEqual(len(self.calls), 8)
+        self.assertLessEqual(len(self.calls), PLAN_VISION_CALLS)
+        self.assertEqual(receipt.steps[-1]['continuous_runs'], 1)      # One smooth run, not legs.
+        self.assertFalse(any(c['cmd'] == 'move' for c in fake.commands))
 
     def test_validation_requires_vision_and_a_seek_before_sought(self):
         from r3x.semantics import grounded_tools
@@ -622,3 +625,37 @@ class MotionSoundTests(unittest.TestCase):
         timer.join()
         self.assertEqual(receipt.status, 'cancelled')
         self.assertIsNone(self.drive.sounds._thread)
+
+
+class ContinuousSoughtTests(SeekTests):
+    def test_stop_mid_run_halts_at_once(self):
+        import threading
+        clock, fake, drive, world = self.start([('door', 'door', 4., 0.)])
+        drive._sought = {'description': 'door'}
+        cancel = Cancellation()
+        original = drive.wait
+        def wait(seconds):
+            original(seconds)
+            if fake.x > .6 and not cancel.event.is_set():
+                cancel.event.set()
+        drive.wait = wait
+        began = time.monotonic()
+        receipt = drive.execute(DrivePlan('p', (DriveStep('approach', target='sought'),), 'requested', 'x', {}, clock()+60), cancel)
+        self.assertEqual(receipt.status, 'cancelled')
+        self.assertLess(time.monotonic() - began, 3.)
+        self.assertEqual(fake.commands[-1]['cmd'], 'stop')
+        self.assertGreater(receipt.travelled_m, .5)
+
+
+class BaseStatusTests(unittest.TestCase):
+    def test_battery_and_sensors_reach_the_model_and_unknowns_stay_unknown(self):
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        settle()
+        status = drive.context('requested')['base_status']
+        self.assertTrue(status['connected'])
+        self.assertEqual(status['battery']['volts'], 12.8)
+        self.assertIsNone(status['battery']['percent'])        # The fake controller reports no estimate.
+        self.assertFalse(status['battery']['on_charger'])
+        self.assertIsNone(status['room'])                      # No climate sensor: nothing invented.

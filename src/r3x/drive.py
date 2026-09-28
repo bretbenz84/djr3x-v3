@@ -35,6 +35,7 @@ DETOUR_M = .6
 MAX_DETOURS = 2
 SIDE_OPEN_M = .5          # A front band this much past the stand-off counts as a way around.
 PERSON_REACH = .8         # Face range minus a front return within this may be knees, feet or chair legs.
+CRUISE_LOOK_S = 2.        # While rolling, a new look starts at most this often (hosted looks take 2-5 s).
 AIM_DEG = 15.             # Re-aim only past this while the path ahead is open (legs re-locate anyway).
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
 NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
@@ -469,7 +470,7 @@ class DriveBase:
             heading = self._heading(telemetry)
             displacement = {'distance_m': round(math.hypot(dx, dy), 2),
                             'heading_change_deg': round(wrap(heading - self.origin[2])) if heading is not None and self.origin[2] is not None else None}
-        return {'available': ok, 'unavailable_reason': reason,
+        return {'available': ok, 'unavailable_reason': reason, 'base_status': self.base_status(),
                 'clearance_m': {k: (round(v, 1) if isinstance(v, float) else v) for k, v in space.items() if k != 'health'},
                 'sensor_notes': space['health'], 'targets': targets,
                 'radar': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
@@ -826,7 +827,7 @@ class DriveBase:
                 'clearance_at_stop_m': {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()},
                 'final_approx_range_m': round(final['range_m'], 1) if final and final.get('range_m') else None}
 
-    def _locate(self, description, cancel, sought=None):
+    def _locate(self, description, cancel, sought=None, settle=True):
         """One fresh sharp look plus one hosted locate; bearing is base-relative.
 
         With a remembered sighting, the locator is told which match it chose and where it
@@ -834,7 +835,8 @@ class DriveBase:
         looks for "door" chose three different doors and the base zig-zagged between them)."""
         if self._vision_calls >= PLAN_VISION_CALLS:
             raise ProviderFailure('PlanVisionBudgetReached')
-        self._sleep(.4, cancel)   # Let the head camera settle after motion.
+        if settle:
+            self._sleep(.4, cancel)   # Let the head camera settle after motion.
         image = self.look(max(self._view_since, self.clock() - .5))
         if image is None:
             return None, 'no_fresh_camera_frame'
@@ -917,6 +919,94 @@ class DriveBase:
             return max(open_sides, key=lambda side: room[side])
         return open_sides[0] if open_sides else None
 
+    def _cruise(self, plan, cancel, stand_off, budget_m):
+        """Roll toward the sought thing while the next locate runs (owner, September 27: one
+        continuous motion instead of drive-stop-look legs). Steering follows the remembered
+        absolute heading, which each locate refreshes. Returns (travelled, outcome, found):
+        found is the locate that was in flight when the wheels stopped, if it finished."""
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+        description = self._sought['description']
+        self._ensure_parked(cancel)
+        start = self._telemetry().get('odom') or {}
+        speed = LIMITS[plan.origin]['speed_mps']
+        pool = ThreadPoolExecutor(1, thread_name_prefix='r3x-cruise-locate')
+        future, latest, misses, outcome, travelled = None, None, 0, None, 0.
+        looked_at = float('-inf')
+        if self.sounds:
+            self.sounds.start('move', plan.origin)
+        try:
+            while outcome is None:
+                self._check(cancel)
+                now = self.clock()
+                telemetry = self._telemetry()
+                ok, why = self.availability(now)
+                if not ok:
+                    outcome = ('stopped', why)
+                    break
+                if future is None and self._vision_calls < PLAN_VISION_CALLS and now - looked_at >= CRUISE_LOOK_S:
+                    future, looked_at = pool.submit(self._locate, description, cancel, self._sought, False), now
+                if future is not None and future.done():
+                    found, why = future.result()
+                    future = None
+                    if found is None:
+                        misses += 1
+                        if misses >= 2:
+                            outcome = ('lost', why)
+                            break
+                    else:
+                        misses, latest = 0, found
+                        self._remember_sought(description, found)
+                        if found['box_width'] >= FILLS_VIEW:
+                            outcome = ('arrived', 'target_fills_the_view')
+                            break
+                odom = telemetry.get('odom') or {}
+                travelled = math.hypot(float(odom.get('x', 0)) - float(start.get('x', 0)),
+                                       float(odom.get('y', 0)) - float(start.get('y', 0)))
+                if budget_m - travelled <= .05:
+                    outcome = ('budget_reached', 'travel_budget_reached')
+                    break
+                space = self.space(now)
+                room = (space.get('path_m') if space.get('path_m') is not None else 0.) - stand_off
+                speed_now = max(0., float(odom.get('lin', 0)))
+                brake = speed_now*speed_now/(2*CONFIG['accel_lin']) + speed_now*.3
+                firmware_blocked = telemetry.get('state') == 'blocked' and telemetry.get('blocked_dir') in ('front', 'both')
+                if firmware_blocked or room <= max(.03, brake):
+                    outcome = ('blocked', 'front_stand_off')
+                    break
+                expected = self._expected_sought()
+                if expected is not None and abs(expected) > 40:
+                    outcome = ('off_course', 'target_outside_steering_range')
+                    break
+                ang = 0. if expected is None else max(-.2, min(.2, math.radians(expected)*1.2))
+                lin = max(.05, min(speed, math.sqrt(2*CONFIG['accel_lin']*max(0., room)), (budget_m - travelled)/.6))
+                self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
+                self.wait(.15)
+        except BaseException:
+            pool.shutdown(wait=False, cancel_futures=True)   # A stop never waits on a look in flight.
+            raise
+        finally:
+            try:
+                self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
+                self.link.send({'cmd': 'stop'})
+            finally:
+                if self.sounds:
+                    self.sounds.stop()
+        carried = None
+        if future is not None:
+            try:
+                found, _ = future.result(timeout=8.)   # Reuse the look already paid for.
+                if found is not None:
+                    self._remember_sought(description, found)
+                    carried = found
+            except (FutureTimeout, Cancelled, ProviderFailure):
+                pass
+        pool.shutdown(wait=False, cancel_futures=True)
+        self._view_since = self.clock() + .3
+        end = (self.link.snapshot()[0] or {}).get('odom') or {}
+        travelled = math.hypot(float(end.get('x', 0)) - float(start.get('x', 0)),
+                               float(end.get('y', 0)) - float(start.get('y', 0))) if end else travelled
+        return travelled, outcome, carried or (latest if outcome[0] == 'arrived' else None)
+
     def _approach_sought(self, step, plan, cancel, budget_m):
         """Vision-guided legs toward what seek found: re-locate, re-aim, move, repeat.
 
@@ -929,12 +1019,13 @@ class DriveBase:
         if self._sought is None:
             return {**row, 'status': 'refused', 'reason': 'nothing_sought_yet', 'travelled_m': 0.}
         stand_off = max(FRONT_MARGIN, step.stop_at_m or DEFAULT_STOP_AT['object'])
-        travelled, turned, misses, detours, swing_refusals = 0., 0., 0, [], 0
+        travelled, turned, misses, detours, swing_refusals, carried, cruises = 0., 0., 0, [], 0, None, 0
         def result(status, reason, **extra):
             out = {**row, 'status': status, 'reason': reason, 'travelled_m': round(travelled, 2),
                    'turned_deg': round(turned, 1), **extra}
             if swing_refusals:
                 out['aim_turns_refused_for_arm_clearance'] = swing_refusals
+            out['continuous_runs'] = cruises
             if detours:
                 out['detours'] = detours
             return out
@@ -950,7 +1041,10 @@ class DriveBase:
                 turned += turn.get('turned_deg', 0.)
                 if turn['status'] not in {'completed', 'refused'}:
                     return result(turn['status'], turn['reason'])
-            found, why = self._locate(self._sought['description'], cancel, self._sought)
+            if carried is not None:
+                found, why, carried = carried, None, None
+            else:
+                found, why = self._locate(self._sought['description'], cancel, self._sought)
             if found is None:
                 misses += 1
                 if misses >= 2:
@@ -974,13 +1068,15 @@ class DriveBase:
                 else:
                     swing_refusals += 1   # Arms near something: keep going forward and aim once past it.
                 space, room = self._room(stand_off)
-            leg = min(.8, budget_m - travelled, room)
-            if leg >= .1:
-                move = self._move(leg, plan, cancel)
-                travelled += move.get('travelled_m', 0.)
-                if move['status'] not in {'completed', 'blocked'}:
-                    return result(move['status'], move['reason'])
-                continue
+            if min(budget_m - travelled, room) >= .2:   # Braking stops ~0.1 m early; no creeping restarts.
+                moved, outcome, carried = self._cruise(plan, cancel, stand_off, budget_m - travelled)
+                travelled += moved
+                cruises += 1
+                if outcome[0] == 'arrived':
+                    return result('completed', outcome[1])
+                if outcome[0] == 'stopped':
+                    return result('stopped', outcome[1])
+                continue   # Blocked, off course, lost or budget: re-evaluate from the latest look.
             clearance = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()}
             ahead = space.get('front_center_m')
             if (ahead is not None and ahead - stand_off < NEAR_AHEAD_M and abs(bearing) <= 8
@@ -1143,6 +1239,32 @@ class DriveBase:
                 self.trace.emit('drive_receipt', **asdict(receipt), origin=plan.origin, purpose=plan.purpose)
             self._lock.release()
         return receipt
+
+    def base_status(self, now=None):
+        """Live wheel-controller readings for honest answers (battery, charging, climate).
+
+        Values the firmware marks unknown (-1, ok false) stay None; nothing is estimated."""
+        now = self.clock() if now is None else now
+        telemetry, _ = self.link.snapshot()
+        if not telemetry:
+            return {'connected': self.state == 'ready', 'readings': None}
+        known = lambda v, low=0: v if isinstance(v, (int, float)) and v >= low else None
+        mv, ma, soc = known(telemetry.get('batt_mv')), telemetry.get('batt_ma'), known(telemetry.get('batt_soc'))
+        imu, env = telemetry.get('imu') or {}, telemetry.get('env') or {}
+        celsius = env.get('t') if env.get('ok') else None
+        return {
+            'connected': self.state == 'ready', 'reading_age_s': round(max(0., now - telemetry['received_at']), 1),
+            'battery': {'percent': soc, 'volts': round(mv/1000, 2) if mv else None,
+                        # Positive draws from the pack; negative flows into it (V2 menu-bar convention).
+                        'amps_drawn': round(ma/1000, 2) if isinstance(ma, (int, float)) and ma else None,
+                        'on_charger': bool(telemetry.get('charging')),
+                        'percent_meaning': 'coulomb-counted estimate from the controller; null means not yet known'},
+            'controller': {'state': telemetry.get('state'), 'owner': telemetry.get('owner'), 'fault': telemetry.get('fault'),
+                           'error_count': telemetry.get('errs'), 'gamepad_connected': (telemetry.get('gp') or {}).get('connected')},
+            'tilt_deg': {'pitch': imu.get('pitch'), 'roll': imu.get('roll')} if imu.get('ok') else None,
+            'room': {'temp_c': celsius, 'temp_f': round(celsius*9/5 + 32, 1) if celsius is not None else None,
+                     'pressure_hpa': env.get('hpa'), 'humidity_pct': env.get('rh')} if env.get('ok') else None,
+        }
 
     def _notify(self, plan):
         for hook in self.on_motion:

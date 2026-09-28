@@ -303,6 +303,7 @@ class Session:
                 from .drive import LIMITS
                 origin = 'self_initiated' if opportunity else 'requested'
                 context['drive'] = {'available':False,'unavailable_reason':self.output.drive_unavailable,
+                    'base_status':{'connected':False,'readings':None},
                     'origin':origin,'targets':[],'limits':dict(LIMITS[origin]),
                     'meaning':'Rex has a wheeled base, but its controller did not connect at startup this run.'}
             scene_images = opportunity.scene_images if opportunity and any(c['kind']=='scene' for c in context.get('observations',[])) else ()

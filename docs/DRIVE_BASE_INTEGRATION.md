@@ -326,3 +326,21 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   Owner: hallways are tight left and right but open forward, and the firmware steers.
 - **Simulated only.** Tight-walls runs command no reverse; the previous code reversed.
 
+## Continuous approach and base status — September 27
+
+- **One continuous motion toward a sought thing.** `approach sought` no longer drives
+  0.8 m legs with a stop for every hosted look. It streams velocity commands while the
+  next locate runs in the background (at most one every 2 s), steering toward the
+  remembered IMU heading that each locate refreshes (±0.2 rad/s). It stops for the front
+  stand-off (braking from `path_m`), a firmware block, the travel budget, a target more
+  than 40° off, two failed looks, or a box filling 60% of the view; then the existing
+  arrival, re-aim and detour logic decides. A look in flight when the wheels stop is
+  reused. Receipts report `continuous_runs`. Firmware hallway assist still applies.
+- **Base status for honest answers.** `drive.base_status` carries the controller's
+  coulomb-counted battery percent, volts, current, charger state, controller state/fault/
+  error count, gamepad, IMU pitch/roll and room temperature/pressure/humidity, with -1 or
+  absent sensors as null. It is in every conversation context, including a
+  disconnected-controller notice.
+- **Simulated only.** Motion blur on looks while rolling, steering feel and the reported
+  battery percent's accuracy are unverified.
+
