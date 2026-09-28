@@ -9,6 +9,10 @@ from .app import App
 from .settings import Settings
 from .contracts import ProviderFailure
 
+# V2 supervisor contract: a controller exiting with this code had a wedged microphone
+# (still silent after one in-process reopen) and is relaunched rather than left off.
+MIC_WEDGE_EXIT_CODE = 86
+
 
 def main() -> int:
     if len(sys.argv)>1 and sys.argv[1]=='operator':
@@ -91,6 +95,8 @@ def main() -> int:
     except (ValueError, OSError, ProviderFailure,sqlite3.Error) as exc:
         print(json.dumps({"outcome": "failed", "error_type": type(exc).__name__,
                           "reason": str(exc) if isinstance(exc, (ProviderFailure,ValueError)) else None}), file=sys.stderr)
+        if args.command == "live" and isinstance(exc, ProviderFailure) and str(exc) == "MicrophoneStalled":
+            return MIC_WEDGE_EXIT_CODE   # The supervisor relaunches after a short settle.
         return 1
     finally:
         if app is not None and args.command != "live":

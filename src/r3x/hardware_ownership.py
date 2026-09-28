@@ -50,7 +50,7 @@ class HardwareLocks:
         self.controller = self.controller.expanduser().absolute()
 
     def lease(self, resource: str) -> FileLease:
-        if resource not in {'controller','microphone','maestro','supervisor','console','head_led','chest_led','drive_base','radar'}:
+        if resource not in {'controller','microphone','maestro','head_led','chest_led','drive_base','radar'}:
             raise ValueError('UnknownHardwareResource')
         path = self.controller if resource == 'controller' else self.controller.with_name(
             self.controller.name + '.v3-' + resource)
@@ -71,7 +71,7 @@ class HardwareLocks:
 
 
 def legacy_supervisor_active() -> bool:
-    """Detect a loaded or manually started legacy supervisor.
+    """Detect a loaded or manually started wake supervisor (V2's or its V3 copy).
 
     Inspect processes, including manually launched supervisors. Unknown probe
     results block activation rather than opening audio optimistically.
@@ -83,7 +83,8 @@ def legacy_supervisor_active() -> bool:
     result = subprocess.run(['/bin/ps','-axo','command='],capture_output=True,text=True,timeout=2.)
     if result.returncode:
         raise ProviderFailure('LegacySupervisorProbeFailed')
-    return any('rex_supervisor.py' in line and 'djr3x-v2' in line for line in result.stdout.splitlines())
+    # Any copy: V2's, or V3's operator_tools/rex_supervisor.py (the V2 program, same protocol).
+    return any('rex_supervisor.py' in line for line in result.stdout.splitlines())
 
 
 
