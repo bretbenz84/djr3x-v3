@@ -31,6 +31,30 @@ the canned-line PCM cache live in ignored `local/cache/`. Spoken intro clips are
 but unplayed (V2 default `PLAY_STARTUP_SPEECH_CLIP = False`); the shutdown clip is not
 yet used. No live playback was run for this change.
 
+## Operator services — September 27, 2026
+
+Owner request. Source HEAD `777b38c` plus local commit `fb96f08` (battery menu chest
+repaint), otherwise clean. Copied unchanged except for V3 wiring into `operator_tools/`
+(SHA-256 prefixes of sources):
+- `rex_supervisor.py` (`1c5a9a09`) and `utils/repo_updater.py` (`886b5bcb`),
+  `utils/single_instance.py` (`c57c4a6b`) and `utils/supervisor_handoff.py`
+  (`8e7fa293`);
+- `tools/rex_battery_menubar.py` (`c50068a3`), `tools/rex_led_menubar.py` (`5c2592dd`),
+  `tools/rex_servo_menubar.py` (`59d5ce7a`) and `tools/throttle_sequences.py`
+  (`d9023e06`);
+- `startup_chime.mp3` (`6cccd730`), `droid_gaining_electric.mp3` (`50a74597`) and
+  `droid_losing_electric.mp3` (`085d80ee`), as 44.1 kHz mono WAVs in
+  `assets/audio/operator/`.
+
+Preserved: wake threshold and debounce, chimes, charger cues, mic-wedge relaunch (V3
+now exits 86 on `MicrophoneStalled`), fast-forward-only auto-update (now of the V3
+checkout), lock-based yielding, and every menu feature. Adapted: settings from
+`local/settings.toml` via `operator_tools/v3_settings.py`, state and logs under
+`local/`, V3's digest-checked wake-model copies, WAV playback without `soundfile`, and
+no durable park marker. Checks: `tests/test_operator_tools.py` (synthetic), a live
+no-motion handover (all four yielded in 0.7 s and resumed), and a live update check
+("already current"). Voice wake launch and charger cues remain to be heard.
+
 ## Motion sound effects — September 27, 2026
 
 Owner request. Source HEAD `77b2008`, V2 tree modified only in unrelated tool files; no V2

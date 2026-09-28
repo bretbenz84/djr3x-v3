@@ -1,141 +1,88 @@
-# Prepared operator cutover
+# Operator services (installed)
 
-**V3 service migration not executed.** September 25: the owner chose to keep V2
-running and commission later. A subsequent approved one-time V2 supervisor restart
-loads the cooperative microphone handoff described below. V3's default settings were not changed. The prepared bundle is under
-`local/operator-migration/20260925T193611891369Z/`; it contains robot settings,
-two new LaunchAgent definitions, four original plist backups and digest inventory.
-This refreshed bundle includes head/chest LED ports; the previous servo-only bundle
-is preserved. LED visual/timing acceptance is pending ([details](LED_INTEGRATION.md)).
-Wake models are independent copies under `local/models/wake/`. Optional packages
-are installed in V3's `.venv` and pinned in `requirements-robot.txt`.
+**Status, September 27, 2026: V3 owns the robot's always-on services.** The four
+LaunchAgents keep their labels but now run V3's copies of V2's programs from
+`operator_tools/`, under V3's `.venv`. V2's checkout is unchanged and none of its
+programs run.
 
-## Manual V3 testing while V2 menus remain installed
+| LaunchAgent | Program | What it does while Rex is off |
+| --- | --- | --- |
+| `com.djr3x.supervisor` | `operator_tools/rex_supervisor.py` | Listens for "wake up rex" (openWakeWord `wakeuprex.onnx`, score ≥ 0.92 for 4 frames of 80 ms). Plays the chime and launches `python -m r3x live`. Plays the ready chime once at login, and charger connected/disconnected sounds. Auto-updates the V3 checkout. |
+| `com.djr3x.battery` | `operator_tools/tools/rex_battery_menubar.py` | Menu-bar battery readout from the drive ESP32 (percent, volts, amps, watts, runtime), Set-Battery-%, ESP32 restart and gamepad. Paints the chest meter and the mouth charge glow. |
+| `com.djr3x.led` | `operator_tools/tools/rex_led_menubar.py` | Head/chest LED animation buttons. Battery-meter mode (default) leaves both boards to the battery app. |
+| `com.djr3x.servo` | `operator_tools/tools/rex_servo_menubar.py` | Sliders for all eleven servos, throttle nudges, measurement mode, throttle sequence recording/playback and Pololu restart. |
 
-The V2 supervisor now supports protocol-v1 microphone leases. Once its one-time
-update/restart has completed, leave the supervisor, servo, LED and battery menus
-running. Shut down any **V2 controller** normally first; V3 never steals control
-from a running robot program. Manual V3 `live` claims the shared controller lock,
-waits for confirmed microphone/serial release, and permits the V2 supervisor to
-resume automatically after V3 exits or fails startup. No per-test launchctl commands
-are needed. Stale registrations or an older supervisor cause
-`V2SupervisorHandoffUpgradeRequired`; failed release still times out safely.
+Logs are in `local/logs/` (`supervisor`, `battery_menubar`, `led_menubar`,
+`servo_menubar`, and `controller.console.log` for a supervisor-launched Rex). Console
+state, throttle sequences and measurements are in `local/operator/`.
 
-Use the prepared `robot-settings.toml` explicitly. Start with the foreground checks
-below. The disable/unload/install instructions are only for **replacing** V2's
-operator services with the prepared V3 services, not for each manual test.
+## How they share the robot
 
-## Before changing services
+- A running controller holds `/tmp/djr3x-main.lock`, V2's lock path, which V3 kept.
+  - Every service polls it and goes dormant: the supervisor closes the microphone, and
+    the menus close their serial ports.
+  - V3's startup waits for the microphone lease and for `lsof` to show every port free.
+    It never forces a port.
+- **Measured September 27** with V3's real startup handover code, opening no devices and
+  moving nothing:
+  - All four services released the microphone and ports within 0.7 s.
+  - After release, each resumed: the supervisor listening, the battery app repainting the
+    chest meter, the servo menu reconnected.
+- A wedged microphone makes V3 exit with code 86. The supervisor then relaunches Rex
+  after 2 s, at most 3 times in 10 minutes. "Shut down" and other exits return to
+  wake-word listening.
 
-Be at the robot with its motion envelope clear. Verify its actual joint positions,
-source calibration and serial identity; controller pulse readback is not shaft
-feedback. Current preparation uses the inspected Maestro port and source limits;
-the V2 servo limit overrides were empty at inspection. Check again if the mechanism,
-board configuration or port changed. Close any manually launched servo/control
-programs and shut down the V2 controller normally before replacing its companions.
+## Automatic updates
 
-Inspect the bundle's `inventory.json` and compare the original plist hashes again.
-If an installed definition changed, prepare a fresh bundle rather than overwriting
-it using stale rollback assumptions. Re-preparation is explicit and does not start
-anything:
+- **When the supervisor checks:**
+  - at startup, at each wake-up (Rex then starts on the updated code) and every 4 hours;
+  - while Rex runs it only fetches, and applies the update after he exits.
+- **What it does:** fast-forwards the V3 checkout's `main` from `origin/main`.
+- **When it skips:**
+  - the checkout has uncommitted changes;
+  - it is on another branch;
+  - local and remote histories have diverged.
 
-```sh
-.venv/bin/python tools/prepare_operator_migration.py \
-  --wake-source /path/to/v2/assets/models/wake_word \
-  --servo-port /dev/cu.YOUR_MAESTRO \
-  --head-led-port /dev/cu.YOUR_HEAD \
-  --chest-led-port /dev/cu.YOUR_CHEST
-```
+  It never stashes, resets or merges.
+- **Credentials:** the private GitHub repo needs the saved GitHub login from the
+  keychain. The owner granted keychain access on September 27; before that the check
+  timed out under launchd.
+- **Not automatic:** new Python dependencies still need a manual install. A changed
+  supervisor restarts itself.
 
-All commands below are for that future supervised session. Set `BUNDLE` to the
-reviewed absolute bundle path. Do not batch commissioning and LaunchAgent activation
-without checking the result of each stage.
+## Where the copies come from
 
-## Disable the old competing companions
+`operator_tools/` holds independent copies of V2 `777b38c` + `fb96f08`: `rex_supervisor.py`,
+`tools/rex_{battery,led,servo}_menubar.py`, `tools/throttle_sequences.py` and
+`utils/{single_instance,supervisor_handoff,repo_updater}.py`. The adaptations:
+- `v3_settings.py` supplies the V2 setting names from V3's `local/settings.toml`.
+- The supervisor launches V3, verifies V3's wake-model digests and plays WAV copies of
+  the chime and charger sounds (`assets/audio/operator/`).
+- State paths moved under `local/`.
+- V2's durable "clean park" marker is not used.
 
-Disable login/KeepAlive restart as well as unloading the jobs. Keep the original
-plist files and the prepared backups. LED and battery jobs stay installed for this
-migration and yield to the same controller lock. V3 now waits for both configured
-LED ports to actually close before opening either. Verify menu/battery recovery
-after exit along with the LED startup, speaking, cancellation and fade effects.
+`tests/test_operator_tools.py` checks the wiring without devices. V3's earlier minimal
+supervisor and servo console were retired. `python -m r3x operator servo-park` and
+`servo-commission` remain.
 
-```sh
-launchctl disable "gui/$(id -u)/com.djr3x.supervisor"
-launchctl disable "gui/$(id -u)/com.djr3x.servo"
-launchctl bootout "gui/$(id -u)/com.djr3x.supervisor"
-launchctl bootout "gui/$(id -u)/com.djr3x.servo"
-```
+## Rollback to V2
 
-For service replacement, verify both old jobs and their child processes have exited.
-Manual testing can retain an updated V2 supervisor; an older unregistered one blocks V3. V3's global controller intent makes legacy console
-writers yield; resource leases and `lsof` must then confirm release. A timeout or
-unknown probe result is a failure, never permission to force the port open.
-
-## Commission and test in the foreground
-
-Run the read-only dependency/configuration check first:
+The original V2 plist files and their digests are in
+`local/operator-migration/v2-agents-20260928T053148Z/`. With Rex off:
 
 ```sh
-.venv/bin/python -m r3x doctor --config "$BUNDLE/robot-settings.toml"
+for j in supervisor servo led battery; do launchctl bootout gui/$(id -u)/com.djr3x.$j; done
+cp local/operator-migration/v2-agents-20260928T053148Z/com.djr3x.*.plist ~/Library/LaunchAgents/
+for j in servo led battery supervisor; do launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.djr3x.$j.plist; done
 ```
 
-The live runner rejects zero or partial cold output state. Do not treat a successful
-dependency check as physical readiness. If all eleven channels are off, the operator
-must independently establish the intended rest positions before running the one-time
-initializer. These are head centered/lowered at its calibrated minimum, head tilted
-down, visor closed, elbow at gravity rest, hand/poker arm at 6000 pulses, hero arm at
-5984 and throttle parked at 9088/9984/2048 quarter-microseconds. If physical reference
-positions are not independently known, commission those first; the flag cannot
-measure them or make an arbitrary unpowered pose safe.
+## Still to check live
 
-Only after that physical verification, `operator servo-commission --confirm-rest`
-with the explicit `--config` writes the initial pulses. It refuses mixed/nonzero
-output state and creates no durable park marker. Review the result and inspect the
-mechanism before continuing. To exercise an already energized, valid park route:
+- Saying "wake up rex" launches V3 through the supervisor.
+- Voice "shut down" returns to listening.
+- Charger plug/unplug sounds.
+- A real mic-wedge relaunch.
+- LED console animations.
+- Throttle sequence playback under V3's servo limits.
 
-```sh
-.venv/bin/python -m r3x operator servo-park --config "$BUNDLE/robot-settings.toml"
-.venv/bin/python -m r3x live --config "$BUNDLE/robot-settings.toml"
-```
-
-Verify wake scan/throttle unfold, actual-playback talking motion, stop during speech,
-and quit → park → port closure. Inspect motion receipts and microphone-hold coverage
-in the session trace. Check normal quit and a deliberate SIGTERM to that verified V3
-PID; SIGKILL does not park. No voice shutdown command is implemented in this slice.
-Test failures and resource release before leaving a supervised run unattended.
-
-## Install the prepared V3 jobs
-
-After foreground acceptance, copy the two **new** plist names to
-`~/Library/LaunchAgents/` and bootstrap them. Load the servo console first and test
-manual V3 launch/release/reacquisition, then enable the supervisor and test voice
-launch. Its `wake up rex` model needs a live positive/negative wake check; synthetic
-silence proves neither detection nor false-trigger rates.
-
-```sh
-cp "$BUNDLE/com.djr3x.v3.servo.plist" "$HOME/Library/LaunchAgents/"
-cp "$BUNDLE/com.djr3x.v3.supervisor.plist" "$HOME/Library/LaunchAgents/"
-launchctl enable "gui/$(id -u)/com.djr3x.v3.servo"
-launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.djr3x.v3.servo.plist"
-launchctl enable "gui/$(id -u)/com.djr3x.v3.supervisor"
-launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.djr3x.v3.supervisor.plist"
-```
-
-Confirm one supervisor/controller set, login behavior, no stale slider commands,
-and the return of off-program controls after normal exit, failed startup and process
-exit. Killing the supervisor does not stop its independent V3 child: identify and
-gracefully stop the controller separately when required. Logs are under V3
-`local/sessions/`; supervisor-launched controller stdout is `controller-console.log`.
-
-## Rollback
-
-Disable/unload both new V3 jobs. Gracefully stop any V3 controller and verify its
-microphone/serial handles and locks are released before restoring the old owners.
-If originals were altered, restore their reviewed backup definitions. Then enable
-and bootstrap `com.djr3x.servo` and `com.djr3x.supervisor` from their original plist
-paths. Leave the new V3 jobs disabled so login cannot start both generations.
-Verify V2 off-program controls and wake launch before declaring rollback complete.
-
-Physical clearances, cold-start safety, interruption/settling, live handoff, enrollment
-quality, wake accuracy and combined robot load remain acceptance items. Current
-software evidence is in [servo integration](SERVO_INTEGRATION.md#verification).
+Physical servo commissioning notes remain in [servo integration](SERVO_INTEGRATION.md).

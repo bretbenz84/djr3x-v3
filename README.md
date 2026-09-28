@@ -58,8 +58,8 @@ it or reads its data.
 
 ## Run it
 
-Stop V2's controller first (the V2 supervisor yields to a manual V3 run automatically).
-Then, on the robot:
+Say "wake up rex", or start Rex by hand (the supervisor and menus step aside
+automatically):
 
 ```sh
 cd /Users/bbenziger/djr3x-v3
@@ -78,6 +78,11 @@ cd /Users/bbenziger/djr3x-v3
 - `python -m r3x doctor` checks dependencies, model files and credentials without
   opening devices.
 
+**Always-on services.** The robot's LaunchAgents run V3's copies of V2's wake supervisor
+and servo/LED/battery menu-bar apps (`operator_tools/`). Say **"wake up rex"** to start
+Rex; the supervisor also keeps the V3 checkout updated from GitHub (fast-forward only,
+never over uncommitted changes). See [operator services](docs/OPERATOR_CUTOVER.md).
+
 **The wheels move only when asked or when the model chooses a small self-initiated move
 in conversation.** Leave `drive_port` empty for conversation-only tests. Floor tests are
 described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
@@ -85,7 +90,7 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 ## Check
 
 ```sh
-.venv/bin/python tools/run_checks.py                      # 729 blocked-I/O contract checks
+.venv/bin/python tools/run_checks.py                      # 726 blocked-I/O contract checks
 .venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
 .venv/bin/python -m r3x replay local/dataset/manifest.json
 .venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl
@@ -137,6 +142,7 @@ models on its own.
 | [Drive base](docs/DRIVE_BASE_INTEGRATION.md) | Wheels, radar, safety gates, vision seek and floor-run repairs. |
 | [Servo integration](docs/SERVO_INTEGRATION.md) | Choreography, talking and idle motion, poses, microphone hold. |
 | [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |
+| [Operator services](docs/OPERATOR_CUTOVER.md) | Wake supervisor, menu-bar apps, auto-update, rollback. |
 | [Live test script](docs/LIVE_TEST_SCRIPT.md) | Lines to say and results to check in hands-on conversation tests. |
 | [DESIGN.md](DESIGN.md) | Who decides what, turn flow, identity and memory design. |
 | [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex initiates and participates. |

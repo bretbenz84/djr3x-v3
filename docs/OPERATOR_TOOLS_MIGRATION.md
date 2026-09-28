@@ -1,14 +1,10 @@
 # Supervisor and off-program controls: V3 migration
 
-Status, September 25: **software adaptation and cutover bundle prepared; not deployed.**
-The [servo integration](SERVO_INTEGRATION.md) now has explicit live composition,
-confirmed resource handoff, a V3 wake supervisor and a V3 servo menu. The owner
-asked to prepare cutover for later and keep V2 running. All installed jobs remain V2.
-Use the [commissioning/cutover guide](OPERATOR_CUTOVER.md) for the next live session.
-User direction, September 17, 2026: preserve the useful V2 Rex supervisor and
-servo-control program in V3, ensure clean hardware handoff, and migrate the macOS
-LaunchAgents. No code, installed agents, processes or hardware were changed for
-this documentation task.
+Status, September 27, 2026: **completed.** At the owner's request the V2 supervisor
+and servo/LED/battery menu-bar apps were copied into `operator_tools/`, wired to V3,
+and the four LaunchAgents now run them. See [operator services](OPERATOR_CUTOVER.md).
+The sections below are the September 17–25 planning history; V3's own minimal
+supervisor/servo console described there was retired in favour of the V2 copies.
 
 ## September 25 implementation and inventory
 
