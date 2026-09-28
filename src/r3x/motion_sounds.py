@@ -3,7 +3,7 @@
 While the wheels move, the drive or turn whir loops and stops the moment the base
 reports done (V2 owner, 2026-07-24: a one-shot 4 s whir fell silent mid-move). A stop
 blocked by an obstacle plays the slow-down accent; a finished approach plays the arrival
-chirp. Commanded motion plays at V2's 0.8 effect volume; self-initiated motion at a
+chirp. Commanded motion plays at 50% (owner, September 27); self-initiated motion at a
 quarter of that (V2 owner, 2026-08-19). The effects never mark echo risk, so the
 microphone keeps listening: V2's own motor sounds once deafened "stop" (2026-07-25).
 They play through the one speech sink while the output owner runs the drive, so no
@@ -19,7 +19,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 ASSETS = Path(__file__).resolve().parents[2] / 'assets' / 'audio' / 'motion'
 CLIPS = {'move': 'motion_whir.wav', 'turn': 'motion_turning.wav',
          'blocked': 'slow_down.wav', 'arrived': 'arrived.wav'}
-GAIN = {'requested': .8, 'self_initiated': .2}
+GAIN = {'requested': .5, 'self_initiated': .125}   # Owner September 27: 50%; self-initiated a quarter of that.
 LOOP_CAP_SECONDS = 30.   # A lost completion must never leave the whir droning.
 ACCENT_SECONDS = 2.      # The 4 s accents fade here so the spoken result follows quickly.
 PIECE = 1024             # ~23 ms of PCM: a stopped loop drains in well under half a second.

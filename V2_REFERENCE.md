@@ -39,12 +39,13 @@ slow_down,arrived}.mp3` (SHA-256 prefixes `4eaf02ed`, `08740318`, `a7100c9c`, `d
 are copied as 22,050 Hz mono 16-bit WAVs under `assets/audio/motion/`. Behavior preserved
 from `intelligence/motion_controller.py` `_fx_drive_loop_*` and `audio/sound_effects.py`:
 the drive or turn clip loops for each wheel command and stops when the base reports done
-or on stop; slow-down plays on a blocked stop and arrived after an approach; effect volume
-0.8 for commanded motion and a quarter of that for self-initiated motion
+or on stop; slow-down plays on a blocked stop and arrived after an approach; a quarter
+volume for self-initiated motion relative to commanded
 (`MOTION_AUTONOMOUS_FX_GAIN`); a 30 s loop cap; motor sounds never mute the microphone.
 Adapted: `src/r3x/motion_sounds.py` plays through the one speech sink while the output
 owner runs the drive (no second stream on the microphone's device), without LED lip sync,
-and trims the 4 s accents to 2 s with a fade. Synthetic checks only; live volume and
+trims the 4 s accents to 2 s with a fade, and plays commanded motion at 50% (owner;
+V2 used 0.8). Synthetic checks only; live volume and
 ASR under the whir remain to be heard.
 
 ## Drive base and radar extraction — September 27, 2026
