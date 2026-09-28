@@ -680,7 +680,9 @@ class Session:
                                 speak(args['text'])
                         elif not opportunity:
                             # Refused, rejected or incomplete: the model explains from the receipt.
-                            if drive_followup(call,{'drive':receipt} if receipt else asdict(result))[1]:
+                            output = {'drive':receipt} if receipt else {**asdict(result),'nothing_moved':True,
+                                  'meaning':'The plan was rejected before any motion. Rex did not move.'}
+                            if drive_followup(call,output)[1]:
                                 raise ProviderFailure('ToolContinuationLimit')
                     def run_drive_with(call, plan, result, depth, fresh_context):
                         nonlocal drive_context

@@ -339,7 +339,7 @@ class OpenAIBrain(HTTPProvider):
             payload['max_output_tokens']=max(payload['max_output_tokens'],512*(count+1))
         notes, notes_at = [], len(payload['input'])
         if snapshot.images:
-            if len(snapshot.images)>(8 if snapshot.context.get('photo_inspection') else 2) or any(len(i.data_url)>1_500_000 or not i.data_url.startswith('data:image/png;base64,') for i in snapshot.images):
+            if len(snapshot.images)>(8 if snapshot.context.get('photo_inspection') else 2) or any(len(i.data_url)>1_500_000 or not i.data_url.startswith(('data:image/png;base64,','data:image/jpeg;base64,')) for i in snapshot.images):
                 raise ProviderFailure('InvalidSceneImages')
             content=[{'type':'input_text','text':'Attached visual evidence.'}]
             photo=snapshot.context.get('photo_inspection')
@@ -412,8 +412,10 @@ class OpenAIBrain(HTTPProvider):
                 'is false, explain drive.unavailable_reason in character. Never claim you moved, arrived or saw something '
                 'before the drive receipt. Never substitute a different target for what the person described: the object '
                 'detector knows only common categories and misses doors, photos, pictures and small things. If the described '
-                'thing is not in drive.targets, use seek with a short description (after any turn they asked for first), '
-                'then approach target sought to go to it; when drive.vision_seek is false, turn that way with look_after '
+                'thing is not in drive.targets, use seek with a short description (after any turn they asked for first). '
+                'Any request to go to, move toward, head for or approach a described thing needs BOTH seek and then approach '
+                'target sought in the same plan; seek alone only turns to face it. "Keep going" toward it is approach target '
+                'sought alone, which re-finds drive.last_sought; when drive.vision_seek is false, turn that way with look_after '
                 'asking about it and plan one more move from the fresh image. The camera spans about '
                 '90 degrees: the left image edge is about 45 degrees left of where the head points.')
         if snapshot.context.get('action_continuity'):

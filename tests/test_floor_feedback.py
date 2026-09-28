@@ -271,3 +271,37 @@ class SeekTests(unittest.TestCase):
                     state.propose_drive(drive_call(seek), {**offered, 'drive': {**offered['drive'], 'vision_seek': False}}, Cancellation())
             finally:
                 store.close()
+
+
+class SoughtAcrossPlansTests(SeekTests):
+    def test_keep_going_re_finds_the_last_sought_thing_in_a_new_plan(self):
+        clock, fake, drive, world = self.start([('door', 'door', 3.2, 0.)])
+        first = self.run_plan(clock, drive, DriveStep('seek', description='door'))
+        self.assertEqual(first.status, 'completed')
+        self.assertEqual(drive.context('requested')['last_sought'], 'door')
+        later = self.run_plan(clock, drive, DriveStep('approach', target='sought'))   # "Keep going."
+        self.assertEqual(later.steps[0]['status'], 'completed', later)
+        self.assertGreater(fake.x, .3)
+
+    def test_validation_accepts_keep_going_and_a_described_approach(self):
+        from tests.test_drive_session import drive_call, step
+        from r3x.memory import Memory
+        from r3x.speakers import SpeakerTracker
+        from r3x.state import CoreState
+        from tests.test_voice_core import Trace
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            store = Memory(Path(temp).resolve()/'core.sqlite3')
+            store.start()
+            try:
+                state = CoreState(store, SpeakerTracker('synthetic:3'), Trace())
+                drive = {'available': True, 'origin': 'requested', 'targets': [], 'vision_seek': True, 'last_sought': 'door'}
+                context = {'source_turn_id': 't', 'state_revision': store.revision, 'drive': drive}
+                plan = state.propose_drive(drive_call(step('approach', target='sought')), context, Cancellation())
+                self.assertEqual(plan.steps[0].target, 'sought')
+                described = {**step('approach', target='sought'), 'description': 'the door'}
+                plan = state.propose_drive(drive_call(described), {**context, 'drive': {**drive, 'last_sought': None}}, Cancellation())
+                self.assertEqual(plan.steps[0].description, 'the door')
+            finally:
+                store.close()

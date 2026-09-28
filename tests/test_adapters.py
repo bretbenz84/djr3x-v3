@@ -215,3 +215,19 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(b"".join(observed)[:len(expected)],expected)
         self.assertEqual(len(starts), 1)
         self.assertIsNone(sink.stream)
+
+
+class LookImageTests(unittest.TestCase):
+    def test_sharp_jpeg_looks_are_sent_at_high_detail_and_other_formats_rejected(self):
+        from r3x.scene import SceneImage
+        events=[{"type":"response.output_item.added","output_index":0,"item":{"type":"message","phase":"final_answer"}},
+                {"type":"response.output_text.delta","output_index":0,"delta":"I see a door."},{"type":"response.completed"}]
+        brain=OpenAIBrain("fixture")
+        brain.client=Client(Response(events))
+        look=SceneImage('f',1.,'data:image/jpeg;base64,abcd','high')
+        self.assertEqual(list(brain.reply(Snapshot("s","t",0,(),images=(look,)),Cancellation())),["I see a door."])
+        sent=brain.client.calls[-1][1]['json']['input'][-1]['content']
+        self.assertEqual([c['detail'] for c in sent if c['type']=='input_image'],['high'])
+        brain.client=Client(Response(events))
+        with self.assertRaisesRegex(ProviderFailure,'InvalidSceneImages'):
+            list(brain.reply(Snapshot("s","t",0,(),images=(SceneImage('f',1.,'data:image/gif;base64,abcd'),)),Cancellation()))

@@ -445,6 +445,7 @@ class DriveBase:
                 'sensor_notes': space['health'], 'targets': targets,
                 'radar': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
                 'vision_seek': self.locator is not None and self.look is not None,
+                'last_sought': self._sought['description'] if self._sought else None,
                 'limits': dict(LIMITS[origin]), 'origin': origin,
                 'displacement_since_startup': displacement,
                 'recent_motion': list(self.history),
@@ -811,6 +812,8 @@ class DriveBase:
     def _approach_sought(self, step, plan, cancel, budget_m):
         """Vision-guided legs toward what seek found: re-locate, re-aim, move, repeat."""
         row = {'action': 'approach', 'target': 'sought'}
+        if step.description:
+            self._sought = {'description': step.description, 'box_width': 0.}
         if self._sought is None:
             return {**row, 'status': 'refused', 'reason': 'nothing_sought_yet', 'travelled_m': 0.}
         stand_off = max(FRONT_MARGIN, step.stop_at_m or DEFAULT_STOP_AT['object'])
@@ -890,7 +893,7 @@ class DriveBase:
                 return receipt
             self.moving.set()
             self._notify(plan)
-            self._sought, self._vision_calls = None, 0
+            self._vision_calls = 0   # The last sought thing persists across plans ("keep going").
             start = self.link.snapshot()[0]
             self._start_heading = self._odom_heading(start) if start else None
             if self.servos is not None and plan.park_arm:
