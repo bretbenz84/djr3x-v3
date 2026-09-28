@@ -20,7 +20,7 @@ MIN_TURN = 10.
 # (about 44 degrees per half frame), and face range then matched the owner's
 # 4-5 ft estimate. V2's 25 degrees came from a commanded turn that overshoots.
 HALF_FOV = 45.
-NECK_CENTER = 5472
+from .servo_poses import NECK_CENTER
 NECK_PULSES_PER_DEG = (5472 - 1984) / 45.  # V2 owner: neck sweeps about 90 degrees in total.
 FACE_WIDTH = .16
 MATRIX_CLEAR = 3.5

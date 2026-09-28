@@ -42,7 +42,14 @@ TUCK = ((8, 6544), (9, 8400), (10, 2048))
 REST = ((8, 4200), (9, 7720), (10, 5120))
 FULL_DOWN = ((8, 9088), (9, 5589), (10, 9511))
 RAISED = 2176
-HEAD_PARK = ((0, 5472), (1, 2600), (2, 5504), (3, 4544), (4, 6300))
+# Neck pulse where the head physically faces straight along the base. The owner
+# saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
+# driving on September 27; set this from the servo console reading.
+NECK_CENTER = 5472
+# Head lift/tilt held while the base drives (owner: level stance when moving).
+# V2 neutrals until the owner reads level values from the servo console.
+DRIVE_HEAD = ((1, 3600), (2, 4320))
+HEAD_PARK = ((0, NECK_CENTER), (1, 2600), (2, 5504), (3, 4544), (4, 6300))
 
 
 def validate_pose(pose: dict[int, int]) -> None:
@@ -107,7 +114,7 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         head = (Beat(((1, 3600), (2, 4320), (3, 6400), (4, 6720)), speed=12, acceleration=3),)
         neck = (Beat(((0, first),), speed=12, acceleration=3, dwell=.3),
                 Beat(((0, second),), speed=12, acceleration=3, dwell=.3),
-                Beat(((0, 5472),), speed=12, acceleration=3, dwell=.2))
+                Beat(((0, NECK_CENTER),), speed=12, acceleration=3, dwell=.2))
         throttle = bridge + (TUCK, ((8, 4800), (9, 8000), (10, 3800)),
                              ((8, 3680), (9, 8720), (10, 5920)), REST)
         lanes = (head, neck, tuple(Beat(p, throttle_duration=1.25) for p in throttle))
@@ -254,13 +261,15 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
     lanes = ()
     if stages:
         lanes += (tuple(Beat(tuple(stage.items()), throttle_duration=1.25) for stage in stages),)
-    if kind == 'base_park' and abs(current.get(0, 5472) - 5472) > 2:
-        lanes += ((Beat(((0, 5472),), speed=20, acceleration=5),),)
+    if kind == 'base_park':
+        head = tuple((ch, value) for ch, value in ((0, NECK_CENTER),) + DRIVE_HEAD if abs(current.get(ch, value) - value) > 2)
+        if head:
+            lanes += ((Beat(head, speed=20, acceleration=5),),)
     return lanes
 
 
 NAMED_POSES = {
-    'head_left': ((0,4000),), 'head_right': ((0,8000),), 'head_center': ((0,5472),),
+    'head_left': ((0,4000),), 'head_right': ((0,8000),), 'head_center': ((0,NECK_CENTER),),
     'visor_down': ((3,4544),), 'visor_up': ((3,6400),),
     'throttle_offer': ((8,2176),(9,2601),(10,5938)),
     'throttle_high_five': ((8,2176),(9,9361),(10,6302)),

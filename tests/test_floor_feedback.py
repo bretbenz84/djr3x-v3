@@ -85,3 +85,43 @@ class SeatedApproachTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ReacquisitionTests(unittest.TestCase):
+    def start(self):
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        return clock, fake, drive, world
+
+    def test_restarted_object_track_is_refound_by_label_near_its_expected_bearing(self):
+        clock, fake, drive, world = self.start()
+        world.objects[:] = [('object-new-id', 'clock', 2., .8)]    # ~22 degrees left; the tracker restarted.
+        settle()
+        offered = {'object-old-id': {'target_id': 'object-old-id', 'kind': 'object', 'label': 'clock', 'bearing_deg': 22}}
+        plan = DrivePlan('p', (DriveStep('face', target='object-old-id'),), 'requested', 'look', offered, clock()+60)
+        receipt = drive.execute(plan, Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertAlmostEqual(fake.theta, 22., delta=6.)
+
+    def test_same_label_on_the_other_side_is_not_substituted(self):
+        clock, fake, drive, world = self.start()
+        world.objects[:] = [('object-right', 'clock', 2., -1.2)]   # The only clock is ~31 degrees right.
+        settle()
+        offered = {'object-left': {'target_id': 'object-left', 'kind': 'object', 'label': 'clock', 'bearing_deg': 40}}
+        plan = DrivePlan('p', (DriveStep('approach', target='object-left'),), 'requested', 'find photo', offered, clock()+60)
+        receipt = drive.execute(plan, Cancellation())
+        self.assertNotEqual(receipt.status, 'completed')
+        self.assertEqual(receipt.steps[0]['reason'], 'target_not_found_where_it_was_seen')
+        self.assertGreater(fake.theta, 20)   # It turned left toward where it was seen, not right.
+        self.assertEqual(fake.x, 0.)
+
+    def test_unseen_target_is_looked_for_where_it_was_offered(self):
+        clock, fake, drive, world = self.start()
+        world.objects[:] = [('object-plant', 'potted plant', .9, 1.6)]   # ~60 degrees left, out of frame.
+        settle()
+        offered = {'object-plant': {'target_id': 'object-plant', 'kind': 'object', 'label': 'potted plant', 'bearing_deg': 60}}
+        plan = DrivePlan('p', (DriveStep('face', target='object-plant'),), 'requested', 'look', offered, clock()+60)
+        receipt = drive.execute(plan, Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertAlmostEqual(fake.theta, 60., delta=8.)

@@ -42,6 +42,7 @@ class FakeBase:
         self.tof = {'fl': 3000, 'fr': 3000, 'fl_radial': 3000, 'fr_radial': 3000, 'rl': 2000, 'rr': 2000,
                     'lf': 1500, 'lb': 1500, 'rf': 1500, 'rb': 1500}
         self.front = None                   # callable -> metres to a front obstacle, or None
+        self.imu_drift = 0.                 # degrees added to IMU yaw per completed turn
         self.matrix = True
         self.closed = False
         self.last_telemetry = 0.
@@ -60,6 +61,7 @@ class FakeBase:
         seq, kind, amount = self.pending[:3]
         if kind == 'turn':
             self.theta += amount * fraction * self.turn_scale
+            self.imu_offset = getattr(self, 'imu_offset', 0.) + self.imu_drift
         else:
             travelled = amount * fraction
             self.x += travelled * math.cos(math.radians(self.theta))
@@ -137,7 +139,7 @@ class FakeBase:
                 self.emit(type='telemetry', state=self.state, owner=self.owner, fault=self.fault,
                           blocked_dir='front' if self.state == 'blocked' else 'none', odom=self.odom(),
                           tof_mm=tof, batt_mv=12800, charging=self.charging,
-                          imu={'ok': True, 'pitch': 0, 'roll': 0, 'yaw': self.theta})
+                          imu={'ok': True, 'pitch': 0, 'roll': 0, 'yaw': self.theta + getattr(self, 'imu_offset', 0.)})
                 if self.matrix:
                     mm = int(max(25, front*1000)) if front is not None else 3500
                     self.emit(type='tofmx', g=f'{min(mm, 4095):03x}'*64, rej=[4095]*8)
@@ -242,18 +244,18 @@ class DriveOwnerTests(unittest.TestCase):
             drive.start()
         drive.link.close()
 
-    def test_turn_is_verified_against_imu_and_corrected_once(self):
+    def test_turn_is_measured_but_never_backtracked(self):
         self.start()
-        self.fake.turn_scale = .8   # Undershoot: 90 commanded, 72 actually turned.
-        receipt = self.drive.execute(plan(DriveStep('turn', degrees=90.)), Cancellation())
+        self.fake.turn_scale = .8   # Sensors disagree with the command; no host correction follows.
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=45.)), Cancellation())
         self.assertEqual(receipt.status, 'completed')
         step = receipt.steps[0]
-        self.assertEqual(step['commanded_deg'], 90.)
-        self.assertEqual(step['correction']['status'], 'completed')
-        self.assertAlmostEqual(step['measured_deg'], 90., delta=4.)
+        self.assertEqual(step['commanded_deg'], 45.)
+        self.assertAlmostEqual(step['measured_deg'], 36., delta=2.)
+        self.assertAlmostEqual(step['odometry_deg'], 36., delta=2.)
         turns = [c for c in self.fake.commands if c['cmd'] == 'turn']
+        self.assertEqual(len(turns), 1)
         self.assertEqual(turns[0]['rate'], 45.)
-        self.assertEqual(turns[1]['rate'], 20.)
 
     def test_move_is_shortened_to_front_clearance(self):
         self.start()
@@ -278,12 +280,38 @@ class DriveOwnerTests(unittest.TestCase):
 
     def test_swing_check_refuses_a_turn_that_sweeps_an_arm_into_a_shelf(self):
         self.start()
-        self.fake.tof['lb'] = 100   # Something close behind-left.
+        self.fake.tof.update(lb=100, rl=300, rr=300)   # Shelf behind-left; no room to back up.
+        self.world.objects.append(('wall', 'wall', .7, 0.))   # Nor to pull forward.
         settle()
         receipt = self.drive.execute(plan(DriveStep('turn', degrees=90.)), Cancellation())
         self.assertEqual(receipt.status, 'refused')
         self.assertIn('turn_path_blocked', receipt.reason)
         self.assertFalse(any(c['cmd'] == 'turn' for c in self.fake.commands))
+
+    def test_blocked_turn_backs_up_to_earn_room_then_turns(self):
+        self.start()
+        self.fake.tof['lb'] = 100
+        original = self.fake.handle
+        def handle(command):
+            if command['cmd'] == 'move':
+                self.fake.tof['lb'] = 1500   # Backing away clears the shelf.
+            original(command)
+        self.fake.handle = handle
+        settle()
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=90.)), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+        self.assertLess(receipt.steps[0]['escape']['commanded_m'], 0)
+        self.assertEqual([c['cmd'] for c in self.fake.commands if c['cmd'] in {'move', 'turn'}], ['move', 'turn'])
+
+    def test_imu_drift_without_odometry_agreement_is_not_corrected(self):
+        self.start()
+        self.fake.imu_drift = 11.   # IMU says the right turn fell 11 degrees short; wheels disagree.
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=-20.)), Cancellation())
+        step = receipt.steps[0]
+        self.assertNotIn('correction', step)
+        self.assertAlmostEqual(step['odometry_deg'], -20., delta=1.)
+        self.assertAlmostEqual(step['measured_deg'], -9., delta=1.)
+        self.assertEqual(len([c for c in self.fake.commands if c['cmd'] == 'turn']), 1)
 
     def test_charging_gamepad_and_missing_depth_refuse_before_motion(self):
         self.start()

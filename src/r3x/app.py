@@ -249,6 +249,8 @@ class App:
                     self.drive.servos = self.robot if self.robot and 'robot_servos' in active else None
                     self.drive.faces = camera.latest if camera else None
                     self.drive.objects = objects.snapshot if objects else None
+                    # After motion every track restarts; re-finding a target cannot wait two samples.
+                    self.drive.object_tracks = (lambda: objects.snapshot(min_samples=1)) if objects else None
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene

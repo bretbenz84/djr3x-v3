@@ -190,3 +190,27 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   and sways about ±7° (V2's ±3.4° barely read). V2's idle head wander is not restored.
 - **Microphone direction** gave a bearing on 3 of 8 turns; short commands often have too
   few loud samples, and it then reports unavailable rather than guessing.
+
+## Second floor run and repairs — September 27
+
+- **Ignored speech for about 30 s.** Live Silero flagged 2 speech frames in a capture
+  where a freshly loaded model flags 30; its recurrent state had gone numb after long
+  echo and servo noise. The runtime now resets it when playback ends and every 4 s of
+  quiet with no utterance pending (the 1 s pre-roll covers onsets).
+- **Wrong clock, twice.** The detector never saw the framed clock photo; the model
+  substituted the wall clock on the other side. Guidance now forbids substitution and
+  describes the ~90° image. A plan may turn with `look_after`; the fresh image comes
+  back and one follow-up `drive_base` plan may target what is now visible.
+- **"Target not detected" right after parking.** Every head/base motion restarts object
+  tracks. Re-finding now waits up to 2.5 s for post-motion detections, matches by label
+  near the odometry-predicted bearing (never a same-label object elsewhere), and turns to
+  where the target was seen before giving up.
+- **"I'm on it" after nothing moved.** Refusal and incomplete-motion continuations carry
+  an explicit note to say plainly what happened.
+- **Turn-around refused twice.** A swing-blocked turn now backs up (or pulls forward) up
+  to 0.5 m and retries once, as the owner had to direct manually.
+- **Turns that backtracked.** Host IMU corrections are removed: telemetry heading drifted
+  (right turns read half-size) while the firmware's own loop turned correctly. IMU and
+  odometry angles are both recorded. "A little" means about 45° (owner).
+- **Neck off-centre and head cocked up while driving.** `NECK_CENTER` and `DRIVE_HEAD`
+  (lift/tilt) are single constants applied at every drive, awaiting console values.

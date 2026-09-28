@@ -292,6 +292,8 @@ class VoiceRuntime:
         self.trace.emit("listening", controls="Enter or 'stop' cancels; say 'shut down', type 'quit', or Ctrl-C to exit")
         previous_dropped = (0, 0)
         previous_end = None
+        previous_echo = False
+        vad_fresh_at = None
         next_resources = 0.
         next_visual = 0.
         # Nonblocking terminal input is polled alongside frames; no orphan stdin worker.
@@ -345,6 +347,17 @@ class VoiceRuntime:
                 if frame.started_at <= self.cancel_before:
                     self.endpoint.reset()
                     continue
+                # Silero's recurrent state drifted numb after long echo/servo noise
+                # (September 27: live 2 speech frames where a fresh model found 30).
+                # Reset when playback ends and every 4 s of quiet with nothing pending;
+                # the 1 s pre-roll keeps any onset the fresh state has to re-learn.
+                if (previous_echo and not frame.echo_risk) or (not self.endpoint.frames and
+                        vad_fresh_at is not None and frame.started_at - vad_fresh_at >= 4.):
+                    self.vad.reset()
+                    vad_fresh_at = frame.started_at
+                if vad_fresh_at is None or self.endpoint.frames:
+                    vad_fresh_at = frame.started_at
+                previous_echo = frame.echo_risk
                 speech = self.vad.is_speech(frame.pcm)
                 if speech and self.robot:
                     # Even motion-contaminated VAD activity stops decorative idle

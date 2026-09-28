@@ -410,7 +410,11 @@ class OpenAIBrain(HTTPProvider):
                 'from drive.targets bearings. If the direct path is blocked, plan a route around it from drive.clearance_m '
                 '(for example turn, move, then face the target) or say you cannot; never invent clearance. If drive.available '
                 'is false, explain drive.unavailable_reason in character. Never claim you moved, arrived or saw something '
-                'before the drive receipt.')
+                'before the drive receipt. Never substitute a different target for what the person described: the object '
+                'detector knows only common categories and misses photos, pictures and small things. If the described '
+                'thing is not in drive.targets, or they tell you to turn first, turn that way with look_after asking about it; '
+                'the fresh camera image comes back and you may then plan one more move toward it. The camera spans about '
+                '90 degrees: the left image edge is about 45 degrees left of where the head points.')
         if snapshot.context.get('action_continuity'):
             notes.append('\nAction continuity records the purpose and separate execution/speech outcomes of earlier work. Follow the current conversation. Do not finish an abandoned answer merely because a capture or gesture succeeded. A new explicit request can choose a fresh action; old work never resumes on its own.')
         if snapshot.context.get('scene_description') and not snapshot.context.get('visual_arrival',{}).get('startup_greeting'):

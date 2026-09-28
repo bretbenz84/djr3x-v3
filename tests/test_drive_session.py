@@ -210,6 +210,33 @@ class DriveSessionTests(MemoryFixture):
         self.turn()
         self.assertEqual(planner.calls, 0)
 
+    def test_turn_look_then_one_follow_up_plan_from_the_fresh_view(self):
+        calls = []
+        class Brain:
+            def __init__(inner): inner.snapshots = []
+            def reply(inner, snapshot, cancel):
+                inner.snapshots.append(snapshot)
+                calls.append(snapshot)
+                if not snapshot.continuation:
+                    yield drive_call(step('turn', degrees=90.), look_after='Is the clock photo here?', text='Looking left.')
+                elif len(calls) == 2:
+                    target = next(t['target_id'] for t in snapshot.context['drive']['targets'] if t.get('label') == 'clock')
+                    yield ToolCall('next', 'drive_base', {'steps': [step('approach', target=target)], 'purpose': 'go to the photo',
+                                                          'look_after': None, 'text': 'There it is!', 'speak': 'after_motion'})
+                else:
+                    yield 'Done.'
+        self.setup_drive(drive_call(step('turn', degrees=90.)), inspection=True)
+        self.session.brain = Brain()
+        self.world.objects[:] = [('object-photo', 'clock', 0., 2.)]   # Directly to Rex's left.
+        settle()
+        delivery = self.turn('Turn left and find the photo of a clock.')
+        self.assertEqual(delivery.completed_text, ['Looking left.', 'There it is!'])
+        tools = {d['name'] for d in grounded_tools(calls[1].context)}
+        self.assertEqual(tools, {'describe_view', 'drive_base'})
+        results = self.rows('drive_result')
+        self.assertEqual([r['steps'][0]['action'] for r in results], ['turn', 'approach'])
+        self.assertEqual(results[-1]['status'], 'completed')
+
     def test_stop_during_driving_halts_the_wheels(self):
         self.setup_drive(drive_call(step('move', meters=1.5)))
         result = {}

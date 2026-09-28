@@ -25,7 +25,6 @@ LIMITS = {
 }
 ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person')
 TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns used 40.
-CORRECTION_RATE = 20.
 # Owner feedback September 27: stopping 4-5 ft away was too far.
 DEFAULT_STOP_AT = {'face': .8, 'nearest_person': .8, 'object': .6, 'radar_body': .9, 'voice_direction': .9}
 # Pushed at every connect; config can only lower firmware hard caps.
@@ -272,6 +271,9 @@ class DriveBase:
         self.history = deque(maxlen=6)
         self.flinch = Flinch()
         self.origin = None
+        self.object_tracks = None     # objects including single-frame re-detections after motion
+        self._view_since = float('-inf')
+        self._start_heading = None
 
     # Lifecycle -----------------------------------------------------------
     def start(self):
@@ -474,6 +476,7 @@ class DriveBase:
             while True:
                 done = self.link.done(seq)
                 if done is not None:
+                    self._view_since = self.clock() + .3   # The camera view changed; wait for it.
                     result = done.get('result')
                     return ({'completed': 'completed', 'blocked': 'blocked', 'aborted': 'aborted'}.get(result, 'stopped'),
                             result, done)
@@ -497,34 +500,53 @@ class DriveBase:
             raise ProviderFailure('DriveTelemetryStale')
         return telemetry
 
-    def _turn(self, degrees, plan, cancel, verify=True):
+    @staticmethod
+    def _odom_heading(telemetry):
+        theta = (telemetry.get('odom') or {}).get('theta')
+        return math.degrees(float(theta)) if isinstance(theta, (int, float)) else None
+
+    def _escape_for_turn(self, degrees, plan, cancel):
+        """V2 swing escape, generalized: earn room by backing up (or pulling forward), then retry once."""
+        space = self.space()
+        rear, front = space['rear_m'], space['front_m']
+        if rear is not None and rear - .35 >= .2:
+            leg = -min(.5, rear - .35)
+        elif front is not None and front - FRONT_MARGIN >= .3:
+            leg = min(.4, front - FRONT_MARGIN)
+        else:
+            return None
+        return self._move(leg, plan, cancel)
+
+    def _turn(self, degrees, plan, cancel, verify=True, escape=True):
         telemetry = self._telemetry()
         allowed, note = allowed_turn(degrees, telemetry)
         row = {'action': 'turn', 'requested_deg': round(degrees, 1)}
+        if not allowed and escape and note and note.startswith('turn_path_blocked'):
+            moved = self._escape_for_turn(degrees, plan, cancel)
+            if moved is not None and moved['status'] == 'completed':
+                retry = self._turn(degrees, plan, cancel, verify, escape=False)
+                return {**retry, 'escape': moved, 'travelled_m': moved.get('travelled_m', 0.)}
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note}
-        before = self._heading(telemetry)
+        before, before_odom = self._heading(telemetry), self._odom_heading(telemetry)
         status, reason, _ = self._finite({'cmd': 'turn', 'deg': round(allowed, 1), 'rate': TURN_RATE},
                                          max(8., abs(allowed)/TURN_RATE + 8.), cancel)
         row.update(commanded_deg=round(allowed, 1), status=status, reason=note if status == 'completed' else reason)
-        measured = None
+        measured = odom = None
         if status == 'completed' and verify and before is not None and abs(allowed) <= 170:
             self._sleep(.4, cancel)
-            after = self._heading(self._telemetry())
-            measured = wrap(after - before) if after is not None else None
-            error = allowed - measured if measured is not None else 0.
-            # One bounded correction; opposite-sign readings mean the heading is untrustworthy.
-            if measured is not None and 8 < abs(error) <= 45 and measured * allowed > 0:
-                fix, fix_note = allowed_turn(error, self._telemetry())
-                if fix:
-                    fix_status, _, _ = self._finite({'cmd': 'turn', 'deg': round(fix, 1), 'rate': CORRECTION_RATE},
-                                                    max(8., abs(fix)/CORRECTION_RATE + 8.), cancel)
-                    self._sleep(.4, cancel)
-                    after = self._heading(self._telemetry())
-                    measured = wrap(after - before) if after is not None else measured
-                    row['correction'] = {'deg': round(fix, 1), 'status': fix_status}
+            after = self._telemetry()
+            measured = wrap(self._heading(after) - before) if self._heading(after) is not None else None
+            if before_odom is not None and self._odom_heading(after) is not None:
+                odom = wrap(self._odom_heading(after) - before_odom)
+            # No host correction: the firmware closes turns on its own IMU loop. The owner saw
+            # turns reach the right angle and then backtrack under September 27 host corrections
+            # driven by a drifting telemetry heading. Both readings are recorded for diagnosis.
         row['measured_deg'] = round(measured, 1) if measured is not None else None
-        row['turned_deg'] = abs(measured if measured is not None else allowed if status == 'completed' else 0.)
+        row['odometry_deg'] = round(odom, 1) if odom is not None else None
+        # Report the controller's closed-loop turn unless both sensors agree otherwise.
+        agreed = measured is not None and odom is not None and abs(measured - odom) <= 5
+        row['turned_deg'] = abs(measured if agreed else allowed if status == 'completed' else 0.)
         return row
 
     def _move(self, meters, plan, cancel, speed=None):
@@ -558,11 +580,29 @@ class DriveBase:
             row['reason'] = 'shortened_by_clearance'
         return row
 
-    def _resolve(self, target, plan, now):
+    def _rotation(self):
+        """Base rotation since the plan started, from wheel odometry (the IMU drifts)."""
+        telemetry, _ = self.link.snapshot()
+        now = self._odom_heading(telemetry) if telemetry else None
+        return wrap(now - self._start_heading) if now is not None and self._start_heading is not None else 0.
+
+    def _predicted(self, offered):
+        return wrap(offered['bearing_deg'] - self._rotation()) if offered.get('bearing_deg') is not None else None
+
+    def _resolve(self, target, plan, now, fresh=True):
+        """Re-find an offered target after motion: same ID, else same identity/label near
+        where it should now be. Detections from before the latest motion are ignored."""
         offered = plan.targets.get(target) or {}
         kind = offered.get('kind') or ('nearest_person' if target == 'nearest_person' else None)
+        since = self._view_since if fresh else float('-inf')
+        predicted = self._predicted(offered)
+        def near(rows, key):
+            if predicted is None:
+                return rows[0] if len(rows) == 1 else None
+            close = [r for r in rows if abs(wrap(image_bearing(r['box'], self._neck()) - predicted)) <= 20]
+            return min(close, key=lambda r: abs(wrap(image_bearing(r['box'], self._neck()) - predicted)), default=None)
         if kind in {'face', 'nearest_person'}:
-            faces = self._fresh_faces(now)
+            faces = [f for f in self._fresh_faces(now) if f['at'] >= since]
             if kind == 'nearest_person':
                 match = max(faces, key=lambda f: f['box'][2]*f['box'][3], default=None)
             else:
@@ -570,40 +610,66 @@ class DriveBase:
                 identity = offered.get('person_id')
                 if match is None and identity:
                     same = [f for f in faces if f.get('identity') == identity]
-                    match = same[0] if len(same) == 1 else None
-                if match is None and len(faces) == 1 and not identity:
-                    match = faces[0]  # Track IDs change as the view rotates; one face is unambiguous.
+                    match = same[0] if len(same) == 1 else near(same, 'identity')
+                if match is None and not identity:
+                    match = near(faces, 'face')  # Track IDs change as the view rotates.
             if match is None:
                 return None
             return {'kind': 'face', 'bearing_deg': image_bearing(match['box'], self._neck()), 'range_m': face_range(match['box']),
                     'box_width': match['box'][2], 'track_id': match['track_id'], 'person_id': match.get('identity')}
         if kind == 'object':
-            rows = list(self.objects() if self.objects else ())
+            source = self.object_tracks or self.objects
+            rows = [r for r in (source() if source else ()) if r.get('at', now) >= since]
             match = next((r for r in rows if r['target_id'] == target), None)
             if match is None:
-                same = [r for r in rows if r['label'] == offered.get('label')]
-                match = same[0] if len(same) == 1 else None
+                match = near([r for r in rows if r['label'] == offered.get('label')], 'label')
             if match is None:
                 return None
             return {'kind': 'object', 'bearing_deg': image_bearing(match['box'], self._neck()), 'range_m': None,
                     'box_width': match['box'][2], 'label': match['label']}
         if kind == 'radar_body':
             bodies = (self.radar.bodies() if self.radar else None) or []
-            match = min((b for b in bodies if abs(wrap(b['bearing_deg'] - offered['bearing_deg'])) <= 25),
-                        key=lambda b: abs(wrap(b['bearing_deg'] - offered['bearing_deg'])), default=None)
-            source = match or offered
-            return {'kind': 'radar_body', 'bearing_deg': source['bearing_deg'], 'range_m': source.get('range_m'),
-                    'current': match is not None}
+            expected = predicted if predicted is not None else offered['bearing_deg']
+            match = min((b for b in bodies if abs(wrap(b['bearing_deg'] - expected)) <= 25),
+                        key=lambda b: abs(wrap(b['bearing_deg'] - expected)), default=None)
+            return {'kind': 'radar_body', 'bearing_deg': match['bearing_deg'] if match else expected,
+                    'range_m': (match or offered).get('range_m'), 'current': match is not None}
         if kind == 'voice_direction':
-            return {'kind': 'voice_direction', 'bearing_deg': offered['bearing_deg'], 'range_m': None}
+            return {'kind': 'voice_direction', 'bearing_deg': predicted, 'range_m': None}
         return None
+
+    def _acquire(self, step, plan, cancel, timeout=2.5):
+        """Wait for a detection from after the latest motion (objects refresh every 1.5 s)."""
+        deadline = self.clock() + timeout
+        while True:
+            target = self._resolve(step.target, plan, self.clock())
+            if target is not None or self.clock() >= deadline:
+                return target
+            self._sleep(.25, cancel)
+
+    def _find_offered(self, step, plan, cancel):
+        """Acquire a camera target; if unseen, turn to where it should be and look again."""
+        target = self._acquire(step, plan, cancel)
+        if target is not None:
+            return target, 0., None
+        offered = plan.targets.get(step.target) or {}
+        predicted = self._predicted(offered)
+        if predicted is None or offered.get('kind') not in {'face', 'object'}:
+            return None, 0., 'target_not_currently_detected'
+        turned = 0.
+        if abs(predicted) > 10:
+            turn = self._turn(max(-180., min(180., predicted)), plan, cancel)
+            turned = turn.get('turned_deg', 0.)
+            if turn['status'] != 'completed':
+                return None, turned, 'turn_toward_target_' + turn['status']
+        target = self._acquire(step, plan, cancel, timeout=3.)
+        return target, turned, None if target else 'target_not_found_where_it_was_seen'
 
     def _face_target(self, step, plan, cancel):
         row = {'action': 'face', 'target': step.target}
-        target = self._resolve(step.target, plan, self.clock())
+        target, turned, missing = self._find_offered(step, plan, cancel)
         if target is None:
-            return {**row, 'status': 'refused', 'reason': 'target_not_currently_detected', 'turned_deg': 0.}
-        turned = 0.
+            return {**row, 'status': 'lost' if turned else 'refused', 'reason': missing, 'turned_deg': turned}
         for attempt in range(3):
             bearing = wrap(target['bearing_deg'])
             if abs(bearing) <= 10:
@@ -612,10 +678,10 @@ class DriveBase:
             turned += turn.get('turned_deg', 0.)
             if turn['status'] != 'completed':
                 return {**row, **{k: v for k, v in turn.items() if k != 'action'}, 'turned_deg': turned}
-            self._sleep(1., cancel)
             if target['kind'] not in {'face', 'object'}:
+                self._sleep(1., cancel)
                 break  # Priors: one turn toward them, then report what the camera sees.
-            target = self._resolve(step.target, plan, self.clock())
+            target = self._acquire(step, plan, cancel)
             if target is None:
                 return {**row, 'status': 'lost', 'reason': 'target_not_redetected_after_turn', 'turned_deg': turned}
         faces = self._fresh_faces(self.clock())
@@ -625,12 +691,11 @@ class DriveBase:
 
     def _approach(self, step, plan, cancel, budget_m):
         row = {'action': 'approach', 'target': step.target}
-        target = self._resolve(step.target, plan, self.clock())
+        target, turned, missing = self._find_offered(step, plan, cancel)
         if target is None:
-            return {**row, 'status': 'refused', 'reason': 'target_not_currently_detected', 'travelled_m': 0.}
+            return {**row, 'status': 'lost' if turned else 'refused', 'reason': missing, 'travelled_m': 0., 'turned_deg': turned}
         kind = target['kind']
         stop_at = step.stop_at_m or DEFAULT_STOP_AT[kind]
-        turned = 0.
         if kind in {'radar_body', 'voice_direction'}:
             # Priors only: turn toward them, then approach a face the camera actually sees.
             facing = self._face_target(step, plan, cancel)
@@ -673,6 +738,7 @@ class DriveBase:
                 if not ok:
                     result, reason = 'stopped', why
                     break
+                self._view_since = now - 1.6   # Continuous motion: the latest detections are the view.
                 current = self._resolve(step.target, plan, now)
                 lin, ang, result, reason = controller.step(now, telemetry, self.space(now), current)
                 if result is None:
@@ -681,7 +747,7 @@ class DriveBase:
         finally:
             self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
             self.link.send({'cmd': 'stop'})
-        final = self._resolve(step.target, plan, self.clock())
+        final = self._resolve(step.target, plan, self.clock(), fresh=False)
         space = self.space()
         return {**row, 'status': result, 'reason': reason, 'travelled_m': round(controller.travel, 2),
                 'turned_deg': turned, 'stop_at_m': stop_at,
@@ -737,13 +803,16 @@ class DriveBase:
                 return receipt
             self.moving.set()
             self._notify(plan)
+            start = self.link.snapshot()[0]
+            self._start_heading = self._odom_heading(start) if start else None
             if self.servos is not None and plan.park_arm:
                 park = self.servos.prepare_base_motion(cancel)
                 if park.status != 'pulses_reached':
                     receipt.status, receipt.reason = 'refused', 'ArmParkFailed:' + str(park.reason or park.status)
                     return receipt
                 prepared = True
-                self._sleep(.6, cancel)  # Camera frames from the centered neck before bearings.
+                self._view_since = self.clock() + .3   # Only detections of the centred-neck view.
+                self._sleep(.6, cancel)
             budget = LIMITS[plan.origin]['total_m']
             for step in plan.steps:
                 self._check(cancel)

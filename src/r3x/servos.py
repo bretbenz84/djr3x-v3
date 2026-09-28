@@ -16,7 +16,7 @@ from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, NAMED_POSES)
 
-BASE_HELD = frozenset({0, *THROTTLE})
+BASE_HELD = frozenset({0, 1, 2, *THROTTLE})
 
 
 @dataclass(frozen=True)
@@ -91,7 +91,8 @@ class ServoOwner:
 
     def neck_degrees(self) -> float:
         from .drive_space import neck_degrees
-        return neck_degrees(self.commanded.get(0, 5472))
+        from .servo_poses import NECK_CENTER
+        return neck_degrees(self.commanded.get(0, NECK_CENTER))
 
     def motion_risk(self) -> bool:
         return self._motion.is_set() or self.clock() < self.motion_until

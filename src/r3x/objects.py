@@ -67,10 +67,10 @@ class Objects:
             with self.scene.lock:self.scene.scene_id='objects:'+uuid4().hex
         if self.trace:self.trace.emit('object_sample',frame_id=frame.frame_id,objects=rows,seconds=self.clock()-began)
 
-    def snapshot(self):
+    def snapshot(self, min_samples=2):
         with self.lock:
             if self.stop.is_set() or self.failure or not self.frame or not 0<=self.clock()-self.frame.at<=4:return ()
-            return tuple(dict(r) for r in self.rows if r['samples']>=2)
+            return tuple(dict(r) for r in self.rows if r['samples']>=min_samples)
 
     def inspect(self,target_id=None):
         with self.lock:
