@@ -832,3 +832,66 @@ class VoiceAndObstacleApproachTests(unittest.TestCase):
 def FACE_WIDTH_AT(distance):
     from r3x.drive_space import FACE_WIDTH, HALF_FOV
     return FACE_WIDTH / (2*math.tan(math.radians(HALF_FOV))*distance)
+
+
+class ReacquireAfterNudgeTests(unittest.TestCase):
+    """September 27: firmware steering around an obstacle turned the person out of frame."""
+    def start(self):
+        from r3x.drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        self.looks = []
+        test = self
+        class Owner:
+            def neck_degrees(self):
+                return world.neck
+        class Servos:
+            owner = Owner()
+            def prepare_base_motion(self, cancel):
+                world.neck = 0.
+                return type('R', (), {'status': 'pulses_reached', 'reason': None})()
+            def finish_base_motion(self):
+                pass
+            def execute_pose(self, pose, cancel, request_id):
+                world.neck = (NECK_CENTER - pose[0]) / NECK_PULSES_PER_DEG
+                test.looks.append(round(world.neck))
+                return type('R', (), {'status': 'pulses_reached'})()
+        drive.servos = Servos()
+        return clock, fake, drive, world
+
+    def nudge_once(self, fake, degrees, after_x):
+        original = fake.handle
+        state = {'done': False}
+        def handle(command):
+            original(command)
+            if not state['done'] and fake.x > after_x:
+                state['done'] = True
+                fake.theta += degrees   # Firmware assist steered the base.
+        fake.handle = handle
+
+    def approach(self, clock, drive):
+        plan = DrivePlan('p', (DriveStep('approach', target='nearest_person', stop_at_m=1.),), 'requested', 'come here',
+                         {'nearest_person': {'target_id': 'nearest_person', 'kind': 'nearest_person'}}, clock()+120)
+        return drive.execute(plan, Cancellation())
+
+    def test_a_head_look_refinds_the_person_and_the_approach_continues(self):
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, 3.5, 0.))
+        self.nudge_once(fake, -50., .6)
+        settle()
+        receipt = self.approach(clock, drive)
+        step = receipt.steps[-1]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertEqual(step['refound_by'], ['head_look'])
+        self.assertEqual(self.looks[0], 40)             # Looked left toward where he should be first.
+        self.assertLess(math.hypot(3.5 - fake.x, fake.y), 1.4)
+
+    def test_a_body_turn_when_the_head_cannot_reach(self):
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, 3.5, 0.))
+        self.nudge_once(fake, -100., .6)
+        settle()
+        receipt = self.approach(clock, drive)
+        self.assertEqual(receipt.steps[-1]['refound_by'], ['body_turn'], receipt)
+        self.assertEqual(receipt.steps[-1]['status'], 'completed')

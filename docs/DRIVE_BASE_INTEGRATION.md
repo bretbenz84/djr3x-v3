@@ -453,3 +453,16 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   31° for the same speaker), so a voice-only leg can head somewhat off; obstacles and the
   face handover bound it.
 
+## Re-finding a person lost mid-approach — September 27
+
+- **Gave up when the camera lost him.** After a detour, firmware steering turned the base
+  (123° of turning in one approach) and the person left the frame; after 6 s unseen the
+  approach ended "lost". The approach now remembers the person's absolute IMU heading at
+  each sighting. After 2.5 s unseen it stops and looks with the head first (owner: less
+  effort): toward that heading, then 30° either side, within ±40° of neck travel. If
+  that fails it turns the body toward the heading. On success it faces the person with
+  the body, recentres the head and continues, up to three times per approach. Receipts
+  list `refound_by` (`head_look` or `body_turn`).
+- **Simulated only.** The sim now turns the camera with the head; tests nudge the base
+  50° (head look) and 100° (body turn) mid-approach and still arrive.
+

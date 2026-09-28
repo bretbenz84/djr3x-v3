@@ -161,6 +161,7 @@ class World:
     """People and objects at fixed room positions, seen through the head camera."""
     def __init__(self, base):
         self.base, self.people, self.objects = base, [], []
+        self.neck = 0.   # Head angle, degrees left of the base: the camera turns with it.
 
     def relative(self, px, py):
         dx, dy = px - self.base.x, py - self.base.y
@@ -173,6 +174,7 @@ class World:
         rows = []
         for track, identity, px, py in self.people:
             distance, bearing, _, _ = self.relative(px, py)
+            bearing -= self.neck   # Camera-relative.
             if abs(bearing) >= HALF_FOV or distance < .3:
                 continue
             width = FACE_WIDTH / (2*math.tan(math.radians(HALF_FOV))*distance)

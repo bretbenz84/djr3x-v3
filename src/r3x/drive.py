@@ -38,6 +38,9 @@ SIDE_OPEN_M = .5          # A front band this much past the stand-off counts as 
 PERSON_REACH = .8         # Face range minus a front return within this may be knees, feet or chair legs.
 CRUISE_LOOK_S = 2.        # While rolling, a new look starts at most this often (hosted looks take 2-5 s).
 AIM_DEG = 15.             # Re-aim only past this while the path ahead is open (legs re-locate anyway).
+LOST_AFTER_S = 2.5         # Unseen this long mid-approach: stop and look for them (was 6 s, then gave up).
+LOOK_NECK_MAX = 40.        # Head looks while re-finding a person stay inside the talking gaze range.
+MAX_REACQUIRES = 3
 VOICE_LEG_M = 2.           # With only a voice to go on, roll this far toward it looking for a face.
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
 NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
@@ -203,7 +206,7 @@ class Approach:
                 return 0., 0., 'blocked', 'front stand-off reached before the target'
             return 0., 0., None, 'braking at front stand-off'
         self.front_near_since = None
-        if now - self.last_seen >= 6:
+        if now - self.last_seen >= LOST_AFTER_S:
             return 0., 0., 'lost', 'target lost from camera'
         if now - self.last_seen > 1.2:
             self.near_since = None
@@ -824,10 +827,24 @@ class DriveBase:
             if facing['status'] != 'completed':
                 return {**row, **{k: v for k, v in facing.items() if k not in {'action'}}, 'travelled_m': 0., 'turned_deg': turned}
             self._sleep(.8, cancel)
-        detours = []
+        detours, reacquired = [], []
         while True:
             result, reason, moved, last = self._run_approach(step, plan, cancel, kind, stop_at, budget_m - travelled)
             travelled += moved
+            if (result == 'lost' and kind in {'face', 'nearest_person'} and len(reacquired) < MAX_REACQUIRES
+                    and budget_m - travelled > .1):
+                # Owner, September 27: after the firmware nudged him around an obstacle the person
+                # left the frame. Look with the head first, then turn the body, then carry on.
+                found = self._reacquire(plan, cancel, (last or {}).get('heading'))
+                reacquired.append(found['how'] if found else 'not_found')
+                turned += found['turned_deg'] if found else 0.
+                if found:
+                    step = DriveStep('approach', target=found['track_id'], stop_at_m=stop_at)
+                    plan = DrivePlan(plan.request_id, plan.steps, plan.origin, plan.purpose,
+                                     {**plan.targets, step.target: {'kind': 'face'}}, plan.expires_at)
+                    kind = 'face'
+                    continue
+                reason = 'person not found again after looking'
             far = (last is not None and last.get('range_m') is not None and last['range_m'] - stop_at > .5)
             if result != 'blocked' or kind not in {'face', 'nearest_person'} or not far or len(detours) >= MAX_DETOURS:
                 break
@@ -860,7 +877,67 @@ class DriveBase:
                'final_approx_range_m': round(final['range_m'], 1) if final and final.get('range_m') else None}
         if detours:
             out['detours'] = detours
+        if reacquired:
+            out['refound_by'] = reacquired
         return out
+
+    def _look(self, degrees, cancel):
+        """Point the head (neck) degrees left of the base (0 recentres); False without servos."""
+        if self.servos is None or not hasattr(self.servos, 'execute_pose'):
+            return False
+        from .drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
+        degrees = max(-LOOK_NECK_MAX, min(LOOK_NECK_MAX, degrees))
+        receipt = self.servos.execute_pose({0: round(NECK_CENTER - degrees*NECK_PULSES_PER_DEG)}, cancel, 'drive-look')
+        self._view_since = self.clock() + .3
+        return getattr(receipt, 'status', None) == 'pulses_reached'
+
+    def _face_near(self, expected, cancel, wait=1.5):
+        """A fresh face near the expected base-relative bearing, waiting for detections."""
+        deadline = self.clock() + wait
+        while True:
+            faces = [f for f in self._fresh_faces(self.clock()) if f['at'] >= self._view_since]
+            rows = [(abs(wrap(image_bearing(f['box'], self._neck()) - expected)), f) for f in faces]
+            rows = [r for r in rows if r[0] <= 45]
+            if rows:
+                face = min(rows, key=lambda r: r[0])[1]
+                return {'track_id': face['track_id'], 'bearing_deg': image_bearing(face['box'], self._neck())}
+            if self.clock() >= deadline:
+                return None
+            self._sleep(.25, cancel)
+
+    def _reacquire(self, plan, cancel, person_heading):
+        """Find a person lost mid-approach: head look toward where they should be, then glances,
+        then a body turn; on success face them with the body and recentre the head."""
+        telemetry = self._telemetry()
+        heading = self._heading(telemetry)
+        expected = wrap(person_heading - heading) if person_heading is not None and heading is not None else 0.
+        found, how, turned = None, None, 0.
+        for degrees in (expected, expected + 30., expected - 30.):
+            if abs(degrees) > LOOK_NECK_MAX + 10 or not self._look(degrees, cancel):
+                continue
+            found = self._face_near(expected, cancel)
+            if found:
+                how = 'head_look'
+                break
+        self._look(0., cancel)   # Recentred: bearings below are base-relative.
+        if found is None and abs(expected) > 10:
+            turn = self._turn(max(-180., min(180., expected)), plan, cancel, escape=False)
+            turned += turn.get('turned_deg', 0.)
+            if turn['status'] == 'completed':
+                self._sleep(.8, cancel)
+                found = self._face_near(0., cancel)
+                how = 'body_turn'
+        if found is None:
+            return None
+        if how == 'head_look' and abs(found['bearing_deg']) > 12:
+            turn = self._turn(max(-180., min(180., found['bearing_deg'])), plan, cancel, escape=False)
+            turned += turn.get('turned_deg', 0.)
+            self._sleep(.8, cancel)
+            refound = self._face_near(0., cancel)
+            if refound is None:
+                return None
+            found = refound
+        return {**found, 'how': how, 'turned_deg': turned}
 
     def _faces_ahead(self):
         return [f for f in self._fresh_faces(self.clock()) if abs(image_bearing(f['box'], self._neck())) <= 20]
@@ -885,7 +962,10 @@ class DriveBase:
                 self._view_since = now - 1.6   # Continuous motion: the latest detections are the view.
                 current = self._resolve(step.target, plan, now)
                 if current is not None:
-                    last = current
+                    heading = self._heading(telemetry)
+                    # Absolute heading of the person: firmware steering around obstacles
+                    # turns the base, and this says which way to look when they drop out.
+                    last = {**current, 'heading': wrap(heading + current['bearing_deg']) if heading is not None else None}
                 lin, ang, result, reason = controller.step(now, telemetry, self.space(now), current)
                 if result is None:
                     self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
