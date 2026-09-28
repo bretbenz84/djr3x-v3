@@ -80,7 +80,9 @@ class App:
         # V2 startup sounds start as soon as speech output is ready and play over
         # servo wake and model loading; live() stops them before the ready line.
         from .startup_audio import StartupAudio
-        self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache')
+        self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache', robot=self.robot)
+        if self.robot:
+            self.robot.on_startup = self.startup_audio.motion_started
         self.owner = ProviderOwner((tts,sink,self.startup_audio) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(p for p in self.live_components if p not in (tts,sink)))
 
     def readiness(self):
@@ -250,6 +252,10 @@ class App:
                 objects = objects if 'objects' in active else None
                 output.inspection = inspection if 'current_view' in active else None
                 self.startup_audio.stop()   # Cut the filler; readiness never waits for it.
+                # The ready line gets the usual talking motion and speaking lights.
+                output.robot = self.robot if self.robot and 'robot_servos' in active else None
+                output.speech_motion = output.robot.talking if output.robot else None
+                output.leds = self.leds if self.leds and 'robot_leds' in active else None
                 try:
                     ready = self.startup_audio.ready(Cancellation())
                 except Exception as exc:
@@ -257,9 +263,6 @@ class App:
                     trace.emit('startup_audio',status='ready_line_failed',error_type=type(exc).__name__)
                 startup_delivery = announce(self.settings,self.owner,output,trace,ready=ready)
                 mic.discard_pending()
-                output.robot = self.robot
-                output.speech_motion = self.robot.talking if self.robot else None
-                output.leds = self.leds
                 if self.drive and 'drive_base' not in active:
                     # Configured wheels that failed to start: Rex still knows he has them.
                     failure = next((r for r in self.owner.results if r.capability=='drive_base' and r.operation=='start'),None)

@@ -23,6 +23,7 @@ class RobotServos:
         self.closed = False
         self.started = False
         self.before_shutdown = lambda: None
+        self.on_startup = lambda: None   # Startup sounds begin with the wake choreography.
         self._arm_return = None
 
     def _sequence(self, kind):
@@ -35,6 +36,10 @@ class RobotServos:
     def start(self):
         self.owner.start()
         self.started = True
+        try:
+            self.on_startup()
+        except Exception as exc:
+            if self.trace: self.trace.emit('servo_startup_hook_failed',error_type=type(exc).__name__)
         self._sequence('startup')
         # Capture is started later by ProviderOwner, after motion/hold settling.
         self.wait(.5)

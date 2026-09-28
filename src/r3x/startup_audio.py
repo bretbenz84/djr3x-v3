@@ -155,8 +155,9 @@ class StartupAudio:
         'startup whir, please-wait line and filler while models load; ready line after',
         required=False, shutdown='stop playback; join thread')
 
-    def __init__(self, tts, sink, state_dir: Path, *, rng=None, trace=None):
-        self.tts, self.sink, self.trace = tts, sink, trace
+    def __init__(self, tts, sink, state_dir: Path, *, rng=None, trace=None, robot=None):
+        self.tts, self.sink, self.trace, self.robot = tts, sink, trace, robot
+        self._motion_started = threading.Event()
         self.cycle = LineCycle(state_dir / 'startup-lines.json', rng)
         self.cache = state_dir / 'startup-tts'
         self._cancel = Cancellation()
@@ -192,11 +193,52 @@ class StartupAudio:
         self.sink.play(iter((pcm,)), self._cancel, lambda at: None)
         self._emit(status='played', clip=label)
 
+    def motion_started(self):
+        """Servo wake choreography is beginning: play the whir with it (owner request)."""
+        self._motion_started.set()
+
+    def _wait(self, ready, timeout):
+        deadline = threading.Event()
+        timer = threading.Timer(timeout, deadline.set)
+        timer.daemon = True
+        timer.start()
+        try:
+            while not ready() and not deadline.is_set():
+                self._cancel.check()
+                self._cancel.event.wait(.05)
+        finally:
+            timer.cancel()
+
+    def _speak(self, line):
+        """The please-wait line with the ordinary talking motion, once the servos are awake."""
+        pcm = self.speech(line, self._cancel)
+        talking = None
+        if self.robot is not None:
+            self._wait(lambda: self.robot.owner.state == 'active', 25.)
+            if self.robot.owner.state == 'active':
+                talking = self.robot.talking
+                try:
+                    talking.start('startup-boot-line', self._cancel)
+                except Exception as exc:
+                    talking = None
+                    self._emit(status='talking_motion_failed', error_type=type(exc).__name__)
+        try:
+            self._play(pcm, 'boot_line')
+        finally:
+            if talking is not None:
+                try:
+                    talking.stop()
+                except Exception as exc:
+                    self._emit(status='talking_motion_failed', error_type=type(exc).__name__)
+
     def _run(self):
         try:
+            if self.robot is not None:
+                # Start with the servo wake-up, not before it (LED startup comes first).
+                self._wait(self._motion_started.is_set, 15.)
             self._play(read_clip('startup_whir.wav'), 'startup_whir')
             line = self.cycle.pick('boot', BOOT_LINES)
-            self._play(self.speech(line, self._cancel), 'boot_line')
+            self._speak(line)
             self._emit(status='spoken', text=line)
             self._play(read_clip('droid_startup.wav'), 'droid_startup')
         except Cancelled:

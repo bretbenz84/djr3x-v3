@@ -63,6 +63,36 @@ class StartupAudioTests(unittest.TestCase):
         self.assertIn(tts.texts[0], BOOT_LINES)
         self.assertEqual(sink.played[2], filler)
 
+    def test_whir_waits_for_servo_wake_and_the_line_gets_talking_motion(self):
+        events = []
+        class Talking:
+            def start(self, turn_id, cancel): events.append('talk_start')
+            def stop(self): events.append('talk_stop')
+        class Robot:
+            owner = type('Owner', (), {'state': 'ready'})()
+            talking = Talking()
+        class Sink(RecordingSink):
+            def play(inner, chunks, cancel, on_start):
+                events.append('play')
+                return RecordingSink.play(inner, chunks, cancel, on_start)
+        robot, sink = Robot(), Sink()
+        audio = StartupAudio(CountingTTS(), sink, self.dir, robot=robot)
+        audio.start()
+        time.sleep(.15)
+        self.assertEqual(events, [])            # Nothing plays before the servos move.
+        audio.motion_started()
+        deadline = time.monotonic() + 2
+        while 'play' not in events and time.monotonic() < deadline:
+            time.sleep(.01)
+        time.sleep(.1)
+        self.assertEqual(events, ['play'])      # Whir with the wake-up; line waits for it to finish.
+        robot.owner.state = 'active'
+        deadline = time.monotonic() + 2
+        while events.count('play') < 3 and time.monotonic() < deadline:
+            time.sleep(.01)
+        audio.stop()
+        self.assertEqual(events[:4], ['play', 'talk_start', 'play', 'talk_stop'])
+
     def test_lines_do_not_repeat_until_every_line_has_played(self):
         cycle = LineCycle(self.dir / 'state.json', random.Random(3))
         picks = [LineCycle(self.dir / 'state.json').pick('ready', READY_LINES) for _ in READY_LINES]
