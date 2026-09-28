@@ -18,9 +18,10 @@ from .drive_space import (allowed_turn, clearance, describe_bearing, face_range,
                           move_allowance, radar_bodies, wrap, FRONT_MARGIN, PERSON_MARGIN)
 from .providers import Capability
 
-# Owner-approved first-test limits (September 27): 0.25 m/s, 1.5 m/step, 3 m/plan.
+# Owner-approved limits: 0.25 m/s and 1.5 m legs (first test); requested plans may cover 10 m
+# (September 27: the 3 m first-test cap cut door trips short and refused 'go ten feet').
 LIMITS = {
-    'requested': {'speed_mps': .25, 'step_m': 1.5, 'total_m': 3., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
+    'requested': {'speed_mps': .25, 'step_m': 1.5, 'total_m': 10., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
     'self_initiated': {'speed_mps': .18, 'step_m': .75, 'total_m': 1.5, 'turn_deg': 180., 'total_turn_deg': 360., 'max_steps': 4},
 }
 ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek')
@@ -168,7 +169,7 @@ class Approach:
         if now - self.started >= 20:
             return 0., 0., 'timeout', 'approach time limit'
         if self.travel >= self.max_travel:
-            return 0., 0., 'budget_reached', 'travel budget reached before the target'
+            return 0., 0., 'distance_limit', 'distance limit reached before the target'
         front = space['front_m']
         if front is None:
             return 0., 0., 'aborted', 'front clearance unavailable'
@@ -225,7 +226,7 @@ class Approach:
         else:
             remaining = budget
         if self.max_travel - self.travel - .03 <= .02:
-            return 0., 0., 'budget_reached', 'travel budget reached before the target'
+            return 0., 0., 'distance_limit', 'distance limit reached before the target'
         lin = min(self.speed, max(.04, math.sqrt(2*self.accel*max(0., remaining))),
                   max(0., budget)/.6, max(0., self.max_travel - self.travel - .03)/.6)
         clear = front >= 1. and all(v is not None and v >= .4 for v in (space['left_m'], space['right_m']))
@@ -972,7 +973,7 @@ class DriveBase:
                 travelled = math.hypot(float(odom.get('x', 0)) - float(start.get('x', 0)),
                                        float(odom.get('y', 0)) - float(start.get('y', 0)))
                 if budget_m - travelled <= .05:
-                    outcome = ('budget_reached', 'travel_budget_reached')
+                    outcome = ('distance_limit', 'distance_limit_reached')
                     break
                 space = self.space(now)
                 room = (space.get('path_m') if space.get('path_m') is not None else 0.) - stand_off
@@ -1040,7 +1041,7 @@ class DriveBase:
             return out
         while True:
             if self._vision_calls >= PLAN_VISION_CALLS:
-                return result('budget_reached', 'vision_budget_reached')
+                return result('look_limit', 'vision_look_limit_reached')
             expected = self._expected_sought()
             if expected is not None and abs(expected) > 35:
                 # Out of view after a detour: face where the thing should be before looking.
@@ -1064,7 +1065,7 @@ class DriveBase:
             if found['box_width'] >= FILLS_VIEW:
                 return result('completed', 'target_fills_the_view')
             if budget_m - travelled < .1:
-                return result('budget_reached', 'travel_budget_reached')
+                return result('distance_limit', 'distance_limit_reached')
             bearing = found['bearing_deg']
             space, room = self._room(stand_off)
             if abs(bearing) > AIM_DEG or (room < .1 and abs(bearing) > 3):

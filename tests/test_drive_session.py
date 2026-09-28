@@ -111,8 +111,8 @@ class DriveSessionTests(MemoryFixture):
         self.assertFalse(followup.tools_enabled)
 
     def test_rejected_plan_never_moves_and_is_explained(self):
-        self.setup_drive(drive_call(step('move', meters=4.)), followup='That is farther than I can go in one step.')
-        delivery = self.turn('Drive four metres forward.')
+        self.setup_drive(drive_call(step('move', meters=12.)), followup='That is farther than I can go in one step.')
+        delivery = self.turn('Drive twelve metres forward.')
         self.assertEqual(delivery.completed_text, ['That is farther than I can go in one step.'])
         output = json.loads(self.brain.snapshots[-1].continuation[-1]['output'])
         self.assertEqual((output['outcome'], output['reason']), ('rejected', 'DriveMoveOutOfRange'))

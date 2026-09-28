@@ -36,7 +36,8 @@ hallway no-reverse rule. No firmware was changed.
   - Arm-swing checks gate turns. Firmware stop zones stay active.
   - Stop phrases ("stop", "whoa", "Oh, stop!") halt the wheels and silence the motion
     sounds at once.
-  - Limits for requested motion: 0.25 m/s, 3 m per plan. Self-initiated motion is
+  - Limits for requested motion: 0.25 m/s, 10 m per plan (3 m until the owner found it cut
+    trips short, September 27). Self-initiated motion is
     smaller.
 - **Honesty.** Receipts report firmware results, odometry and IMU heading. A stopped or
   blocked trip is reported as such, with the distance actually travelled.
@@ -102,7 +103,7 @@ sensor; about a dozen mostly silent stand-downs; and 5–25 cm moves at a crawl.
 | --- | --- | --- |
 | Top speed (also pushed to firmware `max_lin`) | 0.25 m/s | 0.18 m/s |
 | Firmware leg | 1.5 m | 0.75 m |
-| Plan distance total (moves and approaches) | 3 m | 1.5 m |
+| Plan distance total (moves and approaches) | 10 m (was 3 m) | 1.5 m |
 | Turn per step / total | 360° / 720° | 180° / 360° |
 | Steps | 6 | 4 |
 
@@ -190,7 +191,7 @@ startup. Then, one at a time:
 4. From about 3 m away: **"Come here."** Reaches about 1 m without stalling.
 5. **"Turn left, find a door and drive to it."** He finds a door and rolls toward it
    without stopping for each look, goes around things beside the path, and says briefly
-   that he arrived or why he stopped. A 3 m trip limit may need **"Keep going."**
+   that he arrived or why he stopped. Trips over 10 m may need **"Keep going."**
 6. Mid-drive: **"Oh, stop!"** Wheels and whir stop at once.
 7. **"Do you sense any obstructions?"**, **"What do you see on your radar?"**, **"What's
    your battery level?"** Answers come from live readings, or say plainly what is
@@ -414,4 +415,15 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
 - **Obstructions and radar.** `drive.clearance_meaning` explains the time-of-flight
   readings and `drive.radar_view` lists radar ring status and bodies, so "any
   obstructions?" and "what's on your radar?" are answered from live data.
+
+## Distance limit and plan validation — September 27 (Jeremy run)
+
+- **3 m cap raised to 10 m for requested plans.** It stopped three door trips at 3 m and
+  refused "a foot, then turn right and go ten feet". Trips normally end on arrival, an
+  obstacle or a stop phrase; self-initiated motion keeps 1.5 m. Receipts now say
+  `distance_limit`, and guidance asks for plain words (no "budget" or "stand-off").
+- **Fixable refusals no longer refuse.** A seek whose description came in `target` keeps
+  it as the description; `find_person` may aim at `nearest_person` with nobody in view.
+- **Also observed:** the voice-launched V3 run started and "shut down" returned to the
+  supervisor; two short unrequested reverses were the close-approach back-off reflex.
 

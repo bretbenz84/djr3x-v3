@@ -710,3 +710,43 @@ class IdleHeadTests(unittest.TestCase):
         idle.tick(True)
         idle._thread.join(1.)
         self.assertEqual(calls[:2], [('reframe',), ('execute', 4100)])
+
+
+class PlanValidationRepairTests(unittest.TestCase):
+    """September 27 run with Jeremy: plans refused for fixable reasons, and the 3 m cap."""
+    def propose(self, *steps, drive_extra=None):
+        from r3x.memory import Memory
+        from r3x.speakers import SpeakerTracker
+        from r3x.state import CoreState
+        from tests.test_drive_session import drive_call
+        from tests.test_voice_core import Trace
+        import tempfile
+        from pathlib import Path
+        drive = {'available': True, 'origin': 'requested', 'vision_seek': True, 'last_sought': None,
+                 'targets': [{'target_id': 'nearest_person', 'kind': 'nearest_person', 'visible_now': False}],
+                 **(drive_extra or {})}
+        with tempfile.TemporaryDirectory() as temp:
+            store = Memory(Path(temp).resolve()/'core.sqlite3')
+            store.start()
+            try:
+                state = CoreState(store, SpeakerTracker('synthetic:3'), Trace())
+                return state.propose_drive(drive_call(*steps), {'source_turn_id': 't', 'state_revision': store.revision,
+                                                                'drive': drive}, Cancellation())
+            finally:
+                store.close()
+
+    def test_a_seek_named_in_target_becomes_its_description(self):
+        from tests.test_drive_session import step
+        seek = {**step('seek', target='white door on the left')}
+        plan = self.propose(seek, step('approach', target='sought'))
+        self.assertEqual(plan.steps[0].description, 'white door on the left')
+
+    def test_find_person_may_aim_at_nearest_person_before_anyone_is_visible(self):
+        from tests.test_drive_session import step
+        plan = self.propose(step('find_person', target='nearest_person'), step('approach', target='nearest_person'))
+        self.assertEqual([s.action for s in plan.steps], ['find_person', 'approach'])
+
+    def test_a_foot_then_ten_feet_fits_in_one_requested_plan(self):
+        from tests.test_drive_session import step
+        plan = self.propose(step('move', meters=.3048), step('turn', degrees=-90), step('move', meters=3.048))
+        self.assertEqual(len(plan.steps), 3)

@@ -146,6 +146,10 @@ class CoreState:
                 # An approach naming anything unrecognized right after a seek can only mean
                 # what was just sought (September 27: the model wrote "drive.last_sought").
                 raw = {**raw, 'target': 'sought'}
+            if action == 'seek' and raw.get('target') is not None:
+                # September 27: the model put "white door on the left" in target. A seek names
+                # things only in words; keep them as the description rather than refuse.
+                raw = {**raw, 'description': raw.get('description') or raw['target'], 'target': None}
             used = {k for k in ('direction', 'degrees', 'meters', 'target', 'stop_at_m', 'description') if raw.get(k) is not None}
             required = {'turn': {'direction', 'degrees'}, 'move': {'direction', 'meters'}, 'face': {'target'},
                         'approach': {'target'}, 'find_person': set(), 'seek': {'description'}}[action]
@@ -178,8 +182,10 @@ class CoreState:
                 continue
             if (action in {'face', 'approach'} or raw['target'] is not None) and raw['target'] not in offered:
                 raise ValueError('DriveTargetNotOffered')
-            if (raw['target'] == 'nearest_person' and not offered['nearest_person'].get('visible_now', True)
+            if (action in {'face', 'approach'} and raw['target'] == 'nearest_person'
+                    and not offered['nearest_person'].get('visible_now', True)
                     and not any(s.action in {'turn', 'find_person', 'seek'} for s in steps)):
+                # find_person itself may aim at nearest_person: it is the search that makes one visible.
                 raise ValueError('NearestPersonNeedsTurnOrSearchFirst')
             if raw['stop_at_m'] is not None and not .4 <= raw['stop_at_m'] <= 2.5:
                 raise ValueError('DriveStopDistanceOutOfRange')
