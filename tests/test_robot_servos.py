@@ -103,7 +103,7 @@ class RobotServoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             app=App(Settings(servo_port='/dev/cu.synthetic'),Path(temporary))
             app.configure_live()
-            self.assertEqual([p.capability.name for p in app.owner.providers[:3]],['tts','playback','robot_servos'])
+            self.assertEqual([p.capability.name for p in app.owner.providers[:4]],['tts','playback','startup_audio','robot_servos'])
             self.assertIsNone(app.robot.owner._bus)
             self.assertFalse((Path(temporary)/'local').exists())
         for value in ('/dev/tty.bad','auto','/dev/cu.bad path','/dev/cu.bad/child'):

@@ -238,3 +238,6 @@ __marimo__/
 
 # Named photographic memories: ordinary image files and JSON catalog
 /local/visual-memory/
+
+# Startup sound effects copied from V2 (not personal recordings)
+!/assets/audio/startup/*.wav

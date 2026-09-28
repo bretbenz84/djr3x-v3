@@ -523,6 +523,7 @@ class ElevenLabsTTS(HTTPProvider):
         super().__init__()
         self.key, self.voice_id = key, voice_id
         self._active = None
+        self.level = None   # (sample_rate, text) -> PCM leveler; live composition supplies V2's.
         self.capability = Capability("tts", "ElevenLabs", "Rex speech synthesis",
                                      "eleven_v3_conversational", ("httpx",), ("network",))
 
@@ -536,6 +537,8 @@ class ElevenLabsTTS(HTTPProvider):
         # V2's chosen v3 policy: no previous_text, fixed natural stability/seed.
         deadline = time.monotonic() + 30
         received = 0
+        # V2 leveling: v3 Conversational loudness varies wildly per sentence.
+        leveler = self.level(self.sample_rate, text) if self.level else None
         try:
             with self.client.stream("POST", url, params={"output_format": "pcm_22050"},
                                     headers={"xi-api-key": self.key}, json=payload) as response:
@@ -550,11 +553,18 @@ class ElevenLabsTTS(HTTPProvider):
                         received += len(chunk)
                         if received > self.sample_rate * 2 * 40:
                             raise ProviderFailure("SpeechDurationLimit")
-                        paused = time.monotonic()
-                        yield chunk
-                        deadline += time.monotonic() - paused
+                        out = leveler.feed(chunk) if leveler else chunk
+                        if out:
+                            paused = time.monotonic()
+                            yield out
+                            deadline += time.monotonic() - paused
             if received == 0 or received % 2:
                 raise ProviderFailure("InvalidPCMResponse")
+            if leveler:
+                cancel.check()   # A cancelled take never flushes its buffered pre-roll.
+                tail = leveler.finish()
+                if tail:
+                    yield tail
         except (Cancelled, ProviderFailure):
             raise
         except Exception as exc:

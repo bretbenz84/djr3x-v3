@@ -26,17 +26,26 @@ def notice_text(settings, results, *, failed=False):
     return ' '.join(parts)
 
 
-def announce(settings, owner, output, trace, *, failed=False):
+def announce(settings, owner, output, trace, *, failed=False, ready=None):
+    """Hardware notice, then the cached "I'm ready" line (V2 order) when startup succeeded."""
     text = notice_text(settings,owner.results,failed=failed)
-    if not text:
+    if failed:
+        ready = None
+    if not text and ready is None:
         return None
-    trace.emit('startup_notice',text=text,startup_failed=failed)
+    if text:
+        trace.emit('startup_notice',text=text,startup_failed=failed)
+    if ready is not None:
+        trace.emit('startup_ready_line',text=ready.text)
     started = {r.capability for r in owner.results if r.operation=='start' and r.outcome=='ok'}
     if not {'tts','playback'}.issubset(started):
         trace.emit('startup_notice_delivery',status='unavailable',reason='SpeechOutputNotReady')
         return None
     phrases = Queue()
-    phrases.put(text)
+    if text:
+        phrases.put(text)
+    if ready is not None:
+        phrases.put(ready)
     phrases.put(None)
     delivery = Delivery()
     # No model generation, alternate voice or device writer. Live composition adds

@@ -262,6 +262,9 @@ class OutputOwner:
                     text = performance.text
                     if performance.timing == 'before_speech':
                         self._gesture(performance, cancel, turn_id, delivery)
+                prerecorded = getattr(text, 'pcm', None)   # Cached canned line (startup ready line).
+                if prerecorded is not None:
+                    text = text.text
                 text = speech_text(text)
                 if not text:
                     continue
@@ -274,7 +277,7 @@ class OutputOwner:
                 if self.leds: self.leds.clear_pcm()
                 def chunks():
                     nonlocal first_pcm_at
-                    stream = self.tts.synthesize(text,cancel)
+                    stream = iter((prerecorded,)) if prerecorded is not None else self.tts.synthesize(text,cancel)
                     try:
                         for chunk in stream:
                             cancel.check()  # Speech may have resumed during the TTS request.

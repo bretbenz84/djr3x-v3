@@ -18,6 +18,7 @@ class App:
         self.leds = None
         self.drive = None
         self.radar = None
+        self.startup_audio = None
         self.hardware_handoff = None
 
     def configure_live(self):
@@ -31,6 +32,8 @@ class App:
         vad = SileroVAD(self.settings.vad_threshold)
         brain = OpenAIBrain(secrets.openai_api_key)
         tts = ElevenLabsTTS(secrets.elevenlabs_api_key, secrets.elevenlabs_voice_id)
+        from .speech_level import PCMLeveler
+        tts.level = PCMLeveler   # V2 per-phrase loudness leveling (numpy/scipy load on first speech).
         sink = AudioSink(self.settings.output_device_name)
         mic = Microphone(self.settings, lambda: False)
         encoder = CAMPlus(self.paths.root / "models/campplus.onnx")
@@ -74,7 +77,11 @@ class App:
         # tuple indexing stable for core composition; only lifecycle order changes.
         # Wheels connect after servo wake; connecting never moves the base.
         wheels = tuple(p for p in (self.radar, self.drive) if p)
-        self.owner = ProviderOwner((tts,sink) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(p for p in self.live_components if p not in (tts,sink)))
+        # V2 startup sounds start as soon as speech output is ready and play over
+        # servo wake and model loading; live() stops them before the ready line.
+        from .startup_audio import StartupAudio
+        self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache')
+        self.owner = ProviderOwner((tts,sink,self.startup_audio) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(p for p in self.live_components if p not in (tts,sink)))
 
     def readiness(self):
         missing = []
@@ -229,8 +236,11 @@ class App:
                 camera.session_id = session_id
                 camera.profiles = lambda: memory.face_profiles(FACE_NAMESPACE)
             from .startup_notice import announce
-            if not self.owner.start(on_required_failure=lambda:announce(
-                    self.settings,self.owner,output,trace,failed=True)):
+            self.startup_audio.trace = trace
+            def failed_notice():
+                self.startup_audio.stop()
+                announce(self.settings,self.owner,output,trace,failed=True)
+            if not self.owner.start(on_required_failure=failed_notice):
                 trace.emit("startup_failed", report=self.doctor())
             else:
                 trace.emit("startup", report=self.doctor(), evidence="live", models=[p.capability.model for p in self.live_components if p.capability.model])
@@ -239,7 +249,13 @@ class App:
                 scene = scene if 'scene_observations' in active else None
                 objects = objects if 'objects' in active else None
                 output.inspection = inspection if 'current_view' in active else None
-                startup_delivery = announce(self.settings,self.owner,output,trace)
+                self.startup_audio.stop()   # Cut the filler; readiness never waits for it.
+                try:
+                    ready = self.startup_audio.ready(Cancellation())
+                except Exception as exc:
+                    ready = None
+                    trace.emit('startup_audio',status='ready_line_failed',error_type=type(exc).__name__)
+                startup_delivery = announce(self.settings,self.owner,output,trace,ready=ready)
                 mic.discard_pending()
                 output.robot = self.robot
                 output.speech_motion = self.robot.talking if self.robot else None

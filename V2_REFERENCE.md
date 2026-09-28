@@ -1,5 +1,26 @@
 # V2 reference and extraction map
 
+## Speech leveling and startup audio — September 27, 2026
+
+Owner request. Source HEAD `777b38c803782cd4657e29ff544dfe7c1ca958ad`, clean tree; no V2
+file moved, changed or deleted. `audio/speech_level.py` (SHA-256 `79544c13…77f28f8`) is
+copied into `src/r3x/speech_level.py` with numpy/scipy loaded on first use (the contract
+runner blocks native libraries) and V2's `TTS_LOUDNESS_*` defaults as fixed policy
+(−20 LUFS, 26 dB max gain, −3 dBFS peak, 300 ms pre-roll, −4 dB for `[whispers]`).
+Live composition plugs it into `ElevenLabsTTS`, so every phrase, including canned
+startup lines, is leveled; it adds about 0.3 s before first audio. V2's leveler tests
+run as `tools/check_speech_level.py`.
+
+Startup: the nine `assets/audio/startup/*.mp3` clips are copied as 22,050 Hz mono
+16-bit WAVs under `assets/audio/startup/`. `src/r3x/startup_audio.py` ports V2's order
+(`main.py` startup audio, `_start_startup_boot_tts_thread`, ready line): startup whir,
+a cycled `STARTUP_BOOT_TTS_LINES` "please wait" line and `droid_startup` filler over
+servo wake and model loads, then a cycled `STARTUP_READY_TTS_LINES` line after the
+hardware notice. The 48 boot and 34 ready lines are copied verbatim; cycling state and
+the canned-line PCM cache live in ignored `local/cache/`. Spoken intro clips are copied
+but unplayed (V2 default `PLAY_STARTUP_SPEECH_CLIP = False`); the shutdown clip is not
+yet used. No live playback was run for this change.
+
 ## Drive base and radar extraction — September 27, 2026
 
 User-authorized scope: LLM-directed base motion with radar evidence and no firmware

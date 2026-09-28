@@ -111,7 +111,7 @@ class LEDTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             app=App(Settings(head_led_port='/dev/cu.head',chest_led_port='/dev/cu.chest'),Path(directory))
             app.configure_live()
-            self.assertEqual([p.capability.name for p in app.owner.providers[:3]],['tts','playback','robot_leds'])
+            self.assertEqual([p.capability.name for p in app.owner.providers[:4]],['tts','playback','startup_audio','robot_leds'])
             self.assertEqual(app.leds.devices,{})
         for kwargs in ({'head_led_port':'auto'},{'chest_led_port':'/dev/tty.foo'},
                        {'head_led_port':'/dev/cu.x','servo_port':'/dev/cu.x'}):
