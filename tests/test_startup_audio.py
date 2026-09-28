@@ -15,18 +15,19 @@ from tests.test_voice_core import Trace
 
 
 class RecordingSink:
-    def __init__(self, block_on=None):
-        self.played, self.block_on = [], block_on
+    """Consumes pieces at a pace, like a device; records each clip as it plays."""
+    def __init__(self, pace=0.):
+        self.played, self.pace = [], pace
 
     def play(self, chunks, cancel, on_start):
-        data = b''.join(chunks)
         on_start(time.monotonic())
-        self.played.append(data)
-        if self.block_on is not None and len(data) == self.block_on:
-            while not cancel.event.is_set():   # A long clip playing until interrupted.
-                time.sleep(.005)
+        self.played.append(b'')
+        for chunk in chunks:
             cancel.check()
-        return Playback(len(data)//2, time.monotonic(), time.monotonic(), 0)
+            self.played[-1] += chunk
+            if self.pace:
+                time.sleep(self.pace)
+        return Playback(len(self.played[-1])//2, time.monotonic(), time.monotonic(), 0)
 
     def cancel(self):
         pass
@@ -50,18 +51,32 @@ class StartupAudioTests(unittest.TestCase):
     def setUp(self):
         self.dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
-    def test_whir_then_please_wait_line_then_filler_which_readiness_interrupts(self):
+    def test_whir_then_line_then_filler_which_readiness_drains_gently(self):
         filler = read_clip('droid_startup.wav')
-        tts, sink = CountingTTS(), RecordingSink(block_on=len(filler))
+        tts, sink = CountingTTS(), RecordingSink(pace=.004)
         audio = StartupAudio(tts, sink, self.dir, rng=random.Random(1))
         audio.start()
         deadline = time.monotonic() + 3
         while len(sink.played) < 3 and time.monotonic() < deadline:
             time.sleep(.01)
+        time.sleep(.05)
+        began = time.monotonic()
         self.assertTrue(audio.stop())
+        self.assertLess(time.monotonic() - began, 1.)             # Readiness does not wait out the clip.
+        self.assertFalse(audio._cancel.event.is_set())             # Starved and drained, never force-stopped.
         self.assertEqual(sink.played[0], read_clip('startup_whir.wav'))
         self.assertIn(tts.texts[0], BOOT_LINES)
-        self.assertEqual(sink.played[2], filler)
+        self.assertTrue(filler.startswith(sink.played[2]) and 0 < len(sink.played[2]) < len(filler))
+
+    def test_clips_are_fed_in_small_pieces(self):
+        pieces = []
+        class Sink(RecordingSink):
+            def play(inner, chunks, cancel, on_start):
+                pieces.extend(len(c) for c in chunks)
+                return Playback(0, 0., 0., 0)
+        StartupAudio(CountingTTS(), Sink(), self.dir)._play(read_clip('startup_whir.wav'), 'whir')
+        self.assertGreater(len(pieces), 10)
+        self.assertLessEqual(max(pieces), 4410)
 
     def test_whir_waits_for_servo_wake_and_the_line_gets_talking_motion(self):
         events = []
@@ -99,16 +114,15 @@ class StartupAudioTests(unittest.TestCase):
         filler = read_clip('droid_startup.wav')
         class Sink(RecordingSink):
             def play(inner, chunks, cancel, on_start):
-                data = b''.join(chunks)
+                data = b''
+                for chunk in chunks:
+                    data += chunk
                 if data == line_bytes:
                     outcome['line_started'] = True
                     time.sleep(.3)   # The line is audible while startup finishes.
                     outcome['line_cut'] = cancel.event.is_set()
-                if data == filler:
+                if filler.startswith(data) and data:
                     outcome['filler_started'] = True
-                    while not cancel.event.is_set():
-                        time.sleep(.005)
-                    cancel.check()
                 return Playback(len(data)//2, 0., 0., 0)
         audio = StartupAudio(CountingTTS(), Sink(), self.dir)
         audio.start()

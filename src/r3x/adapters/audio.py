@@ -61,6 +61,7 @@ class Microphone:
         self.motion_risk = lambda: False
         self.channels = 2 if settings.microphone_mode == 'respeaker-flex' else 1
         self.clock_offset = None
+        self.restarted_at = float('-inf')
 
     @property
     def source_device(self):
@@ -120,7 +121,20 @@ class Microphone:
             return self.frames.get(timeout=.1)
         except Empty:
             if self.clock() - self.last_callback > 3:
-                raise ProviderFailure("MicrophoneStalled")
+                # September 27: a CoreAudio error (AUHAL -50) as a playback stream was
+                # force-stopped left the input silent and ended the run. Reopen once.
+                if self.clock() - self.restarted_at < 30:
+                    raise ProviderFailure("MicrophoneStalled")
+                self.restarted_at = self.clock()
+                if self.trace:
+                    self.trace.emit('microphone_restarted', silent_seconds=self.clock()-self.last_callback)
+                try:
+                    if self.stream:
+                        self.stream.abort()
+                        self.stream.close()
+                finally:
+                    self.stream = None
+                self.start()
             return None
 
     def cancel(self):

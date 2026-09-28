@@ -385,6 +385,11 @@ class VoiceRuntime:
                     self.enqueue(self.captures, (capture, self.session.revision), "captures")
         except KeyboardInterrupt:
             pass
+        except Exception as exc:
+            # A stalled microphone or device error ends the run: record why.
+            self.trace.emit('runtime_failed', error_type=type(exc).__name__,
+                            reason=str(exc) if isinstance(exc, ProviderFailure) else None)
+            raise
         finally:
             self.close()
 

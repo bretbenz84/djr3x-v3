@@ -131,6 +131,35 @@ class RobotServoTests(unittest.TestCase):
         mic.close()
 
 
+    def test_silent_microphone_is_reopened_once_then_reported(self):
+        import sys
+        from types import SimpleNamespace
+        from r3x.adapters.audio import Microphone
+        opened=[]
+        class Stream:
+            time=1.
+            def __init__(self,**kwargs): opened.append(self)
+            def start(self): pass
+            def abort(self): self.aborted=True
+            def close(self): pass
+        now=[100.]
+        events=[]
+        sd=SimpleNamespace(RawInputStream=Stream,query_devices=lambda:[{'name':'fake','max_input_channels':1}])
+        with patch.dict(sys.modules,{'sounddevice':sd}):
+            mic=Microphone(Settings(input_device_name='fake'),lambda:False,clock=lambda:now[0])
+            mic.trace=SimpleNamespace(emit=lambda kind,**data:events.append(kind))
+            mic.start()
+            now[0]+=4                           # No callbacks: the input went silent.
+            self.assertIsNone(mic.read())
+            self.assertEqual(len(opened),2)     # Reopened instead of ending the run.
+            self.assertTrue(opened[0].aborted)
+            self.assertEqual(events.count('microphone_restarted'),1)
+            now[0]+=4                           # Silent again right away: a real failure.
+            with self.assertRaisesRegex(ProviderFailure,'MicrophoneStalled'):
+                mic.read()
+        mic.close()
+
+
 class RobotEnrollmentTests(MemoryFixture):
     def held_turn(self,held,text='Here is my useful synthetic voice sample.'):
         self.at+=10

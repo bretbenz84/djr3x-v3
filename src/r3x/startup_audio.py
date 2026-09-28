@@ -147,9 +147,17 @@ class StartupAudio:
             pass
         return data
 
-    def _play(self, pcm: bytes, label: str):
+    def _play(self, pcm: bytes, label: str, gentle: bool = False):
+        """Feed ~0.1 s pieces like streamed speech (a whole clip at once exceeded the
+        sink's drain bound and forced an abort). A gentle clip stops by starving the
+        stream at readiness, so it drains instead of being force-stopped."""
         self._cancel.check()
-        self.sink.play(iter((pcm,)), self._cancel, lambda at: None)
+        def pieces():
+            for i in range(0, len(pcm), 4410):
+                if gentle and self._ready.is_set():
+                    return
+                yield pcm[i:i+4410]
+        self.sink.play(pieces(), self._cancel, lambda at: None)
         self._emit(status='played', clip=label)
 
     def motion_started(self):
@@ -202,7 +210,7 @@ class StartupAudio:
             self._speak(line)
             self._emit(status='spoken', text=line)
             if not self._ready.is_set():
-                self._play(read_clip('droid_startup.wav'), 'droid_startup')
+                self._play(read_clip('droid_startup.wav'), 'droid_startup', gentle=True)
         except Cancelled:
             self._emit(status='stopped')
         except Exception as exc:
@@ -213,17 +221,15 @@ class StartupAudio:
         self._thread.start()
 
     def stop(self):
-        """Cut the filler immediately, but let an audible line finish (owner rule)."""
-        import time
-        self._ready.set()
-        deadline = time.monotonic() + 10.
-        while self._line.is_set() and time.monotonic() < deadline:
-            time.sleep(.02)
-        self._cancel.event.set()
-        interrupt = getattr(self.tts, 'interrupt', None)
-        if interrupt:
-            interrupt()
+        """Starve the filler so it drains; let an audible line finish (owner rule)."""
+        self._ready.set()   # The filler stops being fed and drains on its own.
         if self._thread is not None:
+            self._thread.join(12.)   # An audible line finishes; the filler tail is ~1.5 s.
+        if self._thread is not None and self._thread.is_alive():
+            self._cancel.event.set()    # Last resort only (a stuck device).
+            interrupt = getattr(self.tts, 'interrupt', None)
+            if interrupt:
+                interrupt()
             self._thread.join(5.)
         return self._thread is None or not self._thread.is_alive()
 
