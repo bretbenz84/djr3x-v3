@@ -31,6 +31,22 @@ the canned-line PCM cache live in ignored `local/cache/`. Spoken intro clips are
 but unplayed (V2 default `PLAY_STARTUP_SPEECH_CLIP = False`); the shutdown clip is not
 yet used. No live playback was run for this change.
 
+## Motion sound effects — September 27, 2026
+
+Owner request. Source HEAD `77b2008`, V2 tree modified only in unrelated tool files; no V2
+file moved, changed or deleted. `assets/audio/sound_effects/{motion_whir,motion_turning,
+slow_down,arrived}.mp3` (SHA-256 prefixes `4eaf02ed`, `08740318`, `a7100c9c`, `d44db7ea`)
+are copied as 22,050 Hz mono 16-bit WAVs under `assets/audio/motion/`. Behavior preserved
+from `intelligence/motion_controller.py` `_fx_drive_loop_*` and `audio/sound_effects.py`:
+the drive or turn clip loops for each wheel command and stops when the base reports done
+or on stop; slow-down plays on a blocked stop and arrived after an approach; effect volume
+0.8 for commanded motion and a quarter of that for self-initiated motion
+(`MOTION_AUTONOMOUS_FX_GAIN`); a 30 s loop cap; motor sounds never mute the microphone.
+Adapted: `src/r3x/motion_sounds.py` plays through the one speech sink while the output
+owner runs the drive (no second stream on the microphone's device), without LED lip sync,
+and trims the 4 s accents to 2 s with a fade. Synthetic checks only; live volume and
+ASR under the whir remain to be heard.
+
 ## Drive base and radar extraction — September 27, 2026
 
 User-authorized scope: LLM-directed base motion with radar evidence and no firmware

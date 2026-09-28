@@ -285,6 +285,8 @@ class DriveBase:
         self.faces = None           # camera.latest(now) -> rows
         self.objects = None         # objects.snapshot() -> rows
         self.on_motion = []         # callables(plan_or_none), before and after base motion
+        self.sounds = None          # MotionSounds: whir while the wheels move, accents at the end
+        self._origin = 'requested'
         self.trace = None
         self.reflex_allowed = lambda: True
         self._lock = threading.Lock()
@@ -345,6 +347,8 @@ class DriveBase:
     def cancel(self):
         """Explicit stop: halt the current plan and command a controlled stop now."""
         self._halt.set()
+        if self.sounds:
+            self.sounds.stop(now=True)   # A stop means silence now, not at the clip's end (V2).
         try:
             if self.link.port is not None and not self.link.failure:
                 self.link.send({'cmd': 'stop'})
@@ -507,6 +511,8 @@ class DriveBase:
         if ack is not None and not ack.get('accepted'):
             return 'refused', 'controller_refused_' + str(ack.get('reason')), None
         deadline = self.clock() + timeout
+        if self.sounds:
+            self.sounds.start('turn' if command['cmd'] == 'turn' else 'move', self._origin)
         try:
             while True:
                 done = self.link.done(seq)
@@ -528,6 +534,9 @@ class DriveBase:
             except ProviderFailure:
                 pass
             raise
+        finally:
+            if self.sounds:
+                self.sounds.stop()   # The wheels reported done: the whir ends with them.
 
     def _telemetry(self):
         telemetry, _ = self.link.snapshot()
@@ -787,6 +796,8 @@ class DriveBase:
         controller = Approach(self.clock(), 'face' if kind in {'face', 'nearest_person'} else 'object',
                               stop_at, LIMITS[plan.origin]['speed_mps'], budget_m)
         result, reason = None, None
+        if self.sounds:
+            self.sounds.start('move', self._origin)
         try:
             while result is None:
                 self._check(cancel)
@@ -805,6 +816,8 @@ class DriveBase:
         finally:
             self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
             self.link.send({'cmd': 'stop'})
+            if self.sounds:
+                self.sounds.stop()
         final = self._resolve(step.target, plan, self.clock(), fresh=False)
         space = self.space()
         return {**row, 'status': result, 'reason': reason, 'travelled_m': round(controller.travel, 2),
@@ -1039,6 +1052,7 @@ class DriveBase:
             start = self.link.snapshot()[0]
             self._start_heading = self._odom_heading(start) if start else None
             self._plan_parks = plan.park_arm   # The arm parks right before the first wheel command.
+            self._origin = plan.origin
             self._view_since = self.clock()
             budget = LIMITS[plan.origin]['total_m']
             for step in plan.steps:
@@ -1064,6 +1078,10 @@ class DriveBase:
                 else:
                     row = self._find_person(step, plan, cancel)
                 receipt.steps.append(row)
+                if self.sounds and step.action == 'approach' and row['status'] == 'completed' and row.get('travelled_m'):
+                    self.sounds.accent('arrived', plan.origin)
+                elif self.sounds and row['status'] == 'blocked':
+                    self.sounds.accent('blocked', plan.origin)
                 receipt.travelled_m = round(receipt.travelled_m + row.get('travelled_m', 0.), 2)
                 receipt.turned_deg = round(receipt.turned_deg + row.get('turned_deg', 0.), 1)
                 self._check(cancel)  # A stop's 'superseded' done is a cancellation, not a partial plan.
@@ -1098,6 +1116,8 @@ class DriveBase:
                     self.link.send({'cmd': 'stop'})
             except ProviderFailure:
                 pass
+            if self.sounds:
+                self.sounds.stop(now=True)
             if self._parked:
                 self._parked = False
                 self.servos.finish_base_motion()

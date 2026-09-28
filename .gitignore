@@ -241,3 +241,4 @@ __marimo__/
 
 # Startup sound effects copied from V2 (not personal recordings)
 !/assets/audio/startup/*.wav
+!/assets/audio/motion/*.wav

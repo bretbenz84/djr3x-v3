@@ -272,6 +272,8 @@ class App:
                     output.drive_unavailable = 'wheel_controller_not_connected' + (':'+failure.reason if failure and failure.reason else '')
                 if self.drive and 'drive_base' in active:
                     output.drive = self.drive
+                    from .motion_sounds import MotionSounds
+                    self.drive.sounds = MotionSounds(sink, trace)   # Plays only while the output owner runs a drive.
                     self.drive.servos = self.robot if self.robot and 'robot_servos' in active else None
                     self.drive.faces = camera.latest if camera else None
                     self.drive.objects = objects.snapshot if objects else None

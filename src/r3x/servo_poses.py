@@ -49,6 +49,9 @@ NECK_CENTER = 5472
 # Head lift/tilt held while the base drives (owner: level stance when moving).
 # V2 neutrals until the owner reads level values from the servo console.
 DRIVE_HEAD = ((1, 3600), (2, 4320))
+# Owner request September 27: while the base drives, the hero-arm elbow is fully up
+# (higher pulse lifts it) and the poker arm at its highest value, held until done.
+DRIVE_ARMS = ((4, 7424), (6, 8000))
 HEAD_PARK = ((0, NECK_CENTER), (1, 2600), (2, 5504), (3, 4544), (4, 6300))
 
 
@@ -229,7 +232,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset()) -> tuple[tuple[Be
 
 
 def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ...]:
-    """Throttle park plus centered neck before base motion, and the return to rest.
+    """Throttle park, centered neck and raised hero elbow/poker arm before base motion; the return to rest.
 
     V2 parks the throttle arm before every non-reverse base command. The neck is
     centered so head-camera bearings are base-relative. Return uses the validated
@@ -265,6 +268,9 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
         head = tuple((ch, value) for ch, value in ((0, NECK_CENTER),) + DRIVE_HEAD if abs(current.get(ch, value) - value) > 2)
         if head:
             lanes += ((Beat(head, speed=20, acceleration=5),),)
+        arms = tuple((ch, value) for ch, value in DRIVE_ARMS if abs(current.get(ch, value) - value) > 2)
+        if arms:
+            lanes += ((Beat(arms, speed=35, acceleration=8),),)
     return lanes
 
 

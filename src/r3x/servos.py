@@ -16,7 +16,7 @@ from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, NAMED_POSES)
 
-BASE_HELD = frozenset({0, 1, 2, *THROTTLE})
+BASE_HELD = frozenset({0, 1, 2, 4, 6, *THROTTLE})   # Neck, head, hero elbow, poker arm, throttle.
 
 
 @dataclass(frozen=True)

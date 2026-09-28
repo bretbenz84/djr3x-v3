@@ -216,7 +216,8 @@ class AudioSink:
             self.stream = None
         self.sd = None
 
-    def play(self, chunks, cancel: Cancellation, on_start) -> Playback:
+    def play(self, chunks, cancel: Cancellation, on_start, visualize=True) -> Playback:
+        """visualize=False plays effects (motion whir) without driving the speech LEDs."""
         if self.sd is None:
             raise ProviderFailure("PlaybackNotStarted")
         queue = Queue(maxsize=16)  # <1.5 sec at 4096 bytes/block.
@@ -251,7 +252,7 @@ class AudioSink:
                 frames += actual // 2
                 if started_at is None:
                     started_at = self.clock() + timing.outputBufferDacTime - timing.currentTime
-            if self.on_pcm:
+            if self.on_pcm and visualize:
                 self.on_pcm(bytes(outdata),self.clock()+timing.outputBufferDacTime-timing.currentTime)
             if actual < wanted:
                 if eof.is_set() and queue.empty() and not pending:

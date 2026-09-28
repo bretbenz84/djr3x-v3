@@ -444,6 +444,11 @@ class DriveContractTests(unittest.TestCase):
             throttle = [lane for lane in lanes if any(ch in {8, 9, 10} for ch, _ in lane[0].targets)]
             final = dict(throttle[0][-1].targets) if throttle else {ch: current[ch] for ch in (8, 9, 10)}
             self.assertEqual(final, dict(PARK), name)
+        arms = [dict(lane[-1].targets) for lane in base_lanes('base_park', {**base, **dict(REST)})
+                if any(ch in {4, 6} for ch, _ in lane[0].targets)]
+        self.assertEqual(arms, [{4: 7424, 6: 8000}])   # Hero elbow fully up, poker arm highest.
+        from r3x.servos import BASE_HELD
+        self.assertTrue({4, 6} <= BASE_HELD)            # Held until the drive finishes.
         parked = {**base, **dict(PARK)}
         back = base_lanes('base_release', parked)
         self.assertEqual(dict(back[0][-1].targets), dict(REST))

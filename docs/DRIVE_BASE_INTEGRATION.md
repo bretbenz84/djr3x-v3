@@ -302,3 +302,16 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
 - **Simulated only**, except the stop timing: the plain "Stop." halted the base 0.13 s
   after its transcript on the floor.
 
+## Motion sounds and drive arm stance — September 27
+
+- **V2 motion sounds.** Turn and drive whirs loop for each wheel command, the slow-down
+  accent marks a blocked stop and the arrival chirp a finished approach (V2_REFERENCE).
+  A stop command silences them at once. They play through the speech sink without LED
+  lip sync and never raise echo risk, so the microphone still hears "stop".
+- **Arm stance while driving (owner).** The pre-drive park also raises the hero-arm
+  elbow fully (7424, higher is up) and the poker arm to 8000, held with the throttle and
+  head until the drive ends.
+- **IMU.** Gyro yaw measures turns and remembers the sought thing's heading. The
+  firmware's accelerometer pitch/roll and the QMC5883L compass are not used; V2's
+  compass fusion and calibration are not ported.
+

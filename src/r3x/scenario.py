@@ -33,7 +33,7 @@ class SyntheticTTS:
 
 
 class SyntheticSink:
-    def play(self, chunks, cancel, on_start):
+    def play(self, chunks, cancel, on_start, visualize=True):
         began = None
         frames = 0
         for chunk in chunks:

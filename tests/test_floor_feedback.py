@@ -1,5 +1,6 @@
 """September 27 floor-test repairs: clipped onsets, stop words, gaze and seated approach."""
 import math
+import time
 import unittest
 
 from r3x.capture import Endpoint, Frame
@@ -533,3 +534,71 @@ class TurnAroundAndComeTests(unittest.TestCase):
         self.assertEqual(receipt.status, 'cancelled')
         self.assertEqual(receipt.steps[-1]['status'], 'cancelled')
         self.assertGreater(receipt.travelled_m, .4)
+
+
+class MotionSoundTests(unittest.TestCase):
+    """V2's drive sounds: loop while the wheels move, accents at the end, silence on stop."""
+    def setUp(self):
+        from r3x.motion_sounds import MotionSounds
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        self.clock, self.fake, self.drive, self.world = clock, fake, drive, world
+        self.events = []
+        test = self
+        class Sink:
+            def play(self, chunks, cancel, on_start, visualize=True):
+                test.assertFalse(visualize)              # Effects never drive the speech LEDs.
+                test.events.append(['play', 0])
+                for chunk in chunks:
+                    cancel.check()
+                    test.events[-1][1] += len(chunk)
+                    time.sleep(.0005)
+            def cancel(self):
+                pass
+        drive.sounds = MotionSounds(Sink())
+        self.moving = []
+        original = fake.handle
+        def handle(command):
+            if command['cmd'] in {'turn', 'move'}:
+                self.moving.append(len(self.events))
+            original(command)
+        fake.handle = handle
+
+    def run_plan(self, *steps, origin='requested', targets=None, cancel=None):
+        plan = DrivePlan('p', tuple(steps), origin, 'test', targets or {}, self.clock()+60)
+        return self.drive.execute(plan, cancel or Cancellation())
+
+    def test_each_wheel_command_loops_its_sound_and_stops_with_it(self):
+        receipt = self.run_plan(DriveStep('turn', degrees=90.), DriveStep('move', meters=.5))
+        self.assertEqual(receipt.status, 'completed')
+        self.assertEqual(len(self.events), 2)            # One whir per wheel command...
+        self.assertTrue(all(n > 0 for _, n in self.events))
+        self.assertIsNone(self.drive.sounds._thread)     # ...and none left playing.
+
+    def test_self_initiated_motion_is_quieter(self):
+        from r3x.motion_sounds import CLIPS, GAIN, read_motion_clip, shaped
+        loud = shaped(read_motion_clip(CLIPS['move']), GAIN['requested'])
+        quiet = shaped(read_motion_clip(CLIPS['move']), GAIN['self_initiated'])
+        from array import array
+        self.assertLess(max(map(abs, array('h', quiet))), max(map(abs, array('h', loud))) / 3)
+
+    def test_arrival_chirp_after_reaching_someone(self):
+        import math
+        self.world.people.append(('face-1', None, 2., 0.))
+        settle()
+        receipt = self.run_plan(DriveStep('approach', target='face-1'),
+                                targets={'face-1': {'target_id': 'face-1', 'kind': 'face'}})
+        self.assertEqual(receipt.status, 'completed', receipt)
+        from r3x.motion_sounds import ACCENT_SECONDS, RATE
+        self.assertEqual(self.events[-1][1], int(ACCENT_SECONDS*RATE)*2)   # The short, faded accent.
+
+    def test_stop_silences_the_whir_at_once(self):
+        import threading
+        cancel = Cancellation()
+        timer = threading.Timer(.05, lambda: (cancel.event.set(), self.drive.cancel()))
+        timer.start()
+        receipt = self.run_plan(DriveStep('move', meters=1.5), cancel=cancel)
+        timer.join()
+        self.assertEqual(receipt.status, 'cancelled')
+        self.assertIsNone(self.drive.sounds._thread)
