@@ -8,7 +8,7 @@ from r3x.drive import DrivePlan, DriveStep
 from r3x.drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
 from r3x.gaze import addressee_neck
 from r3x.servo_poses import LIMITS, talking_lanes
-from r3x.session import STOP_COMMANDS
+from r3x.session import is_stop_command
 from tests.test_drive import base_setup, settle
 
 
@@ -31,9 +31,12 @@ class OnsetTests(unittest.TestCase):
 
 class StopWordTests(unittest.TestCase):
     def test_shut_up_and_stop_talking_are_explicit_stops_but_discussion_is_not(self):
-        for text in ('Shut up.', 'Stop talking!', 'Rex, be quiet.', 'stop'):
-            self.assertIn(text.strip().lower().rstrip('.!?').replace(',', ''), STOP_COMMANDS)
-        self.assertNotIn('please stop talking about the weather', STOP_COMMANDS)
+        for text in ('Shut up.', 'Stop talking!', 'Rex, be quiet.', 'stop', 'Oh, stop!', 'Stop, stop, stop!',
+                     'Whoa!', 'Whoa, Rex, stop.', 'No, stop!', 'Hey, stop now.'):
+            self.assertTrue(is_stop_command(text), text)
+        for text in ('please stop talking about the weather', 'Oh.', "No, don't stop.", 'Wait.', 'Okay.',
+                     'Stop by the store later.', 'cancel my trip'):
+            self.assertFalse(is_stop_command(text), text)
 
 
 def face(x, width, identity=None):
@@ -457,3 +460,76 @@ class SoughtTargetSpellingTests(unittest.TestCase):
                     state.propose_drive(drive_call(step('approach', target='face-invented')), context, Cancellation())
             finally:
                 store.close()
+
+
+class TurnAroundAndComeTests(unittest.TestCase):
+    """September 27: "back up, turn around and come towards me" lost its last part."""
+    def start(self):
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        return clock, fake, drive, world
+
+    def test_come_to_me_after_turning_is_offered_validated_and_driven(self):
+        from r3x.memory import Memory
+        from r3x.speakers import SpeakerTracker
+        from r3x.state import CoreState
+        from tests.test_drive_session import drive_call, step
+        from tests.test_voice_core import Trace
+        import tempfile
+        from pathlib import Path
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, -2.6, 0.))   # Behind him: nobody in view.
+        settle()
+        context = drive.context('requested')
+        nearest = next(t for t in context['targets'] if t['target_id'] == 'nearest_person')
+        self.assertFalse(nearest['visible_now'])
+        with tempfile.TemporaryDirectory() as temp:
+            store = Memory(Path(temp).resolve()/'core.sqlite3')
+            store.start()
+            try:
+                state = CoreState(store, SpeakerTracker('synthetic:3'), Trace())
+                offered = {'source_turn_id': 't', 'state_revision': store.revision, 'drive': context}
+                with self.assertRaisesRegex(ValueError, 'NearestPersonNeedsTurnOrSearchFirst'):
+                    state.propose_drive(drive_call(step('approach', target='nearest_person')), offered, Cancellation())
+                plan = state.propose_drive(drive_call(step('move', meters=-.3), step('turn', degrees=180),
+                                                      step('approach', target='nearest_person', stop_at_m=1)),
+                                           offered, Cancellation())
+            finally:
+                store.close()
+        plan = DrivePlan(plan.request_id, plan.steps, plan.origin, plan.purpose, plan.targets, clock()+60)
+        receipt = drive.execute(plan, Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertEqual([r['action'] for r in receipt.steps], ['move', 'turn', 'approach'])
+        self.assertLess(math.hypot(-2.6 - fake.x, fake.y), 1.3)
+        self.assertEqual(drive.history[-1]['steps_run'], ['move:completed', 'turn:completed', 'approach:completed'])
+
+    def test_furniture_short_of_the_person_keeps_the_normal_margin(self):
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, 3., 0.))
+        world.objects.append(('table', 'table', 1.6, 0.))   # Well short of the face.
+        settle()
+        plan = DrivePlan('p', (DriveStep('approach', target='face-1'),), 'requested', 'come here',
+                         {'face-1': {'target_id': 'face-1', 'kind': 'face'}}, clock()+60)
+        receipt = drive.execute(plan, Cancellation())
+        self.assertNotEqual(receipt.status, 'completed')
+        self.assertGreaterEqual(world.front_obstacle(), .3, receipt)   # Not the 0.22 m knee margin.
+
+    def test_a_stopped_approach_reports_how_far_it_went(self):
+        import threading
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, 3., 0.))
+        settle()
+        cancel = Cancellation()
+        original = drive.wait
+        def wait(seconds):
+            original(seconds)
+            if fake.x > .5:
+                cancel.event.set()
+        drive.wait = wait
+        plan = DrivePlan('p', (DriveStep('approach', target='face-1'),), 'requested', 'come here',
+                         {'face-1': {'target_id': 'face-1', 'kind': 'face'}}, clock()+60)
+        receipt = drive.execute(plan, cancel)
+        self.assertEqual(receipt.status, 'cancelled')
+        self.assertEqual(receipt.steps[-1]['status'], 'cancelled')
+        self.assertGreater(receipt.travelled_m, .4)

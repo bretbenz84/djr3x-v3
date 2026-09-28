@@ -284,3 +284,21 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   a box alone ends the approach only at 60%. A corner beside the path never makes arrival.
 - **Simulated only.** Replay of the recorded clearance readings plus shaped-room runs.
 
+## Turn-around and stop repairs — September 27
+
+- **"Back up, turn around and come towards me" lost its last part.** With nobody in view,
+  `nearest_person` was not offered, so the model dropped the approach and later claimed it.
+  It is now always offered (`visible_now` false when nobody is in view) and is valid
+  after a turn, `find_person` or `seek` step in the same plan. Guidance requires every part
+  of a stacked request, and `recent_motion.steps_run` lists exactly what ran.
+- **"Oh, stop!" ignored while driving.** The stop fast path matched whole utterances
+  exactly. It now accepts stop phrases (stop, halt, whoa, freeze, cancel, shut up, be quiet,
+  hush) repeated and wrapped only in a few exclamations or "Rex"; anything else is ordinary
+  speech. Two shouts transcribed as an untrusted "Oh." over motor noise remain missed.
+- **Near-collision on a person approach.** The 0.22 m knee margin applied to any front
+  return. It now applies only when the return is within 0.8 m of the face range;
+  furniture short of the person keeps the 0.35 m margin.
+- **Cancelled plans reported 0 m.** The interrupted step is recorded with its odometry.
+- **Simulated only**, except the stop timing: the plain "Stop." halted the base 0.13 s
+  after its transcript on the floor.
+

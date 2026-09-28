@@ -178,6 +178,9 @@ class CoreState:
                 continue
             if (action in {'face', 'approach'} or raw['target'] is not None) and raw['target'] not in offered:
                 raise ValueError('DriveTargetNotOffered')
+            if (raw['target'] == 'nearest_person' and not offered['nearest_person'].get('visible_now', True)
+                    and not any(s.action in {'turn', 'find_person', 'seek'} for s in steps)):
+                raise ValueError('NearestPersonNeedsTurnOrSearchFirst')
             if raw['stop_at_m'] is not None and not .4 <= raw['stop_at_m'] <= 2.5:
                 raise ValueError('DriveStopDistanceOutOfRange')
             if action == 'find_person' and any(s.action == 'find_person' for s in steps):

@@ -34,6 +34,7 @@ DETOUR_MORE_DEG = 25.     # Once more when the first turn leaves the obstacle in
 DETOUR_M = .6
 MAX_DETOURS = 2
 SIDE_OPEN_M = .5          # A front band this much past the stand-off counts as a way around.
+PERSON_REACH = .8         # Face range minus a front return within this may be knees, feet or chair legs.
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
 NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
@@ -183,8 +184,12 @@ class Approach:
         self.block_since = None
         brake = speed_now*speed_now/(2*self.accel) + speed_now*.3
         # Front sensors see knees and chair legs, not the face: they bound collision
-        # only. Personal distance comes from the calibrated face range below.
-        budget = front - (PERSON_MARGIN if self.kind == 'face' else FRONT_MARGIN)
+        # only. Personal distance comes from the calibrated face range below. The closer
+        # knee margin applies only when the return could be the person; a return well
+        # short of the face is furniture (September 27: nearly drove into something).
+        person_ahead = (self.kind == 'face' and
+                        (not self.ranges or sorted(self.ranges)[len(self.ranges)//2] - front <= PERSON_REACH))
+        budget = front - (PERSON_MARGIN if person_ahead else FRONT_MARGIN)
         if budget <= max(.03, brake):
             self.front_near_since = self.front_near_since or now
             if now - self.front_near_since >= .6 and speed_now <= .08:
@@ -434,9 +439,11 @@ class DriveBase:
             targets.append({'target_id': face['track_id'], 'kind': 'face', 'person_id': face.get('identity'),
                             'bearing_deg': round(bearing), 'where': describe_bearing(bearing),
                             'approx_range_m': round(rng, 1) if rng else None, 'path': path(bearing, rng)})
-        if faces:
-            targets.append({'target_id': 'nearest_person', 'kind': 'nearest_person',
-                            'where': 'largest visible face, resolved when the step runs'})
+        # Offered even with nobody in view: "turn around and come to me" resolves it after the
+        # turn (September 27: with no face visible the model silently dropped "come to me").
+        targets.append({'target_id': 'nearest_person', 'kind': 'nearest_person', 'visible_now': bool(faces),
+                        'where': 'largest visible face, resolved when the step runs' if faces else
+                                 'nobody in view now; usable after a turn or find_person step in the same plan'})
         for row in (self.objects() if self.objects else ())[:8]:
             bearing = image_bearing(row['box'], self._neck())
             targets.append({'target_id': row['target_id'], 'kind': 'object', 'label': row['label'],
@@ -1019,6 +1026,7 @@ class DriveBase:
             receipt.status, receipt.reason = 'refused', 'DriveBusy'
             return receipt
         self._parked = False
+        current = step_odom = None
         try:
             self._halt.clear()
             ok, reason = self.availability()
@@ -1035,6 +1043,7 @@ class DriveBase:
             budget = LIMITS[plan.origin]['total_m']
             for step in plan.steps:
                 self._check(cancel)
+                current, step_odom = step, (self.link.snapshot()[0] or {}).get('odom') or {}
                 ok, reason = self.availability()
                 if not ok:
                     receipt.steps.append({'action': step.action, 'status': 'refused', 'reason': reason})
@@ -1071,6 +1080,14 @@ class DriveBase:
                 receipt.reason = last.get('reason')
         except Cancelled:
             receipt.status, receipt.reason = 'cancelled', 'stop_requested'
+            if current is not None:
+                # The interrupted step still moved: report its odometry, not zero.
+                end = (self.link.snapshot()[0] or {}).get('odom') or {}
+                moved = math.hypot(float(end.get('x', 0)) - float(step_odom.get('x', 0)),
+                                   float(end.get('y', 0)) - float(step_odom.get('y', 0))) if end and step_odom else 0.
+                receipt.steps.append({'action': current.action, 'status': 'cancelled', 'reason': 'stop_requested',
+                                      'travelled_m': round(moved, 2)})
+                receipt.travelled_m = round(receipt.travelled_m + moved, 2)
         except ArmParkFailed as exc:
             receipt.status, receipt.reason = 'refused', str(exc)   # Nothing moved: the park precedes wheels.
         except ProviderFailure as exc:
@@ -1089,6 +1106,7 @@ class DriveBase:
             self._notify(plan)
             receipt.finished_at = self.clock()
             self.history.append({'request_id': plan.request_id, 'origin': plan.origin, 'purpose': plan.purpose,
+                                 'steps_run': [f"{r['action']}:{r['status']}" for r in receipt.steps],
                                  'status': receipt.status, 'reason': receipt.reason,
                                  'travelled_m': receipt.travelled_m, 'turned_deg': receipt.turned_deg,
                                  'finished_at': receipt.finished_at})

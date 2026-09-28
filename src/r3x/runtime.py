@@ -7,7 +7,7 @@ import time
 
 from .capture import Endpoint
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .session import STOP_COMMANDS
+from .session import is_stop_command
 
 
 class VoiceRuntime:
@@ -110,7 +110,7 @@ class VoiceRuntime:
                         self.stop.set()
                         self.cancel()
                         break
-                    if transcript.trusted and command.replace(',','') in STOP_COMMANDS:
+                    if transcript.trusted and is_stop_command(transcript.text):
                         self.cancel()  # Bypasses a busy conversational generation.
                         break
                     else:

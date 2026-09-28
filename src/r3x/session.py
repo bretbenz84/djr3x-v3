@@ -10,7 +10,27 @@ from .history import TurnHistory
 from .output import Delivery, OutputOwner, Phrases, put_phrase
 
 # Syntax-only emergency controls; the only way to cut off audible speech.
-STOP_COMMANDS = frozenset({"stop","cancel","stop rex","rex stop","shut up","shut up rex","rex shut up","stop talking","stop talking rex","rex stop talking","be quiet","rex be quiet","be quiet rex","quiet","hush"})
+STOP_COMMANDS = frozenset({"stop","cancel","halt","whoa","freeze","shut up","stop talking","be quiet","quiet","hush"})
+# Strict fast path: the whole utterance is a stop phrase, optionally wrapped in a few
+# exclamations or Rex's name and repeated ("Oh, stop!", "Stop, stop, stop!", "Whoa, Rex, stop").
+# September 27: "Oh, stop!" missed the exact-match list while he drove toward an obstacle.
+STOP_WRAPPERS = frozenset({"oh","hey","no","whoa","rex","okay","ok","please","now","wait"})
+
+
+def is_stop_command(text: str) -> bool:
+    words = text.lower().replace(",", " ").replace(".", " ").replace("!", " ").replace("?", " ").split()
+    phrases, i = 0, 0
+    while i < len(words):
+        pair = " ".join(words[i:i+2])
+        if pair in STOP_COMMANDS:
+            phrases, i = phrases + 1, i + 2
+        elif words[i] in STOP_COMMANDS:
+            phrases, i = phrases + 1, i + 1
+        elif words[i] in STOP_WRAPPERS:
+            i += 1
+        else:
+            return False
+    return phrases > 0
 
 
 class Session:
@@ -199,7 +219,7 @@ class Session:
                                 reason="echo_risk" if capture.echo_risk else "empty_transcript")
                 return delivery
             # Syntax-only emergency control. No names/facts are parsed in Python.
-            if not opportunity and transcript.trusted and transcript.text.strip().lower().rstrip(".!?").replace(',','') in STOP_COMMANDS:
+            if not opportunity and transcript.trusted and is_stop_command(transcript.text):
                 self.cancel()
                 delivery.status = "interrupted"
                 return delivery
