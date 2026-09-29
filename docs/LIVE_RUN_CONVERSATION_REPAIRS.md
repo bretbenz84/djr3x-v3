@@ -164,3 +164,16 @@ logged about 0.28 seconds after shutdown cancellation, not during an active exch
 all lifecycle close operations reported success. Its shutdown classification has
 not been repaired by this work. The original private trace remains under ignored
 `local/sessions/`; no new providers or devices were operated during log review.
+
+### September 28: noise yielded unheard replies
+
+Session `7db71dda77e2445ea7daff18f4e8fb49`: Rex generated a reply to "Well, I turned you
+on, so I would be the one in front of you" and yielded it before playback because a
+single VAD frame followed. That noise, and three more, transcribed as untrusted "Oh.",
+each yielding the next reply; "Did you hear me?" was lost the same way. Across the eight
+most recent sessions every phantom "Oh."/"Okay." capture had at most 0.48 s voiced,
+while real speech had at least 0.64 s. An unheard reply now yields only after 0.5 s of
+voiced, non-echo speech in the resuming utterance. Brief sounds still become their own
+turns and still mark activity for lull timing. Two new synthetic checks cover the
+session contract and the runtime frame path; live behaviour with a real interruption
+remains to be confirmed.

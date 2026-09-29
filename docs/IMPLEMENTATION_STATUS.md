@@ -38,8 +38,8 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **739 passing checks** (September 28, after servo
-startup from a powered-off robot replaced manual commissioning; the earlier 645 included 45 [drive-base contracts](DRIVE_BASE_INTEGRATION.md#verification)) including the
+The latest blocked-I/O suite has **742 passing checks** (September 28, after noise no
+longer yields unheard replies and explicit look-direction head poses were added; the earlier 645 included 45 [drive-base contracts](DRIVE_BASE_INTEGRATION.md#verification)) including the
 [greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md) and the
 [prompt-caching repair](PROMPT_CACHING.md), plus 48 new
 [servo/operator/robot contracts](SERVO_INTEGRATION.md#verification) and 20

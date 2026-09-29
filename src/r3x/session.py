@@ -52,6 +52,7 @@ class Session:
             state.attention.scene.session_id = session_id
             state.conversation_intent.clear("new_session")
         self._latest_speech = float("-inf")
+        self._resumed_speech = float("-inf")  # Latest sustained speech; only this yields.
         self._capture_end = float("inf")
         self.proactive_hold_until = float("-inf")
         self.last_interaction_at = float("-inf")
@@ -71,16 +72,22 @@ class Session:
         self.output.cancel()
         self.trace.emit("cancel", revision=self.revision)
 
-    def note_speech(self, ended_at: float) -> None:
+    def note_speech(self, ended_at: float, sustained: bool = True) -> None:
         """Yield an unheard reply to resumed, non-echo microphone speech.
 
         This is not an explicit stop: keep revision, pending questions, and the
         original user history so the continuation can be understood normally.
+        Only sustained speech yields. September 28: single noise frames that ASR
+        heard as "Oh." cancelled five unheard replies in a row; the noise still
+        becomes its own turn, it just no longer silences the answer before it.
         """
         with self._lock:
             if self.state and ended_at > self._latest_speech:
                 self.state.initiative.lull_retry_until = float('-inf')
             self._latest_speech = max(self._latest_speech, ended_at)
+            if not sustained:
+                return
+            self._resumed_speech = max(self._resumed_speech, ended_at)
             audible = self._delivery is not None and self._delivery.first_audio_at is not None
             if self._cancel and ended_at > self._capture_end and not self._cancel.event.is_set() and not audible:
                 self._cancel.event.set()
@@ -273,7 +280,7 @@ class Session:
             # the queue. Retain its source/history, but do not answer it belatedly.
             with self._lock:
                 self._capture_end = opportunity.speech_marker if opportunity else source_end
-                if self._latest_speech > self._capture_end:
+                if self._resumed_speech > self._capture_end:
                     cancel.event.set()
                 cancel.check()
             if self.state and not self.state.frozen and (getattr(self.output, 'attention', None) is not None or getattr(self.output, 'gestures', None) is not None or getattr(self.output,'inspection',None) is not None):
@@ -902,7 +909,7 @@ class Session:
                 if delivery.status not in {"completed","suppressed"}:
                     self.history.append({"role": "developer", "content":
                         "The last reply was interrupted or failed. Only completed phrases above are known delivered; any partial phrase is unknown."})
-            if not opportunity and delivery.status == "interrupted" and delivery.first_audio_at is None and self._latest_speech > source_end:
+            if not opportunity and delivery.status == "interrupted" and delivery.first_audio_at is None and self._resumed_speech > source_end:
                 self.history.append({"role":"developer","content":
                     "Rex yielded without speaking because microphone speech resumed after source turn " + turn_id +
                     ". The preceding user words remain part of the conversation; the next fragment may continue them. "

@@ -316,3 +316,20 @@ without writes, cancellation, release/reacquisition and park. No hardware or hos
 model calls were made. Live natural-language selection, directions, clearance and
 motion feel still require validation. The reported clipped transcription remains
 unresolved without recorded audio; this servo change does not claim an ASR fix.
+
+### September 28: look directions
+
+Session `7db71dda77e2445ea7daff18f4e8fb49`: "look down and to your left" became
+`set_robot_joints` neck 20%, head_lift 30%. Lift 30% (4143) is above the level stance
+(3600), so the head rose instead of lowering; tilt, the main downward axis, was untouched.
+"Look to your left" then chose `head_left` (4000, about 19 degrees) and was spoken as
+"Turning left." Because 4000 is right of the earlier 3379, the head swung back right.
+
+`set_robot_pose` now offers `head_down`, `head_up`, `head_level` and the combinations
+`head_down_left/right`, `head_up_left/right`. Down/up use idle_head's conventions (lower
+lift, higher tilt looks down) at 3200/5300 and 4200/4000; level is the drive stance.
+Neck-only and vertical-only poses keep the other axis. `head_left` now mirrors `head_right`
+about NECK_CENTER (2944, about 33 degrees); the startup scan keeps 4000. Tool text says
+"look" requests are head poses, never drive_base, and are spoken as looking, not turning.
+742 blocked-I/O checks pass with synthetic serial. The new down/up pulse values and the
+wider left are unverified on the robot: confirm the look is visible and clear of the body.

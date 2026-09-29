@@ -301,8 +301,18 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
     return lanes
 
 
+# Explicit look requests (September 28). head_left mirrors head_right about the centre:
+# the startup scan's 4000 is only ~19 degrees, less than a 20% joint request, so a
+# "look left" after one visibly swung right. Down/up use lift (smaller pulse lowers)
+# and tilt (higher pulse looks lower), as idle_head does; level is the drive stance.
+# A request for "down" through head_lift 30% raised the head above level (3600).
+NECK_LEFT, NECK_RIGHT = 2 * NECK_CENTER - 8000, 8000
+HEAD_DOWN, HEAD_UP = ((1, 3200), (2, 5300)), ((1, 4200), (2, 4000))
 NAMED_POSES = {
-    'head_left': ((0,4000),), 'head_right': ((0,8000),), 'head_center': ((0,NECK_CENTER),),
+    'head_left': ((0,NECK_LEFT),), 'head_right': ((0,NECK_RIGHT),), 'head_center': ((0,NECK_CENTER),),
+    'head_down': HEAD_DOWN, 'head_up': HEAD_UP, 'head_level': DRIVE_HEAD,
+    'head_down_left': ((0,NECK_LEFT),*HEAD_DOWN), 'head_down_right': ((0,NECK_RIGHT),*HEAD_DOWN),
+    'head_up_left': ((0,NECK_LEFT),*HEAD_UP), 'head_up_right': ((0,NECK_RIGHT),*HEAD_UP),
     'visor_down': ((3,4544),), 'visor_up': ((3,6400),),
     'throttle_offer': ((8,2176),(9,2601),(10,5938)),
     'throttle_high_five': ((8,2176),(9,9361),(10,6302)),

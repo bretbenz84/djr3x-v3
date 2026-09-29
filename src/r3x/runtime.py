@@ -9,6 +9,9 @@ from .capture import Endpoint
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .session import is_stop_command
 
+# Voiced time within one utterance before it yields an unheard reply. Live September 28:
+# every phantom "Oh."/"Okay." noise capture had <= 0.48 s voiced; real speech >= 0.64 s.
+YIELD_VOICED_SECONDS = .5
 
 class VoiceRuntime:
     def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None):
@@ -368,7 +371,8 @@ class VoiceRuntime:
                 if speech and not frame.echo_risk and not (self.drive is not None and self.drive.moving.is_set()):
                     # Motor noise or talk while the wheels run does not yield the plan;
                     # the capture still becomes a turn, and a spoken stop still halts.
-                    self.session.note_speech(frame.ended_at)
+                    voiced = (self.endpoint.voiced if self.endpoint.frames else 0.) + frame.ended_at - frame.started_at
+                    self.session.note_speech(frame.ended_at, sustained=voiced >= YIELD_VOICED_SECONDS)
                 capture = self.endpoint.push(frame, speech)
                 if capture:
                     capture = replace(capture,device=getattr(self.mic,"source_device",getattr(self.mic,"device_name","configured_microphone")))

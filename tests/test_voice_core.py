@@ -340,6 +340,50 @@ class ListeningTests(unittest.TestCase):
         self.assertIn('Rex yielded without speaking',context)
         self.assertIn('We are going to',context)
 
+    def test_brief_noise_during_model_does_not_silence_the_reply(self):
+        # Live September 28: one noise frame heard as "Oh." dropped the answer to a full sentence.
+        outer = self
+        class NoisyBrain(Brain):
+            def reply(self, snapshot, cancel):
+                self.calls += 1
+                outer.session.note_speech(100., sustained=False)
+                yield 'Fair point, you were first in line.'
+        self.setup_core(brain=NoisyBrain())
+        result = self.turn('Well, I turned you on, so I would be the one in front of you.')
+        self.assertEqual(result.status, 'completed')
+        self.assertEqual(result.completed_text, ['Fair point, you were first in line.'])
+        self.assertFalse(any(r['event'] == 'reply_yielded' for r in self.trace.rows))
+        self.assertEqual(self.session._latest_speech, 100.)  # Still marks activity for lulls.
+
+    def test_runtime_yields_only_after_sustained_voiced_speech(self):
+        from unittest.mock import patch
+        self.setup_core()
+        calls = []
+        original = self.session.note_speech
+        self.session.note_speech = lambda at, sustained=True: (calls.append((round(at, 3), sustained)), original(at, sustained))
+        # Two noise frames, a 1.5 s gap that ends that utterance, then 20 frames (0.64 s) of speech.
+        labels = [True]*2 + [False]*47 + [True]*20 + [False]*40
+        frames = [Frame(bytes(1024), 200+i*.032, 200+(i+1)*.032) for i in range(len(labels))]
+        class Mic:
+            dropped = status_errors = 0
+            def read(inner):
+                if not frames: runtime.stop.set(); return None
+                return frames.pop(0)
+            def cancel(inner): pass
+        class VAD:
+            def reset(inner): pass
+            def is_speech(inner, pcm): return labels.pop(0)
+        class ASR:
+            def transcribe(inner, *args): return Transcript('Oh.', -.6, False)
+        runtime = VoiceRuntime(Mic(), VAD(), ASR(), self.session, self.trace)
+        with patch('sys.stdin.isatty', return_value=False):
+            runtime.run()
+        self.assertEqual([s for _, s in calls[:2]], [False, False])
+        speech = [s for _, s in calls[2:]]
+        self.assertEqual(len(speech), 20)
+        self.assertFalse(any(speech[:15]))  # Under 0.5 s voiced.
+        self.assertTrue(all(speech[15:]))
+
     def test_resuming_during_tts_prevents_first_pcm(self):
         outer = self
         class ResumingTTS:

@@ -70,6 +70,26 @@ class PoseTests(unittest.TestCase):
                     self.assertEqual(self.run_pose(end).status,'pulses_reached')
         self.assertEqual(self.run_pose(kind='shutdown').status,'pulses_reached')
 
+    def test_look_poses_move_the_head_the_requested_way(self):
+        # Live September 28: "look down and to your left" raised the head (head_lift 30%)
+        # and a following "look to your left" (old 4000) swung the neck back right.
+        from r3x.servo_poses import DRIVE_HEAD, NECK_CENTER
+        lift, tilt = dict(DRIVE_HEAD)[1], dict(DRIVE_HEAD)[2]
+        self.run_pose('head_down_left')
+        self.assertLess(self.port.pose[0], NECK_CENTER)
+        self.assertLess(self.port.pose[1], lift)      # Smaller lift lowers the head.
+        self.assertGreater(self.port.pose[2], tilt)   # Larger tilt looks lower.
+        down = (self.port.pose[1], self.port.pose[2])
+        self.run_pose('head_right');self.run_pose('head_left')
+        self.assertEqual((self.port.pose[1], self.port.pose[2]), down)  # Neck poses keep up/down.
+        left = NECK_CENTER-self.port.pose[0]
+        self.run_pose('head_right')
+        self.assertEqual(left, self.port.pose[0]-NECK_CENTER)  # As far left as right.
+        self.run_pose('head_up')
+        self.assertGreater(self.port.pose[1], lift);self.assertLess(self.port.pose[2], tilt)
+        self.run_pose('head_level')
+        self.assertEqual((self.port.pose[1], self.port.pose[2]), (lift, tilt))
+
     def test_talking_preserves_requested_visor_and_fully_lowered_arm(self):
         self.run_pose('visor_down');self.run_pose('throttle_down')
         self.assertEqual(self.run_pose(kind='talking').status,'pulses_reached')
