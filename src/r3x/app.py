@@ -311,6 +311,10 @@ class App:
                         faces = [f for f in camera.latest(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
                         return addressee_neck(faces, self.robot.owner.neck_degrees()) if faces else None
                     self.robot.idle.face = idle_face
+                    def reflex_faces():
+                        now = trace.clock()
+                        return [f['box'] for f in camera.latest(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
+                    self.robot.reflex.faces = reflex_faces
                 planner = next((p for p in optional if p.capability.name=='route_planner'),None)
                 if planner and output.drive and 'route_planner' in active:
                     planner.trace = trace

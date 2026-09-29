@@ -377,3 +377,18 @@ forward, as drive already does. In session af692e20 Bret's clear bearings were 1
 degrees left and the TV's -142, so the TV would not have turned the head. Neck noise
 during the utterance is flagged as motion (lower voice confidence, not discarded).
 Synthetic checks only; live latency, aim and feel are unverified.
+
+### September 28 (third run): acknowledgment order and reflex aim
+
+Session `5e97b13a661b4a6b88a45faecebed371`: a five-step sequence (hand, look left, visor
+down/up, blink) ran correctly, but "On it." played only after it. `set_robot_pose` now has
+`say_before`, spoken and heard before the first step (talking motion and the steps share
+the servo owner); `text` still waits for every step.
+
+The reflex fired once and moved about 6 degrees. The array put Bret 6-9 degrees right in
+every clear utterance while the camera saw his face 32-38 degrees left, at the frame edge;
+the previous session's array and camera agreed within about 10 degrees. The cause (array
+or arm mounting, or beam selection) is not established from the logs. When a fresh face
+is within 60 degrees of the voice bearing, the reflex now aims at the face; otherwise at
+the voice. "I'm over here" after a held look left was skipped as `neck_held`; a new voice
+now takes the neck back from an earlier held look. Synthetic checks only.

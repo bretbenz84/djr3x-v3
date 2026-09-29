@@ -117,7 +117,7 @@ class PoseSessionTests(MemoryFixture):
         robot=RobotServos('fake',open_port=lambda:port,clock=clock,wait=clock.wait)
         robot.owner.wait=clock.wait
         robot.start();self.addCleanup(robot.close)
-        brain=Brain(ToolCall('pose','set_robot_pose',{'poses':['throttle_offer'],'look_after':None,'text':'Here is my hand.'}))
+        brain=Brain(ToolCall('pose','set_robot_pose',{'poses':['throttle_offer'],'look_after':None,'say_before':None,'text':'Here is my hand.'}))
         class Sink(SyntheticSink):
             def play(inner,*args):
                 for ch,value in NAMED_POSES['throttle_offer']:
@@ -179,7 +179,7 @@ class PoseRejectionTests(MemoryFixture):
     def test_unavailable_pose_not_offered_or_executed(self):
         from r3x.semantics import grounded_tools
         self.assertNotIn('set_robot_pose',{t['name'] for t in grounded_tools({'source_turn_id':'t'})})
-        call=ToolCall('p','set_robot_pose',{'poses':['throttle_offer'],'look_after':None,'text':'Here is my hand.'})
+        call=ToolCall('p','set_robot_pose',{'poses':['throttle_offer'],'look_after':None,'say_before':None,'text':'Here is my hand.'})
         with self.assertRaises(ValueError):
             self.state.propose_pose(call,{'state_revision':self.store.revision},Cancellation())
 
@@ -187,7 +187,7 @@ class PoseRejectionTests(MemoryFixture):
         from r3x.servos import ServoReceipt
         robot=SimpleNamespace(owner=SimpleNamespace(state='active'),
             execute_pose=lambda *a:ServoReceipt('p','failed',1,100,'simulation',reason='ServoArrivalTimeout'))
-        brain=Brain(ToolCall('p','set_robot_pose',{'poses':['throttle_offer'],'look_after':None,'text':'Here is my hand.'}))
+        brain=Brain(ToolCall('p','set_robot_pose',{'poses':['throttle_offer'],'look_after':None,'say_before':None,'text':'Here is my hand.'}))
         output=OutputOwner(SyntheticTTS(),SyntheticSink(),self.state.trace,robot=robot)
         session=Session('s',brain,output,self.state.trace,self.state);self.addCleanup(session.close)
         result=session.process_turn(Capture('c','s',bytes(1024),98,99,99.6),Transcript('Hold out your hand',-.01,True),session.revision)
@@ -201,7 +201,7 @@ class HeldPoseContinuationTests(MemoryFixture):
         robot=RobotServos('fake',open_port=lambda:port,clock=clock,wait=clock.wait)
         robot.owner.wait=clock.wait
         robot.start();self.addCleanup(robot.close)
-        brain=Brain(ToolCall('offer','set_robot_pose',{'poses':['throttle_offer'],'look_after':None,'text':None}))
+        brain=Brain(ToolCall('offer','set_robot_pose',{'poses':['throttle_offer'],'look_after':None,'say_before':None,'text':None}))
         output=OutputOwner(SyntheticTTS(),SyntheticSink(),self.state.trace,robot=robot)
         session=Session('s',brain,output,self.state.trace,self.state);self.addCleanup(session.close)
         def turn(index,text):
@@ -213,7 +213,7 @@ class HeldPoseContinuationTests(MemoryFixture):
         turn(1,'Thank you.')
         self.assertEqual(brain.snapshots[-1].context['robot_pose_state']['held_parts'],['throttle_arm'])
         self.assertEqual(robot.owner.held_channels,{8,9,10})
-        brain.text=ToolCall('resume','set_robot_pose',{'poses':['release_poses'],'look_after':None,'text':'Back to normal.'})
+        brain.text=ToolCall('resume','set_robot_pose',{'poses':['release_poses'],'look_after':None,'say_before':None,'text':'Back to normal.'})
         class Sink(SyntheticSink):
             def play(inner,*args):
                 self.assertFalse(robot.owner.held_channels)

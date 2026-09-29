@@ -38,8 +38,8 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **753 passing checks** (September 28, after the voice
-head-turn reflex, uncapped mixed move/light sequences, a wave, look-then-describe, and no
+The latest blocked-I/O suite has **756 passing checks** (September 28, after the voice
+head-turn reflex (camera-aimed, taking over held looks), say-before acknowledgments, uncapped mixed move/light sequences, a wave, look-then-describe, and no
 replies to untrusted transcripts; the earlier 645 included 45 [drive-base contracts](DRIVE_BASE_INTEGRATION.md#verification)) including the
 [greeting-led intention contracts](CONVERSATIONAL_INTENT_PLAN.md) and the
 [prompt-caching repair](PROMPT_CACHING.md), plus 48 new

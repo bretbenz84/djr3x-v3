@@ -404,8 +404,9 @@ class OpenAIBrain(HTTPProvider):
                 'robot_pose_state.held_parts reports controller holds that persist across turns and speech. '
                 'An explicit request to resume normal motion, stop holding a pose, or relax after a pose requires '
                 'set_robot_pose with poses ["release_poses"]. Execute the tool even when phrased as permission ("you can resume now"). '
-                'Never claim movement resumed using ordinary prose alone. The tool may include a short acknowledgment '
-                'in text, which is spoken only after execution succeeds. Other physical pose requests likewise require the tool.')
+                'Never claim movement resumed using ordinary prose alone. Put a quick acknowledgment such as "On it" in say_before, '
+                'spoken before moving; text is spoken only after every step succeeds. '
+                'When someone starts talking, a reflex already turns your head toward them. Other physical pose requests likewise require the tool.')
         if snapshot.context.get('drive') and not snapshot.continuation:
             notes.append('\nWheeled base: you can drive with drive_base. Moving is part of how you express yourself. '
                 'When it genuinely adds something, roll toward someone who just arrived, turn to face a voice from outside '

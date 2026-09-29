@@ -742,6 +742,18 @@ class Session:
                     # The model chains steps from the request's wording; each runs once
                     # the previous one's pulses arrive, and the first failure stops the rest.
                     from .leds import LIGHT_STEPS, LightPerformance, LightRequest
+                    if call.arguments.get('say_before'):
+                        # Live September 28: "On it." arrived after a long sequence. Speak the
+                        # acknowledgment first, then move once it has played (talking motion
+                        # and the requested steps share one servo owner).
+                        heard = len(delivery.completed_text)
+                        delivery.status, delivery.medium = 'requested', 'audio'
+                        put_phrase(phrases,call.arguments['say_before'],cancel)
+                        while len(delivery.completed_text) <= heard:
+                            cancel.check()
+                            if not worker.is_alive() or delivery.error:
+                                raise ProviderFailure('OutputWorkerStopped')
+                            time.sleep(.02)
                     moved, last_at = True, self.trace.clock()
                     for index, step in enumerate(pose if isinstance(pose, tuple) else (pose,)):
                         suffix = f':{index}' if isinstance(pose, tuple) and len(pose) > 1 else ''
@@ -765,7 +777,7 @@ class Session:
                         put_phrase(phrases,"I couldn't complete that movement.",cancel)
                     elif call.arguments['text'] is not None:
                         put_phrase(phrases,call.arguments['text'],cancel)
-                    elif not look_question:
+                    elif not look_question and not call.arguments.get('say_before'):
                         delivery.status,delivery.medium='suppressed','none'
                     if moved and look_question:
                         # September 28: "look down and tell me what you see" was answered from

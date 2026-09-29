@@ -38,7 +38,7 @@ class JointCommands(MemoryFixture):
         return owner.execute(ServoRequest('test',owner.version,kind,self.clock()+120,pose=pose),Cancellation())
 
     def test_head_command_moves_before_acknowledgment_and_holds_through_speech(self):
-        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_right'],'look_after':None,'text':'Looking right.'}))
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_right'],'look_after':None,'say_before':None,'text':'Looking right.'}))
         class Sink(SyntheticSink):
             def play(inner,*args):
                 self.assertEqual(self.port.pose[0],8000)
@@ -120,7 +120,7 @@ class ChainedPoseCommands(MemoryFixture):
     def test_spoken_sequence_runs_every_step_in_order_before_the_acknowledgment(self):
         from r3x.servo_poses import HEAD_DOWN, NECK_LEFT, NECK_RIGHT
         self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_right','look_left','look_up','look_down'],
-                                                        'look_after':None,'text':'Looking around.'}))
+                                                        'look_after':None,'say_before':None,'text':'Looking around.'}))
         result = self.turn('Look right, then left, then up, then down.')
         self.assertEqual(result.completed_text, ['Looking around.'])
         self.assertEqual([r['pose'] for r in self.rows('robot_pose_result')], ['look_right','look_left','look_up','look_down'])
@@ -132,7 +132,7 @@ class ChainedPoseCommands(MemoryFixture):
         self.assertLess(max(i for i,e in enumerate(events) if e=='robot_pose_result'), events.index('phrase_completed'))
 
     def test_unknown_step_rejects_the_whole_sequence_before_motion(self):
-        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_right','somersault'],'look_after':None,'text':'Done.'}))
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_right','somersault'],'look_after':None,'say_before':None,'text':'Done.'}))
         before = len(self.port.targets)
         self.assertNotEqual(self.turn('Look right and do a somersault.').completed_text, ['Done.'])
         self.assertFalse(self.rows('robot_pose_result'))
@@ -140,7 +140,7 @@ class ChainedPoseCommands(MemoryFixture):
 
     def test_wave_sweeps_the_hand_and_returns_the_arm_without_holding_it(self):
         from r3x.servo_poses import LIMITS
-        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['wave'],'look_after':None,'text':'Hello there!'}))
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['wave'],'look_after':None,'say_before':None,'text':'Hello there!'}))
         start = {ch:self.port.pose[ch] for ch in (4,5,7)}
         self.assertEqual(self.turn('Can you wave your hand?').completed_text, ['Hello there!'])
         wrist = [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,5))]
@@ -153,7 +153,7 @@ class ChainedPoseCommands(MemoryFixture):
     def test_look_after_answers_from_a_frame_taken_after_the_head_moved(self):
         from r3x.inspection import CurrentView
         from tests.test_drive_session import DriveBrain, FakeScene
-        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_down'],'look_after':'What is on the floor?','text':None}))
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_down'],'look_after':'What is on the floor?','say_before':None,'text':None}))
         self.brain = self.session.brain = DriveBrain(self.brain.text, 'A dog toy and a sock.')
         view = CurrentView(FakeScene(self.clock), clock=self.clock); view.start()
         self.output.inspection = view
@@ -169,7 +169,7 @@ class ChainedPoseCommands(MemoryFixture):
         from r3x.servo_poses import HEAD_DOWN, NAMED_POSES
         from tests.test_leds import rig
         steps = ['look_left','look_right','look_up','look_down','throttle_offer','blink']
-        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':steps,'look_after':None,'text':'Ta-da.'}))
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':steps,'look_after':None,'say_before':None,'text':'Ta-da.'}))
         led, ports, _ = rig()
         led.clock = self.state.trace.clock
         led.wait = lambda n: setattr(self.state.trace,'at',self.state.trace.at+n)
@@ -186,10 +186,20 @@ class ChainedPoseCommands(MemoryFixture):
         self.assertEqual({ch:self.port.pose[ch] for ch,_ in HEAD_DOWN}, dict(HEAD_DOWN))
         self.assertEqual({ch:self.port.pose[ch] for ch,_ in NAMED_POSES['throttle_offer']}, dict(NAMED_POSES['throttle_offer']))
 
+    def test_say_before_is_heard_before_any_step_moves(self):
+        # Live September 28: "On it." played only after the whole sequence.
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['throttle_offer','look_left'],'look_after':None,
+                                                        'say_before':'On it.','text':None}))
+        result = self.turn('Hold out your hand, then look left.')
+        self.assertEqual(result.completed_text, ['On it.'])
+        events = [r['event'] for r in self.state.trace.rows]
+        self.assertLess(events.index('phrase_completed'), events.index('robot_pose_result'))
+        self.assertEqual(len(self.rows('robot_pose_result')), 2)
+
     def test_step_count_is_not_capped(self):
         steps = ['look_left','look_right']*6
-        validate('set_robot_pose', {'poses':steps,'look_after':None,'text':None})
-        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':steps,'look_after':None,'text':'Done.'}))
+        validate('set_robot_pose', {'poses':steps,'look_after':None,'say_before':None,'text':None})
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':steps,'look_after':None,'say_before':None,'text':'Done.'}))
         self.assertEqual(self.turn('Look left and right six times.').completed_text, ['Done.'])
         self.assertEqual(len(self.rows('robot_pose_result')), 12)
 
@@ -221,15 +231,34 @@ class VoiceReflexTests(unittest.TestCase):
         self.assertEqual(self.robot.reflex.face(-60.), 'started'); self.settle()
         self.assertEqual(self.port.pose[0], self.voice_neck(-60.))
 
-    def test_voice_behind_or_an_explicit_held_look_does_not_move_the_head(self):
+    def test_voice_behind_does_not_move_the_head(self):
         before = self.port.pose[0]
         self.assertEqual(self.robot.reflex.face(-142.), 'behind')   # The TV in the other room.
+        self.assertEqual(self.port.pose[0], before)
+
+    def test_new_voice_takes_over_an_earlier_held_look(self):
+        # Live September 28: after a held look left, "I'm over here" left the head away.
         from r3x.contracts import Cancellation
         self.assertEqual(self.robot.execute_pose('look_right', Cancellation(), 'look').status, 'pulses_reached')
-        held = self.port.pose[0]
-        self.assertEqual(self.robot.reflex.face(25.), 'neck_held')
-        self.assertEqual(self.port.pose[0], held)
-        self.assertNotEqual(before, held)
+        self.assertIn(0, self.robot.owner.held_channels)
+        self.assertEqual(self.robot.reflex.face(25.), 'started'); self.settle()
+        self.assertEqual(self.port.pose[0], self.voice_neck(25.))
+        self.assertNotIn(0, self.robot.owner.held_channels)
+
+    def test_visible_face_near_the_voice_is_aimed_at_instead_of_the_array_bearing(self):
+        # Live September 28 (5e97b13a): array said 6 degrees right, the camera saw Bret's
+        # face at the left edge of the frame (about 38 degrees left).
+        from r3x.drive_space import image_bearing
+        box = [.05, .4, .06, .1]
+        self.robot.reflex.faces = lambda: [box]
+        self.assertEqual(self.robot.reflex.face(-6.), 'started'); self.settle()
+        self.assertEqual(self.port.pose[0], self.voice_neck(image_bearing(box, 0.)))
+        far = [.9, .4, .06, .1]    # A face far from a voice outside the frame is not it.
+        self.robot.reflex.faces = lambda: [far]
+        neck = self.robot.owner.neck_degrees()
+        self.assertEqual(self.robot.reflex.face(-89.), 'started'); self.settle()
+        self.assertEqual(self.port.pose[0], self.voice_neck(-89.))
+        self.assertNotEqual(self.voice_neck(-89.), self.voice_neck(image_bearing(far, neck)))
 
     def test_model_move_replaces_an_unfinished_reflex_instead_of_failing_busy(self):
         from r3x.contracts import Cancellation
