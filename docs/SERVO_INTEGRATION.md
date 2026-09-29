@@ -77,7 +77,9 @@ and evidence type explicit. Timeouts cannot prove where the physical mechanism i
 A channel reading 0 is off since power-up (the robot was switched off). As in V2,
 startup first holds each such channel at its unpowered rest pose (`UNPOWERED_REST`:
 head park, arms at rest, throttle park) with bounded profiles, then runs the normal
-wake choreography; the trace records `servo_unpowered_rest`. Live channels keep
+wake choreography; the trace records `servo_unpowered_rest`. The board applies the
+first pulses on its next 20 ms period, so startup polls (up to 1 s) until those
+channels stop reading 0; V2 never re-read, V3 validates every move from readback. Live channels keep
 their readings (a partly-off throttle arm is sent as one batch with its live joints
 unchanged). A live reading outside the calibrated limits still rejects startup
 before any write. No V2 park marker is copied or trusted. The Maestro jumps to the

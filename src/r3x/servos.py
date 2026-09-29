@@ -107,7 +107,13 @@ class ServoOwner:
         validate_pose(pose)
         self._bus.profiles({ch: (10, 2) for ch in self.energized_channels})
         self._bus.targets(targets)
-        return pose
+        # The board applies new targets on its next 20 ms servo period; until then
+        # a just-energized channel still reads 0.
+        for _ in range(50):
+            if all(self._bus.positions(self.energized_channels).values()):
+                return pose
+            self.wait(.02)
+        raise ProviderFailure('UnpoweredServoPulseNotApplied')
 
     def cancel(self) -> None:
         self._cancel.set()

@@ -26,6 +26,8 @@ class PulsePort:
         self.short_write = False
         self.short_read = False
         self.on_target = lambda: None
+        self.period_reads = 0   # Reads before a target reaches an off channel (the 20 ms period).
+        self._pending = {}
 
     def write(self, packet):
         self.packets.append(packet)
@@ -36,11 +38,18 @@ class PulsePort:
             target = ({packet[1]: packet[2] + 128 * packet[3]} if packet[0] == 0x84 else
                       {packet[2] + i: packet[3 + i*2] + 128 * packet[4 + i*2]
                        for i in range(packet[1])})
-            if not self.stall: self.pose.update(target)
+            if self.period_reads:
+                self._pending, self._lag = {**self._pending, **target}, self.period_reads
+            elif not self.stall: self.pose.update(target)
             self.on_target()
         return len(packet)
 
     def read(self, count):
+        if self._pending:
+            self._lag -= 1
+            if self._lag < 0:
+                self.pose.update(self._pending)
+                self._pending = {}
         return b'' if self.short_read else self.pose[self.channel].to_bytes(2, 'little')
 
     def close(self): self.closed = True
@@ -106,6 +115,22 @@ class ServoTests(unittest.TestCase):
         self.owner.start()
         self.assertEqual(self.owner.energized_channels, (8,))
         self.assertEqual({ch: self.port.pose[ch] for ch in (8, 9, 10)}, {8: 9088, 9: 9000, 10: 2048})
+
+    def test_wake_waits_for_the_board_to_apply_first_pulses(self):
+        # Field September 28: channels 5, 7-10 off; wake read them 4 ms after the
+        # first targets, still 0, and rejected InvalidServoPulse.
+        self.port.pose.update({5: 0, 7: 0, 8: 0, 9: 0, 10: 0})
+        self.port.period_reads = 8
+        self.owner.start()
+        self.port.period_reads = 0
+        self.assertEqual(self.owner.energized_channels, (5, 7, 8, 9, 10))
+        self.assertEqual(self.execute().status, 'pulses_reached')
+
+    def test_board_that_never_applies_first_pulses_fails_start(self):
+        self.port.pose.update({5: 0})
+        self.port.stall = True
+        with self.assertRaises(ProviderFailure): self.owner.start()
+        self.assertTrue(self.port.closed)
 
     def test_live_out_of_range_reading_rejects_without_writing(self):
         self.port.pose.update({0: 0, 4: 100})
