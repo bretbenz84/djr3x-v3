@@ -428,7 +428,7 @@ transport executor for lifecycle choreography and optional playback-driven talki
 motion. Its follow-on adds explicit live composition, operator handoff and bounded
 microphone holds. Explicit requested poses and bounded control of all eleven joints are exposed through the same state/output/servo owners; autonomous physical attention remains pending.
 Pulse-readback receipts are distinct from measured joint arrival. Service cutover,
-cold-start commissioning and live movement/enrollment validation remain pending.
+live cold-start (powered-off) wake-up and movement/enrollment validation remain pending.
 
 The [LED integration](docs/LED_INTEGRATION.md) adds optional head/chest lifecycle
 and playback effects, plus bounded model-selected animations validated by the state

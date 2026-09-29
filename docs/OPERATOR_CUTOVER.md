@@ -68,8 +68,8 @@ state, throttle sequences and measurements are in `local/operator/`.
 - V2's durable "clean park" marker is not used.
 
 `tests/test_operator_tools.py` checks the wiring without devices. V3's earlier minimal
-supervisor and servo console were retired. `python -m r3x operator servo-park` and
-`servo-commission` remain.
+supervisor and servo console were retired. `python -m r3x operator servo-park` remains;
+startup itself handles servos left off by a power-down.
 
 ## Rollback to V2
 

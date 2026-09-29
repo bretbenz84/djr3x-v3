@@ -1,4 +1,4 @@
-"""Explicit robot lifecycle, with park before port release and no cold assumptions."""
+"""Explicit robot lifecycle, with park before port release."""
 from dataclasses import asdict
 import time
 from .adapters.maestro import open_serial
@@ -36,6 +36,8 @@ class RobotServos:
     def start(self):
         self.owner.start()
         self.started = True
+        if self.trace and self.owner.energized_channels:
+            self.trace.emit('servo_unpowered_rest', channels=list(self.owner.energized_channels))
         try:
             self.on_startup()
         except Exception as exc:

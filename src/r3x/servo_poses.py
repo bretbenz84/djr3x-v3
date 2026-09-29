@@ -53,6 +53,8 @@ DRIVE_HEAD = ((1, 3600), (2, 4320))
 # (higher pulse lifts it) and the poker arm at its highest value, held until done.
 DRIVE_ARMS = ((4, 7424), (6, 8000))
 HEAD_PARK = ((0, NECK_CENTER), (1, 2600), (2, 5504), (3, 4544), (4, 6300))
+# Where each joint hangs once the robot has been powered off (the board then reads 0).
+UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK)
 
 
 def validate_pose(pose: dict[int, int]) -> None:

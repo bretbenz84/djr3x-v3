@@ -14,7 +14,8 @@ from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles, base_lanes,
-                          talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, NAMED_POSES)
+                          talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, NAMED_POSES,
+                          UNPOWERED_REST)
 
 BASE_HELD = frozenset({0, 1, 2, 4, 6, *THROTTLE})   # Neck, head, hero elbow, poker arm, throttle.
 
@@ -68,6 +69,7 @@ class ServoOwner:
         self.commanded: dict[int, int] = {}   # Last pulses sent or read back; camera bearings use the neck.
         self.talking_neck: int | None = None  # Gaze anchor for the current reply's talking lanes.
         self.microphone_moved_until = 0.       # Channel 7 carries the microphone array.
+        self.energized_channels: tuple[int, ...] = ()  # Channels that were off at start.
 
     def start(self) -> None:
         with self._lock:
@@ -76,9 +78,7 @@ class ServoOwner:
             self.state = 'starting'
             try:
                 self._bus = Maestro(self.open_port())
-                # Read-only startup. Zero/partial readback cannot locate a cold joint.
-                readback = self._bus.positions(LIMITS)
-                validate_pose(readback)
+                readback = self._energize_unpowered(self._bus.positions(LIMITS))
                 self.commanded = dict(readback)
                 self.state = 'ready'
             except Exception:
@@ -86,6 +86,28 @@ class ServoOwner:
                 if self._bus:
                     self._bus.close()
                 raise
+
+    def _energize_unpowered(self, readback: dict[int, int]) -> dict[int, int]:
+        """Hold channels that read 0 (off since power-up) where they hang unpowered.
+
+        After the robot is switched off every servo is limp at its unpowered rest
+        pose, so the first pulse each gets is that pose ("stay where you are"), as
+        V2 did. Live readings are kept; a live out-of-range reading still rejects
+        before anything is written.
+        """
+        self.energized_channels = tuple(sorted(ch for ch, value in readback.items() if value == 0))
+        if not self.energized_channels:
+            validate_pose(readback)
+            return readback
+        rest = dict(UNPOWERED_REST)
+        targets = {ch: rest[ch] for ch in self.energized_channels}
+        if set(targets).intersection(THROTTLE):   # The arm moves as one three-channel batch.
+            targets.update({ch: readback[ch] or rest[ch] for ch in THROTTLE})
+        pose = {**readback, **targets}
+        validate_pose(pose)
+        self._bus.profiles({ch: (10, 2) for ch in self.energized_channels})
+        self._bus.targets(targets)
+        return pose
 
     def cancel(self) -> None:
         self._cancel.set()

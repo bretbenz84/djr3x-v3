@@ -6,8 +6,6 @@ from unittest.mock import patch
 
 from r3x.contracts import Cancellation, Cancelled, ProviderFailure
 from r3x.hardware_ownership import HardwareLocks, ControllerHandoff, CompanionResource, serial_port_free
-from r3x.operator_cli import commission_rest
-from r3x.adapters.maestro import Maestro
 from tests.test_servos import PulsePort, Clock
 
 
@@ -116,17 +114,6 @@ class OwnershipTests(unittest.TestCase):
         with patch('r3x.hardware_ownership.subprocess.run',return_value=SimpleNamespace(returncode=1,stdout='',stderr='permission denied')):
             with self.assertRaises(ProviderFailure): serial_port_free('/dev/cu.synthetic')
 
-    def test_cold_rest_confirmation_never_overwrites_live_or_partial_pulses(self):
-        port = PulsePort()
-        bus = Maestro(port)
-        for confirmed in (False,True):
-            with self.assertRaises(ValueError): commission_rest(bus,confirmed=confirmed)
-        self.assertEqual(port.targets,[])
-        port.pose = {ch:0 for ch in port.pose}
-        result = commission_rest(bus,confirmed=True)
-        self.assertEqual(result['status'],'rest_pulses_commanded')
-        self.assertEqual(port.pose[4],6300)
-        self.assertEqual(port.pose[1],2600)
 
 class LegacyCooperationTests(unittest.TestCase):
     def test_registered_supervisor_yields_and_reacquires_after_controller_exit(self):

@@ -6,7 +6,7 @@ import unittest
 
 from r3x.contracts import Cancellation, Playback, ProviderFailure
 from r3x.output import Delivery, OutputOwner
-from r3x.servo_poses import HEAD_PARK, PARK, REST, FULL_DOWN, TUCK
+from r3x.servo_poses import HEAD_PARK, PARK, REST, FULL_DOWN, TUCK, UNPOWERED_REST
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 
 
@@ -93,8 +93,22 @@ class ServoTests(unittest.TestCase):
         self.assertEqual(self.execute('talking').status, 'rejected')
         self.assertEqual(len(self.port.targets), count)
 
-    def test_zero_or_partial_cold_pose_never_assumes_old_park(self):
-        self.port.pose[8] = 0
+    def test_powered_off_robot_holds_unpowered_rest_then_wakes(self):
+        self.port.pose = {ch: 0 for ch in self.port.pose}
+        self.owner.start()
+        self.assertEqual(self.owner.energized_channels, tuple(range(11)))
+        self.assertEqual(self.port.pose, dict(UNPOWERED_REST))
+        self.assertEqual(self.owner.commanded, dict(UNPOWERED_REST))
+        self.assertEqual(self.execute().status, 'pulses_reached')
+
+    def test_partly_off_arm_keeps_live_joints_where_they_are(self):
+        self.port.pose.update({8: 0, 9: 9000})
+        self.owner.start()
+        self.assertEqual(self.owner.energized_channels, (8,))
+        self.assertEqual({ch: self.port.pose[ch] for ch in (8, 9, 10)}, {8: 9088, 9: 9000, 10: 2048})
+
+    def test_live_out_of_range_reading_rejects_without_writing(self):
+        self.port.pose.update({0: 0, 4: 100})
         with self.assertRaises(ValueError): self.owner.start()
         self.assertTrue(self.port.closed)
         self.assertEqual(self.port.targets, [])

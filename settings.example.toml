@@ -73,8 +73,8 @@ weather_longitude = -121.4944
 # Selective OpenAI image comparisons; PNG photos and JSON catalog are ordinary
 # files under local/visual-memory/. This upload choice is separate from scenes.
 object_memory_enabled = false
-# Optional physical servos. Empty by default; requires operator handoff and
-# commissioned nonzero readback before live startup. No port auto-detection.
+# Optional physical servos. Empty by default; requires operator handoff. Servos off
+# after a power-down are held at their unpowered rest first. No port auto-detection.
 servo_port = ""
 
 # Optional LED boards: each empty value disables that zone. Explicit /dev/cu.*

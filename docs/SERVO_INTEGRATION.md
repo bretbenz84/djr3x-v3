@@ -74,12 +74,16 @@ shoulder 2176–9088, elbow/wrist 2048–9984. Park is 9088/9984/2048.
 Maestro readback describes generated pulses, **not shaft feedback or obstruction
 detection**. Receipts say `pulses_reached`, with the simulation/controller medium
 and evidence type explicit. Timeouts cannot prove where the physical mechanism is.
-Unknown/zero or partial cold-start pulse state is rejected without a target write.
-No V2 park marker is copied or trusted. `operator servo-commission --confirm-rest`
-is an explicit one-time initializer for **all-zero outputs only**, after the operator
-physically verifies every joint at the documented rest pose. It applies bounded
-profiles before first pulses and saves no persistent pose-truth marker. It cannot
-infer where an unpowered mechanism is. Live commissioning remains required.
+A channel reading 0 is off since power-up (the robot was switched off). As in V2,
+startup first holds each such channel at its unpowered rest pose (`UNPOWERED_REST`:
+head park, arms at rest, throttle park) with bounded profiles, then runs the normal
+wake choreography; the trace records `servo_unpowered_rest`. Live channels keep
+their readings (a partly-off throttle arm is sent as one batch with its live joints
+unchanged). A live reading outside the calibrated limits still rejects startup
+before any write. No V2 park marker is copied or trusted. The Maestro jumps to the
+first pulse after power-up, so a joint not hanging at rest snaps there, as in V2.
+This replaced the manual `servo-commission` command (September 28), which blocked
+every start after a power-off.
 
 The serial opener uses exclusive access and 100-ms read/write timeouts, with no
 discovery or reconnect. Optional operator dependencies are in `requirements-robot.txt`
