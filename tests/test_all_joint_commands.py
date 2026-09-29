@@ -37,13 +37,13 @@ class JointCommands(MemoryFixture):
         return owner.execute(ServoRequest('test',owner.version,kind,self.clock()+120,pose=pose),Cancellation())
 
     def test_head_command_moves_before_acknowledgment_and_holds_through_speech(self):
-        self.setup_robot(ToolCall('p','set_robot_pose',{'pose':'head_right','text':'Turning right.'}))
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_right'],'look_after':None,'text':'Looking right.'}))
         class Sink(SyntheticSink):
             def play(inner,*args):
                 self.assertEqual(self.port.pose[0],8000)
                 return super().play(*args)
         self.output.sink=Sink()
-        self.assertEqual(self.turn('Turn your head right.').status,'completed')
+        self.assertEqual(self.turn('Look to your right.').status,'completed')
         self.assertEqual(self.execute('talking').status,'pulses_reached')
         self.assertEqual(self.port.pose[0],8000)
         self.assertEqual(self.brain.calls,1)
@@ -105,3 +105,60 @@ class JointCommands(MemoryFixture):
         self.robot.close()
         self.assertTrue(self.port.closed)
         self.assertEqual(self.port.pose[0],5472)
+
+
+class ChainedPoseCommands(MemoryFixture):
+    """Live September 28: "look to your right and then down" moved only the neck, and
+    "look down and tell me what you see" answered from the old view. The model chains
+    steps from the wording; each step keeps the other head axis."""
+    setup_robot, turn = JointCommands.setup_robot, JointCommands.turn
+
+    def rows(self, event):
+        return [r for r in self.state.trace.rows if r['event'] == event]
+
+    def test_spoken_sequence_runs_every_step_in_order_before_the_acknowledgment(self):
+        from r3x.servo_poses import HEAD_DOWN, NECK_LEFT, NECK_RIGHT
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_right','look_left','look_up','look_down'],
+                                                        'look_after':None,'text':'Looking around.'}))
+        result = self.turn('Look right, then left, then up, then down.')
+        self.assertEqual(result.completed_text, ['Looking around.'])
+        self.assertEqual([r['pose'] for r in self.rows('robot_pose_result')], ['look_right','look_left','look_up','look_down'])
+        neck = [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,0))]
+        self.assertLess(neck.index(NECK_RIGHT), neck.index(NECK_LEFT))
+        self.assertEqual(self.port.pose[0], NECK_LEFT)            # The later up/down kept the side.
+        self.assertEqual({ch:self.port.pose[ch] for ch,_ in HEAD_DOWN}, dict(HEAD_DOWN))
+        events = [r['event'] for r in self.state.trace.rows]
+        self.assertLess(max(i for i,e in enumerate(events) if e=='robot_pose_result'), events.index('phrase_completed'))
+
+    def test_unknown_step_rejects_the_whole_sequence_before_motion(self):
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_right','somersault'],'look_after':None,'text':'Done.'}))
+        before = len(self.port.targets)
+        self.assertNotEqual(self.turn('Look right and do a somersault.').completed_text, ['Done.'])
+        self.assertFalse(self.rows('robot_pose_result'))
+        self.assertEqual(len(self.port.targets), before)
+
+    def test_wave_sweeps_the_hand_and_returns_the_arm_without_holding_it(self):
+        from r3x.servo_poses import LIMITS
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['wave'],'look_after':None,'text':'Hello there!'}))
+        start = {ch:self.port.pose[ch] for ch in (4,5,7)}
+        self.assertEqual(self.turn('Can you wave your hand?').completed_text, ['Hello there!'])
+        wrist = [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,5))]
+        self.assertGreaterEqual(wrist.count(LIMITS[5][1]), 4)
+        self.assertGreaterEqual(wrist.count(LIMITS[5][0]), 4)
+        self.assertIn(4800, [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,7))])
+        self.assertEqual({ch:self.port.pose[ch] for ch in (4,5,7)}, start)
+        self.assertFalse(self.robot.owner.held_channels & {4,5,7})
+
+    def test_look_after_answers_from_a_frame_taken_after_the_head_moved(self):
+        from r3x.inspection import CurrentView
+        from tests.test_drive_session import DriveBrain, FakeScene
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_down'],'look_after':'What is on the floor?','text':None}))
+        self.brain = self.session.brain = DriveBrain(self.brain.text, 'A dog toy and a sock.')
+        view = CurrentView(FakeScene(self.clock), clock=self.clock); view.start()
+        self.output.inspection = view
+        self.state.trace.clock = self.clock
+        result = self.turn('Look down and tell me what you see.')
+        self.assertEqual(result.completed_text, ['A dog toy and a sock.'])
+        followup = self.brain.snapshots[-1]
+        self.assertTrue(followup.images)
+        self.assertGreaterEqual(followup.context['inspection']['captured_at'], self.rows('robot_pose_result')[-1]['at'])

@@ -177,3 +177,18 @@ voiced, non-echo speech in the resuming utterance. Brief sounds still become the
 turns and still mark activity for lull timing. Two new synthetic checks cover the
 session contract and the runtime frame path; live behaviour with a real interruption
 remains to be confirmed.
+
+### September 28 (second run): replies to untrusted audio
+
+Session `af692e206e1e4716a86936530266b9c8`, with a TV in the next room. The prompt already
+said never to reply to untrusted transcripts, but Rex answered "Oh.", "Yeah.", "I don't
+want to see you cry." and "Emma." ("Which one is Emma?"), often in two sentences each
+about lag. An untrusted transcript now stays in history without a model call or reply,
+unless a trusted human turn was yielded before Rex spoke; then the model is called once
+to answer that owed question. Replies were still yielded to sustained audio: Bret
+repeating himself during an 8 s photo-memory turn, and a 9 s TV stretch (transcribed as
+"Wow." x256, untrusted). Sustained trusted-sounding TV speech ("Moving closer and
+tracking.") is still treated as a person; separating it needs speaker/direction work.
+The "Max" save used the stably detected dog, which Rex had just called Toby; the other
+dog was detected in only a few frames. The saved record was not changed. Synthetic checks
+only; no hardware or hosted model was run for this repair.

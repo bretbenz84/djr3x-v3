@@ -215,7 +215,7 @@ class ServoOwner:
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))
             self.version += 1
-            if request.kind == 'pose' and request.pose != 'release_poses':
+            if request.kind == 'pose' and request.pose not in ('release_poses','wave'):  # dict poses too
                 self.held_channels.update(ch for lane in lanes for beat in lane for ch, _ in beat.targets)
             if request.kind == 'base_park':
                 # Talking/idle lanes skip held channels while the base drives.

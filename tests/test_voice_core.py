@@ -65,12 +65,32 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(self.session.process_turn(capture, transcript, revision).status, "rejected")
         self.assertEqual(self.brain.calls, 0)
 
-    def test_low_trust_can_converse_without_identity_or_writes(self):
+    def test_low_trust_is_kept_but_not_answered_without_identity_or_writes(self):
+        # Live September 28: Rex answered TV fragments heard as "Emma." and "Oh.".
         self.setup_core()
         result = self.session.process_turn(self.capture, Transcript("That's Jeff Benziger.", -.8, False), 0)
-        self.assertEqual(result.status, "completed")
-        self.assertEqual(self.brain.snapshots[0].speaker, "unresolved")
+        self.assertEqual(result.status, "suppressed")
+        self.assertEqual(self.brain.calls, 0)
+        self.assertIn({'role':'user','content':"That's Jeff Benziger."}, self.session.history)
+        self.assertTrue(any(r["event"] == "untrusted_not_answered" for r in self.trace.rows))
         self.assertFalse(any(r["event"] == "write" for r in self.trace.rows))
+
+    def test_low_trust_after_yielded_question_still_gets_the_owed_answer(self):
+        outer = self
+        class ResumingBrain(Brain):
+            def reply(self, snapshot, cancel):
+                self.calls += 1
+                if self.calls == 1: outer.session.note_speech(100.)
+                yield 'Max is the dog on the left.'
+        self.setup_core(brain=ResumingBrain())
+        self.assertEqual(self.turn('Which dog is Max?').status, 'interrupted')
+        self.capture = replace(self.capture, capture_id='noise', started_at=100., speech_ended_at=100.2, ended_at=101.4)
+        result = self.session.process_turn(self.capture, Transcript('Oh.', -.6, False), 0)
+        self.assertEqual(result.status, 'completed')
+        self.assertEqual(result.completed_text, ['Max is the dog on the left.'])
+        self.capture = replace(self.capture, capture_id='later', started_at=110., speech_ended_at=110.2, ended_at=111.4)
+        self.assertEqual(self.session.process_turn(self.capture, Transcript('Emma.', -.7, False), 0).status, 'suppressed')
+        self.assertEqual(self.brain.calls, 2)  # Owed once, not after it was answered.
 
     def test_empty_and_failed_tts_cannot_complete_or_enter_history(self):
         class BadTTS:

@@ -113,8 +113,11 @@ class CoreState:
         if call.name == 'set_robot_joints':
             from .servo_poses import joint_targets
             return joint_targets(call.arguments['positions'])
-        if call.arguments['pose'] not in POSE_COMMANDS: raise ValueError('UnknownRobotPose')
-        return call.arguments['pose']
+        poses = call.arguments['poses']
+        if not poses or any(p not in POSE_COMMANDS for p in poses): raise ValueError('UnknownRobotPose')
+        if call.arguments['look_after'] is not None and not context.get('inspection_enabled'):
+            raise ValueError('InspectionUnavailable')
+        return tuple(poses)
 
     def propose_drive(self, call, context, cancel):
         """Validate a model-selected base plan against offered targets and limits.

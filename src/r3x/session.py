@@ -53,6 +53,7 @@ class Session:
             state.conversation_intent.clear("new_session")
         self._latest_speech = float("-inf")
         self._resumed_speech = float("-inf")  # Latest sustained speech; only this yields.
+        self._owed_reply = False  # A trusted human turn was yielded before Rex spoke.
         self._capture_end = float("inf")
         self.proactive_hold_until = float("-inf")
         self.last_interaction_at = float("-inf")
@@ -283,6 +284,14 @@ class Session:
                 if self._resumed_speech > self._capture_end:
                     cancel.event.set()
                 cancel.check()
+            if not opportunity and not transcript.trusted and not self._owed_reply:
+                # The prompt already said never to reply to untrusted words; live September 28
+                # Rex still answered "Emma.", "Oh." and TV lines four times. The words stay in
+                # history; only the model call and any reply are skipped. A yielded human
+                # question still gets its answer on the next turn.
+                delivery.status, delivery.medium = 'suppressed', 'none'
+                self.trace.emit('untrusted_not_answered', turn_id=turn_id, capture_id=capture.capture_id)
+                return delivery
             if self.state and not self.state.frozen and (getattr(self.output, 'attention', None) is not None or getattr(self.output, 'gestures', None) is not None or getattr(self.output,'inspection',None) is not None):
                 with self._lock:
                     cancel.check()
@@ -730,16 +739,60 @@ class Session:
                     expected_revision = result.revision
                     previous_guard = cancel.guard
                     cancel.guard = lambda: (previous_guard is None or previous_guard()) and not self.state.frozen and self.state.store.revision==expected_revision
-                    receipt = self.output.execute_pose(pose,cancel,turn_id+':'+call.call_id)
-                    self.trace.emit('robot_pose_result',turn_id=turn_id,pose=pose,**asdict(receipt))
-                    self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps({'pose':pose,**asdict(receipt)})})
-                    cancel.check()
+                    # The model chains steps from the request's wording; each runs once
+                    # the previous one's pulses arrive, and the first failure stops the rest.
+                    for index, step in enumerate(pose if isinstance(pose, tuple) else (pose,)):
+                        suffix = f':{index}' if isinstance(pose, tuple) and len(pose) > 1 else ''
+                        receipt = self.output.execute_pose(step,cancel,turn_id+':'+call.call_id+suffix)
+                        self.trace.emit('robot_pose_result',turn_id=turn_id,pose=step,**asdict(receipt))
+                        self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps({'pose':step,**asdict(receipt)})})
+                        cancel.check()
+                        if receipt.status != 'pulses_reached':
+                            break
+                    look_question = call.arguments.get('look_after')
                     if receipt.status != 'pulses_reached':
                         put_phrase(phrases,"I couldn't complete that movement.",cancel)
                     elif call.arguments['text'] is not None:
                         put_phrase(phrases,call.arguments['text'],cancel)
-                    else:
+                    elif not look_question:
                         delivery.status,delivery.medium='suppressed','none'
+                    if receipt.status == 'pulses_reached' and look_question:
+                        # September 28: "look down and tell me what you see" was answered from
+                        # the old view, then a head move was made with nothing said at all.
+                        from .inspection import InspectionRequest
+                        with self._lock:
+                            self.state.attention.scene.invalidate(self.trace.clock())
+                            look = InspectionRequest(turn_id+':'+call.call_id+':look','current',look_question,
+                                self.state.attention.scene.view_epoch,self.trace.clock(),captured_after=receipt.at+.3)
+                        data, images = self.output.execute_inspection(look,cancel,lambda: True)
+                        data = {**data,'question':look_question,'source_turn_id':context.get('source_turn_id'),'after_poses':list(pose)}
+                        self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
+                        with self._lock:self.state.actions.observed(data)
+                        self.history.append({'role':'developer','content':'Inspection after moving: '+json.dumps(data)})
+                        continuation = (*call.preamble,
+                            {'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
+                            {'type':'function_call_output','call_id':call.call_id,'output':json.dumps({'poses':'pulses_reached','inspection':data})})
+                        messages = (*self.history_messages(), {'role':'developer','content':
+                            'Answer the look question from the new frame in one or two short sentences. '
+                            'Do not repeat the movement acknowledgment.'})
+                        followup = Snapshot(self.session_id,turn_id,self.revision,messages,snapshot.speaker,
+                            {**{k:v for k,v in context.items() if k!='scene_description'},'inspection':data,
+                             'inspection_description_allowed':bool(images)},bool(images),continuation,images)
+                        self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='pose_look_continuation',
+                                        image_count=len(images),reasoning_effort=getattr(self.brain,'reasoning_effort',None))
+                        delivery.status, delivery.medium = 'requested', 'audio'
+                        look_calls = generate(followup)
+                        if look_calls:
+                            if len(look_calls)!=1 or not images or look_calls[0].name!='describe_view':
+                                raise ProviderFailure('ToolContinuationLimit')
+                            with self._lock:
+                                cancel.check()
+                                model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
+                                self.state.save_visual(look_calls[0],followup.context,self.session_id,model,cancel)
+                            visual_selected = data['request_id']
+                            if look_calls[0].arguments['text'] is not None:
+                                visual_proposed_text = look_calls[0].arguments['text']
+                                put_phrase(phrases,visual_proposed_text,cancel)
                 elif result.outcome=='ok' and call.name=='animate_lights':
                     from .leds import LightPerformance
                     expected_revision = result.revision
@@ -909,6 +962,11 @@ class Session:
                 if delivery.status not in {"completed","suppressed"}:
                     self.history.append({"role": "developer", "content":
                         "The last reply was interrupted or failed. Only completed phrases above are known delivered; any partial phrase is unknown."})
+            if not opportunity and delivery.status != 'rejected':
+                if delivery.completed_text or delivery.status in {'completed','suppressed'}:
+                    self._owed_reply = False
+                elif transcript.trusted and delivery.status == "interrupted" and delivery.first_audio_at is None:
+                    self._owed_reply = True
             if not opportunity and delivery.status == "interrupted" and delivery.first_audio_at is None and self._resumed_speech > source_end:
                 self.history.append({"role":"developer","content":
                     "Rex yielded without speaking because microphone speech resumed after source turn " + turn_id +

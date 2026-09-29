@@ -892,3 +892,18 @@ held throttle poses exclude this lane until release. No new dependency/settings.
 Synthetic contracts cover varying poses, pulse limits, held-arm exclusion, release,
 speech preemption and park. Live motion feel/clearance and idle cadence remain
 unverified for this change; 588 blocked-I/O checks pass including spoken exit.
+
+## September 28: requested wave
+
+Source HEAD `fb96f086925841479952c649b0a39a8f6c77f70c`; `sequences/animations.py` and `config.py` are clean.
+Inspected `sequences/animations.py` SHA-256: `35bd2751ca9ec4a5f6ecb0d1b0a1a32445aca87a57d985c2bca72e4c1b3f8653`. No V2 files were changed.
+Preserve `wave_back_gesture`: hero arm to 4800 with elbow 6300 and wrist 6000 at raise
+speed/acceleration 55/14, then four full-travel wrist sweeps at the auto speed for a
+0.32-second swing (`WAVE_BACK_WRIST_HALF_PERIOD_SECS`), then return to the prior pose.
+
+V3 runs it as a one-shot `wave` step of `set_robot_pose` inside the sole servo owner,
+using v3's calibrated wrist limits; nothing is held afterwards. Adaptations: the elbow
+bob is omitted (one speed per beat), and unlimited acceleration becomes 255 because v3
+rejects unbounded profiles. No camera wave detection, sound effect, cooldowns or settings
+were copied. Synthetic contracts cover the sweep, return and no hold; live speed,
+amplitude and clearance remain unverified. 747 blocked-I/O checks pass.

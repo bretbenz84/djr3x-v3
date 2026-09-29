@@ -301,24 +301,43 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
     return lanes
 
 
-# Explicit look requests (September 28). head_left mirrors head_right about the centre:
+# Explicit look requests (September 28). look_left mirrors look_right about the centre:
 # the startup scan's 4000 is only ~19 degrees, less than a 20% joint request, so a
 # "look left" after one visibly swung right. Down/up use lift (smaller pulse lowers)
 # and tilt (higher pulse looks lower), as idle_head does; level is the drive stance.
 # A request for "down" through head_lift 30% raised the head above level (3600).
+# Named look_* (not head_*) because the model announced "head_right" as "Turning right."
+# Side and up/down are separate steps the model chains; each keeps the other axis.
 NECK_LEFT, NECK_RIGHT = 2 * NECK_CENTER - 8000, 8000
 HEAD_DOWN, HEAD_UP = ((1, 3200), (2, 5300)), ((1, 4200), (2, 4000))
 NAMED_POSES = {
-    'head_left': ((0,NECK_LEFT),), 'head_right': ((0,NECK_RIGHT),), 'head_center': ((0,NECK_CENTER),),
-    'head_down': HEAD_DOWN, 'head_up': HEAD_UP, 'head_level': DRIVE_HEAD,
-    'head_down_left': ((0,NECK_LEFT),*HEAD_DOWN), 'head_down_right': ((0,NECK_RIGHT),*HEAD_DOWN),
-    'head_up_left': ((0,NECK_LEFT),*HEAD_UP), 'head_up_right': ((0,NECK_RIGHT),*HEAD_UP),
+    'look_left': ((0,NECK_LEFT),), 'look_right': ((0,NECK_RIGHT),), 'look_center': ((0,NECK_CENTER),),
+    'look_down': HEAD_DOWN, 'look_up': HEAD_UP, 'look_level': DRIVE_HEAD,
     'visor_down': ((3,4544),), 'visor_up': ((3,6400),),
     'throttle_offer': ((8,2176),(9,2601),(10,5938)),
     'throttle_high_five': ((8,2176),(9,9361),(10,6302)),
     'throttle_down': FULL_DOWN, 'throttle_rest': REST,
 }
-POSE_COMMANDS = (*NAMED_POSES, 'release_poses')
+# One-shot gestures run and return to where they started; nothing is held afterwards.
+GESTURES = ('wave',)
+POSE_COMMANDS = (*NAMED_POSES, *GESTURES, 'release_poses')
+
+
+def wave_lanes(current):
+    """V2 wave-back (sequences/animations.py, fb96f08): the hero arm presents the hand
+    (7 -> 4800, elbow 6300) and the wrist sweeps its full travel four times at V2's
+    auto speed for a 0.32 s swing, then the arm returns to where it was. V2's elbow bob
+    is omitted: a beat has one speed, and at the wrist's speed the elbow would snap.
+    V2 ran the sweeps at unlimited acceleration; v3 profiles are bounded, so 255."""
+    start = tuple((ch, current[ch]) for ch in (4, 5, 7))
+    swing = round((LIMITS[5][1] - LIMITS[5][0]) / (.32 * 100))
+    lane = [Beat(((7,4800),(4,6300),(5,6000)), speed=55, acceleration=14)]
+    for _ in range(4):
+        lane += [Beat(((5,LIMITS[5][1]),), speed=swing, acceleration=255),
+                 Beat(((5,LIMITS[5][0]),), speed=swing, acceleration=255)]
+    lane += [Beat(((5,6000),), speed=swing, acceleration=255, dwell=.16),
+             Beat(start, speed=40, acceleration=8)]
+    return (tuple(lane),)
 
 
 def pose_lanes(name, current):
@@ -327,6 +346,8 @@ def pose_lanes(name, current):
         if set(target).intersection(THROTTLE):
             target = {**{ch: current[ch] for ch in THROTTLE}, **target}
         validate_pose(target)
+    elif name == 'wave':
+        return wave_lanes(current)
     elif name == 'release_poses':
         # Resume from rest, so the next speech loop has a valid clearance route.
         target = dict(REST)

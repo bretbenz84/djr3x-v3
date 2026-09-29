@@ -90,7 +90,7 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 ## Check
 
 ```sh
-.venv/bin/python tools/run_checks.py                      # 742 blocked-I/O contract checks
+.venv/bin/python tools/run_checks.py                      # 747 blocked-I/O contract checks
 .venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
 .venv/bin/python -m r3x replay local/dataset/manifest.json
 .venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl

@@ -398,10 +398,12 @@ class OpenAIBrain(HTTPProvider):
             notes.append('\nUse visual_novelty to distinguish stored observations, selected-but-unheard remarks and actual heard remarks. A new conversational angle should connect to the people or their current activity; rewording an inventory is still repetition. An unmentioned detail need not become speech. Corrections revise old interpretations rather than proving the scene changed.')
         if snapshot.context.get('robot_pose_enabled'):
             notes.append('\nRobot motion: You can physically move all eleven servos using set_robot_pose or set_robot_joints. '
-                '"Look left/right/up/down" moves the head with set_robot_pose (head_left, head_down_left, head_level...), never the wheels; "turn left/right" or "turn around" drives the base. Do not substitute a camera inspection. '
+                '"Look left/right/up/down" moves the head with set_robot_pose, chaining steps as the request needs, never the wheels; '
+                '"turn left/right" or "turn around" drives the base. To look somewhere and say what is there, use one set_robot_pose '
+                'with look_after instead of describing the old view. '
                 'robot_pose_state.held_parts reports controller holds that persist across turns and speech. '
                 'An explicit request to resume normal motion, stop holding a pose, or relax after a pose requires '
-                'set_robot_pose with pose release_poses. Execute the tool even when phrased as permission ("you can resume now"). '
+                'set_robot_pose with poses ["release_poses"]. Execute the tool even when phrased as permission ("you can resume now"). '
                 'Never claim movement resumed using ordinary prose alone. The tool may include a short acknowledgment '
                 'in text, which is spoken only after execution succeeds. Other physical pose requests likewise require the tool.')
         if snapshot.context.get('drive') and not snapshot.continuation:

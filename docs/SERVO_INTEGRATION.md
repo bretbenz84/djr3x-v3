@@ -325,11 +325,32 @@ Session `7db71dda77e2445ea7daff18f4e8fb49`: "look down and to your left" became
 "Look to your left" then chose `head_left` (4000, about 19 degrees) and was spoken as
 "Turning left." Because 4000 is right of the earlier 3379, the head swung back right.
 
-`set_robot_pose` now offers `head_down`, `head_up`, `head_level` and the combinations
-`head_down_left/right`, `head_up_left/right`. Down/up use idle_head's conventions (lower
-lift, higher tilt looks down) at 3200/5300 and 4200/4000; level is the drive stance.
-Neck-only and vertical-only poses keep the other axis. `head_left` now mirrors `head_right`
-about NECK_CENTER (2944, about 33 degrees); the startup scan keeps 4000. Tool text says
-"look" requests are head poses, never drive_base, and are spoken as looking, not turning.
-742 blocked-I/O checks pass with synthetic serial. The new down/up pulse values and the
-wider left are unverified on the robot: confirm the look is visible and clear of the body.
+Look poses (renamed `look_*` below) now include down, up and level. Down/up use
+idle_head's conventions (lower lift, higher tilt looks down) at 3200/5300 and 4200/4000;
+level is the drive stance. `look_left` mirrors `look_right` about NECK_CENTER (2944,
+about 33 degrees); the startup scan keeps 4000. The new down/up values and the wider left
+are unverified on the robot: confirm the look is visible and clear of the body.
+
+### September 28 (second run): chained steps, wave, look then describe
+
+Session `af692e206e1e4716a86936530266b9c8`: "look to your right and then down" ran only
+`head_right`, spoken "Turning right."; "can you wave your hand?" had no wave, so Rex held
+out the throttle hand; "look down and tell me what you see" was first answered from the
+old view, then repeated, moving the head with nothing said.
+
+`set_robot_pose` now takes `poses`, an ordered list of 1-6 steps the conversation model
+composes from the request ("look right, then left, then up, then down" is four steps).
+Fixed combined poses were removed: side steps keep up/down and vice versa, so chaining
+covers them. Steps run in order after each arrives; the first failure stops the rest and
+Rex says the movement did not complete. Poses are named `look_*` so the model describes
+them as looking; the wheels remain drive_base. `look_after` takes a fresh camera frame
+0.3 s after the last step and makes one bounded continuation call to answer it.
+
+`wave` extracts V2's wave-back (`sequences/animations.py` at fb96f08, clean tree): hero
+arm to 4800 and elbow to 6300, the wrist sweeps its full calibrated travel four times at
+V2's auto speed for a 0.32 s swing, then channels 4/5/7 return to where they started.
+Nothing is held. Changes: V2's in-sync elbow bob is omitted (one speed per beat) and
+V2's unlimited acceleration becomes 255, since v3 rejects unbounded profiles. Moving
+channel 7 moves the microphone array, so bearings are invalidated as for any arm move.
+747 blocked-I/O checks pass with synthetic serial and a fake camera. Live wave speed,
+visible sweep amplitude, arm clearance and the model's step choices remain unverified.
