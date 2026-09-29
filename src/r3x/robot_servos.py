@@ -6,6 +6,7 @@ from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
+from .voice_reflex import VoiceReflex
 
 
 class RobotServos:
@@ -17,7 +18,11 @@ class RobotServos:
         self.owner = ServoOwner(open_port or (lambda:open_serial(port)),medium='controller',clock=clock)
         self.idle = IdleMotion(self.owner)
         self.talking = TalkingMotion(self.owner)
-        self.talking.before_start = self.idle.stop
+        self.reflex = VoiceReflex(self.owner)
+        def quiet():
+            self.idle.stop()
+            self.reflex.stop()
+        self.talking.before_start = quiet
         self.trace = None
         self.wait = wait
         self.closed = False
@@ -50,17 +55,20 @@ class RobotServos:
 
     def cancel(self):
         self.idle.close()
+        self.reflex.close()
         self.talking.cancel()
         self.owner.cancel()
 
     def before_frame(self, *, allow_idle=False, capturing=False):
-        self.idle.trace = self.trace
+        self.idle.trace = self.reflex.trace = self.trace
         self.idle.tick(allow_idle and self.talking._thread is None)
-        if not capturing and self.talking._thread is None and self.idle._thread is None:
+        if (not capturing and self.talking._thread is None and self.idle._thread is None and
+                not (self.reflex._thread and self.reflex._thread.is_alive())):
             self.owner.refresh_microphone_hold()
 
     def execute_pose(self, name, cancel, request_id):
         self.idle.stop()
+        self.reflex.stop()   # The model's explicit move replaces an unfinished reflex.
         self.talking.stop()
         return self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
             self.owner.clock()+60,pose=name),cancel)
@@ -68,6 +76,7 @@ class RobotServos:
     def prepare_base_motion(self, cancel):
         """Park the throttle arm and center the neck before any non-reverse base motion."""
         self.idle.stop()
+        self.reflex.stop()
         self.talking.stop()
         if self._arm_return is not None:
             self._arm_return.join(15.)
@@ -109,6 +118,7 @@ class RobotServos:
         if self.closed:
             return
         self.idle.close()
+        self.reflex.close()
         self.talking.stop()  # Failure retains ownership; no close under a worker.
         if self._arm_return is not None:
             self._arm_return.join(15.)

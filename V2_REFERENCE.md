@@ -902,8 +902,7 @@ speed/acceleration 55/14, then four full-travel wrist sweeps at the auto speed f
 0.32-second swing (`WAVE_BACK_WRIST_HALF_PERIOD_SECS`), then return to the prior pose.
 
 V3 runs it as a one-shot `wave` step of `set_robot_pose` inside the sole servo owner,
-using v3's calibrated wrist limits; nothing is held afterwards. Adaptations: the elbow
-bob is omitted (one speed per beat), and unlimited acceleration becomes 255 because v3
-rejects unbounded profiles. No camera wave detection, sound effect, cooldowns or settings
+using v3's calibrated wrist limits and V2's unlimited (0) sweep acceleration; nothing is
+held afterwards. Adaptation: the elbow bob is omitted (one speed per beat). No camera wave detection, sound effect, cooldowns or settings
 were copied. Synthetic contracts cover the sweep, return and no hold; live speed,
-amplitude and clearance remain unverified. 747 blocked-I/O checks pass.
+amplitude and clearance remain unverified. 753 blocked-I/O checks pass.

@@ -14,7 +14,7 @@ from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles, base_lanes,
-                          talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, NAMED_POSES,
+                          talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
                           UNPOWERED_REST)
 
 BASE_HELD = frozenset({0, 1, 2, 4, 6, *THROTTLE})   # Neck, head, hero elbow, poker arm, throttle.
@@ -201,7 +201,7 @@ class ServoOwner:
             if (request.version != self.version or not request.request_id or
                     not math.isfinite(request.expires_at) or self.clock() >= request.expires_at):
                 return receipt('rejected', 'StaleServoRequest')
-            if request.kind in {'talking','idle','pose','base_park','base_release'} and self.state != 'active':
+            if request.kind in {'talking','idle','pose','reflex','base_park','base_release'} and self.state != 'active':
                 return receipt('rejected', {'idle':'IdleRequiresCompletedStartup','talking':'TalkingRequiresCompletedStartup','pose':'PoseRequiresCompletedStartup'}.get(request.kind,'BaseMotionRequiresCompletedStartup'))
             if request.kind == 'startup' and self.state != 'ready':
                 return receipt('rejected', 'StartupAlreadyConsumed')
@@ -212,6 +212,7 @@ class ServoOwner:
             lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels, self.talking_neck) if request.kind == 'talking' else
                      idle_lanes(current,self.rng,self.held_channels,request.face_neck) if request.kind == 'idle' else
                      pose_lanes(request.pose,current) if request.kind == 'pose' else
+                     reflex_lanes(request.pose) if request.kind == 'reflex' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))
             self.version += 1
@@ -295,7 +296,7 @@ class ServoOwner:
             if accepted:
                 try:
                     self._hold(touched)
-                    self.state = 'active' if request.kind in {'talking','idle','pose','base_park','base_release'} else 'stopped'
+                    self.state = 'active' if request.kind in {'talking','idle','pose','reflex','base_park','base_release'} else 'stopped'
                 except Exception:
                     self.state = 'faulted'
                     return receipt('failed', 'ServoCancelHoldFailed')

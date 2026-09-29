@@ -423,3 +423,41 @@ class ListeningTests(unittest.TestCase):
         self.assertEqual(result.status, 'interrupted')
         self.assertEqual(self.brain.calls, 0)
         self.assertIn({'role':'user','content':'We are going to'}, self.session.history)
+
+
+class VoiceReflexRuntimeTests(unittest.TestCase):
+    def test_reflex_fires_once_per_utterance_from_its_first_clear_bearing(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        trace = Trace(); faced = []
+        session = Session("session", Brain(), OutputOwner(SyntheticTTS(), SyntheticSink(), trace), trace)
+        self.addCleanup(session.close)
+        labels = [True]*30 + [False]*50 + [True]*30 + [False]*50
+        frames = [Frame(bytes(1024), 200+i*.032, 200+(i+1)*.032) for i in range(len(labels))]
+        class Mic:
+            dropped = status_errors = 0
+            def read(inner):
+                if not frames: runtime.stop.set(); return None
+                return frames.pop(0)
+            def cancel(inner): pass
+        class VAD:
+            def reset(inner): pass
+            def is_speech(inner, pcm): return labels.pop(0)
+        class ASR:
+            def transcribe(inner, *args): return Transcript('Hi Rex.', -.01, True)
+        class Direction:
+            def during(inner, start, end):
+                return {'status': 'observed' if end-start > .5 else 'unavailable', 'bearing_deg': 25.}
+        class Robot:
+            reflex = SimpleNamespace(face=lambda bearing: faced.append(bearing) or 'started', stop=lambda: None)
+            idle = SimpleNamespace(stop=lambda: None)
+            owner = SimpleNamespace(release_microphone_hold=lambda: None)
+            def note_speech(inner): pass
+            def before_frame(inner, **kw): pass
+            def capture_held(inner, capture): return False
+        perception = SimpleNamespace(direction=Direction(), camera=None,
+                                     analyze_many=lambda capture, cancel: (None,))
+        runtime = VoiceRuntime(Mic(), VAD(), ASR(), session, trace, perception=perception, robot=Robot())
+        with patch('sys.stdin.isatty', return_value=False):
+            runtime.run()
+        self.assertEqual(faced, [25., 25.])   # One turn per utterance, none per frame.

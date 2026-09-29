@@ -1,4 +1,5 @@
 """Production joint/tool contracts with fake serial, PCM and scripted model choices."""
+import unittest
 from r3x.contracts import Cancellation, Capture, Transcript, ToolCall
 from r3x.servo_poses import JOINTS, LIMITS, THROTTLE, joint_targets
 from r3x.servos import ServoRequest
@@ -162,3 +163,76 @@ class ChainedPoseCommands(MemoryFixture):
         followup = self.brain.snapshots[-1]
         self.assertTrue(followup.images)
         self.assertGreaterEqual(followup.context['inspection']['captured_at'], self.rows('robot_pose_result')[-1]['at'])
+
+    def test_mixed_head_arm_and_light_steps_run_in_the_order_asked(self):
+        # "Look left then right then up then down then hold your hand out and blink your eyes."
+        from r3x.servo_poses import HEAD_DOWN, NAMED_POSES
+        from tests.test_leds import rig
+        steps = ['look_left','look_right','look_up','look_down','throttle_offer','blink']
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':steps,'look_after':None,'text':'Ta-da.'}))
+        led, ports, _ = rig()
+        led.clock = self.state.trace.clock
+        led.wait = lambda n: setattr(self.state.trace,'at',self.state.trace.at+n)
+        self.addCleanup(led.close)
+        self.output.leds = led
+        context = grounded_tools({'source_turn_id':'t','robot_pose_enabled':True,'led_enabled':True,'led_patterns':['blink','happy']})
+        offered = next(t for t in context if t['name']=='set_robot_pose')['parameters']['properties']['poses']['items']['enum']
+        self.assertIn('blink', offered); self.assertNotIn('lights_angry', offered)
+        result = self.turn('Look left then right then up then down then hold your hand out and blink your eyes.')
+        self.assertEqual(result.completed_text, ['Ta-da.'])
+        self.assertEqual([r['pose'] for r in self.rows('robot_pose_result')], steps[:5])
+        self.assertEqual([l['pattern'] for l in result.lights if l['request_id'].endswith(':5')], ['blink'])
+        self.assertEqual(ports['head'].commands.count('EYE:0,0,0'), 3)
+        self.assertEqual({ch:self.port.pose[ch] for ch,_ in HEAD_DOWN}, dict(HEAD_DOWN))
+        self.assertEqual({ch:self.port.pose[ch] for ch,_ in NAMED_POSES['throttle_offer']}, dict(NAMED_POSES['throttle_offer']))
+
+    def test_step_count_is_not_capped(self):
+        steps = ['look_left','look_right']*6
+        validate('set_robot_pose', {'poses':steps,'look_after':None,'text':None})
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':steps,'look_after':None,'text':'Done.'}))
+        self.assertEqual(self.turn('Look left and right six times.').completed_text, ['Done.'])
+        self.assertEqual(len(self.rows('robot_pose_result')), 12)
+
+
+class VoiceReflexTests(unittest.TestCase):
+    """Owner request September 28: face a voice from the front before the model acts."""
+    def setUp(self):
+        from r3x.voice_reflex import voice_neck
+        self.voice_neck = voice_neck
+        self.clock, self.port = Clock(), PulsePort()
+        self.robot = RobotServos('fake', open_port=lambda:self.port, clock=self.clock, wait=self.clock.wait)
+        self.robot.owner.wait = self.clock.wait
+        self.robot.start()
+        self.addCleanup(self.robot.close)
+        self.moves = []
+        self.robot.reflex.on_head_move = lambda: self.moves.append(self.clock())
+
+    def settle(self):
+        self.robot.reflex._thread.join(5)
+
+    def test_front_left_voice_turns_the_neck_to_face_it(self):
+        from r3x.drive_space import NECK_CENTER
+        self.assertEqual(self.robot.reflex.face(25.), 'started'); self.settle()
+        self.assertEqual(self.port.pose[0], self.voice_neck(25.))
+        self.assertLess(self.port.pose[0], NECK_CENTER)            # Low pulse is Rex's left.
+        self.assertEqual(len(self.moves), 1)                        # Camera told it re-framed.
+        self.assertFalse(self.robot.owner.held_channels & {0})      # A reflex holds nothing.
+        self.assertEqual(self.robot.reflex.face(27.), 'already_facing')
+        self.assertEqual(self.robot.reflex.face(-60.), 'started'); self.settle()
+        self.assertEqual(self.port.pose[0], self.voice_neck(-60.))
+
+    def test_voice_behind_or_an_explicit_held_look_does_not_move_the_head(self):
+        before = self.port.pose[0]
+        self.assertEqual(self.robot.reflex.face(-142.), 'behind')   # The TV in the other room.
+        from r3x.contracts import Cancellation
+        self.assertEqual(self.robot.execute_pose('look_right', Cancellation(), 'look').status, 'pulses_reached')
+        held = self.port.pose[0]
+        self.assertEqual(self.robot.reflex.face(25.), 'neck_held')
+        self.assertEqual(self.port.pose[0], held)
+        self.assertNotEqual(before, held)
+
+    def test_model_move_replaces_an_unfinished_reflex_instead_of_failing_busy(self):
+        from r3x.contracts import Cancellation
+        self.assertEqual(self.robot.reflex.face(40.), 'started')
+        receipt = self.robot.execute_pose('look_up', Cancellation(), 'up')
+        self.assertEqual(receipt.status, 'pulses_reached')

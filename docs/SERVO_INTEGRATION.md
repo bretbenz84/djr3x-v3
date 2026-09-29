@@ -338,7 +338,7 @@ Session `af692e206e1e4716a86936530266b9c8`: "look to your right and then down" r
 out the throttle hand; "look down and tell me what you see" was first answered from the
 old view, then repeated, moving the head with nothing said.
 
-`set_robot_pose` now takes `poses`, an ordered list of 1-6 steps the conversation model
+`set_robot_pose` now takes `poses`, an ordered list of steps the conversation model
 composes from the request ("look right, then left, then up, then down" is four steps).
 Fixed combined poses were removed: side steps keep up/down and vice versa, so chaining
 covers them. Steps run in order after each arrives; the first failure stops the rest and
@@ -349,8 +349,31 @@ them as looking; the wheels remain drive_base. `look_after` takes a fresh camera
 `wave` extracts V2's wave-back (`sequences/animations.py` at fb96f08, clean tree): hero
 arm to 4800 and elbow to 6300, the wrist sweeps its full calibrated travel four times at
 V2's auto speed for a 0.32 s swing, then channels 4/5/7 return to where they started.
-Nothing is held. Changes: V2's in-sync elbow bob is omitted (one speed per beat) and
-V2's unlimited acceleration becomes 255, since v3 rejects unbounded profiles. Moving
+Nothing is held. V2's in-sync elbow bob is omitted (one speed per beat). Moving
 channel 7 moves the microphone array, so bearings are invalidated as for any arm move.
-747 blocked-I/O checks pass with synthetic serial and a fake camera. Live wave speed,
+Synthetic serial and a fake camera cover these contracts. Live wave speed,
 visible sweep amplitude, arm clearance and the model's step choices remain unverified.
+
+### September 28 (owner requests): no caps, mixed sequences, voice reflex
+
+The owner does not want caps on motion commands. A step list has no maximum length, and
+the Maestro adapter now accepts speed/acceleration 0 (the board's own "no limit") when
+choreography chooses it; the wave's wrist sweeps use it, as V2 did. Existing profiles are
+unchanged. Calibrated pulse limits and throttle clearance checks remain.
+
+Steps may mix moves and lights in order: `blink` (three eye blinks) and `lights_<pattern>`
+(about 2.5 s of an LED animation) run through the LED owner between servo steps, only
+when that pattern is available. "Look left then right then up then down then hold your
+hand out and blink your eyes" is one call of six steps and one model generation.
+
+Voice reflex (`voice_reflex.py`): once an utterance has 0.3 s of voiced, non-echo speech
+and the array reports one dominant bearing (3+ strong samples), the neck turns to face it
+at speed 60/acceleration 15 before recognition or any model call. Only the front half
+(within 90 degrees) moves the head; bearings beyond the neck's travel turn it fully to
+that side. It fires once per utterance, holds nothing, re-frames the camera like an idle
+glance, and yields to an explicit held neck pose. A model move, base motion or talking
+stops an unfinished reflex instead of failing busy. It assumes array forward is body
+forward, as drive already does. In session af692e20 Bret's clear bearings were 13-39
+degrees left and the TV's -142, so the TV would not have turned the head. Neck noise
+during the utterance is flagged as motion (lower voice confidence, not discarded).
+Synthetic checks only; live latency, aim and feel are unverified.

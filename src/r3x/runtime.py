@@ -12,6 +12,10 @@ from .session import is_stop_command
 # Voiced time within one utterance before it yields an unheard reply. Live September 28:
 # every phantom "Oh."/"Okay." noise capture had <= 0.48 s voiced; real speech >= 0.64 s.
 YIELD_VOICED_SECONDS = .5
+# Voiced time before the head-turn reflex looks up the voice's direction. The
+# direction must still be clear (3+ strong samples, one dominant beam), which the
+# single-frame noises heard as "Oh." rarely were.
+REFLEX_VOICED_SECONDS = .3
 
 class VoiceRuntime:
     def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None):
@@ -41,6 +45,7 @@ class VoiceRuntime:
     def cancel(self):
         if self.robot:
             self.robot.idle.stop()
+            self.robot.reflex.stop()
             self.robot.owner.release_microphone_hold()
         with self.control_lock:
             self.cancel_before = self.trace.clock()
@@ -297,6 +302,8 @@ class VoiceRuntime:
         previous_end = None
         previous_echo = False
         vad_fresh_at = None
+        direction = getattr(self.perception, 'direction', None)
+        reflexed = False
         next_resources = 0.
         next_visual = 0.
         # Nonblocking terminal input is polled alongside frames; no orphan stdin worker.
@@ -373,7 +380,18 @@ class VoiceRuntime:
                     # the capture still becomes a turn, and a spoken stop still halts.
                     voiced = (self.endpoint.voiced if self.endpoint.frames else 0.) + frame.ended_at - frame.started_at
                     self.session.note_speech(frame.ended_at, sustained=voiced >= YIELD_VOICED_SECONDS)
+                    if self.robot and direction and not reflexed and voiced >= REFLEX_VOICED_SECONDS:
+                        began = self.endpoint.frames[0].started_at if self.endpoint.frames else frame.started_at
+                        evidence = direction.during(began, frame.ended_at)
+                        if evidence['status'] == 'observed':
+                            reflexed = True   # Once per utterance, from its first clear bearing.
+                            outcome = self.robot.reflex.face(evidence['bearing_deg'])
+                            if outcome != 'started':
+                                self.trace.emit('voice_reflex_skipped', reason=outcome,
+                                                bearing_deg=round(evidence['bearing_deg'], 1))
                 capture = self.endpoint.push(frame, speech)
+                if not self.endpoint.frames:
+                    reflexed = False
                 if capture:
                     capture = replace(capture,device=getattr(self.mic,"source_device",getattr(self.mic,"device_name","configured_microphone")))
                     if self.robot:

@@ -741,29 +741,40 @@ class Session:
                     cancel.guard = lambda: (previous_guard is None or previous_guard()) and not self.state.frozen and self.state.store.revision==expected_revision
                     # The model chains steps from the request's wording; each runs once
                     # the previous one's pulses arrive, and the first failure stops the rest.
+                    from .leds import LIGHT_STEPS, LightPerformance, LightRequest
+                    moved, last_at = True, self.trace.clock()
                     for index, step in enumerate(pose if isinstance(pose, tuple) else (pose,)):
                         suffix = f':{index}' if isinstance(pose, tuple) and len(pose) > 1 else ''
-                        receipt = self.output.execute_pose(step,cancel,turn_id+':'+call.call_id+suffix)
-                        self.trace.emit('robot_pose_result',turn_id=turn_id,pose=step,**asdict(receipt))
-                        self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps({'pose':step,**asdict(receipt)})})
+                        if isinstance(step, str) and step in LIGHT_STEPS:
+                            # Lights run in sequence with the moves; the LED owner reports commands sent.
+                            leds = self.output.leds
+                            light = LightRequest(turn_id+':'+call.call_id+suffix,LIGHT_STEPS[step],2.5,
+                                                 self.trace.clock()+30,leds.version)
+                            self.output._light_demo(LightPerformance(light,None,'before_speech',lambda: True),cancel,delivery,turn_id)
+                            moved = bool(delivery.lights) and delivery.lights[-1]['status']=='commands_sent'
+                        else:
+                            receipt = self.output.execute_pose(step,cancel,turn_id+':'+call.call_id+suffix)
+                            self.trace.emit('robot_pose_result',turn_id=turn_id,pose=step,**asdict(receipt))
+                            self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps({'pose':step,**asdict(receipt)})})
+                            moved, last_at = receipt.status == 'pulses_reached', receipt.at
                         cancel.check()
-                        if receipt.status != 'pulses_reached':
+                        if not moved:
                             break
                     look_question = call.arguments.get('look_after')
-                    if receipt.status != 'pulses_reached':
+                    if not moved:
                         put_phrase(phrases,"I couldn't complete that movement.",cancel)
                     elif call.arguments['text'] is not None:
                         put_phrase(phrases,call.arguments['text'],cancel)
                     elif not look_question:
                         delivery.status,delivery.medium='suppressed','none'
-                    if receipt.status == 'pulses_reached' and look_question:
+                    if moved and look_question:
                         # September 28: "look down and tell me what you see" was answered from
                         # the old view, then a head move was made with nothing said at all.
                         from .inspection import InspectionRequest
                         with self._lock:
                             self.state.attention.scene.invalidate(self.trace.clock())
                             look = InspectionRequest(turn_id+':'+call.call_id+':look','current',look_question,
-                                self.state.attention.scene.view_epoch,self.trace.clock(),captured_after=receipt.at+.3)
+                                self.state.attention.scene.view_epoch,self.trace.clock(),captured_after=last_at+.3)
                         data, images = self.output.execute_inspection(look,cancel,lambda: True)
                         data = {**data,'question':look_question,'source_turn_id':context.get('source_turn_id'),'after_poses':list(pose)}
                         self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))

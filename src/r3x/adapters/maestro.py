@@ -46,8 +46,10 @@ class Maestro:
 
     def profiles(self, profiles: dict[int, tuple[int, int]]) -> None:
         for ch, (speed, acceleration) in profiles.items():
-            if not 1 <= speed <= 16383 or not 1 <= acceleration <= 255:
-                raise ValueError('UnboundedServoProfile')
+            # 0 is the Maestro's own "no limit" (owner, September 28: no caps on motion
+            # commands). Choreography chooses it explicitly, as V2's wave did.
+            if not 0 <= speed <= 16383 or not 0 <= acceleration <= 255:
+                raise ValueError('InvalidServoProfile')
             self._value(0x89, ch, acceleration)
             self._value(0x87, ch, speed)
 

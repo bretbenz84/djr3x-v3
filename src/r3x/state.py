@@ -113,8 +113,11 @@ class CoreState:
         if call.name == 'set_robot_joints':
             from .servo_poses import joint_targets
             return joint_targets(call.arguments['positions'])
+        from .leds import LIGHT_STEPS
         poses = call.arguments['poses']
-        if not poses or any(p not in POSE_COMMANDS for p in poses): raise ValueError('UnknownRobotPose')
+        if not poses or any(p not in POSE_COMMANDS and p not in LIGHT_STEPS for p in poses): raise ValueError('UnknownRobotPose')
+        if any(p in LIGHT_STEPS and not (context.get('led_enabled') and LIGHT_STEPS[p] in context.get('led_patterns',()))
+               for p in poses): raise ValueError('LEDPatternUnavailable')
         if call.arguments['look_after'] is not None and not context.get('inspection_enabled'):
             raise ValueError('InspectionUnavailable')
         return tuple(poses)

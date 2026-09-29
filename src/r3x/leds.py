@@ -14,6 +14,8 @@ from .providers import Capability
 COLORS = {'neutral':(0,180,255), 'happy':(0,255,100), 'excited':(255,200,0),
           'sad':(0,50,200), 'angry':(255,0,0), 'curious':(180,0,255)}
 PATTERNS = (*COLORS, 'compliment', 'blink')
+# Light steps a requested movement sequence may include, e.g. "... and blink your eyes".
+LIGHT_STEPS = {'blink': 'blink', **{'lights_'+p: p for p in PATTERNS if p != 'blink'}}
 
 
 @dataclass(frozen=True)

@@ -328,16 +328,23 @@ def wave_lanes(current):
     (7 -> 4800, elbow 6300) and the wrist sweeps its full travel four times at V2's
     auto speed for a 0.32 s swing, then the arm returns to where it was. V2's elbow bob
     is omitted: a beat has one speed, and at the wrist's speed the elbow would snap.
-    V2 ran the sweeps at unlimited acceleration; v3 profiles are bounded, so 255."""
+    Sweeps use V2's unlimited acceleration (0)."""
     start = tuple((ch, current[ch]) for ch in (4, 5, 7))
     swing = round((LIMITS[5][1] - LIMITS[5][0]) / (.32 * 100))
     lane = [Beat(((7,4800),(4,6300),(5,6000)), speed=55, acceleration=14)]
     for _ in range(4):
-        lane += [Beat(((5,LIMITS[5][1]),), speed=swing, acceleration=255),
-                 Beat(((5,LIMITS[5][0]),), speed=swing, acceleration=255)]
-    lane += [Beat(((5,6000),), speed=swing, acceleration=255, dwell=.16),
+        lane += [Beat(((5,LIMITS[5][1]),), speed=swing, acceleration=0),
+                 Beat(((5,LIMITS[5][0]),), speed=swing, acceleration=0)]
+    lane += [Beat(((5,6000),), speed=swing, acceleration=0, dwell=.16),
              Beat(start, speed=40, acceleration=8)]
     return (tuple(lane),)
+
+
+def reflex_lanes(target):
+    """Voice reflex: the neck alone, quicker than an idle glance, nothing held."""
+    if set(target) != {0}: raise ValueError('ReflexMovesNeckOnly')
+    validate_pose(target)
+    return ((Beat(((0, target[0]),), speed=60, acceleration=15),),)
 
 
 def pose_lanes(name, current):

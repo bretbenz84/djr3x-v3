@@ -326,7 +326,8 @@ class App:
                                        drive=output.drive)
                 if self.robot:
                     # An idle head look re-frames the room like a base turn: not an arrival.
-                    self.robot.idle.on_head_move = lambda: runtime.arrivals.note_base_motion(trace.clock())
+                    self.robot.idle.on_head_move = self.robot.reflex.on_head_move = (
+                        lambda: runtime.arrivals.note_base_motion(trace.clock()))
                 if output.drive:
                     output.drive.on_motion.append(lambda plan: runtime.arrivals.note_base_motion(
                         trace.clock(), allow_new=bool(plan and plan.allow_new_arrivals)))
