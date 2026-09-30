@@ -57,6 +57,8 @@ class Session:
         self._capture_end = float("inf")
         self.proactive_hold_until = float("-inf")
         self.last_interaction_at = float("-inf")
+        self.last_trusted_speech_at = float("-inf")
+        self.resolved_audio_at = float("-inf")
         self.route_planner = None  # Optional blocked-path drive planner; never speaks.
         self.motion_committed = False  # Wheels were handed a plan in the current turn.
 
@@ -221,6 +223,8 @@ class Session:
                 self.trace.emit("turn", turn_id=turn_id, capture_id=capture.capture_id, parent_capture_id=capture.parent_capture_id,
                             original_text=transcript.text, avg_logprob=transcript.avg_logprob,
                             trusted=transcript.trusted, speaker="unresolved", revision=self.revision)
+            if not opportunity:
+                self.resolved_audio_at = max(self.resolved_audio_at, source_end)
             if not opportunity and (capture.echo_risk or not transcript.text.strip()):
                 delivery.status = "rejected"
                 self.trace.emit("turn_rejected", turn_id=turn_id,
@@ -231,7 +235,6 @@ class Session:
                 self.cancel()
                 delivery.status = "interrupted"
                 return delivery
-            self.history.begin_turn()
             context = {}
             if self.state:
                 with self._lock:
@@ -252,8 +255,23 @@ class Session:
                 delivery.status = "observed"  # Frozen acoustic replay through the same state path.
                 delivery.medium = "none"
                 return delivery
+            if not opportunity and transcript.trusted:
+                self.last_trusted_speech_at = max(self.last_trusted_speech_at, speech_end)
+            if not opportunity and not transcript.trusted and not self._owed_reply:
+                # Preserve the source in the trace/store, not as a conversational turn.
+                # Rejected audio cannot displace real dialogue or postpone the next lull.
+                delivery.status, delivery.medium = 'suppressed', 'none'
+                self.trace.emit('untrusted_not_answered', turn_id=turn_id, capture_id=capture.capture_id)
+                return delivery
+            self.history.begin_turn()
             if opportunity:
                 import json
+                last_reply = next((m['content'] for m in reversed(self.history_messages())
+                                   if m.get('role') == 'assistant' and isinstance(m.get('content'), str)), None)
+                context['conversation_continuity'] = {
+                    'last_completed_reply': last_reply,
+                    'new_human_utterance': False,
+                }
                 evidence = {"kind":opportunity.kind,"event_id":opportunity.event_id,
                             "quiet_seconds":opportunity.quiet_seconds,
                             "source_turn_id":opportunity.source_turn_id,
@@ -284,14 +302,6 @@ class Session:
                 if self._resumed_speech > self._capture_end:
                     cancel.event.set()
                 cancel.check()
-            if not opportunity and not transcript.trusted and not self._owed_reply:
-                # The prompt already said never to reply to untrusted words; live September 28
-                # Rex still answered "Emma.", "Oh." and TV lines four times. The words stay in
-                # history; only the model call and any reply are skipped. A yielded human
-                # question still gets its answer on the next turn.
-                delivery.status, delivery.medium = 'suppressed', 'none'
-                self.trace.emit('untrusted_not_answered', turn_id=turn_id, capture_id=capture.capture_id)
-                return delivery
             if self.state and not self.state.frozen and (getattr(self.output, 'attention', None) is not None or getattr(self.output, 'gestures', None) is not None or getattr(self.output,'inspection',None) is not None):
                 with self._lock:
                     cancel.check()
@@ -428,7 +438,15 @@ class Session:
                     if call.arguments.get('intent_update') is not None or call.name == 'respond_with_intent':
                         refresh_current_view(context)
                         if intent_audience(context) != request_audience:
-                            raise ProviderFailure('IntentAudienceChanged')
+                            if (call.name != 'respond_with_intent' or
+                                    (call.arguments.get('intent_update') or {}).get('memory_ids')):
+                                raise ProviderFailure('IntentAudienceChanged')
+                            # Optional planning has no authority to withhold an ordinary reply.
+                            # Do not transplant the old audience's intention to the new view.
+                            from dataclasses import replace
+                            call = replace(call, arguments={**call.arguments, 'intent_update': None})
+                            self.trace.emit('conversation_intent_rejected', source_id=turn_id,
+                                reason='IntentAudienceChanged', operation='continued_without_intent')
                     if call.name == 'describe_view':
                         from .contracts import ToolResult
                         model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
@@ -485,7 +503,8 @@ class Session:
                         result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel,context=context)
                     if result.outcome!='ok' and (opportunity or call.arguments.get('intent_update') is not None or call.name=='respond_with_intent'):
                         raise ProviderFailure(result.reason)
-                    if result.outcome=='ok' and call.arguments.get('intent_update') is not None and latest_faces:
+                    if (result.outcome=='ok' and call.arguments.get('intent_update') is not None and latest_faces
+                            and (call.name != 'respond_with_intent' or call.arguments['intent_update'].get('memory_ids'))):
                         previous_guard = cancel.guard
                         intent_bound = (call.name in {'ask_face_question','use_memory_opportunity'}
                             or bool(call.arguments['intent_update'].get('memory_ids')))
@@ -938,6 +957,22 @@ class Session:
                                     reasoning_effort=getattr(self.brain,"reasoning_effort",None))
                     if generate(followup):
                         raise ProviderFailure("ToolContinuationLimit")
+                    if not generated.strip():
+                        # Recover an empty tool-result answer once, without re-executing
+                        # the tool or adding another call to ordinary streamed replies.
+                        from dataclasses import replace
+                        recovery = replace(followup, messages=(*followup.messages, {
+                            'role':'developer', 'content':
+                            'Your tool-result response contained no final speech. The operation has already '
+                            'finished; do not repeat it. Give a brief final_answer to the human now using '
+                            'the actual result. A rejected memory write does not prevent discussing what '
+                            'they said. Never claim an unsuccessful save succeeded.'}))
+                        self.trace.emit('model_request', turn_id=turn_id, primary_calls=0,
+                            purpose='empty_tool_reply_recovery')
+                        if generate(recovery):
+                            raise ProviderFailure('ToolContinuationLimit')
+                        if not generated.strip():
+                            raise ProviderFailure('EmptyToolContinuation')
             self.trace.emit("model_completed", turn_id=turn_id, original_text=generated)
             tail = splitter.finish()
             if tail:
@@ -1063,7 +1098,7 @@ class Session:
                 "opportunity_to_first_audio": audio_at - source_end if audio_at is not None and opportunity else None,
                 "total": self.trace.clock() - began,
             })
-            if state_started:
+            if state_started and (opportunity or transcript.trusted or delivery.completed_text):
                 self.last_interaction_at = self.trace.clock()
                 if not opportunity and delivery.status=='completed': self.proactive_hold_until = float('-inf')
             if opportunity_attempted:

@@ -349,6 +349,11 @@ speaker, motor or personal database was opened. No new resident model was added.
 
 ## Follow-up implementation: continuing lulls
 
+September 29 repair supersedes the plan-required restriction below: ordinary
+trusted conversation can receive spaced follow-ups when no intention exists or
+camera changes suspended it. The old intention is not automatically reactivated.
+Current behavior and verification: [engagement repair](LIVE_RUN_CONVERSATION_REPAIRS.md#september-29-engagement-repair).
+
 The user subsequently requested that proactive conversation actually use the plan
 when a visitor stops talking, rather than stop after one lull contribution. The
 runtime now reoffers the same conversation owner an opportunity while a plan is

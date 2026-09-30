@@ -434,14 +434,15 @@ grief and explicit boundaries. Tiredness or a short answer does not mechanically
 set an energy mode. History retains each source's speaker uncertainty; the lull
 does not invent a new speaker or turn someone's face into acoustic identity.
 
-The first lull remains eligible after eight seconds of quiet following a processed
-human turn. An active, audience-matched conversational intention now allows further
-opportunities without another human turn, including after an unanswered greeting.
+The first lull remains eligible after eight seconds of quiet following a trusted
+human turn. Further opportunities do not require an optional intention record.
+A camera-suspended intention also permits fresh consideration without reviving or
+exposing the old audience's note. An active, audience-matched intention additionally
+allows continuation after a greeting with no human turn.
 Reconsideration waits 8, 15, 30, then 60 seconds after successive same-source
 attempts finish (60 remains the ceiling). These are opportunities for the shared model to
 continue its plan, remain silent or finish it, never prewritten or mandatory speech.
-Absent an active plan, the one-lull-per-human-turn rule remains, with one recovery
-exception: an unheard lull cancelled by camera audience validation can be reconsidered
+An unheard lull cancelled by camera audience validation can also be reconsidered
 once, after at least eight seconds and within 30 seconds of cancellation. It uses
 fresh context; it does not replay the abandoned reply. New speech or explicit stop
 clears that retry, and all quiet/floor/pending-question and call-budget gates remain.
@@ -450,10 +451,17 @@ least eight seconds between proactive attempts and at most six attempts in a rol
 five-minute window across arrivals, lulls and ambient cues. Human turns do not reset the rolling cap.
 Arrivals retain their additional visit/cooldown rules. A floor-related silence decision or
 terminal stop retains the two-minute hold. Ordinary `no_response_needed` silence
-can retain an active intention for later reconsideration. Completed, abandoned,
-suspended, expired or audience-ineligible intentions do not reopen lulls. Attempts cancelled before generation
+can retain an active intention for later reconsideration. Completed, abandoned or
+explicitly suspended intentions do not authorize repeat plan lulls. Camera suspension
+does not silence ordinary ongoing conversation. Attempts cancelled before generation
 also consume pacing, preventing a failed freshness check from spinning every tick.
 This policy is provisional social calibration, not a verified ideal conversation rate.
+
+Rejected audio is archived in the source store and trace but does not replace the
+last trusted conversational source, consume model-history space or reset lull timing.
+Pending captures, recognition, recent unresolved microphone activity and speech still
+defer dispatch. The model receives its last completed reply explicitly at each lull;
+new wording or a new camera frame does not make a repeated premise novel.
 
 An explicit "stop starting conversations until I ask" can call `set_initiative`
 with `mode=quiet`, silently. It creates a session-wide quiet boundary that survives
@@ -668,8 +676,9 @@ Your existing supported profiles are preserved. See
 Normal camera-enabled operation now permits the greeting generation to retain a
 short intention for the visit, such as getting acquainted or an eligible check-in.
 Subsequent replies can revise it as the humans choose a topic. There is no new
-setting or planner call. An active intention permits spaced repeat lull opportunities as described above;
-it cannot force a remark or override quiet mode.
+setting or planner call. Intentions guide the content of spaced lull opportunities;
+ordinary ongoing conversation also receives them without an intention. Neither can
+force a remark or override quiet mode.
 
 Intentions reset on restart and are separate from names, voice/face profiles and
 personal memory. Changed audiences hide stale intention text; explicit stop and
@@ -692,8 +701,11 @@ Read actual conversation wording as well as structural outcomes. See the
 
 Presence-only camera freshness uses a shared 1.5-second window to accommodate the
 2 Hz face-analysis pipeline. Empty frames and true stale evidence still invalidate
-new audience-bound speech. General intention speech already audible can finish
-through a visual gap; targeted questions and private memory retain audience guards.
+new audience-bound speech. An optional intention note cannot withhold an ordinary
+direct reply: a changed audience drops the note, and general reply playback follows
+the ordinary speech path. Targeted questions and memory-bearing updates retain their
+pre-playback audience guards. Proactive speech still needs a valid audience; supported
+continuous recognized track replacements now preserve general arrival greetings too.
 See [latest-run repair evidence](LIVE_RUN_CONVERSATION_REPAIRS.md).
 
 September 20: proactive scheduling reads the latest camera cache before selecting

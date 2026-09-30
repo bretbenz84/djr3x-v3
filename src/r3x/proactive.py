@@ -61,14 +61,14 @@ class Initiative:
         return not self.quiet and not self.floor_held(now) and len(recent) < 6 and (
             not self.attempts or now-self.attempts[-1] >= 8)
 
-    def lull_due(self, now: float, source: str | None, active_intent: bool) -> bool:
-        """Reconsider an active visit without treating silence as a human response."""
+    def lull_due(self, now: float, source: str | None, continuing: bool) -> bool:
+        """Reconsider an ongoing conversation without requiring a planning tool."""
         if source is not None and source != self.lull_source:
             return True
         if (source == self.lull_source and now < self.lull_retry_until and
                 self.outcomes and now-self.outcomes[-1]['at'] >= 8):
             return True
-        if not active_intent:
+        if not continuing:
             return False
         delay = (8., 15., 30., 60.)[min(max(self.lull_attempts - 1, 0), 3)]
         last_finished = self.outcomes[-1]['at'] if self.outcomes else float('-inf')
@@ -257,6 +257,9 @@ class Arrivals:
         with self.lock:
             if event.kind == 'unseen_presence':
                 return True  # Radar prior; speech/queue/shutdown guards still apply.
+            if event.kind == 'visual_arrival' and not audience_bound and event.audience_key:
+                fresh = [f for f in self.faces if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE]
+                return bool(fresh) and len(fresh) == len(self.faces) and event.audience_key == self._audience_key
             if event.kind in {"conversation_lull","ambient"}:
                 keys = lambda faces: {(f['track_id'],f.get('identity'),f.get('face_epoch',0)) for f in faces}
                 fresh = [f for f in self.faces if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE]

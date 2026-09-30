@@ -1,5 +1,8 @@
 # Latest-run conversation repairs
 
+Current repair: [September 29 engagement](#september-29-engagement-repair).
+Earlier sections retain the evidence and policy at their dates.
+
 Inspected the latest live session, `local/sessions/16ef81c7b1e04255b0d10fcd7251d7cb.jsonl`.
 This run used real devices, but this repair work did not start any device. Personal
 logs and probe artifacts remain ignored under `local/`.
@@ -192,3 +195,68 @@ tracking.") is still treated as a person; separating it needs speaker/direction 
 The "Max" save used the stably detected dog, which Rex had just called Toby; the other
 dog was detected in only a few frames. The saved record was not changed. Synthetic checks
 only; no hardware or hosted model was run for this repair.
+
+## September 29 engagement repair
+
+Read-only review of the latest 811-second session found 13 proactive attempts:
+two completed, five model-selected silences and six interruptions. Two direct
+greetings were lost to intention/audience checks. A rejected memory write received
+an empty continuation. Twenty rejected transcripts also occupied conversation
+history and reset lull timing. The two completed proactive remarks reused a visual
+premise. These are distinct failures; changing the speaker model was not indicated
+by this evidence.
+
+Implemented through the existing state, Session, scheduler and output owners:
+
+- Untrusted input retains its original source archive and trace, but no longer
+  evicts dialogue, replaces the last trusted lull source or resets the lull clock.
+  The existing owed-answer recovery remains. Pending input and recognition still
+  prevent overlapping a human turn; unresolved activity has bounded quiet pacing.
+- Ongoing trusted conversation can reconsider lulls without an intention, or when
+  camera changes suspended it. Current audience validation, explicit quiet/floor
+  boundaries, pending questions, 8/15/30/60-second backoff and the shared six-call
+  rolling budget remain. No old intention is automatically reactivated or exposed
+  to a changed group. Model-selected JSON scheduling remains unimplemented.
+- A general direct reply is not withheld by its optional intention. Audience change
+  drops the note; targeted questions and memory-bearing updates retain validation.
+  General proactive arrival greetings accept the existing supported, spatially
+  continuous recognized-face track replacement. Actual group changes still reject.
+- Tool-result requests explicitly require a final spoken answer even on rejection.
+  An empty continuation gets one traced, tools-disabled recovery using the same
+  result, without re-executing the operation. A second empty answer fails explicitly.
+  Ordinary replies still use one primary generation.
+- Lull context explicitly includes the last completed reply. Prompt guidance asks
+  for substantive curiosity, distinct ideas rather than reworded jokes, an actual
+  change of subject when requested, and engagement rather than explanations of quiet.
+  The unanswered-question rule remains: one short aside, then wait for a change.
+
+**Verification: 765 blocked-I/O checks pass**, including nine new regressions for
+noise archival/history/timing, trusted short replies, unresolved capture, continuing
+lulls and the call cap, rejected-write recovery, bounded/cancelled recovery, targeted
+question rejection and recognized arrival continuity. Existing camera-suspension
+and ordinary-intention tests now assert the revised contracts. Temporary databases,
+fake clocks/providers and synthetic audio only; no devices were operated.
+
+`tools/check_engagement_repair.py` runs fictional dialogue through production Session
+and the idle scheduler, with a fixed simulation clock and synthetic playback.
+The final run made seven hosted calls: it changed subjects, advanced a different
+aspect of a discussion, continued after an invitation, did not repeat either
+unanswered question, honored quiet and answered a rejected save without claiming
+success. The human-floor case was withheld by the scheduler (not a hosted silence).
+No empty-response recovery was needed in this hosted run; that branch has synthetic
+contract coverage. Initial development probes exposed topic/question repetition and
+led to the revised prompt/context; these are development cases, not held-out scores.
+
+Final hosted usage: 84,701 input tokens (70,912 cached), 904 output tokens. Six timed
+cases had 1.80 s median / 2.35 s maximum wall time; the additional follow-up was not
+timed separately. These are hosted-plus-simulated-output times, not real first-audio
+latency or a reliable tail estimate. No local inference models were loaded; RSS,
+physical playback, acoustic accuracy and real-room engagement were not measured.
+Private receipts: `local/validation/engagement-761a64a5e2c645a8a4169d8e67abf6f4/`.
+
+Live acceptance remains: normal head movement during greetings; quiet intervals
+with motor noise; a personal disclosure whose memory write is ineligible; a requested
+topic change; and several minutes of voluntary conversation without repeated premises.
+Recognition-to-unknown face churn, trusted background TV speech, the rolling call cap
+and semantic variability can still affect a live run. No personal state was changed
+and no robot process was restarted during this repair.

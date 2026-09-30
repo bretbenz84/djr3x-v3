@@ -129,7 +129,9 @@ class AudienceRecoveryTests(MemoryFixture):
                 if gate=='queue':self.runtime.turns.put(object())
                 if gate=='budget':policy.attempts.extend([109,110,111,112,113])
                 self.runtime.proactive_tick()
-                self.assertEqual(self.session.brain.calls,0)
+                # After retry expiry, normal ongoing-conversation pacing can offer
+                # fresh consideration even without an optional intention record.
+                self.assertEqual(self.session.brain.calls,1 if gate=='expiry' else 0)
                 # The same fixture state is deliberately reused by this subtest.
                 policy.quiet=False;policy.feedback.clear();policy.attempts.clear()
                 policy.outcomes.clear();policy.lull_source=None;policy.lull_retry_used=False

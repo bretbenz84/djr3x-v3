@@ -71,7 +71,8 @@ class CoreTests(unittest.TestCase):
         result = self.session.process_turn(self.capture, Transcript("That's Jeff Benziger.", -.8, False), 0)
         self.assertEqual(result.status, "suppressed")
         self.assertEqual(self.brain.calls, 0)
-        self.assertIn({'role':'user','content':"That's Jeff Benziger."}, self.session.history)
+        self.assertNotIn({'role':'user','content':"That's Jeff Benziger."}, self.session.history)
+        self.assertTrue(any(r.get('original_text') == "That's Jeff Benziger." for r in self.trace.rows))
         self.assertTrue(any(r["event"] == "untrusted_not_answered" for r in self.trace.rows))
         self.assertFalse(any(r["event"] == "write" for r in self.trace.rows))
 

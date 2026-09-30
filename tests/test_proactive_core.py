@@ -59,7 +59,7 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.store.people(),[])
         self.assertEqual(self.store.claims(),[])
         self.assertEqual(self.store.rows('SELECT * FROM recordings'),[])
-        self.visible(170);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,2)
+        self.visible(170);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,3)
 
     def test_rolling_attempt_cap_does_not_reset_on_new_human_turns(self):
         self.setup_core()
@@ -402,12 +402,15 @@ class InitiativeCoreTests(MemoryFixture):
         self.visible(131);self.runtime.proactive_tick();self.assertEqual(ending.calls,1)
         self.visible(500);self.runtime.proactive_tick();self.assertEqual(ending.calls,1)
 
-    def test_suspended_or_changed_audience_plan_does_not_reopen_lull(self):
-        brain=self.start_plan_lull()
+    def test_camera_suspension_allows_fresh_conversation_without_reusing_old_plan(self):
+        self.start_plan_lull()
+        brain=Brain('A fresh thought for the current group.')
+        self.session.brain=brain
         self.visible(120,track='other');self.runtime.proactive_tick()
         self.assertEqual(brain.calls,1)
+        self.assertIsNone(brain.snapshots[-1].context['conversation_intent']['current'])
         self.assertEqual(self.state.conversation_intent.record.status,'suspended')
-        self.visible(140);self.runtime.proactive_tick();self.assertEqual(brain.calls,1)
+        self.visible(140);self.runtime.proactive_tick();self.assertEqual(brain.calls,2)
 
     def test_quiet_and_pending_question_block_repeated_plan_lulls(self):
         brain=self.start_plan_lull();self.state.initiative.quiet=True

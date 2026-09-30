@@ -21,6 +21,7 @@ class CoreState:
         self._restored = False
         self.pending = None
         self.current = None
+        self.conversation_source = None  # Last trusted input, separate from archived noise.
         self.forgotten = False
         self.frozen = frozen
         self.require_microphone_hold = require_microphone_hold
@@ -326,6 +327,8 @@ class CoreState:
                 (self.require_microphone_hold and capture.robot_microphone_hold is not True)):
             attribution = replace(attribution,learning_eligible=False)
         self.current = (turn_id,capture,transcript,observation,attribution)
+        if transcript.trusted and not capture.echo_risk:
+            self.conversation_source = turn_id
         self.faces = tuple(f for f in faces if f.get("face_epoch",0)>=self.min_face_epoch)
         faces = self.faces
         self.face_associations = {k:v for k,v in self.face_associations.items() if any(f["track_id"]==k for f in faces)}
@@ -385,7 +388,7 @@ class CoreState:
         if event.kind=='visual_arrival' and not any(f['track_id']==event.target_track for f in faces):
             raise ValueError('VisualTargetStale')
         if event.kind=='conversation_lull':
-            if event.source_turn_id != (self.current[0] if self.current else None):
+            if event.source_turn_id != self.conversation_source:
                 raise ValueError('StaleLullSource')
             if self.current is None:
                 from .conversation_intent import audience
@@ -409,7 +412,7 @@ class CoreState:
                                           'nobody_visible' if event.kind=='unseen_presence' else 'visible_group'},
                 **({'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
                                      'returning_this_session':event.returning,
-                                     'startup_greeting':event.speech_marker==float('-inf') and self.current is None
+                                     'startup_greeting':event.speech_marker==float('-inf') and self.conversation_source is None
                                          and not any(r['heard_complete_phrases'] for r in self.initiative.outcomes)}} if event.kind=='visual_arrival' else {}),
                 'speaker':{'person_id':None,'state':'unresolved','reason':'no_speech_observed'},
                 'faces':faces,'people':people,'claims':[],

@@ -149,7 +149,7 @@ class ConversationIntentTests(MemoryFixture):
         self.state.conversation_intent.refresh(old,[])
         self.assertEqual(self.state.conversation_intent.record.status,'suspended')
 
-    def test_new_audience_during_generation_rejects_before_commit(self):
+    def test_new_audience_drops_optional_note_but_preserves_ordinary_reply(self):
         self.greet();version=self.state.conversation_intent.revision
         current=[face(110)]
         class Changed(IntentBrain):
@@ -158,9 +158,10 @@ class ConversationIntentTests(MemoryFixture):
                 yield ToolCall('changed','respond_with_intent',dict(text='Hello',intent_update=proposal(snapshot.context)))
         self.session.brain=Changed()
         result=self.human('Tell me more.',latest_faces=lambda now:current)
-        self.assertEqual(result.error,'IntentAudienceChanged')
+        self.assertIsNone(result.error)
         self.assertEqual(self.state.conversation_intent.revision,version)
-        self.assertEqual(result.completed_text,[])
+        self.assertEqual(result.completed_text,['Hello'])
+        self.assertIn('IntentAudienceChanged',self.rejections())
 
     def test_invalid_plan_is_dropped_without_losing_the_boundary_or_reply(self):
         # An optional planning note must not cost the person their boundary or Rex's reply.
@@ -386,7 +387,7 @@ class ConversationIntentTests(MemoryFixture):
         self.state.frozen=True
         self.assertEqual(self.state.execute_opportunity(call,ctx,Cancellation()).reason,'FrozenEvaluationDisallowsMutation')
 
-    def test_tts_audience_change_cancels_ordinary_intent_reply(self):
+    def test_tts_audience_change_does_not_cancel_ordinary_intent_reply(self):
         self.greet();current=[face(110)]
         class Arriving:
             def synthesize(self,text,cancel):
@@ -396,9 +397,9 @@ class ConversationIntentTests(MemoryFixture):
         self.session.output=OutputOwner(Arriving(),SyntheticSink(),self.state.trace)
         self.session.brain=IntentBrain()
         result=self.human('Tell me something.',latest_faces=lambda now:current)
-        self.assertEqual(result.status,'interrupted')
-        self.assertEqual(result.completed_text,[])
-        self.assertFalse(self.state.conversation_intent.record.delivery['heard'])
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(result.completed_text,['Hello! Good to see you.'])
+        self.assertTrue(self.state.conversation_intent.record.delivery['heard'])
 
     def test_selected_visitor_departure_clears_even_when_bystander_stays(self):
         self.setup_session()

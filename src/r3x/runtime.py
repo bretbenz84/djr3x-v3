@@ -167,7 +167,10 @@ class VoiceRuntime:
             if (self.stop.is_set() or self.session.closed or now-self.started_at<8 or
                 not 0<=now-self.audio_seen_at<=.5 or self.asr_busy.is_set() or
                 not self.captures.empty() or not self.turns.empty() or
-                now-self.session._latest_speech<self.lull_seconds or now-self.session.last_interaction_at<self.lull_seconds or
+                bool(self.endpoint.frames) or
+                (self.session._latest_speech > self.session.resolved_audio_at and
+                 now-self.session._latest_speech < self.lull_seconds) or
+                now-self.session.last_trusted_speech_at<self.lull_seconds or now-self.session.last_interaction_at<self.lull_seconds or
                 now<self.session.proactive_hold_until): return
             initiative = self.session.state.initiative
             if not initiative.allowed(now): return
@@ -175,19 +178,22 @@ class VoiceRuntime:
             if pending and now-pending['delivered_at']<=120: return
             event = self.arrivals.take(self.session.session_id,now,self.session._latest_speech)
             if event is None:
-                current = self.session.state.current
-                source = current[0] if current else None
+                source = self.session.state.conversation_source
                 audience, audience_key = self.arrivals.audience_snapshot(now)
                 from .conversation_intent import audience as intent_audience
                 row = intentions.record
                 active_intent = (row is not None and row.status == 'active'
                     and row.audience == intent_audience({'faces': audience}))
-                if audience and self.session.history.turns and initiative.lull_due(now,source,active_intent):
+                # Camera loss can suspend optional planning, not the whole visit.
+                # Reconsider with fresh audience/context; never reactivate the old note here.
+                continuing = active_intent or (source is not None and
+                    (row is None or row.status == 'suspended' and row.reason == 'audience_changed_or_stale'))
+                if audience and self.session.history.turns and initiative.lull_due(now,source,continuing):
                     from .proactive import Opportunity
                     from uuid import uuid4
                     event = Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
                                         self.session._latest_speech,False,'conversation_lull',source,
-                                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at),
+                                        min(now-self.started_at,now-self.session.last_trusted_speech_at,now-self.session.last_interaction_at),
                                         audience_key=audience_key)
             cues=tuple(c for c in self.observations.candidates() if self.session.state.observation_available(c.public())) if self.observations else ()
             scene=self.scene_observer.snapshot() if self.scene_observer else None
@@ -198,10 +204,9 @@ class VoiceRuntime:
                 if audience:
                     from .proactive import Opportunity
                     from uuid import uuid4
-                    current=self.session.state.current
                     event=Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
-                        self.session._latest_speech,False,'ambient',current[0] if current else None,
-                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at),
+                        self.session._latest_speech,False,'ambient',self.session.state.conversation_source,
+                        min(now-self.started_at,now-self.session.last_trusted_speech_at,now-self.session.last_interaction_at),
                         audience_key=audience_key)
             if (event is None and self.drive is not None and self.drive.radar is not None and not self.arrivals.faces
                     and now-self.faces_seen_at>=5 and now-self.last_unseen>=90 and self.drive.availability(now)[0]):
@@ -210,10 +215,9 @@ class VoiceRuntime:
                 if bodies:
                     from .proactive import Opportunity
                     from uuid import uuid4
-                    current=self.session.state.current
                     event=Opportunity(uuid4().hex,self.session.session_id,now,None,None,(),
-                        self.session._latest_speech,False,'unseen_presence',current[0] if current else None,
-                        min(now-self.started_at,now-self.session._latest_speech,now-self.session.last_interaction_at))
+                        self.session._latest_speech,False,'unseen_presence',self.session.state.conversation_source,
+                        min(now-self.started_at,now-self.session.last_trusted_speech_at,now-self.session.last_interaction_at))
                     self.last_unseen=now
                     cues,scene=(),None
             if event is None:return
@@ -239,9 +243,7 @@ class VoiceRuntime:
             committed = self.session.motion_committed
             intent_audience_changed = (not committed and intention is not None and intention.source_id == event.event_id
                 and intention.audience != audience({'faces':self.arrivals.faces})
-                and (self.session._proactive_delivery is None or
-                     self.session._proactive_delivery.first_audio_at is None or
-                     self.session._audience_bound_output or bool(intention.memory_ids)))
+                and (self.session._audience_bound_output or bool(intention.memory_ids)))
             reason = ('intent_audience_changed' if intent_audience_changed else
                       'shutdown' if self.stop.is_set() else
                       'human_speech' if self.session._latest_speech!=event.speech_marker else
@@ -274,6 +276,7 @@ class VoiceRuntime:
                                 expires_at=initiative.lull_retry_until)
         self.trace.emit('proactive_opportunity_done',event_id=event.event_id,kind=event.kind,status=result.status,medium=result.medium,
                         delivered=bool(result.completed_text),failed=result.error)
+        return result
 
     def start_workers(self):
         def guarded(target):
