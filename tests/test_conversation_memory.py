@@ -95,11 +95,124 @@ class ConversationMemoryTests(MemoryFixture):
         self.assertEqual(cm.context(self.store,group,'new',self.clock)['recent_exchanges'],[])
         with self.assertRaises(ValueError):cm.recall(self.store,None,'new')
 
-    def test_uncertain_voice_is_not_saved_as_the_visible_person(self):
+    def test_uncertain_voice_is_saved_with_audience_without_certifying_speaker(self):
         from r3x.speakers import VoiceObservation
         self.setup_memory()
         self.turn(self.session('old'),'Uncertain words.',faces=[face(100,self.person)],voice=VoiceObservation(NS))
+        row = cm.recall(self.store,self.person,'new')['exchanges'][0]
+        self.assertEqual(row['human_text'],'Uncertain words.')
+        self.assertEqual(row['audience_person_id'],self.person)
+        self.assertIsNone(row['attribution']['speaker']['person_id'])
+        self.assertEqual(row['attribution']['speaker']['state'],'unresolved')
+        self.assertEqual(row['attribution']['audience_basis'],'recognized_visible_person')
+        self.assertEqual(self.store.claims(self.person),[])
+
+    def test_window_abstention_story_survives_restart_and_production_recall(self):
+        from r3x.speakers import VoiceObservation
+        from tests.test_memory_core import A, B
+        self.setup_memory()
+        old=self.session('old')
+        visible=[face(100,self.person)]
+        self.turn(old,'I am relaxing.',faces=visible)
+        voice=VoiceObservation(NS,A,((0.,2.,A),(2.,3.,B)),3.,.7)
+        self.turn(old,'Our office switch kept disconnecting for three hours.',faces=visible,voice=voice)
+        self.assertEqual(self.state.current[4].reason,'window_identity_conflict')
+        self.turn(old,'It turned out to be a firmware uptime bug.',faces=visible,voice=voice)
+        self.turn(old,'That cough was Jamie, not me.',faces=visible,voice=VoiceObservation(NS))
+        self.store.close()
+        self.store=Memory(self.path); self.store.start()
+        self.state=CoreState(self.store,SpeakerTracker(NS),self.state.trace)
+        self.clock+=300
+        self.state.wall_clock=lambda:self.clock
+        class Recall:
+            snapshots=[]
+            def reply(self,snapshot,cancel):
+                self.snapshots.append(snapshot)
+                if len(self.snapshots)==1:
+                    yield ToolCall('earlier','recall_conversations',{'query':'switch firmware','after':3600,'before':0})
+                else:
+                    yield 'We discussed an office switch outage caused by an uptime bug.'
+        brain=Recall()
+        result=self.turn(self.session('new',brain),'What was the work story?',faces=visible,voice=VoiceObservation(NS))
+        self.assertEqual(result.status,'completed')
+        evidence=str(brain.snapshots[-1].continuation)
+        for text in ('three hours','uptime bug','Jamie','window_identity_conflict'):
+            self.assertIn(text,evidence)
+        prior=brain.snapshots[0].context['personal_memory']['recent_exchanges']
+        story=next(row for row in prior if 'office switch' in row['human_text'])
+        self.assertIsNone(story['attribution']['speaker']['person_id'])
+        self.assertEqual(self.store.claims(self.person),[])
+        self.assertTrue(any(row['event']=='conversation_memory_record' and row['status']=='recorded'
+                            for row in self.state.trace.rows))
+
+    def test_visible_audience_does_not_bypass_transcript_quality(self):
+        from r3x.speakers import VoiceObservation
+        self.setup_memory()
+        for reason, changes, trusted in (
+                ('untrusted_transcript',{},False),('echo_risk',{'echo_risk':True},True),
+                ('truncated_capture',{'truncated':True},True),('overlap',{'overlap':True},True)):
+            with self.subTest(reason=reason):
+                cap=Capture(uuid4().hex,'old',bytes(96000),96,99,100,voiced_intervals=((0.,3.),),**changes)
+                self.session('old').process_turn(cap,Transcript('Unusable words.',0,trusted),0,
+                    VoiceObservation(NS),[face(100,self.person)])
+                self.assertEqual(self.store.rows('SELECT * FROM conversation_exchanges'),[])
+                if reason!='echo_risk':  # Echo is rejected before state admission.
+                    receipts=[row for row in self.state.trace.rows if row['event']=='conversation_memory_record']
+                    self.assertEqual(receipts[-1]['reason'],reason)
+
+    def test_uncertain_memory_episode_keeps_source_evidence_and_forgets_sources(self):
+        from r3x.speakers import VoiceObservation
+        self.setup_memory()
+        self.turn(self.session('old'),'A switch outage.',faces=[face(100,self.person)],voice=VoiceObservation(NS))
+        source=cm.recall(self.store,self.person,'new')['exchanges'][0]['id']
+        self.begin('Remember our switch conversation.')
+        result=self.call('remember_episode',{'source_exchange_id':source,'summary':'We discussed a switch outage.'})
+        self.assertEqual(result.outcome,'ok')
+        episode=cm.context(self.store,self.state.context(),'new',self.clock)['episodes'][0]
+        self.assertEqual(episode['attribution']['speaker']['state'],'unresolved')
+        with self.store.transaction() as conn:self.store.forget(conn,self.person)
+        self.assertEqual(self.store.rows('SELECT * FROM conversation_exchange_evidence'),[])
+        self.assertEqual(self.store.rows('SELECT * FROM conversation_episodes'),[])
+        self.assertEqual(self.store.rows('SELECT text FROM turns WHERE id=?',(source,))[0]['text'],'[forgotten]')
+
+    def test_no_audience_or_group_does_not_assign_unknown_words_to_a_person(self):
+        from r3x.speakers import VoiceObservation
+        self.setup_memory()
+        for faces in ([], [face(100,None)], [face(100,self.person),face(100,None,'visitor')]):
+            self.turn(self.session('old'),'Unknown speaker.',faces=faces,voice=VoiceObservation(NS))
         self.assertEqual(self.store.rows('SELECT * FROM conversation_exchanges'),[])
+
+    def test_known_different_voice_does_not_join_visible_persons_private_memory(self):
+        from tests.test_memory_core import B
+        self.setup_memory()
+        self.enroll('Jamie',B)
+        self.turn(self.session('old'),'My separate story.',faces=[face(100,self.person)],voice=observation(B))
+        self.assertEqual(cm.recall(self.store,self.person,'new')['exchanges'],[])
+
+    def test_archive_retains_capture_audience_when_camera_changes_during_reply(self):
+        from r3x.speakers import VoiceObservation
+        self.setup_memory()
+        visible=[face(100,self.person)]
+        class Changed:
+            def reply(self,snapshot,cancel):
+                visible[:]=[face(100,None,'visitor')]
+                yield 'I heard the project update.'
+        cap=Capture(uuid4().hex,'old',bytes(96000),96,99,100,voiced_intervals=((0.,3.),))
+        self.session('old',Changed()).process_turn(cap,Transcript('A private project update.',0,True),0,
+            VoiceObservation(NS),tuple(visible),latest_faces=lambda now:tuple(visible))
+        row=cm.recall(self.store,self.person,'new')['exchanges'][0]
+        self.assertEqual(row['attribution']['visible_people'][0]['identity'],self.person)
+
+    def test_version_one_archive_upgrades_without_changing_original_attribution(self):
+        self.setup_memory();self.turn(self.session('old'),'Original supported exchange.')
+        with self.store.transaction() as conn:
+            conn.execute('DROP TABLE conversation_exchange_evidence')
+            conn.execute("UPDATE meta SET value='1' WHERE key='conversation_memory_schema'")
+        self.store.close();self.store=Memory(self.path);self.store.start()
+        row=cm.recall(self.store,self.person,'new')['exchanges'][0]
+        self.assertEqual(row['attribution']['speaker']['person_id'],self.person)
+        self.assertEqual(row['attribution']['speaker']['state'],'supported')
+        self.assertEqual(self.store.rows("SELECT value FROM meta WHERE key='conversation_memory_schema'")[0]['value'],'2')
 
     def test_date_range_excludes_other_runs_and_people_and_reports_truncation(self):
         self.setup_memory()

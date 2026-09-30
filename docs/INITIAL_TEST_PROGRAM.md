@@ -1188,3 +1188,13 @@ see the linked evidence and remaining natural-language grounding limitation.
 Live acceptance: discuss a concrete project, restart, recall that exchange, then
 correct it; confirm a later greeting uses the updated context and a second visitor
 does not receive private memory. No hardware was operated for this change.
+
+September 30 audience-memory repair: **792 blocked-I/O checks pass**, including
+restart/tool recall after window-identity abstention with a recognized visible
+person, source speaker corrections and no fact promotion, audience isolation,
+quality gates, version-1 upgrade and forgetting source text/evidence. Four hosted
+fictional cases also pass the recall/storage outcomes after a real database
+close/reopen; natural-language embellishment remains. Live acceptance: keep the
+camera on, tell a multi-sentence story, restart, and ask for both the story and
+its resolution. Inspect `conversation_memory_record` receipts. No hardware run
+was performed. See [details](CONVERSATION_MEMORY.md#september-30-audience-memory-repair).

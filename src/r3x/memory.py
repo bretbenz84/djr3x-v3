@@ -262,6 +262,8 @@ class Memory:
     def forget(self, conn, person_id):
         # Claims from or about this person cannot survive as unattributed facts.
         affected = {row[0] for row in conn.execute("SELECT source_turn FROM claims WHERE subject_id=? OR said_by=?",(person_id,person_id))}
+        affected.update(row[0] for row in conn.execute(
+            'SELECT source_turn FROM conversation_exchanges WHERE person_id=? AND source_turn IS NOT NULL', (person_id,)))
         for row in conn.execute("SELECT evidence FROM voice_candidates WHERE person_id=?", (person_id,)):
             affected.update(sample[3] for sample in json.loads(row[0])["samples"])
         for row in conn.execute("SELECT metadata FROM recordings WHERE person_id=?",(person_id,)):

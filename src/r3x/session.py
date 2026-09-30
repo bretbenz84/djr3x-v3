@@ -248,6 +248,10 @@ class Session:
                         attribution = self.state.begin(turn_id,capture,transcript,observation,faces)
                         context = self.state.context(faces)
                     state_started = True
+                # Keep capture-time attribution/audience across tool continuations
+                # and camera changes during the response.
+                from copy import deepcopy
+                archive_context = deepcopy(context)
                 if not opportunity:
                     self.trace.emit("speaker_evidence",turn_id=turn_id,**context["speaker"],
                                     namespace=observation.namespace,window_consistency=observation.consistency)
@@ -1051,8 +1055,9 @@ class Session:
             if self.state and state_started and not self.state.frozen and not self.state.forgotten:
                 try:
                     from .conversation_memory import record
-                    record(self.state.store, turn_id, self.session_id, context, capture, transcript,
-                           delivery, self.state.wall_clock())
+                    receipt = record(self.state.store, turn_id, self.session_id, archive_context, capture, transcript,
+                                     delivery, self.state.wall_clock())
+                    self.trace.emit('conversation_memory_record', turn_id=turn_id, **receipt)
                 except Exception as exc:
                     self.trace.emit('conversation_memory_failed', turn_id=turn_id, error_type=type(exc).__name__)
             if not opportunity and delivery.status != 'rejected':

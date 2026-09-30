@@ -29,6 +29,18 @@ Four hosted fictional cases made seven model calls; no hardware was operated.
 Old source-only records remain undated; natural-language embellishment, acoustic
 attribution and real-room acceptance remain open.
 
+September 30 audience-memory repair: recognized-camera conversations now retain
+trusted exchanges despite acoustic identity abstention. Audience and speaker
+provenance stay separate across restart, automatic context, tool recall and
+source-linked summaries. Each archive attempt reports a saved/skipped reason.
+**792 blocked-I/O checks pass**; seven additional contracts cover the reported
+failure, upgrade, source forgetting, quality gates and audience changes. Four
+hosted fictional cases verify recall after reopening SQLite, empty-period handling,
+a memory-informed greeting and episode save. No hardware operated. The greeting
+still embellished an untested motor as “dramatic”; social grounding and live
+acoustic/dev-Mac acceptance remain open. Previously skipped exchanges are not
+reconstructed automatically. See [memory evidence](CONVERSATION_MEMORY.md).
+
 ## Completed software
 
 [Short-speech capture repair](SHORT_SPEECH_CAPTURE.md) removes a silent pre-ASR
@@ -61,7 +73,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **785 passing checks** (September 30 conversation memory).
+The latest blocked-I/O suite has **792 passing checks** (September 30 audience-memory repair).
 The preceding **756 checks** covered the September 28 voice
 head-turn reflex (camera-aimed, taking over held looks), say-before acknowledgments, uncapped mixed move/light sequences, a wave, look-then-describe, and no
 replies to untrusted transcripts; the earlier 645 included 45 [drive-base contracts](DRIVE_BASE_INTEGRATION.md#verification), including the

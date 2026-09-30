@@ -256,6 +256,12 @@ direction and voice cannot distinguish them. No direction requirement on the Mac
 
 ## Minimal memory
 
+Conversation exchanges are scoped to their known audience separately from speaker
+identity. Trusted speech with a sole recognized visitor survives acoustic
+abstention and restart, retaining source attribution and camera evidence. This
+permits recall of what was discussed without granting voice-learning or accepted
+self-report permissions. See [conversation memory](docs/CONVERSATION_MEMORY.md).
+
 The first program must exercise hear, interpret, attribute, save, restart, recall,
 and correct. A pleasant chat using only its current transcript is insufficient.
 

@@ -11,6 +11,11 @@ from r3x.contracts import ProviderFailure
 from r3x.settings import Secrets
 from tests.test_conversation_memory import ConversationMemoryTests
 from tests.test_proactive import event
+from tests.test_proactive import face
+from tests.test_memory_core import A, B, NS
+from r3x.speakers import SpeakerTracker, VoiceObservation
+from r3x.memory import Memory
+from r3x.state import CoreState
 
 
 class Hosted(OpenAIBrain):
@@ -29,9 +34,18 @@ def main():
     brain.trace=fixture.state.trace
     results=[]
     try:
-        fixture.turn(fixture.session('prior'),'I finished the telescope mount, but the tracking motor still needs testing.')
+        # Reproduce the live failure: known visible audience, pooled profile match,
+        # one dissenting voice window. Memory must survive without certifying it.
+        voice=VoiceObservation(NS,A,((0.,2.,A),(2.,3.,B)),3.,.7)
+        fixture.turn(fixture.session('prior'),'I finished the telescope mount, but the tracking motor still needs testing.',
+                     faces=[face(100,fixture.person)],voice=voice)
+        assert fixture.state.current[4].reason=='window_identity_conflict'
         fixture.begin('I like astronomy.')
         fixture.call('record_claim',dict(subject_id=fixture.person,predicate='likes',value='astronomy',kind='self_report',source_turn_id=fixture.state.current[0]))
+        fixture.store.close();fixture.store=Memory(fixture.path);fixture.store.start()
+        fixture.state=CoreState(fixture.store,SpeakerTracker(NS),fixture.state.trace)
+        fixture.state.wall_clock=lambda:fixture.clock
+        fixture.state.calendar_today=lambda:datetime.fromtimestamp(fixture.clock).date()
         fixture.clock += 7200
         brain.start()
         for name, words in [('recent','What did we talk about two hours ago?'),

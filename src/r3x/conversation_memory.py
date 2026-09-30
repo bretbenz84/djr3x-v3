@@ -1,8 +1,9 @@
 """Source-linked cross-session recall. Selection never interprets an utterance."""
 from datetime import datetime, timezone
+import json
 
 SCHEMA = """
-INSERT OR IGNORE INTO meta VALUES('conversation_memory_schema','1');
+INSERT OR IGNORE INTO meta VALUES('conversation_memory_schema','2');
 CREATE TABLE IF NOT EXISTS conversation_exchanges(
  id TEXT PRIMARY KEY,session_id TEXT NOT NULL,person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
  source_turn TEXT REFERENCES turns(id),created_at REAL NOT NULL,human_text TEXT NOT NULL,
@@ -12,6 +13,10 @@ CREATE TABLE IF NOT EXISTS conversation_episodes(
  id TEXT PRIMARY KEY,person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
  source_exchange TEXT NOT NULL REFERENCES conversation_exchanges(id) ON DELETE CASCADE,
  summary TEXT NOT NULL,created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS conversation_exchange_evidence(
+ exchange_id TEXT PRIMARY KEY REFERENCES conversation_exchanges(id) ON DELETE CASCADE,
+ evidence TEXT NOT NULL);
+UPDATE meta SET value='2' WHERE key='conversation_memory_schema';
 """
 
 
@@ -33,6 +38,28 @@ def subject(context):
 
 def stamp(value):
     return datetime.fromtimestamp(value, timezone.utc).isoformat()
+
+
+def attach_evidence(store, rows):
+    """Audience scope authorizes recall; it does not certify who spoke."""
+    for row in rows:
+        source = row.get('source_exchange', row['id'])
+        saved = store.rows('''SELECT e.evidence, t.evidence AS original_evidence,
+            x.person_id, x.source_turn FROM conversation_exchanges x
+            LEFT JOIN conversation_exchange_evidence e ON e.exchange_id=x.id
+            LEFT JOIN turns t ON t.id=x.source_turn WHERE x.id=?''', (source,))
+        if not saved: continue
+        item = saved[0]
+        row['audience_person_id'] = item['person_id']
+        if item['evidence']:
+            row['attribution'] = json.loads(item['evidence'])
+        else:
+            # Version 1 only wrote supported human voices. Preserve actual source
+            # evidence where available rather than inventing camera observations.
+            row['attribution'] = {
+                'speaker': json.loads(item['original_evidence'] or '{}').get('attribution', {}),
+                'audience_basis': 'legacy_supported_speaker' if item['source_turn'] else 'legacy_arrival',
+                'visible_people': []}
 
 
 def boundary(value, now=None):
@@ -65,6 +92,7 @@ def recall(store, who, session, *, query='', after=None, before=None, limit=12, 
         return sum(word in text for word in words), row['created_at']
     if words: rows.sort(key=relevance, reverse=True)
     selected = rows[:limit]
+    attach_evidence(store, selected)
     for row in selected:
         row['at'] = stamp(row.pop('created_at'))
         row['text_truncated'] = len(row['human_text'])>600 or len(row['heard_text'])>600
@@ -86,7 +114,7 @@ def recall(store, who, session, *, query='', after=None, before=None, limit=12, 
     return {'legacy_source_utterances':legacy, 'legacy_caveat':'Undated source-only archive: speaker attribution retained; audience and Rex delivery unavailable. Do not infer a shared episode or date.',
             'exchanges':selected, 'matching_interval_count':count,
             'selection_truncated':count>len(selected), 'searched_latest_limit':200,
-            'scope':'this person only; prior sessions; completed audio phrases only',
+            'scope':'conversations scoped to this audience; speaker attribution is separate; prior sessions; completed audio phrases only',
             'coverage':'New exchange archive only. Older source-only turns lack wall-clock/delivery evidence; absence is not proof nothing happened.'}
 
 
@@ -100,6 +128,8 @@ def context(store, original, session, now):
     result['episodes'] = store.rows('''SELECT e.id,e.summary,e.source_exchange,x.human_text,x.heard_text
         FROM conversation_episodes e JOIN conversation_exchanges x ON x.id=e.source_exchange
         WHERE e.person_id=? ORDER BY e.created_at DESC LIMIT 4''',(who,))
+    attach_evidence(store, result['current_session_exchanges'])
+    attach_evidence(store, result['episodes'])
     for row in result['current_session_exchanges'] + result['episodes']:
         row['text_truncated'] = len(row['human_text'])>600 or len(row['heard_text'])>600
         row['human_text'],row['heard_text'] = row['human_text'][:600],row['heard_text'][:600]
@@ -109,19 +139,31 @@ def context(store, original, session, now):
 
 def record(store, turn_id, session, original, capture, transcript, delivery, now):
     who = subject(original)
-    # Do not assign an uncertain voice to a face, or store ASR noise as dialogue.
-    if not who: return
+    # A recognized audience can retain a conversation even when individual voice
+    # windows abstain. Store the uncertainty, never turn visibility into identity.
+    if not who: return {'status':'skipped', 'reason':'no_known_private_audience'}
     if capture is not None:
-        if (not transcript.trusted or capture.echo_risk or capture.truncated or capture.overlap is True or
-                original.get('speaker',{}).get('person_id') != who or
-                original.get('speaker',{}).get('state') != 'supported'): return
+        if not transcript.trusted: return {'status':'skipped', 'reason':'untrusted_transcript'}
+        if capture.echo_risk: return {'status':'skipped', 'reason':'echo_risk'}
+        if capture.truncated: return {'status':'skipped', 'reason':'truncated_capture'}
+        if capture.overlap is True: return {'status':'skipped', 'reason':'overlap'}
     heard = ' '.join(delivery.completed_text) if delivery.medium == 'audio' else ''
     human = transcript.text if capture is not None else ''
-    if not human and not heard: return
+    if not human and not heard: return {'status':'skipped', 'reason':'empty_exchange'}
+    speaker = original.get('speaker', {}) if capture is not None else {}
+    faces = original.get('current_view', {}).get('faces', original.get('faces', []))
+    evidence = {'speaker':speaker,
+                'audience_basis':'supported_speaker' if speaker.get('state') == 'supported' else 'recognized_visible_person',
+                'visible_people':[{'track_id':f.get('track_id'), 'identity':f.get('identity')} for f in faces]}
     with store.transaction() as conn:
         conn.execute('INSERT OR IGNORE INTO conversation_exchanges VALUES(?,?,?,?,?,?,?,?,?)',
             (turn_id,session,who,turn_id if capture else None,now,human,heard,delivery.status,
              original.get('trigger','human_turn')))
+        conn.execute('INSERT OR IGNORE INTO conversation_exchange_evidence VALUES(?,?)',
+                     (turn_id,json.dumps(evidence)))
+    return {'status':'recorded', 'exchange_id':turn_id, 'audience_person_id':who,
+            'speaker_state':speaker.get('state','not_applicable'),
+            'audience_basis':evidence['audience_basis']}
 
 
 def episode(store, conn, who, args, request_id, now):
