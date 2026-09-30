@@ -29,7 +29,8 @@ it or reads its data.
   - Motion lowers confidence rather than discarding evidence. Motion-flagged speech is
     matched with stricter thresholds and never enrolls.
 - **Memory.** Source-linked personal facts, corrections and forgetting in a local SQLite
-  store. Named pet/object photo memory (RF-DETR Nano detection).
+  store, cross-session exchange recall and optional source-linked shared memories
+  ([details](docs/CONVERSATION_MEMORY.md)). Named pet/object photo memory (RF-DETR Nano detection).
 - **Initiative.** Greets arrivals, contributes during lulls, uses news, weather and scene
   observations, and can choose silence. It is one owner with replies, not a separate loop.
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
@@ -90,7 +91,7 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 ## Check
 
 ```sh
-.venv/bin/python tools/run_checks.py                      # 772 blocked-I/O contract checks
+.venv/bin/python tools/run_checks.py                      # 785 blocked-I/O contract checks
 .venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
 .venv/bin/python -m r3x replay local/dataset/manifest.json
 .venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl

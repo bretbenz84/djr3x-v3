@@ -553,16 +553,16 @@ class CoreState:
             context = dict(context, state_revision=expected_revision)
             return self._with_intent(call,context,cancel,
                 lambda call:self._execute(call,expected_revision,cancel))
-        return self._execute(call,expected_revision,cancel)
+        return self._execute(call,expected_revision,cancel,context)
 
-    def _execute(self, call, expected_revision, cancel):
+    def _execute(self, call, expected_revision, cancel, context=None):
         turn_id,capture,transcript,observation,attribution = self.current
         request_id = capture.session_id + ":" + call.call_id
         fingerprint = hashlib.sha256(json.dumps({"name":call.name,"args":call.arguments},sort_keys=True).encode()).hexdigest()
         revision = self.store.revision
         try:
             validate(call.name,call.arguments)
-            if self.frozen and call.name not in {"recall","ask_question","ask_face_question","settle_question","remain_silent"}:
+            if self.frozen and call.name not in {"recall","recall_conversations","ask_question","ask_face_question","settle_question","remain_silent"}:
                 raise ValueError("FrozenEvaluationDisallowsMutation")
             if call.name == 'respond_with_intent':
                 cancel.check()
@@ -579,7 +579,7 @@ class CoreState:
                 revision = int(conn.execute("SELECT value FROM meta WHERE key='revision'").fetchone()[0])
                 if revision != expected_revision:
                     raise ValueError("StaleStateRevision")
-                data, mutation = self._apply(conn,call.name,call.arguments)
+                data, mutation = self._apply(conn,call.name,call.arguments,context)
                 cancel.check()
                 if mutation:
                     revision = self.store.advance(conn)
@@ -661,7 +661,7 @@ class CoreState:
                 "participant":participant,"at":now,"expires_at":now+120 if action=="yield_floor" else None,
                 "text":args["text"],"reason":"conversation_feedback"},True
 
-    def _apply(self, conn, name, args):
+    def _apply(self, conn, name, args, context=None):
         turn_id,capture,transcript,observation,attribution = self.current
         if name == 'use_visual_memory':
             from . import visual_memory
@@ -717,6 +717,20 @@ class CoreState:
             conn.execute('INSERT INTO memory_followups VALUES(?,?,?,?)',
                          (data['claim_id'],args['kind'],args['on_date'],args['audience']))
             return {**data,'followup_kind':args['kind'],'on_date':args['on_date'],'audience':args['audience']},True
+        if name in {'recall_conversations','remember_episode','retract_episode'}:
+            from . import conversation_memory as cm
+            who = cm.subject(context or self.context())
+            if not who: raise ValueError('PrivateRecallRequiresKnownAudience')
+            if name == 'recall_conversations':
+                return cm.recall(self.store,who,capture.session_id,query=args['query'],
+                                 after=args['after'],before=args['before'],now=self.wall_clock()),False
+            self._source_allowed(args,name)
+            if name == 'remember_episode':
+                return cm.episode(self.store,conn,who,args,uuid4().hex,self.wall_clock()),True
+            deleted = conn.execute('DELETE FROM conversation_episodes WHERE id=? AND person_id=?',
+                                   (args['episode_id'],who)).rowcount
+            if not deleted: raise ValueError('EpisodeUnavailable')
+            return {'episode_id':args['episode_id'],'status':'retracted'},True
         if name == "recall":
             if args["subject_id"]:
                 self._person(args["subject_id"])

@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated September 29, 2026. This is the consolidated
+Updated September 30, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -19,6 +19,15 @@ microphone liveness tolerates future ADC timestamps; speech commits at PCM
 submission before its delayed start notification; rejected noise no longer removes
 the startup greeting requirement. 772 blocked-I/O checks pass. Servo-noise ASR
 false positives and physical audibility remain unverified; no hardware was run.
+
+September 30 [cross-session conversation memory](CONVERSATION_MEMORY.md):
+completed exchanges survive restart; relevant accepted facts and prior exchanges
+reach greetings/replies; the LLM can retrieve dated conversations and save/retract
+source-linked episode interpretations. Private audience and speaker uncertainty
+are preserved. **785 blocked-I/O checks pass**, including 13 new regressions.
+Four hosted fictional cases made seven model calls; no hardware was operated.
+Old source-only records remain undated; natural-language embellishment, acoustic
+attribution and real-room acceptance remain open.
 
 ## Completed software
 
@@ -52,7 +61,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **772 passing checks** (September 29 startup/playback repair).
+The latest blocked-I/O suite has **785 passing checks** (September 30 conversation memory).
 The preceding **756 checks** covered the September 28 voice
 head-turn reflex (camera-aimed, taking over held looks), say-before acknowledgments, uncapped mixed move/light sequences, a wave, look-then-describe, and no
 replies to untrusted transcripts; the earlier 645 included 45 [drive-base contracts](DRIVE_BASE_INTEGRATION.md#verification), including the

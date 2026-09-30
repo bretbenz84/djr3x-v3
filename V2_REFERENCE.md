@@ -906,3 +906,26 @@ using v3's calibrated wrist limits and V2's unlimited (0) sweep acceleration; no
 held afterwards. Adaptation: the elbow bob is omitted (one speed per beat). No camera wave detection, sound effect, cooldowns or settings
 were copied. Synthetic contracts cover the sweep, return and no hold; live speed,
 amplitude and clearance remain unverified. 753 blocked-I/O checks pass.
+
+## Cross-session conversation memory — September 30, 2026
+
+Reviewed V2 HEAD `fb96f086925841479952c649b0a39a8f6c77f70c`, clean working tree.
+Design adaptation, no copied code or imported personal data. Sources:
+`memory/conversations.py`, `memory/recall.py`, `memory/retrieval.py`,
+`memory/episodes.py`, `memory/episodic_recall.py`, and their active wiring in
+`intelligence/lean_brain.py`, `intelligence/llm.py`, `intelligence/interaction.py`.
+
+Preserved behavior: persistent original conversation evidence, prior-session
+recall, bounded personal context, optional shared-experience summaries and source
+retrieval. Adapted to V3's one conversation/state/output owner, stable IDs,
+explicit-offset time bounds, completed-phrase receipts and conservative audience
+filtering. Rejected V2's regex semantic routes, global session caches, unspecific
+day-wide participant lookup, last-day-as-last-session assumption, pre-delivery
+callback consumption and old blanket prohibition on interest-based greetings.
+
+Dependencies: existing SQLite, datetime and V3 providers only. No Ollama embedding
+service or new resident model. V2's documented isolated runner passed 87 focused
+checks (memory_recall, memory_unified_retrieval, episodic_recall,
+lean_episodic_callback, memory_hardening); synthetic/temp stores only. V3 coverage
+and remaining live validation are in `docs/CONVERSATION_MEMORY.md`. No V2 file or
+personal database was modified.

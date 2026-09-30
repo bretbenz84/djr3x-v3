@@ -1175,3 +1175,16 @@ and LED_INTEGRATION.md. Live selection/clearance and the clipped-audio cause rem
 unverified.
 
 September 27 greeting-cutoff repair: 600 blocked-I/O checks pass. General proactive intent replies now finish across face-track changes after audio starts; pre-playback audience validation and targeted-question cancellation remain. Tests use synthetic audio/camera providers through the production runtime validator. No live hardware or hosted calls; audible acceptance remains pending. See [cutoff evidence](PROACTIVE_IMPLEMENTATION.md#september-27-greeting-interrupted-by-face-track-churn).
+
+
+## September 30 cross-session memory acceptance
+
+[Conversation memory](CONVERSATION_MEMORY.md) adds production-owner restart,
+original/received speech, relative/calendar recall, source-linked summaries,
+retraction, forgetting, private audience and unknown-speaker regression checks.
+Synthetic tests do not validate live attribution. Hosted fictional cases exercise
+recall, missing periods, a memory-informed greeting and saved-episode confirmation;
+see the linked evidence and remaining natural-language grounding limitation.
+Live acceptance: discuss a concrete project, restart, recall that exchange, then
+correct it; confirm a later greeting uses the updated context and a second visitor
+does not receive private memory. No hardware was operated for this change.

@@ -356,11 +356,27 @@ class Session:
                 context['visual_novelty']['recent_selections'] = [r for r in self.state.visual_selections if r['audience']==visual_memory.audience(context)]
                 context['action_continuity'] = self.state.actions.context(visual_memory.audience(context))
             refresh_current_view(context)
+            if self.state:
+                from . import conversation_memory
+                context["personal_memory"] = conversation_memory.context(
+                    self.state.store, context, self.session_id, self.state.wall_clock())
             if self.state and not self.state.frozen:
                 with self._lock:
                     self.state.intent_context(context, human=not opportunity)
                 from .photo_flow import context as photo_context
                 context.update(photo_context(self.state))
+            memory_subject = context.get('personal_memory',{}).get('person_id')
+            memory_accessed = [any(context.get('personal_memory',{}).get(key) for key in
+                                   ('recent_exchanges','interests_and_facts','episodes','current_session_exchanges'))]
+            if memory_subject and latest_faces:
+                previous_memory_guard = cancel.guard
+                def memory_audience_valid():
+                    if previous_memory_guard and not previous_memory_guard(): return False
+                    if not memory_accessed[0]: return True
+                    from .conversation_memory import subject
+                    current = {**context, 'current_view':{'faces':latest_faces(self.trace.clock())}}
+                    return subject(current) == memory_subject
+                cancel.guard = memory_audience_valid
             from .conversation_intent import audience as intent_audience
             request_audience = intent_audience(context)
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
@@ -435,6 +451,10 @@ class Session:
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=dict(call.arguments))
                 with self._lock:
                     cancel.check()
+                    if call.name in {"recall_conversations","remember_episode","retract_episode"}:
+                        memory_accessed[0] = True
+                        refresh_current_view(context)
+                        cancel.check()
                     if call.arguments.get('intent_update') is not None or call.name == 'respond_with_intent':
                         refresh_current_view(context)
                         if intent_audience(context) != request_audience:
@@ -938,8 +958,16 @@ class Session:
                     import json
                     context = self.state.context(faces)
                     refresh_current_view(context)
+                    from . import conversation_memory
+                    context['personal_memory'] = conversation_memory.context(
+                        self.state.store,context,self.session_id,self.state.wall_clock())
                     if not self.state.frozen:
                         with self._lock:self.state.intent_context(context)
+                    if call.name=='recall_conversations':
+                        # Keep the requested evidence window distinct from automatic
+                        # recent memories; the result is already in continuation.
+                        memory = context['personal_memory']
+                        context['personal_memory'] = {k:memory[k] for k in ('person_id','now','local_now')}
                     if call.name=='set_initiative' and result.outcome=='ok':
                         self.proactive_hold_until = float('-inf')
                     continuation = (*call.preamble,
@@ -1020,6 +1048,13 @@ class Session:
                 if delivery.status not in {"completed","suppressed"}:
                     self.history.append({"role": "developer", "content":
                         "The last reply was interrupted or failed. Only completed phrases above are known delivered; any partial phrase is unknown."})
+            if self.state and state_started and not self.state.frozen and not self.state.forgotten:
+                try:
+                    from .conversation_memory import record
+                    record(self.state.store, turn_id, self.session_id, context, capture, transcript,
+                           delivery, self.state.wall_clock())
+                except Exception as exc:
+                    self.trace.emit('conversation_memory_failed', turn_id=turn_id, error_type=type(exc).__name__)
             if not opportunity and delivery.status != 'rejected':
                 if delivery.completed_text or delivery.status in {'completed','suppressed'}:
                     self._owed_reply = False

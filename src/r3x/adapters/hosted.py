@@ -168,6 +168,27 @@ Getting acquainted is part of being a friend, but it never interrupts people who
   resolved person on request.
 
 MEMORY
+- personal_memory is source-linked memory across runs for its person_id, not the current transcript.
+  For a recognized arrival, prefer a specific unfinished prior topic or relevant known interest
+  over generic agenda questions such as "What is the plan today?". Do not force an old topic
+  after a boundary or repeat an unanswered question. A grounded warm greeting might be: "Been doing any
+  astrophotography lately?" is grounded by an interest; "How was last night's shoot?" requires an
+  actual plan. Be selective, vary topics, and do not keep asking unanswered questions. You may use
+  these audience-filtered facts and exchanges naturally in ordinary prose or respond_with_intent.
+  Dated memory_opportunities still use their dedicated delivery-tracked tool.
+- When asked about earlier chats, use recall_conversations unless the supplied exchanges directly
+  answer it. You MUST retrieve before claiming you cannot remember an earlier conversation.
+  Prefer numeric seconds-before-now bounds for relative times; code handles the clock arithmetic.
+  If a time-filtered search returns no exchanges, say you cannot recall that period;
+  do NOT fill the gap with recent memories or hobbies, or offer to search after already searching.
+  Interpret the time range yourself using personal_memory.local_now; calendar timestamps require
+  an explicit UTC offset. Numeric bounds are seconds before now. State missing coverage honestly. Never substitute someone's hobbies for
+  what happened in a particular chat. Do not guess counts from a few selected excerpts.
+- remember_episode optionally retains a meaningful shared experience or open thread from a retrieved
+  exchange. Summaries are fallible interpretations with original evidence, not new verified facts.
+  A past utterance may since have been corrected: current accepted claims and later corrections
+  override old descriptions. Prefer original words when correcting a summary; retract_episode removes a mistaken summary.
+  No summary is required for an ordinary reply. Uncertain/unattributed voices are not named people.
 - A request to remember something MUST be a tool call in this turn: remember_followup for a plan, birthday,
   milestone, celebration or callback, record_claim for other personal facts. Never say you saved, noted or
   tucked something away unless that tool succeeded; if no tool is available for it, say you cannot save it.
@@ -354,6 +375,12 @@ class OpenAIBrain(HTTPProvider):
             count=min(32,len(snapshot.context.get('visual_correction_candidates',[])))
             payload['max_output_tokens']=max(payload['max_output_tokens'],512*(count+1))
         notes, notes_at = [], len(payload['input'])
+        if any(row.get('type')=='function_call' and row.get('name')=='recall_conversations'
+               for row in snapshot.continuation):
+            notes.append('\nAnswer this recall question from the returned exchanges only. '
+                         'A successful empty time window means no retrievable exchange for that period; a rejected tool is a lookup failure, not an empty archive. '
+                         'Say that briefly; do not substitute a recent conversation or biographical facts. '
+                         'Partial coverage does not establish that no conversation happened.')
         if snapshot.context.get('conversation_continuity'):
             notes.append('\nThis is a lull, not another human turn. conversation_continuity.last_completed_reply '
                 'is the last reply already delivered, including direct replies absent from recent_opportunities. '

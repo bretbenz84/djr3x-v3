@@ -102,6 +102,8 @@ class Memory:
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.connection.execute("PRAGMA secure_delete=ON")
         self.connection.executescript(SCHEMA)
+        from .conversation_memory import SCHEMA as conversation_schema
+        self.connection.executescript(conversation_schema)
         self.validate_schema()
 
     def validate_schema(self):
@@ -272,6 +274,8 @@ class Memory:
         person = conn.execute("SELECT source_turn FROM people WHERE id=?",(person_id,)).fetchone()
         if person:
             affected.add(person[0])
+        for source in affected:
+            conn.execute('DELETE FROM conversation_exchanges WHERE source_turn=?',(source,))
         capture_ids=[]
         for turn_id in affected:
             capture = conn.execute("SELECT capture_id FROM turns WHERE id=?",(turn_id,)).fetchone()

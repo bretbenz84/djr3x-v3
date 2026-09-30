@@ -80,6 +80,11 @@ TOOLS = (
     schema("correct_claim", "Correct a specific prior claim using the current utterance; preserves its source/history. Only its supported source speaker or subject can correct it.",
            {"claim_id":TEXT,"value":TEXT,"source_turn_id":TEXT}),
     schema("retract_claim", "Retract a prior personal factual claim. Does not cancel voice enrollment or correct a person's name; use cancel_association for rejected identity associations.", {"claim_id":TEXT,"source_turn_id":TEXT}),
+    schema("recall_conversations", "Retrieve prior-session conversations for personal_memory.person_id. Use for questions about earlier chats; interpret time in the conversation owner, For relative times prefer numeric seconds BEFORE NOW: for about two hours ago use after=9000 and before=5400 (a window around 7200 seconds ago). Two numeric bounds define an age window in either order; code converts it to timestamps. For calendar dates use ISO8601 timestamps WITH UTC offset. null means no bound. query is relevant search words or null for recent exchanges. Results are bounded original utterances and completed spoken replies, not established personal facts. Respect coverage and truncation; never invent an exact greeting count or infer that an absent excerpt means no conversation happened.",
+           {"query":NULL_TEXT,"after":{"type":["string","number","null"]},"before":{"type":["string","number","null"]}}),
+    schema("remember_episode", "Optionally retain a concise shared-experience summary or unfinished topic from ONE retrieved exchange. Use its exact id as source_exchange_id. This is a fallible interpretation, not a personal fact. Preserve corrections and uncertainty; never invent experiences, intentions, emotions or completed actions. No mandatory summary call on ordinary turns. Source text remains attached. Save personal facts with record_claim instead.",
+           {"source_exchange_id":TEXT,"summary":TEXT}),
+    schema("retract_episode", "Withdraw an offered episode summary when corrected or no longer wanted; original conversation remains historical evidence. Use forget_person for full forgetting.", {"episode_id":TEXT}),
     schema("recall", "Read accepted current claims with who said them and source; null subject returns a bounded view. Candidate claims are not established facts.", {"subject_id":NULL_TEXT}),
     schema("cancel_association", "An identity correction or decline cancels provisional voice collection. Use the affected candidate person ID or track ID, never assume the current speaker is the mentioned person.",
            {"person_id":NULL_TEXT,"track_id":NULL_TEXT}),
@@ -175,6 +180,7 @@ def grounded_tools(context):
         if name=="respond_with_gesture" and not context.get("gesture_enabled"):continue
         if name=="shift_attention" and not context.get("attention_enabled"):continue
         if name=='use_observation' and not context.get('observations'):continue
+        if name in {"recall_conversations","remember_episode","retract_episode"} and not context.get("personal_memory",{}).get("person_id"): continue
         if name=='remember_followup' and not context.get('speaker',{}).get('person_id'):continue
         if name=='use_memory_opportunity' and (not context.get('trigger') or not context.get('memory_opportunities')):continue
         identity_targets = context.get("identity_action_targets", {}).get(name, [])
@@ -283,7 +289,10 @@ def validate(name, args):
         value = args[key]
         if value is None and isinstance(spec["type"], list) and "null" in spec["type"]:
             continue
-        if name=='set_robot_joints' and key=='positions':
+        if name=='recall_conversations' and key in {'after','before'} and type(value) in (int,float):
+            from .conversation_memory import boundary
+            boundary(value,0.)
+        elif name=='set_robot_joints' and key=='positions':
             from .servo_poses import joint_targets
             joint_targets(value)
         elif name=='drive_base' and key=='steps':
