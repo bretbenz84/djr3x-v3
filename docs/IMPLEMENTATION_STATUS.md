@@ -14,6 +14,12 @@ Explicit last-reply context and revised guidance address repeated premises/quest
 765 blocked-I/O checks pass, plus seven hosted fictional decisions with synthetic
 output. Real-room timing, acoustic capture and social acceptance remain open.
 
+September 29 [startup/playback cutoff repair](LIVE_RUN_CONVERSATION_REPAIRS.md#september-29-startup-and-playback-cutoff-repair):
+microphone liveness tolerates future ADC timestamps; speech commits at PCM
+submission before its delayed start notification; rejected noise no longer removes
+the startup greeting requirement. 772 blocked-I/O checks pass. Servo-noise ASR
+false positives and physical audibility remain unverified; no hardware was run.
+
 ## Completed software
 
 [Short-speech capture repair](SHORT_SPEECH_CAPTURE.md) removes a silent pre-ASR
@@ -46,7 +52,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **765 passing checks** (September 29 engagement repair).
+The latest blocked-I/O suite has **772 passing checks** (September 29 startup/playback repair).
 The preceding **756 checks** covered the September 28 voice
 head-turn reflex (camera-aimed, taking over held looks), say-before acknowledgments, uncapped mixed move/light sequences, a wave, look-then-describe, and no
 replies to untrusted transcripts; the earlier 645 included 45 [drive-base contracts](DRIVE_BASE_INTEGRATION.md#verification), including the

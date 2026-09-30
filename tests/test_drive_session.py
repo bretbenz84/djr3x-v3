@@ -138,7 +138,8 @@ class DriveSessionTests(MemoryFixture):
     def test_self_initiated_plans_use_smaller_limits_and_fail_silently(self):
         self.setup_drive(drive_call(step('move', meters=2.), text='Coming over!', purpose='greet the arrival'))
         now = self.clock()
-        self.session._latest_speech = 50.   # Not the startup greeting.
+        self.begin("Hello again.")
+        self.session._latest_speech = 50.
         event = Opportunity(uuid4().hex, 'session', now, 'face', None, (face(now),), 50., False)
         delivery = self.session.process_opportunity(event, self.session.revision, lambda: True)
         self.assertEqual(self.brain.snapshots[0].context['drive']['origin'], 'self_initiated')
@@ -317,6 +318,7 @@ class DriveRuntimeTests(MemoryFixture):
         faces = lambda: tuple(face(clock(), track=tracks['id']) for _ in (0,))
         runtime = self.runtime_for(session, faces)
         runtime.drive = drive
+        self.begin("Hello again.")
         session._latest_speech = 50.
         original_wait = clock.wait
         def wait(seconds):

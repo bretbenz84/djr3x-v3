@@ -19,9 +19,15 @@ class Cancellation:
     # Once true (speech audible), freshness guards no longer cancel; only an
     # explicit event (stop command, shutdown, output failure) does.
     committed: Callable[[], bool] | None = field(default=None, repr=False)
+    # The device callback latches submission of the first nonempty PCM buffer.
+    # Its heavier on_start notification can arrive later on the producer thread.
+    playback_started: Event = field(default_factory=Event, repr=False)
+
+    def is_committed(self) -> bool:
+        return self.playback_started.is_set() or bool(self.committed and self.committed())
 
     def check(self) -> None:
-        if self.guard is not None and not (self.committed and self.committed()) and not self.guard():
+        if self.guard is not None and not self.is_committed() and not self.guard():
             self.event.set()
         if self.event.is_set():
             raise Cancelled()

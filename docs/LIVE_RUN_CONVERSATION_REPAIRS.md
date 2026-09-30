@@ -260,3 +260,44 @@ topic change; and several minutes of voluntary conversation without repeated pre
 Recognition-to-unknown face churn, trusted background TV speech, the rolling call cap
 and semantic variability can still affect a live run. No personal state was changed
 and no robot process was restarted during this repair.
+
+## September 29 startup and playback cutoff repair
+
+The next 166-second live run exposed a separate timing failure: the
+arrival greeting was cancelled with `audio_timestamp_ahead` when the latest
+microphone timestamp was 37 ms ahead of the scheduler clock. First TTS PCM had
+arrived, but no playback-start receipt was recorded. The operator heard its onset;
+logs alone cannot establish the amount played. Initial rejected noise had also
+removed the startup-greeting requirement by advancing the raw speech marker.
+
+The runtime now bounds microphone liveness by frame receipt time, preserving
+original ADC timestamps for capture/attribution and retaining stale-input guards.
+The device callback latches the first speech PCM submission before the delayed
+producer-thread start notification. Session and opportunity guards share that
+commitment, so resumed activity or camera freshness cannot cut already-started
+speech in the notification gap. Explicit cancellation still interrupts active
+speech; interruption retains a start receipt, while already-drained audio retains
+its completion receipt. Heavy output/motion callbacks remain outside the realtime
+callback. Effect audio does not commit a spoken reply.
+Startup greeting eligibility now uses trusted dialogue and delivered proactive
+speech, rather than rejected microphone activity.
+
+The one-word reply answered a trusted ASR transcript of “Okay” which the operator
+said they had not spoken. It had only one 32 ms VAD-positive block, but retained
+preroll and endpoint-tail audio; this is not a 32 ms recording. Motion risk was
+false and the microphone-hold flag was true. These flags describe commanded motion
+and posture, not measured acoustic silence: servo noise remains plausible. No
+waveform was retained, so its source cannot be established. No new duration veto
+or ASR confidence threshold was introduced. Short speech/stop-command recall and
+false transcription under servo noise still need saved-audio/live acceptance.
+
+The first follow-up answer was cancelled before PCM by the repeated question.
+Later answers have completed software delivery receipts and zero reported
+underruns; that does not verify physical audibility.
+
+Verification: **772 blocked-I/O checks pass**, including seven new synthetic
+regressions covering callback/receipt ordering,
+explicit stop and receipt retention, effect isolation, resumed speech and camera
+changes after PCM, future/stale microphone timing, and startup after rejected
+noise. Existing later-arrival fixtures now include an actual trusted conversation.
+No hardware, hosted providers, acoustic models or personal state were changed.

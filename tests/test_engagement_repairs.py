@@ -135,6 +135,41 @@ class EngagementRepairs(MemoryFixture):
         self.assertEqual(result.completed_text, [])
         self.assertIsNone(self.state.pending)
 
+    def test_rejected_startup_noise_does_not_remove_greeting_obligation(self):
+        from dataclasses import replace
+        from tests.test_proactive import event
+        from r3x.semantics import grounded_tools
+        self.setup_core(output=OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace))
+        self.noise(100)
+        arrival = replace(event(at=104), speech_marker=self.session._latest_speech)
+        result = self.session.process_opportunity(arrival, 0, lambda:True)
+        self.assertEqual(result.status, 'completed')
+        context = self.brain.snapshots[0].context
+        self.assertTrue(context['visual_arrival']['startup_greeting'])
+        self.assertNotIn('remain_silent', {t['name'] for t in grounded_tools(context)})
+        self.assertIsNone(self.state.conversation_source)
+        later = self.state.opportunity_context(replace(arrival, at=120))
+        self.assertFalse(later['visual_arrival']['startup_greeting'])
+
+    def test_camera_change_between_pcm_and_receipt_keeps_greeting(self):
+        from r3x.contracts import Playback
+        from tests.test_proactive import event
+        valid = [True]
+        outer = self
+        class Sink:
+            def play(self, chunks, cancel, on_start):
+                list(chunks)
+                cancel.playback_started.set()
+                valid[0] = False
+                outer.session.check_opportunity()
+                cancel.check()
+                on_start(100.)
+                return Playback(512, 100., 101., 0)
+        self.setup_core(output=OutputOwner(SyntheticTTS(), Sink(), self.state.trace))
+        result = self.session.process_opportunity(event(), 0, lambda:valid[0])
+        self.assertEqual(result.status, 'completed')
+        self.assertTrue(result.completed_text)
+
     def test_general_greeting_survives_continuous_recognized_track_replacement(self):
         from r3x.proactive import Arrivals
         arrivals = Arrivals()

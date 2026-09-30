@@ -247,6 +247,8 @@ class AudioSink:
                     break
             actual = min(wanted, len(pending))
             if actual:
+                if visualize:
+                    cancel.playback_started.set()
                 outdata[:actual] = pending[:actual]
                 pending = pending[actual:]
                 frames += actual // 2
@@ -313,10 +315,15 @@ class AudioSink:
                 raise ProviderFailure('PlaybackNotDrained')
             return Playback(frames, started_at, self.clock(), underruns)
         finally:
-            if self.stream:
-                self.stream.abort()  # Already drained on successful completion.
-                self.stream.close()
-                self.stream = None
-            close = getattr(chunks, "close", None)
-            if close:
-                close()
+            # Even an explicit stop during a slow producer must retain the fact
+            # that the callback submitted audio. Keep all heavy work off callback.
+            try:
+                announce()
+            finally:
+                if self.stream:
+                    self.stream.abort()  # Already drained on successful completion.
+                    self.stream.close()
+                    self.stream = None
+                close = getattr(chunks, "close", None)
+                if close:
+                    close()

@@ -103,6 +103,7 @@ class VisualMemoryTests(MemoryFixture):
         from r3x.semantics import grounded_tools
         self.setup_description()
         from dataclasses import replace
+        self.begin("Hello again.")
         self.session.note_speech(0)
         result=self.session.process_opportunity(replace(event(),speech_marker=0),0,lambda:True)
         self.assertEqual(result.status,'completed')

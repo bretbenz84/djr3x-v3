@@ -122,11 +122,13 @@ class ProactiveSessionTests(MemoryFixture):
         result=self.state.execute_opportunity(ToolCall('quiet','remain_silent',{'reason':'no_response_needed'}),startup,Cancellation())
         self.assertEqual(result.outcome,'rejected')
         self.assertEqual(result.reason,'StartupGreetingRequiresSpeech')
+        self.begin("Hello again.")
         later=self.state.opportunity_context(replace(event(),speech_marker=0))
         self.assertFalse(later['visual_arrival']['startup_greeting'])
         self.assertIn('remain_silent',{t['name'] for t in grounded_tools(later)})
 
     def test_human_floor_silence_retains_hold(self):
+        self.begin("Hello again.")
         class Silent(Brain):
             def reply(self,snapshot,cancel):
                 yield ToolCall('quiet','remain_silent',{'reason':'background_conversation'})
@@ -155,6 +157,7 @@ class ProactiveSessionTests(MemoryFixture):
         self.assertIsNone(self.state.pending)
 
     def test_model_can_stay_quiet_without_tts_or_continuation(self):
+        self.begin("Hello again.")
         class Silent(Brain):
             def reply(self,snapshot,cancel):
                 self.calls+=1

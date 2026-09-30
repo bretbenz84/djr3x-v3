@@ -412,7 +412,7 @@ class CoreState:
                                           'nobody_visible' if event.kind=='unseen_presence' else 'visible_group'},
                 **({'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
                                      'returning_this_session':event.returning,
-                                     'startup_greeting':event.speech_marker==float('-inf') and self.conversation_source is None
+                                     'startup_greeting':self.conversation_source is None and not event.returning
                                          and not any(r['heard_complete_phrases'] for r in self.initiative.outcomes)}} if event.kind=='visual_arrival' else {}),
                 'speaker':{'person_id':None,'state':'unresolved','reason':'no_speech_observed'},
                 'faces':faces,'people':people,'claims':[],

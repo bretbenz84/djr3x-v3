@@ -91,7 +91,7 @@ class Session:
             if not sustained:
                 return
             self._resumed_speech = max(self._resumed_speech, ended_at)
-            audible = self._delivery is not None and self._delivery.first_audio_at is not None
+            audible = self._cancel is not None and self._cancel.is_committed()
             if self._cancel and ended_at > self._capture_end and not self._cancel.event.is_set() and not audible:
                 self._cancel.event.set()
                 self.trace.emit("reply_yielded", reason="user_resumed_speaking")
@@ -99,7 +99,7 @@ class Session:
     def check_opportunity(self):
         cancel_output = False
         with self._lock:
-            audible = self._proactive_delivery is not None and self._proactive_delivery.first_audio_at is not None
+            audible = self._cancel is not None and self._cancel.is_committed()
             if self._opportunity_guard and self._cancel and not self._cancel.event.is_set() and not audible and not self._opportunity_guard():
                 self._cancel.event.set()
                 cancel_output = True

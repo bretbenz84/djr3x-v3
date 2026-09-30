@@ -341,7 +341,10 @@ class VoiceRuntime:
                 frame = self.mic.read()
                 if frame is None:
                     continue
-                self.audio_seen_at = frame.ended_at
+                # ADC timestamps can run slightly ahead of monotonic time after
+                # the audio device changes streams. Liveness cannot be newer than
+                # receipt; preserve original frame times for capture/attribution.
+                self.audio_seen_at = min(frame.ended_at, self.trace.clock())
                 if self.recorder and frame.started_at>=self.started_at:
                     try:
                         path=self.recorder.record_input(frame)
