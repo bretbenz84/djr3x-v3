@@ -41,6 +41,14 @@ still embellished an untested motor as “dramatic”; social grounding and live
 acoustic/dev-Mac acceptance remain open. Previously skipped exchanges are not
 reconstructed automatically. See [memory evidence](CONVERSATION_MEMORY.md).
 
+September 30 [turn-taking repair](LIVE_RUN_CONVERSATION_REPAIRS.md#september-30-turn-taking-repair):
+queued speech carries capture/playback chronology; the LLM favors brief replies
+and listening to acknowledgments/unfinished answers. Unsolicited speech waits at
+least 20 s after replies/greetings and 60 s after other proactive speech. Direct
+human requests remain immediate. **796 synthetic blocked-I/O checks pass**;
+eight hosted fictional cases pass participation outcomes. No hardware operated;
+real conversational comfort and overlap capture remain unverified.
+
 ## Completed software
 
 [Short-speech capture repair](SHORT_SPEECH_CAPTURE.md) removes a silent pre-ASR
@@ -73,7 +81,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **792 passing checks** (September 30 audience-memory repair).
+The latest blocked-I/O suite has **796 passing checks** (September 30 turn-taking repair).
 The preceding **756 checks** covered the September 28 voice
 head-turn reflex (camera-aimed, taking over held looks), say-before acknowledgments, uncapped mixed move/light sequences, a wave, look-then-describe, and no
 replies to untrusted transcripts; the earlier 645 included 45 [drive-base contracts](DRIVE_BASE_INTEGRATION.md#verification), including the

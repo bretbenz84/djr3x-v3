@@ -429,3 +429,12 @@ State staleness, source trust and frozen evaluation still reject the whole opera
 The per-turn "Conversation continuity" instruction was also removed; the persona states
 once that the intention tool is for the greeting and for real changes of direction.
 See [persona consolidation](PERSONA_REWRITE.md).
+
+### September 30 audible turn-taking floor
+
+The newer user feedback supersedes the eight-second audible follow-up policy:
+ordinary speech/greetings reserve 20 seconds before unsolicited opportunities;
+non-arrival proactive speech reserves 60 seconds, measured from completion.
+Silent/unheard attempts keep their existing backoff. Direct human requests still
+run immediately. Active intentions do not bypass these waits or require speech
+while a question is unanswered. See [repair and evidence](LIVE_RUN_CONVERSATION_REPAIRS.md#september-30-turn-taking-repair).

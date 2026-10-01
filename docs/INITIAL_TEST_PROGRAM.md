@@ -1198,3 +1198,11 @@ close/reopen; natural-language embellishment remains. Live acceptance: keep the
 camera on, tell a multi-sentence story, restart, and ask for both the story and
 its resolution. Inspect `conversation_memory_record` receipts. No hardware run
 was performed. See [details](CONVERSATION_MEMORY.md#september-30-audience-memory-repair).
+
+September 30 turn-taking: **796 synthetic blocked-I/O checks pass**; eight hosted
+fictional cases pass participation outcomes. Live acceptance: tell a story in
+several parts, acknowledge with a short backchannel, pause after Rex's question,
+then give a substantive correction and ask a direct question. Verify no extra
+monologue on acknowledgments, shorter replies, and a useful opening after the
+longer unsolicited-speech pause. No hardware was operated. See [evidence and
+limits](LIVE_RUN_CONVERSATION_REPAIRS.md#september-30-turn-taking-repair).

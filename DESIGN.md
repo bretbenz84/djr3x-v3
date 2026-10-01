@@ -14,7 +14,7 @@ unmeasured thresholds are distinguished below; the full robot is outside this bu
 | User requirement | Delight, make people laugh and help improve their mood; emotional awareness guides sensitivity rather than automatic mood mirroring. |
 | User requirement | Develop proactive participation with the conversational core; the same model decides replies, initiative and silence. Shared arrivals/lulls and bounded conversational feedback are implemented; dated memory opportunities are implemented; live acceptance remains pending. |
 | User requirement | At startup, greet a stable visible person before they have to speak; the model chooses the wording. Existing speech/quiet/freshness guards still apply. |
-| Working design | Social demonstrations should feel like an engaged friend: consider an opening after 7–10 seconds of a genuine lull, initially eight. This is opportunity timing, not automatic speech or measured first-audio latency. |
+| Working design | Social demonstrations should feel like an engaged friend: consider an opening after 7–10 seconds of a genuine lull, initially eight for otherwise eligible quiet opportunities. September 30 audible floors reserve 20 seconds after replies/greetings and 60 seconds after other proactive speech; direct human requests remain immediate. This is opportunity timing, not automatic speech or measured first-audio latency. |
 | User requirement | Learn voices through ordinary conversation and association; retain accepted original audio for later model migration. |
 | User requirement | Never use mouth-motion detection for speaker identity or enrollment. |
 | User requirement | Support one-to-three visible people, including a dev Mac with no directional audio. |

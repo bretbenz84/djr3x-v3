@@ -1,6 +1,6 @@
 # Latest-run conversation repairs
 
-Current repair: [September 29 engagement](#september-29-engagement-repair).
+Current repair: [September 30 turn-taking](#september-30-turn-taking-repair).
 Earlier sections retain the evidence and policy at their dates.
 
 Inspected the latest live session, `local/sessions/16ef81c7b1e04255b0d10fcd7251d7cb.jsonl`.
@@ -301,3 +301,54 @@ explicit stop and receipt retention, effect isolation, resumed speech and camera
 changes after PCM, future/stale microphone timing, and startup after rejected
 noise. Existing later-arrival fixtures now include an actual trusted conversation.
 No hardware, hosted providers, acoustic models or personal state were changed.
+
+## September 30 turn-taking repair
+
+Two latest dev-Mac logs confirmed cross-launch recall but exposed excessive speech.
+The first had five human turns and one arrival; the second had four human turns,
+one arrival and one unheard, cancelled lull. The main pile-up was ordinary replies:
+a short acknowledgment captured before Rex's latest question waited behind its
+playback, then received another full reply; an ambiguous fragment prompted an
+unsupported conclusion. Incidental cough transcripts also received jokes. These
+logs do not establish who produced the sounds or whether echo masking lost human
+words during playback. Their deliveries reported zero underruns.
+
+Repairs in the existing conversation/output owners:
+
+- Supply capture-versus-playback ordering to the same LLM generation and history.
+  Delayed words cannot answer a question that had not yet been spoken. Preserve
+  those words, including substantive delayed corrections and questions.
+- Prefer one short sentence for routine conversation, with detail when requested.
+  Interpret listening acknowledgments, unfinished answers and incidental sounds
+  as possible silence. Keep short consent and requests to continue actionable.
+  No regex interprets their meaning and no extra classifier/model call was added.
+- Remove conflicting instructions that encouraged another joke while waiting for
+  an answer. An optional intention does not oblige another contribution.
+- After actual audio starts, hold unsolicited opportunities until at least 20 s
+  after the reply/greeting finishes, or 60 s after a non-arrival proactive remark.
+  Human requests still receive immediate processing. This floor applies to all
+  proactive triggers, so fresh scene/face observations cannot bypass the pause.
+  Silent/unheard attempts retain existing attempt backoff; output is not cut off.
+
+Verification: **796 blocked-I/O tests pass**, including new production contracts
+for queued-source chronology, silent acknowledgment retention with one model call,
+post-playback answers, audible pauses and immediate direct replies during a hold.
+Existing repeated-plan tests now verify the slower audible pacing and timing from
+completion, including long playback and changed camera audiences.
+
+Eight fictional hosted development cases passed participation outcomes: silence
+for queued acknowledgment, ambiguous answer, incidental sound and unanswered lull;
+one-sentence replies for correction, question, explicit continuation and short
+consent. Earlier development runs exposed a residual lull instruction and an
+ambiguous answer routed through invalid feedback; the final prompt addresses both.
+These are development probes, not held-out acoustic accuracy or universal language
+compliance. The probe scores participation, not factual accuracy of its astronomy
+answers. No hardware was operated; overlapping human speech remains unsupported
+by the playback echo gate. Live conversational comfort still needs the owner's test.
+
+Final hosted probe: 8 calls, 118,348 input tokens
+(96,256 cached), 528 output tokens;
+1.26 s median / 3.10 s maximum request wall time with synthetic playback.
+No new resident model; RSS and physical first-audio latency were not measured.
+Private receipts: `local/validation/turn-taking-a5c50d643b554297aebb53c90bf52133/`.
+Runner: `.venv/bin/python -m tools.check_turn_taking`.

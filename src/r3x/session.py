@@ -57,6 +57,7 @@ class Session:
         self._capture_end = float("inf")
         self.proactive_hold_until = float("-inf")
         self.last_interaction_at = float("-inf")
+        self.last_spoken_reply = None
         self.last_trusted_speech_at = float("-inf")
         self.resolved_audio_at = float("-inf")
         self.route_planner = None  # Optional blocked-path drive planner; never speaks.
@@ -247,6 +248,11 @@ class Session:
                         observation = observation or VoiceObservation(self.state.tracker.namespace)
                         attribution = self.state.begin(turn_id,capture,transcript,observation,faces)
                         context = self.state.context(faces)
+                        if self.last_spoken_reply:
+                            context['reply_timing'] = {
+                                **self.last_spoken_reply,
+                                'human_speech_ended_at':capture.speech_ended_at,
+                                'human_preceded_previous_reply':capture.speech_ended_at < self.last_spoken_reply['started_at']}
                     state_started = True
                 # Keep capture-time attribution/audience across tool continuations
                 # and camera changes during the response.
@@ -297,6 +303,7 @@ class Session:
                 self.history.append({"role":"developer","content":"Evidence for the immediately following utterance: "+json.dumps({
                     "speaker":context["speaker"],"source_turn_id":turn_id,
                     "speech_ended_at":capture.speech_ended_at,"transcript_trusted":transcript.trusted,
+                    "reply_timing":context.get('reply_timing'),
                     "faces":context["faces"]},ensure_ascii=False)})
             if not opportunity: self.history.append({"role": "user", "content": transcript.text})
             # A newer capture can arrive while the previous ASR result waits in
@@ -1141,6 +1148,13 @@ class Session:
             if state_started and (opportunity or transcript.trusted or delivery.completed_text):
                 self.last_interaction_at = self.trace.clock()
                 if not opportunity and delivery.status=='completed': self.proactive_hold_until = float('-inf')
+            if delivery.medium == 'audio' and delivery.first_audio_at is not None:
+                self.last_spoken_reply = {'turn_id':turn_id,'started_at':delivery.first_audio_at,
+                                          'finished_at':self.trace.clock()}
+                # Give the human the floor after audible speech. Direct replies
+                # remain immediate; only unsolicited opportunities are delayed.
+                pause = 60. if opportunity and opportunity.kind != 'visual_arrival' else 20.
+                self.proactive_hold_until = max(self.proactive_hold_until,self.trace.clock()+pause)
             if opportunity_attempted:
                 outcome = self.state.initiative.finished(opportunity,delivery,self.trace.clock())
                 self.trace.emit('proactive_outcome',**outcome)

@@ -40,8 +40,27 @@ an invitation; it does not prove attention or oblige anyone to answer.
 
 Rex is normally started deliberately for social demonstrations with friends.
 Consider a welcome opening after roughly 7–10 seconds of a genuine lull, initially
-eight seconds. This preference favors an engaged conversational friend, while
+eight seconds for otherwise eligible quiet opportunities. The September 30 repair
+adds a floor after audible speech: 20 seconds after a reply/greeting and 60 seconds
+after a non-arrival proactive remark, measured from completion. Direct human
+requests bypass these unsolicited-speech waits. This favors an engaged friend, while
 unfinished thoughts, human-to-human questions and explicit boundaries retain priority.
+
+### September 30: contextual teasing
+
+The master `PERSONA` in `src/r3x/adapters/hosted.py` now explicitly guides friendly
+teasing: react to a specific shared moment, make one affectionate jab, and leave
+room for a comeback. It discourages generic roast routines, invented personal
+flaws, escalating insults and stale callbacks. Useful answers and sincere interest
+remain welcome without a punchline; topic changes, discomfort and serious moments
+end the bit. This is prompt guidance in the existing conversation owner.
+
+Live humor acceptance remains pending. Review a harmless mishap, a playful comeback,
+a new topic, a request to stop teasing and a serious disclosure in sequence. Judge
+whether the joke fits the actual words, feels affectionate, varies naturally and
+stops appropriately. Validation: all 796 synthetic blocked-I/O contract checks
+pass; no hosted model or hardware was used. These checks cannot establish humor
+quality or live conversational acceptance.
 
 ## What to preserve from v2
 
@@ -323,7 +342,8 @@ for the visit, not competing per-person agendas or a fixed onboarding interview.
 Audience changes, quiet/floor boundaries, correction, forgetting and actual delivery
 constrain its use. See [implementation and evaluation](CONVERSATIONAL_INTENT_PLAN.md).
 The subsequently requested continuation behavior now reconsiders an active plan
-across continuing lulls, after 8/15/30/60 seconds after attempts finish. The existing
+across continuing lulls, with attempt backoff of 8/15/30/60 seconds after attempts
+finish, additionally bounded by the audible-speech floors above. The existing
 idle worker offers these opportunities; there is no separate planner or worker.
 Quiet, pending audible questions, human-floor holds, audience freshness, expiry and
 the shared six-attempt/five-minute budget still constrain it. The model sees prior
