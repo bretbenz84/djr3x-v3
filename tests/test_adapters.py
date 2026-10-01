@@ -28,6 +28,27 @@ class Client:
 
 
 class AdapterTests(unittest.TestCase):
+    def test_cache_writes_and_reasoning_survive_provider_trace_and_report(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from r3x.trace import Trace, report
+        usage = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120,
+                 "input_tokens_details": {"cached_tokens": 30, "cache_write_tokens": 40},
+                 "output_tokens_details": {"reasoning_tokens": 5}}
+        with TemporaryDirectory() as directory:
+            path = Path(directory)/"trace.jsonl"
+            trace = Trace("fixture", path, display=lambda row: None)
+            brain = OpenAIBrain("fixture")
+            brain.trace = trace
+            brain.client = Client(Response([
+                {"type": "response.output_text.delta", "delta": "Hello."},
+                {"type": "response.completed", "response": {"usage": usage}}]))
+            self.assertEqual(list(brain.reply(Snapshot("s", "t", 0, ()), Cancellation())), ["Hello."])
+            trace.close()
+            counts = report(path)["reported_model_tokens"]
+            self.assertEqual(counts, {"input_tokens": 100, "cached_tokens": 30,
+                "cache_write_tokens": 40, "output_tokens": 20, "reasoning_tokens": 5, "total_tokens": 120})
+
     def test_intermediate_commentary_is_not_speech_and_retains_its_phase(self):
         item={"type":"message","id":"msg","role":"assistant","phase":"commentary","status":"completed",
               "content":[{"type":"output_text","text":"I will save that.","annotations":[]}]}
@@ -131,6 +152,8 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result, ["Hello."])
         self.assertEqual(len(brain.client.calls), 1)
         payload = brain.client.calls[0][1]["json"]
+        self.assertEqual(payload["model"], "gpt-6-luna")
+        self.assertEqual(payload["reasoning"], {"effort": "low"})
         self.assertFalse(payload["store"])
         self.assertEqual(payload["input"][0]["content"], "original")
         self.assertNotIn("tools", payload)

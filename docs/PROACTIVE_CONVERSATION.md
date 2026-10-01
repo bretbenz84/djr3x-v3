@@ -62,6 +62,27 @@ stops appropriately. Validation: all 796 synthetic blocked-I/O contract checks
 pass; no hosted model or hardware was used. These checks cannot establish humor
 quality or live conversational acceptance.
 
+Hosted model comparison, September 30: `tools/compare_character_models.py` ran
+seven fictional multi-turn scenarios twice per model through production Session,
+with the unchanged persona, low reasoning, temporary stores and synthetic output.
+Both GPT-5.4-mini and GPT-6 Luna completed all 38 evaluated turns (39 API calls each).
+Estimated token charges including cache writes were $0.1512 and $0.0356;
+median synthetic-output turn completion was 1.68 and 1.71 seconds respectively.
+These timings exclude real ASR/TTS. Both recovered the seeded instrument correction;
+mini reintroduced the dropped droid topic in 2/2 runs and Luna in 1/2. Qualitative
+review found more direct requested teasing and steadier home-character framing from
+Luna, but generic praise and weak jokes remain in both. This small text comparison
+does not establish a humor winner or live acceptance; the live model remained mini
+at that stage.
+Full dialogues, prompt snapshot, usage and measurements are in ignored
+`local/validation/character-models-d573545385ff4affa7f1624a2870b432/`.
+
+October 1: the [character/model evaluation](CHARACTER_EVALUATION.md) supersedes that
+initial choice. Rex now uses Luna with a stronger character prompt, measured across
+22 paired conversations and a further mini/Luna cross-check. The assistant review
+favored the revision 9 times, the baseline 5, with 8 ties. This is a modest text
+improvement; live humor acceptance remains open.
+
 ## What to preserve from v2
 
 The read-only source review used v2 revision

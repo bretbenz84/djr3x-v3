@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated September 30, 2026. This is the consolidated
+Updated October 1, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -48,6 +48,15 @@ least 20 s after replies/greetings and 60 s after other proactive speech. Direct
 human requests remain immediate. **796 synthetic blocked-I/O checks pass**;
 eight hosted fictional cases pass participation outcomes. No hardware operated;
 real conversational comfort and overlap capture remain unverified.
+
+October 1 [character and model evaluation](CHARACTER_EVALUATION.md):
+ordinary conversation now uses GPT-6 Luna at low reasoning with a more opinionated,
+contextual teasing persona. Unblinded review of 22 paired conversations favored
+the revision 9/22, baseline 5/22, with 8 ties; final model cross-check cost was 73%
+lower on Luna, with slower completion. **797 blocked-I/O checks and 8/8 hosted
+participation cases pass.** Final hosted memory runs confirm recall and saves.
+Cache-write/reasoning telemetry and tool-result wording are updated. No hardware
+operated; generic jokes and live character acceptance remain open.
 
 ## Completed software
 

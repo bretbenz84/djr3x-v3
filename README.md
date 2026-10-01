@@ -17,7 +17,7 @@ it or reads its data.
 ## What Rex does today
 
 - **Conversation.** Listens through the ReSpeaker array, transcribes locally (Qwen3-ASR),
-  replies with one `gpt-5.4-mini` call per turn and speaks through ElevenLabs. Speech is
+  replies with one `gpt-6-luna` call per turn and speaks through ElevenLabs. Speech is
   leveled to V2's −20 LUFS target.
   - Audible speech is never cut off except by an explicit stop phrase ("stop",
     "shut up", "be quiet", "whoa", repeated or wrapped as in "Oh, stop!").
@@ -168,6 +168,8 @@ models on its own.
 - **Small and replaceable.** No model or device loads at import. Every capability
   declares its dependencies and start/cancel/close. A replacement retires its
   predecessor.
-- **Cost.** Ordinary replies use one `gpt-5.4-mini` call. Stronger models run only
+- **Cost.** Ordinary replies use one `gpt-6-luna` call with low reasoning.
+  See the [character/model comparison](docs/CHARACTER_EVALUATION.md) for measured
+  costs, latency and remaining humor limitations. Stronger models run only
   narrowly: the `gpt-5.6-terra` route planner runs only when a direct path is blocked,
   within the owner's roughly $45/month budget.
