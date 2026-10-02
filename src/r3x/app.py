@@ -24,13 +24,14 @@ class App:
     def configure_live(self):
         from .adapters.asr import QwenASR
         from .adapters.audio import AudioSink, Microphone, SileroVAD
-        from .adapters.hosted import ElevenLabsTTS, OpenAIBrain
+        from .adapters.hosted import ElevenLabsTTS, OpenAIBrain, OpenAIAgencyPlanner
         from .adapters.voice import CAMPlus
         from .adapters.camera import Camera
         secrets = Secrets.load(self.paths.root)
         asr = QwenASR(self.paths.root / "models/qwen3-asr", self.settings.asr_trust_logprob)
         vad = SileroVAD(self.settings.vad_threshold)
         brain = OpenAIBrain(secrets.openai_api_key)
+        agency_planner = OpenAIAgencyPlanner(secrets.openai_api_key,self.settings.agency_planner_model)
         tts = ElevenLabsTTS(secrets.elevenlabs_api_key, secrets.elevenlabs_voice_id)
         from .speech_level import PCMLeveler
         tts.level = PCMLeveler   # V2 per-phrase loudness leveling (numpy/scipy load on first speech).
@@ -74,7 +75,7 @@ class App:
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,route_planner,locator) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,route_planner,locator,agency_planner) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -325,6 +326,10 @@ class App:
                         now = trace.clock()
                         return [f['box'] for f in camera.latest(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
                     self.robot.reflex.faces = reflex_faces
+                agency = next((p for p in optional if p.capability.name=='agency_planner'),None)
+                if agency and 'agency_planner' in active:
+                    agency.trace = trace
+                    session.agency_planner = agency
                 planner = next((p for p in optional if p.capability.name=='route_planner'),None)
                 if planner and output.drive and 'route_planner' in active:
                     planner.trace = trace

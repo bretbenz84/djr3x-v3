@@ -16,7 +16,7 @@ class Actions:
 
     def observed(self, result: dict) -> None:
         if self.active is None:return
-        keys=('status','stage','reason','medium','motion_status','motion_completed_at','settled_at','captured_at','frame_id')
+        keys=('images_acquired','status','outcome','stage','reason','medium','motion_status','motion_completed_at','settled_at','captured_at','frame_id')
         self.active['executor']={key:result[key] for key in keys if key in result}
         self.active['stage']='responding'
 

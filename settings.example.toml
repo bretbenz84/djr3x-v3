@@ -43,8 +43,8 @@ camera_height = 720
 camera_framerate = 30.0
 
 # Conversation worker: consider a lull after this much silence and completed work.
-# Default 8 seconds for one seed lull; valid 3-120. No camera/face required.
-# Model-selected reconsideration has its own bounded delay; neither guarantees speech.
+# Default 8-second lull floor for plan advancement; valid 3-120. No camera/face required.
+# Saved plan step delays also apply; model/TTS time adds to this eligibility interval.
 proactive_lull_seconds = 8.0
 
 # Optional live WAV retention for human labeling. Accepted enrollment audio is
@@ -93,3 +93,7 @@ drive_port = ""
 # look, never identity. Consumed by drive targets, find_person and unseen-presence
 # opportunities. Robot: /dev/cu.usbmodem2301 (USB serial 28:84:85:4D:1C:80).
 radar_port = ""
+
+# Stronger model for private, persisted narrative/activity plans at lulls.
+# Replies and plan-step execution continue to use GPT-6 Luna. No silent fallback.
+agency_planner_model = "gpt-5.6-terra"

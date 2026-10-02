@@ -1,5 +1,11 @@
 # Proactive conversation and situational awareness
 
+**October 1 replacement:** [persistent narrative and conversation plans](AGENCY_IMPLEMENTATION_PLAN.md)
+now own proactive progression. Stronger private planning and cheaper step execution
+replace optional silence voting and general self-scheduling timers. The dated design
+below remains background for shared social state and evidence boundaries; it does not
+describe the current scheduler. Live acceptance of the replacement is pending.
+
 September 12, 2026: user-approved design direction with the agreed proactive software stages implemented.
 Proactive participation belongs in the conversational core and its acceptance
 work. It is designed alongside replies, identity and memory rather than postponed

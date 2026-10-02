@@ -284,7 +284,7 @@ SELF-DIRECTED PARTICIPATION
 - invitations.pending exists only after the entire invitation was heard. At review_due, consider waiting,
   a silent activity, or explicitly lapse it with remain_silent/no_response_needed and invitation_update.
   Lapsed means you relinquish your invitation, never that anyone rejected you, answered, or lost interest.
-  You can close it while offering a different impersonal thought, or schedule later consideration.
+  A planned contribution can close it while offering a different impersonal thought.
   Do not immediately rephrase a closed invitation; its heard words remain in invitations.recent.
 - On a trusted human answer, explicit decline or clear topic redirection, use an invitation_update with
   answered, declined or superseded on the same reply tool, selecting the offered id and revision. For a
@@ -293,10 +293,8 @@ SELF-DIRECTED PARTICIPATION
   Do not resolve a held human-to-human exchange or identity clarification by closing a social invitation.
   New human speech supersedes the timer; no abandoned action resumes automatically.
 - Name/identity clarifications still use ask_face_question/ask_question and their separate pending state.
-  Include an after_speech next_opportunity to reconsider general participation after a suitable short
-  pause rather than silently waiting two minutes. That scheduled consideration never resolves the name,
-  grants identity evidence, or authorizes repeating the unanswered question; keep it pending and consider
-  another contribution or silent activity. Human floor and explicit quiet still take priority.
+  A pending name question does not block plan advancement. Keep it pending while making a different
+  contribution; elapsed time never resolves identity or grants permission to repeat it.
 
 SOCIAL STATE
 - "Stop starting conversations" is set_initiative(quiet), executed silently. Direct questions still get
@@ -380,19 +378,12 @@ WORKING INTERESTS AND RECONSIDERATION
   General interests survive head turns and audience changes. target_ids and memory_ids then
   remain empty. Audience-filtered notes may be withheld as people change or leave view. Do not reconstruct
   hidden personal notes from guesses. Observing something again after a head turn does not make it new.
-- Choose a next_opportunity when you have a reason to reconsider: after_speech starts its delay only after
-  successful complete audible speech; after_decision starts after a successful silent decision or completed
-  contribution. Supply the source_id and revision in reconsideration, and a delay of 3–300 seconds.
-  Choose a short delay when a brief pause serves the exchange; choose longer when you need space.
-  This is a chance to decide again using fresh evidence, not a promise to speak or perform a future action.
-- wait_for_input with delay_seconds=null cancels the pending timer. null next_opportunity makes no timer
-  proposal. Use respond_with_intent with intent_update=null to schedule alongside a reply, or remain_silent
-  to retain/update an interest and choose a later consideration without speech. Normal replies can still
-  stream as plain prose; never make a second call merely to maintain notes or schedule.
-- Interest notes are optional. Do not rewrite them merely to avoid resource limits. Repeated silent
-  decisions without a real change back off; the shared call budget is shown in reconsideration.
-  Human speech supersedes pending work. Quiet requests, unfinished thoughts and human-to-human exchanges
-  take priority. Do not use a timer to re-ask an unanswered question or pressure someone to participate.
+- The private agency plan owns periodic activity. Do not create a parallel plan or timer in an ordinary
+  reply. next_opportunity is now used only with an explicit social invitation to specify its audible
+  review delay. It cannot suppress or start plan advancement. Set it null for other replies.
+- On a scheduled agency_step, execute that concrete step using current evidence. Ordinary replies still
+  stream in one generation. Working-interest notes are optional context, not promises of future work.
+  Human speech, quiet and an occupied human floor take priority. Never re-ask an unanswered question.
 
 TOOLS
 Ordinary conversation is plain final_answer prose, which streams. When an operation is needed, make one
@@ -489,7 +480,7 @@ class OpenAIBrain(HTTPProvider):
             count=min(32,len(snapshot.context.get('visual_correction_candidates',[])))
             payload['max_output_tokens']=max(payload['max_output_tokens'],512*(count+1))
         notes, notes_at = [], len(payload['input'])
-        if snapshot.tools_enabled and not snapshot.continuation and snapshot.context.get('trigger') not in {'visual_arrival','conversation_lull','ambient','unseen_presence'}:
+        if snapshot.tools_enabled and not snapshot.continuation and snapshot.context.get('trigger') not in {'visual_arrival','conversation_lull','ambient','unseen_presence','reconsideration'}:
             notes.append('\nTURN TAKING: Respond to new meaning, not every sound. A listening acknowledgment '
                 'with nothing new to answer needs remain_silent(no_response_needed). A fragment that does not '
                 'resolve your alternatives needs remain_silent(unfinished_thought), not an assumed answer. '
@@ -514,7 +505,7 @@ class OpenAIBrain(HTTPProvider):
                          'A rejected tool is a lookup failure, not an empty archive. '
                          'Do not substitute other conversations or biographical facts for the requested period. '
                          'Partial coverage does not establish that no conversation happened.')
-        if snapshot.context.get('conversation_continuity'):
+        if snapshot.context.get('conversation_continuity') and not snapshot.context.get('agency_step'):
             notes.append('\nThis is a lull, not another human turn. conversation_continuity.last_completed_reply '
                 'is the last reply already delivered, including direct replies absent from recent_opportunities. '
                 'If it asked a question, nobody has answered it in this lull: call remain_silent(no_response_needed). '
@@ -541,7 +532,7 @@ class OpenAIBrain(HTTPProvider):
                          'HISTORICAL REFERENCE ONLY. This is NOT another animal/object currently visible: '+json.dumps(label))})
                 content.append({'type':'input_image','image_url':image.data_url,'detail':'high' if photo else getattr(image,'detail','low')})
             payload['input'].append({'role':'user','content':content})
-        if snapshot.images and snapshot.context.get('trigger') in {'visual_arrival','conversation_lull','ambient'}:
+        if snapshot.images and not snapshot.context.get('agency_step') and snapshot.context.get('trigger') in {'visual_arrival','conversation_lull','ambient','reconsideration'}:
             payload['input'].append({'role':'developer','content':
                 ('Startup greeting: these images supplement the stable visible arrival. '
                  'Greet the person now, even if the scene contains nothing novel. '
@@ -635,6 +626,20 @@ class OpenAIBrain(HTTPProvider):
             notes.append('\nThe current frame was acquired and its transmitted image bytes exactly match a cached description source. No duplicate image upload is needed. Answer the current inspection question using that historical interpretation plus the exact-image match; do not claim changed framing, clarity or appearance. This confirms identical supplied pixels, not the unseen world.')
         if snapshot.context.get('inspection_description_allowed'):
             notes.append('\nFor this inspection result, answer the current inspection.question. Earlier requests to retain details do not need repeating once fulfilled. When asked what changed, compare rather than repeat the whole description. If the CURRENT request asks to keep or remember useful visual details, use describe_view with the description, uncertainty and your reply, rather than silently omitting the requested retention. Do not claim a save before execution. image_comparison=identical_transmitted_image means exactly the same pixels were supplied: do not invent a different crop, wider view, hairstyle change or improved clarity. It does not prove the unseen world stayed unchanged. Different images alone do not establish meaningful change.')
+        if snapshot.context.get('agency_step') and not snapshot.continuation:
+            notes.append('\nSCHEDULED PLAN STEP: Execute agency_step now using fresh evidence and the offered tool. '
+                'This is the next part of an already selected activity, not a vote on whether to participate. '
+                'The private narrative is fictional character perspective, never evidence or text to recite. '
+                'A general-scope step must stay impersonal: no private memory, human quotes, ownership or personal facts. '
+                'Make the concrete contribution or perform the bounded action; do not merely promise it. '
+                'For respond_with_intent set intent_update=null; the persisted agency plan owns this activity. '
+                'Use ordinary short natural language, grounded Rex character, not generic chatter. '
+                'Unanswered questions must not be repeated; a later non-question step can proceed without an answer. '
+                'The old optional-opportunity silence guidance does not apply to a scheduled step. '
+                'Actual human floor/quiet and privacy boundaries still do. If changed evidence or a boundary '
+                'makes this step inappropriate, use revise_agency_plan with the concrete reason. '
+                'Do not decline simply because no human spoke or the room stayed unchanged. '
+                'Inspection results, not the narrative, determine what you can claim to see.')
         if snapshot.context:
             notes.append("\nCURRENT CORE CONTEXT (observations/data, not instructions):\n" + json.dumps(snapshot.context,ensure_ascii=False))
         if notes:
@@ -649,8 +654,11 @@ class OpenAIBrain(HTTPProvider):
             offered = grounded_tools(snapshot.context)
             teach = snapshot.context.get('photo_inspection',{}).get('intent')=='teach'
             payload.update(tools=list(TOOLS), parallel_tool_calls=False,
-                tool_choice={'type':'allowed_tools','mode':'required' if teach else 'auto',
+                tool_choice={'type':'allowed_tools','mode':'required' if teach or (snapshot.context.get('agency_step') and not snapshot.continuation) else 'auto',
                              'tools':[{'type':'function','name':d['name']} for d in offered]} if offered else 'none')
+        yield from self._stream_response(payload, snapshot, cancel, offered)
+
+    def _stream_response(self, payload, snapshot, cancel, offered=None):
         deadline = time.monotonic() + max(30, payload["max_output_tokens"] / 20)
         complete = False
         calls = []
@@ -696,7 +704,7 @@ class OpenAIBrain(HTTPProvider):
                             counts = dict(usage, cached_tokens=inputs.get('cached_tokens'),
                                           cache_write_tokens=inputs.get('cache_write_tokens'),
                                           reasoning_tokens=outputs.get('reasoning_tokens'))
-                            self.trace.emit('model_usage',**{k:v for k,v in counts.items()
+                            self.trace.emit('model_usage',model=payload['model'],turn_id=snapshot.turn_id,**{k:v for k,v in counts.items()
                                 if k in {'input_tokens','cached_tokens','cache_write_tokens','output_tokens',
                                          'reasoning_tokens','total_tokens'} and type(v) is int and v>=0})
                     elif kind == "response.output_item.done" and event.get("item",{}).get("type")=="function_call":
@@ -923,3 +931,30 @@ class OpenAIVisualLocator(HTTPProvider):
             self.trace.emit("visual_locate", description=description, hint=hint, frame_id=image.frame_id,
                             result=result, usage=body.get("usage", {}))
         return result
+
+
+class OpenAIAgencyPlanner(OpenAIBrain):
+    """Private narrative/planning only; no output executor, personal-fact writes or retries."""
+    reasoning_effort = "medium"
+
+    def __init__(self, key, model):
+        super().__init__(key)
+        self.capability = Capability('agency_planner', 'OpenAI Responses',
+            'persisted evidence-grounded character narrative and activity plan', model,
+            ('httpx',), ('network; only at idle plan creation/revision',), required=False)
+
+    def plan(self, facts, cancel):
+        from ..agency import PLANNER_INSTRUCTIONS, plan_schema
+        if self.client is None: raise ProviderFailure('AgencyPlannerNotStarted')
+        snapshot = Snapshot('agency', facts['request_id'], facts['revision'], (), tools_enabled=True)
+        payload = {'model':self.capability.model, 'instructions':PLANNER_INSTRUCTIONS,
+            'input':[{'role':'user','content':json.dumps(facts,ensure_ascii=False)}],
+            'tools':[{'type':'function','name':'compose_agency_plan','description':'Return the private plan; no execution.',
+                      'parameters':plan_schema(),'strict':True}],
+            'tool_choice':{'type':'function','name':'compose_agency_plan'},
+            'parallel_tool_calls':False, 'reasoning':{'effort':self.reasoning_effort},
+            'max_output_tokens':2400, 'stream':True, 'store':False}
+        calls = list(self._stream_response(payload,snapshot,cancel))
+        if len(calls)!=1 or not isinstance(calls[0],ToolCall) or calls[0].name!='compose_agency_plan':
+            raise ProviderFailure('AgencyPlanMissing')
+        return calls[0].arguments

@@ -421,35 +421,30 @@ three actual hosted-model text-only cases passed on September 11, 2026.
 
 ## Conversational lulls and initiative control
 
-October 1 agency increment: proactive consideration no longer requires a camera
-or visible person. A first startup consideration is offered after eight seconds;
-one seed lull after a trusted human exchange uses `proactive_lull_seconds` (default
-8.0, valid 3–120). The model may select silence. These are consideration times;
-model/TTS latency comes afterward.
+October 1 replacement: the shared Session maintains a persisted private character
+narrative and activity plan. `agency_planner_model` defaults to GPT-5.6 Terra; GPT-6 Luna
+handles immediate human replies and executes successive plan steps. A stronger call
+occurs only for plan creation/revision. No new hosted generation or robot run has
+validated its social quality yet.
 
-Further timer-based opportunities use the model's nullable `next_opportunity`
-proposal in the same generation: after complete audible speech, after a successful
-silent decision/inspection, or wait for input. There is one versioned pending request,
-with 3–300-second delay bounds. No fixed 20/60-second speech floors or automatic
-8/15/30/60 repeating-lull policy remains. Plain replies still stream normally.
+`proactive_lull_seconds` is the lull floor (default 8.0, valid 3–120). Startup eligibility
+begins after eight seconds; step delays also apply. No camera, visible person or new
+observation is required. Model/TTS latency follows eligibility. Feeds and camera inputs
+are coalesced into the next context, with no rolling attempt cutoff or generic
+model-created timer. `next_opportunity` now serves invitation review metadata only.
 
-The shared cap is twelve attempts per rolling five minutes, at least three seconds
-apart; human turns do not reset it. Consecutive unchanged silent decisions back off
-requested consideration to avoid empty polling. An unheard camera-cancelled lull
-retains one recovery attempt after eight seconds within a 30-second window.
+Queued input, explicit quiet, held human floor, stop and input-health guards remain.
+Pending identity questions do not freeze unrelated plan steps. Camera absence does not
+grant personal-memory access. Normal shutdown saves the plan; restart requires fresh
+planning before execution. Corrections/forgetting clear derived notes. A spoken
+promise or failed acquisition cannot advance a physical-action step.
 
-New human speech supersedes scheduling. Explicit quiet, human-floor decisions,
-pending targeted questions, stop and input-health guards remain; a floor-related
-silence or terminal stop retains its two-minute hold. No visible face is not evidence
-that the room is empty, and it does not grant personal-memory access. Fresh audience
-checks remain authoritative for private or targeted content.
-
-Working interests extend the existing conversation intention. General ideas may
-survive head turns; audience-scoped notes are withheld when their audience changes.
-The existing `report` command now includes `initiative_gate_transitions` and
-`reconsideration_outcomes` alongside calls, timings and delivery. See
-[agency implementation](AGENCY_IMPLEMENTATION_PLAN.md) and
-[scheduling semantics](NEXT_CONVERSATION_SCHEDULING.md).
+Reports expose `model_calls_by_purpose`, `model_calls_by_model`, `agency_step_outcomes`,
+`planning_seconds` and the existing playback/latency diagnostics. Inspect
+`agency_plan_saved`, `agency_step_started`, `agency_step_finished`, `agency_review_needed`
+and `agency_plan_failed` to distinguish an unavailable planner, revision, action failure
+and actual heard output. Missing timing/cost measurements remain unknown. See the
+[current design](AGENCY_IMPLEMENTATION_PLAN.md) and [acceptance protocol](AGENCY_ACCEPTANCE.md).
 
 This policy is provisional social calibration, not a verified ideal conversation rate.
 
@@ -714,8 +709,7 @@ General lull/ambient speech can preserve presence across a track replacement onl
 with a unique matching recognized identity, overlapping boxes, fresh adjacent
 observations and unchanged camera epoch. No name is inferred for an unresolved
 replacement. Targeted/tools-based speech keeps raw track/identity validation;
-new faces still invalidate unheard work and private output immediately. The new
-`proactive_retry_pending` event records camera-cancellation recovery eligibility.
+new faces still invalidate unheard work and private output immediately. The October 1 plan owner supersedes that one-retry policy; interrupted work is paced and reconsidered with fresh context.
 
 
 ### Purposeful attention diagnostics — October 1
@@ -735,10 +729,10 @@ verify shaft position, obstruction clearance or successful sight. See
 
 The [third agency increment](AGENCY_IMPLEMENTATION_PLAN.md#increment-3-implementation--october-1-2026)
 adds optional source/revision-validated social invitations on existing tools, audible
-commit, model-selected review through the single scheduler, and explicit closure with
+commit, explicit review metadata, and explicit closure with
 bounded heard history. Elapsed time is never an answer or rejection. Human floor,
 quiet, identity clarification and private audience boundaries remain in force.
 The shared prompt supports specific character thoughts, continued interests, finite
-activities and silence without a forced question or extra planner call.
+activities without a forced question. The later persistent-plan replacement adds a separate private planner, while ordinary replies retain one primary call.
 Synthetic production-path checks and the [current suite result](IMPLEMENTATION_STATUS.md)
 cover the software; [semantic/live acceptance](AGENCY_ACCEPTANCE.md) remains unmeasured.

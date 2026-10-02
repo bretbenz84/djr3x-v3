@@ -104,6 +104,8 @@ class Memory:
         self.connection.executescript(SCHEMA)
         from .conversation_memory import SCHEMA as conversation_schema
         self.connection.executescript(conversation_schema)
+        from .agency import SCHEMA as agency_schema
+        self.connection.executescript(agency_schema)
         self.validate_schema()
 
     def validate_schema(self):
@@ -260,6 +262,7 @@ class Memory:
         conn.execute("UPDATE people SET status='supported' WHERE id=?",(person_id,))
 
     def forget(self, conn, person_id):
+        conn.execute('DELETE FROM agency_plan')  # Derived narrative must not retain forgotten personal data.
         # Claims from or about this person cannot survive as unattributed facts.
         affected = {row[0] for row in conn.execute("SELECT source_turn FROM claims WHERE subject_id=? OR said_by=?",(person_id,person_id))}
         affected.update(row[0] for row in conn.execute(

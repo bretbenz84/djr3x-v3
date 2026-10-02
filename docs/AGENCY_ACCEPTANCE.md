@@ -1,6 +1,6 @@
 # Agency acceptance scenarios
 
-October 1, 2026. All three agency increments are implemented in software. This
+October 1, 2026. The persistent narrative/plan replacement is implemented in software; its live acceptance is pending. This
 protocol separates deterministic contract evidence from unmeasured model choice
 and real-room experience. It authorizes no hosted spending or hardware operation.
 The current automated result is in [implementation status](IMPLEMENTATION_STATUS.md).
@@ -23,7 +23,7 @@ Do not substitute a scripted brain's desired words for evidence of model behavio
 | Unanswered invitation | Ask once, allow input, review, explicitly lapse, contribute differently | Silence/time cannot produce answered/declined; closed heard text retained | Comfortable transition without an announcement of rejection or a rephrased question |
 | Interruption/redirection | Human resumes during a look or after speech before/during a gesture; then changes topic | Motion cancellation independent of committed speech; source/revision checks; explicit supersession | Prompt natural response and no resumption of abandoned performance |
 | Sensitive context | Serious disclosure; request for quiet; human-to-human unfinished exchange | Quiet/floor constraints precede invitation review and timers; direct replies remain possible | Warm restraint without inappropriate jokes, emotion matching or permanent inactivity |
-| Failure/new audience | Failed playback, stalled movement, changed audience, corrected/forgotten source, restart | No unheard invitation, false receipt or restored timer; private notes filtered/invalidated | Honest explanation and no private disclosure or stale follow-up |
+| Failure/new audience | Failed playback, stalled movement, changed audience, corrected/forgotten source, restart | No unheard invitation, false receipt or execution before restart revalidation; private notes filtered/invalidated | Honest explanation and no private disclosure or stale follow-up |
 
 These cases map to production-path checks in `test_agency.py`,
 `test_physical_attention.py`, `test_invitations.py`, and the existing proactive,
@@ -56,7 +56,17 @@ chosen silence and missed opportunity.
 
 Structural release criteria are zero fabricated delivery/movement receipts, zero
 invalid identity/fact writes, correct cancellation/quiet/source boundaries, and the
-existing twelve-attempts-per-five-minutes resource bound. All applicable contract
+single-plan ownership, bounded failure retries and measured planner/executor call counts. The old twelve-attempt rolling cap is removed. All applicable contract
 tests must pass. Social thresholds and the acceptable missed-opening/interruption
 tradeoff still require baseline evidence and user review; no numeric social gate
 has been invented or declared passed. Live calibration and acceptance remain open.
+
+## Replacement-specific run
+
+Include an unchanged room with no visible person, several uninterrupted lulls, a head
+turn back to the same scene, a human redirection, explicit quiet and normal restart.
+Record planner model/calls/duration, Luna calls, saved/advanced/revised steps, actual
+heard words and executor outcomes. Compare against the inspected baseline of 16
+opportunities with zero completed audible proactive contributions. Count missed
+openings and repeated questions as well as interruptions. No paid or physical run
+was performed by the implementation checks.

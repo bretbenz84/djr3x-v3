@@ -59,12 +59,12 @@ class InvitationTests(test_memory_core.MemoryFixture):
         self.assertEqual(row['review_at'],103)
         self.assertIsNone(self.tick(102));self.assertEqual(self.brain.calls,1)
         self.brain.choose=lambda c:close(c,schedule=True)
-        self.assertEqual(self.tick(103).status,'suppressed')
+        self.assertEqual(self.tick(108).status,'suppressed')
         self.assertIsNone(self.invitations.pending)
         self.assertEqual(self.invitations.recent[-1]['status'],'lapsed')
         self.assertEqual(self.invitations.recent[-1]['heard_text'],row['heard_text'])
         self.brain.choose=lambda c:ToolCall('idea','respond_with_intent',{'text':'A waltz with a missing beat would keep the dancers awake.','intent_update':None})
-        self.assertEqual(self.tick(106).status,'completed')
+        self.assertEqual(self.tick(116).status,'completed')
         self.assertEqual(self.brain.calls,3)
         self.assertEqual(self.store.claims(),[]);self.assertEqual(self.store.people(),[])
 
@@ -74,7 +74,6 @@ class InvitationTests(test_memory_core.MemoryFixture):
         self.assertTrue(self.invitations.context({},200)['review_due'])
         self.assertEqual(self.invitations.pending['status'],'waiting')
         self.session.note_speech(200)
-        self.assertIsNone(self.state.initiative.pending)
         self.assertEqual(self.invitations.pending['status'],'waiting')
         self.brain.choose=lambda c:'That is a different topic.'
         self.turn('The clock is wrong.')
@@ -89,13 +88,13 @@ class InvitationTests(test_memory_core.MemoryFixture):
                 result=self.turn(text)
                 self.assertEqual(result.status,'completed')
                 self.assertEqual(self.invitations.recent[-1]['status'],action)
-                self.assertIsNone(self.invitations.pending);self.assertIsNone(self.state.initiative.pending)
+                self.assertIsNone(self.invitations.pending)
                 self.assertEqual(self.brain.calls,2)
 
     def test_proactive_cannot_claim_human_answer_or_decline(self):
         self.setup_core();self.tick(100)
         self.brain.choose=lambda c:close(c,'declined')
-        self.tick(103)
+        self.tick(108)
         self.assertEqual(self.invitations.pending['status'],'waiting')
         self.assertIn('InvitationNeedsHumanSource',self.reasons())
 
@@ -104,10 +103,10 @@ class InvitationTests(test_memory_core.MemoryFixture):
         def fail(*args):raise ProviderFailure('SyntheticPlaybackFailure')
         self.session.output.sink.play=fail
         self.assertEqual(self.tick(100).status,'failed')
-        self.assertIsNone(self.invitations.pending);self.assertIsNone(self.state.initiative.pending)
+        self.assertIsNone(self.invitations.pending)
         self.trace.at=110;self.session.output=TextOutput(self.trace)
         self.turn('Tell me your idea.')
-        self.assertIsNone(self.invitations.pending);self.assertIsNone(self.state.initiative.pending)
+        self.assertIsNone(self.invitations.pending)
 
     def test_cancelled_offer_cannot_rearm_or_commit_after_audio_started(self):
         self.setup_core();original=self.session.output.sink.play
@@ -115,7 +114,7 @@ class InvitationTests(test_memory_core.MemoryFixture):
             result=original(*args);self.session.cancel();return result
         self.session.output.sink.play=cancel
         self.tick(100)
-        self.assertIsNone(self.invitations.pending);self.assertIsNone(self.state.initiative.pending)
+        self.assertIsNone(self.invitations.pending)
 
     def test_stale_malformed_or_unoffered_updates_preserve_reply_without_mutation(self):
         self.setup_core();self.tick(100)
@@ -183,21 +182,6 @@ class InvitationTests(test_memory_core.MemoryFixture):
         self.assertTrue(all(r['status']=='superseded' for r in self.invitations.recent))
         self.assertEqual(self.invitations.pending['status'],'waiting')
 
-    def test_five_minute_unchanged_room_supports_interest_silence_and_lapse_without_loop(self):
-        self.setup_core();self.tick(100)
-        self.brain.choose=lambda c:close(c,schedule=True)
-        self.tick(103)
-        self.brain.choose=lambda c:ToolCall('interest','respond_with_intent',{'text':'A three-beat engine would sound like a tiny waltz.',
-            'intent_update':test_conversation_intent.proposal(c,scope='general',target_ids=[],
-                interests=[test_agency.interest(c)]), 'next_opportunity':test_agency.next_request(c,'after_speech',10)})
-        self.tick(106)
-        self.brain.choose=lambda c:ToolCall('done','remain_silent',{'reason':'no_response_needed'})
-        self.tick(116)
-        for at in range(117,401):self.assertIsNone(self.tick(at))
-        self.assertEqual(self.brain.calls,4)
-        self.assertEqual(len(self.invitations.recent),1)
-        self.assertTrue(self.state.conversation_intent.record.interests)
-        self.assertFalse(self.store.claims())
 
     def test_scheduled_general_review_does_not_consume_pending_identity_question(self):
         from tests.test_proactive import event
@@ -207,7 +191,7 @@ class InvitationTests(test_memory_core.MemoryFixture):
         self.assertEqual(self.session.process_opportunity(event(),0,lambda:True).status,'completed')
         pending=deepcopy(self.state.pending)
         self.brain.choose=lambda c:ToolCall('quiet-look','remain_silent',{'reason':'no_response_needed'})
-        self.assertEqual(self.tick(103).status,'suppressed')
+        self.assertEqual(self.tick(108).status,'suppressed')
         self.assertEqual(self.brain.calls,2)
         self.assertEqual(self.state.pending,pending)
         self.assertEqual(self.store.people(),[])
@@ -238,7 +222,7 @@ class InvitationTests(test_memory_core.MemoryFixture):
         self.assertIn('GeneralInvitationCannotUsePrivateVisualMemory',self.reasons())
 
     def test_report_counts_lifecycle_without_claiming_quality_or_missing_latency(self):
-        self.setup_core();self.tick(100);self.brain.choose=lambda c:close(c);self.tick(103)
+        self.setup_core();self.tick(100);self.brain.choose=lambda c:close(c);self.tick(108)
         with TemporaryDirectory() as folder:
             path=Path(folder)/'trace.jsonl';path.write_text('\n'.join(json.dumps(r) for r in self.trace.rows))
             result=report(path)

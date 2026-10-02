@@ -55,7 +55,10 @@ CONFIG = {'max_lin': .25, 'max_ang': round(math.radians(60), 3), 'accel_lin': .3
           'watchdog_ms': 500, 'drive_expiry_ms': 300,
           # V2 pushes these: firmware defaults keep the gamepad owner until Start is pressed.
           'manual_autoreturn': True, 'manual_idle_return_secs': 4}
-CHARGER_MV = 13600
+# Match the firmware's charger-entry threshold and the operator battery gauge.
+# A freshly unplugged pack can retain 13.61 V for minutes; 13.6 V reintroduced
+# the old surface-charge lockout even after firmware had released its latch.
+CHARGER_MV = 14000
 CAMERA_KINDS = {'face', 'nearest_person', 'object'}
 
 

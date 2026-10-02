@@ -66,13 +66,6 @@ class Reconsideration:
     delay_seconds: float | None
 
 
-@dataclass(frozen=True)
-class PendingOpportunity:
-    source_id: str
-    due_at: float
-    expires_at: float
-
-
 class OpportunityCancellation(Cancellation):
     def __init__(self, valid):
         super().__init__()
@@ -91,13 +84,10 @@ class Initiative:
     """
     def __init__(self, trace=None):
         self.trace = trace
+        self.agency = None
         from .invitations import Invitations
         self.invitations = Invitations(trace)
         self.schedule_revision = 0
-        self.pending = None
-        self.waiting_for_input = False
-        self.bootstrap_used = False
-        self.empty_considerations = 0
         self.quiet = False
         self.policy_source = None
         self.attempts = deque(maxlen=16)
@@ -105,33 +95,26 @@ class Initiative:
         self.lull_source = None
         self.lull_attempts = 0
         self.feedback = deque(maxlen=32)
-        self.lull_retry_until = float('-inf')
-        self.lull_retry_used = False
 
     def floor_held(self, now: float) -> bool:
         return any(r['action']=='yield_floor' and now < r['expires_at'] for r in self.feedback)
 
     def scheduling_context(self, source):
         return {'revision': self.schedule_revision, 'source_id': source,
-                'pending': vars(self.pending) if self.pending else None,
-                'waiting_for_input': self.waiting_for_input,
-                'delay_bounds_seconds': [3, 300], 'attempt_budget_per_300_seconds': 12}
-
-    def _schedule_event(self, event, **fields):
-        if self.trace:
-            self.trace.emit(event, revision=self.schedule_revision, **fields)
+                'delay_bounds_seconds': [3, 300], 'meaning': 'Invitation review metadata only; agency plans own periodic advancement.'}
 
     def cancel_schedule(self, reason):
+        if self.agency:
+            if reason in {'forgotten','forget_person','correct_claim','retract_claim',
+                          'cancel_association','reset_face_identity','explicit_stop','initiative_quiet','participant_boundary'}:
+                self.agency.clear(reason)
+            elif reason == 'human_turn':
+                self.agency.changed(reason)
         if reason in {'new_session','forgotten','forget_person','correct_claim','retract_claim','cancel_association','reset_face_identity'}:
             self.invitations.invalidate(reason,erase=True)
         elif reason in {'explicit_stop','initiative_quiet','participant_boundary'}:
             self.invitations.invalidate(reason)
-        had_request = self.pending is not None or self.waiting_for_input
         self.schedule_revision += 1  # Also invalidates in-flight proposals.
-        self.pending = None
-        self.waiting_for_input = False
-        if had_request:
-            self._schedule_event('reconsideration_cancelled', reason=reason)
 
     def prepare_schedule(self, value, context):
         validate_next(value)
@@ -147,75 +130,14 @@ class Initiative:
             raise ValueError('StaleReconsideration')
         return Reconsideration(**value)
 
-    def finish_schedule(self, proposal, delivery, now, *, valid=True, changed=False):
-        if proposal is None:
-            return
-        success = delivery.status in {'completed', 'suppressed'} and delivery.error is None
-        if proposal.trigger == 'after_speech':
-            success = success and delivery.status == 'completed' and delivery.medium == 'audio' and bool(delivery.completed_text)
-        if (not valid or not success or proposal.revision != self.schedule_revision or
-                self.quiet or self.floor_held(now)):
-            self._schedule_event('reconsideration_not_armed', source_id=proposal.source_id,
-                                 reason='stale_cancelled_failed_or_held')
-            return
-        self.schedule_revision += 1
-        self.pending = None
-        self.waiting_for_input = proposal.trigger == 'wait_for_input'
-        if not self.waiting_for_input:
-            empty = delivery.status == 'suppressed' and not changed
-            self.empty_considerations = min(6, self.empty_considerations + 1) if empty else 0
-            # Empty decisions may request another look, but cannot busy-poll.
-            floor = min(180, 3 * 2 ** max(0, self.empty_considerations - 1))
-            delay = max(proposal.delay_seconds, floor if empty else 3)
-            self.pending = PendingOpportunity(proposal.source_id, now + delay, now + delay + 300)
-        self._schedule_event('reconsideration_armed' if self.pending else 'reconsideration_waiting',
-                             source_id=proposal.source_id,
-                             due_at=self.pending.due_at if self.pending else None)
-
-    def scheduled_due(self, now):
-        if self.pending and now > self.pending.expires_at:
-            self.cancel_schedule('expired')
-        return self.pending is not None and now >= self.pending.due_at
-
-    def allowed(self, now: float) -> bool:
-        recent = [at for at in self.attempts if 0 <= now-at < 300]
-        return not self.quiet and not self.floor_held(now) and len(recent) < 12 and (
-            not self.attempts or now-self.attempts[-1] >= 3)
-
-    def lull_due(self, now: float, source: str | None) -> bool:
-        """One seed per human source; subsequent decisions explicitly schedule themselves."""
-        if self.waiting_for_input or self.pending is not None:
-            return False
-        if source is not None and source != self.lull_source:
-            return True
-        return (source == self.lull_source and now < self.lull_retry_until and
-                bool(self.outcomes) and now-self.outcomes[-1]['at'] >= 8)
-
     def attempted(self, event: Opportunity) -> None:
         self.attempts.append(event.at)
-        self.bootstrap_used = True
         self.cancel_schedule("opportunity_consumed")
         if event.kind in {"conversation_lull","ambient","reconsideration"}:
             if self.lull_source != event.source_turn_id:
                 self.lull_attempts = 0
-                self.lull_retry_used = False
-                self.lull_retry_until = float('-inf')
-            if event.kind == 'conversation_lull':
-                self.lull_retry_until = float('-inf')
             self.lull_source = event.source_turn_id
             self.lull_attempts = min(16, self.lull_attempts + 1)
-
-    def retry_unheard(self, event, delivery, reason, now):
-        """One fresh reconsideration, not replay, after a camera-only cancellation."""
-        if (event.kind != 'conversation_lull' or self.lull_retry_used or
-                event.source_turn_id != self.lull_source or
-                reason not in {'audience_changed_or_stale', 'intent_audience_changed'} or
-                delivery.status != 'interrupted' or delivery.first_audio_at is not None or
-                delivery.completed_text):
-            return False
-        self.lull_retry_used = True
-        self.lull_retry_until = now + 30
-        return True
 
     def finished(self, event: Opportunity, delivery, now: float) -> dict:
         heard = bool(delivery.completed_text) and delivery.medium == "audio"
@@ -248,8 +170,6 @@ class Initiative:
         self.feedback.clear()
         self.lull_source = None
         self.lull_attempts = 0
-        self.lull_retry_until = float('-inf')
-        self.lull_retry_used = False
 
 
 class Arrivals:

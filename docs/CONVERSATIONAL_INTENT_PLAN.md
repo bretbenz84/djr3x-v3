@@ -1,5 +1,11 @@
 # Greeting-led conversational intentions
 
+**October 1 replacement:** [persistent narrative and conversation plans](AGENCY_IMPLEMENTATION_PLAN.md)
+now own proactive progression. Stronger private planning and cheaper step execution
+replace optional silence voting and general self-scheduling timers. The dated design
+below remains background for shared social state and evidence boundaries; it does not
+describe the current scheduler. Live acceptance of the replacement is pending.
+
 October 1: the [agency increment](AGENCY_IMPLEMENTATION_PLAN.md) extends this record
 with bounded working interests and separate model-selected reconsideration. It
 removes the later 20/60-second audible floors and visible-person prerequisite.

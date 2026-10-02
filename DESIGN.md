@@ -12,9 +12,9 @@ unmeasured thresholds are distinguished below; the full robot is outside this bu
 | --- | --- |
 | User requirement | Start independently in the new v3 repository and preserve knowledge from v2. |
 | User requirement | Delight, make people laugh and help improve their mood; emotional awareness guides sensitivity rather than automatic mood mirroring. |
-| User requirement | Develop proactive participation with the conversational core; the same model decides replies, initiative and silence. Shared arrivals/lulls and bounded conversational feedback are implemented; dated memory opportunities are implemented; live acceptance remains pending. |
+| User requirement | Develop proactive participation with the conversational core; one conversation owner selects replies and initiative. The October 1 replacement uses a stronger private planner and cheaper reply/step executor. Shared arrivals/lulls and bounded conversational feedback are implemented; dated memory opportunities are implemented; live acceptance remains pending. |
 | User requirement | At startup, greet a stable visible person before they have to speak; the model chooses the wording. Existing speech/quiet/freshness guards still apply. |
-| Working design | Social demonstrations should feel like an engaged friend: consider an opening after 7–10 seconds of a genuine lull, initially eight for otherwise eligible quiet opportunities. October 1 removes the 20/60-second audible floors and visible-person prerequisite; model-selected reconsideration supplements one seed lull. See [agency implementation](docs/AGENCY_IMPLEMENTATION_PLAN.md). Direct human requests remain immediate. This is opportunity timing, not automatic speech or measured first-audio latency. |
+| Working design | October 1: a persisted evidence-grounded character plan advances at eligible lulls (eight-second default), with no visible-person prerequisite. Stronger planning calls occur on creation/revision; ordinary replies retain one cheaper primary generation. This replaces optional silence voting and model-created timers. See [agency implementation](docs/AGENCY_IMPLEMENTATION_PLAN.md). Live cadence is unaccepted. |
 | User requirement | Learn voices through ordinary conversation and association; retain accepted original audio for later model migration. |
 | User requirement | Never use mouth-motion detection for speaker identity or enrollment. |
 | User requirement | Support one-to-three visible people, including a dev Mac with no directional audio. |
@@ -74,7 +74,10 @@ the owner rather than mutating shared conversational globals.
 flowchart TD
     A[Microphone and camera observations] --> B[Transcript and speaker tracker]
     B --> C[Versioned conversation snapshot]
-    C --> D[One conversational model]
+    C --> D[Conversation owner and reply executor]
+    C --> P[Private planner on creation or revision]
+    P --> M[Persisted narrative and steps]
+    M --> D
     D --> E[Reply or typed proposals]
     E --> F[State validation and tool execution]
     F --> G[Attributed memory and action results]

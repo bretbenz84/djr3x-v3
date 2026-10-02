@@ -139,7 +139,6 @@ class PhysicalSessionTests(test_memory_core.MemoryFixture):
         result=self.turn()
         self.assertEqual(result.status,'interrupted')
         self.assertIsNone(self.state.attention.active)
-        self.assertIsNone(self.state.initiative.pending)
         self.assertFalse(self.robot.owner.camera_moving)
 
     def test_human_priority_still_cancels_gesture_after_speech_was_heard(self):
@@ -153,7 +152,7 @@ class PhysicalSessionTests(test_memory_core.MemoryFixture):
         self.assertFalse(self.robot.owner.camera_moving)
         self.assertEqual(self.robot.owner.state,'active')
 
-    def test_look_schedule_inspect_and_remember_can_finish_without_speech(self):
+    def test_look_inspect_and_remember_share_executors_without_speech(self):
         from tests.test_agency import next_request
         from tests.test_proactive import event
         from r3x.inspection import CurrentView
@@ -170,8 +169,7 @@ class PhysicalSessionTests(test_memory_core.MemoryFixture):
             yield call
         self.brain.reply=look
         self.assertEqual(self.turn().status,'suppressed')
-        self.assertIsNotNone(self.state.initiative.pending)
-        trace.at=self.state.initiative.pending.due_at
+        trace.at += 8
         scene.observe(test_observations.frame(trace.at))
         self.output.inspection=CurrentView(scene,clock=trace.clock);self.output.inspection.start()
         def inspect(snapshot,cancel):

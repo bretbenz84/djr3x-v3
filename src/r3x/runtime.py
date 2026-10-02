@@ -39,8 +39,6 @@ class VoiceRuntime:
         self.observations,self.scene_observer = observations,scene_observer
         self.robot = robot
         self.drive = drive
-        self.faces_seen_at = float('-inf')
-        self.last_unseen = float('-inf')
         self._initiative_gate = None
 
     def cancel(self):
@@ -50,7 +48,7 @@ class VoiceRuntime:
             self.robot.owner.release_microphone_hold()
         with self.control_lock:
             self.cancel_before = self.trace.clock()
-            self.session.cancel()
+            self.session.cancel('shutdown' if self.stop.is_set() else 'explicit_stop')
             self.asr_cancel.event.set()
         self.trace.emit("input_invalidated", captured_before=self.cancel_before)
 
@@ -155,7 +153,7 @@ class VoiceRuntime:
             self._initiative_gate = reason
             policy = self.session.state.initiative if self.session.state else None
             self.trace.emit('initiative_gate', reason=reason,
-                            due_at=policy.pending.due_at if policy and policy.pending else None)
+                            due_at=policy.agency.due_at if policy and policy.agency and policy.agency.due_at!=float('-inf') else None)
 
     def proactive_tick(self):
         """Idle owner decisions need live input, not a visible person."""
@@ -165,8 +163,6 @@ class VoiceRuntime:
         now = self.trace.clock()
         with self.control_lock:
             self.arrivals.observe(self.camera.latest(now) if self.camera else (), now)
-            if self.arrivals.faces:
-                self.faces_seen_at = now
             initiative = self.session.state.initiative
             with self.session._lock:
                 intentions = self.session.state.conversation_intent
@@ -186,56 +182,30 @@ class VoiceRuntime:
                     'explicit_stop_or_human_floor' if now < self.session.proactive_hold_until else
                     'quiet_requested' if initiative.quiet else
                     'human_floor' if initiative.floor_held(now) else
-                    'attempt_budget' if not initiative.allowed(now) else None)
+                    'plan_interval' if not self.session.state.agency.due(now) else
+                    'agency_planner_unavailable' if self.session.agency_planner is None else None)
             if gate:
                 self.initiative_gate(gate)
                 return
-            pending = self.session.state.pending
-            if pending and now-pending['delivered_at'] <= 120 and not initiative.scheduled_due(now):
-                self.initiative_gate('pending_targeted_question')
-                return
-            if initiative.invitations.waiting({'faces':self.arrivals.faces},now):
-                self.initiative_gate('invitation_waiting_for_input')
+            if now-self.session.last_interaction_at < self.lull_seconds:
+                self.initiative_gate('conversation_active')
                 return
             event = self.arrivals.take(self.session.session_id, now, self.session._latest_speech)
             audience, audience_key = self.arrivals.audience_snapshot(now)
-            # Unsettled face membership is not permission to guess an audience.
-            # Generic opportunities may proceed with an empty evidence set.
             from .proactive import Opportunity
             from uuid import uuid4
             source = self.session.state.conversation_source
             quiet_seconds = min(now-self.started_at, now-self.session.last_trusted_speech_at,
                                 now-self.session.last_interaction_at)
-            def make_event(kind):
-                return Opportunity(uuid4().hex, self.session.session_id, now, None, None, audience,
-                    self.session._latest_speech, False, kind, source, quiet_seconds, audience_key=audience_key)
-            if event is None and initiative.scheduled_due(now):
-                event = make_event('reconsideration')
-            if (event is None and now-self.session.last_interaction_at >= self.lull_seconds and
-                    self.session.history.turns and initiative.lull_due(now, source)):
-                event = make_event('conversation_lull')
+            if event is None:
+                event = Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
+                    self.session._latest_speech,False,'reconsideration',source,quiet_seconds,
+                    audience_key=audience_key)
+            # Coalesce perception into a scheduled plan step. Each feed item/frame no
+            # longer creates its own model attempt or consumes a conversation budget.
             cues = tuple(c for c in self.observations.candidates()
                          if self.session.state.observation_available(c.public())) if self.observations else ()
             scene = self.scene_observer.snapshot() if self.scene_observer else None
-            if scene and self.session.state.store.rows(
-                    'SELECT 1 FROM observation_delivery WHERE cue_id=? AND delivered_at>?',
-                    (scene[0], self.session.state.wall_clock()-86400)):
-                scene = None
-            if event is None and not initiative.waiting_for_input and (cues or scene):
-                event = make_event('ambient')
-            if (event is None and self.drive is not None and self.drive.radar is not None and not self.arrivals.faces
-                    and now-self.faces_seen_at >= 5 and now-self.last_unseen >= 90 and self.drive.availability(now)[0]):
-                bodies = [b for b in (self.drive.radar.bodies() or ()) if b['moving']]
-                if bodies:
-                    event = make_event('unseen_presence')
-                    self.last_unseen = now
-                    cues, scene = (), None
-            if event is None and not initiative.bootstrap_used and not initiative.waiting_for_input:
-                event = make_event('reconsideration')
-            if event is None:
-                self.initiative_gate('waiting_for_input' if initiative.waiting_for_input else
-                                     'scheduled' if initiative.pending else 'no_requested_consideration')
-                return
             event = replace(event, public_cues=cues, scene_id=scene[0] if scene else None,
                             scene_images=scene[1] if scene else ())
             if self.observations:
@@ -286,13 +256,9 @@ class VoiceRuntime:
         invalidation_reason = None
         result = self.session.process_opportunity(event,revision,valid)
         self.arrivals.finished(event,result)
-        with self.session._lock:
-            if (revision == self.session.revision and self.session._latest_speech == event.speech_marker
-                    and not self.stop.is_set() and not self.session.closed
-                    and initiative.retry_unheard(event,result,invalidation_reason,self.trace.clock())):
-                self.trace.emit('proactive_retry_pending',event_id=event.event_id,
-                                source_turn_id=event.source_turn_id,reason=invalidation_reason,
-                                expires_at=initiative.lull_retry_until)
+        if result.status == "interrupted":
+            agency = self.session.state.agency
+            agency.due_at = max(agency.due_at, self.trace.clock() + self.lull_seconds)
         self.trace.emit('proactive_opportunity_done',event_id=event.event_id,kind=event.kind,status=result.status,medium=result.medium,
                         delivered=bool(result.completed_text),failed=result.error)
         return result
@@ -306,7 +272,7 @@ class VoiceRuntime:
                 self.session.closed = True
                 self.asr_cancel.event.set()
                 try:
-                    self.session.cancel()
+                    self.session.cancel('shutdown' if self.stop.is_set() else 'explicit_stop')
                     self.trace.emit("worker_stuck",worker=threading.current_thread().name,reason=type(exc).__name__)
                 except Exception:
                     print("Core worker stopped: "+type(exc).__name__,file=sys.stderr)

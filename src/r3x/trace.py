@@ -45,6 +45,8 @@ def report(path: Path) -> dict:
     initiative_gates, schedule_outcomes = Counter(), Counter()
     intent_transitions, intent_rejections = Counter(), Counter()
     invitation_outcomes = Counter()
+    agency_steps = Counter()
+    model_names = Counter()
     purposes = Counter()
     latencies: dict[str, list[float]] = {}
     calls = 0
@@ -67,6 +69,7 @@ def report(path: Path) -> dict:
         events[row["event"]] += 1
         if row['event'].startswith('invitation_'):
             invitation_outcomes[(row['event'],row.get('status',row.get('reason','')))] += 1
+        if row['event']=='agency_step_finished': agency_steps[row['status']] += 1
         if row["event"] == "initiative_gate": initiative_gates[row["reason"]] += 1
         if row["event"].startswith("reconsideration_"):
             schedule_outcomes[(row["event"], row.get("reason", ""))] += 1
@@ -77,6 +80,7 @@ def report(path: Path) -> dict:
         if row["event"] == "model_request":
             purposes[row.get('purpose','conversation')] += 1
             calls += 1
+            if row.get("model"): model_names[row["model"]] += 1
             images += row.get("image_count",0)
             image_bytes += row.get("image_bytes",0)
             primary += row.get("primary_calls",1)
@@ -103,7 +107,7 @@ def report(path: Path) -> dict:
             proactive[(row['kind'],row['status'],row['medium'],row['heard_complete_phrases'])] += 1
         for event,key in (("speaker_analysis","speaker_seconds"),("camera_frame","processing_seconds"),
                           ("tts_first_pcm","tts_first_pcm_seconds"),("playback_started","playback_queue_seconds"),
-                          ("direction_sample","read_seconds")):
+                          ("direction_sample","read_seconds"),("agency_planning_finished","planning_seconds")):
             if row["event"]==event and row.get(key) is not None:
                 latencies.setdefault(key,[]).append(row[key])
         if row["event"] == "transcript":
@@ -126,6 +130,7 @@ def report(path: Path) -> dict:
                                        for key,count in schedule_outcomes.items()],
             "invitation_outcomes": [{"event":key[0],"outcome":key[1],"count":count} for key,count in invitation_outcomes.items()],
             "conversation_intentions": {"transitions":dict(intent_transitions), "rejections":dict(intent_rejections)},
+            "model_calls_by_model":dict(model_names),"agency_step_outcomes":dict(agency_steps),
             "model_calls_by_purpose":dict(purposes),"scene_image_inputs":images,"scene_image_bytes":image_bytes,
             "observation_deliveries":dict(observation_receipts),"reported_model_tokens":dict(token_usage),"tools_proposed":dict(tools_proposed),
             "proactive_outcomes":[{'kind':key[0],'status':key[1],'medium':key[2],

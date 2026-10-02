@@ -115,11 +115,58 @@ of at most 45° at 20°/s. Host stand-off is 0.35 m in front and 0.30 m behind.
 
 Refused, with a spoken reason, when telemetry is older than 0.5 s, the gamepad owns the
 base, the firmware reports estop/fault/comms loss, the base is charging (flag or at least
-13.6 V), the 8x8 depth matrix is stale, or every ring sensor errors. Spins use V2's swing
+14.0 V), the 8x8 depth matrix is stale, or every ring sensor errors. Spins use V2's swing
 check about the rear axle including the left arms; unknown sensing refuses. Moves are
 clamped to measured clearance; unknown rear clearance refuses reversing. The front uses
 per-band matrix minima (left/centre/right, second-nearest floor-rejected zone) plus valid
 radial sensors, and flags the faulty front-right radial rather than trusting it.
+
+### Charger release investigation — October 1, 2026
+
+V3's 13.6 V voltage backstop repeated an old surface-charge failure: an unplugged,
+freshly charged pack can remain around 13.61 V for minutes after the firmware clears
+`charging`. The host now uses 14.0 V, matching current V2 firmware and the battery
+menu. The next fresh telemetry frame can release the host gate; no host grace timer
+is added. This correction affects host-directed driving, not standalone gamepad driving.
+
+Firmware still requires 90 consecutive 1 Hz discharge samples after its smoothed
+current reaches 100 mA. Smoothing or interrupted discharge can extend that delay.
+The former eight-second guard was lengthened after startup load mimicked an unplug
+and the base moved with the cable attached (August 7). Simply shortening that guard
+would repeat the known failure; net battery current does not directly sense the cable.
+
+Source firmware `0.2.3-gamepad-unplug` provides a faster explicit declaration:
+**after physically unplugging**, hold L1+R1 for two seconds with sticks centered,
+D-pad/Start/B released; release the shoulders before driving. The next battery tick
+(up to one additional second) accepts it only with fresh voltage/current readings
+and no definite charger evidence. This cancels queued motion, keeps manual ownership,
+and preserves estop/fault. The source exists; the installed board version was not
+queried or flashed during this investigation. V3 has no spoken unplug-declaration tool.
+
+Checks use the simulated ESP32 host path and V2's existing compiled battery/gamepad
+test with fake INA226/NVS. Real unplug latency and loaded firmware remain unverified.
+Reliable fast *automatic* cable detection needs an independent charger-present signal
+or further measured evidence that distinguishes a connected supply from battery load.
+
+The operator also reports L1+R1 did not release standalone gamepad driving; the host
+threshold correction cannot fix that path. Existing battery diagnostics on September
+30 record latch restoration at 21:25:31 and release at 21:27:03 (about 91 seconds),
+with `estop` reported at 21:26:58. That does not establish the state during the reported
+shortcut attempt. No shortcut request/refusal was found in the inspected battery log;
+the menu releases the port while Rex runs, so absence is not proof of old firmware.
+Confirm the installed firmware version and capture the shortcut's request/result
+before claiming that failure resolved. The hold fires once; a rejected attempt needs
+shoulder release and a new hold. Successful charger release does not clear estop/fault.
+
+Live diagnostic follow-up, October 1: the installed board's `hello` reports
+`0.2.3-gamepad-unplug` with `chg_assert` capability, ruling out an uninstalled shortcut.
+At inspection it reported `charging:true`, about 14.36 V, and `gp.connected:false`.
+Only `hello` was sent (no reset, flash, motion or charge assertion); the diagnostic
+used the shared owner lock and returned serial access to the battery menu afterward.
+The operator was away, so no physical unplug/button reproduction occurred. These
+current readings do not explain the earlier failure. Capture connection, hold request,
+battery acceptance/refusal and estop state during a reproduction before changing
+the firmware guard.
 
 ## Radar
 
@@ -466,3 +513,36 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
 - **Simulated only.** The sim now turns the camera with the head; tests nudge the base
   50° (head look) and 100° (body turn) mid-approach and still arrive.
 
+### Owner-directed current release — October 1, 2026
+
+Superseding the unchanged-firmware investigation above, the owner reports a ~7 A
+charger, ~0.01 A at plugged-in taper, and 1-3 A discharge while unplugged/asleep
+(more awake), and requests a shorter automatic release. V2 firmware source
+`0.2.4-current-unplug` now requires three consecutive fresh 1 Hz samples at or
+above 500 mA discharge, plus valid voltage below 14.0 V. This replaces 90 samples
+at 100 mA. Near-zero/inflow, high voltage or missing readings reset the exit count.
+Entry also uses fresh samples; accepted release resets the display EMA, avoiding
+old charging history delaying host release or re-latching. L1+R1 remains available.
+
+The actual battery.cpp native test passes with fake INA226/NVS: 1 A and 3 A release,
+near-zero/subthreshold hold, missing-sample and taper reset, surface-charge retention,
+replugging and voltage veto, plus the existing explicit-assertion contracts. These
+are synthetic checks. The current criterion cannot distinguish a physically absent
+charger from a connected supply outdrawn by the load. No flash or live acceptance
+was performed for this change; the installed version remains 0.2.3.
+
+Full Arduino/Bluepad32 compilation passes with motion, gamepad, radial ToF and
+matrix ToF enabled: 811,977 bytes program storage, 90,604 bytes globals. No upload
+was requested or performed. Build output is `/tmp/rex-current-unplug-build`.
+
+### Deployment — October 1, 2026
+
+At the owner's explicit request, uploaded the tested full hardware build at 115200
+baud to the configured drive ESP32. Upload hashes verified; live hello reported
+`0.2.4-current-unplug`. Stationary telemetry: charging true, 14.367 V, +6 mA in
+firmware convention, IMU/magnetometer OK, matrix ready, existing front-right radial
+quarantine active. `comms_lost` is expected with no driving host heartbeat. No
+motion or charge-assert command was sent. The battery LaunchAgent was stopped for
+upload, then restored successfully and confirmed holding the serial port again.
+This supersedes the pre-upload status above. Physical unplug timing and L1+R1
+reproduction remain untested because the operator is away.

@@ -1,5 +1,18 @@
 # Initial test program and acceptance plan
 
+### October 1 persistent agency replacement
+
+The optional participation loop failed its latest live run (16 opportunities, zero
+completed audible contributions). A separate stronger planner now persists a grounded
+character narrative and concrete steps; the shared cheaper conversation executor
+advances them at lulls. Ordinary human replies retain one primary generation.
+**867 blocked-I/O contract checks pass** (67.3 seconds), plus the two focused mocked-provider checks confirming the selected Terra/Luna model split. Checks use blocked I/O, temporary databases and synthetic providers;
+no live models or hardware ran. Recovery, general-plan continuity across head turns,
+audience scope, failure, cancellation and actual action/speech receipts are covered.
+The owner will test live cadence, latency/cost, expression and repetition separately.
+See [design](AGENCY_IMPLEMENTATION_PLAN.md) and [current status](IMPLEMENTATION_STATUS.md).
+
+
 ### September 25 idle arms and elbow lifecycle
 
 Implemented the user's requested random awake hero/poker arm movement and elbow

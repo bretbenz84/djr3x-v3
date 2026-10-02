@@ -66,7 +66,7 @@ class AudienceRecoveryTests(MemoryFixture):
         self.session.brain=Changed()
         self.runtime.proactive_tick()
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
-        self.assertTrue(self.state.initiative.lull_retry_used)
+        self.assertTrue(self.state.agency.dirty)
 
     def test_unsettled_face_membership_allows_generic_context_without_personal_audience(self):
         self.start()
@@ -81,7 +81,7 @@ class AudienceRecoveryTests(MemoryFixture):
         self.assertEqual(context['memory_opportunities'],[])
         self.assertIsNone(context['personal_memory']['person_id'])
 
-    def test_unheard_replacement_retries_once_with_fresh_context_after_pacing(self):
+    def test_unheard_replacement_replans_with_fresh_context_after_pacing(self):
         self.start();self.cancel_on_camera()
         replacement=Brain('A newly considered follow-up.')
         self.session.brain=replacement
@@ -93,44 +93,10 @@ class AudienceRecoveryTests(MemoryFixture):
         self.assertTrue(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
         self.assertFalse(any('abandoned reply' in m.get('content','') for m in self.session.history.messages()))
         self.visible(124,track='replacement');self.runtime.proactive_tick()
-        self.assertEqual(replacement.calls,1)
-        self.assertEqual(len(self.state.initiative.attempts),2)
+        self.assertEqual(replacement.calls,2)
+        self.assertEqual(len(self.state.initiative.attempts),3)
 
-    def test_second_camera_cancellation_does_not_rearm_retry(self):
-        self.start();self.cancel_on_camera()
-        runtime=self.runtime
-        class Again(Brain):
-            def reply(self,snapshot,cancel):
-                self.calls+=1
-                runtime.arrivals.observe([],116)
-                cancel.check()
-                yield 'Do not speak.'
-        brain=Again();self.session.brain=brain
-        self.visible(116,track='replacement');runtime.proactive_tick()
-        self.visible(124,track='replacement');runtime.proactive_tick()
-        self.assertEqual(brain.calls,1)
-        self.assertEqual(len(self.state.initiative.attempts),2)
-        self.assertEqual(len([r for r in self.trace.rows if r['event']=='proactive_retry_pending']),1)
 
-    def test_retry_obeys_quiet_floor_stop_input_budget_and_expiry(self):
-        for gate in ('quiet','floor','stop','speech','queue','budget','expiry'):
-            with self.subTest(gate=gate):
-                self.start();self.cancel_on_camera()
-                self.session.brain=Brain('Must remain blocked.')
-                self.visible(140 if gate=='expiry' else 116,track='replacement')
-                policy=self.state.initiative
-                if gate=='quiet':policy.quiet=True
-                if gate=='floor':policy.feedback.append(dict(action='yield_floor',expires_at=200))
-                if gate=='stop':self.runtime.cancel()
-                if gate=='speech':self.session.note_speech(115.5)
-                if gate=='queue':self.runtime.turns.put(object())
-                if gate=='budget':policy.attempts.extend([109+i*.1 for i in range(11)])
-                self.runtime.proactive_tick()
-                # Expired recovery no longer falls back to automatic repeated lulls.
-                self.assertEqual(self.session.brain.calls,0)
-                # The same fixture state is deliberately reused by this subtest.
-                policy.quiet=False;policy.feedback.clear();policy.attempts.clear()
-                policy.outcomes.clear();policy.lull_source=None;policy.lull_retry_used=False
 
     def test_general_output_survives_supported_named_track_replacement(self):
         self.start()
@@ -170,6 +136,8 @@ class AudienceRecoveryTests(MemoryFixture):
         for during_audio in (False,True):
             with self.subTest(during_audio=during_audio):
                 self.start()
+                from tests.test_agency_plan import draft
+                self.session.agency_planner.choose=lambda facts,cancel:dict(draft(),scope='audience')
                 # Each arm has a separate cue within this temporary store.
                 self.person=person
                 from datetime import date
@@ -208,18 +176,5 @@ class AudienceRecoveryTests(MemoryFixture):
                 self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed' if during_audio else 'interrupted')
                 if not during_audio:
                     self.assertFalse(self.store.rows('SELECT * FROM memory_followup_delivery'))
-                self.assertEqual(self.state.initiative.lull_retry_used,not during_audio)
+                self.assertEqual(self.state.agency.dirty,not during_audio)
                 self.state.initiative.forget();self.state.initiative.attempts.clear()
-
-
-class RetryReceiptTests(unittest.TestCase):
-    def test_silence_failure_partial_audio_and_non_camera_cancellation_do_not_retry(self):
-        event=Opportunity('e','s',100,None,None,(face(100),),0,False,'conversation_lull','source')
-        for delivery,reason in ((Delivery(status='suppressed'),'audience_changed_or_stale'),
-                                (Delivery(status='failed'),'audience_changed_or_stale'),
-                                (Delivery(status='interrupted',first_audio_at=101),'audience_changed_or_stale'),
-                                (Delivery(status='interrupted'),'human_speech'),
-                                (Delivery(status='interrupted'),'audio_stale')):
-            policy=Initiative();policy.attempted(event)
-            self.assertFalse(policy.retry_unheard(event,delivery,reason,102))
-            self.assertFalse(policy.lull_due(110,'source'))

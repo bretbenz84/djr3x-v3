@@ -30,6 +30,7 @@ class Settings:
     camera_height: int = 720
     camera_framerate: float = 30.0
     record_evaluation: bool = False
+    agency_planner_model: str = "gpt-5.6-terra"
     proactive_lull_seconds: float = 8.0
     scene_observations_enabled: bool = True
     object_memory_enabled: bool = False
@@ -40,6 +41,8 @@ class Settings:
     weather_longitude: float = -121.4944
 
     def __post_init__(self) -> None:
+        if self.agency_planner_model not in {"gpt-6-terra", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-terra"}:
+            raise ValueError("UnsupportedAgencyPlannerModel")
         if self.profile != "dev-mac":
             raise ValueError("Only the dev-mac boot profile is implemented")
         if self.microphone_mode not in ("standard", "respeaker-flex"):

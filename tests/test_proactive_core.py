@@ -20,6 +20,8 @@ class InitiativeCoreTests(MemoryFixture):
         self.brain = brain or Brain('Those cameras are earning their dramatic reputation.')
         self.trace = self.state.trace
         self.session = Session('session',self.brain,output or TextOutput(self.trace),self.trace,self.state)
+        from tests.test_agency_plan import Planner
+        self.session.agency_planner = Planner()
         self.runtime = VoiceRuntime(SimpleNamespace(),SimpleNamespace(),None,self.session,self.trace,
                                     perception=SimpleNamespace(camera=SimpleNamespace()))
         self.runtime.started_at = 0
@@ -50,24 +52,24 @@ class InitiativeCoreTests(MemoryFixture):
         self.visible(107.9);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,1)
         self.visible(108);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,2)
         snapshot = self.brain.snapshots[-1]
-        self.assertEqual(snapshot.context['trigger'],'conversation_lull')
+        self.assertEqual(snapshot.context['trigger'],'reconsideration')
         self.assertEqual(snapshot.speaker,'unresolved')
-        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)},{'remain_silent','ask_face_question','respond_with_intent'})
+        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)},{'respond_with_intent','revise_agency_plan'})
         users = [m['content'] for m in snapshot.messages if m.get('role')=='user']
         self.assertEqual(users,['Rex, we finally fixed the camera.'])
         self.assertEqual(self.store.rows('SELECT * FROM turns'),sources)
         self.assertEqual(self.store.people(),[])
         self.assertEqual(self.store.claims(),[])
         self.assertEqual(self.store.rows('SELECT * FROM recordings'),[])
-        self.visible(170);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,2)
+        self.visible(170);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,3)
 
-    def test_rolling_attempt_cap_does_not_reset_on_new_human_turns(self):
+    def test_plan_steps_do_not_exhaust_old_rolling_budget(self):
         self.setup_core()
         for i in range(13):
             self.trace.at=100+i*20;self.turn()
             self.visible(self.trace.at+8);self.runtime.proactive_tick()
-        self.assertEqual(len(self.state.initiative.outcomes),12)
-        self.assertEqual(self.brain.calls,25)  # Thirteen replies, twelve optional generations.
+        self.assertEqual(len(self.state.initiative.outcomes),13)
+        self.assertEqual(self.brain.calls,26)  # Thirteen replies and thirteen plan executions.
 
     def test_stale_or_missing_camera_allows_generic_initiative_but_frozen_still_blocks(self):
         for mode in ('stale','no_camera','frozen'):
@@ -110,7 +112,7 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.store.people(),[])
         self.visible(130); before=len(self.state.initiative.outcomes)
         self.runtime.proactive_tick()
-        self.assertEqual(len(self.state.initiative.outcomes),before)
+        self.assertEqual(len(self.state.initiative.outcomes),before+1)
 
     def test_audio_timestamp_update_during_clock_read_does_not_cancel(self):
         self.setup_core();self.turn();self.visible(108)
@@ -374,26 +376,25 @@ class InitiativeCoreTests(MemoryFixture):
         return brain
 
 
-    def test_greeting_plan_alone_does_not_schedule_without_any_human_source(self):
+    def test_greeting_plan_continues_without_any_human_source(self):
         self.setup_core();self.visible(100);brain=self.plan_brain()
         greeting=Opportunity(uuid4().hex,'session',100,'visitor',None,(face(100,track='visitor'),),
             self.session._latest_speech,False)
         self.session.process_opportunity(greeting,0,lambda:True)
         self.visible(107);self.runtime.proactive_tick();self.assertEqual(brain.calls,1)
-        self.visible(108);self.runtime.proactive_tick();self.assertEqual(brain.calls,1)
+        self.visible(108);self.runtime.proactive_tick();self.assertEqual(brain.calls,2)
         self.assertIsNone(self.state.current)
-        self.assertIsNone(self.state.initiative.pending)
 
 
 
-    def test_quiet_and_pending_question_block_repeated_plan_lulls(self):
+    def test_quiet_blocks_but_pending_identity_question_does_not_freeze_plans(self):
         brain=self.start_plan_lull();self.state.initiative.quiet=True
         self.visible(168);self.runtime.proactive_tick();self.assertEqual(brain.calls,1)
         self.assertEqual(self.state.conversation_intent.record.status,'suspended')
         self.state.initiative.quiet=False
         self.state.conversation_intent.record.status='active'
         self.state.pending={'delivered_at':178}
-        self.visible(190);self.runtime.proactive_tick();self.assertEqual(brain.calls,1)
+        self.visible(190);self.runtime.proactive_tick();self.assertEqual(brain.calls,2)
 
 
     def test_new_human_turn_reopens_normal_lull_without_resetting_global_budget(self):
@@ -402,7 +403,7 @@ class InitiativeCoreTests(MemoryFixture):
         brain=self.plan_brain();self.visible(220);self.runtime.proactive_tick()
         self.assertEqual(brain.calls,1)
         self.assertEqual(self.state.initiative.lull_attempts,1)
-        self.assertEqual(len(self.state.initiative.attempts),2)
+        self.assertEqual(len(self.state.initiative.attempts),3)
 
 
 

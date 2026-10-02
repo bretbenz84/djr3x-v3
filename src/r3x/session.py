@@ -36,6 +36,7 @@ def is_stop_command(text: str) -> bool:
 class Session:
     def __init__(self, session_id: str, brain: Brain | None, output: OutputOwner, trace, state=None):
         self.session_id, self.brain, self.output, self.trace = session_id, brain, output, trace
+        self.agency_planner = None
         self.revision = 0
         self.history = TurnHistory()
         self._lock = threading.RLock()
@@ -49,6 +50,9 @@ class Session:
         self.output_worker = None
         self.state = state
         if state is not None:
+            state.agency.dirty = True
+            state.agency.due_at = float("-inf")
+            state.agency.revision += 1
             state.attention.scene.session_id = session_id
             state.conversation_intent.clear("new_session")
         self._latest_speech = float("-inf")
@@ -63,16 +67,15 @@ class Session:
         self.route_planner = None  # Optional blocked-path drive planner; never speaks.
         self.motion_committed = False  # Wheels were handed a plan in the current turn.
 
-    def cancel(self) -> None:
+    def cancel(self, reason='explicit_stop') -> None:
         with self._lock:
             self.proactive_hold_until = self.trace.clock()+120
             self.revision += 1
             if self._cancel:
                 self._cancel.event.set()
             if self.state:
-                self.state.initiative.lull_retry_until = float('-inf')
-                self.state.initiative.cancel_schedule("explicit_stop")
-                self.state.conversation_intent.suspend("explicit_stop")
+                self.state.initiative.cancel_schedule(reason)
+                self.state.conversation_intent.suspend(reason)
                 self.state.cancel()
         self.output.cancel()
         self.trace.emit("cancel", revision=self.revision)
@@ -87,8 +90,6 @@ class Session:
         becomes its own turn, it just no longer silences the answer before it.
         """
         with self._lock:
-            if self.state and ended_at > self._latest_speech:
-                self.state.initiative.lull_retry_until = float('-inf')
             self._latest_speech = max(self._latest_speech, ended_at)
             if not sustained:
                 return
@@ -111,7 +112,7 @@ class Session:
 
     def close(self) -> None:
         self.closed = True
-        self.cancel()
+        self.cancel('shutdown')
         for adapter in (getattr(self.output,"attention",None),getattr(self.output,"gestures",None),getattr(self.output,"inspection",None)):
             if adapter is not None:
                 adapter.close()
@@ -201,9 +202,11 @@ class Session:
         invitation_proposal = None
         schedule_proposal = None
         schedule_accepted = False
-        schedule_changed = False
         schedule_guard = None
         schedule_action_ok = True
+        agency_step = None
+        agency_revision_reason = None
+        action_outcome = None
         try:
             with self._lock:
                 if self.closed or source_session != self.session_id or submitted_revision != self.revision:
@@ -220,10 +223,6 @@ class Session:
                     cancel.check()
                     delivery.status,delivery.medium = 'suppressed','none'
                     self.trace.emit('proactive_deferred',event_id=opportunity.event_id,reason='human_floor_held')
-                    return delivery
-                if opportunity and self.state and self.state.initiative.invitations.waiting({'faces':opportunity.faces},self.trace.clock()):
-                    delivery.status,delivery.medium='suppressed','none'
-                    self.trace.emit('proactive_deferred',event_id=opportunity.event_id,reason='invitation_waiting_for_input')
                     return delivery
                 if opportunity and self.state:
                     self.state.initiative.attempted(opportunity)
@@ -315,7 +314,7 @@ class Session:
                      if opportunity.kind=='unseen_presence' else
                     'Proactive opportunity; nobody spoke. The previous exchange was already processed. '
                     'There is no new human reply; do not answer the earlier utterance again. '
-                    'Choose whether a new contribution is welcome or use remain_silent. ')+'Observation: '+json.dumps(evidence)})
+                    'Continue the next grounded step of the private agency plan; do not repeat the previous answer. ')+'Observation: '+json.dumps(evidence)})
             elif self.state:
                 import json
                 self.history.append({"role":"developer","content":"Evidence for the immediately following utterance: "+json.dumps({
@@ -416,6 +415,59 @@ class Session:
                 cancel.guard = memory_audience_valid
             from .conversation_intent import audience as intent_audience
             request_audience = intent_audience(context)
+            if self.state and self.agency_planner and opportunity:
+                from .agency import audience_key, evidence_catalog
+                agency = self.state.agency
+                planning_context = context
+                if not context.get('faces') and self.state.current:
+                    planning_context = {**context,'speaker':{'track_id':self.state.current[4].track_id,
+                                                            'person_id':self.state.current[4].person_id}}
+                bound_audience = audience_key(planning_context)
+                capabilities = ['contribute']
+                capabilities += ['inspect'] if context.get('inspection_enabled') else []
+                capabilities += ['look'] if context.get('attention_enabled') else []
+                capabilities += ['gesture'] if context.get('gesture_enabled') else []
+                if agency.needs_plan(bound_audience):
+                    plan_revision = agency.revision
+                    evidence = evidence_catalog(context)
+                    # No previous audience's private history enters an empty-room plan.
+                    conversation = self.history_messages()[-12:] if bound_audience != '[]' else ()
+                    facts = {'request_id':turn_id, 'revision':plan_revision,
+                        'conversation':conversation, 'evidence':evidence, 'capabilities':capabilities,
+                        'opportunity':context.get('visual_arrival') or context.get('opportunity'),
+                        'audience':{'faces':planning_context.get('faces',[]), 'speaker':planning_context.get('speaker')},
+                        'previous_plan':agency.context(bound_audience),
+                        'boundaries':context.get('participation',{}),
+                        'actual_actions':context.get('action_continuity',{}),
+                        'pending_question':context.get('pending_question'),
+                        'invitations':context.get('invitations'),
+                        'meaning':'Existing descriptions may be historical. Inspect for fresh detail; a raw object target is not identity.'}
+                    self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='agency_planning',
+                        model=self.agency_planner.capability.model,image_count=0,
+                        reasoning_effort=self.agency_planner.reasoning_effort)
+                    planning_started = self.trace.clock()
+                    try:
+                        proposed = self.agency_planner.plan(facts,cancel)
+                        cancel.check()
+                        with self._lock:
+                            agency.install(proposed,bound_audience,evidence,capabilities,plan_revision,self.trace.clock())
+                    except Cancelled:
+                        raise
+                    except (ValueError,ProviderFailure) as exc:
+                        agency.failed(str(exc),self.trace.clock())
+                        raise ProviderFailure('AgencyPlanningFailed:'+str(exc)) from None
+                    finally:
+                        self.trace.emit('agency_planning_finished',turn_id=turn_id,model=self.agency_planner.capability.model,
+                            planning_seconds=self.trace.clock()-planning_started)
+                agency_step = agency.step(bound_audience)
+                context['agency_step'] = agency_step
+                if agency_step['scope']=='general':
+                    context['memory_opportunities'] = []
+                    context['visual_memory'] = [r for r in context.get('visual_memory',[]) if r.get('audience')=='general']
+                self.trace.emit('agency_step_started',turn_id=turn_id,**agency_step)
+            elif self.state and self.agency_planner:
+                from .agency import audience_key
+                context['agency_plan'] = self.state.agency.context(audience_key(context))
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
                                 context, self.state is not None, images=scene_images)
@@ -451,6 +503,8 @@ class Session:
                                 or bool(update.get('memory_ids')))
                             calls.append(delta)
                             continue
+                        if agency_step and agency_step['kind'] != 'contribute' and not request.continuation:
+                            raise ProviderFailure('AgencyStepRequiresActionTool')
                         if first_token_at is None:
                             first_token_at = self.trace.clock()
                             self.trace.emit("model_first_text", turn_id=turn_id)
@@ -484,7 +538,14 @@ class Session:
                 if not self.state or len(calls) != 1 or generated.strip():
                     raise ProviderFailure("SpeechToolProtocolViolation")
                 call = calls[0]
-                working_before = self.state.conversation_intent.working_signature()
+                if call.name == 'revise_agency_plan':
+                    from .semantics import validate
+                    validate(call.name,call.arguments)
+                    if not agency_step: raise ProviderFailure('AgencyStepUnavailable')
+                    agency_revision_reason = call.arguments['reason']
+                    self.trace.emit('agency_revision_requested',turn_id=turn_id,reason=agency_revision_reason)
+                    delivery.status,delivery.medium = 'suppressed','none'
+                    return delivery
                 from .semantics import SCHEDULE_TOOLS
                 if call.name in SCHEDULE_TOOLS and call.arguments.get('next_opportunity') is not None:
                     from dataclasses import replace
@@ -513,7 +574,7 @@ class Session:
                     except ValueError as exc:
                         self.trace.emit('invitation_rejected',turn_id=turn_id,reason=str(exc))
                         call = replace(call,arguments={**call.arguments,'invitation_update':None})
-                if context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
+                if not agency_step and context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
                     raise ProviderFailure('StartupGreetingRequiresSpeech')
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=dict(call.arguments))
                 with self._lock:
@@ -616,6 +677,8 @@ class Session:
                         self.state.actions.begin(result.request_id,call.name,call.arguments.get('question') or call.arguments.get('purpose') or call.arguments.get('text'),turn_id,audience(context),self.trace.clock())
                         action_started=True
                         self.trace.emit('action_started',turn_id=turn_id,request_id=result.request_id,kind=call.name)
+                if agency_step and result.outcome != 'ok':
+                    agency_revision_reason = 'ToolRejected:'+result.reason
                 schedule_accepted = result.outcome == 'ok'
                 invitation_changed = False
                 if invitation_proposal and invitation_proposal.action!='open' and result.outcome=='ok':
@@ -634,8 +697,6 @@ class Session:
                         if invitation_changed and schedule_proposal is None:
                             self.state.initiative.cancel_schedule('invitation_closed')
                         invitation_proposal = None
-                schedule_changed = (invitation_changed or working_before != self.state.conversation_intent.working_signature() or
-                                    call.name in {'describe_view', 'inspect_view', 'shift_attention'})
                 schedule_guard = cancel.guard
                 self.trace.emit("tool_validated" if call.name in {"shift_attention","respond_with_gesture","inspect_view","animate_lights","set_robot_pose","set_robot_joints","drive_base"} else "tool_executed",
                                 turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
@@ -666,7 +727,7 @@ class Session:
                     data, images = self.output.execute_inspection(inspection_request,cancel,inspection_valid)
                     schedule_action_ok = data.get('status') in {'observed','simulated'} and data.get('stage') == 'complete' and bool(images)
                     self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
-                    with self._lock:self.state.actions.observed(data)
+                    with self._lock:self.state.actions.observed({**data,'images_acquired':bool(images)})
                     cancel.check()
                     if images and data.get('image_digest'):
                         with self._lock:
@@ -1212,6 +1273,7 @@ class Session:
                 with self._lock:
                     outcome=self.state.actions.finish(delivery,self.trace.clock())
                     if outcome:
+                        action_outcome = outcome
                         self.trace.emit('action_finished',turn_id=turn_id,**outcome)
             with self._lock:
                 self._cancel = None
@@ -1252,8 +1314,9 @@ class Session:
                     changed = self.state.initiative.invitations.finish(invitation_proposal,delivery,self.trace.clock(),valid=invitation_valid)
                     if changed and invitation_proposal.action!='open' and schedule_proposal is None:
                         self.state.initiative.cancel_schedule('invitation_closed')
-                    self.state.initiative.finish_schedule(schedule_proposal, delivery, self.trace.clock(),
-                        valid=valid, changed=schedule_changed or changed)
+            if agency_step and self.state:
+                with self._lock:
+                    self.state.agency.finish(agency_step,delivery,action_outcome,self.trace.clock(),agency_revision_reason)
             if opportunity_attempted:
                 outcome = self.state.initiative.finished(opportunity,delivery,self.trace.clock())
                 self.trace.emit('proactive_outcome',**outcome)

@@ -152,13 +152,15 @@ class ObservationCoreTests(MemoryFixture):
         self.state.observations=source
         runtime=VoiceRuntime(SimpleNamespace(),SimpleNamespace(),None,self.session,self.state.trace,
             perception=SimpleNamespace(camera=SimpleNamespace()),observations=source)
+        from tests.test_agency_plan import Planner
+        self.session.agency_planner = Planner()
         runtime.started_at=90;runtime.audio_seen_at=100
         runtime.camera.latest=lambda now:runtime.arrivals.faces
         for at in (97,98,99,100):runtime.arrivals.observe([face(at)],at)
         runtime.arrivals.seen['face']['used']=True
         try:
             runtime.proactive_tick();self.assertEqual(self.brain.calls,1)
-            self.assertEqual(self.brain.snapshots[-1].context['trigger'],'ambient')
+            self.assertEqual(self.brain.snapshots[-1].context['trigger'],'reconsideration')
             runtime.proactive_tick();self.assertEqual(self.brain.calls,1)
         finally:self.session.close();source.close()
 

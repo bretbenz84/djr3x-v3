@@ -39,6 +39,7 @@ class FakeBase:
         self.turn_scale = 1.
         self.block_after = None
         self.owner, self.state, self.charging, self.fault = 'auto', 'idle', False, None
+        self.batt_mv = 12800
         self.tof = {'fl': 3000, 'fr': 3000, 'fl_radial': 3000, 'fr_radial': 3000, 'rl': 2000, 'rr': 2000,
                     'lf': 1500, 'lb': 1500, 'rf': 1500, 'rb': 1500}
         self.front = None                   # callable -> metres to a front obstacle, or None
@@ -143,7 +144,7 @@ class FakeBase:
                     tof.update(overrides)
                 self.emit(type='telemetry', state=self.state, owner=self.owner, fault=self.fault,
                           blocked_dir='front' if self.state == 'blocked' else 'none', odom=self.odom(),
-                          tof_mm=tof, batt_mv=12800, charging=self.charging,
+                          tof_mm=tof, batt_mv=self.batt_mv, charging=self.charging,
                           imu={'ok': True, 'pitch': 0, 'roll': 0, 'yaw': self.theta + getattr(self, 'imu_offset', 0.)})
                 if self.matrix and grid is not None:
                     self.emit(type='tofmx', g=''.join(f'{min(max(25, v), 4095):03x}' for v in grid), rej=[4095]*8)
@@ -334,6 +335,33 @@ class DriveOwnerTests(unittest.TestCase):
             receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
             self.assertEqual((receipt.status, receipt.reason), ('refused', reason))
         self.assertFalse(any(c['cmd'] in {'turn', 'move'} for c in self.fake.commands))
+
+    def test_unplugged_surface_charge_releases_on_next_telemetry(self):
+        self.start()
+        self.fake.batt_mv = 13610  # Recorded fresh-pack surface-charge trap.
+        self.fake.charging = True
+        settle()
+        receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
+        self.assertEqual((receipt.status, receipt.reason), ('refused', 'charging'))
+        self.assertFalse(any(c['cmd'] == 'move' for c in self.fake.commands))
+
+        # Firmware has completed discharge proof or accepted an operator assertion.
+        # Host must not add voltage-decay time or another release timer.
+        self.fake.charging = False
+        settle()
+        self.assertEqual(self.drive.availability(), (True, None))
+        receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+
+    def test_charger_voltage_backstop_refuses_even_before_firmware_latches(self):
+        self.start()
+        for mv in (14000, 14200):
+            with self.subTest(mv=mv):
+                self.fake.batt_mv = mv
+                settle()
+                receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
+                self.assertEqual((receipt.status, receipt.reason), ('refused', 'charging'))
+        self.assertFalse(any(c['cmd'] == 'move' for c in self.fake.commands))
 
     def test_stop_halts_a_running_plan_and_commands_a_stop(self):
         self.start()

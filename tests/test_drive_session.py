@@ -271,16 +271,18 @@ class DriveRuntimeTests(MemoryFixture):
     def runtime_for(self, session, faces):
         from types import SimpleNamespace
         from r3x.runtime import VoiceRuntime
+        from tests.test_agency_plan import Planner
+        session.agency_planner = Planner()
         runtime = VoiceRuntime(SimpleNamespace(), SimpleNamespace(), None, session, self.state.trace,
                                perception=SimpleNamespace(camera=SimpleNamespace(latest=lambda now: faces())))
         runtime.started_at = 0
         return runtime
 
-    def test_unseen_radar_body_offers_only_a_turn_or_silence(self):
+    def test_radar_evidence_reaches_planner_without_autonomous_wheel_tools(self):
         from types import SimpleNamespace
         from r3x.output import TextOutput
         from tests.test_voice_core import Brain
-        brain = Brain(ToolCall('quiet', 'remain_silent', {'reason': 'no_response_needed'}))
+        brain = Brain('A rhythm worth considering.')
         output = TextOutput(self.state.trace)
         body = {'target_id': 'radar:+150', 'kind': 'radar_body', 'bearing_deg': 150., 'range_m': 2.,
                 'moving': True, 'where': 'behind on the left'}
@@ -297,49 +299,14 @@ class DriveRuntimeTests(MemoryFixture):
         runtime.proactive_tick()
         self.assertEqual(brain.calls, 1)
         context = brain.snapshots[0].context
-        self.assertEqual(context['trigger'], 'unseen_presence')
-        self.assertEqual({d['name'] for d in grounded_tools(context)}, {'drive_base', 'remain_silent'})
+        self.assertEqual(context['trigger'], 'reconsideration')
+        self.assertIn('radar:+150',session.agency_planner.requests[0]['evidence'])
+        self.assertEqual({d['name'] for d in grounded_tools(context)}, {'respond_with_intent','revise_agency_plan'})
         self.state.trace.at, runtime.audio_seen_at = 230., 230.
         session.proactive_hold_until = float('-inf')
         runtime.proactive_tick()
-        self.assertEqual(brain.calls, 1)   # 90-second spacing.
+        self.assertEqual(brain.calls, 2)   # Fresh plan advancement, not a radar polling timer.
 
-    def test_self_initiated_motion_survives_face_track_churn_from_its_own_movement(self):
-        clock, fake, drive, world = base_setup(self)
-        self.state.trace.clock = clock
-        drive.trace = self.state.trace
-        drive.start()
-        self.addCleanup(drive.close)
-        brain = DriveBrain(drive_call(step('move', meters=.5), purpose='roll closer to greet'))
-        output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, drive=drive)
-        session = Session('session', brain, output, self.state.trace, self.state)
-        self.addCleanup(session.close)
-        tracks = {'id': 'visitor'}
-        faces = lambda: tuple(face(clock(), track=tracks['id']) for _ in (0,))
-        runtime = self.runtime_for(session, faces)
-        runtime.drive = drive
-        self.begin("Hello again.")
-        session._latest_speech = 50.
-        original_wait = clock.wait
-        def wait(seconds):
-            original_wait(seconds)
-            runtime.audio_seen_at = clock()   # Microphone frames keep arriving while driving.
-        clock.wait = wait
-        drive.wait = wait
-        for offset in (4., 3., 2., 1., 0.):
-            runtime.arrivals.observe([face(clock() - offset, track='visitor')], clock() - offset)
-        runtime.audio_seen_at = clock()
-        original_handle = fake.handle
-        def handle(command):
-            if command['cmd'] == 'move':
-                tracks['id'] = 'visitor-retracked'   # The moving camera re-identifies the face.
-            original_handle(command)
-        fake.handle = handle
-        runtime.proactive_tick()
-        receipt = self.state.trace.rows[[r['event'] for r in self.state.trace.rows].index('drive_receipt')]
-        self.assertEqual(brain.snapshots[0].context['trigger'], 'visual_arrival')
-        self.assertEqual(receipt['status'], 'completed')
-        self.assertAlmostEqual(fake.x, .5, places=2)
 
 
 class FakePlanner:
@@ -390,7 +357,7 @@ class DriveContractTests(unittest.TestCase):
         self.assertEqual(tools['drive_base']['parameters']['properties']['look_after']['enum'], [None])
         self.assertNotIn('drive_base', {d['name'] for d in grounded_tools({'source_turn_id': 't'})})
         unseen = {d['name'] for d in grounded_tools(self.context(trigger='unseen_presence'))}
-        self.assertEqual(unseen, {'drive_base', 'remain_silent'})
+        self.assertEqual(unseen, {'drive_base','remain_silent'})
 
     def test_step_syntax_is_validated(self):
         validate('drive_base', drive_call(step('turn', degrees=45.)).arguments)

@@ -225,12 +225,12 @@ class FeedbackTests(MemoryFixture):
             result=session.process_opportunity(event,0,lambda:True)
             self.assertEqual(result.status,'suppressed');self.assertEqual(brain.calls,1)
             self.assertFalse(self.state.initiative.attempts)
-            self.assertFalse(self.state.initiative.allowed(108))
+            self.assertFalse(not self.state.initiative.floor_held(108))
             self.begin('The interview went well, thanks for asking.',B)
             result=self.feedback('floor_resolved',reference,None)
             self.assertEqual(result.outcome,'ok')
             self.assertFalse(self.state.initiative.floor_held(108))
-            self.assertTrue(self.state.initiative.allowed(108))
+            self.assertTrue(not self.state.initiative.floor_held(108))
         finally:session.close()
 
     def test_floor_resolution_cannot_remove_someone_elses_topic_boundary(self):

@@ -1,17 +1,17 @@
 # DJ-R3X v3
 
-The conversation core for Rex, the DJ-R3X droid. One conversational model decides what
-to say and do. Code validates and executes those decisions, keeps uncertainty honest,
+The conversation core for Rex, the DJ-R3X droid. One conversational owner uses a stronger model for saved activity plans and
+a cheaper model for replies and plan-step execution. Code validates and executes those decisions, keeps uncertainty honest,
 and enforces physical limits.
 
-**Status, September 27, 2026:** the core conversation software and the robot's
+**Status, October 1, 2026:** the core conversation software and the robot's
 hardware integrations are implemented and in daily live use on the robot: voice,
 camera, servos, LEDs, wheels and radar. Live acceptance is still open for group
-identity (two people alternating), social behaviour and the newest drive changes.
+identity (two people alternating), the new persistent agency plans and the newest drive changes.
 [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) is the checklist of
 what is finished, what is only simulated and what remains.
 
-V2 (`/Users/bbenziger/djr3x-v2`) is a separate, unchanged reference. V3 never imports
+V2 (`/Users/bbenziger/djr3x-v2`) is a separately maintained reference. V3 never imports
 it or reads its data.
 
 ## What Rex does today
@@ -31,10 +31,12 @@ it or reads its data.
 - **Memory.** Source-linked personal facts, corrections and forgetting in a local SQLite
   store, cross-session exchange recall and optional source-linked shared memories
   ([details](docs/CONVERSATION_MEMORY.md)). Named pet/object photo memory (RF-DETR Nano detection).
-- **Initiative.** Greets arrivals, contributes during lulls, uses news, weather and scene
-  observations, retains bounded working interests, and can choose silence. Initiative
-  needs no visible person; the same owner can request its next consideration and
-  explicitly let unanswered social invitations lapse without repeating them.
+- **Initiative.** A GPT-5.6 Terra call writes a private character narrative and several
+  concrete steps in local memory. At eligible lulls, GPT-6 Luna executes the next
+  step through the same conversation/output owner, using fresh evidence and actual
+  speech/action receipts. No visible person or new observation is required. Ordinary
+  replies remain immediate; quiet and human-floor guards remain. The replacement
+  is implemented in software; live acceptance is pending ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080.
 - **Body (Pololu Maestro, 11 servos).**
@@ -93,7 +95,7 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 ## Check
 
 ```sh
-.venv/bin/python tools/run_checks.py                      # 851 blocked-I/O contract checks
+.venv/bin/python tools/run_checks.py                      # blocked-I/O contract checks
 .venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
 .venv/bin/python -m r3x replay local/dataset/manifest.json
 .venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl

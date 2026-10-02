@@ -231,6 +231,8 @@ class RuntimeGreetingTests(MemoryFixture):
         brain=Brain();trace=self.state.trace
         trace.at=100.
         session=Session('session',brain,TextOutput(trace),trace,self.state)
+        from tests.test_agency_plan import Planner
+        session.agency_planner = Planner()
         camera=SimpleNamespace(latest=lambda at:(face(at),))
         runtime=VoiceRuntime(SimpleNamespace(),SimpleNamespace(),None,session,trace,perception=SimpleNamespace(camera=camera))
         for at in (100.,101.,102.,103.,104.):runtime.arrivals.observe([face(at)],at)
@@ -238,15 +240,15 @@ class RuntimeGreetingTests(MemoryFixture):
         for at in (105.,106.,107.,108.):runtime.arrivals.observe([face(at)],at)
         return runtime,brain
 
-    def test_idle_runtime_dispatches_without_audio_capture_then_does_not_repeat(self):
+    def test_idle_runtime_dispatches_without_audio_capture_and_continues_plan(self):
         runtime,brain=self.setup_runtime();runtime.proactive_tick()
         self.assertEqual(brain.calls,1)
         self.assertEqual(self.store.rows('SELECT * FROM turns'),[])
         self.state.trace.at=170;runtime.audio_seen_at=170;runtime.arrivals.observe([face(170)],170)
-        runtime.proactive_tick();self.assertEqual(brain.calls,1)
+        runtime.proactive_tick();self.assertEqual(brain.calls,2)
 
     def test_audio_queues_inflight_asr_pending_question_and_silence_holds_win(self):
-        for reason in ('queued_capture','queued_turn','asr','speech','question','hold','dead_mic','shutdown'):
+        for reason in ('queued_capture','queued_turn','asr','speech','hold','dead_mic','shutdown'):
             with self.subTest(reason=reason):
                 runtime,brain=self.setup_runtime()
                 self.state.pending=None

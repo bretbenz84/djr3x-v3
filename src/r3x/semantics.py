@@ -124,6 +124,10 @@ TOOLS += (schema('respond_with_intent',
     'Use when a visitor first supplies their conversational direction or explicitly changes the topic: replace a generic welcome agenda with that concrete direction while answering naturally. Otherwise stream ordinary prose. Not biography or a questionnaire. '
     'No extra generation. Memory-based proactive speech must use use_memory_opportunity instead.',
     {'text': TEXT, 'intent_update': update_schema()}),)
+TOOLS += (schema('revise_agency_plan',
+    'Return the scheduled step to the planner because evidence changed, a capability failed, or a human boundary makes it inappropriate. Not a generic choice to stay silent because nobody spoke. Nothing is spoken.',
+    {'reason':TEXT}),)
+
 for _definition in TOOLS:
     if _definition['name'] in INVITATION_TOOLS:
         _definition['parameters']['properties']['invitation_update'] = invitation_schema()
@@ -160,6 +164,12 @@ def grounded_tools(context):
         # Startup is an explicit social opening, not an optional visual riff.
         # Ordinary model prose and an audible name invitation are sufficient.
         definitions = [d for d in definitions if d['name'] in {'ask_face_question','respond_with_intent','use_memory_opportunity'}]
+    if context.get('agency_step') and not context.get('inspection_description_allowed') and not context.get('photo_inspection'):
+        names = {'contribute': {'respond_with_intent','use_memory_opportunity','use_observation','use_visual_memory'},
+                 'inspect': {'inspect_view'}, 'look': {'shift_attention'}, 'gesture': {'respond_with_gesture'}}[context['agency_step']['kind']]
+        definitions = copy.deepcopy([d for d in TOOLS if d['name'] in names | {'revise_agency_plan'}])
+    else:
+        definitions = [d for d in definitions if d['name'] != 'revise_agency_plan']
     people = [p["id"] for p in context.get("people",[])]
     claims = [c["id"] for c in context.get("claims",[])]
     faces = [f["track_id"] for f in context.get("faces",[])]
@@ -167,6 +177,9 @@ def grounded_tools(context):
     allowed = []
     for definition in definitions:
         name = definition["name"]
+        if context.get('agency_step',{}).get('scope')=='general':
+            if name=='use_memory_opportunity':continue
+            if name=='use_visual_memory' and not any(r.get('audience')=='general' for r in context.get('visual_memory',[])):continue
         if name == 'ask_face_question' and not context.get('faces'):continue
         if name == 'respond_with_intent' and (context.get('frozen_evaluation') or not context.get('conversation_intent')):continue
         if name in {'inspect_visual_memory','remember_object','edit_object_memory'} and not context.get('photo_memory'):continue
@@ -253,7 +266,7 @@ def grounded_tools(context):
             if name in {'shift_attention','respond_with_gesture','inspect_view','use_visual_memory'} and key=='target':
                 values = context.get('attention_targets' if name=='shift_attention' else 'gesture_targets', ['left','right','up','forward','unfocused'] + [t['target_id'] for t in context['attention']['vision']['targets']])
             if key=='observation_id':
-                values = [(context['inspection'] if context.get('inspection_description_allowed') else context['scene_description'])['request_id']] if name=='describe_view' else [r['id'] for r in context.get('visual_memory',[])]
+                values = [(context['inspection'] if context.get('inspection_description_allowed') else context['scene_description'])['request_id']] if name=='describe_view' else [r['id'] for r in context.get('visual_memory',[]) if context.get('agency_step',{}).get('scope')!='general' or r.get('audience')=='general']
             if name=='inspect_view' and key=='direction':values = context.get('inspection_directions',['current','left','right','behind'])
             if name=='revise_visual' and key=='revisions':
                 spec['items']['properties']['observation_id']['enum'] = [r['id'] for r in context.get('visual_correction_candidates',[])]

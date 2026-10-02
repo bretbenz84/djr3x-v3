@@ -47,6 +47,9 @@ class CoreState:
         self.min_face_epoch = 0
         from .proactive import Initiative
         self.initiative = Initiative(trace)
+        from .agency import AgencyPlan
+        self.agency = AgencyPlan(store, trace)
+        self.initiative.agency = self.agency
         from .conversation_intent import ConversationIntent
         self.conversation_intent = ConversationIntent(trace, self.initiative.cancel_schedule)
 
@@ -463,10 +466,12 @@ class CoreState:
             try:
                 row = intents.prepare(value, context, [r['claim_id'] for r in memories])
             except ValueError as exc:
-                # The intention is an optional note. A malformed or stale note is dropped;
-                # it must not cost the person their reply, boundary or silence decision.
+                # Boundaries and silence may discard optional notes. A reply explicitly
+                # tied to an intention must recover from rejection before speaking it.
                 if str(exc) == 'FrozenEvaluationDisallowsMutation':raise
-                self.trace.emit('conversation_intent_rejected',source_id=source,reason=str(exc),operation='continued_without_intent')
+                self.trace.emit('conversation_intent_rejected',source_id=source,reason=str(exc),operation='reply_rejected' if call.name=='respond_with_intent' else 'continued_without_intent')
+                if call.name == 'respond_with_intent':
+                    raise  # Never speak a promise whose only action record was rejected.
                 row = None
                 call = replace(call, arguments={**call.arguments,'intent_update':None})
             validate(call.name,call.arguments)
@@ -497,7 +502,7 @@ class CoreState:
             cancel.check()
             validate(call.name,call.arguments)
             if self.store.revision!=context['state_revision']: raise ValueError('StaleStateRevision')
-            if context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
+            if not context.get('agency_step') and context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
                 raise ValueError('StartupGreetingRequiresSpeech')
             if call.name=='respond_with_intent':
                 data={'text':call.arguments['text']}
@@ -941,6 +946,7 @@ class CoreState:
                     self.initiative.feedback.remove(expendable)
                 self.initiative.feedback.append({k:v for k,v in data.items() if k not in {'text','reason'}})
         if name in {'retract_visual','revise_visual'}:
+            self.agency.clear(name)
             self.initiative.invitations.invalidate(name,erase=True)
         if name=='set_initiative':
             self.initiative.quiet = data['mode']=='quiet'

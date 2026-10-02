@@ -6,6 +6,56 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Latest agency replacement — October 1
+
+The inspected live run produced 16 opportunities and zero completed audible
+proactive contributions. The previous optional silence-voting/self-scheduling policy
+has been replaced by a persisted private character narrative and concrete plan.
+GPT-5.6 Terra creates/revises the plan; GPT-6 Luna handles immediate replies and periodic
+step execution through the same Session and output owner. `gpt-6-terra` was unavailable
+in the account's read-only model lookup; the owner selected GPT-5.6 Terra, with no
+silent runtime fallback.
+
+No visible person or changed scene is required. General plans survive head turns;
+personal evidence cannot be saved under general scope. Pending questions/invitations
+cannot freeze unrelated steps. The old one-seed rule, generic timers, silent-vote
+backoff and rolling attempt cap are removed. Normal shutdown persists the plan;
+restart revalidates it. Actual speech/acquisition/action receipts determine progress.
+Rejected intentions cannot speak unbacked promises. Reports distinguish planning,
+execution, revision reasons and completed steps.
+
+Verification: **867 blocked-I/O contract checks pass** (67.3 seconds), plus the two focused mocked-provider checks confirming the selected Terra/Luna model split. These are blocked-network/audio/serial tests with
+synthetic providers, fake clocks/pulses/images and temporary databases. No paid model
+generation or hardware run was performed for this agency replacement. Planner latency,
+billed cost, M2 load, physical behavior, repetition and social quality remain live
+acceptance items for the owner's next test. See the [current design](AGENCY_IMPLEMENTATION_PLAN.md)
+and [acceptance cases](AGENCY_ACCEPTANCE.md).
+
+The dated checkpoints below describe prior software. Their scheduler rules and counts
+are historical; this replacement supersedes them.
+
+October 1 [charger release correction](DRIVE_BASE_INTEGRATION.md#charger-release-investigation--october-1-2026):
+V3's stale 13.6 V backstop now matches the firmware/battery menu's 14.0 V threshold,
+so surface charge does not prolong the host block after firmware release. All 51
+focused drive/session checks pass with simulated telemetry; V2's existing compiled
+fake-sensor gamepad-unplug test also passes. Firmware's automatic 90-second discharge
+guard is unchanged. Installed firmware and live unplug timing were not checked;
+no hardware was operated or flashed. Earlier full-suite results below predate this fix.
+
+Follow-up live serial inspection confirmed installed firmware `0.2.3-gamepad-unplug`
+and `chg_assert` support. It reported charging at about 14.36 V with the gamepad
+disconnected. Only a hello/status query was sent; no motion, reset, flash or unlock.
+The operator was away, so the failed L1+R1 attempt remains unreproduced. Serial access
+was returned to the battery menu after inspection.
+
+Later October 1 owner-directed firmware source update supersedes the 90-second rule:
+`0.2.4-current-unplug` uses three fresh >=0.5 A discharge samples with valid voltage
+below 14 V, based on the owner's measured 1-3 A unplugged draw. The compiled
+fake-sensor battery/gamepad regression and full hardware-variant Arduino build pass.
+This source change is in V2's firmware
+tree; the board has not been flashed and live acceptance remains pending. See the
+[updated current-release scope](DRIVE_BASE_INTEGRATION.md#owner-directed-current-release--october-1-2026).
+
 October 1 [agency increment 1](AGENCY_IMPLEMENTATION_PLAN.md): working interests,
 model-selected reconsideration, and inactivity diagnostics are implemented. Generic
 initiative no longer requires a visible person or camera. The fixed 20/60-second
@@ -123,7 +173,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 | Status | Capability | Implementation and evidence |
 | --- | --- | --- |
-| Implemented; live acceptance pending | Session intentions and bounded working interests, one-call revisions, model-selected reconsideration, audience/memory filtering and delivery-aware lifecycle | [Plan and implementation](CONVERSATIONAL_INTENT_PLAN.md) |
+| Implemented; live acceptance pending | Persistent character plans, stronger planning/cheaper execution, immediate one-call replies, audience filtering and actual-delivery progress | [Plan and implementation](CONVERSATIONAL_INTENT_PLAN.md) |
 | Implemented | Microphone capture, transcription, one conversation owner, streamed speech, cancellation, delivery receipts, bounded history and network retry | [Operations](CORE_OPERATIONS.md), [initial slices and evidence](INITIAL_TEST_PROGRAM.md) |
 | Implemented; combined live acceptance pending | ReSpeaker channel-0 capture, V2 host gain, read-only direction provider, source-linked voice/face/direction context and competing-direction learning guard | [ReSpeaker evidence and limits](RESPEAKER_INTEGRATION.md) |
 | Implemented; live reliability incomplete | Persistent face/voice profiles, self-introduced names, compatible conversational enrollment, restart, correction and forgetting | [Face path](FACE_ATTRIBUTION_PLAN.md), [introduction-first recovery](INTRODUCTION_RECOVERY.md) |
@@ -141,7 +191,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O result is recorded with the October 1 agency increment above.
+The latest blocked-I/O result is recorded in the agency replacement entry above.
 The preceding **756 checks** covered the September 28 voice
 head-turn reflex (camera-aimed, taking over held looks), say-before acknowledgments, uncapped mixed move/light sequences, a wave, look-then-describe, and no
 replies to untrusted transcripts; the earlier 645 included 45 [drive-base contracts](DRIVE_BASE_INTEGRATION.md#verification), including the
@@ -281,3 +331,10 @@ servos, LEDs and camera. The findings and repairs are recorded in [drive base](D
 Also a startup crash, where startup clips were fed whole and hit the playback drain
 timeout, is fixed by streaming them in pieces with one-time microphone recovery.
 729 blocked-I/O checks pass. Changes after the last floor run are synthetic only.
+
+October 1 firmware deployment follow-up: owner-authorized upload of
+`0.2.4-current-unplug` completed with verified hashes and matching live hello.
+Stationary telemetry kept charging locked at 14.367 V / 6 mA. Battery menu service
+restored and serial ownership confirmed. This supersedes the unflashed status
+above; physical unplug latency/gamepad acceptance remains pending. No movement
+or charge assertion was commanded.

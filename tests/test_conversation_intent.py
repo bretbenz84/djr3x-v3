@@ -213,7 +213,7 @@ class ConversationIntentTests(MemoryFixture):
             revision=self.state.conversation_intent.revision
             result=self.state.execute_opportunity(ToolCall(uuid4().hex,'respond_with_intent',dict(
                 text='Hello',intent_update=proposal(ctx,**changes))),ctx,Cancellation())
-            self.assertEqual(result.outcome,'ok')
+            self.assertEqual(result.outcome,'rejected')
             self.assertEqual(self.state.conversation_intent.revision,revision)
             self.assertEqual(self.rejections()[-1],reason)
 

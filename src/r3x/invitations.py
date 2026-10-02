@@ -75,9 +75,6 @@ class Invitations:
                 'recent':[deepcopy(r) for r in self.recent if self.visible(r,context)],
                 'meaning':'Only completed audible invitations are waiting. Review time does not mean rejection, disinterest or an answer. Close explicitly and retain that it was asked. General scope is impersonal only; private content stays audience scoped. Opening a new invitation explicitly supersedes the previous one.'}
 
-    def waiting(self,context,now):
-        return bool(self.pending and self.visible(self.pending,context) and now<self.pending['review_at'])
-
     def prepare(self,value,context,text,schedule,now):
         validate_update(value)
         if value is None:return None

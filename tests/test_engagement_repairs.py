@@ -58,13 +58,13 @@ class EngagementRepairs(MemoryFixture):
         self.visible(115); self.runtime.proactive_tick()
         self.assertEqual(self.brain.calls, 3)
 
-    def test_missing_intention_allows_one_seed_without_automatic_repeated_calls(self):
+    def test_missing_legacy_intention_does_not_block_persistent_plan_steps(self):
         self.setup_core(); self.turn()
-        for at, calls in ((108,2),(116,2),(131,2),(161,2),(221,2),(341,2)):
+        for at, calls in ((108,2),(116,3),(131,4),(161,5),(221,6),(341,7)):
             self.visible(at); self.runtime.proactive_tick()
             self.assertEqual(self.brain.calls, calls)
         self.assertIsNone(self.state.conversation_intent.record)
-        self.assertEqual(len(self.state.initiative.attempts), 1)
+        self.assertEqual(len(self.state.initiative.attempts), 6)
 
     def test_empty_rejected_write_continuation_recovers_once_without_reexecuting(self):
         person = self.enroll()

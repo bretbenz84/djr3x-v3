@@ -72,6 +72,25 @@ trims the 4 s accents to 2 s with a fade, and plays commanded motion at 50% (own
 V2 used 0.8). Synthetic checks only; live volume and
 ASR under the whir remain to be heard.
 
+## Charger release correction — October 1, 2026
+
+Inspected V2 HEAD `fb96f086925841479952c649b0a39a8f6c77f70c`, clean working tree:
+`firmware/djr3x_motion/{battery.cpp,calib.h,gamepad.cpp,gamepad_unplug.h,protocol.h}`,
+firmware README, `intelligence/motion_controller.py`, and `tests/test_gamepad_unplug.py`.
+History: `bcc978d` removed the surface-charge hold floor; `5f8d361` restored a
+90-second automatic discharge guard after false unplug under startup load;
+`34ae195` removed extra host delay following firmware release; `53cfbab` added the
+two-second gamepad unplug declaration and fresh-sample assertion checks.
+
+Adaptation: correct V3's voltage backstop from 13.6 to 14.0 V, preserving the firmware
+latch, immediate host release on fresh clear telemetry, and high-voltage blocking.
+No new dependency, V2 edit, firmware change or V2 private-data access. Existing V3
+battery diagnostics were read narrowly for charger/gamepad/controller evidence. Host regression
+checks simulate surface charge through refusal/release/execution and charger-voltage
+refusal. V2's `venv/bin/python tools/run_lean_checks.py gamepad_unplug` passes its
+compiled fake-sensor/NVS test. Installed firmware version and real unplug latency
+were not measured. See [charger investigation](docs/DRIVE_BASE_INTEGRATION.md#charger-release-investigation--october-1-2026).
+
 ## Drive base and radar extraction — September 27, 2026
 
 User-authorized scope: LLM-directed base motion with radar evidence and no firmware
@@ -929,3 +948,21 @@ checks (memory_recall, memory_unified_retrieval, episodic_recall,
 lean_episodic_callback, memory_hardening); synthetic/temp stores only. V3 coverage
 and remaining live validation are in `docs/CONVERSATION_MEMORY.md`. No V2 file or
 personal database was modified.
+
+## Owner-directed firmware change — October 1, 2026
+
+The user explicitly authorized modifying the drive firmware's automatic charging
+release after supplying current measurements (plugged ~0.01 A; unplugged/asleep
+1-3 A). V2 source HEAD remains `fb96f086925841479952c649b0a39a8f6c77f70c`, clean
+before this scoped change. This is a direct firmware edit, not a runtime extraction:
+`battery.cpp`, `calib.h`, `protocol.h`, firmware README and its existing native test.
+No V2 application or personal data changed. Release now uses three fresh samples
+of >=500 mA discharge, with valid sub-14 V voltage; fresh entry/reset of EMA prevents
+stale history. Version 0.2.4; no added dependencies. V2 isolated lean runner's
+`gamepad_unplug` test passes with compiled real battery code and fake INA226/NVS.
+Physical cable detection, live loaded-current validation and flashing remain absent.
+
+Deployment follow-up: the owner explicitly requested flashing this build. Upload
+hashes and live `0.2.4-current-unplug` hello verified on October 1; the battery
+LaunchAgent was restored and its serial ownership confirmed. Stationary charging
+telemetry remained locked. No movement/unlock command or physical unplug test.
