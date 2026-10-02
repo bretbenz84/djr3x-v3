@@ -147,6 +147,7 @@ models on its own.
 | [Live test script](docs/LIVE_TEST_SCRIPT.md) | Lines to say and results to check in hands-on conversation tests. |
 | [DESIGN.md](DESIGN.md) | Who decides what, turn flow, identity and memory design. |
 | [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex initiates and participates. |
+| [Agency implementation plan](docs/AGENCY_IMPLEMENTATION_PLAN.md) | Proposed working interests, purposeful attention and varied initiative; not implemented. |
 | [Core operations](docs/CORE_OPERATIONS.md) | Enrollment, profiles, review, deletion and diagnostics. |
 | [Future features](docs/FUTURE_FEATURES.md) | Owner-requested work not yet scoped. |
 | [V2_REFERENCE.md](V2_REFERENCE.md) | Where each V2 extraction came from and what it preserved. |
