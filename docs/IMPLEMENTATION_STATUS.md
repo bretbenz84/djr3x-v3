@@ -25,6 +25,8 @@ Implemented through the existing Session/state/output owners:
 - Plans support contribute, inspect, look, gesture, temporary pose and drive; a silent
   physical action can come first. Base charging/manual/clearance/stop limits remain.
   Agency poses cannot override/release human holds or create permanent new holds.
+  Autonomous drive also refuses while a human pose hold is active, before its
+  preparation routine can recenter the head/arms; explicit requested drive is unchanged.
 - The planner sees current poses/joint positions and recent action purposes.
   No-change poses request revision, not successful physical-agency credit. Their
   unchanged head targets no longer invalidate the camera. Silent committed poses,
@@ -39,15 +41,19 @@ Implemented through the existing Session/state/output owners:
   unrelated joke. Human input, quiet/floor, input health, cancellation, corrections,
   forgetting and restart revalidation remain authoritative.
 
-Verification: **887 blocked-I/O checks passed** (68.0 seconds) before the final silent
-pose/reframe regression; its focused result is recorded below. Tests use temporary
-SQLite, fake clocks/providers/pulse/ESP32 transports, blocked network/audio/serial.
-They do not operate hardware or establish acoustic/person discrimination.
+Verification: **889 blocked-I/O checks passed** (69.2 seconds), including silent
+poses/public gesture questions surviving their own camera reframe, audience privacy,
+long planning gaps, no-op poses and human cancellation. After the last autonomous-drive
+hold guard, **42 focused companion/drive-session checks passed** (13.5 seconds).
+Tests use temporary SQLite, fake clocks/providers/pulse/ESP32 transports and blocked
+network/audio/serial. They do not operate hardware or establish acoustic/person
+discrimination. Public-scope guidance explicitly allows ordinary friendly questions
+without requiring a visible listener; private facts remain audience-bound.
 
 Hosted checks use real **GPT-5.6 Terra / GPT-6 Luna**, fictional dialogue, synthetic
 playback and production servo/base owners on injected fake transports:
 
-- Final shared-character cases, ignored
+- Shared-character cases, ignored
   `local/validation/agency-470a501ab1214529ac413353de77b7bd/`: **10 completed proactive
   steps**, no audience invalidations or failed turns. Companionship produced three
   spoken gestures and two silent poses, including “What part of work made today feel

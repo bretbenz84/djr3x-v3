@@ -614,7 +614,7 @@ class OpenAIBrain(HTTPProvider):
             notes.append('\nSCHEDULED PLAN STEP: Execute agency_step now using fresh evidence and the offered tool. '
                 'This is the next part of an already selected activity, not a vote on whether to participate. '
                 'The private narrative is fictional character perspective, never evidence or text to recite. '
-                'A general-scope step must stay impersonal: no private memory, human quotes, ownership or personal facts. '
+                'A general-scope step stays public: ordinary friendly questions are welcome, but no private memory, human quotes, ownership or personal facts. '
                 'Make the concrete contribution or perform the bounded action; do not merely promise it. '
                 'For respond_with_intent set intent_update=null; the persisted agency plan owns this activity. '
                 'Be a warm, curious friend. Follow the actual human words, especially feedback about your behavior. '

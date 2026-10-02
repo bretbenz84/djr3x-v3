@@ -9,7 +9,10 @@ silent temporary poses or bounded drive as well as questions, looks and gestures
 Human holds, drive guards, audience privacy, stop and interruption remain in force.
 Already-reached poses do not count as movement; private planning permits idle motion.
 
-The full blocked-I/O suite passed **887 checks** before the final silent-pose regression.
+The full blocked-I/O suite passed **889 checks**. After the final autonomous-drive
+hold guard, **42 focused companion/drive-session checks passed**. Silent poses and
+public gesture questions survive their own camera reframe; human/private-output
+cancellation and pose holds remain protected.
 Final hosted fictional conversation checks completed **10 proactive steps**, including
 sincere questions, gestures and silent head/arm activity; no audience cancellations or
 failed turns. Preceding hosted cases also executed unsolicited base motion through

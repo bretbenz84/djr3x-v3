@@ -165,6 +165,37 @@ class PhysicalPlanTests(MemoryFixture):
         self.assertEqual(self.state.agency.record['cursor'],1)
         self.assertEqual(visible,[])
 
+    def test_public_gesture_and_question_survive_their_own_camera_reframe(self):
+        from r3x.runtime import VoiceRuntime
+        from r3x.physical_attention import PhysicalGesture
+        self.setup_pose()
+        trace=self.state.trace
+        class HealthyRuntime(VoiceRuntime):
+            @property
+            def audio_seen_at(inner):return trace.clock()
+            @audio_seen_at.setter
+            def audio_seen_at(inner,value):pass
+        runtime=HealthyRuntime(None,None,None,self.session,trace)
+        runtime.started_at=self.clock()-10
+        visible=[face(self.clock())]
+        runtime.camera=SimpleNamespace(latest=lambda at:[{**f,'at':at} for f in visible])
+        for age in (3,2,1,0):runtime.arrivals.observe([face(self.clock()-age)],self.clock()-age)
+        for entry in runtime.arrivals.seen.values():entry['used']=True
+        gestures=PhysicalGesture(self.robot);gestures.start()
+        self.session.output.gestures=gestures
+        self.brain.text=ToolCall('g','respond_with_gesture',{'text':'What are you up to?',
+            'primitive':'tilt','target':'unfocused','intensity':'subtle','timing':'before_speech'})
+        value=draft();value['steps']=[{**value['steps'][0],'kind':'gesture','instruction':'Ask a public friendly question with a tilt.'}]
+        planner=Planner();planner.choose=lambda f,c:deepcopy(value)
+        self.session.agency_planner=planner
+        self.robot.owner.on_camera_motion=lambda moving,*args:visible.clear() if moving else None
+        result=runtime.proactive_tick()
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(result.completed_text,['What are you up to?'])
+        self.assertEqual(result.gestures[0]['status'],'pulses_reached')
+        self.assertEqual(self.state.agency.record['cursor'],1)
+        self.assertEqual(visible,[])
+
     def test_repeating_an_unchanged_pose_is_not_completed_agency_or_camera_motion(self):
         self.setup_pose()
         self.perform('pose')
@@ -199,6 +230,21 @@ class PhysicalPlanTests(MemoryFixture):
         self.assertEqual(planner.requests[0]['capability_contract']['drive']['origin'],'self_initiated')
         self.assertEqual(self.state.agency.record['cursor'],1)
         self.assertAlmostEqual(self.fake.theta,20,delta=1)
+
+    def test_autonomous_drive_cannot_park_away_a_human_pose_hold(self):
+        from tests.test_drive_session import DriveSessionTests,drive_call,step
+        from tests.test_drive import plan
+        from r3x.drive import DriveStep
+        DriveSessionTests.setup_drive(self,drive_call(step('turn',degrees=20)))
+        self.drive.servos=SimpleNamespace(owner=SimpleNamespace(held_channels={0}))
+        self.assertEqual(self.drive.context('self_initiated')['unavailable_reason'],'human_pose_held')
+        self.assertTrue(self.drive.context('requested')['available'])
+        result=self.drive.execute(plan(DriveStep('turn',degrees=20),origin='self_initiated',clock=self.clock),Cancellation())
+        self.assertEqual((result.status,result.reason),('refused','human_pose_held'))
+        self.assertFalse(any(c['cmd'] in {'turn','move','drive'} for c in self.fake.commands))
+        self.drive.servos=None
+        result=self.drive.execute(plan(DriveStep('turn',degrees=20),origin='self_initiated',clock=self.clock),Cancellation())
+        self.assertEqual(result.status,'completed')
 
     def test_blocked_drive_never_counts_as_completed_agency(self):
         from tests.test_drive_session import DriveSessionTests,drive_call,step

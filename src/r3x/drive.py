@@ -436,6 +436,8 @@ class DriveBase:
         """Robot-relative targets and clearance for the conversation model."""
         now = self.clock()
         ok, reason = self.availability(now)
+        if origin=='self_initiated' and self._pose_held():
+            ok, reason = False, 'human_pose_held'
         space = self.space(now)
         targets = []
         faces = self._fresh_faces(now)
@@ -634,6 +636,9 @@ class DriveBase:
         self._parked = True
         self._view_since = self.clock() + .3   # Only detections of the centred-neck view.
         self._sleep(.6, cancel)
+
+    def _pose_held(self):
+        return bool(getattr(getattr(self.servos,'owner',None),'held_channels',()))
 
     def _move(self, meters, plan, cancel, speed=None):
         allowed, note = move_allowance(meters, self.space())
@@ -1354,6 +1359,8 @@ class DriveBase:
         try:
             self._halt.clear()
             ok, reason = self.availability()
+            if plan.origin=='self_initiated' and self._pose_held():
+                ok, reason = False, 'human_pose_held'
             if not ok or self.clock() >= plan.expires_at:
                 receipt.status, receipt.reason = 'refused', reason or 'StaleDrivePlan'
                 return receipt

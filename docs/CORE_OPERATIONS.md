@@ -458,6 +458,8 @@ distinguish correction, scope narrowing, private preparation and recovery activi
 Plans can lead with silent head/arm poses or self-initiated drive; motor guards remain.
 `robot_pose_result.changed_channels` distinguishes changed output pulses from an
 already-reached pose. Autonomous poses do not acquire or override human pose holds.
+Self-initiated drive reports `human_pose_held` while any human servo hold remains;
+it cannot silently recenter that held head/arm as part of base preparation.
 Recent dialogue remains private planning context despite camera track churn; personal
 output still requires its audience. Inspect the actual words and movement receipts,
 not only the count of completed steps.

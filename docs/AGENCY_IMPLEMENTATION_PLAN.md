@@ -124,7 +124,10 @@ Terra plans from dialogue before inventing a topic, ends rejected bits, and can 
 with physical action. It sees current named poses, joint positions, held parts and
 base clearance/capabilities. Existing self-initiated drive limits and charging,
 manual-control, obstacle and stop guards remain. Autonomous poses neither acquire
-persistent holds nor release/override human holds. Private planning permits existing
+persistent holds nor release/override human holds. Autonomous drive refuses while a
+human pose hold is active, before preparing the head/arms. Ordinary public questions
+do not require a visible listener; disclosing personal facts remains audience-bound.
+Private planning permits existing
 idle motion; capture and output retain their motion exclusions. A no-change head
 command does not invalidate camera continuity. Self-requested inspection can retain
 useful observations silently instead of announcing inventory. Unanswered name
