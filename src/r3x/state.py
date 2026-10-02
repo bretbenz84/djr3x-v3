@@ -46,9 +46,9 @@ class CoreState:
         self.face_invalidator = face_invalidator
         self.min_face_epoch = 0
         from .proactive import Initiative
-        self.initiative = Initiative()
+        self.initiative = Initiative(trace)
         from .conversation_intent import ConversationIntent
-        self.conversation_intent = ConversationIntent(trace)
+        self.conversation_intent = ConversationIntent(trace, self.initiative.cancel_schedule)
 
     def apply_photo(self,call,context,cancel):
         cancel.check()
@@ -243,6 +243,8 @@ class CoreState:
         if self.attention.version != context['attention']['version']:
             raise ValueError('StaleAttentionVersion')
         target = call.arguments['target']
+        if context.get('gesture_targets') is not None and target not in context['gesture_targets']:
+            raise ValueError('GestureTargetUnavailable')
         anchor = None
         if target not in {'left','right','up','forward','unfocused'}:
             anchor = next((r for r in context['attention']['vision']['targets'] if r['target_id']==target),None)
@@ -273,9 +275,12 @@ class CoreState:
             if offered is None or not self.attention.scene.valid(offered):
                 raise ValueError('AttentionTargetUnavailable')
             anchor = self.attention.scene.resolve(call.arguments['target'])
+        if context.get('attention_targets') is not None and call.arguments['target'] not in context['attention_targets']:
+            raise ValueError('AttentionTargetUnavailable')
         return self.attention.propose(source + ':' + call.call_id, call.arguments, anchor)
 
     def cancel(self):
+        self.initiative.invitations.invalidate('explicit_stop')
         self.attention.clear()
         self.attention.scene.invalidate(self.trace.clock())
         # Stopping speech cancels dialogue work, not previously observed evidence.
@@ -382,9 +387,8 @@ class CoreState:
         faces = [public_face(f) for f in event.faces if f.get('face_epoch',0)>=self.min_face_epoch]
         people = self.store.people()
         person_ids = {p['id'] for p in people}
-        if event.kind not in {'visual_arrival','conversation_lull','ambient','unseen_presence'}: raise ValueError('UnknownOpportunity')
+        if event.kind not in {'visual_arrival','conversation_lull','ambient','unseen_presence','reconsideration'}: raise ValueError('UnknownOpportunity')
         if event.person_id and event.person_id not in person_ids: raise ValueError('VisualPersonNoLongerAvailable')
-        if not faces and event.kind!='unseen_presence': raise ValueError('VisualTargetStale')
         if event.kind=='visual_arrival' and not any(f['track_id']==event.target_track for f in faces):
             raise ValueError('VisualTargetStale')
         if event.kind=='conversation_lull':
@@ -409,7 +413,7 @@ class CoreState:
                 'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
                                'quiet_seconds':event.quiet_seconds,
                                'audience':'arrival_target' if event.kind=='visual_arrival' else
-                                          'nobody_visible' if event.kind=='unseen_presence' else 'visible_group'},
+                                          'nobody_visible' if not faces else 'visible_group'},
                 **({'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
                                      'returning_this_session':event.returning,
                                      'startup_greeting':self.conversation_source is None and not event.returning
@@ -428,6 +432,8 @@ class CoreState:
             keep = set(self.conversation_intent.record.memory_ids) if self.conversation_intent.record else set()
             context['memory_opportunities'] = [r for r in memories if r['claim_id'] in keep]
         context['conversation_intent'] = self.conversation_intent.context(context)
+        context['invitations'] = self.initiative.invitations.context(context,self.trace.clock())
+        context['reconsideration'] = self.initiative.scheduling_context(context.get('event_id') or context.get('source_turn_id'))
         return context
 
     def _with_intent(self, call, context, cancel, execute):
@@ -919,7 +925,10 @@ class CoreState:
         if name=='remain_silent' and 'feedback' in data:
             self._after('conversation_feedback',data['feedback'])
         if name=='conversation_feedback':
+            if self.initiative.invitations.feedback(data['action'],data.get('reference_id'),data['source_turn_id'],self.context(),self.trace.clock()):
+                self.initiative.cancel_schedule('invitation_resolved')
             if data['action'] in {'topic_closed','topic_avoid','invitation_declined','yield_floor'}:
+                self.initiative.cancel_schedule('participant_boundary')
                 self.conversation_intent.suspend('participant_boundary')
             if data['action'] in {'retract','floor_resolved'}:
                 self.initiative.feedback = deque((r for r in self.initiative.feedback
@@ -931,10 +940,14 @@ class CoreState:
                     expendable = next(r for r in self.initiative.feedback if r['action']!='topic_avoid')
                     self.initiative.feedback.remove(expendable)
                 self.initiative.feedback.append({k:v for k,v in data.items() if k not in {'text','reason'}})
+        if name in {'retract_visual','revise_visual'}:
+            self.initiative.invitations.invalidate(name,erase=True)
         if name=='set_initiative':
             self.initiative.quiet = data['mode']=='quiet'
             self.initiative.policy_source = data['source_turn_id']
-            if self.initiative.quiet:self.conversation_intent.suspend('initiative_quiet')
+            if self.initiative.quiet:
+                self.initiative.cancel_schedule('initiative_quiet')
+                self.conversation_intent.suspend('initiative_quiet')
         if name=="introduce_person" and data.get("face_track_id"):
             key = data['face_track_id']
             self.face_associations[key] = data["person_id"]

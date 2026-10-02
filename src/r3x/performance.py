@@ -1,4 +1,4 @@
-"""One speech phrase plus one optional, explicitly simulated expressive primitive."""
+"""One speech phrase plus one optional, receipt-backed expressive primitive."""
 from dataclasses import dataclass
 from typing import Callable
 from .contracts import Cancellation, ProviderFailure

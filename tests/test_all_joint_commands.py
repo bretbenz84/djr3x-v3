@@ -215,7 +215,7 @@ class VoiceReflexTests(unittest.TestCase):
         self.robot.start()
         self.addCleanup(self.robot.close)
         self.moves = []
-        self.robot.reflex.on_head_move = lambda: self.moves.append(self.clock())
+        self.robot.owner.on_camera_motion = lambda moving,*_: self.moves.append(self.clock()) if moving else None
 
     def settle(self):
         self.robot.reflex._thread.join(5)

@@ -461,7 +461,8 @@ class DriveContractTests(unittest.TestCase):
         text = notice_text(Settings(), [LifecycleResult('drive_base', 'start', 'failed', 'ProviderFailure')])
         self.assertIn('wheel controller', text)
 
-    def test_unseen_presence_needs_no_face_but_other_opportunities_do(self):
+    def test_general_opportunities_need_no_face_but_lulls_still_need_a_source(self):
+        from dataclasses import replace
         import tempfile
         from pathlib import Path
         from r3x.memory import Memory
@@ -476,8 +477,10 @@ class DriveContractTests(unittest.TestCase):
                 unseen = Opportunity('e1', 's', 100., None, None, (), float('-inf'), False, 'unseen_presence')
                 self.assertEqual(state.opportunity_context(unseen)['opportunity']['audience'], 'nobody_visible')
                 lull = Opportunity('e2', 's', 100., None, None, (), float('-inf'), False, 'conversation_lull')
-                with self.assertRaisesRegex(ValueError, 'VisualTargetStale'):
+                with self.assertRaisesRegex(ValueError, 'LullRequiresConversationOrActiveIntent'):
                     state.opportunity_context(lull)
+                ambient = replace(unseen, kind='ambient')
+                self.assertEqual(state.opportunity_context(ambient)['faces'], [])
             finally:
                 store.close()
 

@@ -39,12 +39,13 @@ choice, not the universal optimization target. Visible presence permits consider
 an invitation; it does not prove attention or oblige anyone to answer.
 
 Rex is normally started deliberately for social demonstrations with friends.
-Consider a welcome opening after roughly 7–10 seconds of a genuine lull, initially
-eight seconds for otherwise eligible quiet opportunities. The September 30 repair
-adds a floor after audible speech: 20 seconds after a reply/greeting and 60 seconds
-after a non-arrival proactive remark, measured from completion. Direct human
-requests bypass these unsolicited-speech waits. This favors an engaged friend, while
-unfinished thoughts, human-to-human questions and explicit boundaries retain priority.
+Consider a welcome opening after a genuine lull. The October 1 user direction
+rejects both a visible-person prerequisite and the fixed 20/60-second post-speech
+floors. The [first agency increment](AGENCY_IMPLEMENTATION_PLAN.md) replaces them
+with model-selected reconsideration, bounded working interests and one shared call
+budget. A default eight-second seed lull remains; subsequent timer-based decisions
+are explicitly requested by the model. Direct human input retains priority, as do
+unfinished thoughts, human-to-human questions and explicit boundaries.
 
 ### September 30: contextual teasing
 
@@ -370,3 +371,40 @@ Quiet, pending audible questions, human-floor holds, audience freshness, expiry 
 the shared six-attempt/five-minute budget still constrain it. The model sees prior
 deliveries and should advance an interest with contributions that need no response,
 rather than repeat greetings or interview questions. Social timing remains unvalidated.
+
+
+## October 1: first agency increment
+
+The [agency implementation plan](AGENCY_IMPLEMENTATION_PLAN.md) records the user’s
+expanded direction and first-increment implementation. Generic initiative no longer
+requires camera presence. Working interests and explicit general/audience scope
+extend the existing intention record; one model-selected reconsideration request
+replaces automatic continuing-lull backoff and fixed audible floors. Physical
+attention, motion-aware repetition handling and invitation-lapse behavior remain
+later increments. Dated timing descriptions above retain historical evidence;
+[NEXT_CONVERSATION_SCHEDULING.md](NEXT_CONVERSATION_SCHEDULING.md) is the current
+scheduling contract.
+
+
+## October 1 purposeful physical attention
+
+[Agency increment 2](AGENCY_IMPLEMENTATION_PLAN.md#increment-2-implementation--october-1-2026)
+connects silent robot-relative looks and finite before/after-speech gestures to the
+existing servo owner. No visible person is required; human-floor/quiet constraints
+remain. Turning away/back preserves bounded view and general observation history;
+a returning view alone does not generate another ambient scene cue. The model can
+request reconsideration, inspect fresh settled evidence, and finish silently.
+Physical/social acceptance and calibrated object-targeted gaze remain pending.
+
+
+### October 1 invitation lifecycle and agency completion
+
+The [third agency increment](AGENCY_IMPLEMENTATION_PLAN.md#increment-3-implementation--october-1-2026)
+adds optional source/revision-validated social invitations on existing tools, audible
+commit, model-selected review through the single scheduler, and explicit closure with
+bounded heard history. Elapsed time is never an answer or rejection. Human floor,
+quiet, identity clarification and private audience boundaries remain in force.
+The shared prompt supports specific character thoughts, continued interests, finite
+activities and silence without a forced question or extra planner call.
+Synthetic production-path checks and the [current suite result](IMPLEMENTATION_STATUS.md)
+cover the software; [semantic/live acceptance](AGENCY_ACCEPTANCE.md) remains unmeasured.

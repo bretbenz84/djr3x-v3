@@ -1206,3 +1206,47 @@ then give a substantive correction and ask a direct question. Verify no extra
 monologue on acknowledgments, shorter replies, and a useful opening after the
 longer unsolicited-speech pause. No hardware was operated. See [evidence and
 limits](LIVE_RUN_CONVERSATION_REPAIRS.md#september-30-turn-taking-repair).
+
+
+### Agency increment 1 (October 1, 2026)
+
+The [agency plan](AGENCY_IMPLEMENTATION_PLAN.md) now has an implemented first
+increment: bounded session working interests, source/revision-validated
+reconsideration, face-independent general opportunities and inactivity diagnostics.
+The user explicitly rejected the visible-person gate and 20/60-second audible
+floors. The old automatic continuing-lull backoff is retired; subsequent timed
+considerations are model-selected. Private memory, targeted question evidence,
+human priority, quiet and input-health guards remain.
+
+Production-path synthetic checks cover camera-free startup and conversation,
+three-second reconsideration after successful audio, silent backoff, wait/input
+supersession, failed/partial output, successful versus failed inspection,
+source/revision/expiry checks, general versus private scope, working-interest
+revision/closure, restart, correction and diagnostic reporting. The final suite
+count is in [implementation status](IMPLEMENTATION_STATUS.md).
+No hosted model, real acoustic model, live feed or hardware was used. This is
+software contract evidence, not live engagement, humor, repetition or cost acceptance.
+
+
+### October 1 agency increment 2
+
+Implemented finite physical directional attention/gestures and moving-camera
+continuity. Production-path synthetic checks cover pulse receipts, held-pose and
+drive-stance rejection, before/after speech, cancellation/stalls, head/base settling,
+returning-view cue suppression, fresh deliberate inspection, and private/general
+visual history. See the [consolidated result](IMPLEMENTATION_STATUS.md).
+No hardware or hosted model ran. Live motion/clearance, timing, acoustics and semantic
+repetition acceptance remain separate from these structural checks.
+
+
+### October 1 invitation lifecycle and agency completion
+
+The [third agency increment](AGENCY_IMPLEMENTATION_PLAN.md#increment-3-implementation--october-1-2026)
+adds optional source/revision-validated social invitations on existing tools, audible
+commit, model-selected review through the single scheduler, and explicit closure with
+bounded heard history. Elapsed time is never an answer or rejection. Human floor,
+quiet, identity clarification and private audience boundaries remain in force.
+The shared prompt supports specific character thoughts, continued interests, finite
+activities and silence without a forced question or extra planner call.
+Synthetic production-path checks and the [current suite result](IMPLEMENTATION_STATUS.md)
+cover the software; [semantic/live acceptance](AGENCY_ACCEPTANCE.md) remains unmeasured.

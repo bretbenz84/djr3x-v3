@@ -13,7 +13,6 @@ class IdleMotion:
         self.rng = rng or random.Random()
         self.trace = None
         self.face = None           # () -> neck pulse centring the face in front, or None
-        self.on_head_move = None   # () -> None: the camera is about to re-frame the room
         self._lock = threading.Lock()
         self._thread = None
         self._cancel = None
@@ -64,8 +63,6 @@ class IdleMotion:
                     face_neck = self.face()
                 except Exception:
                     face_neck = None   # Looking around needs no face.
-            if self.on_head_move and not {0, 1, 2}.intersection(getattr(self.owner, 'held_channels', ())):
-                self.on_head_move()
             request = ServoRequest(f'idle:{self._index}',self.owner.version,'idle',now+20.,face_neck=face_neck)
             token = self._cancel = Cancellation()
             def run():

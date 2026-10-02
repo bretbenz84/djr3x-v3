@@ -421,40 +421,36 @@ three actual hosted-model text-only cases passed on September 11, 2026.
 
 ## Conversational lulls and initiative control
 
-September 12 first slice: `live --camera` now offers the same conversational model
-a lull opportunity when a stable group is visible. Default `proactive_lull_seconds`
-is **8.0**, adjustable from 3–120 seconds in local settings. It is measured since
-both recent microphone speech and the last completed interaction. Model/TTS latency
-comes afterward; this is not eight-second first-audio acceptance. Camera-disabled
-runs retain ordinary replies but have no new automatic lull trigger.
+October 1 agency increment: proactive consideration no longer requires a camera
+or visible person. A first startup consideration is offered after eight seconds;
+one seed lull after a trusted human exchange uses `proactive_lull_seconds` (default
+8.0, valid 3–120). The model may select silence. These are consideration times;
+model/TTS latency comes afterward.
 
-The host normally runs Rex for social demonstrations. The prompt favors a brief
-welcome contribution while preserving thinking pauses, questions between humans,
-grief and explicit boundaries. Tiredness or a short answer does not mechanically
-set an energy mode. History retains each source's speaker uncertainty; the lull
-does not invent a new speaker or turn someone's face into acoustic identity.
+Further timer-based opportunities use the model's nullable `next_opportunity`
+proposal in the same generation: after complete audible speech, after a successful
+silent decision/inspection, or wait for input. There is one versioned pending request,
+with 3–300-second delay bounds. No fixed 20/60-second speech floors or automatic
+8/15/30/60 repeating-lull policy remains. Plain replies still stream normally.
 
-The first lull remains eligible after eight seconds of quiet following a trusted
-human turn. Further opportunities do not require an optional intention record.
-A camera-suspended intention also permits fresh consideration without reviving or
-exposing the old audience's note. An active, audience-matched intention additionally
-allows continuation after a greeting with no human turn.
-Reconsideration waits 8, 15, 30, then 60 seconds after successive same-source
-attempts finish (60 remains the ceiling). These are opportunities for the shared model to
-continue its plan, remain silent or finish it, never prewritten or mandatory speech.
-An unheard lull cancelled by camera audience validation can also be reconsidered
-once, after at least eight seconds and within 30 seconds of cancellation. It uses
-fresh context; it does not replay the abandoned reply. New speech or explicit stop
-clears that retry, and all quiet/floor/pending-question and call-budget gates remain.
-There are still at
-least eight seconds between proactive attempts and at most six attempts in a rolling
-five-minute window across arrivals, lulls and ambient cues. Human turns do not reset the rolling cap.
-Arrivals retain their additional visit/cooldown rules. A floor-related silence decision or
-terminal stop retains the two-minute hold. Ordinary `no_response_needed` silence
-can retain an active intention for later reconsideration. Completed, abandoned or
-explicitly suspended intentions do not authorize repeat plan lulls. Camera suspension
-does not silence ordinary ongoing conversation. Attempts cancelled before generation
-also consume pacing, preventing a failed freshness check from spinning every tick.
+The shared cap is twelve attempts per rolling five minutes, at least three seconds
+apart; human turns do not reset it. Consecutive unchanged silent decisions back off
+requested consideration to avoid empty polling. An unheard camera-cancelled lull
+retains one recovery attempt after eight seconds within a 30-second window.
+
+New human speech supersedes scheduling. Explicit quiet, human-floor decisions,
+pending targeted questions, stop and input-health guards remain; a floor-related
+silence or terminal stop retains its two-minute hold. No visible face is not evidence
+that the room is empty, and it does not grant personal-memory access. Fresh audience
+checks remain authoritative for private or targeted content.
+
+Working interests extend the existing conversation intention. General ideas may
+survive head turns; audience-scoped notes are withheld when their audience changes.
+The existing `report` command now includes `initiative_gate_transitions` and
+`reconsideration_outcomes` alongside calls, timings and delivery. See
+[agency implementation](AGENCY_IMPLEMENTATION_PLAN.md) and
+[scheduling semantics](NEXT_CONVERSATION_SCHEDULING.md).
+
 This policy is provisional social calibration, not a verified ideal conversation rate.
 
 Rejected audio is archived in the source store and trace but does not replace the
@@ -468,13 +464,15 @@ with `mode=quiet`, silently. It creates a session-wide quiet boundary that survi
 ordinary replies and history eviction. Direct questions still receive answers.
 An explicit invitation to initiate again uses `mode=available`; its acknowledgment
 follows the executed result. Both modes require a trusted current source, never a
-camera event. They reset on a new run. Narrow topic/per-person boundaries remain
-in original history; richer structured feedback is the next planned stage.
+camera event. They reset on a new run. Source-linked topic/per-person boundaries
+and human-floor feedback retain their existing validation.
 
-New speech, queued captures/transcripts, ASR work, stale microphone frames, target
-changes, and camera audience changes cancel/block opportunities. Frozen evaluation
-does not enable them. Lulls expose only silence alongside ordinary prose; they
-cannot enroll identity, save a personal fact or change the quiet policy. Arrival
+New speech, queued captures/transcripts, ASR work and stale microphone frames
+cancel/block opportunities. Targeted or audience-dependent content retains its
+freshness checks; missing camera presence is not a blanket gate. Frozen evaluation
+does not enable initiative. Lulls offer compatible contribution, working-interest,
+scheduling and observation tools; they cannot enroll identity, save a personal fact
+or change the quiet policy. Arrival
 questions retain the existing delivery-based pending-question path. Private claim
 retrieval for named arrivals is withheld when multiple faces are visible; original
 history still requires the model to exercise audience discretion.
@@ -596,7 +594,7 @@ promise. See the [stage evidence](PROACTIVE_IMPLEMENTATION.md).
 
 ### Public information and scene-aware initiative
 
-With `live --camera`, the completed proactive software also offers BBC top headlines,
+Configured live public sources offer BBC top headlines without requiring a camera,
 Sacramento weather and small camera snapshots to the same conversation model.
 Scene snapshots are sent to the hosted model only during an opportunity. Set
 `scene_observations_enabled = false` to keep camera pixels out of hosted requests.
@@ -718,3 +716,29 @@ observations and unchanged camera epoch. No name is inferred for an unresolved
 replacement. Targeted/tools-based speech keeps raw track/identity validation;
 new faces still invalidate unheard work and private output immediately. The new
 `proactive_retry_pending` event records camera-cancellation recovery eligibility.
+
+
+### Purposeful attention diagnostics — October 1
+
+With successfully started configured servos, `shift_attention` can execute finite
+silent directional looks; `respond_with_gesture` schedules a small primitive before
+or after speech. They respect explicit held poses and share the servo/output owners.
+`servo_expression`, `attention_result` and `gesture_delivery` distinguish controller
+pulse completion from simulated outcomes; speech delivery remains separate.
+`camera_motion` and `scene_sample` explain reframing/settling, while model context
+includes bounded view continuity and previously heard remarks. None of these receipts
+verify shaft position, obstruction clearance or successful sight. See
+[scope and acceptance limits](AGENCY_IMPLEMENTATION_PLAN.md#increment-2-implementation--october-1-2026).
+
+
+### October 1 invitation lifecycle and agency completion
+
+The [third agency increment](AGENCY_IMPLEMENTATION_PLAN.md#increment-3-implementation--october-1-2026)
+adds optional source/revision-validated social invitations on existing tools, audible
+commit, model-selected review through the single scheduler, and explicit closure with
+bounded heard history. Elapsed time is never an answer or rejection. Human floor,
+quiet, identity clarification and private audience boundaries remain in force.
+The shared prompt supports specific character thoughts, continued interests, finite
+activities and silence without a forced question or extra planner call.
+Synthetic production-path checks and the [current suite result](IMPLEMENTATION_STATUS.md)
+cover the software; [semantic/live acceptance](AGENCY_ACCEPTANCE.md) remains unmeasured.

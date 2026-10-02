@@ -7,7 +7,7 @@ path. No additional resident model or second language classifier was added.
 
 ## Configuration and lifecycle
 
-The defaults in `settings.example.toml` are consumed by camera-enabled live runs:
+The defaults in `settings.example.toml` are consumed by live runs; scene inputs require a camera:
 
 - BBC News top headlines from `https://feeds.bbci.co.uk/news/rss.xml`.
 - Open-Meteo current conditions for Sacramento (38.5816, -121.4944), in Fahrenheit,
@@ -18,8 +18,8 @@ The defaults in `settings.example.toml` are consumed by camera-enabled live runs
 - `news_feed_urls = []` disables news, and `weather_enabled = false` disables weather.
   At most four HTTPS RSS feeds are accepted; URLs cannot include credentials.
 
-Public observations start only in camera-enabled live mode, because the current
-initiative policy requires a visible audience. A single worker refreshes enabled
+Since the October 1 agency increment, configured public observations start in live
+mode with or without a camera; initiative does not require a visible audience. A single worker refreshes enabled
 public sources every 15 minutes. Refresh does not run inside the conversation
 worker or add requests to ordinary replies. `doctor`, imports and frozen replay
 start no source workers, network calls or cameras. Optional failures are logged
@@ -45,9 +45,9 @@ headlines use stable article URLs rather than changing refresh timestamps.
 Weather repetition uses coarse condition changes rather than its fetch time.
 
 A new cue or significant visual change may create an `ambient` opportunity without
-a new human utterance. The eight-second genuine-lull timing, visible audience,
-existing conversation, quiet/floor holds, microphone/queue gates and rolling cap
-still apply. These providers cannot speak independently. The one model can select
+a new human utterance. Quiet/floor holds, microphone/queue gates and the shared attempt cap still apply.
+No visible audience is required for a generic opportunity. See the current
+[scheduling contract](NEXT_CONVERSATION_SCHEDULING.md). These providers cannot speak independently. The one model can select
 an observation with `use_observation`, choose another contribution or remain silent.
 
 The executor checks that the selected cue was offered and is still available.
@@ -128,3 +128,15 @@ The shared scene cache also supplies optional `inspect_view(current)` calls duri
 ordinary conversation. This adds no camera consumer and can reuse an exact-image
 cached description without another upload. The scene-upload setting controls both
 paths. See [current-view configuration and evaluation](CURRENT_VIEW_VALIDATION.md).
+
+
+## October 1 moving-camera continuity
+
+All commanded head/base motion now clears pre-motion snapshots and gates new ones
+through settling. The scene observer keeps 32 compact view signatures and 32 considered
+IDs; a similar returning view does not generate another ambient cue. Different
+pixels remain evidence for model judgment, not a new object or meaningful change.
+Explicit inspections can revisit familiar views. General impersonal descriptions
+and their delivered remarks can survive audience changes; person/private details
+remain scoped. No extra model call or image retention was added. See
+[implementation and limitations](AGENCY_IMPLEMENTATION_PLAN.md#increment-2-implementation--october-1-2026).

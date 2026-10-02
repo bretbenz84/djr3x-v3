@@ -44,7 +44,7 @@ class TurnTakingTests(MemoryFixture):
         self.assertEqual(result.completed_text,[])
         self.assertEqual(len(brain.snapshots),1)
         self.assertTrue(any('Mm-hmm.'==r['text'] for r in self.store.rows('SELECT text FROM turns')))
-        self.assertEqual(session.proactive_hold_until,125)
+        self.assertEqual(session.proactive_hold_until,float('-inf'))
         self.assertIn('human_preceded_previous_reply',str(brain.snapshots[0].messages))
 
     def test_actual_reply_after_playback_is_not_labeled_a_queued_acknowledgment(self):

@@ -130,16 +130,24 @@ class CurrentView:
         if self.camera is not None:
             # A deliberate look: fresh full-detail frame, not the 480 px scene thumbnail.
             from .looking import fresh_look
+            def settled(at):
+                cancel.check()
+                if not valid() or self.stop.is_set():raise ProviderFailure('InspectionSuperseded')
+                return self.scene.frame_allowed(at)
             try:
                 image=fresh_look(self.camera,request.captured_after if moved else request.requested_at-1.,
-                                 timeout=3.,clock=self.clock,wait=cancel.event.wait)
+                                 timeout=3.,clock=self.clock,wait=cancel.event.wait,valid_frame=settled)
+            except Cancelled:
+                raise
             except Exception as exc:
                 return {**result,'reason':type(exc).__name__},()
             cancel.check()
             if image is None:
                 return {**result,'reason':'FreshCurrentViewUnavailable'},()
+            if not valid():return {**result,'reason':'InspectionSuperseded'},()
+            if not self.scene.frame_allowed(image.at):return {**result,'reason':'CameraMovingOrUnsettled'},()
             from hashlib import sha256
-            return {**result,'image_digest':sha256(image.data_url.encode()).hexdigest(),'status':'observed','stage':'complete',
+            return {**result,'camera_continuity':self.scene.continuity(),'image_digest':sha256(image.data_url.encode()).hexdigest(),'status':'observed','stage':'complete',
                 'frame_id':image.frame_id,'captured_at':image.at,'capture_age_seconds':self.clock()-image.at,'shared_frame':True,
                 'detail':'high','reason':'Camera view captured after the base stopped moving.' if moved else
                          'Current camera view; no movement requested or performed.'},(image,)

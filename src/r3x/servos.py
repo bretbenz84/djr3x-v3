@@ -15,7 +15,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
-                          UNPOWERED_REST)
+                          UNPOWERED_REST, expressive_lanes)
 
 BASE_HELD = frozenset({0, 1, 2, 4, 6, *THROTTLE})   # Neck, head, hero elbow, poker arm, throttle.
 
@@ -28,6 +28,10 @@ class ServoRequest:
     expires_at: float
     first_look: str = 'left'
     pose: str | dict[int, int] | None = None
+    target: str = 'unfocused'
+    primitive: str = 'tilt'
+    intensity: str = 'subtle'
+    hold_seconds: float = .5
     face_neck: int | None = None   # Idle: neck pulse of the face in front, when one is visible
 
 
@@ -66,6 +70,8 @@ class ServoOwner:
         self.motion_until = 0.
         self.microphone_hold = (0., 0.)
         self.on_motion = lambda: None
+        self.on_camera_motion = lambda moving, request_id, kind: None
+        self.camera_moving = False
         self.commanded: dict[int, int] = {}   # Last pulses sent or read back; camera bearings use the neck.
         self.talking_neck: int | None = None  # Gaze anchor for the current reply's talking lanes.
         self.microphone_moved_until = 0.       # Channel 7 carries the microphone array.
@@ -201,7 +207,7 @@ class ServoOwner:
             if (request.version != self.version or not request.request_id or
                     not math.isfinite(request.expires_at) or self.clock() >= request.expires_at):
                 return receipt('rejected', 'StaleServoRequest')
-            if request.kind in {'talking','idle','pose','reflex','base_park','base_release'} and self.state != 'active':
+            if request.kind in {'talking','idle','pose','reflex','base_park','base_release','attention','gesture'} and self.state != 'active':
                 return receipt('rejected', {'idle':'IdleRequiresCompletedStartup','talking':'TalkingRequiresCompletedStartup','pose':'PoseRequiresCompletedStartup'}.get(request.kind,'BaseMotionRequiresCompletedStartup'))
             if request.kind == 'startup' and self.state != 'ready':
                 return receipt('rejected', 'StartupAlreadyConsumed')
@@ -211,6 +217,8 @@ class ServoOwner:
             validate_pose(current)
             lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels, self.talking_neck) if request.kind == 'talking' else
                      idle_lanes(current,self.rng,self.held_channels,request.face_neck) if request.kind == 'idle' else
+                     expressive_lanes(current,request.kind,request.target,request.primitive,request.intensity,
+                                      request.hold_seconds,self.held_channels) if request.kind in {'attention','gesture'} else
                      pose_lanes(request.pose,current) if request.kind == 'pose' else
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
@@ -252,6 +260,9 @@ class ServoOwner:
                             raise Cancelled()
                         if self.clock() >= request.expires_at:
                             raise ProviderFailure('ServoRequestExpired')
+                        if {0,1,2}.intersection(targets) and not self.camera_moving:
+                            self.camera_moving = True
+                            self.on_camera_motion(True, request.request_id, request.kind)
                         touched.update(targets)  # Include partially sent batches on failure.
                         self._bus.targets(targets)
                         self.commanded.update(targets)
@@ -296,7 +307,7 @@ class ServoOwner:
             if accepted:
                 try:
                     self._hold(touched)
-                    self.state = 'active' if request.kind in {'talking','idle','pose','reflex','base_park','base_release'} else 'stopped'
+                    self.state = 'active' if request.kind in {'talking','idle','pose','reflex','base_park','base_release','attention','gesture'} else 'stopped'
                 except Exception:
                     self.state = 'faulted'
                     return receipt('failed', 'ServoCancelHoldFailed')
@@ -317,12 +328,17 @@ class ServoOwner:
                     reason += ':HoldFailed'
             return receipt('failed', reason)
         finally:
-            if accepted:
-                self.motion_until = self.clock() + .5
-                if self.microphone_moved_until == float('inf'):
-                    self.microphone_moved_until = self.motion_until
-                self._motion.clear()
-            self._lock.release()
+            try:
+                if self.camera_moving:
+                    self.camera_moving = False
+                    self.on_camera_motion(False, request.request_id, request.kind)
+            finally:
+                if accepted:
+                    self.motion_until = self.clock() + .5
+                    if self.microphone_moved_until == float('inf'):
+                        self.microphone_moved_until = self.motion_until
+                    self._motion.clear()
+                self._lock.release()
 
     def _hold(self, channels: set[int]) -> None:
         if channels and self._bus:

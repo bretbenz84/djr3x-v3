@@ -130,20 +130,28 @@ class OutputOwner:
             acquired = self._motion_lock.acquire(blocking=False)
             if not acquired:
                 raise ProviderFailure('MotionResourceBusy')
-            receipt = self.gestures.execute(gesture, cancel)
+            # Speech commitment must not exempt a later physical gesture from
+            # human priority or target freshness. Its token does not erase heard audio.
+            def gesture_allowed():
+                cancel.check()
+                return performance.valid()
+            motion_cancel = Cancellation(guard=gesture_allowed)
+            receipt = self.gestures.execute(gesture, motion_cancel)
+            motion_cancel.check()
             cancel.check()
             if not performance.valid():
                 raise ProviderFailure('GestureEvidenceStale')
             if (not isinstance(receipt, GestureReceipt) or receipt.request_id != gesture.request_id or
-                receipt.medium != 'simulation' or receipt.status != 'simulated' or
+                receipt.medium != getattr(self.gestures,'medium','simulation') or
+                receipt.status != ('pulses_reached' if receipt.medium=='controller' else 'simulated') or
                 not started <= receipt.at <= self.trace.clock() or receipt.at >= gesture.expires_at):
                 raise ProviderFailure('InvalidGestureReceipt')
             performance.delivered()
         except Cancelled:
-            receipt = GestureReceipt(gesture.request_id, 'cancelled', self.trace.clock(), reason='TurnCancelled')
+            receipt = GestureReceipt(gesture.request_id, 'cancelled', self.trace.clock(), medium=getattr(self.gestures,'medium','simulation'), reason='TurnCancelled')
         except Exception as exc:
             receipt = GestureReceipt(gesture.request_id, 'failed', self.trace.clock(),
-                reason=str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__)
+                medium=getattr(self.gestures,'medium','simulation'), reason=str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__)
         finally:
             if acquired:
                 self._motion_lock.release()
@@ -362,7 +370,7 @@ class OutputOwner:
                 from dataclasses import asdict
                 from .performance import GestureReceipt
                 row = {**asdict(GestureReceipt(performance.gesture.request_id, 'cancelled', self.trace.clock(),
-                        reason='SpeechNotCompleted')), 'primitive':performance.gesture.primitive,
+                        medium=getattr(self.gestures,'medium','simulation'), reason='SpeechNotCompleted')), 'primitive':performance.gesture.primitive,
                         'target':performance.gesture.target,'intensity':performance.gesture.intensity,
                         'timing':performance.timing}
                 delivery.gestures.append(row)

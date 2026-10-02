@@ -694,7 +694,7 @@ class IdleHeadTests(unittest.TestCase):
         driving = idle_lanes(current, rng, held=frozenset({0, 1, 2, 4, 6, 8, 9, 10}), face_neck=4000)
         self.assertFalse(any({0, 1, 2}.intersection(dict(l[0].targets)) for l in driving))
 
-    def test_a_head_look_is_announced_so_reframing_is_not_an_arrival(self):
+    def test_idle_forwards_visible_face_to_the_servo_owner(self):
         from r3x.idle_motion import IdleMotion
         calls = []
         class Owner:
@@ -705,11 +705,10 @@ class IdleHeadTests(unittest.TestCase):
                 calls.append(('execute', request.face_neck))
         idle = IdleMotion(Owner())
         idle.face = lambda: 4100
-        idle.on_head_move = lambda: calls.append(('reframe',))
         idle._allowed, idle._next = True, 0.
         idle.tick(True)
         idle._thread.join(1.)
-        self.assertEqual(calls[:2], [('reframe',), ('execute', 4100)])
+        self.assertEqual(calls, [('execute', 4100)])
 
 
 class PlanValidationRepairTests(unittest.TestCase):

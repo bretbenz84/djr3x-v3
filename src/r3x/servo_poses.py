@@ -231,6 +231,39 @@ def idle_head(current: dict[int, int], rng, face_neck=None) -> Beat:
     return Beat(((0, clamp(0, neck)), (1, clamp(1, lift)), (2, clamp(2, tilt))), speed=18, acceleration=4, dwell=dwell)
 
 
+def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, held):
+    """Finite chosen motion using existing head/talking ranges; never moves the mic.
+
+    Direction is robot-relative, not a promise to fixate a detected image object.
+    Explicit poses/drive stance reject the whole action instead of partially acting.
+    """
+    if target not in {'left','right','up','forward','unfocused'}:
+        raise ValueError('DirectionalAttentionOnly')
+    if intensity not in {'subtle','normal'} or hold_seconds not in (.5, 1.5):
+        raise ValueError('InvalidExpression')
+    clamp = lambda ch, value: max(LIMITS[ch][0], min(LIMITS[ch][1], round(value)))
+    if kind == 'attention':
+        targets = {'left':((0,NECK_CENTER-1040),), 'right':((0,NECK_CENTER+1040),),
+                   'up':HEAD_UP, 'forward':((0,NECK_CENTER),)+DRIVE_HEAD,
+                   'unfocused':((0,clamp(0,current[0]+520)),)}[target]
+        lane = (Beat(targets,speed=35,acceleration=6,dwell=hold_seconds),)
+    elif kind == 'gesture':
+        if target != 'unfocused':
+            raise ValueError('GestureIsNotDirectionalGaze')
+        scale = .5 if intensity=='subtle' else 1.
+        channels = {'nod':(1,160), 'tilt':(2,120), 'lift':(1,160), 'arm_emphasis':(4,200)}
+        if primitive not in channels:raise ValueError('UnknownExpression')
+        ch,amount=channels[primitive]
+        offsets = (-amount,amount,0) if primitive=='nod' else (amount,0)
+        lane = tuple(Beat(((ch,clamp(ch,current[ch]+offset*scale)),),
+            speed=20 if ch==2 else 35,acceleration=6,dwell=.25 if offset else 0.) for offset in offsets)
+    else:raise ValueError('UnknownExpression')
+    if any(ch in held for beat in lane for ch,_ in beat.targets):
+        raise ValueError('ExpressionConflictsWithHeldPose')
+    for beat in lane:validate_pose(dict(beat.targets))
+    return (lane,)
+
+
 def idle_lanes(current: dict[int, int], rng, held=frozenset(), face_neck=None) -> tuple[tuple[Beat, ...], ...]:
     """V2 arm wander ranges plus a head look; return the microphone axis before listening settles."""
     def target(ch, center, amplitude, minimum):

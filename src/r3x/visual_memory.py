@@ -8,11 +8,14 @@ def audience(context):
 
 
 def context(store, session_id, audience_key):
-    rows = store.rows('SELECT * FROM visual_observations WHERE session_id=? AND audience=? AND status=? ORDER BY created_at DESC,rowid DESC LIMIT 8',
-                      (session_id,audience_key,'observed'))
+    rows = store.rows('SELECT * FROM visual_observations WHERE session_id=? AND (audience=? OR audience=?) AND status=? ORDER BY created_at DESC,rowid DESC LIMIT 8',
+                      (session_id,audience_key,'general','observed'))
     for row in rows:
         row['source'] = json.loads(row['source'])
-        row['spoken'] = json.loads(row['spoken'])
+        row['heard_remark_count'] = len(json.loads(row['spoken']))
+        row['spoken'] = [entry for entry in json.loads(row['spoken']) if row['audience']!='general' or entry.get('audience')==audience_key or entry.get('general') is True]
+        if row['audience']=='general':
+            row['source']['corrections'] = [{k:v for k,v in c.items() if k!='source_text'} for c in row['source'].get('corrections',[])]
         if 'corrections' in row['source']:
             row['source']['corrections'] = [{k:v for k,v in c.items() if k not in {'previous_description','previous_uncertainty'}} for c in row['source']['corrections']]
         row['meaning'] = 'Historical model interpretation, not current vision or verified personal fact. Do not infer a change from a new frame or rewording.'
@@ -21,8 +24,8 @@ def context(store, session_id, audience_key):
 
 def correction_candidates(store, session_id, audience_key):
     """All bounded eligible records, including those outside the eight-item recall window."""
-    rows = store.rows('SELECT id,description,uncertainty,source,created_at FROM visual_observations WHERE session_id=? AND audience=? AND status=? ORDER BY created_at DESC,rowid DESC LIMIT 32',
-                      (session_id,audience_key,'observed'))
+    rows = store.rows('SELECT id,description,uncertainty,source,created_at FROM visual_observations WHERE session_id=? AND (audience=? OR audience=?) AND status=? ORDER BY created_at DESC,rowid DESC LIMIT 32',
+                      (session_id,audience_key,'general','observed'))
     for row in rows:
         source = json.loads(row.pop('source'))
         row['source'] = {key:source.get(key) for key in ('event_id','source_turn_id','frame_id','captured_at','direction','question','medium','interpretation_revision')}
@@ -34,6 +37,10 @@ def save(store, session_id, audience_key, source, args, model, now):
         raise ValueError('VisualEvidenceUnavailable')
     if args['observation_id']!=source['request_id']:
         raise ValueError('VisualSourceMismatch')
+    if args.get('description_scope')=='general':
+        audience_key='general'
+        # General history cannot leak the personal question or source transcript via metadata.
+        source={k:v for k,v in source.items() if k not in {'question','camera_continuity'}}
     with store.transaction() as conn:
         conn.execute('INSERT INTO visual_observations(id,session_id,audience,source,description,uncertainty,model,created_at,status,spoken) VALUES(?,?,?,?,?,?,?,?,?,?)',
             (source['request_id'],session_id,audience_key,json.dumps(source),args['description'],args['uncertainty'],model,now,'observed','[]'))
@@ -42,12 +49,12 @@ def save(store, session_id, audience_key, source, args, model, now):
     return revision
 
 
-def delivered(store, observation_id, turn_id, text, now):
+def delivered(store, observation_id, turn_id, text, now, audience_key=None, general=False):
     with store.transaction() as conn:
         row=conn.execute('SELECT spoken,source FROM visual_observations WHERE id=? AND status=?',(observation_id,'observed')).fetchone()
         if row:
             entries=json.loads(row[0])
-            entries.append({'turn_id':turn_id,'text':text,'at':now,'interpretation_revision':json.loads(row[1]).get('interpretation_revision',0)})
+            entries.append({'turn_id':turn_id,'text':text,'at':now,'audience':audience_key,'general':general,'interpretation_revision':json.loads(row[1]).get('interpretation_revision',0)})
             conn.execute('UPDATE visual_observations SET spoken=? WHERE id=?',(json.dumps(entries[-8:]),observation_id))
             store.advance(conn)
 
@@ -78,4 +85,4 @@ def novelty(records, images=()):
     return {'meaning':'Observed is not mentioned; mentioned is not heard. Identical pixels are not novelty, different pixels are not proof of meaningful change. Unheard detail is not automatically interesting. Choose a new conversational angle or silence, not merely new wording.',
             'observations':[{'observation_id':r['id'],'interpretation_revision':r['source'].get('interpretation_revision',0),
                 'image_relation':'identical_supplied_image' if r['source'].get('image_digest') in digests else 'not_established',
-                'heard_remarks':r['spoken'], 'has_heard_remark':bool(r['spoken'])} for r in records]}
+                'heard_remarks':r['spoken'], 'has_heard_remark':bool(r.get('heard_remark_count',len(r['spoken'])))} for r in records]}

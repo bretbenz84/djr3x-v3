@@ -6,6 +6,57 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+October 1 [agency increment 1](AGENCY_IMPLEMENTATION_PLAN.md): working interests,
+model-selected reconsideration, and inactivity diagnostics are implemented. Generic
+initiative no longer requires a visible person or camera. The fixed 20/60-second
+audible floors and automatic continuing-lull backoff are removed. General interests
+can survive head turns; private notes and memory remain audience-filtered. Losing
+visual audience evidence hides scoped notes without blocking a fresh generic
+consideration. Configured public feeds also work without a camera. The scheduler
+retains one versioned request, 3–300-second requested delays, a twelve-attempts per
+five-minute cap, and backoff for unchanged silent decisions. Plain replies retain
+one primary generation; inspection retains its existing bounded continuation.
+
+Verification: **817 blocked-I/O contract checks pass** (66.1 seconds). New production-path
+contracts use synthetic audio/camera, fake clocks, simulated inspection and temporary
+stores. No hosted model, acoustic model, feed fetch or hardware was operated.
+Model selection quality, actual costs, M2 load and live cadence remain unmeasured.
+That first increment left physical attention and moving-view continuity pending;
+the second-increment entry below supersedes those limitations. Invitation-lapse
+behavior is implemented in increment 3 below.
+
+October 1 [agency increment 2](AGENCY_IMPLEMENTATION_PLAN.md#increment-2-implementation--october-1-2026):
+physical directional looks and finite before/after-speech gestures now use the
+existing output/servo owners after successful configured robot startup. Explicit
+held poses/drive stance take priority; receipts distinguish controller pulses from
+simulation and actual speech. Camera motion/settling gates both scene snapshots and
+deliberate current-view captures. A bounded view history suppresses returning-view
+ambient cues; explicitly general visual descriptions and impersonal heard remarks
+survive changing visibility, with private context still audience-filtered. No new
+model, service, transport or automatic planner is added. Object-targeted physical
+gaze, room-wide object identity and reliable semantic non-repetition remain unproven.
+
+Increment 2 verification: **833 blocked-I/O checks pass** (66.1 seconds), including 16 new
+agency-2 contracts. Checks use fake pulse transport,
+synthetic images/audio, fake clocks and temporary stores; no devices or hosted
+providers ran. Live motion/clearance, camera settling, acoustic effects, combined
+M2 load/cost/latency and conversational quality remain pending.
+
+October 1 [agency increment 3](AGENCY_IMPLEMENTATION_PLAN.md#increment-3-implementation--october-1-2026):
+nullable invitation proposals on existing tools now track audible social invitations,
+model-selected review and explicit answered/declined/superseded/lapsed outcomes. One
+pending record and six recent closed records preserve heard words, source, revision
+and audience scope. Review uses the existing scheduler, with no new timer or model.
+The shared prompt adds varied character/interest/silent activity choices; human floor,
+quiet, private memory and identity clarification boundaries remain separate.
+
+Verification: **851 blocked-I/O checks pass** (70.4 seconds), including 18 new invitation/agency checks. Synthetic production-path checks include an
+unchanged-room five-minute sequence with four scripted primary decisions and no
+repeating timer. This is contract evidence, not semantic or live social acceptance.
+[Prepared acceptance scenarios](AGENCY_ACCEPTANCE.md) cover the remaining hosted/live
+comparisons and measurements. No paid provider or hardware ran; no social threshold,
+actual cost, combined M2 performance or semantic accuracy is claimed.
+
 September 29 [engagement repair](LIVE_RUN_CONVERSATION_REPAIRS.md#september-29-engagement-repair):
 rejected audio no longer resets lull timing or crowds out conversation history;
 ordinary replies survive optional intention/audience failures; conversation can
@@ -72,14 +123,14 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 | Status | Capability | Implementation and evidence |
 | --- | --- | --- |
-| Implemented; live acceptance pending | Greeting-led session intentions, one-call revisions, spaced continuing-lull opportunities, audience/memory filtering and delivery-aware lifecycle | [Plan and implementation](CONVERSATIONAL_INTENT_PLAN.md) |
+| Implemented; live acceptance pending | Session intentions and bounded working interests, one-call revisions, model-selected reconsideration, audience/memory filtering and delivery-aware lifecycle | [Plan and implementation](CONVERSATIONAL_INTENT_PLAN.md) |
 | Implemented | Microphone capture, transcription, one conversation owner, streamed speech, cancellation, delivery receipts, bounded history and network retry | [Operations](CORE_OPERATIONS.md), [initial slices and evidence](INITIAL_TEST_PROGRAM.md) |
 | Implemented; combined live acceptance pending | ReSpeaker channel-0 capture, V2 host gain, read-only direction provider, source-linked voice/face/direction context and competing-direction learning guard | [ReSpeaker evidence and limits](RESPEAKER_INTEGRATION.md) |
 | Implemented; live reliability incomplete | Persistent face/voice profiles, self-introduced names, compatible conversational enrollment, restart, correction and forgetting | [Face path](FACE_ATTRIBUTION_PLAN.md), [introduction-first recovery](INTRODUCTION_RECOVERY.md) |
 | Implemented | Proactive arrivals/lulls, shared reply/initiative context, quiet/resume, conversational feedback, dated memory opportunities, news/weather and scene inputs | [Proactive stages 1, 2, 3 and 5](PROACTIVE_IMPLEMENTATION.md), [sources](OBSERVATION_SOURCES.md) |
 | Implemented | Tool-selected current-camera inspection, rich visual descriptions, bounded visual memory and exact-image description reuse | [Current-view inspection](CURRENT_VIEW_VALIDATION.md), [attention slices](ATTENTION_IMPLEMENTATION.md) |
 | Implemented | Related-record withdrawal, detail-preserving revisions, visual novelty context and actual spoken-remark records | [Visual correction](VISUAL_CORRECTION.md), [integration pass](CORE_INTEGRATION_PASS.md) |
-| Implemented with simulated movement | Grounded attention intents, before/after speech gestures, movement/settle/capture sequencing, exclusive motion ownership and separate executor/speech outcomes | [Attention slices 1–3](ATTENTION_IMPLEMENTATION.md) |
+| Implemented; physical acceptance pending | Physical directional attention and finite gestures; simulated visual-target attention; movement/settle/capture sequencing, exclusive motion ownership and separate executor/speech outcomes | [Attention slices 1–3](ATTENTION_IMPLEMENTATION.md) |
 | Implemented; in live use, acceptance pending | Head/chest startup/fade, playback-driven speaking LEDs and validated LLM animation tool including requested eye blinks | [LED integration and gates](LED_INTEGRATION.md) |
 | Implemented; in live use, acceptance pending | Servo lifecycle including throttle/elbow, playback-driven talking motion with addressee gaze, quiet-time idle hero/poker/throttle arms and head looks (face in front or around the room), spoken normal exit, LLM-selected held poses and bounded control of all eleven joints, bounded microphone holds, cross-version resource handoff | [Servo integration and gates](SERVO_INTEGRATION.md), [operator services](OPERATOR_CUTOVER.md) |
 | Implemented; floor-tested, newest changes simulated only | LLM-selected drive-base plans (turn, move, face, approach, find person, vision seek of described things), continuous approach while hosted looks run, path-aware clearance and detours, radar bodies as bearing priors, arm/head drive stance, swing/clearance gates, truthful receipts, self-initiated moves including unseen radar presence, back-off reflex, blocked-path route planner, V2 motion sounds, and live battery/obstruction/radar/climate readings for the model | [Drive base integration](DRIVE_BASE_INTEGRATION.md) |
@@ -90,7 +141,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 
 The agreed core software slices have no outstanding feature implementation stage.
 Implemented does not mean acoustically reliable, socially accepted or free of bugs.
-The latest blocked-I/O suite has **796 passing checks** (September 30 turn-taking repair).
+The latest blocked-I/O result is recorded with the October 1 agency increment above.
 The preceding **756 checks** covered the September 28 voice
 head-turn reflex (camera-aimed, taking over held looks), say-before acknowledgments, uncapped mixed move/light sequences, a wave, look-then-describe, and no
 replies to untrusted transcripts; the earlier 645 included 45 [drive-base contracts](DRIVE_BASE_INTEGRATION.md#verification), including the
@@ -144,11 +195,11 @@ separate categories.
 | Future capability | Boundary of current implementation |
 | --- | --- |
 | Public installer and optional hardware configuration | Future installer built around existing `local/settings.toml`, independent optional capabilities, clear missing-device behavior, selected dependency/model downloads and optional service setup. No new settings or installer implemented. [Public-install plan](PUBLIC_INSTALL_PLAN.md) |
-| Physical motion and expression | [Servo integration](SERVO_INTEGRATION.md) includes explicit live composition and motion/enrollment guards. Physical commissioning, obstruction feedback, live manual-takeover acceptance and model-selected physical attention/gestures remain. Explicit requested head turns, all-joint poses, addressee gaze while talking and idle face/room looks are implemented; object-grounded autonomous gaze remains pending. Base motion followed by a fresh camera question is implemented through [drive_base](DRIVE_BASE_INTEGRATION.md). |
+| Physical motion and expression | [Servo integration](SERVO_INTEGRATION.md) includes explicit live composition and motion/enrollment guards. Physical commissioning, obstruction feedback, live manual-takeover acceptance remain. Finite model-selected physical directional looks and gestures are implemented. Explicit requested head turns, all-joint poses, addressee gaze while talking and idle face/room looks are implemented; object-grounded autonomous gaze remains pending. Base motion followed by a fresh camera question is implemented through [drive_base](DRIVE_BASE_INTEGRATION.md). |
 | Continuous speech/motion coordination | Playback-driven talking motion shares the servo owner; synthetic checks cover actual audio start/stop and failures. Live validation, richer V2 expression, word-level alignment and continuous gaze blending remain. |
-| Live tracked-object attention after movement | Target/version contracts exist in simulation. Physical turning, tracked room-object targets and verified post-movement observations need real adapters. Current-camera descriptions do not supply those controllers. |
+| Live tracked-object attention after movement | Target/version contracts exist in simulation. Physical directional looks and settled captures are implemented; tracked room-object gaze and mechanically verified arrival remain pending. Current-camera descriptions do not supply those controllers. |
 | Optional vision extensions | Adaptive image detail, general inspection-request coalescing and supported cross-session visual association are future options, not missing requirements of the completed core. Exact-image description reuse already exists. |
-| Motion-aware proactive noticing (future idea only) | Distinguish subject motion/new visibility from Rex’s head/base motion and detection flicker; offer evidence to the LLM for memory lookup, curiosity, a reaction or silence. No implementation requested. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
+| Motion-aware proactive noticing (partial implementation) | Commanded head/base motion, settling and bounded returning-view suppression are implemented. Independent subject motion, robust object continuity and unknown/manual camera movement remain future work. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
 | Compass heading | The drive base publishes raw QMC5883L magnetometer counts; V2's calibrated, current-gated compass fusion (`hardware/compass.py`, calibration file) is not ported. V3 uses gyro yaw only. |
 | Owner-requested companion features | Jeopardy, optional local voice-cloning/impersonation bits, room exploration, progressively interest-tailored idle banter/news, and the September 18 “Do you ever think” long-lull thought experiments. Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); maps, localization and exploration are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
 | Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search, offline conversational providers and a polished GUI remain separate future work. |
@@ -194,8 +245,8 @@ small provider comparison, not live acceptance; the production model is unchange
 
 Latest [live-run conversation repairs](LIVE_RUN_CONVERSATION_REPAIRS.md) address
 presence-driven greeting cancellation, interrupted intent speech and transcript
-interpretation. [Model-selected JSON timing](NEXT_CONVERSATION_SCHEDULING.md) is next,
-not implemented. Acoustic and live playback acceptance remain pending.
+interpretation. [Model-selected JSON timing](NEXT_CONVERSATION_SCHEDULING.md) is now implemented
+through all three agency software increments. Acoustic and live playback acceptance remain pending.
 
 September 18 [prompt-caching repair](PROMPT_CACHING.md): per-turn identifier enums in
 transmitted tool schemas had left every tool-enabled request uncached. The adapter now

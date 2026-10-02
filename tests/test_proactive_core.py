@@ -59,24 +59,26 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.store.people(),[])
         self.assertEqual(self.store.claims(),[])
         self.assertEqual(self.store.rows('SELECT * FROM recordings'),[])
-        self.visible(170);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,3)
+        self.visible(170);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,2)
 
     def test_rolling_attempt_cap_does_not_reset_on_new_human_turns(self):
         self.setup_core()
-        for i in range(7):
+        for i in range(13):
             self.trace.at=100+i*20;self.turn()
             self.visible(self.trace.at+8);self.runtime.proactive_tick()
-        self.assertEqual(len(self.state.initiative.outcomes),6)
-        self.assertEqual(self.brain.calls,13)  # Seven replies, six optional generations.
+        self.assertEqual(len(self.state.initiative.outcomes),12)
+        self.assertEqual(self.brain.calls,25)  # Thirteen replies, twelve optional generations.
 
-    def test_stale_camera_unknown_audience_and_frozen_evaluation(self):
+    def test_stale_or_missing_camera_allows_generic_initiative_but_frozen_still_blocks(self):
         for mode in ('stale','no_camera','frozen'):
             with self.subTest(mode=mode):
+                self.state.trace.at=100
+                self.state.initiative.attempts.clear()
                 self.setup_core();self.turn();self.visible(108)
                 if mode=='stale':self.trace.at=110;self.runtime.audio_seen_at=110
                 if mode=='no_camera':self.runtime.camera=None
                 if mode=='frozen':self.state.frozen=True
-                self.runtime.proactive_tick();self.assertEqual(self.brain.calls,1)
+                self.runtime.proactive_tick();self.assertEqual(self.brain.calls,1 if mode=='frozen' else 2)
                 self.state.frozen=False
 
     def test_new_speech_during_lull_cancels_without_delivery(self):
@@ -371,48 +373,18 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(brain.calls,1)
         return brain
 
-    def test_plan_continues_across_multiple_lulls_without_new_human_turn(self):
-        brain=self.start_plan_lull();sources=self.store.rows('SELECT * FROM turns')
-        for at,calls in ((167,1),(168,2),(227,2),(228,3),(287,3),(288,4),(347,4),(348,5)):
-            self.visible(at);self.runtime.proactive_tick();self.assertEqual(brain.calls,calls)
-        self.assertEqual(self.store.rows('SELECT * FROM turns'),sources)
-        self.assertEqual(self.store.claims(),[])
-        context=brain.snapshots[-1].context
-        self.assertEqual(context['conversation_intent']['current']['objective'],'Share interesting camera ideas.')
-        self.assertEqual(context['participation']['lull_attempts_since_source'],4)
-        self.assertTrue(context['participation']['recent_opportunities'][-1]['heard_complete_phrases'])
-        self.assertEqual(context['participation']['recent_opportunities'][-1]['delivered_text'],'Here is a fresh camera idea.')
 
-    def test_greeting_plan_can_continue_without_any_human_source(self):
+    def test_greeting_plan_alone_does_not_schedule_without_any_human_source(self):
         self.setup_core();self.visible(100);brain=self.plan_brain()
         greeting=Opportunity(uuid4().hex,'session',100,'visitor',None,(face(100,track='visitor'),),
             self.session._latest_speech,False)
         self.session.process_opportunity(greeting,0,lambda:True)
         self.visible(107);self.runtime.proactive_tick();self.assertEqual(brain.calls,1)
-        self.visible(108);self.runtime.proactive_tick();self.assertEqual(brain.calls,2)
+        self.visible(108);self.runtime.proactive_tick();self.assertEqual(brain.calls,1)
         self.assertIsNone(self.state.current)
-        self.assertEqual(brain.snapshots[-1].context['trigger'],'conversation_lull')
+        self.assertIsNone(self.state.initiative.pending)
 
-    def test_plan_silence_reconsiders_but_completion_stops_repeated_lulls(self):
-        self.start_plan_lull();brain=self.plan_brain(silent=True)
-        self.visible(168);self.runtime.proactive_tick()
-        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'suppressed')
-        self.visible(182);self.runtime.proactive_tick();self.assertEqual(brain.calls,1)
-        ending=self.plan_brain(status='completed',silent=True)
-        self.visible(183);self.runtime.proactive_tick();self.assertEqual(ending.calls,1)
-        self.visible(500);self.runtime.proactive_tick();self.assertEqual(ending.calls,1)
 
-    def test_camera_suspension_allows_fresh_conversation_without_reusing_old_plan(self):
-        self.start_plan_lull()
-        brain=Brain('A fresh thought for the current group.')
-        self.session.brain=brain
-        self.visible(120,track='other');self.runtime.proactive_tick()
-        self.assertEqual(brain.calls,0)  # Camera changes cannot bypass the speech pause.
-        self.assertEqual(self.state.conversation_intent.record.status,'suspended')
-        self.visible(168,track='other');self.runtime.proactive_tick()
-        self.assertEqual(brain.calls,1)
-        self.assertIsNone(brain.snapshots[-1].context['conversation_intent']['current'])
-        self.visible(228);self.runtime.proactive_tick();self.assertEqual(brain.calls,2)
 
     def test_quiet_and_pending_question_block_repeated_plan_lulls(self):
         brain=self.start_plan_lull();self.state.initiative.quiet=True
@@ -423,20 +395,6 @@ class InitiativeCoreTests(MemoryFixture):
         self.state.pending={'delivered_at':178}
         self.visible(190);self.runtime.proactive_tick();self.assertEqual(brain.calls,1)
 
-    def test_failed_plan_attempt_backs_off_instead_of_polling_each_tick(self):
-        self.start_plan_lull()
-        class Failed(Brain):
-            def reply(self,snapshot,cancel):
-                self.calls+=1
-                raise ProviderFailure('SyntheticProviderFailure')
-                yield ''
-        failing=Failed();self.session.brain=failing
-        self.visible(168);self.runtime.proactive_tick();self.assertEqual(failing.calls,1)
-        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'failed')
-        for at in (169,172,177,182):
-            self.visible(at);self.runtime.proactive_tick()
-        self.assertEqual(failing.calls,1)
-        self.visible(183);self.runtime.proactive_tick();self.assertEqual(failing.calls,2)
 
     def test_new_human_turn_reopens_normal_lull_without_resetting_global_budget(self):
         self.start_plan_lull();self.visible(168);self.runtime.proactive_tick()
@@ -444,24 +402,9 @@ class InitiativeCoreTests(MemoryFixture):
         brain=self.plan_brain();self.visible(220);self.runtime.proactive_tick()
         self.assertEqual(brain.calls,1)
         self.assertEqual(self.state.initiative.lull_attempts,1)
-        self.assertEqual(len(self.state.initiative.attempts),3)
+        self.assertEqual(len(self.state.initiative.attempts),2)
 
 
-    def test_plan_delay_starts_after_output_finishes(self):
-        self.start_plan_lull()
-        trace=self.trace
-        class SlowSink(SyntheticSink):
-            def play(self,chunks,cancel,on_start):
-                result=super().play(chunks,cancel,on_start)
-                trace.at+=10
-                return result
-        self.session.output=OutputOwner(SyntheticTTS(),SlowSink(),trace)
-        self.visible(168);self.runtime.proactive_tick()
-        self.assertEqual(self.state.initiative.outcomes[-1]['at'],178)
-        brain=self.session.brain
-        self.visible(237);self.runtime.proactive_tick();self.assertEqual(brain.calls,2)
-        self.session.output=TextOutput(trace)
-        self.visible(238);self.runtime.proactive_tick();self.assertEqual(brain.calls,3)
 
     def test_processing_latency_between_camera_publications_does_not_cancel_greeting(self):
         self.setup_core();self.visible(108)
@@ -536,20 +479,8 @@ class InitiativeCoreTests(MemoryFixture):
         self.runtime.proactive_tick()
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
 
-    def test_audible_reply_leaves_twenty_seconds_before_unsolicited_speech(self):
-        self.setup_core()
-        self.session.output=OutputOwner(SyntheticTTS(),SyntheticSink(),self.trace)
-        self.turn()
-        self.visible(119);self.runtime.proactive_tick()
-        self.assertEqual(self.brain.calls,1)
-        self.visible(120);self.runtime.proactive_tick()
-        self.assertEqual(self.brain.calls,2)
-        self.visible(179);self.runtime.proactive_tick()
-        self.assertEqual(self.brain.calls,2)
-        self.visible(180);self.runtime.proactive_tick()
-        self.assertEqual(self.brain.calls,3)
 
-    def test_human_question_is_answered_during_unsolicited_speech_hold(self):
+    def test_human_question_is_answered_without_an_automatic_speech_hold(self):
         self.setup_core()
         self.session.output=OutputOwner(SyntheticTTS(),SyntheticSink(),self.trace)
         self.turn()
@@ -557,4 +488,4 @@ class InitiativeCoreTests(MemoryFixture):
         result=self.turn('What does that mean?')
         self.assertEqual(result.status,'completed')
         self.assertEqual(self.brain.calls,2)
-        self.assertEqual(self.session.proactive_hold_until,121)
+        self.assertEqual(self.session.proactive_hold_until,float('-inf'))

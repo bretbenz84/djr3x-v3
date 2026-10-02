@@ -68,21 +68,18 @@ class AudienceRecoveryTests(MemoryFixture):
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
         self.assertTrue(self.state.initiative.lull_retry_used)
 
-    def test_latest_transient_extra_face_defers_without_consuming_opportunity(self):
+    def test_unsettled_face_membership_allows_generic_context_without_personal_audience(self):
         self.start()
         latest=[face(108,track='visitor'),dict(face(108,track='noise'),learning_quality=False,
                                             detector_score=.54,embedding_available=False)]
         self.runtime.camera.latest=lambda now:tuple(latest)
         self.runtime.proactive_tick()
-        self.assertEqual(self.brain.calls,1)
-        self.assertEqual(len(self.state.initiative.attempts),0)
-        for at in (108.5,109,109.5,110,110.5,111,111.5):
-            self.trace.at=at;self.runtime.audio_seen_at=at
-            latest[:]=[face(at,track='visitor')]
-            self.runtime.proactive_tick()
         self.assertEqual(self.brain.calls,2)
-        self.assertTrue(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
         self.assertEqual(len(self.state.initiative.attempts),1)
+        context=self.brain.snapshots[-1].context
+        self.assertEqual(context['faces'],[])
+        self.assertEqual(context['memory_opportunities'],[])
+        self.assertIsNone(context['personal_memory']['person_id'])
 
     def test_unheard_replacement_retries_once_with_fresh_context_after_pacing(self):
         self.start();self.cancel_on_camera()
@@ -127,11 +124,10 @@ class AudienceRecoveryTests(MemoryFixture):
                 if gate=='stop':self.runtime.cancel()
                 if gate=='speech':self.session.note_speech(115.5)
                 if gate=='queue':self.runtime.turns.put(object())
-                if gate=='budget':policy.attempts.extend([109,110,111,112,113])
+                if gate=='budget':policy.attempts.extend([109+i*.1 for i in range(11)])
                 self.runtime.proactive_tick()
-                # After retry expiry, normal ongoing-conversation pacing can offer
-                # fresh consideration even without an optional intention record.
-                self.assertEqual(self.session.brain.calls,1 if gate=='expiry' else 0)
+                # Expired recovery no longer falls back to automatic repeated lulls.
+                self.assertEqual(self.session.brain.calls,0)
                 # The same fixture state is deliberately reused by this subtest.
                 policy.quiet=False;policy.feedback.clear();policy.attempts.clear()
                 policy.outcomes.clear();policy.lull_source=None;policy.lull_retry_used=False
@@ -226,4 +222,4 @@ class RetryReceiptTests(unittest.TestCase):
                                 (Delivery(status='interrupted'),'audio_stale')):
             policy=Initiative();policy.attempted(event)
             self.assertFalse(policy.retry_unheard(event,delivery,reason,102))
-            self.assertFalse(policy.lull_due(110,'source',False))
+            self.assertFalse(policy.lull_due(110,'source'))

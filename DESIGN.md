@@ -14,7 +14,7 @@ unmeasured thresholds are distinguished below; the full robot is outside this bu
 | User requirement | Delight, make people laugh and help improve their mood; emotional awareness guides sensitivity rather than automatic mood mirroring. |
 | User requirement | Develop proactive participation with the conversational core; the same model decides replies, initiative and silence. Shared arrivals/lulls and bounded conversational feedback are implemented; dated memory opportunities are implemented; live acceptance remains pending. |
 | User requirement | At startup, greet a stable visible person before they have to speak; the model chooses the wording. Existing speech/quiet/freshness guards still apply. |
-| Working design | Social demonstrations should feel like an engaged friend: consider an opening after 7–10 seconds of a genuine lull, initially eight for otherwise eligible quiet opportunities. September 30 audible floors reserve 20 seconds after replies/greetings and 60 seconds after other proactive speech; direct human requests remain immediate. This is opportunity timing, not automatic speech or measured first-audio latency. |
+| Working design | Social demonstrations should feel like an engaged friend: consider an opening after 7–10 seconds of a genuine lull, initially eight for otherwise eligible quiet opportunities. October 1 removes the 20/60-second audible floors and visible-person prerequisite; model-selected reconsideration supplements one seed lull. See [agency implementation](docs/AGENCY_IMPLEMENTATION_PLAN.md). Direct human requests remain immediate. This is opportunity timing, not automatic speech or measured first-audio latency. |
 | User requirement | Learn voices through ordinary conversation and association; retain accepted original audio for later model migration. |
 | User requirement | Never use mouth-motion detection for speaker identity or enrollment. |
 | User requirement | Support one-to-three visible people, including a dev Mac with no directional audio. |
@@ -430,10 +430,17 @@ or face can override them. Exact gates and saved-audio evidence are documented i
 
 ## Intentional attention and action groundwork
 
+October 1: all three [agency software increments](docs/AGENCY_IMPLEMENTATION_PLAN.md)
+are implemented: bounded working interests, model-selected scheduling, finite physical
+attention/expression, moving-view continuity and source-validated social invitations.
+Invitation review can end silently without treating time as an answer or rejection.
+The [acceptance protocol](docs/AGENCY_ACCEPTANCE.md) separates passing software
+contracts from still-unmeasured semantic and live social experience.
+
 The September 25 [servo foundation](docs/SERVO_INTEGRATION.md) adds a single injected-
 transport executor for lifecycle choreography and optional playback-driven talking
 motion. Its follow-on adds explicit live composition, operator handoff and bounded
-microphone holds. Explicit requested poses and bounded control of all eleven joints are exposed through the same state/output/servo owners; autonomous physical attention remains pending.
+microphone holds. Explicit requested poses and bounded control of all eleven joints are exposed through the same state/output/servo owners; finite model-selected physical directional attention and gestures are now implemented in the October 1 agency increment.
 Pulse-readback receipts are distinct from measured joint arrival. Service cutover,
 live cold-start (powered-off) wake-up and movement/enrollment validation remain pending.
 
@@ -447,10 +454,12 @@ session-owned directional/visual-target attention and output-owned simulation th
 Session/tool path. Simulation is explicitly injected, never enabled by live startup.
 Synthetic face/object target grounding and post-movement frame validation are
 implemented. A paced live object observer and file-backed photographic memory are now implemented
-under the September 17 scoped extension; see docs/OBJECT_PHOTO_MEMORY.md. Autonomous physical
-gaze and composite hardware gesture runtimes remain unavailable; explicit requested head turns and joint poses use the servo owner. Optional single-primitive gestures
-can now be simulated before/after speech through the output owner, with independent
-receipts and a shared exclusive motion resource. Face tracking will serve chosen attention; it must not own social
+under the September 17 scoped extension; see docs/OBJECT_PHOTO_MEMORY.md. The October 1 [agency increment 2](docs/AGENCY_IMPLEMENTATION_PLAN.md#increment-2-implementation--october-1-2026)
+adds physical robot-relative looks and finite before/after-speech gestures through
+that same output/servo owner, with independent pulse/speech receipts and held-pose
+priority. Calibrated object-targeted gaze and continuous blending remain unavailable.
+Motion-aware view signatures and explicitly general visual descriptions support
+continuity across turns away and back; image similarity never establishes object identity. Face tracking will serve chosen attention; it must not own social
 attention. Movement intent, physical completion and new perception remain distinct.
 
 Composite `inspect_view` is implemented for explicit simulation harnesses through

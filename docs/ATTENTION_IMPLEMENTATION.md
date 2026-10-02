@@ -1,6 +1,11 @@
 # Intentional attention and coordinated action
 
-Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). Dated sections
+Current scope: [implementation checklist](IMPLEMENTATION_STATUS.md). October 1
+[agency increment 2](AGENCY_IMPLEMENTATION_PLAN.md#increment-2-implementation--october-1-2026)
+adds physical directional looks/finite gestures through RobotServos, truthful pulse
+receipts, held-pose priority, camera-motion/settling guards and bounded visual continuity.
+Object-targeted physical gaze and live mechanical/social acceptance remain pending.
+This supersedes the simulation-only hardware limitations in the dated sections. Dated sections
 below preserve the evidence and limitations of their respective checkpoints.
 
 September 12, 2026. The user authorized this implementation document and the first
@@ -47,11 +52,11 @@ and attention remain separate: turning away is not evidence that a person left.
 | 2 — implemented in simulation | Grounded face/object targets and attention transitions; coordinate/evidence contracts; perception after simulated movement | Lost/replaced targets, ambiguous people, calibration changes, camera movement versus independent scene change; no identity promotion |
 | 2b — implemented, including current-camera acquisition and limited hosted evaluation | Rich hosted image descriptions for visual questions and selective attention; source-linked visual observation memory and semantic repetition context | Stable appearance versus genuine change, uncertain person binding, corrected descriptions, direct questions, cost and latency |
 | 3 — implemented in bounded simulation | One spoken phrase with one target-aware primitive before/after playback, exclusive motion resource and separate receipts | Interruption, partial completion, stale targets, resource conflicts and failure independence; continuous blending remains hardware-integration work |
-| 4 — planned | Calibrated hardware adapters, constrained trajectories, sensor feedback and movement/audio exclusion | Explicit bench and room acceptance, manual takeover, limits/settling, obstruction, camera occlusion, microphone geometry, combined M2 load |
+| 4 — partly implemented October 1 | Calibrated hardware adapters, constrained trajectories, sensor feedback and movement/audio exclusion | Explicit bench and room acceptance, manual takeover, limits/settling, obstruction, camera occlusion, microphone geometry, combined M2 load |
 
 Slices 1–3 and descriptive memory are implemented. Current-view camera acquisition
 is available in live startup; limited hosted visual evaluation is complete. Broader
-semantic/live acceptance and hardware integration (4) remain open.
+semantic/live acceptance and mechanical acceptance plus object-targeted hardware integration (4) remain open.
 See the [current checklist](IMPLEMENTATION_STATUS.md); dated sections below retain
 the scope and evidence of their respective slices.
 Existing conversation/identity/social acceptance remains unresolved and continues

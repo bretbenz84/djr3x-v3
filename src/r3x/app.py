@@ -42,7 +42,7 @@ class App:
                         framerate=self.settings.camera_framerate) if self.settings.camera_enabled else None
         from .observations import PublicObservations
         from .scene import SceneObserver
-        public = PublicObservations(self.settings) if camera and (self.settings.news_feed_urls or self.settings.weather_enabled) else None
+        public = PublicObservations(self.settings) if self.settings.news_feed_urls or self.settings.weather_enabled else None
         scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
         from .objects import Objects
         from .adapters.objects import ObjectDetector
@@ -229,6 +229,12 @@ class App:
             if self.drive:
                 self.drive.on_motion.append(lambda plan: direction.invalidate())
         runtime = None
+        if self.robot:
+            # Install before startup/ready speech so those frames also require settling.
+            def camera_motion(moving, request_id, kind):
+                if runtime:runtime.arrivals.note_base_motion(trace.clock())
+                if scene:scene.note_motion(moving,request_id,'head:'+kind)
+            self.robot.owner.on_camera_motion = camera_motion
         success = False
         import signal
         def terminate(*_):
@@ -257,6 +263,10 @@ class App:
                 self.startup_audio.stop()   # Cut the filler; readiness never waits for it.
                 # The ready line gets the usual talking motion and speaking lights.
                 output.robot = self.robot if self.robot and 'robot_servos' in active else None
+                if output.robot:
+                    from .physical_attention import PhysicalAttention, PhysicalGesture
+                    output.attention, output.gestures = PhysicalAttention(output.robot), PhysicalGesture(output.robot)
+                    output.attention.start();output.gestures.start()
                 output.speech_motion = output.robot.talking if output.robot else None
                 output.leds = self.leds if self.leds and 'robot_leds' in active else None
                 try:
@@ -328,10 +338,12 @@ class App:
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
                                        lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot,
                                        drive=output.drive)
-                if self.robot:
-                    # An idle head look re-frames the room like a base turn: not an arrival.
-                    self.robot.idle.on_head_move = self.robot.reflex.on_head_move = (
-                        lambda: runtime.arrivals.note_base_motion(trace.clock()))
+                if scene:
+                    scene.motion_risk = lambda: bool((output.robot and output.robot.owner.camera_moving) or
+                                                     (output.drive and output.drive.motion_risk()))
+                    if output.drive:
+                        output.drive.on_motion.append(lambda plan: scene.note_motion(
+                            output.drive.moving.is_set(),plan.request_id if plan else 'uncommanded','base'))
                 if output.drive:
                     output.drive.on_motion.append(lambda plan: runtime.arrivals.note_base_motion(
                         trace.clock(), allow_new=bool(plan and plan.allow_new_arrivals)))

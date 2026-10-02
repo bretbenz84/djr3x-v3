@@ -73,6 +73,16 @@ class RobotServos:
         return self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
             self.owner.clock()+60,pose=name),cancel)
 
+    def execute_expression(self, request, cancel):
+        self.idle.stop()
+        self.reflex.stop()
+        self.talking.stop()
+        cancel.check()
+        from dataclasses import replace
+        receipt = self.owner.execute(replace(request,version=self.owner.version),cancel)
+        if self.trace:self.trace.emit('servo_expression',**asdict(receipt))
+        return receipt
+
     def prepare_base_motion(self, cancel):
         """Park the throttle arm and center the neck before any non-reverse base motion."""
         self.idle.stop()

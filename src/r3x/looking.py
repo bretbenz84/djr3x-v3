@@ -26,12 +26,12 @@ def sharp_image(frame, long_edge=LONG_EDGE):
     return SceneImage(frame.frame_id, frame.at, 'data:image/jpeg;base64,' + base64.b64encode(data).decode(), 'high')
 
 
-def fresh_look(camera, after, timeout=3., clock=time.monotonic, wait=time.sleep):
+def fresh_look(camera, after, timeout=3., clock=time.monotonic, wait=time.sleep, valid_frame=None):
     """A sharp image of a frame captured at or after `after` (settled view), or None."""
     deadline = clock() + timeout
     while clock() < deadline:
         frame = camera.hub.peek()
-        if frame is not None and frame.at >= after:
+        if frame is not None and frame.at >= after and (valid_frame is None or valid_frame(frame.at)):
             return sharp_image(frame)
         wait(.05)
     return None

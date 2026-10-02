@@ -1,7 +1,7 @@
-"""Session-only attention intent and an explicitly simulated output adapter.
+"""Session-only attention intent, receipts and an explicitly simulated output adapter.
 
 Directions are robot-relative intentions, not bearings or evidence of an object.
-Nothing here controls hardware or infers a person's identity or engagement.
+Physical execution uses the separately injected RobotServos adapter.
 """
 from collections import deque
 from dataclasses import asdict, dataclass
@@ -18,6 +18,7 @@ class AttentionIntent:
     proposed_at: float
     expires_at: float
     anchor: dict | None = None
+    hold_seconds: float = .5
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class AttentionReceipt:
 class AttentionState:
     def __init__(self, clock):
         self.clock = clock
+        self.medium = "simulation"
         from .attention_scene import AttentionScene
         self.scene = AttentionScene(clock)
         self.version = 0
@@ -49,10 +51,10 @@ class AttentionState:
             current = self.scene.resolve(self.active.target)
             if current is None or current['calibration_id'] != self.active.anchor['calibration_id']:
                 self.clear()
-        return {'vision':self.scene.context(), 'version': self.version, 'mode': 'simulation',
+        return {'vision':self.scene.context(), 'version': self.version, 'mode': self.medium,
                 'active': asdict(self.active) if self.active else None,
                 'recent': list(self.recent),
-                'limits': 'No physical movement or new visual evidence. Directions are robot-relative. Expiry releases intent; it does not command recentering.'}
+                'limits': ('Controller output pulses only; mechanical arrival and sight unverified. ' if self.medium=='controller' else 'No physical movement. ') + 'Directions are robot-relative; no new visual evidence. Finite dwell releases motor ownership; expiry never commands recentering.'}
 
     def propose(self, request_id, args, anchor=None):
         self.context()
@@ -60,15 +62,16 @@ class AttentionState:
             raise ValueError('AttentionRequestAlreadyUsedOrPending')
         now = self.clock()
         self.pending = AttentionIntent(request_id, self.version, args['target'], args['purpose'],
-                                       args['reason'], now, now + (3 if args['hold']=='brief' else 8), anchor)
+                                       args['reason'], now, now + (15 if self.medium=='controller' else 3 if args['hold']=='brief' else 8), anchor,
+                                       .5 if args['hold']=='brief' else 1.5)
         return self.pending
 
     def complete(self, intent, receipt):
         if (self.pending != intent or intent.version != self.version or
                 self.clock() >= intent.expires_at):
             raise ValueError('StaleAttentionIntent')
-        if (receipt.request_id != intent.request_id or receipt.medium != 'simulation' or
-                receipt.outcome != 'simulated' or
+        if (receipt.request_id != intent.request_id or receipt.medium != self.medium or
+                receipt.outcome != ('pulses_reached' if self.medium=='controller' else 'simulated') or
                 not intent.proposed_at <= receipt.completed_at < intent.expires_at):
             raise ValueError('InvalidAttentionReceipt')
         if intent.anchor and not self.scene.valid(intent.anchor):

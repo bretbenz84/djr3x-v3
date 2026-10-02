@@ -71,6 +71,7 @@ class Session:
                 self._cancel.event.set()
             if self.state:
                 self.state.initiative.lull_retry_until = float('-inf')
+                self.state.initiative.cancel_schedule("explicit_stop")
                 self.state.conversation_intent.suspend("explicit_stop")
                 self.state.cancel()
         self.output.cancel()
@@ -91,6 +92,8 @@ class Session:
             self._latest_speech = max(self._latest_speech, ended_at)
             if not sustained:
                 return
+            if self.state and ended_at > self._resumed_speech:
+                self.state.initiative.cancel_schedule("human_speech")
             self._resumed_speech = max(self._resumed_speech, ended_at)
             audible = self._cancel is not None and self._cancel.is_committed()
             if self._cancel and ended_at > self._capture_end and not self._cancel.event.is_set() and not audible:
@@ -195,6 +198,12 @@ class Session:
         opportunity_attempted = False
         drive_action = None
         drive_noted = False
+        invitation_proposal = None
+        schedule_proposal = None
+        schedule_accepted = False
+        schedule_changed = False
+        schedule_guard = None
+        schedule_action_ok = True
         try:
             with self._lock:
                 if self.closed or source_session != self.session_id or submitted_revision != self.revision:
@@ -211,6 +220,10 @@ class Session:
                     cancel.check()
                     delivery.status,delivery.medium = 'suppressed','none'
                     self.trace.emit('proactive_deferred',event_id=opportunity.event_id,reason='human_floor_held')
+                    return delivery
+                if opportunity and self.state and self.state.initiative.invitations.waiting({'faces':opportunity.faces},self.trace.clock()):
+                    delivery.status,delivery.medium='suppressed','none'
+                    self.trace.emit('proactive_deferred',event_id=opportunity.event_id,reason='invitation_waiting_for_input')
                     return delivery
                 if opportunity and self.state:
                     self.state.initiative.attempted(opportunity)
@@ -273,6 +286,11 @@ class Session:
                 delivery.status, delivery.medium = 'suppressed', 'none'
                 self.trace.emit('untrusted_not_answered', turn_id=turn_id, capture_id=capture.capture_id)
                 return delivery
+            if not opportunity and transcript.trusted and self.state:
+                with self._lock:
+                    self.state.initiative.cancel_schedule("human_turn")
+                    self.state.initiative.bootstrap_used = True
+                    self.state.initiative.empty_considerations = 0
             self.history.begin_turn()
             if opportunity:
                 import json
@@ -322,7 +340,10 @@ class Session:
                     context['inspection_mode'] = 'current_camera_only' if context['inspection_directions']==['current'] else 'simulation'
                     context['gesture_enabled'] = getattr(self.output,'gestures',None) is not None
                     context['recent_performances'] = list(self.state.performances)
+                    self.state.attention.medium = getattr(self.output.attention or self.output.gestures,'medium','simulation')
                     context['attention'] = self.state.attention.context()
+                    for key,adapter in (('attention_targets',self.output.attention),('gesture_targets',self.output.gestures)):
+                        if hasattr(adapter,'targets'):context[key] = list(adapter.targets)
             if self.state and not self.state.frozen and getattr(self.output,'leds',None):
                 from .leds import PATTERNS
                 led = self.output.leds
@@ -347,6 +368,9 @@ class Session:
             if self.state and not self.state.frozen:
                 from . import visual_memory
                 context['visual_memory'] = visual_memory.context(self.state.store,self.session_id,visual_memory.audience(context))
+                scene_observer = self.state.scene_observer
+                if scene_observer and hasattr(scene_observer,'continuity'):
+                    context['camera_continuity'] = scene_observer.continuity()
                 if not opportunity:
                     context['visual_correction_candidates'] = visual_memory.correction_candidates(self.state.store,self.session_id,visual_memory.audience(context))
                 if 0<len(scene_images)<=2 and all(0<=self.trace.clock()-i.at<=2 for i in scene_images):
@@ -359,7 +383,8 @@ class Session:
                         'frames':[{'frame_id':i.frame_id,'captured_at':i.at} for i in scene_images],
                         'image_digest':sha256(latest.data_url.encode()).hexdigest() if len(scene_images)==1 else None,
                         'event_id':opportunity.event_id, 'source_turn_id':opportunity.source_turn_id,
-                        'cue_id':opportunity.scene_id, 'question':None}
+                        'cue_id':opportunity.scene_id, 'question':None,
+                        'camera_continuity':context.get('camera_continuity')}
                 else:
                     scene_images = ()
             if self.state and not self.state.frozen:
@@ -379,6 +404,7 @@ class Session:
             memory_subject = context.get('personal_memory',{}).get('person_id')
             memory_accessed = [any(context.get('personal_memory',{}).get(key) for key in
                                    ('recent_exchanges','interests_and_facts','episodes','current_session_exchanges'))]
+            self._audience_bound_output = bool(memory_subject and memory_accessed[0])
             if memory_subject and latest_faces:
                 previous_memory_guard = cancel.guard
                 def memory_audience_valid():
@@ -420,7 +446,8 @@ class Session:
                             # General intent replies follow ordinary prose once audible.
                             # Questions and memory-bearing tools retain audience guards.
                             update = delta.arguments.get('intent_update') or {}
-                            self._audience_bound_output = (delta.name != 'respond_with_intent'
+                            self._audience_bound_output = (memory_accessed[0] or delta.name in
+                                {'ask_face_question', 'use_memory_opportunity', 'use_visual_memory'}
                                 or bool(update.get('memory_ids')))
                             calls.append(delta)
                             continue
@@ -457,6 +484,35 @@ class Session:
                 if not self.state or len(calls) != 1 or generated.strip():
                     raise ProviderFailure("SpeechToolProtocolViolation")
                 call = calls[0]
+                working_before = self.state.conversation_intent.working_signature()
+                from .semantics import SCHEDULE_TOOLS
+                if call.name in SCHEDULE_TOOLS and call.arguments.get('next_opportunity') is not None:
+                    from dataclasses import replace
+                    try:
+                        with self._lock:
+                            schedule_proposal = self.state.initiative.prepare_schedule(call.arguments['next_opportunity'], context)
+                    except ValueError as exc:
+                        self.trace.emit('reconsideration_rejected', turn_id=turn_id, reason=str(exc))
+                        call = replace(call, arguments={**call.arguments, 'next_opportunity': None})
+                from .invitations import TOOLS as INVITATION_TOOLS
+                if call.name in INVITATION_TOOLS and call.arguments.get('invitation_update') is not None:
+                    from dataclasses import replace
+                    try:
+                        with self._lock:
+                            if (isinstance(call.arguments['invitation_update'],dict) and call.arguments['invitation_update'].get('scope')=='general' and
+                                (call.name=='use_memory_opportunity' or (call.arguments.get('intent_update') or {}).get('memory_ids') or
+                                 (call.arguments.get('intent_update') or {}).get('target_ids'))):
+                                raise ValueError('GeneralInvitationCannotUsePrivateMemoryOrTargets')
+                            if (isinstance(call.arguments['invitation_update'],dict) and call.arguments['invitation_update'].get('scope')=='general' and
+                                call.name=='use_visual_memory' and not any(r['id']==call.arguments.get('observation_id') and
+                                    r.get('audience')=='general' for r in context.get('visual_memory',[]))):
+                                raise ValueError('GeneralInvitationCannotUsePrivateVisualMemory')
+                            invitation_proposal = self.state.initiative.invitations.prepare(
+                                call.arguments['invitation_update'],context,call.arguments.get('text'),
+                                schedule_proposal,self.trace.clock())
+                    except ValueError as exc:
+                        self.trace.emit('invitation_rejected',turn_id=turn_id,reason=str(exc))
+                        call = replace(call,arguments={**call.arguments,'invitation_update':None})
                 if context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
                     raise ProviderFailure('StartupGreetingRequiresSpeech')
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=dict(call.arguments))
@@ -560,6 +616,27 @@ class Session:
                         self.state.actions.begin(result.request_id,call.name,call.arguments.get('question') or call.arguments.get('purpose') or call.arguments.get('text'),turn_id,audience(context),self.trace.clock())
                         action_started=True
                         self.trace.emit('action_started',turn_id=turn_id,request_id=result.request_id,kind=call.name)
+                schedule_accepted = result.outcome == 'ok'
+                invitation_changed = False
+                if invitation_proposal and invitation_proposal.action!='open' and result.outcome=='ok':
+                    with self._lock:
+                        cancel.check()
+                        pending_invitation = self.state.initiative.invitations.pending
+                        invitation_audience_valid = True
+                        if pending_invitation and pending_invitation['scope']=='audience' and latest_faces:
+                            from .conversation_intent import audience
+                            invitation_audience_valid = audience({'faces':latest_faces(self.trace.clock()),
+                                'speaker':context.get('speaker',{})})==invitation_proposal.audience
+                        if invitation_audience_valid:
+                            invitation_changed = self.state.initiative.invitations.transition(invitation_proposal,self.trace.clock())
+                        else:
+                            self.trace.emit('invitation_rejected',turn_id=turn_id,reason='InvitationAudienceChanged')
+                        if invitation_changed and schedule_proposal is None:
+                            self.state.initiative.cancel_schedule('invitation_closed')
+                        invitation_proposal = None
+                schedule_changed = (invitation_changed or working_before != self.state.conversation_intent.working_signature() or
+                                    call.name in {'describe_view', 'inspect_view', 'shift_attention'})
+                schedule_guard = cancel.guard
                 self.trace.emit("tool_validated" if call.name in {"shift_attention","respond_with_gesture","inspect_view","animate_lights","set_robot_pose","set_robot_joints","drive_base"} else "tool_executed",
                                 turn_id=turn_id,request_id=result.request_id,outcome=result.outcome)
                 if (result.outcome=='ok' and call.name=='conversation_feedback' and
@@ -587,6 +664,7 @@ class Session:
                             return self.state.store.revision==expected_revision and self.state.attention.scene.view_epoch==expected_epoch
                     cancel.guard = inspection_valid
                     data, images = self.output.execute_inspection(inspection_request,cancel,inspection_valid)
+                    schedule_action_ok = data.get('status') in {'observed','simulated'} and data.get('stage') == 'complete' and bool(images)
                     self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
                     with self._lock:self.state.actions.observed(data)
                     cancel.check()
@@ -881,14 +959,14 @@ class Session:
                     def valid_gesture():
                         with self._lock:
                             cancel.check()
-                            return (self.state.store.revision==expected_revision and
+                            return (self._resumed_speech<=self._capture_end and
+                                    self.state.store.revision==expected_revision and
                                     self.state.attention.version==expected_attention and
                                     (anchor is None or self.state.attention.scene.valid(anchor)))
                     def delivered_gesture():
                         with self._lock:
                             cancel.check()
-                            if (self.state.store.revision!=expected_revision or self.state.attention.version!=expected_attention or
-                                (anchor is not None and not self.state.attention.scene.valid(anchor))):
+                            if not valid_gesture():
                                 raise ProviderFailure('GestureEvidenceStale')
                             self.state.attention.clear()
                             self.state.attention.scene.invalidate(self.trace.clock())
@@ -896,6 +974,9 @@ class Session:
                         call.arguments['timing'],valid_gesture,delivered_gesture),cancel)
                 elif result.outcome=='ok' and call.name=='shift_attention':
                     # Output owns execution; never hold the state lock over an adapter call.
+                    cancel.check()
+                    if getattr(self.output.attention,'medium','simulation')=='controller':
+                        self.motion_committed = True  # Silent directional motion may reframe its own arrival cue.
                     receipt = self.output.execute_attention(attention_intent, cancel)
                     with self._lock:
                         cancel.check()
@@ -908,8 +989,8 @@ class Session:
                                     target=attention_intent.target, purpose=attention_intent.purpose)
                     delivery.status, delivery.medium = 'suppressed', 'none'
                     self.history.append({'role':'developer','content':
-                        'Attention shift simulated only: ' + attention_intent.target +
-                        '. No physical movement, speech, or new observation occurred.'})
+                        'Attention outcome: ' + str(asdict(receipt)) + '; target=' + attention_intent.target +
+                        '. No speech or new observation. Controller receipts verify output pulses only; simulation never means physical motion.'})
                 elif result.outcome=="ok" and (call.name=="remain_silent" or
                     call.name=="set_initiative" and result.data['mode']=='quiet' or
                     call.name=="conversation_feedback" and result.data['text'] is None):
@@ -919,8 +1000,9 @@ class Session:
                     if (call.name=='set_initiative' or
                         call.name=='remain_silent' and result.data['reason']!='no_response_needed'):
                         self.proactive_hold_until = self.trace.clock()+120
+                        self.state.initiative.cancel_schedule('quiet_or_human_floor')
                     self.history.extend((
-                        {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {})})},
+                        {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {}), **({"next_opportunity":None} if "next_opportunity" in call.arguments else {})})},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                     self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
                 elif result.outcome=='ok' and call.name=='use_visual_memory':
@@ -983,7 +1065,7 @@ class Session:
                         self.proactive_hold_until = float('-inf')
                     continuation = (*call.preamble,
                         {"type":"function_call","call_id":call.call_id,"name":call.name,
-                         "arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {})})},
+                         "arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {}), **({"next_opportunity":None} if "next_opportunity" in call.arguments else {})})},
                         {"type":"function_call_output","call_id":call.call_id,
                          "output":json.dumps(asdict(result))})
                     # Forgotten information is not sent back in the continuation history.
@@ -1087,8 +1169,10 @@ class Session:
                             return (delivery.medium=='audio' and bool(delivery.completed_text) and
                                     plain_text(text).split()==' '.join(delivery.completed_text).split())
                         if visual_selected and delivery.medium=='audio' and delivery.completed_text:
-                            from .visual_memory import delivered
-                            delivered(self.state.store,visual_selected,turn_id,' '.join(delivery.completed_text),self.state.wall_clock())
+                            from .visual_memory import delivered, audience as visual_audience
+                            delivered(self.state.store,visual_selected,turn_id,' '.join(delivery.completed_text),self.state.wall_clock(),
+                                      visual_audience(context),
+                                      general=call.name=='describe_view' and call.arguments.get('description_scope')=='general')
                         if observation_selected and fully_heard(call.arguments['text']):
                             self.state.observation_delivered(observation_selected)
                             self.trace.emit('observation_delivered',turn_id=turn_id,cue_id=observation_selected['cue_id'],kind=observation_selected['kind'])
@@ -1100,7 +1184,7 @@ class Session:
                     self.trace.emit("state_finalize_failed",turn_id=turn_id,error_type=type(exc).__name__)
             if performance_gesture and not any(r['request_id']==performance_gesture.request_id for r in delivery.gestures):
                 row = {'request_id':performance_gesture.request_id,'status':'cancelled','at':self.trace.clock(),
-                       'medium':'simulation','reason':'OutputNotReached','primitive':performance_gesture.primitive,
+                       'medium':getattr(self.output.gestures,'medium','simulation'),'reason':'OutputNotReached','primitive':performance_gesture.primitive,
                        'target':performance_gesture.target,'intensity':performance_gesture.intensity,
                        'timing':call.arguments['timing']}
                 delivery.gestures.append(row)
@@ -1114,7 +1198,7 @@ class Session:
             if self.state and delivery.gestures:
                 self.state.performances.extend(delivery.gestures)
                 import json
-                self.history.append({'role':'developer','content':'Gesture outcomes (simulation only, separate from heard speech): '+json.dumps(delivery.gestures)})
+                self.history.append({'role':'developer','content':'Gesture outcomes (receipt medium applies; separate from heard speech; pulses do not verify mechanical movement): '+json.dumps(delivery.gestures)})
             if self.state and not self.state.forgotten:
                 from .visual_memory import audience
                 with self._lock:
@@ -1151,10 +1235,25 @@ class Session:
             if delivery.medium == 'audio' and delivery.first_audio_at is not None:
                 self.last_spoken_reply = {'turn_id':turn_id,'started_at':delivery.first_audio_at,
                                           'finished_at':self.trace.clock()}
-                # Give the human the floor after audible speech. Direct replies
-                # remain immediate; only unsolicited opportunities are delayed.
-                pause = 60. if opportunity and opportunity.kind != 'visual_arrival' else 20.
-                self.proactive_hold_until = max(self.proactive_hold_until,self.trace.clock()+pause)
+            if self.state and (schedule_proposal is not None or invitation_proposal is not None):
+                with self._lock:
+                    valid = (schedule_accepted and schedule_action_ok and not self.closed and not cancel.event.is_set()
+                             and submitted_revision == self.revision and not self.state.forgotten)
+                    if valid and schedule_guard:
+                        valid = schedule_guard()
+                    invitation_valid = valid and not self.state.initiative.quiet and not self.state.initiative.floor_held(self.trace.clock())
+                    if invitation_proposal and invitation_proposal.action=='open':
+                        invitation_valid = invitation_valid and schedule_proposal is not None and schedule_proposal.revision==self.state.initiative.schedule_revision
+                    if invitation_valid and invitation_proposal and latest_faces and (invitation_proposal.scope=='audience' or
+                        invitation_proposal.action!='open' and self.state.initiative.invitations.pending and
+                        self.state.initiative.invitations.pending['scope']=='audience'):
+                        from .conversation_intent import audience
+                        invitation_valid = audience({'faces':latest_faces(self.trace.clock()),'speaker':context.get('speaker',{})})==invitation_proposal.audience
+                    changed = self.state.initiative.invitations.finish(invitation_proposal,delivery,self.trace.clock(),valid=invitation_valid)
+                    if changed and invitation_proposal.action!='open' and schedule_proposal is None:
+                        self.state.initiative.cancel_schedule('invitation_closed')
+                    self.state.initiative.finish_schedule(schedule_proposal, delivery, self.trace.clock(),
+                        valid=valid, changed=schedule_changed or changed)
             if opportunity_attempted:
                 outcome = self.state.initiative.finished(opportunity,delivery,self.trace.clock())
                 self.trace.emit('proactive_outcome',**outcome)

@@ -42,7 +42,9 @@ def report(path: Path) -> dict:
     events = Counter()
     outcomes = Counter()
     proactive = Counter()
+    initiative_gates, schedule_outcomes = Counter(), Counter()
     intent_transitions, intent_rejections = Counter(), Counter()
+    invitation_outcomes = Counter()
     purposes = Counter()
     latencies: dict[str, list[float]] = {}
     calls = 0
@@ -63,6 +65,11 @@ def report(path: Path) -> dict:
             failures.append({"event":"trace_parse_failed","line":number})
             continue
         events[row["event"]] += 1
+        if row['event'].startswith('invitation_'):
+            invitation_outcomes[(row['event'],row.get('status',row.get('reason','')))] += 1
+        if row["event"] == "initiative_gate": initiative_gates[row["reason"]] += 1
+        if row["event"].startswith("reconsideration_"):
+            schedule_outcomes[(row["event"], row.get("reason", ""))] += 1
         if row['event']=='conversation_intent_transition':intent_transitions[row['reason']] += 1
         if row['event']=='conversation_intent_rejected':intent_rejections[row['reason']] += 1
         if row['event'] == 'direction_evidence':
@@ -114,6 +121,10 @@ def report(path: Path) -> dict:
                 "p95": ordered[max(0, math.ceil(len(ordered)*.95)-1)]}
     return {"events": dict(events), "turn_outcomes": dict(outcomes), "model_calls": calls,
             "direction_evidence": dict(directions),
+            "initiative_gate_transitions": dict(initiative_gates),
+            "reconsideration_outcomes": [{"event":key[0],"reason":key[1],"count":count}
+                                       for key,count in schedule_outcomes.items()],
+            "invitation_outcomes": [{"event":key[0],"outcome":key[1],"count":count} for key,count in invitation_outcomes.items()],
             "conversation_intentions": {"transitions":dict(intent_transitions), "rejections":dict(intent_rejections)},
             "model_calls_by_purpose":dict(purposes),"scene_image_inputs":images,"scene_image_bytes":image_bytes,
             "observation_deliveries":dict(observation_receipts),"reported_model_tokens":dict(token_usage),"tools_proposed":dict(tools_proposed),

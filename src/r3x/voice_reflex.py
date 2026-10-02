@@ -32,7 +32,6 @@ class VoiceReflex:
     def __init__(self, owner):
         self.owner = owner
         self.trace = None
-        self.on_head_move = None   # () -> None: the camera is about to re-frame the room
         self.faces = None          # () -> fresh face boxes in the current camera frame
         self._lock = threading.Lock()
         self._thread = None
@@ -65,8 +64,6 @@ class VoiceReflex:
             current = self.owner.commanded.get(0)
             if current is not None and abs(current - target) < MIN_TURN_PULSES:
                 return 'already_facing'
-            if self.on_head_move:
-                self.on_head_move()
             self._index += 1
             request = ServoRequest(f'reflex:{self._index}', self.owner.version, 'reflex',
                                    self.owner.clock()+5., pose={0: target})

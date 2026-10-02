@@ -32,7 +32,9 @@ it or reads its data.
   store, cross-session exchange recall and optional source-linked shared memories
   ([details](docs/CONVERSATION_MEMORY.md)). Named pet/object photo memory (RF-DETR Nano detection).
 - **Initiative.** Greets arrivals, contributes during lulls, uses news, weather and scene
-  observations, and can choose silence. It is one owner with replies, not a separate loop.
+  observations, retains bounded working interests, and can choose silence. Initiative
+  needs no visible person; the same owner can request its next consideration and
+  explicitly let unanswered social invitations lapse without repeating them.
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080.
 - **Body (Pololu Maestro, 11 servos).**
@@ -91,7 +93,7 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 ## Check
 
 ```sh
-.venv/bin/python tools/run_checks.py                      # 796 blocked-I/O contract checks
+.venv/bin/python tools/run_checks.py                      # 851 blocked-I/O contract checks
 .venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
 .venv/bin/python -m r3x replay local/dataset/manifest.json
 .venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl
@@ -147,7 +149,7 @@ models on its own.
 | [Live test script](docs/LIVE_TEST_SCRIPT.md) | Lines to say and results to check in hands-on conversation tests. |
 | [DESIGN.md](DESIGN.md) | Who decides what, turn flow, identity and memory design. |
 | [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex initiates and participates. |
-| [Agency implementation plan](docs/AGENCY_IMPLEMENTATION_PLAN.md) | Proposed working interests, purposeful attention and varied initiative; not implemented. |
+| [Agency implementation plan](docs/AGENCY_IMPLEMENTATION_PLAN.md) | All three software increments implemented: interests, scheduling, physical attention, view continuity and invitation lifecycle; live acceptance remains open. |
 | [Core operations](docs/CORE_OPERATIONS.md) | Enrollment, profiles, review, deletion and diagnostics. |
 | [Future features](docs/FUTURE_FEATURES.md) | Owner-requested work not yet scoped. |
 | [V2_REFERENCE.md](V2_REFERENCE.md) | Where each V2 extraction came from and what it preserved. |

@@ -91,8 +91,10 @@ The serial opener uses exclusive access and 100-ms read/write timeouts, with no
 discovery or reconnect. Optional operator dependencies are in `requirements-robot.txt`
 and installed in V3's independent environment. The default servo port remains empty;
 the prepared robot configuration is a separate ignored file. The existing
-attention/gesture simulations remain simulations; they do not accept these receipts
-as physical attention evidence.
+attention/gesture simulations remain simulations. October 1 adds separately started
+physical adapters after successful robot startup, accepting only controller pulse
+receipts. See [agency increment 2](AGENCY_IMPLEMENTATION_PLAN.md#increment-2-implementation--october-1-2026)
+for finite trajectories, held-pose priority, cancellation and camera settling limits.
 
 ## Idle arms and elbow lifecycle
 
@@ -142,8 +144,8 @@ voice-learning coverage, latency and CPU cost remain acceptance checks.
    held-microphone enrollment. These are implemented contracts, not yet measured
    mechanical/acoustic guarantees. Quiet interruptions can extend exclusion while
    the hold reacquires and settles; measure this conversational cost.
-4. Extend model-selected attention/gestures through the same owner, with truthful
-   physical evidence and fresh post-motion vision. Adapt richer speech expression
+4. Validate the implemented finite model-selected attention/gestures through the
+   same owner, with truthful pulse receipts and settled post-motion vision. Adapt richer speech expression
    from actual audio timing; avoid independent mood/idle motion authorities.
 
 ## September 25 live-feedback repair

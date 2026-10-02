@@ -1,5 +1,10 @@
 # Greeting-led conversational intentions
 
+October 1: the [agency increment](AGENCY_IMPLEMENTATION_PLAN.md) extends this record
+with bounded working interests and separate model-selected reconsideration. It
+removes the later 20/60-second audible floors and visible-person prerequisite.
+The historical implementation and evidence below describe their dated versions.
+
 Status: software implemented September 18, 2026 following the user's request to
 implement this plan. The design and staged acceptance protocol below distinguish
 software contracts from hosted semantic evidence and live visitor acceptance.
@@ -415,8 +420,8 @@ completion. The previous hosted dialogue probe used the earlier spacing; the rev
 spacing has synthetic runtime evidence only and has not been tested on hardware.
 
 
-Next agreed work: [model-selected JSON scheduling](NEXT_CONVERSATION_SCHEDULING.md).
-This is a proposal, not an implemented timer tool.
+October 1 update: [model-selected JSON scheduling](NEXT_CONVERSATION_SCHEDULING.md)
+is now implemented through the first agency increment.
 
 
 ## September 19 revision: an invalid plan no longer fails the turn
@@ -438,3 +443,10 @@ non-arrival proactive speech reserves 60 seconds, measured from completion.
 Silent/unheard attempts keep their existing backoff. Direct human requests still
 run immediately. Active intentions do not bypass these waits or require speech
 while a question is unanswered. See [repair and evidence](LIVE_RUN_CONVERSATION_REPAIRS.md#september-30-turn-taking-repair).
+
+
+October 1 increment 3 adds a bounded social-invitation lifecycle alongside working
+interests, owned by Initiative under CoreState. Existing reply/silence tools can
+optionally update both in one generation. Lapsing an invitation does not automatically
+abandon its underlying interest or infer a human feeling. See
+[implemented behavior](AGENCY_IMPLEMENTATION_PLAN.md#increment-3-implementation--october-1-2026).
