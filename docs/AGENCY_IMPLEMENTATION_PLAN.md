@@ -1,5 +1,96 @@
 # Persistent narrative and conversation plans
 
+## Owner direction after the fourth live run — proposed, not implemented
+
+Status, October 1, 2026 (late): the implemented replacement described below **failed
+live acceptance** in session `f4e2bf9716d3485e96a7ca6837935c43` (9.6 minutes, real
+hardware). Evidence from that trace: 40 planner calls, 26 saved plans, 11 steps
+started, 4 completed, 2 self-initiated spoken lines. 17 opportunities were cancelled
+by human speech and 8 as `audience_changed_or_stale` (face-track renumbering while the
+owner stayed present). Two trusted human requests lost their ordinary reply without a
+logged reason ("How do you know that you got caught in a loop?", the first "Back up
+five feet."); the planner then drafted its own answer. Most plans were silent head
+turns. Every completed reply exceeded four seconds to first audio (median 4.6, max
+7.3, n=10). Cause of the two dropped replies is unconfirmed; the unlogged cancel in
+`session.py` (`_resumed_speech > _capture_end`) is the candidate.
+
+The owner rejected the mechanism, not only its tuning. A plan was meant to be a goal
+Rex adopts because he noticed something and then pursues across many exchanges. It was
+built as a short script that is regenerated whenever anything changes, which is still
+input-then-react. Nothing in this section is implemented.
+
+### Priority order (owner requirement)
+
+1. **Being spoken to comes first.** Rex answers people through the ordinary reply
+   path. A plan never takes over, delays or re-drafts a reply to a human request.
+2. **People he notices get greeted.** He greets and asks how they are doing.
+3. **If nothing happens, he starts doing things.** He picks something and pursues it
+   without waiting for input.
+
+### What a plan is
+
+- **Started by noticing, not by a quiet timer.** Triggers: a known person appears, an
+  unknown person appears, something in the room catches his interest, or nothing has
+  happened for a while.
+- **A goal plus a few ideas toward it**, written once by the stronger model. Owner
+  examples:
+  - Known person with saved facts: plan a conversation, begin speaking, and keep it
+    going when it dies (ask how they are, whether they have plans).
+  - Unknown person: get to know them; notice what they are wearing and ask about it.
+  - Something in the room: decide to investigate, move toward it, study it, ask or
+    comment about it.
+  - Nobody engaging: go toward something and reach out his hand; cross the room, look
+    down and comment on what is there.
+- **Steered by conversation, not cancelled by it.** The reply model receives the
+  current goal as context on each human turn, so the one ordinary reply generation can
+  also advance the goal. A human turn does not mark the plan stale.
+- **Resumes after interruptions.** An explicit request ("back up five feet") is done
+  immediately by the reply path; the plan then continues or is dropped by a real
+  ending below.
+- **Ended only for real reasons:** goal achieved, the person has actually left, a human
+  says to drop it or asks for quiet, or a more interesting goal replaces it. Face-track
+  renumbering, untrusted transcripts and his own motor noise end nothing.
+- **Planner calls are rare.** One when a goal is adopted and one when it ends. The
+  expected rate is a handful per ten minutes; the measured rate to beat is 40.
+
+### What catches his interest (owner requirement)
+
+Anything can. No special detector or new model is needed; the planner chooses from the
+existing camera and object evidence, and almost any choice is an improvement on the
+current behavior. The requirement is about how he engages with it:
+
+- **Personable, not inventory.** He asks about the thing or the person's connection to
+  it: "What's that wall painting about?", "Tell me more about this photo on the wall."
+- **Never announce the obvious.** Stating that an object exists ("I see a clock") is the
+  failure the owner called out. Naming what is visible is not a contribution.
+- **Curiosity aimed at people.** A noticed thing is a way into a conversation about
+  them, their home and their stories, not a prompt for a riff about the object.
+
+### Motion (owner requirement)
+
+Self-initiated driving needs no permission and is not limited to small moves. The only
+limits are physical: he must not drive into things and must respect the time-of-flight
+sensor boundaries. Existing obstacle, clearance, charging, manual-control and stop-word
+guards remain. The 1.5 m single-request travel limit seen in the trace conflicts with
+the owner's no-caps ruling and is to be removed. Mid-drive human speech that is not a
+stop word should not abandon a physical plan step.
+
+### What this retires and keeps
+
+Retire: the two-second quiet preparation trigger, marking the plan dirty on every
+human turn, replanning after every interrupted step, and audience invalidation of
+steps that disclose nothing private. Keep: the single `agency_plan` store, the planner
+call, the shared speech/head/arm/wheel executors and their receipts, quiet and
+stop-word handling, and audience checks on personal disclosures.
+
+### Open before coding
+
+- Find and log the cause of the two silently dropped human replies.
+- Acceptance must be a live run. The simulated room has no interruptions or track
+  churn, which is why earlier synthetic passes did not predict these failures.
+
+The sections below describe the implemented software that this direction replaces.
+
 ## October 1 replacement
 
 The owner reported that the previous three agency increments still left Rex silent.
