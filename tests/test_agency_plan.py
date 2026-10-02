@@ -124,14 +124,14 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertEqual(result.status,'completed')
         self.assertEqual(len(self.planner.requests),2)
         self.assertEqual(self.planner.requests[-1]['repair']['validation_error'],'AgencyEvidenceNotOffered')
-        self.assertEqual(self.state.agency.record['origin'],'degraded_character')
+        self.assertEqual(self.state.agency.record['origin'],'recovery')
         self.assertEqual(self.state.agency.record['evidence_ids'],[])
         self.assertEqual(self.state.agency.record['cursor'],1)
 
     def test_revision_abandons_bad_step_and_delivers_a_character_contribution(self):
         self.setup_owner()
         self.executor.choose=lambda snapshot,cancel:iter(['A tuba is a brass instrument with an alibi.'] if
-            snapshot.context['agency_step']['origin']=='degraded_character' else
+            snapshot.context['agency_step']['origin']=='recovery' else
             [ToolCall('revision','revise_agency_plan',{'reason':'The observation no longer supports this premise.'})])
         result=self.tick(100)
         self.assertEqual(result.status,'completed')
@@ -164,7 +164,7 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertGreater(self.state.agency.planner_retry_at,100)
         self.state.agency.planner_retry_at=finished+30
         self.tick(finished+2);self.assertEqual(len(self.planner.requests),1)
-        self.assertEqual(self.state.agency.record['origin'],'degraded_character')
+        self.assertEqual(self.state.agency.record['origin'],'recovery')
         self.planner.choose=lambda f,c:draft()
         self.assertEqual(self.tick(finished+9).status,'completed')
         self.assertEqual(len(self.executor.snapshots),2)
@@ -194,7 +194,7 @@ class PlanTests(memory_tests.MemoryFixture):
     def test_revision_reason_and_heard_outcomes_reach_the_next_planner(self):
         self.setup_owner();self.tick(100)
         self.executor.choose=lambda s,c:iter(['I have a new musical idea.'] if
-            s.context['agency_step']['origin']=='degraded_character' else
+            s.context['agency_step']['origin']=='recovery' else
             [ToolCall('r','revise_agency_plan',{'reason':'That object is no longer available.'})])
         self.tick(self.trace.at+9)
         self.executor.choose=None
@@ -334,7 +334,7 @@ class PlanTests(memory_tests.MemoryFixture):
     def test_human_speech_during_revision_recovery_stops_without_speaking(self):
         self.setup_owner()
         def choose(snapshot,cancel):
-            if snapshot.context['agency_step']['origin']=='degraded_character':
+            if snapshot.context['agency_step']['origin']=='recovery':
                 self.session.note_speech(101,sustained=True)
                 cancel.check()
             return iter([ToolCall('r','revise_agency_plan',{'reason':'Object no longer available.'})])
@@ -375,9 +375,9 @@ class PlanTests(memory_tests.MemoryFixture):
         result=self.session.process_opportunity(event,0,lambda:True)
         self.assertEqual(result.status,'completed')
         self.assertEqual(len(self.planner.requests),1)
-        self.assertEqual(self.state.agency.record['scope'],'audience')
+        self.assertEqual(self.state.agency.record['scope'],'general')
         self.assertEqual(self.state.agency.record['cursor'],1)
-        self.assertIsNone(self.state.agency.context('["person:new"]'))
+        self.assertIsNotNone(self.state.agency.context('["person:new"]'))
 
     def test_simulated_gesture_receipt_advances_but_failed_gesture_does_not(self):
         from r3x.performance import SimulatedGesture
@@ -481,6 +481,8 @@ class PlannerAdapterTests(memory_tests.unittest.TestCase):
         self.assertEqual(result,draft())
         payload=planner.client.calls[0][1]['json']
         self.assertEqual(payload['model'],'gpt-5.6-terra')
+        from r3x.adapters.hosted import CHARACTER
+        self.assertTrue(payload['instructions'].startswith(CHARACTER))
         self.assertEqual(payload['tool_choice'],{'type':'function','name':'compose_agency_plan'})
         self.assertFalse(payload['store'])
         self.assertEqual([t['name'] for t in payload['tools']],['compose_agency_plan'])

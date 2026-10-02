@@ -33,6 +33,7 @@ class ServoRequest:
     intensity: str = 'subtle'
     hold_seconds: float = .5
     face_neck: int | None = None   # Idle: neck pulse of the face in front, when one is visible
+    hold_pose: bool = True        # Human poses persist; agency poses never acquire a hold.
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ class ServoReceipt:
     completed_lanes: tuple[int, ...] = ()
     reason: str | None = None
     evidence: str = 'controller_output_pulses_only'
+    changed_channels: tuple[int, ...] = ()
 
 
 class ServoOwner:
@@ -194,9 +196,11 @@ class ServoOwner:
 
     def execute(self, request: ServoRequest, cancel: Cancellation) -> ServoReceipt:
         completed = set()
+        changed = set()
         def receipt(status, reason=None):
             return ServoReceipt(request.request_id, status, self.version, self.clock(),
-                                self.medium, tuple(sorted(completed)), reason)
+                                self.medium, tuple(sorted(completed)), reason,
+                                changed_channels=tuple(sorted(changed)))
         if not self._lock.acquire(blocking=False):
             return receipt('rejected', 'ServoBusy')
         touched = set()
@@ -223,8 +227,12 @@ class ServoOwner:
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))
+            if request.kind == 'pose' and not request.hold_pose:
+                channels = {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
+                if request.pose == 'release_poses' or channels.intersection(self.held_channels):
+                    return receipt('rejected', 'AgencyCannotOverrideHeldPose')
             self.version += 1
-            if request.kind == 'pose' and request.pose not in ('release_poses','wave'):  # dict poses too
+            if request.kind == 'pose' and request.hold_pose and request.pose not in ('release_poses','wave'):  # dict poses too
                 self.held_channels.update(ch for lane in lanes for beat in lane for ch, _ in beat.targets)
             if request.kind == 'base_park':
                 # Talking/idle lanes skip held channels while the base drives.
@@ -252,6 +260,7 @@ class ServoOwner:
                         targets = dict(beat.targets)
                         observed = self._bus.positions(targets)
                         validate_pose(observed)
+                        changes = {ch for ch,value in targets.items() if abs(observed[ch]-value)>2}
                         if beat.throttle_duration and not throttle_clear(observed, targets):
                             raise ProviderFailure('ThrottleRouteChanged')
                         self._bus.profiles(motion_profiles(beat, observed))
@@ -260,11 +269,12 @@ class ServoOwner:
                             raise Cancelled()
                         if self.clock() >= request.expires_at:
                             raise ProviderFailure('ServoRequestExpired')
-                        if {0,1,2}.intersection(targets) and not self.camera_moving:
+                        if {0,1,2}.intersection(changes) and not self.camera_moving:
                             self.camera_moving = True
                             self.on_camera_motion(True, request.request_id, request.kind)
                         touched.update(targets)  # Include partially sent batches on failure.
                         self._bus.targets(targets)
+                        changed.update(changes)
                         self.commanded.update(targets)
                         if 7 in targets:
                             self.microphone_moved_until = float('inf')

@@ -434,8 +434,10 @@ or face can override them. Exact gates and saved-audio evidence are documented i
 ## Intentional attention and action groundwork
 
 October 1: all three [agency software increments](docs/AGENCY_IMPLEMENTATION_PLAN.md)
-are implemented: bounded working interests, model-selected scheduling, finite physical
-attention/expression, moving-view continuity and source-validated social invitations.
+are implemented and superseded by persisted Terra plans with Luna execution: six step
+kinds (contribute, inspect, look, gesture, temporary pose, bounded drive), moving-view
+continuity and source-validated social invitations. Recent dialogue informs private
+planning independently of face-track stability; personal output remains audience-bound.
 Invitation review can end silently without treating time as an answer or rejection.
 The [acceptance protocol](docs/AGENCY_ACCEPTANCE.md) separates passing software
 contracts from still-unmeasured semantic and live social experience.

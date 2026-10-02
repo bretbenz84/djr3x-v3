@@ -66,12 +66,12 @@ class RobotServos:
                 not (self.reflex._thread and self.reflex._thread.is_alive())):
             self.owner.refresh_microphone_hold()
 
-    def execute_pose(self, name, cancel, request_id):
+    def execute_pose(self, name, cancel, request_id, *, hold_pose=True):
         self.idle.stop()
         self.reflex.stop()   # The model's explicit move replaces an unfinished reflex.
         self.talking.stop()
         return self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
-            self.owner.clock()+60,pose=name),cancel)
+            self.owner.clock()+60,pose=name,hold_pose=hold_pose),cancel)
 
     def execute_expression(self, request, cancel):
         self.idle.stop()

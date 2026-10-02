@@ -34,7 +34,9 @@ it or reads its data.
 - **Initiative.** A GPT-5.6 Terra call writes a private character narrative and several
   concrete steps in local memory. At eligible lulls, GPT-6 Luna executes the next
   step through the same conversation/output owner, using fresh evidence and actual
-  speech/action receipts. No visible person or new observation is required. Ordinary
+  speech/action receipts. Plans can lead with silent head/arm movement or a short drive,
+  ask a sincere question, or follow the current exchange. Camera track changes do not
+  erase conversational feedback. No visible person or new observation is required. Ordinary
   replies remain immediate; quiet and human-floor guards remain. Planning prepares
   early in the lull, corrects invalid plans once, and retains character activity on
   planner failure. Hosted model checks use simulated output; acceptance on Rex is

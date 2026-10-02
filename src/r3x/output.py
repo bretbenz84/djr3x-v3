@@ -96,11 +96,11 @@ class OutputOwner:
         finally:
             self._motion_lock.release()
 
-    def execute_pose(self, name, cancel, request_id):
+    def execute_pose(self, name, cancel, request_id, *, hold_pose=True):
         if self.robot is None: raise ProviderFailure('RobotPoseUnavailable')
         with self._motion_lock:
             cancel.check()
-            return self.robot.execute_pose(name,cancel,request_id)
+            return self.robot.execute_pose(name,cancel,request_id,**({} if hold_pose else {'hold_pose':False}))
 
     def execute_attention(self, intent, cancel):
         if self.attention is None:

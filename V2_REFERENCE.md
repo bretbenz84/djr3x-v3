@@ -966,3 +966,18 @@ Deployment follow-up: the owner explicitly requested flashing this build. Upload
 hashes and live `0.2.4-current-unplug` hello verified on October 1; the battery
 LaunchAgent was restored and its serial ownership confirmed. Stationary charging
 telemetry remained locked. No movement/unlock command or physical unplug test.
+
+## Companion behavior review — October 1, 2026
+
+Read-only comparison at `fb96f086925841479952c649b0a39a8f6c77f70c`. The V2 tree has the
+owner-authorized firmware README/battery/calibration/protocol and gamepad-unplug test
+changes above; no conversation/motion source edits. Reviewed active
+`intelligence/lean_brain.py::_IMPULSE_INSTRUCTION` and orientation/idle movement in
+`intelligence/motion_agency.py`. Preserve following the actual conversational loose
+end, avoiding default music topics, and bounded physical presence with current
+clearance. Adapted these design lessons to V3's existing planner and conversation,
+state, output, servo and drive owners; no V2 code, globals or data copied. No new
+dependencies or resident models. Focused `test_agency_companion.py` checks use temporary
+stores, fake pulse/ESP32 transports and blocked external I/O. Hosted fictional-context
+evaluation and outstanding physical/social acceptance are recorded in implementation
+status. V2 was neither changed nor run during this review.

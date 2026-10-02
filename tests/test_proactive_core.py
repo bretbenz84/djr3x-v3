@@ -167,8 +167,10 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
         self.assertFalse(any(r['event']=='proactive_invalidated' for r in trace.rows))
 
-    def test_new_audience_member_during_tts_cancels_before_first_pcm(self):
+    def test_new_audience_member_during_tts_cancels_audience_plan_before_first_pcm(self):
         self.setup_core();self.turn();self.visible(108)
+        from tests.test_agency_plan import draft
+        self.session.agency_planner.choose=lambda f,c:{**draft(),'scope':'audience'}
         runtime=self.runtime
         class Changed:
             def synthesize(self,text,cancel):
@@ -449,7 +451,7 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertTrue(outcome['heard_complete_phrases'])
         self.assertFalse(any(r['event']=='proactive_invalidated' for r in self.trace.rows))
 
-    def test_general_proactive_intent_still_cancels_on_face_change_before_audio(self):
+    def test_general_proactive_intent_survives_face_change_before_audio(self):
         self.setup_core();self.turn();self.visible(108)
         self.plan_brain()
         runtime=self.runtime
@@ -460,8 +462,8 @@ class InitiativeCoreTests(MemoryFixture):
                 yield from super().synthesize(text,cancel)
         self.session.output=OutputOwner(ChurningTTS(),SyntheticSink(),self.trace)
         self.runtime.proactive_tick()
-        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
-        self.assertFalse(any(r['event']=='playback_started' for r in self.trace.rows))
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
+        self.assertTrue(any(r['event']=='playback_started' for r in self.trace.rows))
 
     def test_audible_targeted_question_finishes_through_face_change(self):
         self.setup_core();self.turn();self.visible(108)

@@ -344,10 +344,9 @@ class Arrivals:
             result = []
             for face in self.faces:
                 entry = self.seen.get(face.get('identity') or face['track_id'])
-                box = face.get('box',(0,0,0,0))
                 if (entry and entry['track']==face['track_id'] and
                     0<=now-face['at']<=VISIBLE_FACE_MAX_AGE and entry['last']-entry['first']>=self.stable_seconds and
-                    (face.get('face_width_px') or 0)>=48 and box[2]*box[3]>=.006):
+                    (face.get('face_width_px') or 0)>=48):
                     result.append(face)
             return tuple(f for f in self.faces if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE) if result else ()
 

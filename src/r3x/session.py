@@ -66,6 +66,8 @@ class Session:
         self.resolved_audio_at = float("-inf")
         self.route_planner = None  # Optional blocked-path drive planner; never speaks.
         self.motion_committed = False  # Wheels were handed a plan in the current turn.
+        self.preparing_plan = False
+        self.agency_scope = None
 
     def cancel(self, reason='explicit_stop') -> None:
         with self._lock:
@@ -347,11 +349,18 @@ class Session:
                 led = self.output.leds
                 context.update(led_enabled=led.state=='ready',led_version=led.version,
                     led_patterns=[p for p in PATTERNS if (p!='compliment' or 'chest' in led.ports) and (p!='blink' or 'head' in led.ports)])
-            context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and not opportunity and getattr(self.output,'robot',None) and self.output.robot.owner.state=='active')
+            context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and getattr(self.output,'robot',None) and self.output.robot.owner.state=='active')
             if context['robot_pose_enabled']:
+                from .servo_poses import LIMITS, NAMED_POSES
                 held = set(getattr(self.output.robot.owner,'held_channels',()))
-                context['robot_pose_state'] = {'held_parts':
+                commanded = getattr(self.output.robot.owner,'commanded',{})
+                context['robot_pose_state'] = {'already_at':[
+                    name for name,targets in NAMED_POSES.items()
+                    if all(abs(commanded.get(ch,-10000)-value)<=2 for ch,value in targets)],
+                    'joint_percent':{str(ch):round(100*(value-LIMITS[ch][0])/(LIMITS[ch][1]-LIMITS[ch][0]))
+                                     for ch,value in commanded.items() if ch in LIMITS}, 'held_parts':
                     [name for name,channels in (('neck',{0}),('head_lift',{1}),('head_tilt',{2}),('visor',{3}),('hero_elbow',{4}),('hero_wrist',{5}),('poker_arm',{6}),('hero_arm',{7}),('throttle_arm',{8,9,10})) if held.intersection(channels)]}
+                if opportunity and held: context['robot_pose_enabled']=False
             if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:
                 context['drive'] = self.output.drive.context('self_initiated' if opportunity else 'requested',
                     speaker_direction=None if opportunity else (context.get('speaker') or {}).get('direction'))
@@ -415,27 +424,29 @@ class Session:
             from .conversation_intent import audience as intent_audience
             request_audience = intent_audience(context)
             if self.state and self.agency_planner and opportunity:
-                from .agency import audience_key, evidence_catalog
+                from .agency import audience_key, evidence_catalog, capabilities_for, recent_dialogue
                 agency = self.state.agency
                 planning_context = context
                 if not context.get('faces') and self.state.current:
                     planning_context = {**context,'speaker':{'track_id':self.state.current[4].track_id,
                                                             'person_id':self.state.current[4].person_id}}
                 bound_audience = audience_key(planning_context)
-                capabilities = ['contribute']
-                capabilities += ['inspect'] if context.get('inspection_enabled') else []
-                capabilities += ['look'] if context.get('attention_enabled') else []
-                capabilities += ['gesture'] if context.get('gesture_enabled') else []
+                capabilities = capabilities_for(context)
                 if agency.needs_plan(bound_audience):
                     plan_revision = agency.revision
                     evidence = evidence_catalog(context)
-                    # No previous audience's private history enters an empty-room plan.
-                    conversation = self.history_messages()[-12:] if bound_audience != '[]' else ()
+                    # Planning is private. Losing a face must not erase conversational feedback.
+                    conversation = recent_dialogue(self.history_messages())
+                    from .servo_poses import POSE_COMMANDS
                     facts = {'request_id':turn_id, 'revision':plan_revision,
                         'conversation':conversation, 'evidence':evidence, 'capabilities':capabilities,
                         'capability_contract':{'gesture':'A short spoken thought with a finite nod/tilt; not a silent pose.',
                             'attention_mode':context.get('attention',{}).get('mode'),
+                            'pose':{'enabled':'pose' in capabilities,'commands':list(POSE_COMMANDS),
+                                    **context.get('robot_pose_state',{})},
+                            'drive':context.get('drive'),
                             'inspection_directions':context.get('inspection_directions',[])},
+                        'dialogue_use':'Private continuity and feedback, not proof an earlier speaker is present. Do not disclose prior personal facts to a changed audience.',
                         'opportunity':context.get('visual_arrival') or context.get('opportunity'),
                         'audience':{'faces':planning_context.get('faces',[]), 'speaker':planning_context.get('speaker')},
                         'previous_plan':agency.context(bound_audience),
@@ -446,6 +457,7 @@ class Session:
                         'meaning':'Existing descriptions may be historical. Inspect for fresh detail; a raw object target is not identity.'}
                     if self.trace.clock() >= agency.planner_retry_at:
                         planning_started = self.trace.clock()
+                        self.preparing_plan=True
                         try:
                             for attempt in range(2):
                                 self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,
@@ -470,17 +482,20 @@ class Session:
                         except (ValueError,ProviderFailure) as exc:
                             agency.failed(str(exc),self.trace.clock())
                         finally:
+                            self.preparing_plan=False
                             self.trace.emit('agency_planning_finished',turn_id=turn_id,model=self.agency_planner.capability.model,
                                 planning_seconds=self.trace.clock()-planning_started)
                     if agency.needs_plan(bound_audience):
                         with self._lock:
                             cancel.check()
                             if plan_revision != agency.revision: raise Cancelled()
-                            agency.install_character_step(bound_audience,plan_revision,self.trace.clock())
+                            agency.install_recovery_step(bound_audience,plan_revision,self.trace.clock(),capabilities)
                 if planning_only:
                     delivery.status,delivery.medium='prepared','none'
                     return delivery
                 agency_step = agency.step(bound_audience)
+                self.agency_scope=agency_step['scope']
+                cancel.check()
                 context['agency_step'] = agency_step
                 if agency_step['scope']=='general':
                     context['memory_opportunities'] = []
@@ -549,15 +564,16 @@ class Session:
                 from .semantics import validate
                 from dataclasses import replace
                 validate(calls[0].name,calls[0].arguments)
-                if not agency_step or agency_step.get('origin')=='degraded_character':
+                if not agency_step or agency_step.get('origin')=='recovery':
                     raise ProviderFailure('AgencyStepUnavailable')
                 reason=calls[0].arguments['reason']
                 with self._lock:
                     cancel.check()
                     self.trace.emit('agency_revision_requested',turn_id=turn_id,reason=reason)
                     agency.finish(agency_step,Delivery(status='suppressed',medium='none'),None,self.trace.clock(),reason)
-                    agency.install_character_step(bound_audience,agency.revision,self.trace.clock())
+                    agency.install_recovery_step(bound_audience,agency.revision,self.trace.clock(),capabilities)
                     agency_step=agency.step(bound_audience)
+                    self.agency_scope=agency_step['scope']
                 context={**context,'agency_step':agency_step,'memory_opportunities':[],
                     'visual_memory':[r for r in context.get('visual_memory',[]) if r.get('audience')=='general']}
                 self.trace.emit('agency_step_started',turn_id=turn_id,**agency_step)
@@ -565,7 +581,7 @@ class Session:
                     reasoning_effort=getattr(self.brain,'reasoning_effort',None))
                 recovery=replace(snapshot,context=context,messages=(*snapshot.messages,{'role':'developer','content':
                     'The previous step was abandoned and nothing from it was spoken or performed. '
-                    'Execute the replacement impersonal character contribution now. Do not repeat the '
+                    'Execute the replacement companionship step now; a silent body action needs no speech. Do not repeat the '
                     'abandoned premise or explain the planning correction.'}))
                 calls=generate(recovery)
             if not calls and not generated.strip():
@@ -711,9 +727,10 @@ class Session:
                                     reason='audience_changed_or_stale',speech_started=delivery.first_audio_at is not None)
                             return valid
                         cancel.guard = intent_output_valid
-                    if result.outcome=='ok' and call.name in {'inspect_view','shift_attention','respond_with_gesture','drive_base'}:
+                    if result.outcome=='ok' and call.name in {'inspect_view','shift_attention','respond_with_gesture','drive_base','set_robot_pose','set_robot_joints'}:
                         from .visual_memory import audience
-                        self.state.actions.begin(result.request_id,call.name,call.arguments.get('question') or call.arguments.get('purpose') or call.arguments.get('text'),turn_id,audience(context),self.trace.clock())
+                        self.state.actions.begin(result.request_id,call.name,call.arguments.get('question') or call.arguments.get('purpose') or
+                            (agency_step or {}).get('instruction') or call.arguments.get('text') or str(call.arguments.get('poses') or call.arguments.get('positions')),turn_id,audience(context),self.trace.clock())
                         action_started=True
                         self.trace.emit('action_started',turn_id=turn_id,request_id=result.request_id,kind=call.name)
                 if agency_step and result.outcome != 'ok':
@@ -903,7 +920,7 @@ class Session:
                             drive_noted = True
                             self.trace.emit('drive_result',turn_id=turn_id,**receipt)
                             with self._lock:
-                                self.state.actions.observed({'status':receipt['status'],'stage':'complete','reason':receipt['reason'],
+                                self.state.actions.motion_observed({'status':receipt['status'],'stage':'complete','reason':receipt['reason'],
                                                              'medium':receipt['medium'],'motion_status':receipt['status']})
                             self.history.append({'role':'developer','content':
                                 'Drive controller receipt (firmware/odometry/IMU, not visual confirmation): '+json.dumps(receipt)})
@@ -964,6 +981,11 @@ class Session:
                         delivery.status, delivery.medium = 'suppressed', 'none'
                 elif result.outcome=='ok' and call.name in {'set_robot_pose','set_robot_joints'}:
                     from dataclasses import asdict
+                    cancel.check()
+                    if opportunity and not any(call.arguments.get(key) for key in ('text','say_before','look_after')):
+                        # Like silent directional attention, a finite body action may
+                        # reframe its own audience. Speech/stop/state guards still apply.
+                        self.motion_committed = True
                     expected_revision = result.revision
                     previous_guard = cancel.guard
                     cancel.guard = lambda: (previous_guard is None or previous_guard()) and not self.state.frozen and self.state.store.revision==expected_revision
@@ -983,6 +1005,7 @@ class Session:
                                 raise ProviderFailure('OutputWorkerStopped')
                             time.sleep(.02)
                     moved, last_at = True, self.trace.clock()
+                    changed_channels = set()
                     for index, step in enumerate(pose if isinstance(pose, tuple) else (pose,)):
                         suffix = f':{index}' if isinstance(pose, tuple) and len(pose) > 1 else ''
                         if isinstance(step, str) and step in LIGHT_STEPS:
@@ -993,16 +1016,24 @@ class Session:
                             self.output._light_demo(LightPerformance(light,None,'before_speech',lambda: True),cancel,delivery,turn_id)
                             moved = bool(delivery.lights) and delivery.lights[-1]['status']=='commands_sent'
                         else:
-                            receipt = self.output.execute_pose(step,cancel,turn_id+':'+call.call_id+suffix)
+                            receipt = self.output.execute_pose(step,cancel,turn_id+':'+call.call_id+suffix,
+                                hold_pose=not bool(opportunity))
                             self.trace.emit('robot_pose_result',turn_id=turn_id,pose=step,**asdict(receipt))
                             self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps({'pose':step,**asdict(receipt)})})
                             moved, last_at = receipt.status == 'pulses_reached', receipt.at
+                            changed_channels.update(receipt.changed_channels)
                         cancel.check()
                         if not moved:
                             break
                     look_question = call.arguments.get('look_after')
+                    with self._lock:
+                        self.state.actions.motion_observed({'status':'pulses_reached' if moved else 'failed',
+                            'stage':'complete','medium':'controller','changed_channels':sorted(changed_channels)})
                     if not moved:
-                        put_phrase(phrases,"I couldn't complete that movement.",cancel)
+                        if opportunity:
+                            delivery.status,delivery.medium='suppressed','none'
+                        else:
+                            put_phrase(phrases,"I couldn't complete that movement.",cancel)
                     elif call.arguments['text'] is not None:
                         put_phrase(phrases,call.arguments['text'],cancel)
                     elif not look_question and not call.arguments.get('say_before'):
@@ -1327,6 +1358,8 @@ class Session:
                 self._proactive_delivery = None
                 self._audience_bound_output = False
                 self.motion_committed = False
+                self.preparing_plan = False
+                self.agency_scope = None
             audio_at = delivery.first_audio_at
             self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, medium=delivery.medium, timings={
                 "endpoint": None if opportunity else source_end - speech_end,

@@ -168,6 +168,7 @@ class VoiceRuntime:
             quiet_seconds = min(now-self.started_at, now-self.session.last_trusted_speech_at,
                                 now-self.session.last_interaction_at)
             planning_only = quiet_seconds < self.lull_seconds or not agency.due(now)
+            audience, audience_key = self.arrivals.audience_snapshot(now)
             with self.session._lock:
                 intentions = self.session.state.conversation_intent
                 if intentions.record:
@@ -196,14 +197,13 @@ class VoiceRuntime:
             if planning_only:
                 from .agency import audience_key as plan_audience_key
                 current = self.session.state.current
-                scope = {'faces':self.arrivals.faces}
-                if not self.arrivals.faces and current:
+                scope = {'faces':audience}
+                if not audience and current:
                     scope['speaker']={'track_id':current[4].track_id,'person_id':current[4].person_id}
                 if not agency.needs_plan(plan_audience_key(scope)):
                     self.initiative_gate('plan_prepared_waiting_for_lull')
                     return
             event = None if planning_only else self.arrivals.take(self.session.session_id, now, self.session._latest_speech)
-            audience, audience_key = self.arrivals.audience_snapshot(now)
             from .proactive import Opportunity
             from uuid import uuid4
             source = self.session.state.conversation_source
@@ -253,8 +253,9 @@ class VoiceRuntime:
                       'recognition_busy' if self.asr_busy.is_set() else
                       'audio_timestamp_ahead' if audio_age<0 else
                       'audio_stale' if audio_age>.5 else
-                      'audience_changed_or_stale' if (not committed and not self.arrivals.valid(event,now,
-                          audience_bound=self.session._audience_bound_output) and
+                      'audience_changed_or_stale' if (not committed and not self.session.preparing_plan and
+                          (self.session.agency_scope!='general' or self.session._audience_bound_output) and not self.arrivals.valid(event,now,
+                          audience_bound=self.session._audience_bound_output or self.session.agency_scope=='audience') and
                           (self.session._proactive_delivery is None or
                            self.session._proactive_delivery.first_audio_at is None or
                            self.session._audience_bound_output)) else None)
@@ -312,9 +313,10 @@ class VoiceRuntime:
             while not self.stop.is_set():
                 if self.robot:
                     capturing = bool(self.endpoint.frames)
-                    self.robot.before_frame(capturing=capturing or self.session._processing.locked(), allow_idle=(
+                    conversation_busy = self.session._processing.locked() and not self.session.preparing_plan
+                    self.robot.before_frame(capturing=capturing or conversation_busy, allow_idle=(
                         not capturing and self.captures.empty() and self.turns.empty()
-                        and not self.asr_busy.is_set() and not self.session._processing.locked()
+                        and not self.asr_busy.is_set() and not conversation_busy
                         and not (self.drive is not None and self.drive.motion_risk())
                         and self.trace.clock()-self.audio_seen_at<=.5))
                 now = self.trace.clock()

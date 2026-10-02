@@ -57,6 +57,8 @@ class AudienceRecoveryTests(MemoryFixture):
 
     def cancel_on_camera(self):
         runtime=self.runtime
+        from tests.test_agency_plan import draft
+        self.session.agency_planner.choose=lambda f,c:{**draft(),'scope':'audience'}
         class Changed(Brain):
             def reply(self,snapshot,cancel):
                 self.calls+=1

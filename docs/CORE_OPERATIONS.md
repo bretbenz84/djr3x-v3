@@ -442,9 +442,9 @@ promise or failed acquisition cannot advance a physical-action step.
 
 Offered scoped references narrow a proposed general plan instead of rejecting it.
 One validation repair includes the error and rejected proposal. Planner failures
-back off only the planning calls; the same performer can deliver a fresh impersonal
-character thought. Step revision similarly replaces the invalid step in the same
-opportunity, once. Degraded steps have no further silence/revision option. Ordinary
+back off only the planning calls; the same performer executes a recovery step, usually
+a silent body action, otherwise a short natural contribution. Step revision similarly
+replaces the invalid step once in the same opportunity. Recovery cannot recurse. Ordinary
 reply-note failures get a result continuation instead of erasing the human reply.
 
 Reports expose `model_calls_by_purpose`, `model_calls_by_model`, `agency_step_outcomes`,
@@ -454,7 +454,13 @@ and `agency_plan_failed` to distinguish an unavailable planner, revision, action
 and actual heard output. Missing timing/cost measurements remain unknown. See the
 [current design](AGENCY_IMPLEMENTATION_PLAN.md) and [acceptance protocol](AGENCY_ACCEPTANCE.md).
 `agency_plan_rejected`, `agency_scope_narrowed`, `agency_preparation` and plan `origin`
-distinguish correction, scope narrowing, private preparation and degraded activity.
+distinguish correction, scope narrowing, private preparation and recovery activity.
+Plans can lead with silent head/arm poses or self-initiated drive; motor guards remain.
+`robot_pose_result.changed_channels` distinguishes changed output pulses from an
+already-reached pose. Autonomous poses do not acquire or override human pose holds.
+Recent dialogue remains private planning context despite camera track churn; personal
+output still requires its audience. Inspect the actual words and movement receipts,
+not only the count of completed steps.
 The bounded paid probe is `.venv/bin/python -m tools.check_agency --live`; it operates
 no devices and writes traces only under ignored `local/validation/`.
 

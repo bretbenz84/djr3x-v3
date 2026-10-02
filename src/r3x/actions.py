@@ -16,7 +16,7 @@ class Actions:
 
     def observed(self, result: dict) -> None:
         if self.active is None:return
-        keys=('images_acquired','status','outcome','stage','reason','medium','motion_status','motion_completed_at','settled_at','captured_at','frame_id')
+        keys=('images_acquired','status','outcome','stage','reason','medium','motion_status','motion_completed_at','settled_at','captured_at','frame_id','changed_channels')
         self.active['executor']={key:result[key] for key in keys if key in result}
         self.active['stage']='responding'
 
@@ -31,6 +31,12 @@ class Actions:
             row['executor']=deepcopy(next((g for g in delivery.gestures if g['request_id']==row['request_id']),None))
         self.recent.append(row)
         return deepcopy(row)
+
+    def motion_observed(self, result: dict) -> None:
+        self.observed(result)
+        if self.active is not None:
+            # An optional inspection must not overwrite the movement's own receipt.
+            self.active['motion'] = deepcopy(self.active['executor'])
 
     def context(self, audience: str) -> dict:
         return {'active':deepcopy(self.active) if self.active and self.active['audience']==audience else None,

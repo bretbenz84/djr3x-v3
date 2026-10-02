@@ -1,23 +1,24 @@
 # Initial test program and acceptance plan
 
-### October 1 persistent agency repair
+### October 1 companion and physical agency repair
 
-Two live baselines failed: the older optional participation loop had 16 opportunities
-and zero audible contributions; the first persisted-plan run had five planning
-attempts, zero saved plans and zero steps. The repair scopes offered private evidence,
-corrects invalid plans once, prepares early in the lull, and executes a fresh character
-contribution when planning or a step premise fails. Ordinary reply-note rejection no
-longer erases the human reply. Quiet, floor, audience and cancellation guards remain.
+The latest live run spoke proactively but repeated rejected musical bits and largely
+failed to move. The owner stayed in view; tracking churn must not erase conversation.
+Terra now shares Rex's character with Luna, retains recent dialogue, and can plan
+silent temporary poses or bounded drive as well as questions, looks and gestures.
+Human holds, drive guards, audience privacy, stop and interruption remain in force.
+Already-reached poses do not count as movement; private planning permits idle motion.
 
-**874 blocked-I/O checks pass** (67.2 seconds), using synthetic providers, clocks,
-images/pulses and temporary databases. The final **hosted** production-scheduler probe
-completed **six proactive steps across two fictional scenarios**, including two
-simulated gestures: 2 Terra planning calls and 7 Luna calls (one human reply).
-No hardware or real TTS was operated. Source-linked plan scope, first-delivery timing,
-token counts, earlier failures and outstanding physical/social acceptance are recorded
-in [implementation status](IMPLEMENTATION_STATUS.md). The runnable paid probe is
-`tools/check_agency.py --live`; [design](AGENCY_IMPLEMENTATION_PLAN.md) and
-[acceptance cases](AGENCY_ACCEPTANCE.md) describe the remaining robot test.
+The full blocked-I/O suite passed **887 checks** before the final silent-pose regression.
+Final hosted fictional conversation checks completed **10 proactive steps**, including
+sincere questions, gestures and silent head/arm activity; no audience cancellations or
+failed turns. Preceding hosted cases also executed unsolicited base motion through
+fake ESP32 transport. Rejected humor did not resume in the final feedback case.
+No real hardware, capture, TTS or personal data was used. Exact fixture versions,
+call/token counts, limitations and the final focused check are recorded in
+[implementation status](IMPLEMENTATION_STATUS.md). The paid probe is
+`.venv/bin/python -m tools.check_agency --live`; actual robot/social acceptance remains
+for the owner, using the [acceptance cases](AGENCY_ACCEPTANCE.md).
 
 
 ### September 25 idle arms and elbow lifecycle

@@ -34,7 +34,7 @@ One Session remains the conversational owner. At an eligible lull it:
 2. Calls the configured stronger planner when there is no usable plan, after a human
    turn, after exhaustion/failure, or when audience scope changes. The planner writes
    a private first-person character perspective, an objective and one to four
-   concrete steps; normally three or four amortize the planning call. Imagined
+   concrete steps; normally one to three keep the next action close to the exchange. Imagined
    attitudes and hypotheticals are allowed; invented observations or human facts
    are not. Factual references must be among the offered IDs.
 3. Validates capabilities and references and saves the plan in the existing SQLite
@@ -43,19 +43,22 @@ One Session remains the conversational owner. At an eligible lull it:
    general proposal to the current audience instead of rejecting it. Invented refs
    still fail. One bounded correction call receives the rejected proposal and error.
    A provider failure or unsuccessful correction installs an explicit
-   `degraded_character` step: Luna authors a fresh impersonal thought with no factual
-   premise. There is only one active plan and no silent provider substitution.
+   `recovery` step: a silent attention shift or temporary pose when available, otherwise
+   a brief context-appropriate contribution. Failed premises do not force jokes.
+   There is only one active plan and no silent provider substitution.
 4. Sends the current step and fresh context to GPT-6 Luna through the normal reply
-   path. Its offered tools implement a contribution, inspection, directional look
-   or speech with a gesture. Generic silence voting and wheel movement are absent
-   from this step surface. A changed premise or boundary permits an explicit
+   path. Tools implement a contribution, inspection, directional look, speech with a
+   gesture, temporary named/joint pose, or bounded drive. Physical-only plans are valid;
+   movement can be the first step. A changed premise or boundary permits an explicit
    `revise_agency_plan` result. The failed step and reason are retained; the same
-   opportunity executes a replacement character contribution with one bounded Luna
-   call. The replacement offers neither silence nor another revision. Human input,
+   opportunity executes a recovery step with one bounded Luna call. The replacement
+   offers no further revision. Human input,
    quiet, privacy and cancellation still govern the output owner.
 5. Records actual delivery and executor results. Completed audible text advances a
    contribution. Inspection also needs a completed acquisition with an image; looks
    need an executor receipt; gestures need completed speech and a gesture receipt.
+   Drive steps need completed drive receipts. Poses need successful pulses on changed
+   channels; commanding an already-reached position does not count as physical agency.
    Failure or interruption requests revision. A spoken promise cannot count as a
    physical action. Controller pulses remain distinct from measured physical arrival.
 
@@ -79,7 +82,8 @@ inspection and TTS can add latency. These are not first-audio guarantees.
 
 No visible person or new scene is required. News, weather and camera evidence are
 coalesced into the next step context rather than spending one attempt per update.
-Familiar surroundings and Rex's musical/droid perspective can sustain a plan.
+Conversation, ordinary curiosity and physical presence sustain plans; music is flavor
+when relevant, not the default topic. Human feedback changes the next activity.
 The one-seed policy, model-created general timers, silent-decision backoff and
 12-attempts-per-five-minutes cutoff are retired. Planner provider/validation failures
 use bounded 10–60-second planner retries; these no longer block character-step
@@ -89,9 +93,13 @@ Head movement does not itself establish novelty. Existing settling, returning-vi
 history and delivered-description evidence remain in use. Plans retain their actual
 outcomes, and the planner sees recent prior-plan outcomes for continuity. A visible
 person is not an identity assertion. Explicitly general plans survive changed visibility without restarting their steps.
-Personal/camera/target evidence narrows a proposed general plan to its audience;
-public observations and impersonal character ideas can remain general. Audience-scoped notes are withheld when the
-scope differs; camera loss still permits a fresh generic plan. Room-wide object
+Personal/face-target evidence narrows a proposed general plan to its audience;
+public observations, camera acquisition metadata and unnamed object targets can remain
+general. Private planning retains recent dialogue despite face-track instability;
+camera receipts cannot crowd out feedback. This context does not authorize disclosing
+personal facts to a changed audience. Audience-scoped notes are withheld when scope
+differs. Preparation/execution use the same audience snapshot; general activity survives
+camera churn, while personal output revalidates before delivery. Room-wide object
 identity and semantic non-repetition remain live evaluation questions.
 
 Explicit quiet, human-floor state, queued input, fresh microphone requirements and
@@ -100,6 +108,27 @@ invitations do not freeze unrelated plan steps. Invitations retain their own
 explicit heard/open/answered/declined/lapsed lifecycle; time never invents an answer.
 `next_opportunity` is retained only as validated invitation review metadata and
 cannot schedule general work.
+
+## Companion and body repair after the next live run
+
+Session `299c989c202a4f9ca815b6bf9dfed331` spoke proactively but failed socially:
+repeated musical furniture jokes, discarded feedback, zero proactive gestures/base
+moves and one late head look. The owner remained in view. The camera detected a
+face in 768/793 analyzed frames but issued 175 track IDs; 25 face boxes passed the
+48-pixel width threshold but failed the old redundant area threshold. Social audience
+eligibility now uses settled presence and width, without changing identity or learning
+thresholds. The same audience survives a planning-time polling gap; private output
+still cancels for genuinely changed tracks/membership before delivery.
+
+Terra plans from dialogue before inventing a topic, ends rejected bits, and can lead
+with physical action. It sees current named poses, joint positions, held parts and
+base clearance/capabilities. Existing self-initiated drive limits and charging,
+manual-control, obstacle and stop guards remain. Autonomous poses neither acquire
+persistent holds nor release/override human holds. Private planning permits existing
+idle motion; capture and output retain their motion exclusions. A no-change head
+command does not invalidate camera continuity. Self-requested inspection can retain
+useful observations silently instead of announcing inventory. Unanswered name
+questions are not re-asked on the next human turn.
 
 ## Models and persistence
 
@@ -129,7 +158,8 @@ Trace reports separate planning calls, execution calls, planner duration, actual
 outcomes and available token usage. Missing costs, latency, memory or physical evidence
 remain unknown. `tools/check_agency.py --live` now exercises the production scheduler,
 Session, actual Terra/Luna providers, temporary memory and synthetic output in an
-unchanged empty room and after a fictional conversation with camera input. It uses
+unchanged empty room, ordinary companionship, rejected humor with camera input,
+and embodied curiosity. Servo and base owners use injected fake transports. It uses
 no hardware. Results and limitations are recorded in [implementation status](IMPLEMENTATION_STATUS.md).
 
 The owner will run the next live test. Check that Rex develops an idea across several

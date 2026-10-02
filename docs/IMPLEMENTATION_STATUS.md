@@ -6,63 +6,80 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
-## Latest agency repair — October 1
+## Companion and physical agency repair — October 1
 
-The first persisted-plan live run also failed. Session
-`c0ecb89dbc2a40dfb1fc805fcdc1eec2` had five planning attempts: two rejected with
-`GeneralAgencyPlanHasPrivateEvidence`, three interrupted by speech, zero saved plans
-and zero executed steps. Offered camera/target references hit an overbroad privacy
-validator; 10/20-second retry delays then blocked activity. Optional
-`WorkingInterestEvidenceNotOffered` metadata also erased an ordinary human reply.
+The latest live baseline (`299c989c202a4f9ca815b6bf9dfed331`) produced six proactive
+spoken turns but repeatedly returned to musical furniture jokes after negative
+feedback. It executed no proactive gesture or base movement, and one late head look.
+The owner stayed in camera view: 768/793 analyzed frames contained a face, but 175
+track IDs were issued. These tracking changes do not establish physical departures.
+The planner could lose the dialogue when no eligible audience remained, explicitly
+forbade wheels, and usually placed inspections before social/physical engagement.
 
-The repair narrows scoped proposals safely instead of rejecting offered evidence,
-provides one bounded validation correction, and separates planner retry timing from
-activity. On failure, Luna executes an explicit impersonal character step through the
-same owner. A step revision abandons the invalid step and executes that replacement
-once in the same opportunity; it cannot repeatedly choose silence. Private planning
-starts after two quiet seconds without resetting the eight-second default speech
-floor. Optional reply-note errors get a bounded result continuation. Rejected writes
-and promises are never treated as successful actions.
+Implemented through the existing Session/state/output owners:
 
-GPT-5.6 Terra remains the planner and GPT-6 Luna the performer. No person or changed
-scene is required. General plans survive head turns; scoped notes remain audience
-bound. Human interruption, quiet/floor, fresh-input guards, restart revalidation,
-forgetting/correction and actual action/delivery receipts remain in force.
+- Terra and Luna share Rex's character. Plans prioritize actual dialogue, sincere
+  curiosity and relevant humor, retire rejected bits, and describe an intention
+  rather than script a monologue. Unanswered name questions are not re-asked on the
+  next human turn. Self-requested inspections may save observations silently.
+- Plans support contribute, inspect, look, gesture, temporary pose and drive; a silent
+  physical action can come first. Base charging/manual/clearance/stop limits remain.
+  Agency poses cannot override/release human holds or create permanent new holds.
+- The planner sees current poses/joint positions and recent action purposes.
+  No-change poses request revision, not successful physical-agency credit. Their
+  unchanged head targets no longer invalidate the camera. Silent committed poses,
+  like directional attention, can finish through their own camera reframe.
+- Private planning retains recent dialogue despite face/track churn and permits
+  existing idle motion. Preparation and execution use the same audience snapshot.
+  A long planning/polling gap cannot cancel an unchanged audience. Generic activity
+  survives view changes; private output retains audience checks. Social presence uses
+  settled membership and face width, without the redundant area gate; identity and
+  enrollment thresholds are unchanged.
+- Invalid steps recover once, normally with quiet body activity rather than a forced
+  unrelated joke. Human input, quiet/floor, input health, cancellation, corrections,
+  forgetting and restart revalidation remain authoritative.
 
-Verification: **874 blocked-I/O checks pass** (67.2 seconds). These use temporary
-SQLite databases, fake clocks/providers/images/pulses, and blocked network/audio/serial.
-New contracts exercise real-shaped camera/target evidence, one repair then degraded
-activity, cancellation during repair/recovery, preparation without consuming speech,
-reply-note recovery and successful versus failed simulated gesture receipts.
+Verification: **887 blocked-I/O checks passed** (68.0 seconds) before the final silent
+pose/reframe regression; its focused result is recorded below. Tests use temporary
+SQLite, fake clocks/providers/pulse/ESP32 transports, blocked network/audio/serial.
+They do not operate hardware or establish acoustic/person discrimination.
 
-The bounded paid `tools/check_agency.py --live` probe uses the **production scheduler,
-Session, Terra/Luna and output owner**, with fictional input, synthetic microphone
-health/playback and simulated gestures. Final evidence is under ignored
-`local/validation/agency-8f8c5613b7074d2facf4e8c77b00383e/`:
+Hosted checks use real **GPT-5.6 Terra / GPT-6 Luna**, fictional dialogue, synthetic
+playback and production servo/base owners on injected fake transports:
 
-- Empty unchanged room, no person or human input: **3 completed proactive steps**, a
-  bass-clarinet/disco-filter idea, spoken continuation with tilt, and a follow-up.
-- Fictional conversation plus unchanged camera fixture: **3 completed proactive
-  steps** developing a bellows-kalimba, including a tilt. The plan cited the actual
-  fictional source turn and used audience scope. No additional human input intervened.
-- **2 Terra calls and 7 Luna calls** (6 step executions, 1 immediate human reply),
-  with no plan rejection or failed turn in this final probe. Planning took 5.44/6.87
-  seconds (median 6.16, n=2). Empty-room first simulated delivery was 11.41 seconds
-  from probe start; planning started about two seconds into startup. The six step
-  executions reached synthetic playback in median 2.21 / maximum 3.46 seconds after
-  their opportunity began. These numbers exclude real TTS and acoustic playback.
-- Reported Terra tokens: 3,409 input / 779 output (132 reasoning); Luna: 134,847
-  input / 721 output (67,336 cached input; zero reported reasoning). These are
-  provider usage counts, not a measured bill.
+- Final shared-character cases, ignored
+  `local/validation/agency-470a501ab1214529ac413353de77b7bd/`: **10 completed proactive
+  steps**, no audience invalidations or failed turns. Companionship produced three
+  spoken gestures and two silent poses, including “What part of work made today feel
+  so long?” and a follow-up about the person's improvised presentation. Rejected-humor
+  repair produced five silent looks/poses, did not revive the music bit, and followed
+  the later human topic. Two proposed steps were revised and recovered; this is not
+  a claim that every first proposal was good. Explicit quiet stopped model work.
+- Those two cases used **10 Terra and 18 Luna calls**, including five human replies,
+  ten scheduled executions, two step recoveries and one tool continuation. Planner
+  duration: median **4.83 s**, maximum **9.41 s**, n=10. Terra reported 55,880 input /
+  3,575 output tokens (18,918 cached input; 1,858 reasoning); Luna 397,924 / 819
+  (265,814 cached; 37 reasoning). Billed cost is unmeasured.
+- The preceding continuity-check run,
+  `local/validation/agency-8291270b78ab4943949ac75cdd032658/`, completed **15 steps**
+  across three cases with no audience invalidations, including an unsolicited base
+  move, head/arm actions and relevant conversational follow-ups. The empty-room case
+  in `agency-4d9a6fcc37614027b4515c5a8e94e648/` completed five steps including two
+  base moves without any person/input. These precede the final shared-character
+  prompt and are mechanism evidence, not equivalent final social-quality results.
 
-An earlier hosted probe exposed a remaining revision/silence escape and a simulator
-capability misunderstanding; these were corrected before the final probe. A separate
-successful earlier probe also completed six steps with synthetic output. No real
-microphone, camera, TTS, motor, acoustic identity model or V2 data was used. The two
-small hosted scenarios do not establish long-run novelty or real-room social quality.
-Actual playback/tail latency, billed cost, resident memory/M2 load and physical movement
-remain unmeasured. The next robot run must establish whether Rex feels alive in use.
-See the [design](AGENCY_IMPLEMENTATION_PLAN.md) and [acceptance cases](AGENCY_ACCEPTANCE.md).
+Earlier passes exposed repeated neutral poses and polling-gap cancellations; their
+traces are retained, not counted as acceptance. The former two-case musical probe
+only established delivery and missed the user's actual complaint. Current acceptance
+cases include ordinary companionship, rejected humor, continuous visibility, body
+initiative and unchanged scenes. Prompts/evals follow the official
+[OpenAI guidance](https://developers.openai.com/api/docs/guides/prompt-engineering).
+
+No robot, real camera/microphone, TTS or personal-data upload was used. Inter-turn
+probe time is accelerated; wall-clock first-audio, real playback/tail latency, resident
+memory/M2 load and long-run social quality remain unmeasured. The owner's next robot
+run remains the physical and social acceptance test. See [design](AGENCY_IMPLEMENTATION_PLAN.md)
+and [acceptance cases](AGENCY_ACCEPTANCE.md).
 
 The dated checkpoints below describe prior software. Their scheduler rules and counts
 are historical; this replacement supersedes them.

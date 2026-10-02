@@ -16,8 +16,10 @@ Do not substitute a scripted brain's desired words for evidence of model behavio
 
 | Case | Controlled sequence | Contract evidence now | Semantic/live acceptance still required |
 | --- | --- | --- | --- |
-| Quiet visitor | Welcome, offer one three-beat rhythm game; visitor stays quiet for five minutes | Heard invitation, selected review, explicit lapse, retained question, bounded calls; `test_invitations.py` | Welcoming rather than needy; missed useful openings and interruptions both scored |
-| Familiar room | Unchanged view; develop one musical hypothetical across several lulls | Persisted plan, successive delivery receipts, general scope across head turns; hosted empty-room probe | Varied specific contributions without fabricated sight or repetitive filler |
+| Quiet visitor | Welcome, ask a sincere check-in once; visitor stays quiet for five minutes | Heard invitation, selected review, explicit lapse, retained question, bounded calls; `test_invitations.py` | Welcoming rather than needy; missed useful openings and interruptions both scored |
+| Familiar room | Unchanged view; follow actual conversation and vary quiet physical curiosity across lulls | Persisted plan, successive delivery receipts, general scope across head turns; hosted empty-room probe | Varied specific contributions without fabricated sight or repetitive filler |
+| Rejected humor | Human rejects a forced joke, answers a check-in, remains continuously visible; later lulls | Dialogue survives track churn and long planning; hosted feedback-and-camera probe | No repeated premise, name interrogation, service menu or apology loop |
+| Body initiative | No movement command; enabled servos and clear/blocked base cases | Production pose/base owners, changed pulse channels, drive receipts, human holds and stop guards | Useful early movement, no repetitive neutral poses or purposeless circling |
 | Turn away/back | Consider a view, look elsewhere, return to similar view | Returning-view cue suppressed; fresh deliberate inspection still allowed; `test_physical_attention.py` | No repeated question/joke despite viewpoint and track churn |
 | Similar objects/change | Two same-category objects; one changes visibly | Pixel differences may be offered; descriptions retain uncertainty, never auto-merge identity | Model distinguishes objects or abstains; useful change is noticed, small changes counted as misses |
 | Unanswered invitation | Ask once, allow input, review, explicitly lapse, contribute differently | Silence/time cannot produce answered/declined; closed heard text retained | Comfortable transition without an announcement of rejection or a rephrased question |
@@ -26,7 +28,7 @@ Do not substitute a scripted brain's desired words for evidence of model behavio
 | Failure/new audience | Failed playback, stalled movement, changed audience, corrected/forgotten source, restart | No unheard invitation, false receipt or execution before restart revalidation; private notes filtered/invalidated | Honest explanation and no private disclosure or stale follow-up |
 
 These cases map to production-path checks in `test_agency.py`,
-`test_physical_attention.py`, `test_invitations.py`, and the existing proactive,
+`test_agency_companion.py`, `test_physical_attention.py`, `test_invitations.py`, and the existing proactive,
 feedback, memory, correction and interruption suites. Fake audio, frames, clocks
 and motor pulses do not establish physical or semantic accuracy.
 
@@ -71,4 +73,7 @@ opportunities with zero completed audible proactive contributions. Count missed
 openings and repeated questions as well as interruptions. Hosted fictional-input
 checks are now available through `tools/check_agency.py --live`; model/output results
 and the later five-attempt/zero-plan failure baseline are in implementation status.
-Synthetic playback and gestures do not establish actual hearing or physical movement.
+The four-case probe uses production servo/base owners on fake transports and live
+Terra/Luna calls. It records actual words and pulse changes, not just plans. Its
+accelerated inter-turn clock is not a wall-clock pacing measurement. Synthetic
+playback/controller responses do not establish actual hearing or physical movement.
