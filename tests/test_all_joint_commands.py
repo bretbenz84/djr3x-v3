@@ -164,6 +164,29 @@ class ChainedPoseCommands(MemoryFixture):
         self.assertTrue(followup.images)
         self.assertGreaterEqual(followup.context['inspection']['captured_at'], self.rows('robot_pose_result')[-1]['at'])
 
+    def test_look_after_that_saves_what_it_saw_still_speaks(self):
+        # Hosted probe October 2: saving the description changed the store revision the pose
+        # guard checked, so the comment about what Rex saw was cancelled unheard.
+        from r3x.inspection import CurrentView
+        from tests.test_drive_session import FakeScene
+        self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_down'],'look_after':'What is on the floor?','say_before':None,'text':None}))
+        first=self.brain.text
+        class Describe:
+            snapshots=[]
+            def reply(inner,snapshot,cancel):
+                inner.snapshots.append(snapshot)
+                yield (ToolCall('d','describe_view',{'observation_id':snapshot.context['inspection']['request_id'],
+                    'description':'A sock on the floor.','uncertainty':'Low-resolution frame.',
+                    'description_scope':'general','text':'Someone has abandoned a sock. I have questions.'})
+                    if snapshot.continuation else first)
+        self.brain = self.session.brain = Describe()
+        view = CurrentView(FakeScene(self.clock), clock=self.clock); view.start()
+        self.output.inspection = view
+        self.state.trace.clock = self.clock
+        result = self.turn('Look down and tell me what you see.')
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(result.completed_text, ['Someone has abandoned a sock. I have questions.'])
+
     def test_mixed_head_arm_and_light_steps_run_in_the_order_asked(self):
         # "Look left then right then up then down then hold your hand out and blink your eyes."
         from r3x.servo_poses import HEAD_DOWN, NAMED_POSES

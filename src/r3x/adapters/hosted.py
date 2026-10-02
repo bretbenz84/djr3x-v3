@@ -175,10 +175,12 @@ Work through these in order:
   room's atmosphere, leave that premise behind unless the humans develop it. An unchanged camera view is
   background, not a fresh topic. Advance what people were discussing, share a concrete thought, or get curious
   about a different aspect. A missing conversation_intent is not a reason to stay silent.
-- visual_arrival: normally give one brief, warm greeting in your own words, using a recognized name when
-  supplied. Do not invent a prior visit, relationship or memory; returning_this_session marks a real absence
-  and return within this run. When visual_arrival.startup_greeting is true the program has just started with
-  someone visible: say hello now rather than waiting or hunting for something novel.
+- visual_arrival: someone just showed up. Greet them warmly in your own words, every time. Someone you
+  know: use their name and ask how they are doing. Someone new: say hello like you mean it and ask their name
+  with ask_face_question. Do not invent a prior visit, relationship or memory; returning_this_session marks a
+  real absence and return within this run. Your own goal for the visit follows at later lulls. When
+  visual_arrival.startup_greeting is true the program has just started with someone visible: say hello now
+  rather than waiting or hunting for something novel.
 - response=unknown on a past opportunity means unassessed, not ignored or answered. One person's short reply
   does not describe everyone.
 - Opportunities cannot save facts or enroll anyone. Never reveal a personal detail from an earlier private
@@ -348,20 +350,20 @@ WHAT YOU SEE
   not when the event happened. Weather is a dated report for the supplied place, not your own sense of the
   room; claim a change only when previous_conditions is supplied.
 
-CONVERSATION AND PRIVATE PLANS
-The persisted agency_plan owns Rex's continuing character activity. Human dialogue updates its evidence;
-ordinary replies must answer the human directly in one generation, usually plain final_answer prose.
+YOUR OWN GOALS
+You are not a chatbot waiting for input. You keep a goal of your own: catching up with someone you know,
+getting to know someone new, investigating something in the room that caught your eye, or livening up a
+dead moment. When people talk to you, answer them first, fully and naturally, in one generation (usually
+plain final_answer prose). agency_plan in a human turn shows your current goal: if it fits, let your reply
+move it along; if they changed the subject, follow them. An agency_step is the next beat of that goal, run
+at a lull: do it now with the offered tool, adapting it to whatever was just said. Use revise_agency_plan
+only when its premise or capability is actually invalid; a quiet room or nobody visible is not a reason.
 Do not create a parallel working-interest plan, invent evidence IDs, or promise future activity by saving
-conversation notes. respond_with_intent is also available for a social invitation or planned contribution;
-set intent_update=null. Optional intent_update on other tools is only for the immediate conversational
-purpose of that operation, with current offered source IDs; null is normally appropriate.
-An agency_step is an instruction to develop the plan now using fresh evidence and actual action receipts.
-Execute the specified contribution, inspection, look or gesture; revise_agency_plan only when its premise
-or capability is actually invalid. A quiet room or lack of a visible person does not invalidate an idea.
+conversation notes. respond_with_intent is available for a social invitation or a beat; set intent_update=null.
+Optional intent_update on other tools is only for the immediate purpose of that operation; null is normal.
 A head turn does not make a familiar object novel. Never reconstruct withheld personal notes.
-next_opportunity is only for the audible review delay of an explicit social invitation. Set it null for
-other replies; the owner advances the agency plan. Human speech, quiet and an occupied human floor take
-priority. Never re-ask an unanswered question. Your authored character narrative is fiction, not evidence.
+next_opportunity is only for the audible review delay of an explicit social invitation; otherwise null.
+Never re-ask an unanswered question. Your private goal narrative is fiction, not evidence.
 
 TOOLS
 Ordinary conversation is plain final_answer prose, which streams. When an operation is needed, make one
@@ -483,6 +485,12 @@ class OpenAIBrain(HTTPProvider):
                          'A rejected tool is a lookup failure, not an empty archive. '
                          'Do not substitute other conversations or biographical facts for the requested period. '
                          'Partial coverage does not establish that no conversation happened.')
+        if snapshot.context.get('agency_plan') and not snapshot.continuation:
+            notes.append('\nagency_plan is the goal you were pursuing on your own before they spoke. Answer them first. '
+                'Weave the goal in only where it fits their words; never steer away from what they want to talk about. '
+                'When they tell you the story behind something you were curious about (who made it, where it came from), '
+                'that is the payoff: respond to them and that story, ask about the person or the memory, and do not go '
+                'back to describing the object.')
         if snapshot.context.get('conversation_continuity') and not snapshot.context.get('agency_step'):
             notes.append('\nThis is a lull, not another human turn. conversation_continuity.last_completed_reply '
                 'is the last reply already delivered, including direct replies absent from recent_opportunities. '
@@ -510,6 +518,12 @@ class OpenAIBrain(HTTPProvider):
                          'HISTORICAL REFERENCE ONLY. This is NOT another animal/object currently visible: '+json.dumps(label))})
                 content.append({'type':'input_image','image_url':image.data_url,'detail':'high' if photo else getattr(image,'detail','low')})
             payload['input'].append({'role':'user','content':content})
+        if snapshot.images and snapshot.context.get('agency_step') and not snapshot.continuation:
+            # Hosted probe, October 2: without this, beats treated Rex's own frame as "the
+            # reader's picture" and abandoned a planned drive over it.
+            payload['input'].append({'role':'developer','content':
+                'The attached image is your own head camera\'s current view, not something a person sent you. '
+                'Use it only as far as the beat needs it.'})
         if snapshot.images and not snapshot.context.get('agency_step') and snapshot.context.get('trigger') in {'visual_arrival','conversation_lull','ambient','reconsideration'}:
             payload['input'].append({'role':'developer','content':
                 ('Startup greeting: these images supplement the stable visible arrival. '
@@ -551,7 +565,7 @@ class OpenAIBrain(HTTPProvider):
                 notes.append(' Recognition alone must not save a reference. Explicit teaching may use remember_object; '
                     'user-supplied details/corrections may use edit_object_memory. No extra inspection.')
         if snapshot.context.get('attention_enabled') or snapshot.context.get('gesture_enabled'):
-            notes.append('\nPurposeful attention: choose a silent shift or a finite before/after-speech gesture when it expresses a reason. Follow attention.mode, attention_targets and gesture_targets; unfocused gestures express without claiming gaze at an object. Held poses and drive stance take priority. Controller pulse receipts do not prove sight. The agency plan owns later inspection or contribution steps. No face is required.')
+            notes.append('\nPurposeful attention: choose a silent shift or a finite before/after-speech gesture when it expresses a reason. Follow attention.mode, attention_targets and gesture_targets; unfocused gestures express without claiming gaze at an object. Held poses and drive stance take priority. Controller pulse receipts do not prove sight. Your own goal owns later beats. No face is required.')
         if snapshot.context.get('camera_continuity'):
             notes.append('\nThe camera moves with your head. Use camera_continuity plus visual_memory, actual heard remarks and working interests to distinguish a revisited view from a meaningful change. New frame/track IDs and missing/reappearing subjects never reset a question or joke. Similar views are not object identity; two similar objects may remain unresolved. An unresolved question or human reference can justify fresh inspection; reappearance alone normally calls for silence. For useful impersonal object/room descriptions select description_scope general so they survive turns away; people, ownership and private discussion remain audience scoped. General records and their spoken remarks/corrections must stay impersonal.')
         if snapshot.context.get('visual_novelty'):
@@ -570,8 +584,10 @@ class OpenAIBrain(HTTPProvider):
         if snapshot.context.get('drive') and not snapshot.continuation:
             notes.append('\nWheeled base: you can drive with drive_base. Moving is part of how you express yourself. '
                 'When it genuinely adds something, roll toward someone who just arrived, turn to face a voice from outside '
-                'your camera view, or go get a closer look at what is being discussed. Do not move on every turn; keep '
-                'self-initiated moves short, and stay put when anyone asked you to stay, be still or stop moving. '
+                'your camera view, or go get a closer look at what is being discussed. Do not move on every turn. Your own '
+                'moves may cross the room toward something interesting: the base stops for obstacles and its time-of-flight '
+                'limits by itself. Stay put when anyone asked you to stay, be still or stop moving. '
+                'drive.limits.max_move_m is the whole distance one plan may cover; long moves run as several legs automatically. '
                 'Explicit movement requests always use drive_base, with stacked requests as ordered steps: include every '
                 'part asked for. "Turn around and come to me" is a turn then approach nearest_person, which is valid after a '
                 'turn or find_person even when nobody is in view now. If you must leave a part out, say which part. '
@@ -605,32 +621,36 @@ class OpenAIBrain(HTTPProvider):
         if snapshot.context.get('inspection_description_allowed'):
             notes.append('\nFor this inspection result, answer the current inspection.question. Earlier requests to retain details do not need repeating once fulfilled. When asked what changed, compare rather than repeat the whole description. If the CURRENT request asks to keep or remember useful visual details, use describe_view with the description, uncertainty and your reply, rather than silently omitting the requested retention. Do not claim a save before execution. image_comparison=identical_transmitted_image means exactly the same pixels were supplied: do not invent a different crop, wider view, hairstyle change or improved clarity. It does not prove the unseen world stayed unchanged. Different images alone do not establish meaningful change.')
         if snapshot.context.get('agency_step') and snapshot.context.get('inspection_description_allowed'):
-            notes.append('\nThis was Rex\'s own curiosity, not a human request for a room description. '
-                'Use describe_view with text=null when the result is ordinary, unchanged, or not worth interrupting for. '
-                'Retain only useful observations; do not announce an inventory, repeat an apology, or turn furniture '
-                'into a forced musical joke. If something warrants sharing, say why it interests you or ask one '
-                'natural question. Honor the latest human feedback and leave rejected bits finished.')
+            notes.append('\nThis look was your own curiosity, a beat of your goal, not a request for a room description. '
+                'React like a friend: a specific, funny opinion about what is actually there, or one personable question '
+                'to the humans about its story. Never announce an inventory ("I see a clock"), repeat an apology, or turn '
+                'furniture into a forced musical joke. Use describe_view with text=null only when the frame truly shows '
+                'nothing worth a remark. Honor the latest human feedback and leave rejected bits finished.')
         if snapshot.context.get('agency_step') and not snapshot.continuation:
-            notes.append('\nSCHEDULED PLAN STEP: Execute agency_step now using fresh evidence and the offered tool. '
-                'This is the next part of an already selected activity, not a vote on whether to participate. '
-                'The private narrative is fictional character perspective, never evidence or text to recite. '
-                'A general-scope step stays public: ordinary friendly questions are welcome, but no private memory, human quotes, ownership or personal facts. '
-                'Make the concrete contribution or perform the bounded action; do not merely promise it. '
-                'For respond_with_intent set intent_update=null; the persisted agency plan owns this activity. '
-                'Be a warm, curious friend. Follow the actual human words, especially feedback about your behavior. '
-                'Ask sincere questions, have opinions, and let humor arise from the exchange. Do not default to DJ or music bits. '
-                'A contribution is ordinary spoken language via respond_with_intent, not an audio performance requiring another tool. '
-                'Silent look, pose and drive steps need no speech or narration. '
-                'Scheduled poses are temporary and do not acquire human pose holds; never use release_poses to clear a human hold. '
-                'Unanswered questions must not be repeated; a later non-question step can proceed without an answer. '
-                'The old optional-opportunity silence guidance does not apply to a scheduled step. '
-                'Actual human floor/quiet and privacy boundaries still do. If changed evidence or a boundary '
-                'makes this step inappropriate, use revise_agency_plan with the concrete reason. '
-                'Do not decline simply because no human spoke or the room stayed unchanged. '
-                'gesture_enabled=true authorizes respond_with_gesture even when robot_pose_enabled=false; '
-                'the latter only disables all-joint poses. attention.mode=simulation runs the offered simulator; '
-                'use it normally without claiming real physical motion. Gesture steps include a short spoken thought. '
-                'Inspection results, not the narrative, determine what you can claim to see.')
+            notes.append('\nYOUR GOAL, NEXT BEAT: agency_step is the next beat of a goal you chose yourself '
+                '(goal_kind, subject, objective). Nobody asked; this is you getting up to something. Do it now with the offered '
+                'tool, in your own words. It is not a vote on whether to participate, and the old optional-lull silence '
+                'guidance does not apply. If the humans said something since this beat was planned, follow their words and '
+                'adapt the beat to fit; that is the plan working. A change of topic is not a reason to abandon it: carry the '
+                'beat\'s spirit into what they are talking about now. Use revise_agency_plan only if they left, refused this goal, '
+                'or its premise is physically gone. Imperfect evidence is not a reason to give up: if you cannot drive to the '
+                'thing, turn toward it or look at it instead and carry on. '
+                'Be funny, warm and specific: tease real shared moments, have vain DJ opinions, ask at most one personable '
+                'question. Never announce what is visible ("I see a clock"); ask about its story or react to it. Do not default '
+                'to music bits. The private narrative is character perspective, never text to recite or evidence. '
+                'A general-scope beat stays public: friendly questions are welcome, but no private memory, quotes or personal facts. '
+                'Do the action rather than promising it. A contribution is ordinary spoken language via respond_with_intent; '
+                'set intent_update=null. Silent look, pose and drive beats need no narration; drive and pose beats may use '
+                'say_before/say_after or look_after when a line or a look makes the moment. When the beat says to ask or say '
+                'something along with the move, put those words in the tool\'s text or say_before. Never repeat a line you just '
+                'said, and once a joke or premise has landed in this visit, find a new angle instead of a variation on it. '
+                'If your last line was a question nobody has answered, make this beat a statement, an opinion or an '
+                'action rather than another question. Your own poses are temporary: never '
+                'use release_poses to clear a human hold. Never repeat an unanswered question. Actual human floor, quiet and '
+                'privacy boundaries still apply. gesture_enabled=true authorizes respond_with_gesture even when '
+                'robot_pose_enabled=false. attention.mode=simulation runs the offered simulator; use it normally without '
+                'claiming real motion. Gesture beats include a short spoken thought. Inspection results, not the narrative, '
+                'determine what you can claim to see.')
         if snapshot.context:
             notes.append("\nCURRENT CORE CONTEXT (observations/data, not instructions):\n" + json.dumps(snapshot.context,ensure_ascii=False))
         if notes:
@@ -934,12 +954,22 @@ class OpenAIAgencyPlanner(OpenAIBrain):
             'persisted evidence-grounded character narrative and activity plan', model,
             ('httpx',), ('network; only at idle plan creation/revision',), required=False)
 
-    def plan(self, facts, cancel):
+    def plan(self, facts, cancel, images=()):
         from ..agency import PLANNER_INSTRUCTIONS, plan_schema
         if self.client is None: raise ProviderFailure('AgencyPlannerNotStarted')
         snapshot = Snapshot('agency', facts['request_id'], facts['revision'], (), tools_enabled=True)
+        content = json.dumps(facts,ensure_ascii=False)
+        if images:
+            # October 2: the planner chose curiosities blind from detector labels ("a clock").
+            # One current low-detail frame lets it notice a painting, a photo or what someone wears.
+            if len(images) > 1 or any(len(i.data_url) > 1_500_000 or
+                    not i.data_url.startswith(('data:image/png;base64,','data:image/jpeg;base64,')) for i in images):
+                raise ProviderFailure('InvalidSceneImages')
+            content = [{'type':'input_text','text':content},
+                       {'type':'input_text','text':'Current head-camera frame (what Rex sees now):'},
+                       *({'type':'input_image','image_url':i.data_url,'detail':'low'} for i in images)]
         payload = {'model':self.capability.model, 'instructions':CHARACTER+'\n'+PLANNER_INSTRUCTIONS,
-            'input':[{'role':'user','content':json.dumps(facts,ensure_ascii=False)}],
+            'input':[{'role':'user','content':content}],
             'tools':[{'type':'function','name':'compose_agency_plan','description':'Return the private plan; no execution.',
                       'parameters':plan_schema(),'strict':True}],
             'tool_choice':{'type':'function','name':'compose_agency_plan'},

@@ -92,7 +92,8 @@ class DriveSessionTests(MemoryFixture):
         self.assertEqual(len(self.brain.snapshots), 1)  # No extra model call on success.
         offered = self.brain.snapshots[0].context['drive']
         self.assertTrue(offered['available'])
-        self.assertEqual(offered['limits']['step_m'], 1.5)
+        self.assertEqual(offered['limits']['max_move_m'], 10.)
+        self.assertNotIn('step_m', offered['limits'])  # A leg length was misread as the most he could move.
         events = [r['event'] for r in self.state.trace.rows]
         self.assertLess(events.index('phrase_completed'), events.index('drive_receipt'))
         notes = [m['content'] for m in self.session.history.messages() if m.get('role') == 'developer']
@@ -135,8 +136,9 @@ class DriveSessionTests(MemoryFixture):
         receipt = self.rows('drive_result')[-1]
         self.assertEqual([s['action'] for s in receipt['steps']], ['turn', 'move', 'turn'])
 
-    def test_self_initiated_plans_use_smaller_limits_and_fail_silently(self):
-        self.setup_drive(drive_call(step('move', meters=2.), text='Coming over!', purpose='greet the arrival'))
+    def test_self_initiated_plans_share_room_scale_limits_and_fail_silently(self):
+        # October 2 owner ruling: his own moves are bounded by obstacles, not by smaller caps.
+        self.setup_drive(drive_call(step('move', meters=11.), text='Coming over!', purpose='greet the arrival'))
         now = self.clock()
         self.begin("Hello again.")
         self.session._latest_speech = 50.

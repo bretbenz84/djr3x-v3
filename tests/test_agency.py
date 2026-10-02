@@ -105,7 +105,7 @@ class AgencyTests(MemoryFixture):
         self.assertEqual([r['reason'] for r in rows], ['audio_unavailable'])
         self.tick(100)
         self.assertEqual([r['reason'] for r in self.trace.rows if r['event']=='initiative_gate'],
-                         ['audio_unavailable','considering'])
+                         ['audio_unavailable','preparing_goal','pursuing_goal'])
 
     def test_generic_working_interest_survives_camera_free_reconsideration(self):
         def choose(c):

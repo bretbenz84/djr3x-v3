@@ -59,6 +59,11 @@ class LiveConsole:
             message = "Rex stayed quiet: " + clean(row["reason"]).replace("_", " ")
         elif event == "proactive_invalidated":
             message = "Rex's proactive turn stopped: " + clean(row['reason']).replace('_', ' ')
+        elif event == "agency_plan_saved":
+            message = ("Rex is improvising: " if row.get('origin') == 'recovery' else
+                       "Rex's new goal (" + clean(str(row.get('goal_kind', ''))).replace('_', ' ') + "): ") + clean(row.get('objective', ''))
+        elif event == "reply_cancelled":
+            message = "Reply withheld: " + clean(str(row.get('reason', ''))).replace('_', ' ')
         elif event == "audio_input_health":
             level = 'digital silence' if row['peak_dbfs'] is None else f"peak {row['peak_dbfs']:.0f} dBFS"
             message = (f"Microphone ({clean(row['device'])}): {level}; "

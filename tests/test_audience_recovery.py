@@ -12,37 +12,35 @@ from tests.test_voice_core import Brain
 
 
 class AudienceContinuityTests(unittest.TestCase):
-    def settled(self):
+    """October 2: presence is judged by identity and time, never by face-track IDs."""
+    def settled(self, person='person'):
         arrivals=Arrivals()
         for at in (0,.5,1,1.5,2,2.5,3):
-            arrivals.observe([face(at,'person','old')],at)
-        faces,key=arrivals.audience_snapshot(3)
-        event=Opportunity('event','session',3,None,None,faces,0,False,
-                          'conversation_lull','source',audience_key=key)
-        return arrivals,event
+            arrivals.observe([face(at,person,'old')],at)
+        return arrivals,arrivals.take('session',3,float('-inf'))
 
-    def test_supported_replacement_preserves_general_presence_not_target_authority(self):
-        arrivals,event=self.settled()
-        arrivals.observe([face(3.5,'person','new')],3.5)
-        self.assertTrue(arrivals.valid(event,3.5,audience_bound=False))
-        self.assertFalse(arrivals.valid(event,3.5))
-        self.assertEqual(arrivals.audience(3.5)[0]['track_id'],'new')
-
-    def test_conflicts_gaps_departures_and_spatial_jumps_cannot_inherit_presence(self):
-        for mode in ('unknown','different_person','duplicate','empty','stale','epoch','distant','gap'):
+    def test_renumbered_track_and_brief_dropouts_are_the_same_visit(self):
+        for mode in ('renumbered','unrecognized','dropout'):
             with self.subTest(mode=mode):
                 arrivals,event=self.settled()
-                at=5 if mode=='gap' else 3.5
-                rows=[face(at,'person','new')]
-                if mode=='unknown':rows[0]['identity']=None
-                if mode=='different_person':rows[0]['identity']='other'
-                if mode=='duplicate':rows.append(face(at,'person','third'))
-                if mode=='empty':rows=[]
-                if mode=='stale':rows[0]['at']=0
-                if mode=='epoch':rows[0]['face_epoch']=1
-                if mode=='distant':rows[0]['box']=[.8,.8,.1,.1]
-                arrivals.observe(rows,at)
-                self.assertFalse(arrivals.valid(event,at,audience_bound=False))
+                rows={'renumbered':[face(3.5,'person','new')],'unrecognized':[face(3.5,None,'new')],'dropout':[]}[mode]
+                arrivals.observe(rows,3.5)
+                self.assertTrue(arrivals.still_present(event,3.5))
+
+    def test_someone_else_or_a_real_departure_ends_the_greeting(self):
+        arrivals,event=self.settled()
+        arrivals.observe([face(3.5,'other','new')],3.5)
+        self.assertFalse(arrivals.still_present(event,3.5))
+        arrivals,event=self.settled()
+        arrivals.observe([],20)
+        self.assertFalse(arrivals.still_present(event,20))
+
+    def test_unknown_visitor_counts_while_any_face_is_seen(self):
+        arrivals,event=self.settled(person=None)
+        arrivals.observe([face(4,None,'renumbered')],4)
+        self.assertTrue(arrivals.still_present(event,4))
+        arrivals.observe([],20)
+        self.assertFalse(arrivals.still_present(event,20))
 
 
 class AudienceRecoveryTests(MemoryFixture):
@@ -55,7 +53,7 @@ class AudienceRecoveryTests(MemoryFixture):
         self.setup_core();self.turn();self.visible(108)
         self.session.output=OutputOwner(SyntheticTTS(),SyntheticSink(),self.trace)
 
-    def cancel_on_camera(self):
+    def churn_camera(self):
         runtime=self.runtime
         from tests.test_agency_plan import draft
         self.session.agency_planner.choose=lambda f,c:{**draft(),'scope':'audience'}
@@ -64,11 +62,9 @@ class AudienceRecoveryTests(MemoryFixture):
                 self.calls+=1
                 runtime.arrivals.observe([face(108,track='replacement')],108)
                 cancel.check()
-                yield 'This abandoned reply must not play.'
+                yield 'Same visitor, same goal.'
         self.session.brain=Changed()
         self.runtime.proactive_tick()
-        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
-        self.assertTrue(self.state.agency.dirty)
 
     def test_unsettled_face_membership_allows_generic_context_without_personal_audience(self):
         self.start()
@@ -83,20 +79,20 @@ class AudienceRecoveryTests(MemoryFixture):
         self.assertEqual(context['memory_opportunities'],[])
         self.assertIsNone(context['personal_memory']['person_id'])
 
-    def test_unheard_replacement_replans_with_fresh_context_after_pacing(self):
-        self.start();self.cancel_on_camera()
-        replacement=Brain('A newly considered follow-up.')
-        self.session.brain=replacement
-        self.visible(115.9,track='replacement');self.runtime.proactive_tick()
-        self.assertEqual(replacement.calls,0)
-        self.visible(116,track='replacement');self.runtime.proactive_tick()
-        self.assertEqual(replacement.calls,1)
-        self.assertEqual(replacement.snapshots[0].context['faces'][0]['track_id'],'replacement')
-        self.assertTrue(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
-        self.assertFalse(any('abandoned reply' in m.get('content','') for m in self.session.history.messages()))
+    def test_anonymous_track_replacement_neither_cancels_nor_replans_the_goal(self):
+        # Live October 1: a present owner's renumbered face cancelled steps and forced replans.
+        self.start();self.churn_camera()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
+        self.assertFalse(self.state.agency.dirty)
+        plan_id=self.state.agency.record['id']
+        follow=Brain('A newly considered follow-up.')
+        self.session.brain=follow
         self.visible(124,track='replacement');self.runtime.proactive_tick()
-        self.assertEqual(replacement.calls,2)
-        self.assertEqual(len(self.state.initiative.attempts),3)
+        self.assertEqual(follow.calls,1)
+        self.assertEqual(follow.snapshots[0].context['faces'][0]['track_id'],'replacement')
+        self.assertEqual(self.state.agency.record['id'],plan_id)
+        self.assertEqual(self.state.agency.record['cursor'],2)
+        self.assertEqual(len(self.session.agency_planner.requests),1)
 
 
 
@@ -178,5 +174,5 @@ class AudienceRecoveryTests(MemoryFixture):
                 self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed' if during_audio else 'interrupted')
                 if not during_audio:
                     self.assertFalse(self.store.rows('SELECT * FROM memory_followup_delivery'))
-                self.assertEqual(self.state.agency.dirty,not during_audio)
+                self.assertFalse(self.state.agency.dirty)  # An unheard beat waits; the goal stays.
                 self.state.initiative.forget();self.state.initiative.attempts.clear()

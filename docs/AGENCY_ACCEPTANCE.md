@@ -1,6 +1,6 @@
 # Agency acceptance scenarios
 
-October 1, 2026. The persistent narrative/plan replacement is implemented in software; its live acceptance is pending. This
+October 2, 2026. The goal-based design is implemented in software; its live acceptance is pending. This
 protocol separates deterministic contract evidence from unmeasured model choice
 and real-room experience. It authorizes no hosted spending or hardware operation.
 The current automated result is in [implementation status](IMPLEMENTATION_STATUS.md).
@@ -63,17 +63,24 @@ tests must pass. Social thresholds and the acceptable missed-opening/interruptio
 tradeoff still require baseline evidence and user review; no numeric social gate
 has been invented or declared passed. Live calibration and acceptance remain open.
 
-## Replacement-specific run
+## Goal design run (October 2)
 
-Include an unchanged room with no visible person, several uninterrupted lulls, a head
-turn back to the same scene, a human redirection, explicit quiet and normal restart.
-Record planner model/calls/duration, Luna calls, saved/advanced/revised steps, actual
-heard words and executor outcomes. Compare against the inspected baseline of 16
-opportunities with zero completed audible proactive contributions. Count missed
-openings and repeated questions as well as interruptions. Hosted fictional-input
-checks are now available through `tools/check_agency.py --live`; model/output results
-and the later five-attempt/zero-plan failure baseline are in implementation status.
-The four-case probe uses production servo/base owners on fake transports and live
-Terra/Luna calls. It records actual words and pulse changes, not just plans. Its
-accelerated inter-turn clock is not a wall-clock pacing measurement. Synthetic
-playback/controller responses do not establish actual hearing or physical movement.
+The next robot run accepts or rejects the goal design. Include: Rex waking with someone
+present; a known person arriving and answering "how are you"; an unknown visitor; several
+minutes where nobody talks to Rex; something with a story in the room (a painting, a
+photo, a plant); a human redirection mid-goal; "stop" and a request for quiet; normal
+restart. Record planner calls, saved goals and their kinds, beats started/completed/
+skipped, spoken self-initiated lines with their words, drives and poses with receipts,
+withheld replies (`reply_cancelled` with reasons) and missed or interrupted human replies.
+
+Compare against the October 1 baseline (`f4e2bf97`): 40 planner calls, 26 plans, 2 spoken
+self-initiated lines and 2 silently dropped human replies in 9.6 minutes. Score observer
+ratings for fun, friendliness, humor and whether Rex felt alive, plus annoyance
+(repetition, interruptions, inventory remarks such as "I see a clock").
+
+`tools/check_agency.py --live` exercises the same production path on fictional cases (a
+known friend with saved facts, a new visitor, a room with a synthetic sailboat painting
+and a plant target, rejected humor). It uses live Terra/Luna calls, fake servo/base
+transports, synthetic playback and an accelerated clock. It records actual words, goals,
+pulse changes and drive receipts. It does not establish hearing, real perception, physical
+movement or wall-clock pacing.

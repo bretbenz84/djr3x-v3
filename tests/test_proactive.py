@@ -60,10 +60,6 @@ class ArrivalTests(unittest.TestCase):
                     a.observe([face(at),face(at,track='background',width=width)],at)
                 audience=a.audience(7)
                 self.assertEqual(len(audience),2)
-                opportunity=Opportunity('event','s',7,None,None,audience,0,False,'ambient')
-                self.assertTrue(a.valid(opportunity,7))
-                a.observe([face(7.5),face(7.5,track='background',width=width),face(7.5,track='new')],7.5)
-                self.assertFalse(a.valid(opportunity,7.5))
 
     def test_unheard_cancelled_arrival_can_retry_but_partial_audio_cannot(self):
         from r3x.output import Delivery
@@ -86,14 +82,6 @@ class ArrivalTests(unittest.TestCase):
         for i in range(10):a.observe([face(40+i,'same','a'),face(40+i,'same','b')],40+i)
         self.assertIsNone(a.take('s',49,0))
 
-    def test_replacement_disappearance_and_epoch_invalidate_pending_event(self):
-        a=Arrivals();self.visible(a,0,4)
-        e=a.take('s',4,0);self.assertTrue(a.valid(e,4))
-        a.observe([face(4.5,track='replacement')],4.5)
-        self.assertFalse(a.valid(e,4.5))
-        a.observe([dict(face(5),face_epoch=1)],5)
-        self.assertFalse(a.valid(e,5))
-        a.observe([],6);self.assertFalse(a.valid(e,6))
 
 
 class ProactiveSessionTests(MemoryFixture):

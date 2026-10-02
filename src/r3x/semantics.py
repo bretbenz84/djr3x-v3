@@ -125,7 +125,7 @@ TOOLS += (schema('respond_with_intent',
     'No extra generation. Memory-based proactive speech must use use_memory_opportunity instead.',
     {'text': TEXT, 'intent_update': update_schema()}),)
 TOOLS += (schema('revise_agency_plan',
-    'Abandon this scheduled step because its evidence or capability is invalid. The owner replaces it with a brief available presence action, which may be silent. State the concrete reason for later planning.',
+    'End your current goal because this beat no longer fits: its person left or refused it, its premise or evidence is gone, or its capability is unavailable. A fresh goal is planned and this lull gets one improvised beat. State the concrete reason for the next plan.',
     {'reason':TEXT}),)
 
 for _definition in TOOLS:

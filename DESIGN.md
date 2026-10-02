@@ -12,9 +12,9 @@ unmeasured thresholds are distinguished below; the full robot is outside this bu
 | --- | --- |
 | User requirement | Start independently in the new v3 repository and preserve knowledge from v2. |
 | User requirement | Delight, make people laugh and help improve their mood; emotional awareness guides sensitivity rather than automatic mood mirroring. |
-| User requirement | Develop proactive participation with the conversational core; one conversation owner selects replies and initiative. The October 1 replacement uses a stronger private planner and cheaper reply/step executor. Shared arrivals/lulls and bounded conversational feedback are implemented; dated memory opportunities are implemented; live acceptance remains pending. |
+| User requirement | Develop proactive participation with the conversational core; one conversation owner selects replies and initiative. October 2 owner direction: people first (answer, then greet arrivals), then Rex pursues goals of his own instead of input-then-react. A stronger planner writes each goal; the cheaper model replies and performs beats. Shared arrivals/lulls, bounded conversational feedback and dated memory opportunities are implemented; live acceptance remains pending. |
 | User requirement | At startup, greet a stable visible person before they have to speak; the model chooses the wording. Existing speech/quiet/freshness guards still apply. |
-| Working design | October 1: a persisted character plan prepares after two quiet seconds and advances at eligible lulls (eight-second speech default), with no visible-person prerequisite. Offered private refs narrow scope; invalid plans get one correction, then a fresh impersonal contribution. Revision cannot repeatedly vote for silence. Ordinary replies retain one cheaper primary generation. See [agency implementation](docs/AGENCY_IMPLEMENTATION_PLAN.md). Cadence on hardware is unaccepted. |
+| Working design | October 2: a persisted GOAL (catch up, get to know, investigate, entertain) is adopted from noticing someone or something, planned once in the background, steered by conversation and ended only by real reasons (beats used, its person gone, a redirection, a new arrival). Beats advance at eligible lulls (eight-second default); an unheard beat yields to people and is retried once. Ordinary replies keep one cheaper primary generation and never wait for planning. Replaces the October 1 step scripts, which live runs showed being discarded on every human turn. See [agency implementation](docs/AGENCY_IMPLEMENTATION_PLAN.md). Cadence on hardware is unaccepted. |
 | User requirement | Learn voices through ordinary conversation and association; retain accepted original audio for later model migration. |
 | User requirement | Never use mouth-motion detection for speaker identity or enrollment. |
 | User requirement | Support one-to-three visible people, including a dev Mac with no directional audio. |
@@ -75,8 +75,8 @@ flowchart TD
     A[Microphone and camera observations] --> B[Transcript and speaker tracker]
     B --> C[Versioned conversation snapshot]
     C --> D[Conversation owner and reply executor]
-    C --> P[Private planner on creation or revision]
-    P --> M[Persisted narrative and steps]
+    C --> P[Background goal planner when a goal ends]
+    P --> M[Persisted goal and beats]
     M --> D
     D --> E[Reply or typed proposals]
     E --> F[State validation and tool execution]
@@ -433,11 +433,12 @@ or face can override them. Exact gates and saved-audio evidence are documented i
 
 ## Intentional attention and action groundwork
 
-October 1: all three [agency software increments](docs/AGENCY_IMPLEMENTATION_PLAN.md)
-are implemented and superseded by persisted Terra plans with Luna execution: six step
-kinds (contribute, inspect, look, gesture, temporary pose, bounded drive), moving-view
-continuity and source-validated social invitations. Recent dialogue informs private
-planning independently of face-track stability; personal output remains audience-bound.
+October 2: [goal-based initiative](docs/AGENCY_IMPLEMENTATION_PLAN.md) replaces the
+October 1 step scripts. Terra plans a goal with six beat kinds (contribute, inspect, look,
+gesture, temporary pose, drive) from dialogue, saved facts and one camera frame; Luna
+performs beats through the same output owner. Presence is judged by identity and recent
+speech, not face-track IDs. Private material waits for a real audience change (someone
+else recognized, or one more face), never for a renumbered track.
 Invitation review can end silently without treating time as an answer or rejection.
 The [acceptance protocol](docs/AGENCY_ACCEPTANCE.md) separates passing software
 contracts from still-unmeasured semantic and live social experience.

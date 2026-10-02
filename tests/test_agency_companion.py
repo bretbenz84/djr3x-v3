@@ -25,29 +25,34 @@ class CompanionTests(MemoryFixture):
             self.session.history.append({'role':'developer','content':'Camera receipt '+str(i)})
         self.tick(self.trace.at+9)
         self.assertIn(words,[m['content'] for m in self.planner.requests[-1]['conversation']])
-        self.assertEqual(self.planner.requests[-1]['audience']['faces'],[])
+        self.assertEqual(self.planner.requests[-1]['visible_people'],[])
 
-    def test_private_planning_survives_camera_churn_but_audience_speech_does_not(self):
+    def greeted(self, track='face'):
+        # The visitor was already greeted; these tests concern the goal that follows.
+        for at in range(96,101):self.runtime.arrivals.observe([face(at,track=track)],at)
+        self.runtime.arrivals.seen[track]['used']=True
+
+    def test_audience_goal_survives_camera_track_churn_of_the_same_visit(self):
+        # Live October 1: one present owner had 175 track IDs; steps were cancelled as
+        # "audience changed" and replanned. A renumbered face is the same visit.
         self.setup_owner()
         rows=[face(100)]
         self.runtime.camera=SimpleNamespace(latest=lambda now:[{**f,'at':now} for f in rows])
-        for at in range(96,101):self.runtime.arrivals.observe([face(at)],at)
+        self.greeted()
         def choose(facts,cancel):
-            self.assertTrue(self.session.preparing_plan)
             rows[:]=[face(100,track='new-view')]
-            cancel.check()
             value=draft();value['scope']='audience'
             return value
         self.planner.choose=choose
         result=self.tick(100)
         self.assertEqual(len(self.planner.requests),1)
-        self.assertEqual(result.status,'interrupted')
-        self.assertEqual(result.completed_text,[])
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(self.state.agency.record['cursor'],1)
 
     def test_same_audience_survives_long_planning_without_intermediate_poll(self):
         self.setup_owner()
         self.runtime.camera=SimpleNamespace(latest=lambda now:[face(now)])
-        for at in range(96,101):self.runtime.arrivals.observe([face(at)],at)
+        self.greeted()
         def choose(facts,cancel):
             self.trace.at+=7;self.runtime.audio_seen_at=self.trace.at
             cancel.check()  # Camera cache has the same face, despite a polling gap.
@@ -60,7 +65,7 @@ class CompanionTests(MemoryFixture):
         self.setup_owner()
         rows=[face(100)]
         self.runtime.camera=SimpleNamespace(latest=lambda now:[{**f,'at':now} for f in rows])
-        for at in range(96,101):self.runtime.arrivals.observe([face(at)],at)
+        self.greeted()
         def choose(facts,cancel):
             rows[:]=[face(100,track='new-view')]
             cancel.check()
@@ -72,23 +77,27 @@ class CompanionTests(MemoryFixture):
     def test_ineligible_background_face_does_not_reprepare_same_plan(self):
         self.setup_owner()
         self.runtime.camera=SimpleNamespace(latest=lambda now:[face(now,width=30)])
-        value=draft();value['scope']='audience'
+        value=draft()
         self.planner.choose=lambda facts,cancel:deepcopy(value)
         self.assertEqual(self.tick(2).status,'prepared')
         self.assertIsNone(self.tick(3))
         self.assertEqual(len(self.planner.requests),1)
+        # A tiny far face is not company: a goal about "the person here" cannot be saved for it.
+        self.assertFalse(self.state.agency.present(None,3))
 
-    def test_failed_planner_uses_silent_body_recovery_when_available(self):
+    def test_failed_planner_still_does_something_people_notice(self):
+        # Owner, live October 1: "So why aren't you talking or moving?" Recovery speaks.
         from r3x.contracts import ProviderFailure
         from tests.test_attention import AttentionTests
-        AttentionTests.setup_session(self)
+        from tests.test_voice_core import Brain
+        AttentionTests.setup_session(self,brain=Brain('Who left a sock on my dance floor?'))
         planner=Planner()
         def fail(facts,cancel):raise ProviderFailure('SyntheticUnavailable')
         planner.choose=fail;self.session.agency_planner=planner
         result=self.session.process_opportunity(Opportunity('fallback','session',100,None,None,(),float('-inf'),False,'reconsideration'),0,lambda:True)
-        self.assertEqual(result.completed_text,[])
-        self.assertEqual(self.state.agency.record['steps'][0]['kind'],'look')
-        self.assertEqual(self.state.agency.record['cursor'],1)
+        self.assertEqual(self.state.agency.record['origin'],'recovery')
+        self.assertEqual(self.state.agency.record['steps'][0]['kind'],'contribute')
+        self.assertEqual(result.completed_text,['Who left a sock on my dance floor?'])
 
 
 class PresenceTests(MemoryFixture):
@@ -202,9 +211,11 @@ class PhysicalPlanTests(MemoryFixture):
         camera=[]
         self.robot.owner.on_camera_motion=lambda *args:camera.append(args)
         self.state.agency.changed('new_plan')
+        self.clock.wait(10)  # Planner calls are paced.
         result,planner=self.perform('pose')
         self.assertIn('look_left',planner.requests[0]['capability_contract']['pose']['already_at'])
-        self.assertEqual(self.state.agency.record['cursor'],0)
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'skipped')
+        self.assertEqual(self.state.agency.record['outcomes'][0]['revision_reason'],'PoseAlreadyReached')
         self.assertEqual(self.state.agency.record['outcomes'][0]['executor']['changed_channels'],[])
         self.assertEqual(camera,[])
 
@@ -252,8 +263,7 @@ class PhysicalPlanTests(MemoryFixture):
         self.fake.block_after=.05
         result,planner=self.perform('drive')
         self.assertEqual(result.completed_text,[])
-        self.assertEqual(self.state.agency.record['cursor'],0)
-        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'needs_revision')
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'skipped')
 
     def test_drive_with_post_move_inspection_retains_motion_receipt(self):
         from tests.test_drive_session import DriveSessionTests,drive_call,step

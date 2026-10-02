@@ -1,10 +1,63 @@
 # Current implementation status
 
-Updated October 1, 2026. This is the consolidated
+Updated October 2, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Goal-based initiative — October 2
+
+The October 1 plan design failed live (`f4e2bf97`: 40 planner calls, 26 plans, 2 spoken
+self-initiated lines and 2 silently dropped human replies in 9.6 minutes). At the owner's
+direction it is replaced by goals; see [Rex's own goals](AGENCY_IMPLEMENTATION_PLAN.md).
+
+- **People first.** Replies never wait for planning. Arrivals are greeted directly and become
+  the next goal's subject; someone who spoke within the last minute is not re-greeted.
+- **Goals, not scripts.** Terra plans one goal (catch up, get to know, investigate,
+  entertain) in a background thread from dialogue, saved facts and one camera frame. Human
+  turns steer it; real endings only. Interrupted beats retry once; failed beats are skipped.
+- **Dropped replies fixed.** Private-memory replies are withheld only for a real audience
+  change, and every withheld reply is traced (`reply_cancelled`). Face-track renumbering
+  no longer cancels greetings, beats or replies.
+- **Motion.** Self-initiated drive limits now equal requested ones; the model sees the
+  10 m plan total instead of the 1.5 m leg it misread. Committed silent moves survive their
+  own motor noise.
+- **Fixes found by the hosted probe.** The improvised fallback beat could crash after Rex
+  drove out of sight of everyone; a look-and-comment beat that saved its description was
+  cancelled unheard (also affected human "look down and tell me" requests); beats treated
+  Rex's own camera frame as a picture someone sent. All three are fixed with regression tests.
+- **Cost controls.** Eight seconds minimum between planner calls, one repair, 10-60 s
+  failure backoff, and no new goals after five minutes with nobody seen or heard.
+
+Verification: **903 blocked-I/O checks pass** (73.1 seconds). They use temporary
+SQLite, fake clocks/providers/pulse/ESP32 transports, synthetic faces and blocked
+network/audio/serial; no hardware ran.
+
+Hosted probe on the final code (`tools/check_agency.py --live`, real GPT-5.6 Terra and
+GPT-6 Luna, fictional inputs, synthetic playback, fake servo/base transports, accelerated
+clock), ignored folder `local/validation/agency-7d207c1a30f24684a156baa8d704959d/`:
+
+| Case | Goals (planner calls) | Completed beats | What Rex did |
+| --- | --- | --- | --- |
+| Known friend with two saved facts | catch up, twice (2) | 5 | "Sam, how's your day going so far?"; joked about the sock-stealing beagle; rolled closer on his own and asked about half-marathon training |
+| New visitor | get to know, twice (2) | 5 | Waved, "Hey there! I'm Rex. What's your name?"; learned "Jordan"; rolled closer; wifi jokes |
+| Room with a sailboat painting and a plant | investigate, twice (2) | 5 | Turned and looked at the painting ("absolutely no intention of taking the scenic route"); answered "my grandfather painted it" with "Did he paint it from memory, or out on the lake?"; drove to the plant |
+| Rejected humor | get to know, entertain (2) | 5 | Recorded "avoid music jokes"; no music jokes followed; door-repair humor |
+
+Totals: 8 Terra calls (about 51,000 input and 3,200 output tokens; planning median
+5.8 s, maximum 6.5 s, in the background), 30 Luna calls (about 680,000 input tokens,
+406,000 cached), four completed self-initiated drives. Billed cost was not measured.
+Three earlier runs that day (`agency-c0916505…`, `agency-cbb10d74…`, `agency-c04fe758…`)
+found the fixes listed above; they are superseded by this run.
+
+Known limits from the probe: the cheaper model still reuses one joke across beats (the
+beagle and the socks, four times; a beat instruction against reusing a landed premise was
+added after this run and is not yet measured) and occasionally asks a pre-planned question that
+ignores what was just said. The synthetic camera always shows the same frame, the arrival
+greeting was not exercised (probe faces are below the greeting size threshold), and the
+probe cannot judge pacing, real perception, movement or whether Rex feels alive. Live
+planner cost per hour of company is unmeasured and is the first number to check.
 
 ## Companion and physical agency repair — October 1
 

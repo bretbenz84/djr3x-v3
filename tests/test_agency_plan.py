@@ -16,7 +16,8 @@ from tests import test_turn_taking as timing_tests
 
 
 def draft():
-    return {'scope':'general','narrative':'I wonder what a waltz for three-legged droids would sound like.',
+    return {'goal_kind':'entertain','subject':'a waltz for three-legged droids',
+            'scope':'general','narrative':'I wonder what a waltz for three-legged droids would sound like.',
             'objective':'Develop a playful musical idea without interrogating anyone.',
             'evidence_ids':[], 'steps':[
                 {'kind':'contribute','instruction':'Offer the waltz idea.','evidence_ids':[], 'delay_seconds':5},
@@ -27,9 +28,9 @@ def draft():
 class Planner:
     capability = SimpleNamespace(model='test-planner')
     reasoning_effort = 'medium'
-    def __init__(self): self.requests=[]; self.choose=lambda facts,cancel:draft()
-    def plan(self,facts,cancel):
-        self.requests.append(deepcopy(facts))
+    def __init__(self): self.requests=[]; self.images=[]; self.choose=lambda facts,cancel:draft()
+    def plan(self,facts,cancel,images=()):
+        self.requests.append(deepcopy(facts));self.images.append(images)
         return self.choose(facts,cancel)
 
 
@@ -73,16 +74,26 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertEqual(self.store.claims(),[])
         self.assertEqual(self.store.people(),[])
 
-    def test_human_reply_has_no_planner_call_then_lull_revises_previous_plan(self):
+    def test_human_reply_steers_but_never_discards_or_waits_for_the_goal(self):
+        # Live October 1: every "Okay." discarded the plan (40 planner calls in ten minutes).
         self.setup_owner();self.tick(100)
+        plan_id=self.state.agency.record['id']
         now=self.trace.at+2
         capture=Capture(uuid4().hex,'session',bytes(96000),now-3,now,now)
         self.session.note_speech(now)
         self.session.process_turn(capture,Transcript('Tell me about jazz instead.',-.01,True),0,memory_tests.observation())
         self.assertEqual(len(self.planner.requests),1)
+        goal=self.executor.snapshots[-1].context['agency_plan']
+        self.assertEqual(goal['next_beat']['instruction'],'Develop the rhythm idea without repeating the invitation.')
         self.tick(self.trace.at+9)
-        self.assertEqual(len(self.planner.requests),2)
+        self.assertEqual(len(self.planner.requests),1)
+        self.assertEqual(self.state.agency.record['id'],plan_id)
+        self.assertEqual(self.state.agency.record['cursor'],2)
+        self.assertIn('Tell me about jazz instead.',json.dumps(self.executor.snapshots[-1].messages))
+        self.tick(self.trace.at+9)
+        self.assertEqual(len(self.planner.requests),2)  # Beats used: the next goal hears the redirection.
         self.assertIn('Tell me about jazz instead.',json.dumps(self.planner.requests[-1]))
+        self.assertEqual(self.planner.requests[-1]['goal_trigger'],'beats_used')
 
     def test_restart_requires_planner_revalidation_and_audience_scope(self):
         self.setup_owner();self.tick(100)
@@ -104,14 +115,26 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertEqual(self.planner.requests,[])
         self.assertEqual(self.executor.snapshots,[])
 
-    def test_interruption_during_planning_does_not_save_or_speak(self):
+    def test_human_speech_during_planning_keeps_the_goal_but_waits_for_a_lull(self):
         self.setup_owner()
         def interrupted(facts,cancel):
             self.session.note_speech(101,sustained=True)
             cancel.check()
+            return draft()
         self.planner.choose=interrupted
         result=self.tick(100)
-        self.assertEqual(result.status,'interrupted')
+        self.assertEqual(result.status,'prepared')
+        self.assertEqual(len(self.store.rows('SELECT * FROM agency_plan')),1)
+        self.assertEqual(self.executor.snapshots,[])
+
+    def test_explicit_stop_during_planning_installs_nothing(self):
+        self.setup_owner()
+        def stopped(facts,cancel):
+            self.session.cancel()
+            cancel.check()
+            return draft()
+        self.planner.choose=stopped
+        self.tick(100)
         self.assertEqual(self.store.rows('SELECT * FROM agency_plan'),[])
         self.assertEqual(self.executor.snapshots,[])
 
@@ -136,7 +159,8 @@ class PlanTests(memory_tests.MemoryFixture):
         result=self.tick(100)
         self.assertEqual(result.status,'completed')
         self.assertEqual(self.state.agency.record['cursor'],1)
-        self.assertEqual(self.state.agency.record['previous_outcomes'][-1]['status'],'needs_revision')
+        self.assertEqual(self.state.agency.record['previous_outcomes'][-1]['status'],'skipped')
+        self.assertEqual(self.state.agency.goals[-1]['ended'],'revised')
         names={tool['name'] for tool in grounded_tools(self.executor.snapshots[-1].context)}
         self.assertNotIn('revise_agency_plan',names)
         self.assertEqual(len(self.executor.snapshots),2)
@@ -149,9 +173,20 @@ class PlanTests(memory_tests.MemoryFixture):
 
     def test_conversation_bursts_and_feeds_do_not_exhaust_a_rolling_attempt_budget(self):
         self.setup_owner()
-        for i in range(16): self.tick(max(100,self.trace.at+9))
+        for i in range(16):
+            self.state.agency.observe_speech(None,self.trace.at)  # Someone is around.
+            self.tick(max(100,self.trace.at+9))
         self.assertEqual(len(self.executor.snapshots),16)
         self.assertEqual(len(self.planner.requests),8)
+
+    def test_alone_for_five_minutes_pauses_goals_until_someone_appears(self):
+        self.setup_owner()
+        self.assertIsNone(self.tick(400))
+        self.assertEqual(self.planner.requests,[])
+        self.assertEqual(self.trace.rows[-1]['reason'],'nobody_around')
+        self.state.agency.observe_faces([{'track_id':'t','identity':None,'at':401}],401)
+        self.assertEqual(self.tick(410).status,'completed')
+        self.assertEqual(len(self.planner.requests),1)
 
 
     def test_provider_failure_does_not_block_character_activity_during_retry_wait(self):
@@ -177,7 +212,8 @@ class PlanTests(memory_tests.MemoryFixture):
             db.execute('INSERT INTO agency_plan VALUES(1,1,?)',(json.dumps({'steps':[]}),))
         self.setup_owner();self.tick(100)
         self.assertEqual(len(self.planner.requests),1)
-        self.assertIsNone(self.planner.requests[0]['previous_plan'])
+        self.assertIsNone(self.planner.requests[0]['current_goal'])
+        self.assertEqual(self.planner.requests[0]['recent_goals'],[])
 
     def test_session_restart_keeps_plan_but_revalidates_before_speaking(self):
         self.setup_owner();self.tick(100)
@@ -187,8 +223,10 @@ class PlanTests(memory_tests.MemoryFixture):
         from r3x.speakers import SpeakerTracker
         self.state=CoreState(self.store,SpeakerTracker(self.state.tracker.namespace),self.trace)
         self.setup_owner();self.tick(200)
-        self.assertEqual(self.planner.requests[0]['previous_plan']['id'],plan_id)
-        self.assertTrue(self.planner.requests[0]['previous_plan']['needs_revalidation'])
+        self.assertEqual(self.planner.requests[0]['goal_trigger'],'restart')
+        self.assertEqual(self.planner.requests[0]['current_goal']['id'],plan_id)
+        self.assertTrue(self.planner.requests[0]['current_goal']['needs_revalidation'])
+        self.assertEqual(self.planner.requests[0]['recent_goals'][-1]['ended'],'restart')
         self.assertNotEqual(self.state.agency.record['id'],plan_id)
 
     def test_revision_reason_and_heard_outcomes_reach_the_next_planner(self):
@@ -199,7 +237,7 @@ class PlanTests(memory_tests.MemoryFixture):
         self.tick(self.trace.at+9)
         self.executor.choose=None
         self.tick(self.trace.at+9)
-        prior=self.planner.requests[-1]['previous_plan']
+        prior=self.planner.requests[-1]['current_goal']
         self.assertTrue(prior['previous_outcomes'][0]['heard_text'])
         self.assertEqual(prior['previous_outcomes'][1]['revision_reason'],'That object is no longer available.')
 
@@ -268,7 +306,9 @@ class PlanTests(memory_tests.MemoryFixture):
         result=self.tick(100)
         self.assertEqual(result.status,'failed')
         self.assertEqual(result.completed_text,[])
-        self.assertEqual(self.state.agency.record['cursor'],0)
+        # The failed beat is skipped, not repeated; the goal goes on.
+        self.assertEqual(self.state.agency.record['cursor'],1)
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'skipped')
         self.assertEqual(self.state.agency.record['outcomes'][0]['revision_reason'],'IntentSourceMismatch')
 
     def test_head_turn_changes_view_but_keeps_general_plan_and_next_step(self):
@@ -287,21 +327,33 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertNotIn('use_visual_memory',names)
         self.assertNotIn('use_memory_opportunity',names)
 
-    def test_personal_plan_is_withheld_from_changed_audience(self):
+    def test_personal_goal_survives_track_churn_but_ends_when_its_person_leaves(self):
         plan=draft();plan['scope']='audience'
         agency=self.state.agency;agency.load()
-        agency.install(plan,'["person:one"]',{},['contribute'],agency.revision,100)
-        self.assertIsNone(agency.context('["person:two"]'))
-        self.assertIsNone(agency.step('["person:two"]'))
+        with self.assertRaisesRegex(ValueError,'AgencyAudienceNotPresent'):
+            # A goal for someone who is not here could never run.
+            agency.install(plan,'["person:one"]',{},['contribute'],agency.revision,100,subject_person='one')
+        agency.observe_faces([{'track_id':'a','identity':'one','at':100}],100)
+        agency.install(plan,'["person:one"]',{},['contribute'],agency.revision,100,subject_person='one')
+        self.assertIsNotNone(agency.step(100))
+        # A renumbered track for the same person is the same visit.
+        agency.observe_faces([{'track_id':'b','identity':'one','at':130}],130)
+        self.assertIsNotNone(agency.step(150))
+        # Someone else in view while the subject is gone past the grace period: withheld.
+        agency.observe_faces([{'track_id':'c','identity':'two','at':200}],200)
+        self.assertIsNone(agency.context(200))
+        self.assertIsNone(agency.step(200))
+        self.assertEqual(agency.ending_reason(200),'subject_left')
 
     def test_personal_evidence_cannot_be_saved_as_general_plan(self):
         self.setup_owner()
         plan=draft();plan['evidence_ids']=['private']
+        self.state.agency.observe_speech('one',100)
         self.state.agency.install(plan,'["person:one"]',{'private':{'kind':'memory_opportunities'}},
-            ['contribute'],self.state.agency.revision,100)
+            ['contribute'],self.state.agency.revision,100,subject_person='one')
         self.assertEqual(self.state.agency.record['scope'],'audience')
-        self.assertIsNotNone(self.state.agency.step('["person:one"]'))
-        self.assertIsNone(self.state.agency.step('["person:two"]'))
+        self.assertIsNotNone(self.state.agency.step(110))
+        self.assertIsNone(self.state.agency.step(300))
 
     def test_private_preparation_does_not_count_as_speech_or_consume_history(self):
         self.setup_owner()
@@ -316,16 +368,16 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertEqual(self.tick(8).status,'completed')
         self.assertEqual(len(self.planner.requests),1)
 
-    def test_cancel_during_plan_repair_cannot_install_degraded_work(self):
+    def test_stop_during_plan_repair_cannot_install_degraded_work(self):
         self.setup_owner()
         def choose(facts,cancel):
             if 'repair' in facts:
-                self.session.note_speech(3,sustained=True)
+                self.session.cancel()
                 cancel.check()
             value=draft();value['evidence_ids']=['invented'];return value
         self.planner.choose=choose
         result=self.tick(2)
-        self.assertEqual(result.status,'interrupted')
+        self.assertEqual(result.status,'prepared')
         self.assertEqual(len(self.planner.requests),2)
         self.assertEqual(self.executor.snapshots,[])
         self.assertIsNone(self.state.agency.record)
@@ -342,8 +394,11 @@ class PlanTests(memory_tests.MemoryFixture):
         result=self.tick(100)
         self.assertEqual(result.status,'interrupted')
         self.assertEqual(result.completed_text,[])
+        # The improvised beat yielded to the human; it is retried at the next lull.
+        self.assertEqual(self.state.agency.record['origin'],'recovery')
         self.assertEqual(self.state.agency.record['cursor'],0)
-        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'needs_revision')
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'interrupted')
+        self.assertEqual(self.state.agency.record['previous_outcomes'][-1]['status'],'skipped')
 
     def test_repaired_evidence_plan_executes_without_degraded_mode(self):
         self.setup_owner()
@@ -397,8 +452,8 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertEqual(result.gestures[0]['status'],'simulated')
         self.state.agency.changed('new_idea');gestures.close()
         result=self.tick(self.trace.at+9)
-        self.assertEqual(self.state.agency.record['cursor'],0)
-        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'needs_revision')
+        self.assertEqual(self.state.agency.record['cursor'],1)  # Skipped; never counted as done.
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'skipped')
 
     def test_rejected_optional_note_recovers_actual_human_reply(self):
         from tests.test_conversation_intent import proposal
@@ -414,6 +469,137 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertEqual(' '.join(result.completed_text),'I meant their enormous mirrors.')
         self.assertEqual(len(self.executor.snapshots),2)
         self.assertEqual(self.planner.requests,[])
+
+
+class GoalTests(memory_tests.MemoryFixture):
+    """October 2 owner direction: goals from noticing, steered by conversation, people first."""
+    setup_owner=PlanTests.setup_owner
+    tick=PlanTests.tick
+
+    def visible(self, person, track, at):
+        from tests.test_proactive import face
+        self.runtime.camera=SimpleNamespace(latest=lambda now:[face(now,person,track)])
+        for t in range(int(at)-4,int(at)+1):self.runtime.arrivals.observe([face(t,person,track)],t)
+
+    def test_arrival_is_greeted_first_then_becomes_the_next_goal(self):
+        self.setup_owner()
+        person=self.enroll(name='Bret')
+        self.visible(person,'bret',100)
+        self.tick(100)
+        greeting=self.executor.snapshots[0].context
+        self.assertEqual(greeting['trigger'],'visual_arrival')
+        self.assertNotIn('agency_step',greeting)
+        self.assertEqual(self.planner.requests,[])  # A greeting never waits for a planner.
+        self.assertEqual(self.state.agency.ending,'person_arrived')
+        self.tick(self.trace.at+9)
+        request=self.planner.requests[0]
+        self.assertEqual(request['goal_trigger'],'person_arrived')
+        self.assertEqual(request['subject']['person_id'],person)
+        self.assertEqual(request['subject']['display_name'],'Bret')
+        self.assertEqual(self.executor.snapshots[-1].context['agency_step']['index'],0)
+
+    def test_planner_sees_the_current_camera_frame(self):
+        from r3x.scene import SceneImage
+        self.setup_owner()
+        self.runtime.scene_observer=SimpleNamespace(
+            snapshot=lambda:('scene',(SceneImage('frame',self.trace.at,'data:image/png;base64,synthetic'),)),
+            attempted=lambda scene_id:None)
+        self.tick(100)
+        self.assertEqual([i.frame_id for i in self.planner.images[0]],['frame'])
+        self.assertTrue(self.planner.requests[0]['room']['image_attached'])
+
+    def test_planning_runs_beside_conversation_without_delaying_a_reply(self):
+        import threading
+        self.setup_owner()
+        started,release=threading.Event(),threading.Event()
+        def slow(facts,cancel):
+            started.set();release.wait(5);return draft()
+        self.planner.choose=slow
+        self.assertEqual(self.tick(100).status,'prepared')
+        self.assertTrue(started.wait(2))
+        self.assertTrue(self.session.planning_active())
+        now=self.trace.at+1
+        capture=Capture(uuid4().hex,'session',bytes(96000),now-3,now,now)
+        reply=self.session.process_turn(capture,Transcript('Rex, what are you up to?',-.01,True),0,memory_tests.observation())
+        self.assertEqual(reply.status,'completed')  # Answered while the planner was still working.
+        release.set();self.session.join_planning()
+        self.assertFalse(self.session.planning_active())
+        self.assertEqual(self.state.agency.record['cursor'],0)
+        self.assertEqual(len(self.planner.requests),1)
+
+    def test_unheard_beat_yields_to_people_then_is_retried_once_then_skipped(self):
+        self.setup_owner()
+        def interrupted(snapshot,cancel):
+            self.session.note_speech(self.trace.at,sustained=True)
+            cancel.check()
+            yield 'Never heard.'
+        self.executor.choose=interrupted
+        self.assertEqual(self.tick(100).status,'interrupted')
+        record=self.state.agency.record
+        self.assertEqual((record['cursor'],record['outcomes'][-1]['status']),(0,'interrupted'))
+        self.assertEqual(self.tick(self.trace.at+20).status,'interrupted')
+        self.assertEqual((record['cursor'],record['outcomes'][-1]['status']),(1,'skipped'))
+        self.executor.choose=None
+        self.assertEqual(self.tick(self.trace.at+20).status,'completed')
+        self.assertEqual(len(self.planner.requests),1)  # One goal throughout.
+
+    def test_word_for_word_repeat_gets_one_retry_then_fails_the_beat(self):
+        # Hosted probe October 2: a challenge beat was delivered as the previous line, verbatim.
+        self.setup_owner()
+        line='Running socks are clearly premium loot.'
+        self.executor.choose=lambda s,c:iter([ToolCall('a','respond_with_intent',{'text':line,'intent_update':None})])
+        self.tick(100)
+        replies=iter([line,'Ten-second no-smiling challenge. Starting now.'])
+        self.executor.choose=lambda s,c:iter([ToolCall('b','respond_with_intent',{'text':next(replies),'intent_update':None})])
+        result=self.tick(self.trace.at+9)
+        self.assertEqual(result.completed_text,['Ten-second no-smiling challenge. Starting now.'])
+        self.assertIn('new words',self.executor.snapshots[-1].messages[-1]['content'])
+        self.state.agency.observe_speech(None,self.trace.at)
+        self.executor.choose=lambda s,c:iter([ToolCall('c','respond_with_intent',{'text':'Ten-second no-smiling challenge. Starting now.','intent_update':None})])
+        result=self.tick(self.trace.at+9)
+        self.assertEqual(result.completed_text,[])
+        self.assertEqual(result.error,'AgencyBeatRepeatedRecentLine')
+
+    def test_catch_up_beats_get_no_camera_frame_but_curiosity_beats_do(self):
+        from r3x.scene import SceneImage
+        self.setup_owner()
+        self.runtime.scene_observer=SimpleNamespace(
+            snapshot=lambda:('scene',(SceneImage('frame',self.trace.at,'data:image/png;base64,synthetic'),)),
+            attempted=lambda scene_id:None)
+        self.state.observation_available=lambda cue:True
+        self.tick(100)
+        self.assertEqual(self.executor.snapshots[-1].images,())  # draft() is an entertain goal.
+        self.state.agency.changed('new_goal')
+        self.planner.choose=lambda f,c:{**draft(),'goal_kind':'investigate'}
+        self.tick(self.trace.at+9)
+        self.assertEqual([i.frame_id for i in self.executor.snapshots[-1].images],['frame'])
+
+    def test_improvised_beat_stays_general_when_rex_has_wandered_away_from_everyone(self):
+        # Hosted probe October 2: after driving off, the fallback beat was scoped to an absent
+        # audience, had no runnable beat and crashed the turn.
+        from r3x.contracts import ProviderFailure
+        self.setup_owner()
+        self.trace.at=40  # Someone spoke a minute ago; nobody seen or heard since.
+        self.session.process_turn(Capture(uuid4().hex,'session',bytes(96000),37,40,40),
+            Transcript('I will be in the kitchen.',-.01,True),0,memory_tests.observation())
+        self.assertIsNotNone(self.state.current)
+        def fail(facts,cancel): raise ProviderFailure('SyntheticUnavailable')
+        self.planner.choose=fail
+        self.trace.at=100
+        result=self.session.process_opportunity(__import__('r3x.proactive',fromlist=['Opportunity']).Opportunity(
+            'alone','session',100,None,None,(),float('-inf'),False,'reconsideration'),0,lambda:True)
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(self.state.agency.record['scope'],'general')
+
+    def test_drop_it_ends_the_goal_but_keeps_it_as_context_for_the_next(self):
+        self.setup_owner();self.tick(100)
+        self.state.initiative.cancel_schedule('participant_boundary')
+        self.assertEqual(self.state.agency.ending,'participant_boundary')
+        self.tick(self.trace.at+9)
+        request=self.planner.requests[-1]
+        self.assertEqual(request['goal_trigger'],'participant_boundary')
+        self.assertEqual(request['recent_goals'][-1]['ended'],'participant_boundary')
+        self.assertEqual(request['recent_goals'][-1]['subject'],'a waltz for three-legged droids')
 
 
 class PlannedActionTests(memory_tests.MemoryFixture):
@@ -443,8 +629,8 @@ class PlannedActionTests(memory_tests.MemoryFixture):
         self.adapter.move=lambda r,c,d:test_inspection.MovementReceipt(r.request_id,r.direction,r.view_epoch,100,'blocked')
         result=self.planned('inspect')
         self.assertEqual(result.status,'completed')
-        self.assertEqual(self.state.agency.record['cursor'],0)
-        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'needs_revision')
+        self.assertEqual(self.state.agency.record['cursor'],1)
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'skipped')
         self.assertFalse(self.state.agency.record['outcomes'][0]['executor']['images_acquired'])
 
     def test_look_uses_output_owner_and_retains_simulation_receipt(self):
@@ -463,7 +649,7 @@ class PlannedActionTests(memory_tests.MemoryFixture):
         self.assertEqual(result.status,'failed')
         self.assertEqual(result.completed_text,[])
         self.assertEqual(self.events,[])
-        self.assertEqual(self.state.agency.record['cursor'],0)
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'skipped')
 
 
 class PlannerAdapterTests(memory_tests.unittest.TestCase):

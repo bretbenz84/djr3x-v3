@@ -177,7 +177,6 @@ class EngagementRepairs(MemoryFixture):
         event = arrivals.take('session', 3, float('-inf'))
         self.assertIsNotNone(event)
         arrivals.observe([face(3.5,'person','replacement')], 3.5)
-        self.assertTrue(arrivals.valid(event, 3.5, audience_bound=False))
-        self.assertFalse(arrivals.valid(event, 3.5, audience_bound=True))
+        self.assertTrue(arrivals.still_present(event, 3.5))  # Same person, renumbered track.
         arrivals.observe([face(4,'other','replacement')], 4)
-        self.assertFalse(arrivals.valid(event, 4, audience_bound=False))
+        self.assertFalse(arrivals.still_present(event, 4))  # Someone else is not the person greeted.

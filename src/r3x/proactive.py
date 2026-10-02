@@ -105,11 +105,14 @@ class Initiative:
 
     def cancel_schedule(self, reason):
         if self.agency:
+            # October 2: a human turn steers the goal; it no longer discards it (live
+            # October 1, every "Okay." threw away the plan: 40 planner calls in ten minutes).
             if reason in {'forgotten','forget_person','correct_claim','retract_claim',
-                          'cancel_association','reset_face_identity','explicit_stop','initiative_quiet','participant_boundary'}:
+                          'cancel_association','reset_face_identity','explicit_stop','initiative_quiet'}:
                 self.agency.clear(reason)
-            elif reason == 'human_turn':
-                self.agency.changed(reason)
+            elif reason == 'participant_boundary':
+                # "Drop it" ends the goal; it stays as context so its premise is not revived.
+                self.agency.replace(reason)
         if reason in {'new_session','forgotten','forget_person','correct_claim','retract_claim','cancel_association','reset_face_identity'}:
             self.invitations.invalidate(reason,erase=True)
         elif reason in {'explicit_stop','initiative_quiet','participant_boundary'}:
@@ -292,24 +295,24 @@ class Arrivals:
             return Opportunity(uuid4().hex,session_id,now,target['track_id'],target.get('identity'),
                                  self.faces,speech_marker,entry['returning'],audience_key=self._audience_key)
 
-    def valid(self, event, now, *, audience_bound=True):
+    def still_present(self, event, now, grace=10.):
+        """The arrival's person is still around, judged by identity, not track ID.
+
+        Live October 1: one continuously visible owner received 175 track IDs, and
+        greetings and plan steps were cancelled as "audience changed". A known person
+        counts while any face carries their identity; an unknown visitor while any
+        face is seen.
+        """
         with self.lock:
-            if event.kind == 'unseen_presence':
-                return True  # Radar prior; speech/queue/shutdown guards still apply.
-            if event.kind == 'visual_arrival' and not audience_bound and event.audience_key:
-                fresh = [f for f in self.faces if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE]
-                return bool(fresh) and len(fresh) == len(self.faces) and event.audience_key == self._audience_key
-            if event.kind in {"conversation_lull","ambient","reconsideration"}:
-                if not event.faces:
-                    return not audience_bound or not self.faces
-                keys = lambda faces: {(f['track_id'],f.get('identity'),f.get('face_epoch',0)) for f in faces}
-                fresh = [f for f in self.faces if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE]
-                if not audience_bound and event.audience_key:
-                    return bool(fresh) and len(fresh)==len(self.faces) and event.audience_key==self._audience_key
-                return bool(event.faces) and keys(fresh) == keys(event.faces)
-            return any(f['track_id']==event.target_track and f.get('identity')==event.person_id and
-                       f.get('face_epoch')==next(t.get('face_epoch') for t in event.faces if t['track_id']==event.target_track) and
-                       0<=now-f['at']<=VISIBLE_FACE_MAX_AGE for f in self.faces)
+            if event.person_id:
+                entry = self.seen.get(event.person_id)
+                if not entry or not 0 <= now-entry['last'] <= grace:
+                    return False
+                # Someone else, recognized, standing there alone is not the person greeted.
+                known = {f.get('identity') for f in self.faces
+                         if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('identity')}
+                return not known or event.person_id in known
+            return any(0 <= now-entry['last'] <= grace for entry in self.seen.values())
 
     def finished(self, event, delivery):
         """An interrupted unheard arrival is eligible again after normal pacing.

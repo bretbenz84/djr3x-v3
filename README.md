@@ -31,16 +31,17 @@ it or reads its data.
 - **Memory.** Source-linked personal facts, corrections and forgetting in a local SQLite
   store, cross-session exchange recall and optional source-linked shared memories
   ([details](docs/CONVERSATION_MEMORY.md)). Named pet/object photo memory (RF-DETR Nano detection).
-- **Initiative.** A GPT-5.6 Terra call writes a private character narrative and several
-  concrete steps in local memory. At eligible lulls, GPT-6 Luna executes the next
-  step through the same conversation/output owner, using fresh evidence and actual
-  speech/action receipts. Plans can lead with silent head/arm movement or a short drive,
-  ask a sincere question, or follow the current exchange. Camera track changes do not
-  erase conversational feedback. No visible person or new observation is required. Ordinary
-  replies remain immediate; quiet and human-floor guards remain. Planning prepares
-  early in the lull, corrects invalid plans once, and retains character activity on
-  planner failure. Hosted model checks use simulated output; acceptance on Rex is
-  pending ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
+- **Initiative (goals, October 2).** People come first: anyone talking to Rex gets an
+  ordinary reply, and someone who arrives is greeted (by name, with "how are you", when
+  known). When nothing is happening, Rex pursues a goal of his own: catching up with a
+  known person from saved facts, getting to know a stranger, investigating something in
+  the room (drive over, reach out, look closely, ask about it) or livening up a dead
+  moment. GPT-5.6 Terra plans each goal once, in the background, from the conversation,
+  saved facts and one camera frame; GPT-6 Luna performs one beat per lull. Conversation
+  steers a goal instead of discarding it; it ends when its beats are used, its person
+  leaves, someone redirects it or a new arrival replaces it. With nobody seen or heard for
+  five minutes, no new goals start. Live acceptance is pending
+  ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080.
 - **Body (Pololu Maestro, 11 servos).**
@@ -92,8 +93,8 @@ and servo/LED/battery menu-bar apps (`operator_tools/`). Say **"wake up rex"** t
 Rex; the supervisor also keeps the V3 checkout updated from GitHub (fast-forward only,
 never over uncommitted changes). See [operator services](docs/OPERATOR_CUTOVER.md).
 
-**The wheels move only when asked or when the model chooses a small self-initiated move
-in conversation.** Leave `drive_port` empty for conversation-only tests. Floor tests are
+**The wheels move when asked, or when Rex decides to go somewhere as part of his own goal**
+(no smaller limits; obstacle and time-of-flight checks apply to every move). Leave `drive_port` empty for conversation-only tests. Floor tests are
 described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 
 ## Check
@@ -155,7 +156,7 @@ models on its own.
 | [Live test script](docs/LIVE_TEST_SCRIPT.md) | Lines to say and results to check in hands-on conversation tests. |
 | [DESIGN.md](DESIGN.md) | Who decides what, turn flow, identity and memory design. |
 | [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex initiates and participates. |
-| [Agency implementation plan](docs/AGENCY_IMPLEMENTATION_PLAN.md) | All three software increments implemented: interests, scheduling, physical attention, view continuity and invitation lifecycle; live acceptance remains open. |
+| [Agency implementation plan](docs/AGENCY_IMPLEMENTATION_PLAN.md) | Goal-based initiative (October 2): what starts, steers and ends a goal, and the failed live runs that led to it; live acceptance remains open. |
 | [Core operations](docs/CORE_OPERATIONS.md) | Enrollment, profiles, review, deletion and diagnostics. |
 | [Future features](docs/FUTURE_FEATURES.md) | Owner-requested work not yet scoped. |
 | [V2_REFERENCE.md](V2_REFERENCE.md) | Where each V2 extraction came from and what it preserved. |
@@ -180,5 +181,6 @@ models on its own.
 - **Cost.** Ordinary replies use one `gpt-6-luna` call with low reasoning.
   See the [character/model comparison](docs/CHARACTER_EVALUATION.md) for measured
   costs, latency and remaining humor limitations. Stronger models run only
-  narrowly: the `gpt-5.6-terra` route planner runs only when a direct path is blocked,
-  within the owner's roughly $45/month budget.
+  narrowly: `gpt-5.6-terra` plans one goal at a time (at least eight seconds apart, never
+  per reply) and routes around a blocked direct path, within the owner's roughly
+  $45/month budget. Live goal-planning cost is not yet measured.

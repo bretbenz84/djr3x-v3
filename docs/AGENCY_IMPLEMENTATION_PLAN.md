@@ -1,276 +1,135 @@
-# Persistent narrative and conversation plans
+# Rex's own goals
 
-## Owner direction after the fourth live run — proposed, not implemented
+Status, October 2, 2026: implemented in software and checked with the hosted probe on
+fictional inputs. **Live acceptance on the robot is pending.** This replaces the October 1
+"persistent narrative and step plan" design, whose history is summarized at the end.
 
-Status, October 1, 2026 (late): the implemented replacement described below **failed
-live acceptance** in session `f4e2bf9716d3485e96a7ca6837935c43` (9.6 minutes, real
-hardware). Evidence from that trace: 40 planner calls, 26 saved plans, 11 steps
-started, 4 completed, 2 self-initiated spoken lines. 17 opportunities were cancelled
-by human speech and 8 as `audience_changed_or_stale` (face-track renumbering while the
-owner stayed present). Two trusted human requests lost their ordinary reply without a
-logged reason ("How do you know that you got caught in a loop?", the first "Back up
-five feet."); the planner then drafted its own answer. Most plans were silent head
-turns. Every completed reply exceeded four seconds to first audio (median 4.6, max
-7.3, n=10). Cause of the two dropped replies is unconfirmed; the unlogged cancel in
-`session.py` (`_resumed_speech > _capture_end`) is the candidate.
+## Why the October 1 design was replaced
 
-The owner rejected the mechanism, not only its tuning. A plan was meant to be a goal
-Rex adopts because he noticed something and then pursues across many exchanges. It was
-built as a short script that is regenerated whenever anything changes, which is still
-input-then-react. Nothing in this section is implemented.
+Live session `f4e2bf9716d3485e96a7ca6837935c43` (9.6 minutes, real hardware) made 40
+planner calls and saved 26 plans for 11 started steps, 4 completed steps and two
+self-initiated spoken lines. 17 opportunities were cancelled by human speech and 8 as
+`audience_changed_or_stale` while the owner stayed in view (the camera renumbers one face
+many times a minute). Every human turn, even "Okay.", discarded the plan. Most plans became
+silent head turns. Two trusted human requests lost their replies with no logged reason.
+Earlier runs failed the opposite way: repeated clock-and-music riffs the owner called nonsense.
 
-### Priority order (owner requirement)
+The owner rejected the mechanism, not its tuning. A plan was meant to be a goal Rex adopts
+because he noticed something and pursues across many exchanges, the way people act in the
+world, not input-then-react.
 
-1. **Being spoken to comes first.** Rex answers people through the ordinary reply
-   path. A plan never takes over, delays or re-drafts a reply to a human request.
-2. **People he notices get greeted.** He greets and asks how they are doing.
-3. **If nothing happens, he starts doing things.** He picks something and pursues it
-   without waiting for input.
+## Owner requirements (October 2)
 
-### What a plan is
+1. **Being spoken to comes first.** Rex answers through the ordinary reply path. A goal never
+   takes over, delays or re-drafts a reply to a human.
+2. **People he notices get greeted.** By name and "how are you" when known; hello and a name
+   question when new.
+3. **If nothing happens, he starts doing things.** He goes toward something, reaches out his
+   hand, crosses the room, looks down and comments.
+4. **Interest is personable, not inventory.** Anything can catch his eye; he asks about its
+   story ("What's that wall painting about?", "Tell me more about this photo"), never
+   announces the obvious ("I see a clock").
+5. **Motion needs no permission.** He must not drive into things and must respect the
+   time-of-flight boundaries; there are no smaller caps for his own moves.
+6. Fun, friendly and humorous throughout.
 
-- **Started by noticing, not by a quiet timer.** Triggers: a known person appears, an
-  unknown person appears, something in the room catches his interest, or nothing has
-  happened for a while.
-- **A goal plus a few ideas toward it**, written once by the stronger model. Owner
-  examples:
-  - Known person with saved facts: plan a conversation, begin speaking, and keep it
-    going when it dies (ask how they are, whether they have plans).
-  - Unknown person: get to know them; notice what they are wearing and ask about it.
-  - Something in the room: decide to investigate, move toward it, study it, ask or
-    comment about it.
-  - Nobody engaging: go toward something and reach out his hand; cross the room, look
-    down and comment on what is there.
-- **Steered by conversation, not cancelled by it.** The reply model receives the
-  current goal as context on each human turn, so the one ordinary reply generation can
-  also advance the goal. A human turn does not mark the plan stale.
-- **Resumes after interruptions.** An explicit request ("back up five feet") is done
-  immediately by the reply path; the plan then continues or is dropped by a real
-  ending below.
-- **Ended only for real reasons:** goal achieved, the person has actually left, a human
-  says to drop it or asks for quiet, or a more interesting goal replaces it. Face-track
-  renumbering, untrusted transcripts and his own motor noise end nothing.
-- **Planner calls are rare.** One when a goal is adopted and one when it ends. The
-  expected rate is a handful per ten minutes; the measured rate to beat is 40.
+## How it works
 
-### What catches his interest (owner requirement)
+**A goal.** One persisted record in the `agency_plan` table (format 2): `goal_kind`
+(`catch_up`, `get_to_know`, `investigate`, `entertain`), a subject, a short first-person
+narrative, an objective and up to six beats. Beat kinds are contribute, gesture, pose
+(named poses, wave, `throttle_offer` to reach out, `look_after` to look and comment),
+look, inspect and drive.
 
-Anything can. No special detector or new model is needed; the planner chooses from the
-existing camera and object evidence, and almost any choice is an improvement on the
-current behavior. The requirement is about how he engages with it:
+**What starts one.** The runtime's idle tick, in priority order:
 
-- **Personable, not inventory.** He asks about the thing or the person's connection to
-  it: "What's that wall painting about?", "Tell me more about this photo on the wall."
-- **Never announce the obvious.** Stating that an object exists ("I see a clock") is the
-  failure the owner called out. Naming what is visible is not a contribution.
-- **Curiosity aimed at people.** A noticed thing is a way into a conversation about
-  them, their home and their stories, not a prompt for a riff about the object.
+1. Human work pending, quiet requests, the human floor and recent speech gate everything.
+2. A settled new arrival is greeted directly by GPT-6 Luna (no planner wait). The goal then
+   ends with `person_arrived` and the next goal is about that person. Someone who spoke to
+   Rex in the last minute is not re-greeted when their face was briefly unrecognized.
+3. Otherwise, with no live goal, GPT-5.6 Terra plans one **in the background**. It sees
+   the recent dialogue, the subject (name, saved facts and recent exchanges for a known
+   person), visible people, offered objects and visual memory, previous goals, capabilities
+   and one current low-detail camera frame. A reply never waits for planning and human
+   speech never cancels it; an explicit stop does.
+4. With a live goal, one beat runs at each eligible lull (eight seconds of quiet by default,
+   plus the beat's own 3-45 second delay). Luna performs it with fresh context and the
+   offered tool, adapting it to whatever was just said.
 
-### Motion (owner requirement)
+**What steers it.** Human turns no longer end the goal. The reply model sees the goal
+(`agency_plan`: objective and next beat) and may move it along when it fits.
 
-Self-initiated driving needs no permission and is not limited to small moves. The only
-limits are physical: he must not drive into things and must respect the time-of-flight
-sensor boundaries. Existing obstacle, clearance, charging, manual-control and stop-word
-guards remain. The 1.5 m single-request travel limit seen in the trace conflicts with
-the owner's no-caps ruling and is to be removed. Mid-drive human speech that is not a
-stop word should not abandon a physical plan step.
+**What ends it.** Beats used up (the next plan continues the visit or picks a new goal),
+its person gone for 45 seconds (judged by face identity or supported speech; trusted
+speech with no one else recognized counts as them), a human redirection
+(`conversation_feedback` topic closed or avoided ends it but keeps it as context), a
+failed premise (`revise_agency_plan`, which also improvises one beat now), or a new
+arrival. Stop, quiet, forgetting and corrections erase it.
 
-### What this retires and keeps
+**Beat outcomes.** Completed beats need their receipts (heard speech, gesture pulses,
+changed pose channels, a completed drive, an acquired image). An unheard beat that yields
+to a human is retried once at the next lull, then skipped. A failed or refused beat is
+skipped; the goal goes on. A beat that repeats one of Rex's last four lines word for word
+gets one retry, then fails.
 
-Retire: the two-second quiet preparation trigger, marking the plan dirty on every
-human turn, replanning after every interrupted step, and audience invalidation of
-steps that disclose nothing private. Keep: the single `agency_plan` store, the planner
-call, the shared speech/head/arm/wheel executors and their receipts, quiet and
-stop-word handling, and audience checks on personal disclosures.
+**Presence and privacy.** Track IDs no longer decide anything. Rex's own audience-scoped
+beat waits when a recognized different person replaces its subject or one more face
+appears than at the start; a question aimed at one face needs that face. Replies that use
+private memory follow the same rule, so a flickering or renumbered face never drops a
+reply, and any withheld reply is traced as `reply_cancelled` with its reason. A planner
+goal about "the person here" cannot be saved when nobody is present.
 
-### Open before coding
+**Camera frames.** The planner gets one frame. Beats of `get_to_know` and `investigate`
+goals keep the proactive frame; catch-up and entertain beats do not (a probe beat opened
+with a remark about the frame instead of its question). Looks and inspections fetch their
+own fresh images.
 
-- Find and log the cause of the two silently dropped human replies.
-- Acceptance must be a live run. The simulated room has no interruptions or track
-  churn, which is why earlier synthetic passes did not predict these failures.
+**Cost controls.** At least eight seconds between planner calls whatever goes wrong; one
+repair per plan; failures back off 10-60 seconds while Rex still improvises spoken beats;
+no new goals after five minutes with nobody seen or heard. Live cost is unmeasured.
 
-The sections below describe the implemented software that this direction replaces.
+**Motion.** Self-initiated drive limits equal requested ones (0.25 m/s, 10 m per plan,
+360° turns, six steps). The model sees `max_move_m` rather than the 1.5 m leg length it
+misread live. A committed silent move is not cancelled by its own motor noise or camera
+reframe; a spoken stop halts it. Charging, manual control, held poses and clearance
+checks still refuse moves.
 
-## October 1 replacement
+## Retired
 
-The owner reported that the previous three agency increments still left Rex silent.
-The initially inspected seven-minute session had 16 proactive opportunities and **zero
-completed audible proactive contributions**: 12 silence decisions, two silent visual
-bookkeeping attempts, and two interruptions. Two spoken promises also lost their
-working-interest updates during validation. Synthetic tests had established the
-old mechanism's contracts; they had not established engaging live behavior.
+The two-second quiet preparation trigger, discarding the plan on every human turn,
+replanning after every interrupted step, track-ID audience invalidation of goal steps,
+silent-head-turn recovery (recovery now speaks), the smaller self-initiated drive limits
+and the October 1 step-script format (old saved records are discarded at startup).
 
-The owner authorized replacing the optional “should I participate?” loop with a
-stronger model that writes a private character narrative and a concrete plan,
-saved in memory, followed by periodic prompts to the cheaper conversation model.
-This document supersedes the earlier increment plan and self-scheduling design.
-Existing physical attention, visual continuity, invitation, memory and output
-executors remain shared with ordinary conversation.
+## Evidence
 
-The next live run (`c0ecb89dbc2a40dfb1fc805fcdc1eec2`) also failed: five planning
-attempts, two `GeneralAgencyPlanHasPrivateEvidence` rejections, three speech
-interruptions, zero saved plans and zero executed steps. Valid camera/target refs
-were classified as private and rejected rather than scoped. No correction feedback
-reached the planner. Retry delays then postponed all activity. An unrelated optional
-working-interest validation error also erased a human reply. The repair below
-addresses these observed failures; earlier synthetic success was insufficient.
+Contract checks (`tools/run_checks.py`, blocked I/O, fake clocks, synthetic faces and
+audio) cover: greeting before goal planning, the arrival becoming the next goal, planner
+input with a camera frame, planning beside a human reply, human turns steering without
+replanning, interrupted beats retried then skipped, failed beats skipped, track churn of
+the same visit, newcomers and changed audiences, absent subjects, the five-minute pause,
+planner pacing and failures, the repeat guard, frame filtering, equal drive limits and the
+dropped-reply regression. Results are in [implementation status](IMPLEMENTATION_STATUS.md).
 
-## Implemented architecture
+`tools/check_agency.py --live` runs the production scheduler, Session, Terra planner and
+Luna executor on fictional cases (a known friend with two saved facts, a new visitor, a
+room with a synthetic sailboat painting, rejected humor) with fake servo/base transports,
+synthetic playback and an accelerated clock. Results are in implementation status. It
+does not establish hearing, real perception, physical movement or wall-clock pacing.
 
-One Session remains the conversational owner. At an eligible lull it:
+## Remaining acceptance
 
-1. Loads the saved plan and constructs evidence from recent trusted conversation,
-   offered observations, visual memory and current targets. It includes previous
-   steps, actual heard words, action receipts, unresolved questions and boundaries.
-2. Calls the configured stronger planner when there is no usable plan, after a human
-   turn, after exhaustion/failure, or when audience scope changes. The planner writes
-   a private first-person character perspective, an objective and one to four
-   concrete steps; normally one to three keep the next action close to the exchange. Imagined
-   attitudes and hypotheticals are allowed; invented observations or human facts
-   are not. Factual references must be among the offered IDs.
-3. Validates capabilities and references and saves the plan in the existing SQLite
-   memory store's `agency_plan` table. These are fictional character/activity notes,
-   never personal claims or hidden reasoning. Offered audience references narrow a
-   general proposal to the current audience instead of rejecting it. Invented refs
-   still fail. One bounded correction call receives the rejected proposal and error.
-   A provider failure or unsuccessful correction installs an explicit
-   `recovery` step: a silent attention shift or temporary pose when available, otherwise
-   a brief context-appropriate contribution. Failed premises do not force jokes.
-   There is only one active plan and no silent provider substitution.
-4. Sends the current step and fresh context to GPT-6 Luna through the normal reply
-   path. Tools implement a contribution, inspection, directional look, speech with a
-   gesture, temporary named/joint pose, or bounded drive. Physical-only plans are valid;
-   movement can be the first step. A changed premise or boundary permits an explicit
-   `revise_agency_plan` result. The failed step and reason are retained; the same
-   opportunity executes a recovery step with one bounded Luna call. The replacement
-   offers no further revision. Human input,
-   quiet, privacy and cancellation still govern the output owner.
-5. Records actual delivery and executor results. Completed audible text advances a
-   contribution. Inspection also needs a completed acquisition with an image; looks
-   need an executor receipt; gestures need completed speech and a gesture receipt.
-   Drive steps need completed drive receipts. Poses need successful pulses on changed
-   channels; commanding an already-reached position does not count as physical agency.
-   Failure or interruption requests revision. A spoken promise cannot count as a
-   physical action. Controller pulses remain distinct from measured physical arrival.
+The owner's next robot run decides it. Check that people get answered and greeted, that
+Rex starts doing things when nothing happens (including driving over to something and
+asking about it), that goals survive conversation, that humor lands, and that quiet and
+stop still work. Count planner calls, completed beats and spoken self-initiated lines
+against the October 1 baseline (40 planner calls, 2 lines in ten minutes).
 
-Ordinary human replies still use one primary Luna generation, with existing bounded
-tool-result continuations when needed. They never wait for a new planning call.
-The performer no longer receives instructions to author parallel working-interest
-plans. Rejected optional reply notes recover via an ordinary result continuation;
-the rejected draft/promise is not spoken and no rejected write is acknowledged.
-An in-flight private planning call yields to human speech through the existing
-cancellation path. No separate speaking loop, resident model or service was added.
+## History
 
-## Timing and perception
-
-Private preparation starts after two quiet seconds through the same Session. It
-does not consume an arrival, advance memory offers, change speech history or reset
-the interaction clock. Speech still uses the configured eight-second default lull;
-planning latency overlaps this wait instead of starting after it. Step delays are
-3–30 seconds, normally 5–10, with a five-second execution pacing minimum and the
-configured lull floor still applying. These are eligibility times; model generation,
-inspection and TTS can add latency. These are not first-audio guarantees.
-
-No visible person or new scene is required. News, weather and camera evidence are
-coalesced into the next step context rather than spending one attempt per update.
-Conversation, ordinary curiosity and physical presence sustain plans; music is flavor
-when relevant, not the default topic. Human feedback changes the next activity.
-The one-seed policy, model-created general timers, silent-decision backoff and
-12-attempts-per-five-minutes cutoff are retired. Planner provider/validation failures
-use bounded 10–60-second planner retries; these no longer block character-step
-execution. A generated step can continue while the stronger planner is unavailable.
-
-Head movement does not itself establish novelty. Existing settling, returning-view
-history and delivered-description evidence remain in use. Plans retain their actual
-outcomes, and the planner sees recent prior-plan outcomes for continuity. A visible
-person is not an identity assertion. Explicitly general plans survive changed visibility without restarting their steps.
-Personal/face-target evidence narrows a proposed general plan to its audience;
-public observations, camera acquisition metadata and unnamed object targets can remain
-general. Private planning retains recent dialogue despite face-track instability;
-camera receipts cannot crowd out feedback. This context does not authorize disclosing
-personal facts to a changed audience. Audience-scoped notes are withheld when scope
-differs. Preparation/execution use the same audience snapshot; general activity survives
-camera churn, while personal output revalidates before delivery. Room-wide object
-identity and semantic non-repetition remain live evaluation questions.
-
-Explicit quiet, human-floor state, queued input, fresh microphone requirements and
-shutdown still gate activity. Pending identity questions and unanswered social
-invitations do not freeze unrelated plan steps. Invitations retain their own
-explicit heard/open/answered/declined/lapsed lifecycle; time never invents an answer.
-`next_opportunity` is retained only as validated invitation review metadata and
-cannot schedule general work.
-
-## Companion and body repair after the next live run
-
-Session `299c989c202a4f9ca815b6bf9dfed331` spoke proactively but failed socially:
-repeated musical furniture jokes, discarded feedback, zero proactive gestures/base
-moves and one late head look. The owner remained in view. The camera detected a
-face in 768/793 analyzed frames but issued 175 track IDs; 25 face boxes passed the
-48-pixel width threshold but failed the old redundant area threshold. Social audience
-eligibility now uses settled presence and width, without changing identity or learning
-thresholds. The same audience survives a planning-time polling gap; private output
-still cancels for genuinely changed tracks/membership before delivery.
-
-Terra plans from dialogue before inventing a topic, ends rejected bits, and can lead
-with physical action. It sees current named poses, joint positions, held parts and
-base clearance/capabilities. Existing self-initiated drive limits and charging,
-manual-control, obstacle and stop guards remain. Autonomous poses neither acquire
-persistent holds nor release/override human holds. Autonomous drive refuses while a
-human pose hold is active, before preparing the head/arms. Ordinary public questions
-do not require a visible listener; disclosing personal facts remains audience-bound.
-Private planning permits existing
-idle motion; capture and output retain their motion exclusions. A no-change head
-command does not invalidate camera continuity. Self-requested inspection can retain
-useful observations silently instead of announcing inventory. Unanswered name
-questions are not re-asked on the next human turn.
-
-## Models and persistence
-
-`agency_planner_model` defaults to **gpt-5.6-terra**, with medium reasoning. The owner
-selected this model after the account's read-only lookup exposed GPT-6 Sol, GPT-6 Astra and GPT-5.6 Terra; the requested
-`gpt-6-terra` returned model_not_found. No paid generation was used for that check.
-The model setting is explicit and there is no automatic fallback. Replies and step
-execution retain **gpt-6-luna**.
-
-The plan survives normal shutdown. A restart must revalidate it with current evidence
-before execution; saved motor commands are never replayed. Forgetting, source
-corrections, explicit stop and applicable participant boundaries clear derived plan
-notes. Human turns mark the plan for revision after the immediate reply. Plan storage
-uses the existing ignored scratch database, with no copy or connection to V2 data.
-
-## Evidence and remaining acceptance
-
-`tests/test_agency_plan.py` exercises the production Session, runtime, temporary
-SQLite store and output owner with fake providers, clocks, images and audio. It covers
-continued steps without human input, cheaper immediate replies, restart, interruption,
-quiet/floor/freshness, invalid evidence, provider failure, revision reasons, physical
-receipts, failed acquisitions and reports. Older scheduler-specific tests have been
-retired or rewritten around the new behavior. The final suite result is recorded in
-[implementation status](IMPLEMENTATION_STATUS.md).
-
-Trace reports separate planning calls, execution calls, planner duration, actual step
-outcomes and available token usage. Missing costs, latency, memory or physical evidence
-remain unknown. `tools/check_agency.py --live` now exercises the production scheduler,
-Session, actual Terra/Luna providers, temporary memory and synthetic output in an
-unchanged empty room, ordinary companionship, rejected humor with camera input,
-and embodied curiosity. Servo and base owners use injected fake transports. It uses
-no hardware. Results and limitations are recorded in [implementation status](IMPLEMENTATION_STATUS.md).
-
-The owner will run the next live test. Check that Rex develops an idea across several
-lulls, changes course after speech, varies thoughts without repeatedly questioning
-people, uses occasional bounded actions and respects quiet. Compare delivered output
-against the zero-contribution baseline. Planner quality, live latency/cost, physical
-expression and whether Rex feels alive remain **unaccepted until that test**.
-
-## Increment 2 implementation — October 1, 2026
-
-Retained physical foundation: bounded directional attention and gestures share the
-existing servo/output owner. Settling and returning-view evidence prevent a head turn
-from being treated automatically as novel sight. Controller receipts do not measure
-shaft position. The new planner delegates steps to these same executors.
-
-## Increment 3 implementation — October 1, 2026
-
-Retained invitation foundation: only complete audible invitations become pending;
-explicit transitions record answered, declined, superseded or lapsed states. The
-stronger planner and step owner replace the former optional self-scheduling behavior.
+September 30 to October 1: three increments added working interests with self-scheduled
+reconsideration, physical looks and gestures with view continuity, and an invitation
+lifecycle. The October 1 replacement added a Terra-written narrative with one to four
+steps executed by Luna. Live runs `c0ecb89d` (zero saved plans), `299c989c` (repeated
+music riffs) and `f4e2bf97` (above) failed. The invitation lifecycle, physical executors
+and view continuity remain in use.

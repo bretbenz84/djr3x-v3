@@ -16,6 +16,9 @@ YIELD_VOICED_SECONDS = .5
 # direction must still be clear (3+ strong samples, one dominant beam), which the
 # single-frame noises heard as "Oh." rarely were.
 REFLEX_VOICED_SECONDS = .3
+# How long the idle tick waits for a just-started goal plan before returning to listening.
+# Hosted planning takes seconds and finishes in the background; this bounds the pause.
+PLANNING_GLANCE_SECONDS = .25
 
 class VoiceRuntime:
     def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None):
@@ -155,8 +158,11 @@ class VoiceRuntime:
             self.trace.emit('initiative_gate', reason=reason,
                             due_at=policy.agency.due_at if policy and policy.agency and policy.agency.due_at!=float('-inf') else None)
 
-    def proactive_tick(self):
-        """Idle owner decisions need live input, not a visible person."""
+    def proactive_tick(self, _after_planning=False):
+        """Rex's own initiative, in priority order (owner direction, October 2):
+        people talking come first (they never reach this method's work), a person who
+        arrives is greeted, and when nothing is happening Rex pursues his goal. Goals are
+        planned in the background; a human turn neither waits for nor discards them."""
         if not self.session.state or self.session.state.frozen:
             self.initiative_gate('state_unavailable_or_frozen')
             return
@@ -165,9 +171,9 @@ class VoiceRuntime:
             self.arrivals.observe(self.camera.latest(now) if self.camera else (), now)
             initiative = self.session.state.initiative
             agency = self.session.state.agency
+            agency.observe_faces(self.arrivals.faces, now)
             quiet_seconds = min(now-self.started_at, now-self.session.last_trusted_speech_at,
                                 now-self.session.last_interaction_at)
-            planning_only = quiet_seconds < self.lull_seconds or not agency.due(now)
             audience, audience_key = self.arrivals.audience_snapshot(now)
             with self.session._lock:
                 intentions = self.session.state.conversation_intent
@@ -194,27 +200,41 @@ class VoiceRuntime:
             if quiet_seconds < 2:
                 self.initiative_gate('conversation_active')
                 return
-            if planning_only:
-                from .agency import audience_key as plan_audience_key
-                current = self.session.state.current
-                scope = {'faces':audience}
-                if not audience and current:
-                    scope['speaker']={'track_id':current[4].track_id,'person_id':current[4].person_id}
-                if not agency.needs_plan(plan_audience_key(scope)):
-                    self.initiative_gate('plan_prepared_waiting_for_lull')
+            planning_only = False
+            # People first: a settled new arrival is greeted before any goal work.
+            event = self.arrivals.take(self.session.session_id, now, self.session._latest_speech)
+            if event is not None and agency.spoke_recently(event.person_id, now):
+                # Their face was unrecognized for a while, but they have been talking to Rex:
+                # the same visit, not an arrival to greet again.
+                self.trace.emit('arrival_skipped', person_id=event.person_id, reason='spoke_recently')
+                event = None
+            if event is None:
+                if not agency.someone_around(now, self.started_at):
+                    self.initiative_gate('nobody_around')
                     return
-            event = None if planning_only else self.arrivals.take(self.session.session_id, now, self.session._latest_speech)
+                if agency.needs_plan(now):
+                    if self.session.planning_active():
+                        self.initiative_gate('planning_goal')
+                        return
+                    from .agency import PLAN_MIN_INTERVAL_SECONDS
+                    if (now >= agency.planner_retry_at and not _after_planning and
+                            now-agency.plan_started >= PLAN_MIN_INTERVAL_SECONDS):
+                        planning_only = True  # Prepared in the background; executed at a lull.
+                    elif quiet_seconds < self.lull_seconds or not agency.due(now):
+                        self.initiative_gate('planner_retry_wait')
+                        return
+                elif quiet_seconds < self.lull_seconds or not agency.due(now):
+                    self.initiative_gate('goal_waiting_for_lull')
+                    return
             from .proactive import Opportunity
             from uuid import uuid4
             source = self.session.state.conversation_source
-            quiet_seconds = min(now-self.started_at, now-self.session.last_trusted_speech_at,
-                                now-self.session.last_interaction_at)
             if event is None:
                 event = Opportunity(uuid4().hex,self.session.session_id,now,None,None,audience,
                     self.session._latest_speech,False,'reconsideration',source,quiet_seconds,
                     audience_key=audience_key)
-            # Coalesce perception into a scheduled plan step. Each feed item/frame no
-            # longer creates its own model attempt or consumes a conversation budget.
+            # Coalesce perception into the next beat. Each feed item/frame no longer
+            # creates its own model attempt or consumes a conversation budget.
             cues = tuple(c for c in self.observations.candidates()
                          if self.session.state.observation_available(c.public())) if self.observations else ()
             scene = self.scene_observer.snapshot() if self.scene_observer else None
@@ -225,9 +245,11 @@ class VoiceRuntime:
             if scene and not planning_only:
                 self.scene_observer.attempted(scene[0])
             revision = self.session.revision
-            self.initiative_gate('preparing' if planning_only else 'considering')
+            self.initiative_gate('preparing_goal' if planning_only else 'greeting' if event.kind=='visual_arrival' else 'pursuing_goal')
         self.trace.emit('agency_preparation_opportunity' if planning_only else 'proactive_opportunity',event_id=event.event_id,kind=event.kind,
                         face_track_id=event.target_track,person_id=event.person_id)
+        # Faces in view when the beat began: a newcomer is one more face, not a new track ID.
+        visible_at_start = max(len(event.faces), len([f for f in self.arrivals.faces if 0 <= now-f['at'] <= 1.5]))
         def valid():
             nonlocal invalidation_reason
             # Sample the producer timestamp before the clock: a microphone frame
@@ -239,26 +261,40 @@ class VoiceRuntime:
             # the main loop last polled. Validate the latest evidence, not that
             # older polling snapshot. This reads cache only; no device work.
             self.arrivals.observe(self.camera.latest(now) if self.camera else (),now)
+            agency.observe_faces(self.arrivals.faces, now)
             intention = self.session.state.conversation_intent.record
             from .conversation_intent import audience
+            # A committed silent move (wheels or a pose) finishes like audible speech: its own
+            # motor noise and camera reframe must not cancel it. A spoken stop still halts it.
             committed = self.session.motion_committed
             intent_audience_changed = (not committed and intention is not None and intention.source_id == event.event_id
                 and intention.audience != audience({'faces':self.arrivals.faces})
                 and (self.session._audience_bound_output or bool(intention.memory_ids)))
+            memory_person = self.session._memory_subject
+            fresh = [f for f in self.arrivals.faces if 0 <= now-f['at'] <= 1.5]
+            known = {f.get('identity') for f in fresh if f.get('identity')}
+            question_track = self.session._question_track
             reason = ('intent_audience_changed' if intent_audience_changed else
                       'shutdown' if self.stop.is_set() else
                       'human_speech' if self.session._latest_speech!=event.speech_marker else
-                      'capture_queued' if not self.captures.empty() else
-                      'turn_queued' if not self.turns.empty() else
-                      'recognition_busy' if self.asr_busy.is_set() else
+                      'capture_queued' if not committed and not self.captures.empty() else
+                      'turn_queued' if not committed and not self.turns.empty() else
+                      'recognition_busy' if not committed and self.asr_busy.is_set() else
                       'audio_timestamp_ahead' if audio_age<0 else
                       'audio_stale' if audio_age>.5 else
-                      'audience_changed_or_stale' if (not committed and not self.session.preparing_plan and
-                          (self.session.agency_scope!='general' or self.session._audience_bound_output) and not self.arrivals.valid(event,now,
-                          audience_bound=self.session._audience_bound_output or self.session.agency_scope=='audience') and
-                          (self.session._proactive_delivery is None or
-                           self.session._proactive_delivery.first_audio_at is None or
-                           self.session._audience_bound_output)) else None)
+                      # Identity, not track IDs: renumbered faces of the same person are the same visit.
+                      'arrival_left' if (not committed and event.kind=='visual_arrival' and
+                          not self.arrivals.still_present(event, now)) else
+                      'goal_person_left' if (not committed and self.session.agency_scope=='audience' and
+                          not agency.subject_present(now)) else
+                      # A question aimed at one face needs that face; a renumbered track ends it.
+                      'question_target_left' if (not committed and question_track and
+                          not any(f['track_id'] == question_track for f in fresh)) else
+                      # Private material waits when someone else joins or replaces its person.
+                      'audience_changed_or_stale' if (not committed and (self.session._audience_bound_output or
+                          self.session.agency_scope=='audience') and (
+                          (memory_person and known and memory_person not in known) or
+                          len(fresh) > visible_at_start)) else None)
             if reason and not invalidated.is_set():
                 invalidation_reason = reason
                 invalidated.set()
@@ -268,9 +304,21 @@ class VoiceRuntime:
         invalidated = threading.Event()
         invalidation_reason = None
         result = self.session.process_opportunity(event,revision,valid,planning_only=planning_only)
-        if not planning_only: self.arrivals.finished(event,result)
+        if planning_only:
+            # Planning normally takes seconds and continues in the background. A goal that is
+            # ready almost at once is acted on in this same tick when the lull allows.
+            self.session.join_planning(PLANNING_GLANCE_SECONDS)
+            if not self.session.planning_active():
+                return self.proactive_tick(_after_planning=True) or result
+            return result
+        self.arrivals.finished(event,result)
+        if event.kind == 'visual_arrival' and result.status not in {'rejected'}:
+            with self.session._lock:
+                current = agency.record if agency.applicable(self.trace.clock()) else None
+                if not (event.person_id and current and current.get('subject_person') == event.person_id):
+                    # A person arriving is the more interesting goal: plan the visit with them.
+                    agency.replace('person_arrived', {'person_id': event.person_id, 'track_id': event.target_track})
         if result.status == "interrupted" and not planning_only:
-            agency = self.session.state.agency
             agency.due_at = max(agency.due_at, self.trace.clock() + self.lull_seconds)
         self.trace.emit('proactive_opportunity_done',event_id=event.event_id,kind=event.kind,status=result.status,medium=result.medium,
                         delivered=bool(result.completed_text),failed=result.error)

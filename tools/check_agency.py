@@ -3,6 +3,8 @@
 Run: .venv/bin/python -m tools.check_agency --live
 Uses production scheduler, Session, Terra planner and Luna executor, a temporary
 database, synthetic microphone health and playback, and production servo/base owners on fake transports.
+October 2 cases follow the goal design: a known friend arrives (catch up), a stranger arrives
+(get to know), a room with a painting on the wall (investigate), and rejected humor.
 This proves model integration, not actual hearing, perception or physical movement.
 """
 import argparse
@@ -50,19 +52,36 @@ class SyntheticRuntime(VoiceRuntime):
     def audio_seen_at(self, value): pass
 
 
-class SyntheticScene:
-    """An unchanged blue square; current receipts without fabricated object labels."""
-    def __init__(self, clock=time.monotonic):
-        self.clock=clock
-        def chunk(kind, body):
-            return struct.pack('>I',len(body))+kind+body+struct.pack('>I',zlib.crc32(kind+body))
-        png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',64,64,8,2,0,0,0))
-        png+=chunk(b'IDAT',zlib.compress((b'\0'+b'\x20\x60\xa0'*64)*64))+chunk(b'IEND',b'')
-        self.url='data:image/png;base64,'+base64.b64encode(png).decode()
+def png(width, height, pixel):
+    def chunk(kind, body):
+        return struct.pack('>I',len(body))+kind+body+struct.pack('>I',zlib.crc32(kind+body))
+    rows=b''.join(b'\0'+b''.join(bytes(pixel(x,y)) for x in range(width)) for y in range(height))
+    data=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,2,0,0,0))
+    data+=chunk(b'IDAT',zlib.compress(rows))+chunk(b'IEND',b'')
+    return 'data:image/png;base64,'+base64.b64encode(data).decode()
 
-    def snapshot(self): return ('synthetic-blue', (SceneImage('blue-frame',self.clock(),self.url),))
+
+def painted_wall(x, y):
+    """A synthetic living-room wall with a framed sailboat painting; drawn, not photographed."""
+    if y >= 200: return (150,110,70)                       # wooden floor
+    if 80 <= x < 240 and 40 <= y < 170:
+        if not (88 <= x < 232 and 48 <= y < 162): return (90,55,25)  # frame
+        if (x-205)**2+(y-70)**2 <= 120: return (250,215,60)            # sun
+        if 120 <= y < 132 and 128+(y-120) <= x < 192-(y-120): return (110,60,30)  # hull
+        if 60 <= y < 118 and 158 <= x <= 158+(y-60)*32//58: return (250,250,245)  # sail
+        return (135,190,235) if y < 115 else (30,90,160)                  # sky, sea
+    return (220,205,180)                                    # wall
+
+
+class SyntheticScene:
+    """An unchanged synthetic view; current receipts without fabricated object labels."""
+    def __init__(self, clock=time.monotonic, picture=None):
+        self.clock=clock
+        self.url=png(320,240,picture) if picture else png(64,64,lambda x,y:(32,96,160))
+
+    def snapshot(self, *args): return ('synthetic-view', (SceneImage('synthetic-frame',self.clock(),self.url),))
     def attempted(self, scene_id): pass
-    def valid(self, scene_id): return scene_id=='synthetic-blue'
+    def valid(self, scene_id): return scene_id=='synthetic-view'
     def continuity(self): return {'status':'fresh','view_epoch':0,'relation':'same_view'}
 
 
@@ -75,7 +94,8 @@ class ProbeClock:
         time.sleep(.002)
 
 
-CASES=('empty_room','companionship','feedback_and_camera','embodied_curiosity')
+CASES=('known_friend','new_visitor','curious_room','feedback_and_camera')
+FRIEND_FACTS=(('dog_name','Biscuit, a beagle who steals socks'),('training_for','a half marathon in November'))
 
 
 def run_case(name, folder, key):
@@ -103,13 +123,23 @@ def run_case(name, folder, key):
     attention=PhysicalAttention(robot);gesture=PhysicalGesture(robot)
     try:
         robot.start();drive.start();attention.start();gesture.start()
-        if name!='empty_room':world.people=[('visitor',None,2.,0.)]
-        if name=='embodied_curiosity':world.objects=[('object:chair','chair',2.8,1.6)]
         with TemporaryDirectory() as tmp:
             store=Memory(Path(tmp).resolve()/'memory.sqlite3');store.start()
             try:
+                friend=None
+                if name=='known_friend':
+                    # Fictional fixture person with two accepted facts; no real personal data.
+                    with store.transaction() as conn:
+                        friend=store.add_person(conn,'Sam',[],None,status='supported')
+                        conn.execute('INSERT INTO turns VALUES(?,?,?,?,?,?)',('fixture-turn','fixture','fixture',
+                            'My beagle Biscuit steals socks, and I am training for a half marathon.','{}',0.))
+                        for i,(predicate,value) in enumerate(FRIEND_FACTS):
+                            conn.execute('INSERT INTO claims VALUES(?,?,?,?,?,?,?,?,?,?,?)',('fixture-claim-'+str(i),
+                                friend,predicate,value,friend,None,'fixture-turn','self_report','accepted',None,1))
+                world.people=[('sam' if friend else 'visitor',friend,2.,0.)]
+                if name=='curious_room':world.objects=[('object:plant','potted plant',2.6,1.2)]
                 state=CoreState(store,SpeakerTracker('synthetic-agency:3'),trace)
-                scene=SyntheticScene(clock) if name=='feedback_and_camera' else None
+                scene=SyntheticScene(clock,painted_wall if name=='curious_room' else None)
                 view=CurrentView(scene,clock=clock) if scene else None
                 if view:view.start()
                 output=OutputOwner(SyntheticTTS(),SyntheticSink(),trace,robot=robot,drive=drive,
@@ -118,11 +148,10 @@ def run_case(name, folder, key):
                 session.agency_planner=planner
                 state.scene_observer=scene
                 runtime=SyntheticRuntime(None,None,None,session,trace,scene_observer=scene)
-                if name!='empty_room':
-                    def faces(now):
-                        return [{**f,'face_width_px':f['box'][2]*1920,'learning_quality':False,
-                                 'needs_closer_look':False,'position':'center'} for f in world.faces(now)]
-                    runtime.camera=SimpleNamespace(latest=faces)
+                def faces(now):
+                    return [{**f,'face_width_px':f['box'][2]*1920,'learning_quality':False,
+                             'needs_closer_look':False,'position':'center'} for f in world.faces(now)]
+                runtime.camera=SimpleNamespace(latest=faces)
                 brain.start();planner.start()
                 trace.emit('probe_start',evidence='live_models_synthetic_inputs_fake_controller_transports',case=name)
                 def human(words):
@@ -134,27 +163,41 @@ def run_case(name, folder, key):
                         faces=runtime.camera.latest(now) if runtime.camera else (),
                         latest_faces=runtime.camera.latest if runtime.camera else None)
                     receipts.append({'kind':'human_reply','input':words,**asdict(result)})
-                    if result.status!='completed':raise RuntimeError('HumanReplyFailed:'+str(result.error))
-                if name=='companionship':human('Hey Rex. Long day at work. Glad to be home.')
+                    # A quiet reply (for example a glance away from someone who wants to read) is valid.
+                    if result.status not in {'completed','suppressed'}:raise RuntimeError('HumanReplyFailed:'+str(result.error))
+                arrival=name in {'known_friend','new_visitor'}
+                def look():
+                    for age in (3.,2.5,2.,1.5,1.,.5,0.):
+                        at=clock()-age;runtime.arrivals.observe(runtime.camera.latest(at),at)
+                    if not arrival:  # Already greeted; these cases concern what follows.
+                        for entry in runtime.arrivals.seen.values():entry['used']=True
+                look()
+                if name=='curious_room':human("I'm going to read for a bit. Entertain yourself, Rex.")
                 elif name=='feedback_and_camera':
                     # Fictional transcript reproduces the failure without uploading private logs.
                     session.history.append({'role':'assistant','content':'That clock could be a prime-number drum machine.'})
                     human("You're talking nonsense. Can you ask how I'm doing instead?")
                     human("I'm doing okay. I'm just annoyed by the forced music jokes.")
-                elif name=='embodied_curiosity':human('Nice to have some company while I sort out this room.')
-                deadline=time.monotonic()+210
+                deadline=time.monotonic()+240
                 answered=False; repaired_topic=False
                 while time.monotonic()<deadline:
+                    # Planning is real-time background work; the accelerated clock waits for it.
+                    session.join_planning(90)
+                    time.sleep(2)  # Pace hosted requests; OpenAI rejects unpaced bursts.
                     clock.wait(9)  # Exercise the real scheduler; no real human waiting in a probe.
-                    if runtime.camera:
-                        for age in (3.,2.5,2.,1.5,1.,.5,0.):
-                            at=clock()-age;runtime.arrivals.observe(runtime.camera.latest(at),at)
-                        for entry in runtime.arrivals.seen.values():entry['used']=True
+                    look()
                     result=runtime.proactive_tick()
                     if result and result.status!='prepared':receipts.append({'kind':'proactive',**asdict(result)})
                     completed=[r for r in rows if r['event']=='agency_step_finished' and r['status']=='completed']
-                    if name=='companionship' and not answered and result and result.completed_text:
-                        human('The printer jammed during a presentation. I ended up drawing the chart by hand.')
+                    spoke=bool(result and result.completed_text)
+                    if name=='known_friend' and not answered and spoke and completed:
+                        human('Pretty good, actually. Biscuit stole one of my running socks this morning.')
+                        answered=True
+                    if name=='new_visitor' and not answered and spoke:
+                        human("I'm Jordan, I'm here to fix the wifi. Nice robot.")
+                        answered=True
+                    if name=='curious_room' and not answered and spoke and completed:
+                        human('Ha, that painting? My grandfather painted it. He used to sail on the lake.')
                         answered=True
                     if name=='feedback_and_camera' and len(completed)>=3 and not repaired_topic:
                         human('I spent the afternoon fixing a squeaky door. It finally shuts properly.')
@@ -177,9 +220,13 @@ def run_case(name, folder, key):
             'proactive_speech':[x['completed_text'] for x in receipts if x['kind']=='proactive' and x['completed_text']],
             'invalidations':[r['reason'] for r in rows if r['event']=='proactive_invalidated'],
             'completed_steps':sum(r['event']=='agency_step_finished' and r['status']=='completed' for r in rows),
-            'step_kinds':[r['kind'] for r in rows if r['event']=='agency_step_finished' and r['status']=='completed']}
+            'step_kinds':[r['kind'] for r in rows if r['event']=='agency_step_finished' and r['status']=='completed'],
+            'goals':[{k:r.get(k) for k in ('goal_kind','subject','objective','origin')} for r in rows if r['event']=='agency_plan_saved'],
+            'planner_calls':sum(r['event']=='model_request' and str(r.get('purpose','')).startswith('agency_plan') for r in rows),
+            'spoken':[(r.get('purpose'),r.get('completed_text')) for r in rows if r['event']=='delivery' and r.get('completed_text')]}
     (folder/(name+'-result.json')).write_text(json.dumps(result,indent=2))
-    print(json.dumps({'case':name,'completed_steps':result['completed_steps'],'step_kinds':result['step_kinds'],'trace':str(path)}),flush=True)
+    print(json.dumps({'case':name,'completed_steps':result['completed_steps'],'step_kinds':result['step_kinds'],
+                      'planner_calls':result['planner_calls'],'goals':result['goals'],'trace':str(path)}),flush=True)
     return result
 
 

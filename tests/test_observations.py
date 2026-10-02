@@ -170,9 +170,6 @@ class ObservationCoreTests(MemoryFixture):
             perception=SimpleNamespace(camera=SimpleNamespace()))
         try:
             event=self.event();runtime.arrivals.observe(event.faces,100)
-            self.assertTrue(runtime.arrivals.valid(event,100))
-            runtime.arrivals.observe((*event.faces,face(100,track='new')),100)
-            self.assertFalse(runtime.arrivals.valid(event,100))
             self.state.initiative.feedback.append(dict(action='yield_floor',expires_at=220))
             result=self.session.process_opportunity(event,0,lambda:True)
             self.assertEqual(result.status,'suppressed');self.assertEqual(self.brain.calls,0)

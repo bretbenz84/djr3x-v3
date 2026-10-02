@@ -50,9 +50,7 @@ class Session:
         self.output_worker = None
         self.state = state
         if state is not None:
-            state.agency.dirty = True
-            state.agency.due_at = float("-inf")
-            state.agency.revision += 1
+            state.agency.new_session()
             state.attention.scene.session_id = session_id
             state.conversation_intent.clear("new_session")
         self._latest_speech = float("-inf")
@@ -68,11 +66,162 @@ class Session:
         self.motion_committed = False  # Wheels were handed a plan in the current turn.
         self.preparing_plan = False
         self.agency_scope = None
+        self._memory_subject = None  # Person whose private memory the current output uses.
+        self._question_track = None  # Face a pending proactive question is aimed at.
+        # Goal planning runs beside conversation, never in front of it (October 2).
+        self._planning_thread = None
+        self._planning_cancel = Cancellation()
+
+    def planning_active(self) -> bool:
+        return self._planning_thread is not None and self._planning_thread.is_alive()
+
+    def join_planning(self, timeout=10.) -> None:
+        thread = self._planning_thread
+        if thread is not None:
+            thread.join(timeout)
+
+    def _repeats_recent_line(self, call):
+        """Exact repetition of one of Rex's last heard lines; wording, not meaning."""
+        text = call.arguments.get('text') if isinstance(call.arguments, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            return False
+        def norm(value):
+            return ' '.join(value.lower().split())
+        said = [norm(m['content']) for m in self.history_messages()
+                if m.get('role') == 'assistant' and isinstance(m.get('content'), str)][-4:]
+        return norm(text) in said
+
+    def _subject_person(self, context):
+        """Who Rex's next goal is about: an arrival, the private-memory person, or one known face."""
+        pending = self.state.agency.pending_subject or {}
+        if pending.get('person_id'):
+            return pending['person_id']
+        memory = (context.get('personal_memory') or {}).get('person_id')
+        if memory:
+            return memory
+        known = {f.get('identity') for f in context.get('faces', []) if f.get('identity')}
+        if len(known) == 1:
+            return next(iter(known))
+        if not context.get('faces') and self.state.current and getattr(self.state.current[4], 'person_id', None):
+            return self.state.current[4].person_id
+        return None
+
+    def _planning_job(self, turn_id, context, planning_context, audience, capabilities, opportunity):
+        """Everything the planner sees, captured now; planning itself may finish later."""
+        from .agency import evidence_catalog, recent_dialogue
+        from .servo_poses import POSE_COMMANDS
+        agency = self.state.agency
+        now = self.trace.clock()
+        evidence = evidence_catalog(context)
+        subject_person = self._subject_person(context)
+        people = {p['id']: p for p in context.get('people', [])}
+        faces = context.get('faces', [])
+        memory = context.get('personal_memory') or {}
+        subject = None
+        if subject_person:
+            same = memory.get('person_id') == subject_person
+            subject = {'person_id': subject_person, 'display_name': people.get(subject_person, {}).get('name'),
+                'visible_now': any(f.get('identity') == subject_person for f in faces),
+                'known_facts': [{'id': r.get('id'), 'predicate': r.get('predicate'), 'value': r.get('value')}
+                                for r in memory.get('interests_and_facts', [])] if same else [],
+                'recent_exchanges': memory.get('recent_exchanges', []) if same else [],
+                'episodes': [{'id': r.get('id'), 'summary': r.get('summary')} for r in memory.get('episodes', [])] if same else [],
+                'meaning': 'A known person. Saved facts are private to them: audience scope only.'}
+        elif faces:
+            subject = {'person_id': None, 'unknown_visitor': True, 'visible_now': True,
+                'meaning': 'Someone Rex does not know yet. Visibility is not identity.'}
+        images = ()
+        if opportunity is not None and opportunity.scene_images:
+            images = tuple(i for i in opportunity.scene_images[-1:] if 0 <= now - i.at <= 30)
+        targets = (context.get('drive') or {}).get('targets', [])
+        facts = {'request_id': turn_id, 'revision': agency.revision,
+            'goal_trigger': agency.ending_reason(now),
+            'subject': subject,
+            'visible_people': [{'track_id': f.get('track_id'), 'person_id': f.get('identity'),
+                                'display_name': people.get(f.get('identity'), {}).get('name'),
+                                'position': f.get('position')} for f in faces],
+            'conversation': recent_dialogue(self.history_messages()),
+            'evidence': evidence, 'capabilities': capabilities,
+            'capability_contract': {'gesture': 'A short spoken thought with a finite nod/tilt; not a silent pose.',
+                'attention_mode': context.get('attention', {}).get('mode'),
+                'pose': {'enabled': 'pose' in capabilities, 'commands': list(POSE_COMMANDS),
+                         'reach_out_hand': 'throttle_offer', 'look_and_comment': 'pose with look_after',
+                         **context.get('robot_pose_state', {})},
+                'drive': context.get('drive'),
+                'inspection_directions': context.get('inspection_directions', [])},
+            'room': {'image_attached': bool(images),
+                     'objects': [t for t in targets if t.get('kind') == 'object'],
+                     'visual_memory': [r for r in context.get('visual_memory', []) if r.get('audience') == 'general'][:8],
+                     'meaning': 'Detector labels are coarse and miss photos, paintings and small things; the image shows more. '
+                                'Seek a described thing to drive to something without a target.'},
+            'current_goal': agency.context(now),
+            'recent_goals': agency.goal_history(now),
+            'boundaries': context.get('participation', {}),
+            'actual_actions': context.get('action_continuity', {}),
+            'pending_question': context.get('pending_question'),
+            'invitations': context.get('invitations'),
+            'dialogue_use': 'Private continuity and feedback, not proof an earlier speaker is present. '
+                            'Do not disclose prior personal facts to a changed audience.'}
+        return {'turn_id': turn_id, 'facts': facts, 'evidence': evidence, 'capabilities': capabilities,
+                'audience': audience, 'subject_person': subject_person, 'revision': agency.revision, 'images': images}
+
+    def _start_planning(self, job):
+        cancel = Cancellation()
+        self._planning_cancel = cancel
+        def run():
+            try:
+                self._run_planning(job, cancel)
+            except BaseException as exc:  # A planner bug must never take the conversation down.
+                self.trace.emit('agency_planning_crashed', turn_id=job['turn_id'], error_type=type(exc).__name__)
+        thread = threading.Thread(target=run, name='r3x-agency-planner', daemon=True)
+        self._planning_thread = thread
+        thread.start()
+
+    def _run_planning(self, job, cancel):
+        """One planner call, one bounded repair; failure leaves a timed retry, never silence."""
+        agency = self.state.agency
+        facts = job['facts']
+        started = self.trace.clock()
+        agency.plan_started = started
+        try:
+            for attempt in range(2):
+                self.trace.emit('model_request', turn_id=job['turn_id'], primary_calls=0,
+                    purpose='agency_planning' if attempt == 0 else 'agency_plan_repair',
+                    model=self.agency_planner.capability.model, image_count=len(job['images']),
+                    reasoning_effort=self.agency_planner.reasoning_effort, goal_trigger=facts.get('goal_trigger'))
+                proposed = self.agency_planner.plan(facts, cancel, images=job['images'])
+                cancel.check()
+                try:
+                    with self._lock:
+                        if self.closed: raise Cancelled()
+                        agency.install(proposed, job['audience'], job['evidence'], job['capabilities'],
+                                       job['revision'], self.trace.clock(), subject_person=job['subject_person'])
+                    return True
+                except ValueError as exc:
+                    if str(exc) == 'StaleAgencyPlan': raise Cancelled() from None
+                    self.trace.emit('agency_plan_rejected', turn_id=job['turn_id'], attempt=attempt+1,
+                        reason=str(exc), proposal=proposed, offered_evidence_ids=list(job['evidence']))
+                    if attempt: raise
+                    facts = {**facts, 'repair': {'validation_error': str(exc), 'rejected_proposal': proposed,
+                        'instruction': 'Correct this proposal. Use only offered evidence and capabilities.'}}
+        except Cancelled:
+            self.trace.emit('agency_planning_cancelled', turn_id=job['turn_id'])
+            if cancel is not self._planning_cancel and cancel.event.is_set():
+                raise  # Inline planning inside an opportunity follows that opportunity.
+            return False
+        except (ValueError, ProviderFailure) as exc:
+            with self._lock:
+                agency.failed(str(exc), self.trace.clock())
+            return False
+        finally:
+            self.trace.emit('agency_planning_finished', turn_id=job['turn_id'],
+                model=self.agency_planner.capability.model, planning_seconds=self.trace.clock()-started)
 
     def cancel(self, reason='explicit_stop') -> None:
         with self._lock:
             self.proactive_hold_until = self.trace.clock()+120
             self.revision += 1
+            self._planning_cancel.event.set()
             if self._cancel:
                 self._cancel.event.set()
             if self.state:
@@ -115,6 +264,7 @@ class Session:
     def close(self) -> None:
         self.closed = True
         self.cancel('shutdown')
+        self.join_planning(2.)
         for adapter in (getattr(self.output,"attention",None),getattr(self.output,"gestures",None),getattr(self.output,"inspection",None)):
             if adapter is not None:
                 adapter.close()
@@ -148,6 +298,7 @@ class Session:
         began = self.trace.clock()
         from .proactive import OpportunityCancellation
         cancel = OpportunityCancellation(still_valid) if opportunity else Cancellation()
+        cancel_reason = [None]  # Why a human reply was withheld; always traced.
         # Owner rule: audible speech finishes unless explicitly stopped.
         cancel.committed = lambda: delivery.first_audio_at is not None
         source_session = opportunity.session_id if opportunity else capture.session_id
@@ -282,6 +433,13 @@ class Session:
                 return delivery
             if not opportunity and transcript.trusted:
                 self.last_trusted_speech_at = max(self.last_trusted_speech_at, speech_end)
+                if self.state:
+                    with self._lock:
+                        # Presence for Rex's own goal: a person talking is a person here.
+                        speaker = context.get('speaker') or {}
+                        self.state.agency.observe_speech(
+                            speaker.get('person_id') if speaker.get('state') == 'supported' else None, speech_end)
+                        self.state.agency.observe_faces(context.get('faces', []), self.trace.clock())
             if not opportunity and not transcript.trusted and not self._owed_reply:
                 # Preserve the source in the trace/store, not as a conversational turn.
                 # Rejected audio cannot displace real dialogue or postpone the next lull.
@@ -329,6 +487,7 @@ class Session:
             with self._lock:
                 self._capture_end = opportunity.speech_marker if opportunity else source_end
                 if self._resumed_speech > self._capture_end:
+                    cancel_reason[0] = cancel_reason[0] or 'newer_speech_arrived'
                     cancel.event.set()
                 cancel.check()
             if self.state and not self.state.frozen and (getattr(self.output, 'attention', None) is not None or getattr(self.output, 'gestures', None) is not None or getattr(self.output,'inspection',None) is not None):
@@ -412,19 +571,38 @@ class Session:
             memory_accessed = [any(context.get('personal_memory',{}).get(key) for key in
                                    ('recent_exchanges','interests_and_facts','episodes','current_session_exchanges'))]
             self._audience_bound_output = bool(memory_subject and memory_accessed[0])
+            self._memory_subject = memory_subject
             if memory_subject and latest_faces:
                 previous_memory_guard = cancel.guard
+                from .faces import VISIBLE_FACE_MAX_AGE
+                def fresh_faces():
+                    now = self.trace.clock()
+                    return [f for f in latest_faces(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE
+                            and f.get('face_epoch', 0) >= self.state.min_face_epoch]
+                # The reply's own current-view sample: no extra camera read.
+                faces_at_start = len(context.get('current_view', {}).get('faces', []))
                 def memory_audience_valid():
                     if previous_memory_guard and not previous_memory_guard(): return False
                     if not memory_accessed[0]: return True
-                    from .conversation_memory import subject
-                    current = {**context, 'current_view':{'faces':latest_faces(self.trace.clock())}}
-                    return subject(current) == memory_subject
+                    # Live October 1: two direct requests lost their replies, without a logged
+                    # reason, because the owner's face flickered unrecognized for a moment.
+                    # Private memory now waits only for a real audience change: someone else,
+                    # recognized, in place of its person, or one more face than at the start.
+                    # A dropout or a renumbered track is the same visit.
+                    current = fresh_faces()
+                    known = {f.get('identity') for f in current if f.get('identity')}
+                    if (known and memory_subject not in known) or len(current) > faces_at_start:
+                        cancel_reason[0] = cancel_reason[0] or 'private_memory_audience_changed'
+                        return False
+                    return True
                 cancel.guard = memory_audience_valid
             from .conversation_intent import audience as intent_audience
             request_audience = intent_audience(context)
-            if self.state and self.agency_planner and opportunity:
-                from .agency import audience_key, evidence_catalog, capabilities_for, recent_dialogue
+            if (self.state and self.agency_planner and opportunity
+                    and opportunity.kind not in {'visual_arrival', 'unseen_presence'}):
+                # Arrivals are greeted directly (people first); the runtime then hands the
+                # person to a new goal. Every other opportunity advances Rex's own goal.
+                from .agency import audience_key, capabilities_for
                 agency = self.state.agency
                 planning_context = context
                 if not context.get('faces') and self.state.current:
@@ -432,78 +610,54 @@ class Session:
                                                             'person_id':self.state.current[4].person_id}}
                 bound_audience = audience_key(planning_context)
                 capabilities = capabilities_for(context)
-                if agency.needs_plan(bound_audience):
-                    plan_revision = agency.revision
-                    evidence = evidence_catalog(context)
-                    # Planning is private. Losing a face must not erase conversational feedback.
-                    conversation = recent_dialogue(self.history_messages())
-                    from .servo_poses import POSE_COMMANDS
-                    facts = {'request_id':turn_id, 'revision':plan_revision,
-                        'conversation':conversation, 'evidence':evidence, 'capabilities':capabilities,
-                        'capability_contract':{'gesture':'A short spoken thought with a finite nod/tilt; not a silent pose.',
-                            'attention_mode':context.get('attention',{}).get('mode'),
-                            'pose':{'enabled':'pose' in capabilities,'commands':list(POSE_COMMANDS),
-                                    **context.get('robot_pose_state',{})},
-                            'drive':context.get('drive'),
-                            'inspection_directions':context.get('inspection_directions',[])},
-                        'dialogue_use':'Private continuity and feedback, not proof an earlier speaker is present. Do not disclose prior personal facts to a changed audience.',
-                        'opportunity':context.get('visual_arrival') or context.get('opportunity'),
-                        'audience':{'faces':planning_context.get('faces',[]), 'speaker':planning_context.get('speaker')},
-                        'previous_plan':agency.context(bound_audience),
-                        'boundaries':context.get('participation',{}),
-                        'actual_actions':context.get('action_continuity',{}),
-                        'pending_question':context.get('pending_question'),
-                        'invitations':context.get('invitations'),
-                        'meaning':'Existing descriptions may be historical. Inspect for fresh detail; a raw object target is not identity.'}
-                    if self.trace.clock() >= agency.planner_retry_at:
-                        planning_started = self.trace.clock()
-                        self.preparing_plan=True
-                        try:
-                            for attempt in range(2):
-                                self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,
-                                    purpose='agency_planning' if attempt==0 else 'agency_plan_repair',
-                                    model=self.agency_planner.capability.model,image_count=0,
-                                    reasoning_effort=self.agency_planner.reasoning_effort)
-                                proposed = self.agency_planner.plan(facts,cancel)
-                                cancel.check()
-                                try:
-                                    with self._lock:
-                                        agency.install(proposed,bound_audience,evidence,capabilities,plan_revision,self.trace.clock())
-                                    break
-                                except ValueError as exc:
-                                    if str(exc)=='StaleAgencyPlan': raise Cancelled() from None
-                                    self.trace.emit('agency_plan_rejected',turn_id=turn_id,attempt=attempt+1,
-                                        reason=str(exc),proposal=proposed,offered_evidence_ids=list(evidence))
-                                    if attempt: raise
-                                    facts={**facts,'repair':{'validation_error':str(exc),'rejected_proposal':proposed,
-                                        'instruction':'Correct this proposal. Use only offered evidence and capabilities.'}}
-                        except Cancelled:
-                            raise
-                        except (ValueError,ProviderFailure) as exc:
-                            agency.failed(str(exc),self.trace.clock())
-                        finally:
-                            self.preparing_plan=False
-                            self.trace.emit('agency_planning_finished',turn_id=turn_id,model=self.agency_planner.capability.model,
-                                planning_seconds=self.trace.clock()-planning_started)
-                    if agency.needs_plan(bound_audience):
-                        with self._lock:
-                            cancel.check()
-                            if plan_revision != agency.revision: raise Cancelled()
-                            agency.install_recovery_step(bound_audience,plan_revision,self.trace.clock(),capabilities)
+                now = self.trace.clock()
+                with self._lock:
+                    agency.observe_faces(context.get('faces', []), now)
+                    job = None
+                    from .agency import PLAN_MIN_INTERVAL_SECONDS
+                    if (agency.needs_plan(now) and not self.planning_active() and now >= agency.planner_retry_at
+                            and now-agency.plan_started >= PLAN_MIN_INTERVAL_SECONDS):
+                        job = self._planning_job(turn_id, context, planning_context, bound_audience, capabilities, opportunity)
+                if job and planning_only:
+                    # Runs beside conversation: a human turn neither waits for it nor cancels it.
+                    self._start_planning(job)
+                elif job:
+                    self._run_planning(job, cancel)  # Direct callers without a prepared goal.
                 if planning_only:
                     delivery.status,delivery.medium='prepared','none'
                     return delivery
-                agency_step = agency.step(bound_audience)
+                with self._lock:
+                    cancel.check()
+                    if agency.needs_plan(self.trace.clock()):
+                        if self.planning_active():
+                            delivery.status,delivery.medium='suppressed','none'
+                            self.trace.emit('agency_waiting_for_plan',turn_id=turn_id)
+                            return delivery
+                        # The planner is unavailable or failed: still do something people notice.
+                        agency.install_recovery_step(bound_audience,agency.revision,self.trace.clock(),capabilities,
+                            subject_person=self._subject_person(context))
+                    agency_step = agency.step(self.trace.clock())
+                    if agency_step is None:
+                        delivery.status,delivery.medium='suppressed','none'
+                        self.trace.emit('agency_no_runnable_beat',turn_id=turn_id,reason=agency.ending_reason(self.trace.clock()))
+                        return delivery
                 self.agency_scope=agency_step['scope']
                 cancel.check()
                 context['agency_step'] = agency_step
                 if agency_step['scope']=='general':
                     context['memory_opportunities'] = []
                     context['visual_memory'] = [r for r in context.get('visual_memory',[]) if r.get('audience')=='general']
+                if agency_step['goal_kind'] not in {'get_to_know','investigate'}:
+                    # Hosted probe, October 2: a catch-up beat with a camera frame attached opened
+                    # with a remark about the frame instead of the planned question. Only beats
+                    # that need to see get one; looks and inspections fetch their own.
+                    scene_images = ()
+                    context.pop('scene_description', None)
+                    context['observations'] = [c for c in context.get('observations', []) if c.get('kind') != 'scene']
                 self.trace.emit('agency_step_started',turn_id=turn_id,**agency_step)
-            elif self.state and self.agency_planner:
-                from .agency import audience_key
-                context['agency_plan'] = self.state.agency.context(audience_key(context))
+            elif self.state and self.agency_planner and not opportunity:
+                # The goal Rex chose steers this reply only when it fits; the human comes first.
+                context['agency_plan'] = self.state.agency.summary(self.trace.clock())
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
                                 context, self.state is not None, images=scene_images)
@@ -534,6 +688,8 @@ class Session:
                             # General intent replies follow ordinary prose once audible.
                             # Questions and memory-bearing tools retain audience guards.
                             update = delta.arguments.get('intent_update') or {}
+                            if delta.name == 'ask_face_question':
+                                self._question_track = delta.arguments.get('face_track_id')
                             self._audience_bound_output = (memory_accessed[0] or
                                 bool(agency_step and agency_step['scope']=='audience') or delta.name in
                                 {'ask_face_question', 'use_memory_opportunity', 'use_visual_memory'}
@@ -560,6 +716,17 @@ class Session:
                     if close:
                         close()
             calls = generate(snapshot)
+            if agency_step and len(calls) == 1 and not generated.strip() and self._repeats_recent_line(calls[0]):
+                # Hosted probe, October 2: a beat about a no-smiling challenge was delivered as a
+                # word-for-word repeat of the previous line. One bounded retry, then the beat fails.
+                self.trace.emit('agency_repeat_rejected', turn_id=turn_id, name=calls[0].name)
+                from dataclasses import replace as replace_snapshot
+                self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='agency_repeat_retry',
+                    reasoning_effort=getattr(self.brain,'reasoning_effort',None))
+                calls = generate(replace_snapshot(snapshot, messages=(*snapshot.messages, {'role':'developer','content':
+                    'You just said exactly that. Do this beat instead, in new words: '+agency_step['instruction']})))
+                if len(calls) == 1 and self._repeats_recent_line(calls[0]):
+                    raise ProviderFailure('AgencyBeatRepeatedRecentLine')
             if len(calls)==1 and calls[0].name=='revise_agency_plan' and not generated.strip():
                 from .semantics import validate
                 from dataclasses import replace
@@ -571,18 +738,25 @@ class Session:
                     cancel.check()
                     self.trace.emit('agency_revision_requested',turn_id=turn_id,reason=reason)
                     agency.finish(agency_step,Delivery(status='suppressed',medium='none'),None,self.trace.clock(),reason)
-                    agency.install_recovery_step(bound_audience,agency.revision,self.trace.clock(),capabilities)
-                    agency_step=agency.step(bound_audience)
+                    # The goal's premise failed: it ends (a fresh goal is planned next) and
+                    # this lull still gets one improvised beat instead of silence.
+                    agency.replace('revised')
+                    agency.install_recovery_step(bound_audience,agency.revision,self.trace.clock(),capabilities,
+                        subject_person=self._subject_person(context))
+                    agency_step=agency.step(self.trace.clock())
+                    if agency_step is None:
+                        raise ProviderFailure('AgencyNoRunnableBeat')
                     self.agency_scope=agency_step['scope']
                 context={**context,'agency_step':agency_step,'memory_opportunities':[],
                     'visual_memory':[r for r in context.get('visual_memory',[]) if r.get('audience')=='general']}
                 self.trace.emit('agency_step_started',turn_id=turn_id,**agency_step)
                 self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='agency_step_recovery',
                     reasoning_effort=getattr(self.brain,'reasoning_effort',None))
-                recovery=replace(snapshot,context=context,messages=(*snapshot.messages,{'role':'developer','content':
-                    'The previous step was abandoned and nothing from it was spoken or performed. '
-                    'Execute the replacement companionship step now; a silent body action needs no speech. Do not repeat the '
-                    'abandoned premise or explain the planning correction.'}))
+                # The improvised beat is an entertain beat: no camera frame (see goal frame filtering).
+                context.pop('scene_description',None)
+                recovery=replace(snapshot,context=context,images=(),messages=(*snapshot.messages,{'role':'developer','content':
+                    'The previous beat was abandoned and nothing from it was spoken or performed. '
+                    'Do the replacement beat now. Do not repeat the abandoned premise or explain the planning correction.'}))
                 calls=generate(recovery)
             if not calls and not generated.strip():
                 raise ProviderFailure('EmptyModelResponse')
@@ -1055,7 +1229,12 @@ class Session:
                             {'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
                             {'type':'function_call_output','call_id':call.call_id,'output':json.dumps({'poses':'pulses_reached','inspection':data})})
                         messages = (*self.history_messages(), {'role':'developer','content':
-                            'Answer the look question from the new frame in one or two short sentences. '
+                            ('You looked out of your own curiosity, as a beat of your goal. React to what is actually '
+                             'in the new frame like a friend would: a specific, funny opinion, or one personable question '
+                             'to the humans about it ("what is the story with that?"). Never list or announce what is '
+                             'visible. Keep it to one or two short sentences. '
+                             if agency_step else
+                             'Answer the look question from the new frame in one or two short sentences. ')+
                             'Do not repeat the movement acknowledgment.'})
                         followup = Snapshot(self.session_id,turn_id,self.revision,messages,snapshot.speaker,
                             {**{k:v for k,v in context.items() if k!='scene_description'},'inspection':data,
@@ -1070,7 +1249,9 @@ class Session:
                             with self._lock:
                                 cancel.check()
                                 model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
-                                self.state.save_visual(look_calls[0],followup.context,self.session_id,model,cancel)
+                                # Saving changes the store revision this pose's guard checks; without
+                                # this the comment about what he saw was cancelled unheard (probe, October 2).
+                                expected_revision = self.state.save_visual(look_calls[0],followup.context,self.session_id,model,cancel)
                             visual_selected = data['request_id']
                             if look_calls[0].arguments['text'] is not None:
                                 visual_proposed_text = look_calls[0].arguments['text']
@@ -1242,6 +1423,11 @@ class Session:
         except Cancelled:
             if delivery.status != "failed":
                 delivery.status = "interrupted"
+            if not opportunity:
+                self.trace.emit('reply_cancelled', turn_id=turn_id, reason=cancel_reason[0] or (
+                    'newer_speech_arrived' if self._resumed_speech > self._capture_end else
+                    'stopped' if self.revision != submitted_revision or self.closed else 'cancelled'),
+                    audible=delivery.first_audio_at is not None)
         except Exception as exc:
             delivery.status = "failed"
             delivery.error = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
@@ -1357,6 +1543,8 @@ class Session:
                 self._opportunity_guard = None
                 self._proactive_delivery = None
                 self._audience_bound_output = False
+                self._memory_subject = None
+                self._question_track = None
                 self.motion_committed = False
                 self.preparing_plan = False
                 self.agency_scope = None

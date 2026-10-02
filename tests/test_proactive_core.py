@@ -347,11 +347,21 @@ class InitiativeCoreTests(MemoryFixture):
 
     def test_invalid_audience_attempt_is_paced_instead_of_retried_each_tick(self):
         self.setup_core();self.turn();self.visible(108)
-        self.runtime.arrivals.valid=lambda event,now,**kwargs:False
+        from tests.test_agency_plan import draft
+        self.session.agency_planner.choose=lambda f,c:{**draft(),'scope':'audience'}
+        runtime=self.runtime
+        class Joined(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1
+                runtime.arrivals.observe([face(108,track='visitor'),face(108,track='newcomer')],108)
+                cancel.check()
+                yield 'Never heard.'
+        self.session.brain=self.brain=Joined()
         for _ in range(5):self.runtime.proactive_tick()
         self.assertEqual(self.brain.calls,1)
         self.assertEqual(len(self.state.initiative.attempts),1)
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
+        self.assertEqual(self.state.agency.record['outcomes'][-1]['status'],'interrupted')
 
     def plan_brain(self, status='active', silent=False):
         from tests.test_conversation_intent import proposal
@@ -365,7 +375,8 @@ class InitiativeCoreTests(MemoryFixture):
                     update.update(target_ids=[],memory_ids=[])
                 yield ToolCall(uuid4().hex,'remain_silent' if silent else 'respond_with_intent',
                     dict(reason='no_response_needed',intent_update=update) if silent else
-                    dict(text='Here is a fresh camera idea.',intent_update=update))
+                    # Each beat says something new; a word-for-word repeat is rejected by design.
+                    dict(text='Here is fresh camera idea '+uuid4().hex[:6]+'.',intent_update=update))
         self.session.brain=Planned()
         return self.session.brain
 

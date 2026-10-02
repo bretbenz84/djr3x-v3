@@ -261,6 +261,40 @@ class ConversationMemoryTests(MemoryFixture):
         self.assertEqual(result.status,'interrupted')
         self.assertEqual(result.completed_text,[])
 
+    def test_face_flicker_or_renumbered_track_never_drops_a_reply(self):
+        # Live October 1 (f4e2bf97): "Back up five feet" and a direct question lost their
+        # replies with no logged reason while the owner's face briefly went unrecognized.
+        for change in ('unrecognized','renumbered','gone'):
+            with self.subTest(change=change):
+                self.setup_memory(); self.turn(self.session('old'),'A private project.')
+                current=[face(100,self.person)]
+                person=self.person
+                class Flicker:
+                    def reply(self,snapshot,cancel):
+                        current[:]=([face(100,None)] if change=='unrecognized' else
+                                    [face(100,person,'renumbered')] if change=='renumbered' else [])
+                        yield 'Your private project was a telescope.'
+                session=self.session('new-'+change,Flicker())
+                cap=Capture(uuid4().hex,'new-'+change,bytes(96000),96,99,100,voiced_intervals=((0.,3.),))
+                result=session.process_turn(cap,Transcript('What did we discuss?',0,True),0,observation(),
+                                            tuple(current),latest_faces=lambda now:tuple(current))
+                self.assertEqual(result.status,'completed')
+                self.assertEqual(result.completed_text,['Your private project was a telescope.'])
+
+    def test_withheld_reply_always_states_its_reason(self):
+        self.setup_memory(); self.turn(self.session('old'),'A private project.')
+        current=[face(100,self.person)]
+        class Changed:
+            def reply(self,snapshot,cancel):
+                current.append(face(100,None,'visitor'))
+                yield 'Your private project was a telescope.'
+        session=self.session('new',Changed())
+        cap=Capture(uuid4().hex,'new',bytes(96000),96,99,100,voiced_intervals=((0.,3.),))
+        session.process_turn(cap,Transcript('What did we discuss?',0,True),0,observation(),
+                             tuple(current),latest_faces=lambda now:tuple(current))
+        rows=[r for r in self.state.trace.rows if r['event']=='reply_cancelled']
+        self.assertEqual(rows[-1]['reason'],'private_memory_audience_changed')
+
     def test_episode_cannot_point_to_another_person_or_missing_source(self):
         self.setup_memory();self.begin('Remember that conversation.')
         result=self.call('remember_episode',{'source_exchange_id':'missing','summary':'Invented.'})

@@ -22,7 +22,10 @@ from .providers import Capability
 # (September 27: the 3 m first-test cap cut door trips short and refused 'go ten feet').
 LIMITS = {
     'requested': {'speed_mps': .25, 'step_m': 1.5, 'total_m': 10., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
-    'self_initiated': {'speed_mps': .18, 'step_m': .75, 'total_m': 1.5, 'turn_deg': 180., 'total_turn_deg': 360., 'max_steps': 4},
+    # October 2 owner ruling: Rex's own moves need no permission and no smaller limits; he
+    # only must not drive into things and must respect the time-of-flight boundaries, which
+    # the clearance checks enforce for every origin.
+    'self_initiated': {'speed_mps': .25, 'step_m': 1.5, 'total_m': 10., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
 }
 ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek')
 SEEK_SWEEP_DEG = 80.      # Just under the ~90 degree camera view, so consecutive looks overlap.
@@ -495,7 +498,14 @@ class DriveBase:
                 'radar': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
                 'vision_seek': self.locator is not None and self.look is not None,
                 'last_sought': self._sought['description'] if self._sought else None,
-                'limits': dict(LIMITS[origin]), 'origin': origin,
+                # step_m is an internal leg length; live October 1 the model read it as the most it
+                # could ever move and answered "back up five feet" with 1.5 m.
+                'limits': {'max_move_m': LIMITS[origin]['total_m'], 'max_turn_deg': LIMITS[origin]['turn_deg'],
+                           'max_total_turn_deg': LIMITS[origin]['total_turn_deg'], 'max_steps': LIMITS[origin]['max_steps'],
+                           'speed_mps': LIMITS[origin]['speed_mps'],
+                           'meaning': 'max_move_m is the whole distance one plan may cover; long moves run as several '
+                                      'legs automatically and clearance still stops the base at obstacles.'},
+                'origin': origin,
                 'displacement_since_startup': displacement,
                 'recent_motion': list(self.history),
                 'meaning': ('Robot-relative bearings, positive = left. Face/object bearings come from the head camera '

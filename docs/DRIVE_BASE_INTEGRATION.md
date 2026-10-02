@@ -36,9 +36,10 @@ hallway no-reverse rule. No firmware was changed.
   - Arm-swing checks gate turns. Firmware stop zones stay active.
   - Stop phrases ("stop", "whoa", "Oh, stop!") halt the wheels and silence the motion
     sounds at once.
-  - Limits for requested motion: 0.25 m/s, 10 m per plan (3 m until the owner found it cut
-    trips short, September 27). Self-initiated motion is
-    smaller.
+  - Limits: 0.25 m/s, 10 m per plan (3 m until the owner found it cut trips short,
+    September 27). Since October 2, Rex's own moves share these limits: the owner ruled
+    that self-initiated motion needs no permission or smaller caps, only obstacle and
+    time-of-flight respect, which the clearance checks enforce for every origin.
 - **Honesty.** Receipts report firmware results, odometry and IMU heading. A stopped or
   blocked trip is reported as such, with the distance actually travelled.
 - **Sound.** V2's drive and turn whirs loop while the wheels move (50% volume; a quarter
@@ -97,15 +98,21 @@ sensor; about a dozen mostly silent stand-downs; and 5–25 cm moves at a crawl.
   held three 1 s ticks backs off up to 30 cm within rear room (no arm park for straight
   reverse, per V2). The firmware keeps its reflex stop, 500 ms watchdog and 300 ms deadman.
 
-## Limits (owner-approved September 27)
+## Limits (owner-approved September 27; self-initiated equalized October 2)
 
-| | Requested | Self-initiated |
-| --- | --- | --- |
-| Top speed (also pushed to firmware `max_lin`) | 0.25 m/s | 0.18 m/s |
-| Firmware leg | 1.5 m | 0.75 m |
-| Plan distance total (moves and approaches) | 10 m (was 3 m) | 1.5 m |
-| Turn per step / total | 360° / 720° | 180° / 360° |
-| Steps | 6 | 4 |
+| | Requested and self-initiated |
+| --- | --- |
+| Top speed (also pushed to firmware `max_lin`) | 0.25 m/s |
+| Firmware leg | 1.5 m |
+| Plan distance total (moves and approaches) | 10 m (was 3 m) |
+| Turn per step / total | 360° / 720° |
+| Steps | 6 |
+
+Until October 2, self-initiated plans were held to 0.18 m/s, 0.75 m legs, 1.5 m in total,
+180°/360° and four steps. The owner rejected those caps for Rex's own goals ("go over to
+something and reach out"). The model now sees `max_move_m` (the plan total) instead of the
+leg length: live October 1 it read the 1.5 m leg as the most it could move and answered
+"back up five feet" with 1.5 m.
 
 A move longer than one leg runs as several legs with clearance rechecked between them.
 Turns run at 45°/s (V2 overshoot grows with rate), with one IMU-verified correction
@@ -467,7 +474,7 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
 
 - **3 m cap raised to 10 m for requested plans.** It stopped three door trips at 3 m and
   refused "a foot, then turn right and go ten feet". Trips normally end on arrival, an
-  obstacle or a stop phrase; self-initiated motion keeps 1.5 m. Receipts now say
+  obstacle or a stop phrase. (Self-initiated motion kept 1.5 m until October 2.) Receipts now say
   `distance_limit`, and guidance asks for plain words (no "budget" or "stand-off").
 - **Fixable refusals no longer refuse.** A seek whose description came in `target` keeps
   it as the description; `find_person` may aim at `nearest_person` with nobody in view.

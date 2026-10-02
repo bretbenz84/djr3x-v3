@@ -164,6 +164,34 @@ recognition failure; successful object storage does not prove dog recognition.
 
 Type `quit` and press Enter.
 
+### Run 2b — Rex's own goals, on the robot — about 15 minutes
+
+This run uses the wheels: start Rex on the robot as usual ("wake up rex"), with a clear
+floor and something with a story in view (a painting, a photo, a plant). See
+[Rex's own goals](AGENCY_IMPLEMENTATION_PLAN.md). The terminal now prints
+"Rex's new goal (...)" whenever he picks one and "Reply withheld: ..." if a reply is
+ever dropped.
+
+1. Walk into view and stay quiet.
+   - [ ] He greets you by name and asks how you are, without waiting for you to speak.
+2. Answer briefly ("Pretty good, busy day."), then say nothing for a minute.
+   - [ ] He keeps the visit going on his own (a follow-up, a tease, something about you)
+         instead of falling silent or repeating himself.
+3. Ask him something direct mid-goal ("Rex, what's the weather like?").
+   - [ ] He answers immediately; the goal does not take over the reply.
+4. Sit down and read or look at your phone for two to three minutes.
+   - [ ] He starts doing things: moves, looks around, drives toward something, reaches out,
+         comments or asks about something in the room.
+   - [ ] No inventory remarks ("I see a clock"); he asks about stories or has opinions.
+5. When he asks about something, tell him its story ("My grandfather painted that").
+   - [ ] He responds to you and the story, not by describing the object again.
+6. Say "Rex, drop it" during a bit, then later "Stop".
+   - [ ] The bit ends and is not revived; "Stop" halts speech and wheels.
+7. Note anything that felt annoying, repetitive, unfunny or alive.
+
+Afterwards, run the report below and note how many goals he picked and how many lines he
+said on his own.
+
 ## Two-person tests — Bret and Jeremy
 
 **Jeremy being new is expected and useful:** this tests the real first-time visitor
