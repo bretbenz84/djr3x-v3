@@ -35,8 +35,10 @@ it or reads its data.
   concrete steps in local memory. At eligible lulls, GPT-6 Luna executes the next
   step through the same conversation/output owner, using fresh evidence and actual
   speech/action receipts. No visible person or new observation is required. Ordinary
-  replies remain immediate; quiet and human-floor guards remain. The replacement
-  is implemented in software; live acceptance is pending ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
+  replies remain immediate; quiet and human-floor guards remain. Planning prepares
+  early in the lull, corrects invalid plans once, and retains character activity on
+  planner failure. Hosted model checks use simulated output; acceptance on Rex is
+  pending ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080.
 - **Body (Pololu Maestro, 11 servos).**

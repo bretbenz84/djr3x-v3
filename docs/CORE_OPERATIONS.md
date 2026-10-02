@@ -424,12 +424,13 @@ three actual hosted-model text-only cases passed on September 11, 2026.
 October 1 replacement: the shared Session maintains a persisted private character
 narrative and activity plan. `agency_planner_model` defaults to GPT-5.6 Terra; GPT-6 Luna
 handles immediate human replies and executes successive plan steps. A stronger call
-occurs only for plan creation/revision. No new hosted generation or robot run has
-validated its social quality yet.
+occurs only for plan creation/revision. Hosted checks exercise actual models with
+fictional evidence and simulated playback; real-room acceptance remains pending.
 
-`proactive_lull_seconds` is the lull floor (default 8.0, valid 3–120). Startup eligibility
-begins after eight seconds; step delays also apply. No camera, visible person or new
-observation is required. Model/TTS latency follows eligibility. Feeds and camera inputs
+`proactive_lull_seconds` is the lull floor (default 8.0, valid 3–120). Private
+preparation begins after two quiet seconds without consuming a speech opportunity;
+output waits for the lull floor and step delay. No camera, visible person or new
+observation is required. Planning can overlap the lull; model/TTS latency still applies. Feeds and camera inputs
 are coalesced into the next context, with no rolling attempt cutoff or generic
 model-created timer. `next_opportunity` now serves invitation review metadata only.
 
@@ -439,12 +440,23 @@ grant personal-memory access. Normal shutdown saves the plan; restart requires f
 planning before execution. Corrections/forgetting clear derived notes. A spoken
 promise or failed acquisition cannot advance a physical-action step.
 
+Offered scoped references narrow a proposed general plan instead of rejecting it.
+One validation repair includes the error and rejected proposal. Planner failures
+back off only the planning calls; the same performer can deliver a fresh impersonal
+character thought. Step revision similarly replaces the invalid step in the same
+opportunity, once. Degraded steps have no further silence/revision option. Ordinary
+reply-note failures get a result continuation instead of erasing the human reply.
+
 Reports expose `model_calls_by_purpose`, `model_calls_by_model`, `agency_step_outcomes`,
 `planning_seconds` and the existing playback/latency diagnostics. Inspect
 `agency_plan_saved`, `agency_step_started`, `agency_step_finished`, `agency_review_needed`
 and `agency_plan_failed` to distinguish an unavailable planner, revision, action failure
 and actual heard output. Missing timing/cost measurements remain unknown. See the
 [current design](AGENCY_IMPLEMENTATION_PLAN.md) and [acceptance protocol](AGENCY_ACCEPTANCE.md).
+`agency_plan_rejected`, `agency_scope_narrowed`, `agency_preparation` and plan `origin`
+distinguish correction, scope narrowing, private preparation and degraded activity.
+The bounded paid probe is `.venv/bin/python -m tools.check_agency --live`; it operates
+no devices and writes traces only under ignored `local/validation/`.
 
 This policy is provisional social calibration, not a verified ideal conversation rate.
 

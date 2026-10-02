@@ -68,7 +68,8 @@ class AgencyTests(MemoryFixture):
     def test_human_reply_is_immediate_and_repeated_plan_steps_need_no_camera(self):
         self.no_camera()
         self.turn('Rex, tell me about rhythm.')
-        self.assertIsNone(self.tick(107))
+        self.assertEqual(self.tick(107).status, 'prepared')
+        self.assertEqual(self.brain.calls, 1)
         self.assertEqual(self.tick(108).status, 'completed')
         self.assertEqual(self.brain.calls, 2)
         self.assertEqual(self.tick(300).status, 'completed')

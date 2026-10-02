@@ -1,16 +1,23 @@
 # Initial test program and acceptance plan
 
-### October 1 persistent agency replacement
+### October 1 persistent agency repair
 
-The optional participation loop failed its latest live run (16 opportunities, zero
-completed audible contributions). A separate stronger planner now persists a grounded
-character narrative and concrete steps; the shared cheaper conversation executor
-advances them at lulls. Ordinary human replies retain one primary generation.
-**867 blocked-I/O contract checks pass** (67.3 seconds), plus the two focused mocked-provider checks confirming the selected Terra/Luna model split. Checks use blocked I/O, temporary databases and synthetic providers;
-no live models or hardware ran. Recovery, general-plan continuity across head turns,
-audience scope, failure, cancellation and actual action/speech receipts are covered.
-The owner will test live cadence, latency/cost, expression and repetition separately.
-See [design](AGENCY_IMPLEMENTATION_PLAN.md) and [current status](IMPLEMENTATION_STATUS.md).
+Two live baselines failed: the older optional participation loop had 16 opportunities
+and zero audible contributions; the first persisted-plan run had five planning
+attempts, zero saved plans and zero steps. The repair scopes offered private evidence,
+corrects invalid plans once, prepares early in the lull, and executes a fresh character
+contribution when planning or a step premise fails. Ordinary reply-note rejection no
+longer erases the human reply. Quiet, floor, audience and cancellation guards remain.
+
+**874 blocked-I/O checks pass** (67.2 seconds), using synthetic providers, clocks,
+images/pulses and temporary databases. The final **hosted** production-scheduler probe
+completed **six proactive steps across two fictional scenarios**, including two
+simulated gestures: 2 Terra planning calls and 7 Luna calls (one human reply).
+No hardware or real TTS was operated. Source-linked plan scope, first-delivery timing,
+token counts, earlier failures and outstanding physical/social acceptance are recorded
+in [implementation status](IMPLEMENTATION_STATUS.md). The runnable paid probe is
+`tools/check_agency.py --live`; [design](AGENCY_IMPLEMENTATION_PLAN.md) and
+[acceptance cases](AGENCY_ACCEPTANCE.md) describe the remaining robot test.
 
 
 ### September 25 idle arms and elbow lifecycle

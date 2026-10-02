@@ -164,6 +164,10 @@ class VoiceRuntime:
         with self.control_lock:
             self.arrivals.observe(self.camera.latest(now) if self.camera else (), now)
             initiative = self.session.state.initiative
+            agency = self.session.state.agency
+            quiet_seconds = min(now-self.started_at, now-self.session.last_trusted_speech_at,
+                                now-self.session.last_interaction_at)
+            planning_only = quiet_seconds < self.lull_seconds or not agency.due(now)
             with self.session._lock:
                 intentions = self.session.state.conversation_intent
                 if intentions.record:
@@ -173,7 +177,7 @@ class VoiceRuntime:
                     intentions.refresh({'faces': self.arrivals.faces,
                         'participation': initiative.context(now)}, [r['claim_id'] for r in memories])
             gate = ('shutdown' if self.stop.is_set() or self.session.closed else
-                    'startup' if now-self.started_at < 8 else
+                    'startup' if now-self.started_at < 2 else
                     'audio_unavailable' if not 0 <= now-self.audio_seen_at <= .5 else
                     'human_work_pending' if self.asr_busy.is_set() or not self.captures.empty() or
                         not self.turns.empty() or bool(self.endpoint.frames) else
@@ -182,15 +186,23 @@ class VoiceRuntime:
                     'explicit_stop_or_human_floor' if now < self.session.proactive_hold_until else
                     'quiet_requested' if initiative.quiet else
                     'human_floor' if initiative.floor_held(now) else
-                    'plan_interval' if not self.session.state.agency.due(now) else
                     'agency_planner_unavailable' if self.session.agency_planner is None else None)
             if gate:
                 self.initiative_gate(gate)
                 return
-            if now-self.session.last_interaction_at < self.lull_seconds:
+            if quiet_seconds < 2:
                 self.initiative_gate('conversation_active')
                 return
-            event = self.arrivals.take(self.session.session_id, now, self.session._latest_speech)
+            if planning_only:
+                from .agency import audience_key as plan_audience_key
+                current = self.session.state.current
+                scope = {'faces':self.arrivals.faces}
+                if not self.arrivals.faces and current:
+                    scope['speaker']={'track_id':current[4].track_id,'person_id':current[4].person_id}
+                if not agency.needs_plan(plan_audience_key(scope)):
+                    self.initiative_gate('plan_prepared_waiting_for_lull')
+                    return
+            event = None if planning_only else self.arrivals.take(self.session.session_id, now, self.session._latest_speech)
             audience, audience_key = self.arrivals.audience_snapshot(now)
             from .proactive import Opportunity
             from uuid import uuid4
@@ -208,13 +220,13 @@ class VoiceRuntime:
             scene = self.scene_observer.snapshot() if self.scene_observer else None
             event = replace(event, public_cues=cues, scene_id=scene[0] if scene else None,
                             scene_images=scene[1] if scene else ())
-            if self.observations:
+            if self.observations and not planning_only:
                 self.observations.attempted([c.cue_id for c in cues])
-            if scene:
+            if scene and not planning_only:
                 self.scene_observer.attempted(scene[0])
             revision = self.session.revision
-            self.initiative_gate('considering')
-        self.trace.emit('proactive_opportunity',event_id=event.event_id,kind=event.kind,
+            self.initiative_gate('preparing' if planning_only else 'considering')
+        self.trace.emit('agency_preparation_opportunity' if planning_only else 'proactive_opportunity',event_id=event.event_id,kind=event.kind,
                         face_track_id=event.target_track,person_id=event.person_id)
         def valid():
             nonlocal invalidation_reason
@@ -254,9 +266,9 @@ class VoiceRuntime:
             return reason is None
         invalidated = threading.Event()
         invalidation_reason = None
-        result = self.session.process_opportunity(event,revision,valid)
-        self.arrivals.finished(event,result)
-        if result.status == "interrupted":
+        result = self.session.process_opportunity(event,revision,valid,planning_only=planning_only)
+        if not planning_only: self.arrivals.finished(event,result)
+        if result.status == "interrupted" and not planning_only:
             agency = self.session.state.agency
             agency.due_at = max(agency.due_at, self.trace.clock() + self.lull_seconds)
         self.trace.emit('proactive_opportunity_done',event_id=event.event_id,kind=event.kind,status=result.status,medium=result.medium,

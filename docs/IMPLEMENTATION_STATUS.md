@@ -6,30 +6,63 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
-## Latest agency replacement — October 1
+## Latest agency repair — October 1
 
-The inspected live run produced 16 opportunities and zero completed audible
-proactive contributions. The previous optional silence-voting/self-scheduling policy
-has been replaced by a persisted private character narrative and concrete plan.
-GPT-5.6 Terra creates/revises the plan; GPT-6 Luna handles immediate replies and periodic
-step execution through the same Session and output owner. `gpt-6-terra` was unavailable
-in the account's read-only model lookup; the owner selected GPT-5.6 Terra, with no
-silent runtime fallback.
+The first persisted-plan live run also failed. Session
+`c0ecb89dbc2a40dfb1fc805fcdc1eec2` had five planning attempts: two rejected with
+`GeneralAgencyPlanHasPrivateEvidence`, three interrupted by speech, zero saved plans
+and zero executed steps. Offered camera/target references hit an overbroad privacy
+validator; 10/20-second retry delays then blocked activity. Optional
+`WorkingInterestEvidenceNotOffered` metadata also erased an ordinary human reply.
 
-No visible person or changed scene is required. General plans survive head turns;
-personal evidence cannot be saved under general scope. Pending questions/invitations
-cannot freeze unrelated steps. The old one-seed rule, generic timers, silent-vote
-backoff and rolling attempt cap are removed. Normal shutdown persists the plan;
-restart revalidates it. Actual speech/acquisition/action receipts determine progress.
-Rejected intentions cannot speak unbacked promises. Reports distinguish planning,
-execution, revision reasons and completed steps.
+The repair narrows scoped proposals safely instead of rejecting offered evidence,
+provides one bounded validation correction, and separates planner retry timing from
+activity. On failure, Luna executes an explicit impersonal character step through the
+same owner. A step revision abandons the invalid step and executes that replacement
+once in the same opportunity; it cannot repeatedly choose silence. Private planning
+starts after two quiet seconds without resetting the eight-second default speech
+floor. Optional reply-note errors get a bounded result continuation. Rejected writes
+and promises are never treated as successful actions.
 
-Verification: **867 blocked-I/O contract checks pass** (67.3 seconds), plus the two focused mocked-provider checks confirming the selected Terra/Luna model split. These are blocked-network/audio/serial tests with
-synthetic providers, fake clocks/pulses/images and temporary databases. No paid model
-generation or hardware run was performed for this agency replacement. Planner latency,
-billed cost, M2 load, physical behavior, repetition and social quality remain live
-acceptance items for the owner's next test. See the [current design](AGENCY_IMPLEMENTATION_PLAN.md)
-and [acceptance cases](AGENCY_ACCEPTANCE.md).
+GPT-5.6 Terra remains the planner and GPT-6 Luna the performer. No person or changed
+scene is required. General plans survive head turns; scoped notes remain audience
+bound. Human interruption, quiet/floor, fresh-input guards, restart revalidation,
+forgetting/correction and actual action/delivery receipts remain in force.
+
+Verification: **874 blocked-I/O checks pass** (67.2 seconds). These use temporary
+SQLite databases, fake clocks/providers/images/pulses, and blocked network/audio/serial.
+New contracts exercise real-shaped camera/target evidence, one repair then degraded
+activity, cancellation during repair/recovery, preparation without consuming speech,
+reply-note recovery and successful versus failed simulated gesture receipts.
+
+The bounded paid `tools/check_agency.py --live` probe uses the **production scheduler,
+Session, Terra/Luna and output owner**, with fictional input, synthetic microphone
+health/playback and simulated gestures. Final evidence is under ignored
+`local/validation/agency-8f8c5613b7074d2facf4e8c77b00383e/`:
+
+- Empty unchanged room, no person or human input: **3 completed proactive steps**, a
+  bass-clarinet/disco-filter idea, spoken continuation with tilt, and a follow-up.
+- Fictional conversation plus unchanged camera fixture: **3 completed proactive
+  steps** developing a bellows-kalimba, including a tilt. The plan cited the actual
+  fictional source turn and used audience scope. No additional human input intervened.
+- **2 Terra calls and 7 Luna calls** (6 step executions, 1 immediate human reply),
+  with no plan rejection or failed turn in this final probe. Planning took 5.44/6.87
+  seconds (median 6.16, n=2). Empty-room first simulated delivery was 11.41 seconds
+  from probe start; planning started about two seconds into startup. The six step
+  executions reached synthetic playback in median 2.21 / maximum 3.46 seconds after
+  their opportunity began. These numbers exclude real TTS and acoustic playback.
+- Reported Terra tokens: 3,409 input / 779 output (132 reasoning); Luna: 134,847
+  input / 721 output (67,336 cached input; zero reported reasoning). These are
+  provider usage counts, not a measured bill.
+
+An earlier hosted probe exposed a remaining revision/silence escape and a simulator
+capability misunderstanding; these were corrected before the final probe. A separate
+successful earlier probe also completed six steps with synthetic output. No real
+microphone, camera, TTS, motor, acoustic identity model or V2 data was used. The two
+small hosted scenarios do not establish long-run novelty or real-room social quality.
+Actual playback/tail latency, billed cost, resident memory/M2 load and physical movement
+remain unmeasured. The next robot run must establish whether Rex feels alive in use.
+See the [design](AGENCY_IMPLEMENTATION_PLAN.md) and [acceptance cases](AGENCY_ACCEPTANCE.md).
 
 The dated checkpoints below describe prior software. Their scheduler rules and counts
 are historical; this replacement supersedes them.

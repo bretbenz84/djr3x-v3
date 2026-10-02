@@ -125,7 +125,7 @@ TOOLS += (schema('respond_with_intent',
     'No extra generation. Memory-based proactive speech must use use_memory_opportunity instead.',
     {'text': TEXT, 'intent_update': update_schema()}),)
 TOOLS += (schema('revise_agency_plan',
-    'Return the scheduled step to the planner because evidence changed, a capability failed, or a human boundary makes it inappropriate. Not a generic choice to stay silent because nobody spoke. Nothing is spoken.',
+    'Abandon this scheduled step because its evidence or capability is invalid. The owner replaces it with a fresh impersonal contribution in this opportunity; this does not choose silence. State the concrete reason for later planning.',
     {'reason':TEXT}),)
 
 for _definition in TOOLS:
@@ -167,7 +167,9 @@ def grounded_tools(context):
     if context.get('agency_step') and not context.get('inspection_description_allowed') and not context.get('photo_inspection'):
         names = {'contribute': {'respond_with_intent','use_memory_opportunity','use_observation','use_visual_memory'},
                  'inspect': {'inspect_view'}, 'look': {'shift_attention'}, 'gesture': {'respond_with_gesture'}}[context['agency_step']['kind']]
-        definitions = copy.deepcopy([d for d in TOOLS if d['name'] in names | {'revise_agency_plan'}])
+        if context['agency_step'].get('origin')=='degraded_character': names={'respond_with_intent'}
+        revision_tools = set() if context['agency_step'].get('origin')=='degraded_character' else {'revise_agency_plan'}
+        definitions = copy.deepcopy([d for d in TOOLS if d['name'] in names | revision_tools])
     else:
         definitions = [d for d in definitions if d['name'] != 'revise_agency_plan']
     people = [p["id"] for p in context.get("people",[])]

@@ -115,24 +115,31 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertEqual(self.store.rows('SELECT * FROM agency_plan'),[])
         self.assertEqual(self.executor.snapshots,[])
 
-    def test_invalid_evidence_fails_without_speaking_and_has_bounded_retry(self):
+    def test_invalid_evidence_gets_one_repair_then_character_step_not_silence(self):
         self.setup_owner()
         def invalid(facts,cancel):
             value=draft();value['evidence_ids']=['invented-photo'];return value
         self.planner.choose=invalid
         result=self.tick(100)
-        self.assertEqual(result.status,'failed')
-        self.assertEqual(self.executor.snapshots,[])
-        self.tick(109)
-        self.assertEqual(len(self.planner.requests),1)
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(len(self.planner.requests),2)
+        self.assertEqual(self.planner.requests[-1]['repair']['validation_error'],'AgencyEvidenceNotOffered')
+        self.assertEqual(self.state.agency.record['origin'],'degraded_character')
+        self.assertEqual(self.state.agency.record['evidence_ids'],[])
+        self.assertEqual(self.state.agency.record['cursor'],1)
 
-    def test_silence_or_revision_does_not_complete_a_step(self):
+    def test_revision_abandons_bad_step_and_delivers_a_character_contribution(self):
         self.setup_owner()
-        self.executor.choose=lambda snapshot,cancel:iter([ToolCall('revision','revise_agency_plan',{'reason':'The observation no longer supports this premise.'})])
-        self.tick(100)
-        self.assertTrue(self.state.agency.dirty)
-        self.assertEqual(self.state.agency.record['cursor'],0)
-        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'needs_revision')
+        self.executor.choose=lambda snapshot,cancel:iter(['A tuba is a brass instrument with an alibi.'] if
+            snapshot.context['agency_step']['origin']=='degraded_character' else
+            [ToolCall('revision','revise_agency_plan',{'reason':'The observation no longer supports this premise.'})])
+        result=self.tick(100)
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(self.state.agency.record['cursor'],1)
+        self.assertEqual(self.state.agency.record['previous_outcomes'][-1]['status'],'needs_revision')
+        names={tool['name'] for tool in grounded_tools(self.executor.snapshots[-1].context)}
+        self.assertNotIn('revise_agency_plan',names)
+        self.assertEqual(len(self.executor.snapshots),2)
 
     def test_planned_execution_tools_do_not_offer_generic_silence_or_wheels(self):
         self.setup_owner();self.tick(100)
@@ -147,15 +154,23 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertEqual(len(self.planner.requests),8)
 
 
-    def test_provider_failure_retries_later_without_falling_back_to_generic_voting(self):
+    def test_provider_failure_does_not_block_character_activity_during_retry_wait(self):
         self.setup_owner()
         def fail(facts,cancel): raise ProviderFailure('SyntheticPlannerUnavailable')
         self.planner.choose=fail
-        self.assertEqual(self.tick(100).status,'failed')
-        self.assertEqual(self.executor.snapshots,[])
-        self.tick(109);self.assertEqual(len(self.planner.requests),1)
+        self.assertEqual(self.tick(100).status,'completed')
+        self.assertEqual(len(self.executor.snapshots),1)
+        finished=self.trace.at
+        self.assertGreater(self.state.agency.planner_retry_at,100)
+        self.state.agency.planner_retry_at=finished+30
+        self.tick(finished+2);self.assertEqual(len(self.planner.requests),1)
+        self.assertEqual(self.state.agency.record['origin'],'degraded_character')
         self.planner.choose=lambda f,c:draft()
-        self.assertEqual(self.tick(110).status,'completed')
+        self.assertEqual(self.tick(finished+9).status,'completed')
+        self.assertEqual(len(self.executor.snapshots),2)
+        self.assertEqual(len(self.planner.requests),1)  # Prepared character step is still delivered.
+        self.tick(finished+31)
+        self.assertEqual(len(self.planner.requests),2)
 
     def test_malformed_saved_record_is_discarded_before_planning(self):
         with self.store.transaction() as db:
@@ -178,13 +193,15 @@ class PlanTests(memory_tests.MemoryFixture):
 
     def test_revision_reason_and_heard_outcomes_reach_the_next_planner(self):
         self.setup_owner();self.tick(100)
-        self.executor.choose=lambda s,c:iter([ToolCall('r','revise_agency_plan',{'reason':'That object is no longer available.'})])
+        self.executor.choose=lambda s,c:iter(['I have a new musical idea.'] if
+            s.context['agency_step']['origin']=='degraded_character' else
+            [ToolCall('r','revise_agency_plan',{'reason':'That object is no longer available.'})])
         self.tick(self.trace.at+9)
         self.executor.choose=None
         self.tick(self.trace.at+9)
         prior=self.planner.requests[-1]['previous_plan']
-        self.assertTrue(prior['outcomes'][0]['heard_text'])
-        self.assertEqual(prior['outcomes'][1]['revision_reason'],'That object is no longer available.')
+        self.assertTrue(prior['previous_outcomes'][0]['heard_text'])
+        self.assertEqual(prior['previous_outcomes'][1]['revision_reason'],'That object is no longer available.')
 
     def test_explicit_stop_and_correction_erase_persisted_character_notes(self):
         self.setup_owner();self.tick(100)
@@ -280,10 +297,123 @@ class PlanTests(memory_tests.MemoryFixture):
     def test_personal_evidence_cannot_be_saved_as_general_plan(self):
         self.setup_owner()
         plan=draft();plan['evidence_ids']=['private']
-        with self.assertRaisesRegex(ValueError,'GeneralAgencyPlanHasPrivateEvidence'):
-            self.state.agency.install(plan,'[]',{'private':{'kind':'memory_opportunities'}},
-                ['contribute'],self.state.agency.revision,100)
+        self.state.agency.install(plan,'["person:one"]',{'private':{'kind':'memory_opportunities'}},
+            ['contribute'],self.state.agency.revision,100)
+        self.assertEqual(self.state.agency.record['scope'],'audience')
+        self.assertIsNotNone(self.state.agency.step('["person:one"]'))
+        self.assertIsNone(self.state.agency.step('["person:two"]'))
+
+    def test_private_preparation_does_not_count_as_speech_or_consume_history(self):
+        self.setup_owner()
+        history=self.session.history_messages()
+        self.assertEqual(self.tick(2).status,'prepared')
+        self.assertEqual(len(self.planner.requests),1)
+        self.assertEqual(self.executor.snapshots,[])
+        self.assertEqual(self.session.last_interaction_at,float('-inf'))
+        self.assertEqual(self.session.history_messages(),history)
+        self.assertFalse(any(r['event']=='proactive_outcome' for r in self.trace.rows))
+        self.assertIsNone(self.tick(3))
+        self.assertEqual(self.tick(8).status,'completed')
+        self.assertEqual(len(self.planner.requests),1)
+
+    def test_cancel_during_plan_repair_cannot_install_degraded_work(self):
+        self.setup_owner()
+        def choose(facts,cancel):
+            if 'repair' in facts:
+                self.session.note_speech(3,sustained=True)
+                cancel.check()
+            value=draft();value['evidence_ids']=['invented'];return value
+        self.planner.choose=choose
+        result=self.tick(2)
+        self.assertEqual(result.status,'interrupted')
+        self.assertEqual(len(self.planner.requests),2)
+        self.assertEqual(self.executor.snapshots,[])
         self.assertIsNone(self.state.agency.record)
+        self.assertEqual(self.session.last_interaction_at,float('-inf'))
+
+    def test_human_speech_during_revision_recovery_stops_without_speaking(self):
+        self.setup_owner()
+        def choose(snapshot,cancel):
+            if snapshot.context['agency_step']['origin']=='degraded_character':
+                self.session.note_speech(101,sustained=True)
+                cancel.check()
+            return iter([ToolCall('r','revise_agency_plan',{'reason':'Object no longer available.'})])
+        self.executor.choose=choose
+        result=self.tick(100)
+        self.assertEqual(result.status,'interrupted')
+        self.assertEqual(result.completed_text,[])
+        self.assertEqual(self.state.agency.record['cursor'],0)
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'needs_revision')
+
+    def test_repaired_evidence_plan_executes_without_degraded_mode(self):
+        self.setup_owner()
+        def choose(facts,cancel):
+            value=draft()
+            if 'repair' not in facts:value['steps'][0]['evidence_ids']=['invented']
+            return value
+        self.planner.choose=choose
+        self.assertEqual(self.tick(100).status,'completed')
+        self.assertEqual(len(self.planner.requests),2)
+        self.assertEqual(self.state.agency.record['origin'],'planner')
+
+    def test_realistic_camera_receipt_and_target_refs_are_scoped_and_executed(self):
+        from r3x.proactive import Opportunity
+        from r3x.scene import SceneImage
+        self.setup_owner()
+        self.session.output.drive=SimpleNamespace(context=lambda *a,**kw:{'available':False,
+            'targets':[{'target_id':'object:cup','kind':'object','label':'cup'}]})
+        def choose(facts,cancel):
+            value=draft()
+            selected=[key for key,row in facts['evidence'].items() if row['kind'] in {'camera','current_target'}]
+            self.assertEqual(len(selected),2)
+            value['steps'][0]['evidence_ids']=selected
+            return value
+        self.planner.choose=choose
+        self.trace.at=100
+        event=Opportunity('mixed','session',100,None,None,(),float('-inf'),False,'reconsideration',
+            scene_id='scene',scene_images=(SceneImage('frame',100,'data:image/png;base64,synthetic'),))
+        result=self.session.process_opportunity(event,0,lambda:True)
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(len(self.planner.requests),1)
+        self.assertEqual(self.state.agency.record['scope'],'audience')
+        self.assertEqual(self.state.agency.record['cursor'],1)
+        self.assertIsNone(self.state.agency.context('["person:new"]'))
+
+    def test_simulated_gesture_receipt_advances_but_failed_gesture_does_not(self):
+        from r3x.performance import SimulatedGesture
+        self.setup_owner()
+        gestures=SimulatedGesture(self.trace.clock);gestures.start()
+        self.session.output.gestures=gestures
+        def choose(facts,cancel):
+            value=draft();value['steps'][0]['kind']='gesture';return value
+        self.planner.choose=choose
+        self.executor.choose=lambda s,c:iter([ToolCall('g','respond_with_gesture',{
+            'text':'That rhythm deserves a nod.','primitive':'nod','target':'forward',
+            'intensity':'subtle','timing':'after_speech'})])
+        result=self.tick(100)
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(self.state.agency.record['cursor'],1)
+        self.assertEqual(result.gestures[0]['medium'],'simulation')
+        self.assertEqual(result.gestures[0]['status'],'simulated')
+        self.state.agency.changed('new_idea');gestures.close()
+        result=self.tick(self.trace.at+9)
+        self.assertEqual(self.state.agency.record['cursor'],0)
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'needs_revision')
+
+    def test_rejected_optional_note_recovers_actual_human_reply(self):
+        from tests.test_conversation_intent import proposal
+        self.setup_owner()
+        def choose(snapshot,cancel):
+            if snapshot.continuation:return iter(['I meant their enormous mirrors.'])
+            return iter([ToolCall('bad','respond_with_intent',{'text':'I will inspect them.',
+                'intent_update':proposal(snapshot.context,source_id='unoffered')})])
+        self.executor.choose=choose
+        result=self.session.process_turn(Capture('human','session',bytes(96000),97,100,100),
+            Transcript('Okay, what about them?',-.01,True),0,memory_tests.observation())
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(' '.join(result.completed_text),'I meant their enormous mirrors.')
+        self.assertEqual(len(self.executor.snapshots),2)
+        self.assertEqual(self.planner.requests,[])
 
 
 class PlannedActionTests(memory_tests.MemoryFixture):

@@ -17,7 +17,7 @@ Do not substitute a scripted brain's desired words for evidence of model behavio
 | Case | Controlled sequence | Contract evidence now | Semantic/live acceptance still required |
 | --- | --- | --- | --- |
 | Quiet visitor | Welcome, offer one three-beat rhythm game; visitor stays quiet for five minutes | Heard invitation, selected review, explicit lapse, retained question, bounded calls; `test_invitations.py` | Welcoming rather than needy; missed useful openings and interruptions both scored |
-| Familiar room | Unchanged view; retain a musical hypothetical, contribute once, choose silence | General working interests, one-call choices, no automatic continuing timer | Varied specific contributions without fabricated sight or repetitive filler |
+| Familiar room | Unchanged view; develop one musical hypothetical across several lulls | Persisted plan, successive delivery receipts, general scope across head turns; hosted empty-room probe | Varied specific contributions without fabricated sight or repetitive filler |
 | Turn away/back | Consider a view, look elsewhere, return to similar view | Returning-view cue suppressed; fresh deliberate inspection still allowed; `test_physical_attention.py` | No repeated question/joke despite viewpoint and track churn |
 | Similar objects/change | Two same-category objects; one changes visibly | Pixel differences may be offered; descriptions retain uncertainty, never auto-merge identity | Model distinguishes objects or abstains; useful change is noticed, small changes counted as misses |
 | Unanswered invitation | Ask once, allow input, review, explicitly lapse, contribute differently | Silence/time cannot produce answered/declined; closed heard text retained | Comfortable transition without an announcement of rejection or a rephrased question |
@@ -68,5 +68,7 @@ turn back to the same scene, a human redirection, explicit quiet and normal rest
 Record planner model/calls/duration, Luna calls, saved/advanced/revised steps, actual
 heard words and executor outcomes. Compare against the inspected baseline of 16
 opportunities with zero completed audible proactive contributions. Count missed
-openings and repeated questions as well as interruptions. No paid or physical run
-was performed by the implementation checks.
+openings and repeated questions as well as interruptions. Hosted fictional-input
+checks are now available through `tools/check_agency.py --live`; model/output results
+and the later five-attempt/zero-plan failure baseline are in implementation status.
+Synthetic playback and gestures do not establish actual hearing or physical movement.

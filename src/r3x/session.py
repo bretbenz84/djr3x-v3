@@ -133,10 +133,11 @@ class Session:
     def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int, observation=None, faces=(), *, latest_faces=None) -> Delivery:
         return self._process(capture,transcript,submitted_revision,observation,faces,latest_faces=latest_faces)
 
-    def process_opportunity(self, event, submitted_revision, still_valid):
-        return self._process(None,None,submitted_revision,faces=event.faces,opportunity=event,still_valid=still_valid)
+    def process_opportunity(self, event, submitted_revision, still_valid, *, planning_only=False):
+        return self._process(None,None,submitted_revision,faces=event.faces,opportunity=event,still_valid=still_valid,
+                             planning_only=planning_only)
 
-    def _process(self, capture, transcript, submitted_revision, observation=None, faces=(), opportunity=None, still_valid=None, latest_faces=None):
+    def _process(self, capture, transcript, submitted_revision, observation=None, faces=(), opportunity=None, still_valid=None, latest_faces=None, planning_only=False):
         if not self._processing.acquire(blocking=False):
             raise RuntimeError("Only one conversation owner may process turns")
         worker = None
@@ -224,13 +225,13 @@ class Session:
                     delivery.status,delivery.medium = 'suppressed','none'
                     self.trace.emit('proactive_deferred',event_id=opportunity.event_id,reason='human_floor_held')
                     return delivery
-                if opportunity and self.state:
+                if opportunity and self.state and not planning_only:
                     self.state.initiative.attempted(opportunity)
                     opportunity_attempted = True
                 if opportunity and self._latest_speech!=opportunity.speech_marker: cancel.event.set()
                 cancel.check()
             if opportunity:
-                self.trace.emit('proactive_turn',turn_id=turn_id,event_id=opportunity.event_id,kind=opportunity.kind,
+                self.trace.emit('agency_preparation' if planning_only else 'proactive_turn',turn_id=turn_id,event_id=opportunity.event_id,kind=opportunity.kind,
                     face_track_id=opportunity.target_track,person_id=opportunity.person_id,revision=self.revision)
             else:
                 self.trace.emit("turn", turn_id=turn_id, capture_id=capture.capture_id, parent_capture_id=capture.parent_capture_id,
@@ -255,7 +256,7 @@ class Session:
                     if opportunity:
                         if self.state.initiative.quiet:
                             raise ProviderFailure('InitiativeQuietRequested')
-                        context = self.state.opportunity_context(opportunity)
+                        context = self.state.opportunity_context(opportunity,advance_memory_cursor=not planning_only)
                     else:
                         observation = observation or VoiceObservation(self.state.tracker.namespace)
                         attribution = self.state.begin(turn_id,capture,transcript,observation,faces)
@@ -265,7 +266,7 @@ class Session:
                                 **self.last_spoken_reply,
                                 'human_speech_ended_at':capture.speech_ended_at,
                                 'human_preceded_previous_reply':capture.speech_ended_at < self.last_spoken_reply['started_at']}
-                    state_started = True
+                    state_started = not planning_only
                 # Keep capture-time attribution/audience across tool continuations
                 # and camera changes during the response.
                 from copy import deepcopy
@@ -288,9 +289,7 @@ class Session:
             if not opportunity and transcript.trusted and self.state:
                 with self._lock:
                     self.state.initiative.cancel_schedule("human_turn")
-                    self.state.initiative.bootstrap_used = True
-                    self.state.initiative.empty_considerations = 0
-            self.history.begin_turn()
+            if not planning_only: self.history.begin_turn()
             if opportunity:
                 import json
                 last_reply = next((m['content'] for m in reversed(self.history_messages())
@@ -304,7 +303,7 @@ class Session:
                             "source_turn_id":opportunity.source_turn_id,
                             "faces":context['faces']}
                 if opportunity.kind=='visual_arrival': evidence['arrival']=context['visual_arrival']
-                self.history.append({'role':'developer','content':
+                if not planning_only: self.history.append({'role':'developer','content':
                     ('Startup greeting: a stable person is visible and no human has spoken in this run. '
                      'Say a brief hello now; choose natural wording and optionally invite an unknown person to share their name. '
                      if context.get('visual_arrival',{}).get('startup_greeting') else
@@ -434,6 +433,9 @@ class Session:
                     conversation = self.history_messages()[-12:] if bound_audience != '[]' else ()
                     facts = {'request_id':turn_id, 'revision':plan_revision,
                         'conversation':conversation, 'evidence':evidence, 'capabilities':capabilities,
+                        'capability_contract':{'gesture':'A short spoken thought with a finite nod/tilt; not a silent pose.',
+                            'attention_mode':context.get('attention',{}).get('mode'),
+                            'inspection_directions':context.get('inspection_directions',[])},
                         'opportunity':context.get('visual_arrival') or context.get('opportunity'),
                         'audience':{'faces':planning_context.get('faces',[]), 'speaker':planning_context.get('speaker')},
                         'previous_plan':agency.context(bound_audience),
@@ -442,23 +444,42 @@ class Session:
                         'pending_question':context.get('pending_question'),
                         'invitations':context.get('invitations'),
                         'meaning':'Existing descriptions may be historical. Inspect for fresh detail; a raw object target is not identity.'}
-                    self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='agency_planning',
-                        model=self.agency_planner.capability.model,image_count=0,
-                        reasoning_effort=self.agency_planner.reasoning_effort)
-                    planning_started = self.trace.clock()
-                    try:
-                        proposed = self.agency_planner.plan(facts,cancel)
-                        cancel.check()
+                    if self.trace.clock() >= agency.planner_retry_at:
+                        planning_started = self.trace.clock()
+                        try:
+                            for attempt in range(2):
+                                self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,
+                                    purpose='agency_planning' if attempt==0 else 'agency_plan_repair',
+                                    model=self.agency_planner.capability.model,image_count=0,
+                                    reasoning_effort=self.agency_planner.reasoning_effort)
+                                proposed = self.agency_planner.plan(facts,cancel)
+                                cancel.check()
+                                try:
+                                    with self._lock:
+                                        agency.install(proposed,bound_audience,evidence,capabilities,plan_revision,self.trace.clock())
+                                    break
+                                except ValueError as exc:
+                                    if str(exc)=='StaleAgencyPlan': raise Cancelled() from None
+                                    self.trace.emit('agency_plan_rejected',turn_id=turn_id,attempt=attempt+1,
+                                        reason=str(exc),proposal=proposed,offered_evidence_ids=list(evidence))
+                                    if attempt: raise
+                                    facts={**facts,'repair':{'validation_error':str(exc),'rejected_proposal':proposed,
+                                        'instruction':'Correct this proposal. Use only offered evidence and capabilities.'}}
+                        except Cancelled:
+                            raise
+                        except (ValueError,ProviderFailure) as exc:
+                            agency.failed(str(exc),self.trace.clock())
+                        finally:
+                            self.trace.emit('agency_planning_finished',turn_id=turn_id,model=self.agency_planner.capability.model,
+                                planning_seconds=self.trace.clock()-planning_started)
+                    if agency.needs_plan(bound_audience):
                         with self._lock:
-                            agency.install(proposed,bound_audience,evidence,capabilities,plan_revision,self.trace.clock())
-                    except Cancelled:
-                        raise
-                    except (ValueError,ProviderFailure) as exc:
-                        agency.failed(str(exc),self.trace.clock())
-                        raise ProviderFailure('AgencyPlanningFailed:'+str(exc)) from None
-                    finally:
-                        self.trace.emit('agency_planning_finished',turn_id=turn_id,model=self.agency_planner.capability.model,
-                            planning_seconds=self.trace.clock()-planning_started)
+                            cancel.check()
+                            if plan_revision != agency.revision: raise Cancelled()
+                            agency.install_character_step(bound_audience,plan_revision,self.trace.clock())
+                if planning_only:
+                    delivery.status,delivery.medium='prepared','none'
+                    return delivery
                 agency_step = agency.step(bound_audience)
                 context['agency_step'] = agency_step
                 if agency_step['scope']=='general':
@@ -498,7 +519,8 @@ class Session:
                             # General intent replies follow ordinary prose once audible.
                             # Questions and memory-bearing tools retain audience guards.
                             update = delta.arguments.get('intent_update') or {}
-                            self._audience_bound_output = (memory_accessed[0] or delta.name in
+                            self._audience_bound_output = (memory_accessed[0] or
+                                bool(agency_step and agency_step['scope']=='audience') or delta.name in
                                 {'ask_face_question', 'use_memory_opportunity', 'use_visual_memory'}
                                 or bool(update.get('memory_ids')))
                             calls.append(delta)
@@ -523,6 +545,29 @@ class Session:
                     if close:
                         close()
             calls = generate(snapshot)
+            if len(calls)==1 and calls[0].name=='revise_agency_plan' and not generated.strip():
+                from .semantics import validate
+                from dataclasses import replace
+                validate(calls[0].name,calls[0].arguments)
+                if not agency_step or agency_step.get('origin')=='degraded_character':
+                    raise ProviderFailure('AgencyStepUnavailable')
+                reason=calls[0].arguments['reason']
+                with self._lock:
+                    cancel.check()
+                    self.trace.emit('agency_revision_requested',turn_id=turn_id,reason=reason)
+                    agency.finish(agency_step,Delivery(status='suppressed',medium='none'),None,self.trace.clock(),reason)
+                    agency.install_character_step(bound_audience,agency.revision,self.trace.clock())
+                    agency_step=agency.step(bound_audience)
+                context={**context,'agency_step':agency_step,'memory_opportunities':[],
+                    'visual_memory':[r for r in context.get('visual_memory',[]) if r.get('audience')=='general']}
+                self.trace.emit('agency_step_started',turn_id=turn_id,**agency_step)
+                self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='agency_step_recovery',
+                    reasoning_effort=getattr(self.brain,'reasoning_effort',None))
+                recovery=replace(snapshot,context=context,messages=(*snapshot.messages,{'role':'developer','content':
+                    'The previous step was abandoned and nothing from it was spoken or performed. '
+                    'Execute the replacement impersonal character contribution now. Do not repeat the '
+                    'abandoned premise or explain the planning correction.'}))
+                calls=generate(recovery)
             if not calls and not generated.strip():
                 raise ProviderFailure('EmptyModelResponse')
             if calls and len(calls)==1 and self.state and not generated.strip():
@@ -539,13 +584,7 @@ class Session:
                     raise ProviderFailure("SpeechToolProtocolViolation")
                 call = calls[0]
                 if call.name == 'revise_agency_plan':
-                    from .semantics import validate
-                    validate(call.name,call.arguments)
-                    if not agency_step: raise ProviderFailure('AgencyStepUnavailable')
-                    agency_revision_reason = call.arguments['reason']
-                    self.trace.emit('agency_revision_requested',turn_id=turn_id,reason=agency_revision_reason)
-                    delivery.status,delivery.medium = 'suppressed','none'
-                    return delivery
+                    raise ProviderFailure('AgencyRevisionRecoveryLimit')
                 from .semantics import SCHEDULE_TOOLS
                 if call.name in SCHEDULE_TOOLS and call.arguments.get('next_opportunity') is not None:
                     from dataclasses import replace
@@ -649,7 +688,7 @@ class Session:
                         result = ToolResult(attention_intent.request_id, 'ok', 'AttentionProposed', self.state.store.revision)
                     else:
                         result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel,context=context)
-                    if result.outcome!='ok' and (opportunity or call.arguments.get('intent_update') is not None or call.name=='respond_with_intent'):
+                    if result.outcome!='ok' and opportunity:
                         raise ProviderFailure(result.reason)
                     if (result.outcome=='ok' and call.arguments.get('intent_update') is not None and latest_faces
                             and (call.name != 'respond_with_intent' or call.arguments['intent_update'].get('memory_ids'))):
@@ -1135,6 +1174,12 @@ class Session:
                         self.history.append({"role":"developer","content":"A person was forgotten. Do not reuse previous personal context."})
                     followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
                                         snapshot.speaker,context,False,continuation)
+                    if result.outcome!='ok' and call.name=='respond_with_intent':
+                        from dataclasses import replace
+                        followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
+                            'The optional conversation note was rejected. Its draft text was NOT spoken. '
+                            'Answer the human normally now in plain prose. Do not repeat a promise of future '
+                            'work, claim a save or action succeeded, or use unsupported facts from the rejected note.'}))
                     self.trace.emit("model_request",turn_id=turn_id,primary_calls=0,purpose="tool_result_continuation",
                                     reasoning_effort=getattr(self.brain,"reasoning_effort",None))
                     if generate(followup):

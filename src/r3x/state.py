@@ -381,7 +381,7 @@ class CoreState:
                     "speaker_boundary_proposed":capture.parent_capture_id is not None},
                 "enrollment":[e.progress() for e in self.enrollments.values()]}
 
-    def opportunity_context(self, event):
+    def opportunity_context(self, event, *, advance_memory_cursor=True):
         """No acoustic observation/source turn is fabricated for an opportunity."""
         from .face_attribution import public_face
         if self.frozen: raise ValueError("FrozenEvaluationDisallowsProactiveSpeech")
@@ -410,7 +410,7 @@ class CoreState:
             if self.observation_available(scene):cues.append(scene)
         from .memory_opportunities import candidates
         offered = candidates(self.store,faces,self.calendar_today(),self.memory_cursor)
-        self.memory_cursor += len(offered)
+        if advance_memory_cursor: self.memory_cursor += len(offered)
         return {'observations':cues,'calendar_date':self.calendar_today().isoformat(),'memory_opportunities':offered,'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
                 'participation':self.initiative.context(self.trace.clock()),
                 'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
