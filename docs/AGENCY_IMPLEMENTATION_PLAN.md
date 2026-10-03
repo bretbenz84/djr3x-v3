@@ -115,10 +115,10 @@ misread live. A move under way is cancelled only by sustained speech or a stop p
 by a blip of its own servo noise or its camera reframe. Charging, manual control and
 clearance checks still refuse moves.
 
-**Home range.** The base has no drop-off sensing. Rex's own moves therefore stay within
-`roam_radius_m` (default 3 m) of where he started or where a person last sent him; moves
-back toward that spot are always allowed and requested moves are not limited. Setting it
-to 0 removes the range. His own "find that thing" drives get four paid vision looks
+**No roaming limit.** A home range for his own moves was added on October 3 because the
+base has no drop-off sensing, and removed the same day at the owner's direction: he never
+places Rex where a drop is possible, and his own moves are limited only by obstacles and
+the time-of-flight boundaries. His own "find that thing" drives get four paid vision looks
 instead of twelve.
 
 **Pose holds.** A pose a person asked for blocks Rex's own poses and drives for 90
@@ -127,8 +127,7 @@ seconds, then yields to his initiative. "Release" and new requests work as befor
 ## Review repairs (October 3)
 
 A code review after the first implementation found, and this revision fixed: optional
-greetings with contradictory instructions; no limit on unprompted roaming without drop-off
-sensing; no easing off when ignored; "be quiet" lasting two minutes; any held pose
+greetings with contradictory instructions; no easing off when ignored; "be quiet" lasting two minutes; any held pose
 disabling his own movement indefinitely; a person's goal shown on other people's turns and
 private beats inherited by unrecognized strangers without limit; the planner usually
 getting no camera frame; goals discarded whenever people talked to each other; name
@@ -154,7 +153,7 @@ input with a camera frame, planning beside a human reply, human turns steering w
 replanning, interrupted beats retried then skipped, failed beats skipped, track churn of
 the same visit, newcomers and changed audiences, absent subjects, the five-minute pause,
 planner pacing and failures, the repeat guard, frame filtering, equal drive limits, the
-dropped-reply regression, required greetings, easing off, lasting quiet, the home range,
+dropped-reply regression, required greetings, easing off, lasting quiet,
 aged pose holds, goal privacy by turn, bounded identity inheritance, floor yields and
 servo-noise handling. Results are in [implementation status](IMPLEMENTATION_STATUS.md).
 

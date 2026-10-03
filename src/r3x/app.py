@@ -66,7 +66,7 @@ class App:
             from .drive import DriveBase, Radar
             from .adapters.hosted import OpenAIRoutePlanner
             self.radar = Radar(self.settings.radar_port) if self.settings.radar_port else None
-            self.drive = DriveBase(self.settings.drive_port, radar=self.radar, roam_radius_m=self.settings.roam_radius_m)
+            self.drive = DriveBase(self.settings.drive_port, radar=self.radar)
             route_planner = OpenAIRoutePlanner(secrets.openai_api_key)
             if camera:
                 from .adapters.hosted import OpenAIVisualLocator

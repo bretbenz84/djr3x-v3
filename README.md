@@ -96,10 +96,9 @@ and servo/LED/battery menu-bar apps (`operator_tools/`). Say **"wake up rex"** t
 Rex; the supervisor also keeps the V3 checkout updated from GitHub (fast-forward only,
 never over uncommitted changes). See [operator services](docs/OPERATOR_CUTOVER.md).
 
-**The wheels move when asked, or when Rex decides to go somewhere as part of his own goal.**
-Obstacle and time-of-flight checks apply to every move. The base cannot sense drop-offs, so
-his own roaming stays within `roam_radius_m` (default 3 m) of where he started or where you
-last sent him; keep stairs and ledges outside that range, or change the setting. Leave `drive_port` empty for conversation-only tests. Floor tests are
+**The wheels move when asked, or when Rex decides to go somewhere as part of his own goal**
+(no smaller limits for his own moves; obstacle and time-of-flight checks apply to every move).
+The base cannot sense drop-offs; the owner keeps him away from stairs and ledges. Leave `drive_port` empty for conversation-only tests. Floor tests are
 described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 
 ## Check

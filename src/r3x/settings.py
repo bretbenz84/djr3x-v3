@@ -20,8 +20,6 @@ class Settings:
     chest_led_port: str = ""
     drive_port: str = ""  # V2 ESP32 drive base; empty disables wheels.
     radar_port: str = ""  # V2 ESP32-S3 radar ring; requires drive_port.
-    # Rex's own roaming stays this far from where he started or was last sent; 0 = unlimited.
-    roam_radius_m: float = 3.0
     echo_isolated: bool = False
     vad_threshold: float = 0.5
     end_silence_seconds: float = 1.2
@@ -54,8 +52,6 @@ class Settings:
         for name in ("input_device_name", "output_device_name", "camera_device_name", "servo_port", "head_led_port", "chest_led_port", "drive_port", "radar_port"):
             if not isinstance(getattr(self, name), str):
                 raise ValueError(f"{name} must be text")
-        if type(self.roam_radius_m) not in (int, float) or not 0 <= self.roam_radius_m <= 30:
-            raise ValueError('roam_radius_m must be between 0 and 30 metres')
         ports = [self.servo_port,self.head_led_port,self.chest_led_port,self.drive_port,self.radar_port]
         if self.radar_port and not self.drive_port:
             raise ValueError('Radar requires the drive base')

@@ -248,36 +248,6 @@ class DriveOwnerTests(unittest.TestCase):
         # Connecting never commands motion.
         self.assertFalse(any(c['cmd'] in {'turn', 'move', 'drive'} for c in self.fake.commands))
 
-    def test_own_roaming_stays_within_range_of_home_but_requests_do_not(self):
-        # Review October 3: the base has no drop-off sensing and his own moves may now cross a
-        # room. Self-initiated moves stay within roam_radius_m of where he started or was sent.
-        self.start()
-        self.drive.roam_radius_m = 1.
-        receipt = self.drive.execute(plan(DriveStep('move', meters=2.), origin='self_initiated', clock=self.clock), Cancellation())
-        self.assertAlmostEqual(self.fake.x, 1., delta=.1)
-        self.assertEqual(receipt.steps[0]['reason'], 'home_range')
-        refused = self.drive.execute(plan(DriveStep('move', meters=.5), origin='self_initiated', clock=self.clock), Cancellation())
-        self.assertEqual((refused.steps[0]['status'], refused.steps[0]['reason']), ('refused', 'home_range'))
-        # Back toward home is always allowed, even from the edge.
-        back = self.drive.execute(plan(DriveStep('move', meters=-.5), origin='self_initiated', clock=self.clock), Cancellation())
-        self.assertEqual(back.status, 'completed')
-        self.assertAlmostEqual(self.fake.x, .5, delta=.1)
-        self.assertEqual(self.drive.context('self_initiated')['home_range']['radius_m'], 1.)
-        # A person sending him somewhere is not limited, and moves home to that spot.
-        sent = self.drive.execute(plan(DriveStep('move', meters=1.5), clock=self.clock), Cancellation())
-        self.assertEqual(sent.status, 'completed')
-        self.assertAlmostEqual(self.fake.x, 2., delta=.1)
-        again = self.drive.execute(plan(DriveStep('move', meters=.6), origin='self_initiated', clock=self.clock), Cancellation())
-        self.assertEqual(again.status, 'completed')
-        self.assertIsNone(self.drive.context('requested')['home_range'])
-
-    def test_roam_range_of_zero_is_unlimited(self):
-        self.start()
-        self.drive.roam_radius_m = 0.
-        receipt = self.drive.execute(plan(DriveStep('move', meters=2.), origin='self_initiated', clock=self.clock), Cancellation())
-        self.assertEqual(receipt.status, 'completed')
-        self.assertAlmostEqual(self.fake.x, 2., delta=.1)
-
     def test_missing_firmware_capability_refuses_start(self):
         clock, fake, drive, _ = base_setup(self, caps=('drive', 'stop'))
         with self.assertRaisesRegex(Exception, 'DriveCapabilitiesMissing'):

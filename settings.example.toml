@@ -94,12 +94,6 @@ drive_port = ""
 # opportunities. Robot: /dev/cu.usbmodem2301 (USB serial 28:84:85:4D:1C:80).
 radar_port = ""
 
-# How far (metres) Rex may roam ON HIS OWN from where he started or where a person
-# last sent him. The base has no drop-off sensing, so keep stairs and ledges outside
-# this range. Moves you ask for are not limited by it. 0 removes the range.
-# Consumed by the drive base for self-initiated moves and approaches.
-roam_radius_m = 3.0
-
 # Stronger model for private, persisted narrative/activity plans at lulls.
 # Replies and plan-step execution continue to use GPT-6 Luna. No silent fallback.
 agency_planner_model = "gpt-5.6-terra"

@@ -194,10 +194,7 @@ ever dropped.
          resumes after the invitation.
 9. Ask him to "look right", wait two minutes, and stay silent.
    - [ ] He is moving on his own again (the requested pose no longer blocks him).
-10. Watch where he drives on his own.
-   - [ ] He stays within about 3 metres of where he started or where you last sent him
-         (`roam_radius_m`). Keep stairs and ledges outside that range.
-11. Note anything that felt annoying, repetitive, unfunny or alive.
+10. Note anything that felt annoying, repetitive, unfunny or alive.
 
 Afterwards, run the report below and note how many goals he picked and how many lines he
 said on his own.

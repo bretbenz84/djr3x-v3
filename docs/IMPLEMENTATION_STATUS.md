@@ -13,8 +13,8 @@ fixed (details in [Rex's own goals](AGENCY_IMPLEMENTATION_PLAN.md#review-repairs
 
 - **Greetings are required.** Arrivals no longer offer optional lull activities or "nothing
   to add" silence; contradictory lull instructions are removed from the greeting call.
-- **Home range.** Self-initiated moves stay within `roam_radius_m` (default 3 m, setting)
-  of where Rex started or was last sent, because the base has no drop-off sensing.
+- **No roaming limit.** A home range for self-initiated moves was added and then removed
+  at the owner's direction; his own moves are bounded only by obstacles and ToF limits.
 - **Easing off.** Unanswered spoken beats lengthen the wait (up to five minutes); speech
   or an arrival restores the pace. Goals are planned at most 20 s before they are due.
 - **Lasting quiet.** "Be quiet", "quiet", "shut up", "hush", "stop talking" keep Rex from
@@ -30,7 +30,7 @@ fixed (details in [Rex's own goals](AGENCY_IMPLEMENTATION_PLAN.md#review-repairs
 - **Still open:** a private-memory reply is withheld, not regenerated, when another
   substantial face appears before speech starts (about 1 frame in 3,000 in recent logs).
 
-Verification: **916 blocked-I/O checks pass** (71.9 seconds); no hardware ran.
+Verification: **914 blocked-I/O checks pass** (69.9 seconds, after the roaming limit and its two checks were removed); no hardware ran.
 
 Hosted probe after the repairs (real GPT-5.6 Terra and GPT-6 Luna, fictional inputs, fake
 transports, accelerated clock), ignored folder
