@@ -50,8 +50,14 @@ def run(session,call,snapshot,generate,cancel):
     else:
         try:
             if not state.objects:raise ValueError('ObjectCameraUnavailable')
-            image,target,overview=state.objects.inspect(call.arguments['target_id'])
             teaching=call.arguments['intent']=='teach'
+            try:
+                image,target,overview=state.objects.inspect(call.arguments['target_id'])
+            except ValueError as exc:
+                # A look (never a teaching save, which needs the exact subject) falls back to
+                # the whole current view when the chosen thing's track is gone.
+                if teaching or str(exc)!='ObjectTargetExpired':raise
+                image,target,overview=state.objects.inspect(None)
             references,labels=((),[]) if teaching else album.references(call.arguments['entity_ids'] or None)
             evidence_id=album.offer(image,target,session.trace.clock())
             views=(overview,image) if target.get('target_id') else (image,)

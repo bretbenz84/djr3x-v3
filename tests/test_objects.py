@@ -28,3 +28,23 @@ class ObjectTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'ObjectTargetExpired'):observer.inspect('missing')
         observer.cancel()
         with self.assertRaisesRegex(ValueError,'FreshObjectViewUnavailable'):observer.inspect()
+
+    def test_a_restarted_track_is_refound_as_the_one_thing_of_its_kind_in_view(self):
+        # October 3 (be8c8d55): a look at the dog failed with ObjectTargetExpired a few seconds
+        # after the dog was offered, and Rex said his saved photo had expired.
+        clock=[100.];detections=[{'label':'dog','score':.9,'box':[.1,.1,.2,.2]}]
+        detector=SimpleNamespace(capability=Capability('test','fake','test',None,()),detect=lambda f:detections)
+        observer=Objects(SimpleNamespace(session_id='session'),detector,clock=lambda:clock[0])
+        def update():observer.observe(Frame(str(clock[0]),'fake','session',clock[0],2,2,bytes(12)))
+        update();clock[0]+=1.5;update()
+        old=observer.snapshot()[0]['target_id']
+        detections[0]['box']=[.6,.5,.2,.2]            # The head moved: same dog, new track.
+        clock[0]+=1.5;update();clock[0]+=1.5;update()
+        new=observer.snapshot()[0]['target_id'];self.assertNotEqual(old,new)
+        from unittest.mock import patch
+        with patch('r3x.objects.crop_image',lambda frame,box=None:'pixels'):   # No image library in checks.
+            self.assertEqual(observer.inspect(old)[1]['target_id'],new)
+        detections.append({'label':'dog','score':.8,'box':[.1,.1,.2,.2]})   # Two dogs: which one is unknown.
+        clock[0]+=1.5;update();clock[0]+=1.5;update()
+        with self.assertRaisesRegex(ValueError,'ObjectTargetExpired'):observer.inspect(old)
+        with self.assertRaisesRegex(ValueError,'ObjectTargetExpired'):observer.inspect('never-offered')

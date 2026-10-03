@@ -42,6 +42,7 @@ class Objects:
     def __init__(self,camera,detector,trace=None,scene=None,clock=time.monotonic):
         self.camera,self.detector,self.trace,self.scene,self.clock=camera,detector,trace,scene,clock
         self.stop=Event();self.lock=RLock();self.worker=None;self.frame=None;self.rows=[];self.failure=None
+        self.labels={}   # Recent target id -> label, to re-find a thing whose track restarted.
         self.capability=Capability('objects',detector.capability.provider,'stable object cues and crops',detector.capability.model,
             detector.capability.dependencies,('one shared frame; one inference pass/1.5 seconds; latest work only',))
 
@@ -63,6 +64,8 @@ class Objects:
                 rows.append(row)
             appeared=any(r['samples']==2 for r in rows)
             self.rows,self.frame=describe_positions(rows),frame
+            for r in rows:self.labels[r['target_id']]=r['label']
+            while len(self.labels)>64:self.labels.pop(next(iter(self.labels)))
         if appeared and self.scene:
             with self.scene.lock:self.scene.scene_id='objects:'+uuid4().hex
         if self.trace:self.trace.emit('object_sample',frame_id=frame.frame_id,objects=rows,seconds=self.clock()-began)
@@ -78,7 +81,16 @@ class Objects:
                 raise ValueError('FreshObjectViewUnavailable')
             frame=self.frame
             target=next((r for r in self.rows if r['target_id']==target_id and r['samples']>=2),None) if target_id else None
-            if target_id and target is None:raise ValueError('ObjectTargetExpired')
+            if target_id and target is None:
+                # Track ids restart whenever the head or base moves. October 3: a look at the
+                # dog failed a few seconds after it was offered and was voiced as his "saved
+                # photo" having expired. The one thing of the same kind still in view is it.
+                dog_or_cat={'dog','cat'}
+                wanted=self.labels.get(target_id)
+                same=[r for r in self.rows if r['samples']>=2 and wanted and
+                      (r['label']==wanted or {r['label'],wanted}<=dog_or_cat)]
+                if len(same)!=1:raise ValueError('ObjectTargetExpired')
+                target=same[0]
         return (crop_image(frame,target['box'] if target else None),
                 dict(target) if target else {'label':'whole view','box':[0,0,1,1]},crop_image(frame))
 

@@ -251,3 +251,22 @@ Earlier failures remain in the other photo-recheck folders. The current images w
 identical to saved references, not held-out views. Generic toy description alone is
 not proof of named recall. Live recognition and new-view accuracy remain pending;
 the live gallery was unchanged. All 480 blocked-I/O tests still pass.
+
+## October 3: "the saved photo had expired" was not the saved photo
+
+Run `be8c8d5584904f49b833fb6c03d33b9d`: after "He barks at every visitor", Rex said he had
+tried to check Max's saved photo "but that image reference had expired". Saved photographic
+memories do not age: Max's entry and its two reference photos were intact and are kept
+until someone asks to forget them. What had lapsed was the live camera target. The detector
+gives each thing in view a temporary id; ids restart whenever the head or base moves, and
+the look ran 3.8 s after the id was offered (`ObjectTargetExpired`). The only time limit
+in this feature is the 45 s a fresh teaching photo may wait before it is saved.
+
+Changes: a look whose target id is gone now uses the one thing of the same kind still in
+view (a dog for a dog; two dogs remain ambiguous), and otherwise the whole current view;
+teaching still requires the exact target. A look that cannot be taken is not narrated
+unless the person asked for one. One new synthetic check; not yet run on the robot.
+
+The same run's stray person record "Max" (created when the dog was introduced by name) was
+removed with `r3x profiles forget` at the owner's request, after a database backup in
+`local/`. The pet entry and the owner's fact "has a dog named Max" were not touched.
