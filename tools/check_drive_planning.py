@@ -265,7 +265,6 @@ def main():
     parser.add_argument('--model', help='Investigate another model (production stays gpt-5.4-mini)')
     parser.add_argument('--reasoning', choices=('none', 'low', 'medium', 'high'))
     parser.add_argument('--cases', help='Comma-separated case names')
-    parser.add_argument('--route-planner', metavar='MODEL', help='Attach the blocked-path route planner (production: gpt-5.6-terra)')
     args = parser.parse_args()
     selected = set(args.cases.split(',')) if args.cases else None
     root = Path(__file__).resolve().parents[1]/'local'
@@ -285,11 +284,6 @@ def main():
         brain.reasoning_effort = args.reasoning
     brain.trace = trace
     brain.start()
-    planner = None
-    if args.route_planner:
-        from r3x.adapters.hosted import OpenAIRoutePlanner
-        planner = OpenAIRoutePlanner(key, args.route_planner)
-        planner.start()
     voice = VoiceObservation('synthetic:3', (1., 0., 0.), ((0, 2, (1., 0., 0.)),), 3., 1., reason='synthetic')
     results = []
     def capture(session):
@@ -306,25 +300,20 @@ def main():
                 state = CoreState(store, SpeakerTracker('synthetic:3'), trace)
                 recording = Recording(brain)
                 session = Session(uuid4().hex, recording, EvalOutput(trace, context), trace, state)
-                session.route_planner = planner
                 try:
                     if seed:
                         session.brain = SeedBrain('Okay, I will stay put.')
                         session.process_turn(capture(session), Transcript(seed, -.01, True), session.revision, voice)
                         session.brain = recording
                     began = time.monotonic()
-                    marker, route_marker = len(rejections), len(routes)
+                    marker = len(rejections)
                     receipt = session.process_turn(capture(session), Transcript(text, -.01, True), session.revision, voice)
                     call = next((i for i in (recording.primary or []) if isinstance(i, ToolCall)), None)
                     rejected = rejections[marker:]
-                    route = routes[route_marker:]
-                    if route and route[-1].get('steps') is not None:
-                        # Score what would actually execute: the routed steps.
-                        call = ToolCall(call.call_id, call.name, {**call.arguments, 'steps': route[-1]['steps']})
                     item = {'case': name, 'repeat': repeat, 'utterance': text,
                             'tool': call.name if call else None, 'arguments': call.arguments if call else None,
                             'prose': ''.join(i for i in (recording.primary or []) if isinstance(i, str)) or None,
-                            'route': route, 'rejected': rejected, 'passed': bool(score(call, rejected)) and look_question(call),
+                            'rejected': rejected, 'passed': bool(score(call, rejected)) and look_question(call),
                             'heard': receipt.completed_text, 'wall_seconds': round(time.monotonic()-began, 2)}
                     results.append(item)
                     print(name, repeat, 'PASS' if item['passed'] else 'FAIL', item['tool'],
@@ -362,8 +351,6 @@ def main():
                     store.close()
     finally:
         brain.close()
-        if planner:
-            planner.close()
         trace.close()
     scored = [r for r in results if r['passed'] is not None]
     by_case = {}
@@ -371,7 +358,6 @@ def main():
         by_case.setdefault(row['case'], []).append(row['passed'])
     evidence = {'evidence': 'hosted synthetic drive contexts through the production Session; simulated receipts; nothing moved',
                 'model': brain.capability.model, 'reasoning_effort': brain.reasoning_effort, 'repeats': args.repeats,
-                'route_planner': args.route_planner, 'route_plans': sum(bool(r.get('route')) for r in results),
                 'devices_opened': False, 'personal_database_used': False,
                 'passed': sum(r['passed'] for r in scored), 'total': len(scored),
                 'by_case': {k: f'{sum(v)}/{len(v)}' for k, v in by_case.items()},
@@ -381,12 +367,11 @@ def main():
                 'cases': results, 'report': report(folder/'session.jsonl')}
     path = folder/'evidence.json'
     path.write_text(json.dumps(evidence, indent=2, default=str))
-    print(json.dumps({k: evidence[k] for k in ('passed', 'total', 'by_case', 'self_initiated_moves', 'route_plans')} | {'evidence': str(path)}), flush=True)
+    print(json.dumps({k: evidence[k] for k in ('passed', 'total', 'by_case', 'self_initiated_moves')} | {'evidence': str(path)}), flush=True)
     return evidence['passed'] == evidence['total']
 
 
 rejections = []  # State-owner drive rejections, collected from the production trace.
-routes = []      # Route-planner outcomes (planned steps or failure reasons).
 
 
 if __name__ == '__main__':
@@ -394,8 +379,6 @@ if __name__ == '__main__':
     def emit(self, event, **data):
         if event == 'drive_rejected':
             rejections.append(data.get('reason'))
-        if event in {'drive_route_planned', 'drive_route_failed'}:
-            routes.append(data)
         return original_emit(self, event, **data)
     Trace.emit = emit
     raise SystemExit(0 if main() else 1)

@@ -88,7 +88,6 @@ class Session:
         self.last_spoken_reply = None
         self.last_trusted_speech_at = float("-inf")
         self.resolved_audio_at = float("-inf")
-        self.route_planner = None  # Optional blocked-path drive planner; never speaks.
         self.motion_committed = False  # Wheels were handed a plan in the current turn.
         self.preparing_plan = False
         self.agency_scope = None
@@ -1129,34 +1128,6 @@ class Session:
                         if result.outcome=='ok':
                             if args['say_before']:
                                 speak(args['say_before'])
-                            # A direct approach the base sensors already show blocked is the one
-                            # measured weakness of the conversation model. Geometry, not wording,
-                            # triggers one bounded route-planner call while the line above plays.
-                            blocked = [s.target for s in drive_plan.steps if s.action in {'face','approach'} and
-                                       (drive_plan.targets.get(s.target) or {}).get('path',{}).get('direct_approach')=='blocked_early']
-                            if not any(s.action=='approach' or s.action=='move' and s.meters>0 for s in drive_plan.steps):
-                                blocked = []  # Only turning toward it: nothing will run into the obstacle.
-                            if any(s.action in {'turn','move'} for s in drive_plan.steps):
-                                # The plan already carries a route (October 3: the person dictated
-                                # "slight left, forward a few feet, slight right" and the planner
-                                # replaced it with its own turn and distance).
-                                blocked = []
-                            if blocked and self.route_planner is not None and self.route_planner.available():
-                                self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='drive_route_planning',
-                                                model=self.route_planner.capability.model,blocked_targets=blocked)
-                                try:
-                                    route, usage = self.route_planner.plan(None if opportunity else transcript.text,
-                                        {'steps':args['steps'],'purpose':args['purpose']},drive_context,cancel)
-                                    routed = ToolCall(call.call_id+':route','drive_base',{**route,'purpose':args['purpose'],
-                                        'look_after':args['look_after'],'say_before':args['say_before'],'say_after':args['say_after']})
-                                    with self._lock:
-                                        drive_plan = self.state.propose_drive(routed,{**context,'drive':drive_context},cancel)
-                                    self.trace.emit('drive_route_planned',turn_id=turn_id,steps=route.get('steps'),usage=usage)
-                                    self.history.append({'role':'developer','content':
-                                        'The direct path was blocked, so a route planner replaced the steps (same purpose): '+json.dumps(route.get('steps'))})
-                                except (ProviderFailure, ValueError) as exc:
-                                    # The original validated plan still runs; its block is reported truthfully.
-                                    self.trace.emit('drive_route_failed',turn_id=turn_id,reason=str(exc))
                             drive_action = DriveAction(drive_plan)
                             drive_noted = False
                             # Once queued, re-identified faces from the moving camera no longer

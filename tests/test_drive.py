@@ -67,12 +67,18 @@ class FakeBase:
             self.odom_extra = getattr(self, 'odom_extra', 0.) + amount * fraction * getattr(self, 'odom_slip', 0.)
             self.imu_offset = getattr(self, 'imu_offset', 0.) + self.imu_drift
         else:
-            travelled = amount * fraction
-            self.x += travelled * math.cos(math.radians(self.theta))
-            self.y += travelled * math.sin(math.radians(self.theta))
+            self._roll(amount * fraction)
         self.pending = None
         self.state = 'blocked' if result == 'blocked' else 'idle'
         self.emit(type='done', seq=seq, result=result, odom=self.odom())
+
+    def _roll(self, travelled):
+        """Move the base in the room, and the wheel odometry in its own (possibly slipped) frame."""
+        self.x += travelled * math.cos(math.radians(self.theta))
+        self.y += travelled * math.sin(math.radians(self.theta))
+        wheel = math.radians(self.theta + getattr(self, 'odom_extra', 0.))
+        self.odom_x = getattr(self, 'odom_x', 0.) + travelled * math.cos(wheel)
+        self.odom_y = getattr(self, 'odom_y', 0.) + travelled * math.sin(wheel)
 
     def handle(self, command):
         self.commands.append(command)
@@ -106,8 +112,7 @@ class FakeBase:
         elif name == 'drive':
             dt = .15
             self.theta += math.degrees(command['ang']) * dt
-            self.x += command['lin'] * dt * math.cos(math.radians(self.theta))
-            self.y += command['lin'] * dt * math.sin(math.radians(self.theta))
+            self._roll(command['lin'] * dt)
             self.linear = command['lin']
 
     def _progress(self):
@@ -126,7 +131,10 @@ class FakeBase:
             self._finish('completed')
 
     def odom(self):
-        return {'x': round(self.x, 3), 'y': round(self.y, 3),
+        # Without slip the odometry frame is the room; with slip it is consistent only with itself.
+        slipped = bool(getattr(self, 'odom_extra', 0.))
+        return {'x': round(getattr(self, 'odom_x', 0.) if slipped else self.x, 3),
+                'y': round(getattr(self, 'odom_y', 0.) if slipped else self.y, 3),
                 'theta': math.radians(self.theta + getattr(self, 'odom_extra', 0.)),
                 'lin': getattr(self, 'linear', 0.), 'ang': 0.}
 

@@ -628,8 +628,8 @@ class OpenAIBrain(HTTPProvider):
                 'rolls slower in tight spaces (slowed_for_tight_space): both are normal and need no comment unless asked. '
                 'wall_beside_path_too_close means he stopped because a wall beside him came too close; a small turn away '
                 'from that side usually frees him. Compute turns '
-                'from drive.targets bearings. If the direct path is blocked, plan a route around it from drive.clearance_m '
-                '(for example turn, move, then face the target) or say you cannot; never invent clearance. If drive.available '
+                'from drive.targets bearings. An approach finds its own way around obstacles (receipt detours list each leg, '
+                'chosen by camera or sensors); do not plan detours yourself and never invent clearance. If drive.available '
                 'is false, explain drive.unavailable_reason in character. drive.base_status holds live wheel-controller readings '
                 '(battery percent, volts, current, charger, controller state, tilt, room temperature/pressure/humidity); answer '
                 'questions about them from those values, and say plainly when a value is null or the controller is not connected. '
@@ -860,78 +860,36 @@ class ElevenLabsTTS(HTTPProvider):
                 pass
 
 
-ROUTE_PLANNER = """You plan short routes for Rex, a small differential-drive droid: body about 0.55 m wide, arms on its left side, no map.
-You know only current clearance by direction and target bearings (positive = left). The straight path to the goal target is
-blocked early by an obstacle. Return one drive_base call whose steps go around the obstacle through the most open direction,
-then face or approach the goal target. Turns are relative to the heading after previous steps; use direction words with
-positive numbers. Prefer few decisive steps within the limits. If no safe route exists, return a single face step toward the
-target. Only steps are used; purpose, text, speak and look_after are replaced by the conversation's own choice."""
-ROUTE_BUDGET = 20  # Blocked-path escalations per run; afterwards the direct plan runs and reports its block.
-
-
-class OpenAIRoutePlanner(HTTPProvider):
-    """Rare, bounded route planning for blocked paths; never speaks or talks to people.
-
-    Measured September 27: gpt-5.4-mini (low and medium reasoning) routed 0/7 blocked
-    synthetic approaches, gpt-5.6-terra 3/3. The conversation model still owns the
-    decision to move; this only replaces the steps of a plan whose direct path is blocked.
-    """
-    reasoning_effort = "low"
-
-    def __init__(self, key: str, model: str = "gpt-5.6-terra"):
-        super().__init__()
-        self.key, self.trace, self.calls = key, None, 0
-        self.capability = Capability("route_planner", "OpenAI Responses", "rare blocked-path drive routes",
-                                     model, ("httpx",), ("network",), required=False)
-
-    def available(self) -> bool:
-        return self.client is not None and self.calls < ROUTE_BUDGET
-
-    def plan(self, request: str | None, draft: dict, drive: dict, cancel: Cancellation):
-        import httpx
-        from ..semantics import grounded_tools
-        if self.client is None:
-            raise ProviderFailure("RoutePlannerNotStarted")
-        self.calls += 1
-        tools = [d for d in grounded_tools({'drive': drive, 'source_turn_id': 'route'}) if d['name'] == 'drive_base']
-        facts = {'request': request, 'draft_plan': draft,
-                 'drive': {k: drive.get(k) for k in ('clearance_m', 'targets', 'limits', 'sensor_notes')}}
-        payload = {'model': self.capability.model, 'instructions': ROUTE_PLANNER, 'store': False,
-                   'input': [{'role': 'user', 'content': json.dumps(facts, ensure_ascii=False)}],
-                   'tools': tools, 'tool_choice': {'type': 'function', 'name': 'drive_base'},
-                   'parallel_tool_calls': False, 'reasoning': {'effort': self.reasoning_effort},
-                   'max_output_tokens': 1500}
-        cancel.check()
-        try:
-            response = self.client.post("https://api.openai.com/v1/responses", json=payload,
-                                        headers={"Authorization": f"Bearer {self.key}"},
-                                        timeout=httpx.Timeout(20, connect=5))
-        except httpx.HTTPError as exc:
-            raise ProviderFailure("OpenAI" + type(exc).__name__)
-        if response.status_code != 200:
-            raise ProviderFailure(f"OpenAIHTTP{response.status_code}")
-        body = response.json()
-        cancel.check()
-        for item in body.get('output', []):
-            if item.get('type') == 'function_call' and item.get('name') == 'drive_base':
-                try:
-                    return json.loads(item['arguments']), body.get('usage', {})
-                except (TypeError, ValueError):
-                    raise ProviderFailure("RoutePlanMalformed")
-        raise ProviderFailure("RoutePlanMissing")
-
-
 LOCATOR = """You locate one described thing in a photo from a small robot's wide-angle head camera
 (about 90 degrees across). If it is clearly visible, report its bounding box as fractions of the
 image: x and y are the box centre (0 = left/top edge, 1 = right/bottom edge), width and height are
 its size. If it is not visible, too small to identify, or you are unsure, set found to false and put
 zeros in the numbers. Never guess a location for something you cannot see. note is a few words on
 what you matched or why not."""
-LOCATE_BUDGET = 60   # Vision locator calls per run; search and approach use a few each.
+ROUTER = """You help a small wheeled robot get around something that blocks its way. The photo is from its
+head camera, tipped slightly down so the floor is in view. It spans about 90 degrees: the left edge is 45
+degrees to the robot's left and the centre is straight ahead. The robot is about 0.55 m wide and needs a
+strip of clear floor at least 0.7 m wide.
+
+The message gives its goal and where the goal is if known, how near the closest thing straight ahead is,
+and what its range sensors measure by direction (image_x is where that direction falls in the photo, null
+when it is outside the picture; 3.5 or more means nothing within range). The sensors only measure distance
+to nearby things at knee height; the photo shows what those things are and where open floor continues.
+
+Choose the first leg of a way around the obstacle that leads on toward the goal: a point on visible open
+FLOOR for the robot to drive to. Prefer the side that keeps the goal reachable and that the sensors show
+open. Never choose floor under a table, between furniture legs, or a gap narrower than the robot. x and y
+are that floor point in the image as fractions (0 = left/top edge, 1 = right/bottom edge); distance_m is
+roughly how far away that point is. If the photo shows no usable floor but the sensors show one side wide
+open beyond the picture's edge, set beyond_view to left or right. If there is no way, or you cannot tell,
+set way to false. Never invent open floor you cannot see. already_tried lists earlier legs and how they
+went: do not repeat one that failed. note is a few words on the way you chose, or why there is none."""
+LOCATE_BUDGET = 150  # Hosted looks per run: finding things, re-finding them while rolling, routes around obstacles.
 
 
 class OpenAIVisualLocator(HTTPProvider):
-    """Bounded vision grounding for drive 'seek': where a described thing is in one image.
+    """Bounded vision grounding for the drive owner: where a described thing is in one image
+    (seek), and which open floor leads around what blocks the way (route).
 
     The conversation model chooses to look; this returns only image geometry, which the
     drive owner converts to a bearing. It never speaks, names people or saves anything.
@@ -941,28 +899,24 @@ class OpenAIVisualLocator(HTTPProvider):
     def __init__(self, key: str, model: str = "gpt-5.4-mini"):
         super().__init__()
         self.key, self.trace, self.calls = key, None, 0
-        self.capability = Capability("visual_locator", "OpenAI Responses", "locate described things for drive seek",
+        self.capability = Capability("visual_locator", "OpenAI Responses",
+                                     "locate described things and open floor for the drive base",
                                      model, ("httpx",), ("network",), required=False)
 
     def available(self) -> bool:
         return self.client is not None and self.calls < LOCATE_BUDGET
 
-    def locate(self, description: str, image, cancel: Cancellation, hint: str | None = None) -> dict:
+    def _ask(self, instructions: str, name: str, schema: dict, text: str, image, cancel: Cancellation):
+        """One structured answer about one image; (result, usage)."""
         import httpx
         if not self.available():
             raise ProviderFailure("VisualLocatorUnavailable")
         self.calls += 1
-        number = {"type": "number", "minimum": 0, "maximum": 1}
-        schema = {"type": "object", "additionalProperties": False,
-                  "required": ["found", "x", "y", "width", "height", "confidence", "note"],
-                  "properties": {"found": {"type": "boolean"}, "x": number, "y": number, "width": number,
-                                 "height": number, "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-                                 "note": {"type": "string"}}}
-        payload = {"model": self.capability.model, "instructions": LOCATOR, "store": False,
+        payload = {"model": self.capability.model, "instructions": instructions, "store": False,
                    "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 600,
-                   "text": {"format": {"type": "json_schema", "name": "location", "strict": True, "schema": schema}},
+                   "text": {"format": {"type": "json_schema", "name": name, "strict": True, "schema": schema}},
                    "input": [{"role": "user", "content": [
-                       {"type": "input_text", "text": "Find: " + description + ("\n" + hint if hint else "")},
+                       {"type": "input_text", "text": text},
                        {"type": "input_image", "image_url": image.data_url, "detail": getattr(image, "detail", "high")}]}]}
         cancel.check()
         try:
@@ -975,15 +929,41 @@ class OpenAIVisualLocator(HTTPProvider):
             raise ProviderFailure(f"OpenAIHTTP{response.status_code}")
         body = response.json()
         cancel.check()
-        text = "".join(part.get("text", "") for item in body.get("output", []) if item.get("type") == "message"
-                       for part in item.get("content", []) if part.get("type") == "output_text")
+        answer = "".join(part.get("text", "") for item in body.get("output", []) if item.get("type") == "message"
+                         for part in item.get("content", []) if part.get("type") == "output_text")
         try:
-            result = json.loads(text)
+            return json.loads(answer), body.get("usage", {})
         except ValueError:
             raise ProviderFailure("LocatorResultMalformed")
+
+    def locate(self, description: str, image, cancel: Cancellation, hint: str | None = None) -> dict:
+        number = {"type": "number", "minimum": 0, "maximum": 1}
+        schema = {"type": "object", "additionalProperties": False,
+                  "required": ["found", "x", "y", "width", "height", "confidence", "note"],
+                  "properties": {"found": {"type": "boolean"}, "x": number, "y": number, "width": number,
+                                 "height": number, "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                                 "note": {"type": "string"}}}
+        result, usage = self._ask(LOCATOR, "location", schema, "Find: " + description + ("\n" + hint if hint else ""),
+                                  image, cancel)
         if self.trace:
             self.trace.emit("visual_locate", description=description, hint=hint, frame_id=image.frame_id,
-                            result=result, usage=body.get("usage", {}))
+                            result=result, usage=usage)
+        return result
+
+    def route(self, image, facts: dict, cancel: Cancellation) -> dict:
+        """Which open floor to drive to next, from a floor-level picture and the range
+        sensors by direction. A proposal only: the drive owner's clearance checks decide."""
+        number = {"type": "number", "minimum": 0, "maximum": 1}
+        schema = {"type": "object", "additionalProperties": False,
+                  "required": ["way", "x", "y", "distance_m", "beyond_view", "confidence", "note"],
+                  "properties": {"way": {"type": "boolean"}, "x": number, "y": number,
+                                 "distance_m": {"type": "number", "minimum": 0, "maximum": 4},
+                                 "beyond_view": {"type": "string", "enum": ["none", "left", "right"]},
+                                 "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                                 "note": {"type": "string"}}}
+        result, usage = self._ask(ROUTER, "route", schema, json.dumps(facts, ensure_ascii=False), image, cancel)
+        if self.trace:
+            self.trace.emit("visual_route", frame_id=image.frame_id, result=result, usage=usage)
         return result
 
 

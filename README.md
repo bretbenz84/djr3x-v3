@@ -187,5 +187,5 @@ models on its own.
   See the [character/model comparison](docs/CHARACTER_EVALUATION.md) for measured
   costs, latency and remaining humor limitations. Stronger models run only
   narrowly: `gpt-5.6-terra` plans one goal at a time (at least eight seconds apart, never
-  per reply) and routes around a blocked direct path, within the owner's roughly
+  per reply), within the owner's roughly
   $45/month budget. Live goal-planning cost is not yet measured.

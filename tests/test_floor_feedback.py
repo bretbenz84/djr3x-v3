@@ -338,6 +338,7 @@ class GoingAroundTests(SeekTests):
     def test_blocked_with_no_way_around_is_reported_not_claimed_as_arrival(self):
         clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
         fake.sensors = shaped_room(world, [(.9, y/10, .12) for y in range(-12, 13, 2)])   # A wide wall.
+        fake.tof.update(lf=300, lb=300, rf=300, rb=300)    # And nothing open to either side.
         receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
                                 DriveStep('approach', target='sought'))
         self.assertEqual(receipt.steps[-1]['status'], 'blocked', receipt)
@@ -365,6 +366,7 @@ class GoingAroundTests(SeekTests):
     def test_arm_parks_only_when_the_wheels_are_about_to_move(self):
         clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
         fake.sensors = shaped_room(world, [(.9, y/10, .12) for y in range(-12, 13, 2)])
+        fake.tof.update(lf=300, lb=300, rf=300, rb=300)    # Boxed in: no way around either.
         events = []
         class Servos:
             def prepare_base_motion(self, cancel):
@@ -541,12 +543,31 @@ class TurnAroundAndComeTests(unittest.TestCase):
         clock, fake, drive, world = self.start()
         world.people.append(('face-1', None, 3., 0.))
         world.objects.append(('table', 'table', 1.6, 0.))   # Well short of the face.
+        fake.tof.update(lf=300, lb=300, rf=300, rb=300)     # Walls beside: no way around it.
         settle()
         plan = DrivePlan('p', (DriveStep('approach', target='face-1'),), 'requested', 'come here',
                          {'face-1': {'target_id': 'face-1', 'kind': 'face'}}, clock()+60)
         receipt = drive.execute(plan, Cancellation())
         self.assertNotEqual(receipt.status, 'completed')
         self.assertGreaterEqual(world.front_obstacle(), .3, receipt)   # Not the 0.22 m knee margin.
+
+    def test_a_table_before_the_person_is_passed_when_the_side_is_open(self):
+        # October 3 (be8c8d55): he stopped 0.30 m from a coffee table with two metres of open
+        # floor on his right, and reported an obstacle in the way.
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, 3., 0.))
+        world.objects.append(('table', 'table', 1.6, 0.))
+        fake.tof.update(lf=400, lb=400, rf=2000, rb=2000)   # Only the right side is open.
+        drive.servos = TuckedArms()                          # Arms parked for driving, as on the robot.
+        settle()
+        plan = DrivePlan('p', (DriveStep('approach', target='face-1'),), 'requested', 'come here',
+                         {'face-1': {'target_id': 'face-1', 'kind': 'face'}}, clock()+120)
+        receipt = drive.execute(plan, Cancellation())
+        step = receipt.steps[0]
+        self.assertEqual(step['detours'][0]['side'], 'right', receipt)
+        self.assertEqual(step['detours'][0]['by'], 'sensors')
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertLess(math.hypot(3. - fake.x, fake.y), 1.6)
 
     def test_a_stopped_approach_reports_how_far_it_went(self):
         import threading
@@ -1188,3 +1209,183 @@ class ComeHereTests(unittest.TestCase):
         self.assertEqual(speaker['basis'], 'voice_and_face')
         self.run_plan(clock, drive, context, DriveStep('face', target='speaker'))
         self.assertLess(abs(fake.theta), 8.)                        # No swing away from them.
+
+
+class Router:
+    """Stands in for the hosted look at the floor: scripted choices, recorded facts."""
+    def __init__(self, *choices):
+        self.choices, self.facts = list(choices), []
+
+    @staticmethod
+    def toward(bearing, distance, note='open floor beside it'):
+        return {'way': True, 'x': .5 - bearing/90, 'y': .8, 'distance_m': distance, 'beyond_view': 'none',
+                'confidence': 'high', 'note': note}
+
+    NO_WAY = {'way': False, 'x': 0, 'y': 0, 'distance_m': 0, 'beyond_view': 'none', 'confidence': 'high',
+              'note': 'no open floor in view'}
+
+    def __call__(self, image, facts, cancel):
+        self.facts.append(facts)
+        return self.choices.pop(0) if self.choices else self.NO_WAY
+
+
+class LookingServos(TuckedArms):
+    """Records head poses, so a test can see him tip his head down for the floor look."""
+    def __init__(self):
+        self.poses = []
+
+    def execute_pose(self, pose, cancel, request_id, **kwargs):
+        self.poses.append(dict(pose))
+        return type('R', (), {'status': 'pulses_reached', 'reason': None})()
+
+
+class CameraRouteTests(SeekTests):
+    """October 3: he saw the microwave over a counter that juts out and could not plan a way
+    around it; he stopped at a table with open floor beside it."""
+    def start(self, things):
+        clock, fake, drive, world = super().start(things)
+        drive.servos = LookingServos()
+        fake.tof.update(lf=600, lb=600, rf=600, rb=600)   # The range sensors alone show no way round.
+        return clock, fake, drive, world
+
+    def counter(self, world):
+        # Juts out from the right across his path; open floor begins about 0.3 m to his left.
+        return shaped_room(world, [(.9, y/10, .12) for y in range(-12, 3, 2)])
+
+    def test_a_counter_between_him_and_the_thing_is_passed_on_the_floor_the_camera_shows(self):
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = self.counter(world)
+        settle()
+        drive.router = Router(Router.toward(42., 1.3, 'open floor left of the counter'))
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        step = receipt.steps[-1]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertEqual([(d['by'], d['side']) for d in step['detours']], [('camera', 'left')])
+        self.assertGreater(fake.x, 3., receipt)                   # Past the counter and on to the door.
+        facts = drive.router.facts[0]
+        self.assertEqual(facts['goal'], 'door')
+        self.assertLess(facts['blocked_ahead_m'], .8)
+        bearings = {row['bearing_deg'] for row in facts['open_by_direction']}
+        self.assertTrue({22.5, -22.5, 67.5, -157.5} <= bearings)   # Front, sides and behind, by direction.
+        self.assertTrue(any(row['image_x'] is not None for row in facts['open_by_direction']))
+
+    def test_without_a_way_in_the_picture_he_reports_blocked_and_does_not_wander(self):
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = self.counter(world)
+        settle()
+        drive.router = Router()                                    # Always "no way".
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        self.assertEqual(receipt.steps[-1]['status'], 'blocked', receipt)
+        self.assertEqual(len(drive.router.facts), 1)               # One look, not a look per try.
+        self.assertLess(fake.x, .6)
+
+    def test_he_tips_his_head_down_for_the_floor_look_and_levels_it_again(self):
+        from r3x.servo_poses import DRIVE_HEAD
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = self.counter(world)
+        settle()
+        seen = []
+        router = Router(Router.toward(42., 1.3))
+        def watching(image, facts, cancel):
+            seen.append(list(drive.servos.poses))
+            return router(image, facts, cancel)
+        drive.router = watching
+        self.run_plan(clock, drive, DriveStep('seek', description='door'), DriveStep('approach', target='sought'))
+        level = dict(DRIVE_HEAD)[2]
+        self.assertGreater(seen[0][-2][2], level)                  # Tilt pulse above level looks down...
+        self.assertEqual(seen[0][-1][2], level)                    # ...and is level again before he drives on.
+
+    def test_a_leg_that_fails_is_told_to_the_next_look(self):
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = self.counter(world)
+        settle()
+        # First he is sent right, into the counter; the second look gets told how that went.
+        drive.router = Router(Router.toward(-30., 1.), Router.toward(42., 1.3))
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        self.assertEqual(len(drive.router.facts), 2, receipt)
+        self.assertIn('30 degrees right', drive.router.facts[1]['already_tried'][0])
+        self.assertEqual(receipt.steps[-1]['status'], 'completed', receipt)
+
+    def test_a_table_before_the_person_is_passed_and_he_turns_back_to_them(self):
+        clock, fake, drive, world = self.start([])
+        world.people.append(('face-1', None, 3., 0.))
+        world.objects.append(('table', 'table', 1.6, 0.))
+        settle()
+        drive.router = Router(Router.toward(-40., 1.2, 'open floor right of the table'))
+        plan = DrivePlan('p', (DriveStep('approach', target='face-1'),), 'requested', 'come here',
+                         {'face-1': {'target_id': 'face-1', 'kind': 'face'}}, clock()+120)
+        receipt = drive.execute(plan, Cancellation())
+        step = receipt.steps[0]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertEqual([(d['by'], d['side']) for d in step['detours']], [('camera', 'right')])
+        self.assertEqual(drive.router.facts[0]['goal'], 'the person he is driving to')
+        self.assertLess(math.hypot(3. - fake.x, fake.y), 1.5)
+        self.assertLess(fake.y, -.3)                               # He came round the right-hand side.
+        bearing = world.relative(3., 0.)[1]
+        self.assertLess(abs(bearing), 20., receipt)                # And ended facing the person.
+
+    def test_route_looks_count_against_the_plans_look_allowance(self):
+        from r3x.drive import PLAN_VISION_CALLS
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = self.counter(world)
+        settle()
+        drive.router = Router(Router.toward(42., 1.3))
+        self.run_plan(clock, drive, DriveStep('seek', description='door'), DriveStep('approach', target='sought'))
+        self.assertEqual(drive._vision_calls, len(self.calls) + 1)
+        self.assertLessEqual(drive._vision_calls, PLAN_VISION_CALLS)
+
+
+class OwnPositionTests(SeekTests):
+    """He keeps his own position and heading as he moves, so he can turn back to a target."""
+    def test_position_follows_turns_and_moves_even_when_wheel_heading_slips(self):
+        clock, fake, drive, world = self.start([])
+        fake.odom_slip = .8                                         # Wheel odometry over-reads every turn.
+        self.run_plan(clock, drive, DriveStep('move', meters=1.), DriveStep('turn', degrees=90.),
+                      DriveStep('move', meters=.5), DriveStep('turn', degrees=90.), DriveStep('move', meters=.4))
+        drive._track()
+        self.assertAlmostEqual(drive._at[0], fake.x, delta=.08)     # About (0.6, 0.5).
+        self.assertAlmostEqual(drive._at[1], fake.y, delta=.08)
+        bearing, distance = drive._bearing_to((0., 0.))
+        self.assertAlmostEqual(distance, math.hypot(fake.x, fake.y), delta=.1)
+        self.assertAlmostEqual(bearing, world.relative(0., 0.)[1], delta=6.)   # Where the start is from here.
+
+    def test_two_sightings_from_different_places_fix_where_the_thing_is(self):
+        from r3x.drive import DriveBase
+        thing = (3., 1.)
+        first = (0., 0., math.degrees(math.atan2(1., 3.)))
+        second = (1., -1., math.degrees(math.atan2(2., 2.)))
+        met = DriveBase._sight_lines_meet(first, second)
+        self.assertAlmostEqual(met[0], thing[0], places=2)
+        self.assertAlmostEqual(met[1], thing[1], places=2)
+        self.assertIsNone(DriveBase._sight_lines_meet(first, (0.5, 0., first[2] + 2.)))    # Nearly the same line.
+        self.assertIsNone(DriveBase._sight_lines_meet(first, (6., 2., first[2] + 90.)))    # They cross behind him.
+
+    def test_after_going_aside_he_looks_where_the_thing_now_is_not_where_it_was(self):
+        clock, fake, drive, world = self.start([('door', 'door', 3., 0.)])
+        self.run_plan(clock, drive, DriveStep('seek', description='door'))            # First sighting, from the start.
+        self.run_plan(clock, drive, DriveStep('turn', degrees=90.), DriveStep('move', meters=1.2),
+                      DriveStep('turn', degrees=-90.))                                 # 1.2 m to the left of where he was.
+        found, why = drive._locate('door', Cancellation(), drive._sought)
+        self.assertIsNotNone(found, why)
+        drive._remember_sought('door', found)                                          # Second sighting: a position.
+        self.assertAlmostEqual(drive._sought['position'][0], 3., delta=.35)
+        self.assertAlmostEqual(drive._sought['position'][1], 0., delta=.35)
+        self.run_plan(clock, drive, DriveStep('turn', degrees=60.))                    # Look away...
+        self.assertAlmostEqual(drive._expected_sought(), world.relative(3., 0.)[1], delta=8.)   # ...and know where it is.
+
+
+class OpenDirectionTests(unittest.TestCase):
+    def test_every_sensor_is_placed_by_bearing_and_where_it_falls_in_the_picture(self):
+        from r3x.drive_space import open_directions
+        rows = open_directions({'received_at': 0., 'tof_mm': LIVE_TOF}, {'received_at': 0., 'grid': LIVE_GRID, 'rej': [4095]*8}, 0.)
+        by = {row['bearing_deg']: row for row in rows}
+        self.assertEqual(len(rows), 16)                             # Eight matrix columns and eight ring sensors.
+        self.assertEqual(by[-22.5]['open_m'], .4)                   # The wall at his front right...
+        self.assertEqual(by[-22.5]['image_x'], .75)                 # ...three quarters of the way across the picture.
+        self.assertGreaterEqual(by[2.8]['open_m'], 3.5)             # Straight ahead is open.
+        self.assertIsNone(by[112.5]['image_x'])                     # Behind-left is outside the camera view.
+        self.assertEqual(by[112.5]['open_m'], .26)
+        self.assertEqual(open_directions(None, None, 0.), [])

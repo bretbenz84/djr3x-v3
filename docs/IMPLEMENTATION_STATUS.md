@@ -96,6 +96,20 @@ name; a distance was still spoken as "0.85 metres".
 Verification: **975 blocked-I/O checks pass** (90.5 seconds; fake clocks, pulses, drive and
 providers). No hosted model was called for these changes.
 
+## Looking for a way around obstacles — October 3 (evening)
+
+Owner request after the counter and table stops. An approach that is blocked with its
+target still far now photographs the floor with the head tipped down, combines the picture
+with the range sensors by direction in one hosted look, takes the leg it proposes, then
+turns back to where the target should be and checks. He keeps his own position while
+moving, and two sightings fix where a target is. The text-only `gpt-5.6-terra` route
+planner is retired. Details and limits:
+[drive base](DRIVE_BASE_INTEGRATION.md#october-3-looking-for-a-way-around).
+
+**Simulated only**, with a scripted stand-in for the hosted look: 994 blocked-I/O checks
+pass (108 seconds). The hosted look has not been tried on a real picture; the first floor
+run is its first test.
+
 ## Feeling alive: live-run repairs — October 3 (evening)
 
 The owner's run `30ec1b046fb749558934ca55b50ffc06` (10.4 minutes, real hardware) was the

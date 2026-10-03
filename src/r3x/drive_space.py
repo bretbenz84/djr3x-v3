@@ -100,6 +100,32 @@ def matrix_path(matrix):
     return result
 
 
+def open_directions(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
+    """How far each range sensor sees, by bearing: the room around him as the sensors know it.
+
+    Owner, October 3: the planner needs "which directions have the most open area relative
+    to the camera view". The eight matrix columns cross the middle of the picture (second-
+    nearest zone above the floor, so one speckle does not close a direction); the ring adds
+    the front corners, both sides and behind. image_x is where that bearing falls in the
+    head camera picture with the neck centred, None when it is outside the view. 3.5 means
+    nothing within range. Missing or stale sensors are simply absent."""
+    rows = []
+    if matrix and 0 <= now - matrix['received_at'] <= matrix_age and len(matrix.get('grid', ())) == 64 and len(matrix.get('rej', ())) == 8:
+        for col in range(8):
+            zones = sorted(matrix['grid'][row*8+col] for row in range(8)
+                           if 25 <= matrix['grid'][row*8+col] < min(matrix['rej'][row], 3500))
+            rows.append((MATRIX_COLUMN_DEG[col], zones[1]/1000. if len(zones) >= 2 else MATRIX_CLEAR, 'front matrix'))
+    if telemetry and 0 <= now - telemetry['received_at'] <= telemetry_age:
+        tof = telemetry.get('tof_mm') or {}
+        for key, bearing in (('fl_radial', 22.5), ('fr_radial', -22.5)) + RING[2:]:
+            value = _meters(tof.get(key))
+            if value is not None:
+                rows.append((bearing, min(value, 4.), 'ring'))
+    return [{'bearing_deg': round(bearing, 1), 'open_m': round(value, 2), 'sensor': sensor,
+             'image_x': round(.5 - bearing/(2*HALF_FOV), 2) if abs(bearing) < HALF_FOV else None}
+            for bearing, value, sensor in sorted(rows, key=lambda r: -r[0])]
+
+
 def _path_sides(ring, sectors, corridor):
     """Forward room along the body's straight path, by side (September 27 hallway run).
 

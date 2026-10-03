@@ -182,39 +182,6 @@ class DriveSessionTests(MemoryFixture):
         self.assertAlmostEqual(self.fake.x, 2.5, places=2)
         self.assertEqual(len(self.rows('drive_result')[-1]['steps'][0]['legs']), 2)
 
-    def blocked_dog(self, planner):
-        self.setup_drive(drive_call(step('approach', target='object-dog'), text='Let me see.'))
-        self.world.objects[:] = [('object-box', 'box', .85, 0.), ('object-dog', 'dog', 2.2, .1)]
-        self.session.route_planner = planner
-        settle()
-
-    def test_blocked_direct_approach_gets_one_route_plan_while_the_line_plays(self):
-        planner = FakePlanner({'steps': [step('turn', degrees=45.), step('move', meters=.8), step('face', target='object-dog')]})
-        self.blocked_dog(planner)
-        delivery = self.turn('Go look at the dog.')
-        self.assertEqual(planner.calls, 1)
-        self.assertEqual(planner.request, 'Go look at the dog.')
-        self.assertEqual(delivery.completed_text[0], 'Let me see.')
-        receipt = self.rows('drive_result')[-1]
-        self.assertEqual([s['action'] for s in receipt['steps']][:2], ['turn', 'move'])
-        self.assertTrue(self.rows('drive_route_planned'))
-        planning = [r for r in self.rows('model_request') if r.get('purpose') == 'drive_route_planning']
-        self.assertEqual(planning[0]['blocked_targets'], ['object-dog'])
-
-    def test_route_planner_failure_keeps_the_original_plan(self):
-        planner = FakePlanner(None)
-        self.blocked_dog(planner)
-        self.turn('Go look at the dog.')
-        self.assertEqual(self.rows('drive_route_failed')[-1]['reason'], 'OpenAIReadTimeout')
-        self.assertEqual(self.rows('drive_result')[-1]['steps'][0]['action'], 'approach')
-
-    def test_clear_paths_never_call_the_route_planner(self):
-        planner = FakePlanner({'steps': []})
-        self.setup_drive(drive_call(step('move', meters=.3)))
-        self.session.route_planner = planner
-        self.turn()
-        self.assertEqual(planner.calls, 0)
-
     def test_a_person_is_never_answered_by_a_wordless_move(self):
         # October 3 (30cbd025): "Do you have access to your compass direction?" was answered
         # by a silent 17 degree turn; the answer came 12 seconds later from an unrelated beat.
@@ -231,19 +198,19 @@ class DriveSessionTests(MemoryFixture):
         self.assertEqual(self.turn('Turn right a touch.').completed_text, ['Turning.'])
         self.assertEqual(len(self.brain.snapshots), 1)
 
-    def test_a_route_the_person_dictated_is_never_replaced_by_the_planner(self):
-        # October 3: "slight left, forward a few feet, slight right, then go on" ran as the
-        # planner's own 30 degrees and one metre because the microwave's direct path was blocked.
-        planner = FakePlanner({'steps': [step('turn', degrees=30.), step('move', meters=1.)]})
+    def test_a_dictated_route_runs_exactly_as_given(self):
+        # October 3: "slight left, forward a few feet, slight right, then go on" was replaced
+        # by a separate planner's own turn and distance. Nothing rewrites a plan any more;
+        # getting around obstacles happens inside the approach, from the camera and sensors.
         self.setup_drive(drive_call(step('turn', degrees=40.), step('move', meters=.4),
                                     step('approach', target='object-dog')))
         self.world.objects[:] = [('object-box', 'box', .85, 0.), ('object-dog', 'dog', 2.2, .1)]
-        self.session.route_planner = planner
         settle()
         self.turn('Go a bit left, forward a little, then on to the dog.')
-        self.assertEqual(planner.calls, 0)
-        first = next(c for c in self.fake.commands if c['cmd'] == 'turn')
-        self.assertEqual(first['deg'], 40.)
+        commands = [c for c in self.fake.commands if c['cmd'] in {'turn', 'move'}]
+        self.assertEqual((commands[0]['cmd'], commands[0]['deg']), ('turn', 40.))
+        self.assertEqual((commands[1]['cmd'], commands[1]['dist']), ('move', .4))
+        self.assertFalse([r for r in self.rows('model_request') if r.get('purpose') == 'drive_route_planning'])
 
     def test_turn_look_then_one_follow_up_plan_from_the_fresh_view(self):
         calls = []
@@ -339,25 +306,6 @@ class DriveRuntimeTests(MemoryFixture):
         runtime.proactive_tick()
         self.assertEqual(brain.calls, 2)   # Fresh plan advancement, not a radar polling timer.
 
-
-
-class FakePlanner:
-    class capability:
-        model = 'planner-test'
-
-    def __init__(self, route):
-        self.route, self.calls, self.request = route, 0, None
-
-    def available(self):
-        return True
-
-    def plan(self, request, draft, drive, cancel):
-        self.calls += 1
-        self.request = request
-        assert any(t.get('path', {}).get('direct_approach') == 'blocked_early' for t in drive['targets'])
-        if self.route is None:
-            raise ProviderFailure('OpenAIReadTimeout')
-        return self.route, {'input_tokens': 1}
 
 
 class WheelsDownTests(MemoryFixture):

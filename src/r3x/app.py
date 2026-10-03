@@ -61,13 +61,11 @@ class App:
         if self.settings.servo_port:
             from .robot_servos import RobotServos
             self.robot = RobotServos(self.settings.servo_port)
-        route_planner = locator = None
+        locator = None
         if self.settings.drive_port:
             from .drive import DriveBase, Radar
-            from .adapters.hosted import OpenAIRoutePlanner
             self.radar = Radar(self.settings.radar_port) if self.settings.radar_port else None
             self.drive = DriveBase(self.settings.drive_port, radar=self.radar)
-            route_planner = OpenAIRoutePlanner(secrets.openai_api_key)
             if camera:
                 from .adapters.hosted import OpenAIVisualLocator
                 locator = OpenAIVisualLocator(secrets.openai_api_key)
@@ -75,7 +73,7 @@ class App:
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,route_planner,locator,agency_planner) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,locator,agency_planner) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -295,6 +293,7 @@ class App:
                         from .looking import fresh_look
                         finder.trace = trace
                         self.drive.locator = finder.locate
+                        self.drive.router = finder.route   # Looks at the floor to get around what blocks an approach.
                         self.drive.look = lambda after: fresh_look(camera, after)
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
@@ -330,10 +329,6 @@ class App:
                 if agency and 'agency_planner' in active:
                     agency.trace = trace
                     session.agency_planner = agency
-                planner = next((p for p in optional if p.capability.name=='route_planner'),None)
-                if planner and output.drive and 'route_planner' in active:
-                    planner.trace = trace
-                    session.route_planner = planner
                 if startup_delivery and startup_delivery.completed_text:
                     session.history.append({'role':'assistant','content':' '.join(startup_delivery.completed_text)})
                 if self.settings.camera_enabled and camera is None:

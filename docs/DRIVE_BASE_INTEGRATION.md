@@ -16,8 +16,8 @@ hallway no-reverse rule. No firmware was changed.
   - `nearest_person` is always offered and always valid: with nobody in view he looks for
     the person first (toward the last voice, radar bodies, then around). The last located
     voice is remembered as a room heading, so `speaker` stays correct as he turns.
-  - The `gpt-5.6-terra` route planner runs only when a direct approach is already
-    blocked.
+  - Nothing rewrites a plan. Getting around obstacles happens inside an approach (below);
+    the text-only `gpt-5.6-terra` route planner was retired on October 3.
 - **Seeking described things.** `seek` uses hosted vision looks (gpt-5.4-mini) to find
   things the detector cannot name. `approach sought` then rolls continuously toward it,
   steering by the remembered IMU heading while the next look runs in the background.
@@ -34,6 +34,13 @@ hallway no-reverse rule. No firmware was changed.
   - When blocked short of the target he re-aims, then detours on an open side (at most
     twice), then reports blocked.
   - While seeking he never reverses to make arm room. Explicit turns still may.
+- **Getting around things (October 3; simulated only).** When an approach is blocked with
+  the target still far, he tips his head down, photographs the floor, and a hosted look at
+  that picture plus the range sensors by direction picks the next leg (up to five per
+  approach). Then he turns back to where the target should be and looks for it again. He
+  keeps his own position as he goes, and two sightings from different places fix where
+  the target is. Without a camera answer he falls back to the range sensors, which now
+  include the side sensors.
 - **Closing on a target.** For the last 1.2 m of an approach the host switches the
   firmware's wall-steering off (gain 0, restored afterwards), so the firmware slows and
   stops him instead of steering around what he is driving to (October 3; simulated only).
@@ -216,7 +223,8 @@ for reading; they do not prove judgment. Final production-model results (2 repea
 | Half-metre square | 2/2 | 2/2 |
 
 For the blocked path alone, mini at medium reasoning routed 0/3 (turns of 3–18°) and
-`gpt-5.6-terra` (low) 3/3 (left 45°, forward 1 m, face the dog). So a route planner runs
+`gpt-5.6-terra` (low) 3/3 (left 45°, forward 1 m, face the dog). (Retired October 3: see
+"Looking for a way around" below.) So a route planner ran
 only when a validated plan would drive toward a target whose straight path the base
 sensors show blocked; geometry triggers it, not wording. It returns steps only, validated
 by the same state owner, and runs while the before-motion line plays. Measured cost:
@@ -714,3 +722,62 @@ earlier repairs loaded). Drive-related findings; the conversational ones are in
 
 Unmeasured: whether 1.0 m / 0.32 m is the distance the owner wants (0.8 m was his earlier
 request, 4-5 ft too far), and the direction thresholds, which come from one run.
+
+## October 3: looking for a way around
+
+Owner: he could see the microwave above a counter that juts out, "however, he could not
+make a plan to go around the counter"; he "stopped at the table, but he could've seen
+visually that the space to the right of the table was open". He asked for time-of-flight
+data mapped by direction against the camera view, photos along the way, pauses for hosted
+calls, a slightly downward look at the floor, and a record of how far he has turned so he
+can turn back and check the object is still ahead. **Everything below is checked in the
+simulated base with a scripted stand-in for the hosted look. The hosted look itself has not
+been tried on a real picture, and nothing has run on the robot.**
+
+What happens when an approach (to a person, a detected object or a described thing) ends
+blocked while the target is still far:
+
+1. **A look at the floor.** The head tips down 12 degrees for one sharp picture, then
+   returns to its level drive stance.
+2. **The sensors by direction.** `open_directions` lists how far each range sensor sees:
+   the eight columns of the front matrix (which cross the middle half of the picture), the
+   two front corners, both sides and behind, each with its bearing and where it falls in
+   the picture.
+3. **A hosted choice of leg.** `OpenAIVisualLocator.route` (the same `gpt-5.4-mini` vision
+   provider as the locator, about 1,500 input tokens a look) is given the picture, the
+   goal and its bearing, the sensor list and what earlier legs did. It returns a point on
+   visible open floor and a rough distance, or says the way is beyond the picture's edge
+   on one side, or that there is none. It only proposes: the turn still passes the
+   arm-swing check and the move the same clearance, wall and firmware guards as any other.
+4. **Turn back and check.** After the leg he turns to where the target should be and
+   looks for it again. If it is out of sight (a corner, a cabinet) he takes one more leg
+   toward where it should be and looks again.
+
+Up to five camera legs per approach; each look counts against the plan's allowance, raised
+to 24 hosted looks for a request and 6 for his own moves (150 per run). When no look is
+possible or it shows no way, the range sensors choose: an open front band as before, or
+now a side sensor showing at least 0.8 m of floor, with the turn growing 30, 55, then 85
+degrees. Only then does he report blocked.
+
+**His own position.** Wheel travel is folded into a running position along the IMU
+heading (wheel odometry's own heading over-reads turns). Each sighting of a described thing
+is kept with where he stood and the room heading he saw it at; two sightings at least 0.4 m
+apart whose lines cross fix its position, and from then on "where it should be" is the
+bearing to that position from wherever he is. Before that he has only a direction, so for
+the first look after a leg a match up to 60 degrees off is accepted instead of 25. A
+person's position comes from the face bearing and range. This is dead reckoning over a few
+metres, not a map: nothing is stored about the room.
+
+**Retired.** The `gpt-5.6-terra` route planner rewrote a plan before it ran, from sensor
+numbers alone and without a picture; it overrode a dictated route on October 3 and could
+not see the counter. Its class, prompt, session hook, startup load, tests and check-tool
+arm are removed. The model is now told to approach directly and leave detours to the
+approach.
+
+Verification: 11 new simulated checks (a counter passed on a camera leg, no wandering when
+the picture shows no way, the head tip and return, a failed leg reported to the next look,
+a table passed with the turn back to the person, looks counted, position under wheel slip,
+crossing sight lines, the bearing to a fixed position, the sensor list, the table passed on
+side sensors alone). Unmeasured and needing the robot: whether the hosted look picks usable
+floor in real pictures, whether 12 degrees shows enough floor, the accuracy of the kept
+position over a few metres, and the added pauses (a head tip, about two seconds per look).
