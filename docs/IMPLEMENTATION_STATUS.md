@@ -66,10 +66,35 @@ audio (median 5.4 s) against the owner's 4 s limit, and once the conversation hi
 filled, 17 of 22 full-size reply calls reported zero cached input tokens on about 38,000.
 The cause is not established.
 
-Verification: **973 blocked-I/O checks pass** (93.5 seconds; fake clocks, pulses, drive and
-providers; 33 are new today and 5 existing seek checks also run with tucked arms). No
-hosted model was called, so none of the wording changes is measured against the real
-model. Live acceptance of every item above is pending.
+Fourth run `be8c8d5584904f49b833fb6c03d33b9d` (9.6 minutes, all of the above loaded; the
+owner: "I think things are improving"). **Seen working on the robot:**
+
+- "Can you come over here?" with nobody in view: accepted, he turned 107 degrees looking
+  for the owner, found him and drove 2.67 m.
+- "You're a little too close to the table. Can you back up a little?": backed up 0.6 m,
+  no turn. "Back up three feet": 0.85 m (rear clearance), then said so.
+- After all nine drives the head moved within 0.01 s of the wheels stopping; the arm
+  finished returning about 5 s later.
+- No failed turns, no refused tools, no mistaken quiet.
+
+**Found in that run and changed (simulated checks only):**
+
+- A guest sitting beside the owner was answered "Nice to meet you too, Brett": alone in
+  view for a moment, the guest inherited the owner's recent recognition. Once two faces
+  have been seen together, the same-visit carry is off for ten minutes and only direct
+  recognition counts ([conversation memory](CONVERSATION_MEMORY.md)).
+- "This is Max" about the dog created a person named Max (provisional, still in the local
+  database). A name that belongs to a saved pet is now refused as a new person.
+- "I tried to check Max's saved photo, but that image reference had expired" was spoken: a
+  failed close look is no longer narrated.
+
+**Open:** he stopped 0.30 m from a coffee table between him and the couch and was asked to
+back away; nine replies took 4.6-8.7 s to first audio (median 5.5 s; a tenth spoke only
+after its move, at 14.2 s) and 12 of 19 full-size reply calls reported no cached input; the guest was never greeted or asked for a
+name; a distance was still spoken as "0.85 metres".
+
+Verification: **975 blocked-I/O checks pass** (90.5 seconds; fake clocks, pulses, drive and
+providers). No hosted model was called for these changes.
 
 ## Feeling alive: live-run repairs — October 3 (evening)
 

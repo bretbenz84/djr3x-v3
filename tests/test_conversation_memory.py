@@ -341,6 +341,28 @@ class ConversationMemoryTests(MemoryFixture):
         self.state.faces=[]
         self.assertEqual(self.state.audience_seen[0],other)
 
+    def test_with_company_an_unrecognized_face_never_inherits_the_visit(self):
+        # October 3 (be8c8d55): a guest sat beside the owner; alone in view for a moment, the
+        # guest was treated as the owner ("Nice to meet you too, Brett") with his memory in reach.
+        from r3x.speakers import VoiceObservation
+        self.setup_memory(); self.turn(self.session('morning'),'A private plan.')
+        session=self.session('afternoon')
+        def seen(faces):
+            self.turn(session,'Okay.',faces=faces,voice=VoiceObservation(NS))
+            return cm.subject(self.state.context())
+        def unrecognized():
+            self.state.faces=[face(100,None,'guest')]
+            self.state.begin(uuid4().hex,Capture(uuid4().hex,'afternoon',bytes(96000),96,99,100,voiced_intervals=((0.,3.),)),
+                             Transcript('Nice to meet you.',0,True),VoiceObservation(NS),tuple(self.state.faces))
+            context=self.state.context(self.state.faces)
+            return cm.subject(context), cm.context(self.store,context,'afternoon',self.clock)['recent_exchanges']
+        self.assertIsNone(seen([face(100,self.person),face(100,None,'guest')]))     # Both in view.
+        self.assertEqual(seen([face(100,self.person)]),self.person)                 # The owner alone: recognized.
+        self.assertEqual(unrecognized(),(None,[]))                                  # The guest alone: nobody's memory.
+        self.state.trace.at += cm.COMPANY_SECONDS + 1
+        self.assertEqual(seen([face(100,self.person)]),self.person)
+        self.assertEqual(unrecognized()[0],self.person)                             # Long alone again: the carry returns.
+
     def test_withheld_reply_always_states_its_reason(self):
         self.setup_memory(); self.turn(self.session('old'),'A private project.')
         current=[face(100,self.person)]

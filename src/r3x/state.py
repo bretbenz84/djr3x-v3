@@ -24,6 +24,7 @@ class CoreState:
         self.conversation_source = None  # Last trusted input, separate from archived noise.
         self.forgotten = False
         self.audience_seen = None  # (person_id, at): last evidenced private audience this run.
+        self.company_at = float('-inf')  # When more than one person was last in evidence.
         self.frozen = frozen
         self.require_microphone_hold = require_microphone_hold
         from datetime import date
@@ -403,12 +404,15 @@ class CoreState:
         from . import conversation_memory as cm
         now = self.trace.clock()
         who = cm.evidenced_subject(context)
+        faces = context.get('current_view', {}).get('faces', context.get('faces', []))
+        if len(faces) > 1 or (self.audience_seen and cm.contradicted(context, self.audience_seen[0])):
+            # Somebody else is here: nobody is carried until recognized directly, and an
+            # unrecognized face cannot inherit the visit for a while (COMPANY_SECONDS).
+            self.audience_seen, self.company_at = None, now
         if who:
             self.audience_seen = (who, now)
-        elif self.audience_seen and cm.contradicted(context, self.audience_seen[0]):
-            self.audience_seen = None
         context.pop('recent_audience', None)
-        if self.audience_seen:
+        if self.audience_seen and now - self.company_at >= cm.COMPANY_SECONDS:
             context['recent_audience'] = {'person_id':self.audience_seen[0],
                 'seconds_ago':round(now-self.audience_seen[1],1),
                 'meaning':'Last person recognized as the private audience. Keeps their memories usable through brief camera gaps; not proof they are visible now or that they spoke.'}
@@ -809,6 +813,13 @@ class CoreState:
                 raise ValueError("InvalidDisplayLabel")
             matches = self.store.resolve(name_text)
             person_id = args["person_id"]
+            if (args["subject"] == "other" and not person_id and not matches and not args["face_track_id"]
+                    and self.photo_memory is not None and any(
+                        e['kind'] == 'pet' and e['name'].casefold() == name_text.casefold()
+                        for e in self.photo_memory.catalog())):
+                # October 3: "This is Max" about the dog on the couch created a person named Max
+                # beside the saved pet. The catalog, not the wording, decides this.
+                raise ValueError("NameBelongsToSavedPet")
             if person_id:
                 self._person(person_id)
             elif len(matches)==1:

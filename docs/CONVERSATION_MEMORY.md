@@ -173,3 +173,9 @@ window lapses. Face evidence cannot tell that case from the owner's own face at 
 Verification: two new synthetic checks through the production Session (recall after a
 restarted track, with the stored basis; the carry ending by time, company and another
 recognized person). No hosted model or camera was used; real-room behaviour is untested.
+
+Later the same day (run `be8c8d55`) the accepted limit showed up: with a guest beside the
+owner, the camera sometimes held only the guest, who then inherited the owner's
+recognition and was called by his name. After two faces are seen together, or somebody
+else is recognized, nobody is carried for ten minutes (`COMPANY_SECONDS`): only direct
+recognition opens private memory. Alone with one person, the 90 second carry is unchanged.

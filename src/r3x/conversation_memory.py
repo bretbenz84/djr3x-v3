@@ -25,6 +25,10 @@ UPDATE meta SET value='2' WHERE key='conversation_memory_schema';
 # because the face track had restarted, unrecognized, a second earlier (his own head and
 # wheel movement restarts tracks; recognition then takes about a second in view).
 VISIT_GRACE_SECONDS = 90.
+# With company the carry is off: October 3, a guest sitting beside the owner was alone in
+# view for a moment, was treated as the owner and answered "Nice to meet you too, Brett".
+# After two faces are seen together, only direct recognition counts for this long.
+COMPANY_SECONDS = 600.
 
 
 def evidenced_subject(context):

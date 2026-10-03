@@ -69,6 +69,12 @@ def run(session,call,snapshot,generate,cancel):
     continuation=(*call.preamble,{'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
                   {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(data)})
     messages=snapshot.messages
+    if data['outcome']=='failed':
+        # October 3: "He barks at every visitor" was answered with "I tried to check Max's
+        # saved photo, but that image reference had expired".
+        messages=(*messages,{'role':'developer','content':
+            'The close look could not be taken. Do not mention the attempt or why it failed unless they '
+            'asked you to look at or identify something; just answer what they said.'})
     if data.get('intent')=='teach':
         # Teaching starts from the human's words and current pixels. Old model prose,
         # appearance notes and historical photos must not describe a different object.

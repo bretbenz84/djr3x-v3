@@ -81,6 +81,30 @@ class PhotoTests(MemoryFixture):
         self.assertEqual(restarted.catalog()[-1]['notes'],'Blue round toy.')
         self.assertEqual(restarted.catalog()[0]['entity_id'],key)
 
+    def test_a_saved_pets_name_is_never_introduced_as_a_person(self):
+        # October 3 (be8c8d55): "This is Max" about the dog on the couch created a person
+        # named Max beside the saved pet.
+        self.teach()
+        class Brain:
+            def __init__(brain):brain.requests=[]
+            def reply(brain,snapshot,cancel):
+                brain.requests.append(snapshot)
+                if snapshot.continuation:yield 'Max the dog, of course.'
+                else:yield ToolCall('intro','introduce_person',{'name':'Max','aliases':[],'subject':'other','person_id':None,'face_track_id':None})
+        brain=Brain()
+        session,receipt=self.session(brain,'This is Max.')
+        self.assertEqual(receipt.completed_text,['Max the dog, of course.'])
+        self.assertIn('NameBelongsToSavedPet',str(brain.requests[-1].continuation))
+        self.assertFalse(self.store.resolve('Max'))
+        session.close()
+        # A person who happens to share no saved pet's name is still introduced.
+        brain=Brain()
+        brain.reply=lambda snapshot,cancel:iter(['Hello, Jamie.'] if snapshot.continuation else
+            [ToolCall('intro','introduce_person',{'name':'Jamie','aliases':[],'subject':'other','person_id':None,'face_track_id':None})])
+        session,receipt=self.session(brain,'This is Jamie.')
+        self.assertEqual(len(self.store.resolve('Jamie')),1)
+        session.close()
+
     def test_ordinary_inspection_compares_restart_gallery_and_saves_description(self):
         from copy import deepcopy
         from r3x.inspection import CurrentView
