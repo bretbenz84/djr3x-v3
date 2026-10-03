@@ -502,8 +502,9 @@ class CoreState:
             cancel.check()
             validate(call.name,call.arguments)
             if self.store.revision!=context['state_revision']: raise ValueError('StaleStateRevision')
-            if not context.get('agency_step') and context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
-                raise ValueError('StartupGreetingRequiresSpeech')
+            from .semantics import greeting_violation
+            violation = greeting_violation(context, call)
+            if violation: raise ValueError(violation)
             if call.name=='respond_with_intent':
                 data={'text':call.arguments['text']}
             elif call.name=='use_visual_memory':
@@ -933,7 +934,9 @@ class CoreState:
             if self.initiative.invitations.feedback(data['action'],data.get('reference_id'),data['source_turn_id'],self.context(),self.trace.clock()):
                 self.initiative.cancel_schedule('invitation_resolved')
             if data['action'] in {'topic_closed','topic_avoid','invitation_declined','yield_floor'}:
-                self.initiative.cancel_schedule('participant_boundary')
+                # Yielding the floor to people talking pauses Rex's goal (the floor gate holds
+                # his initiative); only a real "drop it" or a declined invitation ends it.
+                self.initiative.cancel_schedule('human_floor' if data['action']=='yield_floor' else 'participant_boundary')
                 self.conversation_intent.suspend('participant_boundary')
             if data['action'] in {'retract','floor_resolved'}:
                 self.initiative.feedback = deque((r for r in self.initiative.feedback

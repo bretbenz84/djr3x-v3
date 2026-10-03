@@ -31,6 +31,11 @@ ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek')
 SEEK_SWEEP_DEG = 80.      # Just under the ~90 degree camera view, so consecutive looks overlap.
 SEEK_LOOKS = 4            # Current view plus three turns: about a full circle.
 PLAN_VISION_CALLS = 12    # Hosted locator calls per plan (search, vision-guided legs, detours).
+SELF_VISION_CALLS = 4     # Rex's own curiosity gets fewer paid looks than a human request.
+# Rex's own roaming stays within this distance of "home": where he started, or where a human
+# last sent him. The base has no drop-off (cliff) sensing, and since October 2 his own moves
+# may cross a room. Requested moves are not limited by it. 0 disables the range.
+ROAM_RADIUS_M = 3.
 # Going around what blocks a vision-guided approach (owner request September 27: he stopped
 # 15 ft short of a door with open floor beside the obstacle, or pointed slightly into a wall).
 DETOUR_DEG = 30.          # The sought thing stays inside the ~90 degree view after the turn.
@@ -287,9 +292,12 @@ class DriveBase:
         resources=('exclusive drive ESP32 serial; 150 ms heartbeat',), required=False,
         shutdown='halt plan; stop; end heartbeat; close port')
 
-    def __init__(self, port, *, open_port=None, clock=time.monotonic, wait=None, radar=None, reflex=True):
+    def __init__(self, port, *, open_port=None, clock=time.monotonic, wait=None, radar=None, reflex=True,
+                 roam_radius_m=ROAM_RADIUS_M):
         self.link = DriveLink(open_port or (lambda: open_serial(port)), clock=clock)
         self.clock = clock
+        self.roam_radius_m = float(roam_radius_m)
+        self.home = None            # (x, y) odometry anchor for the self-initiated range
         self._closing = threading.Event()
         self._halt = threading.Event()
         self.wait = wait or self._closing.wait
@@ -340,6 +348,7 @@ class DriveBase:
             self._closing.wait(.02)
         odom = (self.link.snapshot()[0].get('odom') or {})
         self.origin = (float(odom.get('x', 0)), float(odom.get('y', 0)), self._heading(self.link.snapshot()[0]))
+        self.home = self.origin[:2]
         self.state = 'ready'
         if self._reflex:
             self._spawn('reflex', self._reflex_loop)
@@ -506,6 +515,10 @@ class DriveBase:
                            'meaning': 'max_move_m is the whole distance one plan may cover; long moves run as several '
                                       'legs automatically and clearance still stops the base at obstacles.'},
                 'origin': origin,
+                'home_range': None if origin != 'self_initiated' or self.roam_room() is None else {
+                    'radius_m': self.roam_radius_m, 'room_m': round(self.roam_room(), 1),
+                    'meaning': 'Your own moves stay within radius_m of where you started or where a person last sent you. '
+                               'room_m is how far you can go in any direction now; moves back toward that spot are always allowed.'},
                 'displacement_since_startup': displacement,
                 'recent_motion': list(self.history),
                 'meaning': ('Robot-relative bearings, positive = left. Face/object bearings come from the head camera '
@@ -648,11 +661,55 @@ class DriveBase:
         self._sleep(.6, cancel)
 
     def _pose_held(self):
-        return bool(getattr(getattr(self.servos,'owner',None),'held_channels',()))
+        owner = getattr(self.servos,'owner',None)
+        active = getattr(owner,'human_hold_active',None)
+        return active() if active else bool(getattr(owner,'held_channels',()))
+
+    def _vision_budget(self):
+        return SELF_VISION_CALLS if self._origin == 'self_initiated' else PLAN_VISION_CALLS
+
+    # Home range for self-initiated moves ----------------------------------
+    def _position(self):
+        odom = (self.link.snapshot()[0] or {}).get('odom') or {}
+        if not isinstance(odom.get('x'), (int, float)) or not isinstance(odom.get('y'), (int, float)):
+            return None
+        return float(odom['x']), float(odom['y'])
+
+    def roam_room(self, heading_deg=None, meters=None):
+        """Metres Rex may travel on his own initiative from here; None means unlimited.
+
+        Without a direction this is the guaranteed room in any direction. With a straight
+        move it is how far along that line he stays inside the range; a move back toward
+        home is allowed even from outside it."""
+        if self.roam_radius_m <= 0 or self.home is None:
+            return None
+        here = self._position()
+        if here is None:
+            return 0.
+        px, py = here[0]-self.home[0], here[1]-self.home[1]
+        distance = math.hypot(px, py)
+        if heading_deg is None or meters is None:
+            return max(0., self.roam_radius_m - distance)
+        angle = math.radians(heading_deg) + (math.pi if meters < 0 else 0.)
+        ux, uy = math.cos(angle), math.sin(angle)
+        limit = max(self.roam_radius_m, distance)
+        along = px*ux + py*uy
+        return max(0., -along + math.sqrt(max(0., along*along - (distance*distance - limit*limit))))
 
     def _move(self, meters, plan, cancel, speed=None):
-        allowed, note = move_allowance(meters, self.space())
         row = {'action': 'move', 'requested_m': round(meters, 2)}
+        ranged = False
+        if plan.origin == 'self_initiated':
+            heading = self._odom_heading(self._telemetry())
+            # Without a heading, fall back to the room guaranteed in any direction.
+            room = self.roam_room(heading, meters) if heading is not None else self.roam_room()
+            if room is not None and room < abs(meters):
+                if room < .1:
+                    return {**row, 'status': 'refused', 'reason': 'home_range', 'travelled_m': 0.}
+                meters, ranged = math.copysign(room, meters), True
+        allowed, note = move_allowance(meters, self.space())
+        if ranged and allowed and not note:
+            note = 'home_range'
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
         self._ensure_parked(cancel)
@@ -1060,7 +1117,7 @@ class DriveBase:
         With a remembered sighting, the locator is told which match it chose and where it
         should now be, and a match far from there is a different one (September 27: three
         looks for "door" chose three different doors and the base zig-zagged between them)."""
-        if self._vision_calls >= PLAN_VISION_CALLS:
+        if self._vision_calls >= self._vision_budget():
             raise ProviderFailure('PlanVisionBudgetReached')
         if settle:
             self._sleep(.4, cancel)   # Let the head camera settle after motion.
@@ -1170,7 +1227,7 @@ class DriveBase:
                 if not ok:
                     outcome = ('stopped', why)
                     break
-                if future is None and self._vision_calls < PLAN_VISION_CALLS and now - looked_at >= CRUISE_LOOK_S:
+                if future is None and self._vision_calls < self._vision_budget() and now - looked_at >= CRUISE_LOOK_S:
                     future, looked_at = pool.submit(self._locate, description, cancel, self._sought, False), now
                 if future is not None and future.done():
                     found, why = future.result()
@@ -1257,7 +1314,7 @@ class DriveBase:
                 out['detours'] = detours
             return out
         while True:
-            if self._vision_calls >= PLAN_VISION_CALLS:
+            if self._vision_calls >= self._vision_budget():
                 return result('look_limit', 'vision_look_limit_reached')
             expected = self._expected_sought()
             if expected is not None and abs(expected) > 35:
@@ -1383,6 +1440,13 @@ class DriveBase:
             self._origin = plan.origin
             self._view_since = self.clock()
             budget = LIMITS[plan.origin]['total_m']
+            ranged = False
+            if plan.origin == 'self_initiated':
+                # Closed-loop approaches change direction, so they get the room guaranteed in
+                # any direction; straight moves are trimmed leg by leg in _move.
+                room = self.roam_room()
+                if room is not None and room < budget:
+                    budget, ranged = room, True
             for step in plan.steps:
                 self._check(cancel)
                 current, step_odom = step, (self.link.snapshot()[0] or {}).get('odom') or {}
@@ -1390,7 +1454,10 @@ class DriveBase:
                 if not ok:
                     receipt.steps.append({'action': step.action, 'status': 'refused', 'reason': reason})
                     break
-                if step.action == 'turn':
+                if ranged and budget - receipt.travelled_m < .1 and step.action == 'approach':
+                    row = {'action': 'approach', 'target': step.target, 'status': 'refused',
+                           'reason': 'home_range', 'travelled_m': 0.}
+                elif step.action == 'turn':
                     row = self._turn(step.degrees, plan, cancel)
                 elif step.action == 'move':
                     row = self._legs(step.meters, plan, cancel)
@@ -1453,6 +1520,9 @@ class DriveBase:
             self.moving.clear()
             self._notify(plan)
             receipt.finished_at = self.clock()
+            if plan.origin == 'requested' and receipt.travelled_m:
+                # A person sent him here: his own roaming is now measured from this spot.
+                self.home = self._position() or self.home
             self.history.append({'request_id': plan.request_id, 'origin': plan.origin, 'purpose': plan.purpose,
                                  'steps_run': [f"{r['action']}:{r['status']}" for r in receipt.steps],
                                  'status': receipt.status, 'reason': receipt.reason,

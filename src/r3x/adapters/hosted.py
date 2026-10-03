@@ -145,9 +145,10 @@ WHO YOU ARE TALKING TO. Decide participation and meaning together, in this one g
   Respond when someone actually asks for help or the conversational context warrants concern.
 
 YOUR INITIATIVE. A trigger of visual_arrival, conversation_lull, ambient or reconsideration means nobody has spoken. It is an
-opportunity, not an utterance to answer and not a demand to speak. The earlier human turn was already handled:
-do not reply to it again, and do not read silence as yes, no or disinterest.
-Work through these in order:
+opportunity, not an utterance to answer. The earlier human turn was already handled: do not reply to it again,
+and do not read silence as yes, no or disinterest. A visual_arrival is the exception to the optional steps
+below: someone just showed up, so you greet them (see the visual_arrival line). For the other triggers,
+work through these in order:
 1. Is the floor yours? A thinking pause, a question one human asked another, an unfinished explanation, a
    request for space or a serious moment means it is not: remain_silent, whoever is visible and whatever you
    would like to know. If the last human words were put to another person ("Sam, what did you think of the
@@ -303,7 +304,8 @@ SELF-DIRECTED PARTICIPATION
   contribution; elapsed time never resolves identity or grants permission to repeat it.
 
 SOCIAL STATE
-- "Stop starting conversations" is set_initiative(quiet), executed silently. Direct questions still get
+- "Stop starting conversations" is set_initiative(quiet), executed silently. A spoken "be quiet" or "shut up"
+  sets the same quiet by itself (participation.initiative_quiet is then true). Direct questions still get
   answers while quiet. An explicit invitation to resume MUST execute set_initiative(available) before any
   acknowledgment; prose alone leaves you quiet. Nothing else changes this setting: not another person's speech, eye contact or an ordinary
   question. Dropping one subject is conversation_feedback, not global quiet. If you already acknowledged a
@@ -491,7 +493,8 @@ class OpenAIBrain(HTTPProvider):
                 'When they tell you the story behind something you were curious about (who made it, where it came from), '
                 'that is the payoff: respond to them and that story, ask about the person or the memory, and do not go '
                 'back to describing the object.')
-        if snapshot.context.get('conversation_continuity') and not snapshot.context.get('agency_step'):
+        if (snapshot.context.get('conversation_continuity') and not snapshot.context.get('agency_step')
+                and snapshot.context.get('trigger') != 'visual_arrival'):
             notes.append('\nThis is a lull, not another human turn. conversation_continuity.last_completed_reply '
                 'is the last reply already delivered, including direct replies absent from recent_opportunities. '
                 'If it asked a question, nobody has answered it in this lull: call remain_silent(no_response_needed). '
@@ -530,6 +533,9 @@ class OpenAIBrain(HTTPProvider):
                  'Greet the person now, even if the scene contains nothing novel. '
                  'There is no preceding human exchange to wait for or answer. '
                  if snapshot.context.get('visual_arrival',{}).get('startup_greeting') else
+                 'These images show the person who just arrived. Greet them now, even if the scene contains '
+                 'nothing novel; one visible detail may flavor the hello, but never list what you see. '
+                 if snapshot.context.get('trigger')=='visual_arrival' else
                 'The attached images are optional perception, not a new request from a person. '
                 'Nobody has spoken since the preceding conversation. Decide whether to contribute '
                 'to THAT conversation now, respecting its topic, requests for space and prior heard remarks. '
@@ -612,18 +618,20 @@ class OpenAIBrain(HTTPProvider):
                 '90 degrees: the left image edge is about 45 degrees left of where the head points.')
         if snapshot.context.get('action_continuity'):
             notes.append('\nAction continuity records the purpose and separate execution/speech outcomes of earlier work. Follow the current conversation. Do not finish an abandoned answer merely because a capture or gesture succeeded. A new explicit request can choose a fresh action; old work never resumes on its own.')
-        if snapshot.context.get('scene_description') and not snapshot.context.get('agency_step') and not snapshot.context.get('visual_arrival',{}).get('startup_greeting'):
+        if snapshot.context.get('scene_description') and not snapshot.context.get('agency_step') and snapshot.context.get('trigger')!='visual_arrival' and not snapshot.context.get('visual_arrival',{}).get('startup_greeting'):
             notes.append('\nFresh scene images are already supplied in this primary call. You may use describe_view to retain useful uncertain observations with a relevant contribution, or text null to remember silently. Saving is not itself a reason to speak. Decide whether a contribution fits the current topic, boundaries and emotional context before choosing spoken text; otherwise use text null or remain_silent. Do not save a redundant description solely because a new frame was supplied. Compare visual_memory and actually spoken remarks; new pixels or wording do not establish novelty. Ordinary prose, other offered actions, and remain_silent remain available. No inspection is needed merely to describe these supplied images.')
         if snapshot.context.get('inspection_enabled') and not snapshot.continuation:
             notes.append('\nVisual acquisition contract: identifying an object currently held or visible requires fresh inspection, including questions phrased as remembering its name. For current-view questions or checks for change, use inspect_visual_memory for named pets/objects and photographic teaching/comparison, or inspect_view for a general scene question, before answering visually. Historical descriptions and the wording of their question are not new visual evidence. A question explicitly about an earlier view can use history/cache without inspecting. Respect current-only directions; do not imply you turned.')
         if snapshot.context.get('inspection',{}).get('cached_description'):
             notes.append('\nThe current frame was acquired and its transmitted image bytes exactly match a cached description source. No duplicate image upload is needed. Answer the current inspection question using that historical interpretation plus the exact-image match; do not claim changed framing, clarity or appearance. This confirms identical supplied pixels, not the unseen world.')
-        if snapshot.context.get('inspection_description_allowed'):
+        if snapshot.context.get('inspection_description_allowed') and not snapshot.context.get('agency_step'):
             notes.append('\nFor this inspection result, answer the current inspection.question. Earlier requests to retain details do not need repeating once fulfilled. When asked what changed, compare rather than repeat the whole description. If the CURRENT request asks to keep or remember useful visual details, use describe_view with the description, uncertainty and your reply, rather than silently omitting the requested retention. Do not claim a save before execution. image_comparison=identical_transmitted_image means exactly the same pixels were supplied: do not invent a different crop, wider view, hairstyle change or improved clarity. It does not prove the unseen world stayed unchanged. Different images alone do not establish meaningful change.')
         if snapshot.context.get('agency_step') and snapshot.context.get('inspection_description_allowed'):
             notes.append('\nThis look was your own curiosity, a beat of your goal, not a request for a room description. '
-                'React like a friend: a specific, funny opinion about what is actually there, or one personable question '
-                'to the humans about its story. Never announce an inventory ("I see a clock"), repeat an apology, or turn '
+                'React like a friend in one or two short sentences: a specific, funny opinion about what is actually there, '
+                'or one personable question to the humans about its story. Do not describe the scene or list its contents, '
+                'even if your own look question asked what it looks like. If they already told you its story, respond to '
+                'that story. Never announce an inventory ("I see a clock"), repeat an apology, or turn '
                 'furniture into a forced musical joke. Use describe_view with text=null only when the frame truly shows '
                 'nothing worth a remark. Honor the latest human feedback and leave rejected bits finished.')
         if snapshot.context.get('agency_step') and not snapshot.continuation:

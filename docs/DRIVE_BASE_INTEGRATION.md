@@ -114,6 +114,13 @@ something and reach out"). The model now sees `max_move_m` (the plan total) inst
 leg length: live October 1 it read the 1.5 m leg as the most it could move and answered
 "back up five feet" with 1.5 m.
 
+**Home range (October 3).** The base has no drop-off sensing, so Rex's own moves stay
+within `roam_radius_m` (setting, default 3 m, 0 = unlimited) of "home": where he started,
+or where a person last sent him. Straight moves are trimmed to the range (receipt reason
+`home_range`), approaches get the room guaranteed in any direction, and moves back toward
+home are always allowed. Requested moves are never limited by it. His own vision seeks
+get 4 hosted looks per plan instead of 12.
+
 A move longer than one leg runs as several legs with clearance rechecked between them.
 Turns run at 45°/s (V2 overshoot grows with rate), with one IMU-verified correction
 of at most 45° at 20°/s. Host stand-off is 0.35 m in front and 0.30 m behind.

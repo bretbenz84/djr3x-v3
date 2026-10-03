@@ -21,6 +21,9 @@ it or reads its data.
   leveled to V2's −20 LUFS target.
   - Audible speech is never cut off except by an explicit stop phrase ("stop",
     "shut up", "be quiet", "whoa", repeated or wrapped as in "Oh, stop!").
+  - "Be quiet", "quiet", "shut up" and "hush" also keep him from starting talk or
+    movement on his own until someone invites him to talk again; "stop" pauses that for
+    two minutes.
   - Transcripts the recognizer marks unreliable are kept but never answered. These are
     usually his own motors heard as "Oh.".
 - **Who is speaking.** CAM++ voice tracks, natural introductions and enrollment, and
@@ -39,8 +42,8 @@ it or reads its data.
   moment. GPT-5.6 Terra plans each goal once, in the background, from the conversation,
   saved facts and one camera frame; GPT-6 Luna performs one beat per lull. Conversation
   steers a goal instead of discarding it; it ends when its beats are used, its person
-  leaves, someone redirects it or a new arrival replaces it. With nobody seen or heard for
-  five minutes, no new goals start. Live acceptance is pending
+  leaves, someone redirects it or a new arrival replaces it. He eases off when nobody
+  answers and, with nobody seen or heard for five minutes, starts no new goals. Live acceptance is pending
   ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080.
@@ -93,8 +96,10 @@ and servo/LED/battery menu-bar apps (`operator_tools/`). Say **"wake up rex"** t
 Rex; the supervisor also keeps the V3 checkout updated from GitHub (fast-forward only,
 never over uncommitted changes). See [operator services](docs/OPERATOR_CUTOVER.md).
 
-**The wheels move when asked, or when Rex decides to go somewhere as part of his own goal**
-(no smaller limits; obstacle and time-of-flight checks apply to every move). Leave `drive_port` empty for conversation-only tests. Floor tests are
+**The wheels move when asked, or when Rex decides to go somewhere as part of his own goal.**
+Obstacle and time-of-flight checks apply to every move. The base cannot sense drop-offs, so
+his own roaming stays within `roam_radius_m` (default 3 m) of where he started or where you
+last sent him; keep stairs and ledges outside that range, or change the setting. Leave `drive_port` empty for conversation-only tests. Floor tests are
 described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 
 ## Check

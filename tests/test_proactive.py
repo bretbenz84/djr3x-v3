@@ -144,18 +144,34 @@ class ProactiveSessionTests(MemoryFixture):
         self.session(Question(),TextOutput(self.state.trace)).process_opportunity(event(track='friend'),0,lambda:True)
         self.assertIsNone(self.state.pending)
 
-    def test_model_can_stay_quiet_without_tts_or_continuation(self):
+    def test_model_can_stay_quiet_at_a_lull_without_tts_or_continuation(self):
         self.begin("Hello again.")
         class Silent(Brain):
             def reply(self,snapshot,cancel):
                 self.calls+=1
                 yield ToolCall('quiet','remain_silent',{'reason':'no_response_needed'})
         brain=Silent();session=self.session(brain);session.note_speech(0)
-        result=session.process_opportunity(replace(event(),speech_marker=0),0,lambda:True)
+        lull=replace(event(),speech_marker=0,kind='ambient',target_track=None)
+        result=session.process_opportunity(lull,0,lambda:True)
         self.assertEqual(result.status,'suppressed');self.assertEqual(brain.calls,1)
         self.assertEqual(result.completed_text,[])
         self.assertLess(session.proactive_hold_until,self.state.trace.clock())
         self.assertFalse(any(r['event']=='speech_generated' for r in self.state.trace.rows))
+
+    def test_an_arrival_cannot_be_met_with_lazy_silence(self):
+        # Review October 3: in live runs arrivals usually ended in remain_silent. Greeting is
+        # required; silence stays available only for a real reason such as people talking.
+        self.begin("Hello again.")
+        class Silent(Brain):
+            def reply(self,snapshot,cancel):
+                yield ToolCall('quiet','remain_silent',{'reason':'no_response_needed'})
+        session=self.session(Silent());session.note_speech(0)
+        result=session.process_opportunity(replace(event(),speech_marker=0),0,lambda:True)
+        self.assertEqual((result.status,result.error),('failed','GreetingRequiresSpeech'))
+        offered={t['name']:t for t in grounded_tools(self.state.opportunity_context(replace(event(),speech_marker=0)))}
+        self.assertNotIn('no_response_needed',offered['remain_silent']['parameters']['properties']['reason']['enum'])
+        self.assertIn('background_conversation',offered['remain_silent']['parameters']['properties']['reason']['enum'])
+        self.assertFalse({'shift_attention','inspect_view','use_observation'} & set(offered))
 
     def test_visual_tools_cannot_enroll_or_write_even_with_stale_audio_state(self):
         self.begin('I am Jordan.')

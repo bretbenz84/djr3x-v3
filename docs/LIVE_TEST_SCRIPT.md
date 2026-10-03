@@ -187,7 +187,17 @@ ever dropped.
    - [ ] He responds to you and the story, not by describing the object again.
 6. Say "Rex, drop it" during a bit, then later "Stop".
    - [ ] The bit ends and is not revived; "Stop" halts speech and wheels.
-7. Note anything that felt annoying, repetitive, unfunny or alive.
+7. Ignore him completely for five minutes.
+   - [ ] His unprompted lines get further apart instead of arriving every 20 seconds.
+8. Say "Be quiet." Wait three minutes, then say "Rex, you can talk again."
+   - [ ] He starts nothing on his own while quiet, still answers a direct question, and
+         resumes after the invitation.
+9. Ask him to "look right", wait two minutes, and stay silent.
+   - [ ] He is moving on his own again (the requested pose no longer blocks him).
+10. Watch where he drives on his own.
+   - [ ] He stays within about 3 metres of where he started or where you last sent him
+         (`roam_radius_m`). Keep stairs and ledges outside that range.
+11. Note anything that felt annoying, repetitive, unfunny or alive.
 
 Afterwards, run the report below and note how many goals he picked and how many lines he
 said on his own.

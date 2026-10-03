@@ -357,7 +357,8 @@ class ConversationIntentTests(MemoryFixture):
 
     def test_silent_edits_do_not_extend_expiry(self):
         self.greet();self.state.trace.at=800
-        ctx=self.state.intent_context(self.state.opportunity_context(replace(event(at=800),speech_marker=0)))
+        lull=replace(event(at=800),speech_marker=0,kind='ambient',target_track=None)
+        ctx=self.state.intent_context(self.state.opportunity_context(lull))
         result=self.state.execute_opportunity(ToolCall('silent','remain_silent',dict(reason='no_response_needed',
             intent_update=proposal(ctx,status='suspended'))),ctx,Cancellation())
         self.assertEqual(result.outcome,'ok')

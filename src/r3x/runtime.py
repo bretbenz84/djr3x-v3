@@ -7,7 +7,7 @@ import time
 
 from .capture import Endpoint
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .session import is_stop_command
+from .session import is_quiet_command, is_stop_command
 
 # Voiced time within one utterance before it yields an unheard reply. Live September 28:
 # every phantom "Oh."/"Okay." noise capture had <= 0.48 s voiced; real speech >= 0.64 s.
@@ -19,6 +19,8 @@ REFLEX_VOICED_SECONDS = .3
 # How long the idle tick waits for a just-started goal plan before returning to listening.
 # Hosted planning takes seconds and finishes in the background; this bounds the pause.
 PLANNING_GLANCE_SECONDS = .25
+# A goal is planned at most this long before its first beat is due.
+PLAN_LEAD_SECONDS = 20.
 
 class VoiceRuntime:
     def __init__(self, mic, vad, asr, session, trace, silence=1.2, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None):
@@ -44,14 +46,15 @@ class VoiceRuntime:
         self.drive = drive
         self._initiative_gate = None
 
-    def cancel(self):
+    def cancel(self, quiet=False):
         if self.robot:
             self.robot.idle.stop()
             self.robot.reflex.stop()
             self.robot.owner.release_microphone_hold()
         with self.control_lock:
             self.cancel_before = self.trace.clock()
-            self.session.cancel('shutdown' if self.stop.is_set() else 'explicit_stop')
+            self.session.cancel('shutdown' if self.stop.is_set() else 'explicit_stop',
+                                quiet=quiet and not self.stop.is_set())
             self.asr_cancel.event.set()
         self.trace.emit("input_invalidated", captured_before=self.cancel_before)
 
@@ -121,7 +124,9 @@ class VoiceRuntime:
                         self.cancel()
                         break
                     if transcript.trusted and is_stop_command(transcript.text):
-                        self.cancel()  # Bypasses a busy conversational generation.
+                        # Bypasses a busy conversational generation.
+                        if is_quiet_command(transcript.text): self.cancel(quiet=True)
+                        else: self.cancel()
                         break
                     else:
                         self.enqueue(self.turns, (part, transcript, revision, perceived), "turns")
@@ -217,6 +222,11 @@ class VoiceRuntime:
                         self.initiative_gate('planning_goal')
                         return
                     from .agency import PLAN_MIN_INTERVAL_SECONDS
+                    if now < agency.due_at - PLAN_LEAD_SECONDS:
+                        # Easing off after unanswered beats: plan shortly before it is needed,
+                        # so the goal is fresh and no planner call is spent on a long rest.
+                        self.initiative_gate('resting')
+                        return
                     if (now >= agency.planner_retry_at and not _after_planning and
                             now-agency.plan_started >= PLAN_MIN_INTERVAL_SECONDS):
                         planning_only = True  # Prepared in the background; executed at a lull.
@@ -237,7 +247,10 @@ class VoiceRuntime:
             # creates its own model attempt or consumes a conversation budget.
             cues = tuple(c for c in self.observations.candidates()
                          if self.session.state.observation_available(c.public())) if self.observations else ()
-            scene = self.scene_observer.snapshot() if self.scene_observer else None
+            # The planner gets the current frame even when it was already offered or the view
+            # is unchanged; review October 3 found it planning blind after the first goal.
+            scene = (self.scene_observer.snapshot(True) if planning_only else
+                     self.scene_observer.snapshot()) if self.scene_observer else None
             event = replace(event, public_cues=cues, scene_id=scene[0] if scene else None,
                             scene_images=scene[1] if scene else ())
             if self.observations and not planning_only:
@@ -249,7 +262,11 @@ class VoiceRuntime:
         self.trace.emit('agency_preparation_opportunity' if planning_only else 'proactive_opportunity',event_id=event.event_id,kind=event.kind,
                         face_track_id=event.target_track,person_id=event.person_id)
         # Faces in view when the beat began: a newcomer is one more face, not a new track ID.
-        visible_at_start = max(len(event.faces), len([f for f in self.arrivals.faces if 0 <= now-f['at'] <= 1.5]))
+        def company(at):
+            # A tiny or weak detection (a portrait, a false positive) is not a newcomer.
+            return [f for f in self.arrivals.faces if 0 <= at-f['at'] <= 1.5 and
+                    (f.get('identity') or (f.get('face_width_px') or 48) >= 48)]
+        visible_at_start = max(len(event.faces), len(company(now)), 1)
         def valid():
             nonlocal invalidation_reason
             # Sample the producer timestamp before the clock: a microphone frame
@@ -271,12 +288,22 @@ class VoiceRuntime:
                 and intention.audience != audience({'faces':self.arrivals.faces})
                 and (self.session._audience_bound_output or bool(intention.memory_ids)))
             memory_person = self.session._memory_subject
-            fresh = [f for f in self.arrivals.faces if 0 <= now-f['at'] <= 1.5]
+            fresh = company(now)
             known = {f.get('identity') for f in fresh if f.get('identity')}
             question_track = self.session._question_track
+            question_lost = False
+            if question_track and not any(f['track_id'] == question_track for f in fresh):
+                # The camera renumbers one face every few seconds. The question still has its
+                # person when someone of the same identity (or, for a stranger, any unrecognized
+                # face) is in view; it is lost when they are gone or replaced by someone known.
+                asked = next((f.get('identity') for f in event.faces if f['track_id'] == question_track), None)
+                question_lost = not any(f.get('identity') == asked for f in fresh)
+            # Motor noise is short; only sustained speech interrupts a move already under way.
+            spoke = (self.session._resumed_speech > event.speech_marker if committed else
+                     self.session._latest_speech != event.speech_marker)
             reason = ('intent_audience_changed' if intent_audience_changed else
                       'shutdown' if self.stop.is_set() else
-                      'human_speech' if self.session._latest_speech!=event.speech_marker else
+                      'human_speech' if spoke else
                       'capture_queued' if not committed and not self.captures.empty() else
                       'turn_queued' if not committed and not self.turns.empty() else
                       'recognition_busy' if not committed and self.asr_busy.is_set() else
@@ -287,9 +314,7 @@ class VoiceRuntime:
                           not self.arrivals.still_present(event, now)) else
                       'goal_person_left' if (not committed and self.session.agency_scope=='audience' and
                           not agency.subject_present(now)) else
-                      # A question aimed at one face needs that face; a renumbered track ends it.
-                      'question_target_left' if (not committed and question_track and
-                          not any(f['track_id'] == question_track for f in fresh)) else
+                      'question_target_left' if (not committed and question_lost) else
                       # Private material waits when someone else joins or replaces its person.
                       'audience_changed_or_stale' if (not committed and (self.session._audience_bound_output or
                           self.session.agency_scope=='audience') and (

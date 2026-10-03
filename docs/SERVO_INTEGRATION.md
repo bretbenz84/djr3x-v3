@@ -209,6 +209,11 @@ This is overhead/silence evidence, not positive wake accuracy or a live-M2 bench
 
 ## September 25: model-selected held poses and capture repair
 
+October 3: a held pose blocks Rex's own (self-initiated) poses and drives for 90 seconds
+(`HOLD_YIELD_SECONDS`), then yields to his initiative. Before that, one "look right" in
+conversation refused all of his own movement until someone asked for a release. Requests
+from people, talking/idle lanes and `release_poses` are unchanged.
+
 `set_robot_pose` is available for human turns when the live robot owner is active.
 CoreState validates the named command and revision; OutputOwner reserves movement,
 stops idle/talking, and delegates to the same versioned ServoOwner. There are no

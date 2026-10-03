@@ -62,6 +62,8 @@ class LiveConsole:
         elif event == "agency_plan_saved":
             message = ("Rex is improvising: " if row.get('origin') == 'recovery' else
                        "Rex's new goal (" + clean(str(row.get('goal_kind', ''))).replace('_', ' ') + "): ") + clean(row.get('objective', ''))
+        elif event == "initiative_quiet":
+            message = "Rex will stay quiet until someone asks him to talk again (he still answers questions)."
         elif event == "reply_cancelled":
             message = "Reply withheld: " + clean(str(row.get('reason', ''))).replace('_', ' ')
         elif event == "audio_input_health":

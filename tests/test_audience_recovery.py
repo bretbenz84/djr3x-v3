@@ -112,21 +112,27 @@ class AudienceRecoveryTests(MemoryFixture):
         self.assertTrue(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
         self.assertFalse(any(r['event']=='proactive_retry_pending' for r in self.trace.rows))
 
-    def test_targeted_question_revalidates_raw_track_before_execution(self):
-        self.start()
-        with self.store.transaction() as conn:person=self.store.add_person(conn,'Jordan',[],None)
-        for at in (105,106,107,108):self.runtime.arrivals.observe([face(at,person,'known')],at)
-        self.runtime.arrivals.seen[person]['used']=True
-        runtime=self.runtime
-        class Replacement(Brain):
-            def reply(self,snapshot,cancel):
-                runtime.trace.at=108.1;runtime.audio_seen_at=108.1
-                runtime.arrivals.observe([face(108.1,person,'new-known')],108.1)
-                yield ToolCall('question','ask_face_question',dict(face_track_id='known',text='What is your name?'))
-        self.session.brain=Replacement();runtime.proactive_tick()
-        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
-        self.assertFalse(self.state.initiative.outcomes[-1]['heard_complete_phrases'])
-        self.assertIsNone(self.state.pending)
+    def test_targeted_question_follows_its_person_not_the_track_number(self):
+        # Review October 3: the camera renumbers one face every few seconds, which cancelled
+        # name questions before they were heard. A different person in their place still does.
+        for replacement,expected in (('same','completed'),('other','interrupted'),('gone','interrupted')):
+            with self.subTest(replacement=replacement):
+                self.start()
+                with self.store.transaction() as conn:
+                    person=self.store.add_person(conn,'Jordan '+replacement,[],None)
+                    other=self.store.add_person(conn,'Other '+replacement,[],None)
+                for at in (105,106,107,108):self.runtime.arrivals.observe([face(at,person,'known')],at)
+                self.runtime.arrivals.seen[person]['used']=True
+                runtime=self.runtime
+                rows={'same':[face(108.1,person,'new-known')],'other':[face(108.1,other,'new-known')],'gone':[]}[replacement]
+                class Replacement(Brain):
+                    def reply(self,snapshot,cancel):
+                        runtime.trace.at=108.1;runtime.audio_seen_at=108.1
+                        runtime.arrivals.observe(rows,108.1)
+                        yield ToolCall('question','ask_face_question',dict(face_track_id='known',text='What is your name?'))
+                self.session.brain=Replacement();runtime.proactive_tick()
+                self.assertEqual(self.state.initiative.outcomes[-1]['status'],expected)
+                self.state.initiative.forget();self.state.initiative.attempts.clear();self.state.pending=None
 
     def test_private_memory_stops_for_new_face_before_and_during_audio(self):
         from tests import test_memory_opportunities

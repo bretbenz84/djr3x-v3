@@ -140,6 +140,26 @@ for _definition in TOOLS:
         _definition['parameters']['required'] = list(_definition['parameters']['properties'])
 
 
+STARTUP_GREETING_TOOLS = frozenset({'ask_face_question','respond_with_intent','use_memory_opportunity'})
+# A later arrival may also be greeted with a spoken gesture or by rolling over with a hello.
+GREETING_TOOLS = STARTUP_GREETING_TOOLS | {'respond_with_gesture','drive_base','remain_silent'}
+
+
+def greeting_violation(context, call):
+    """Why this call is not an acceptable response to someone arriving, or None."""
+    if context.get('agency_step') or context.get('trigger')!='visual_arrival':
+        return None
+    if context.get('visual_arrival',{}).get('startup_greeting'):
+        return None if call.name in STARTUP_GREETING_TOOLS else 'StartupGreetingRequiresSpeech'
+    if call.name=='remain_silent' and call.arguments.get('reason')=='no_response_needed':
+        return 'GreetingRequiresSpeech'
+    # Optional lull activities are not a hello; state tools keep their own rejections.
+    if call.name in {'use_observation','shift_attention','animate_lights','inspect_view','use_visual_memory',
+                     'describe_view','inspect_visual_memory'}:
+        return 'GreetingRequiresSpeech'
+    return None
+
+
 def grounded_tools(context):
     """Constrain identifier syntax to the current snapshot, independently revalidated on apply."""
     import copy
@@ -163,7 +183,16 @@ def grounded_tools(context):
     if context.get('visual_arrival',{}).get('startup_greeting'):
         # Startup is an explicit social opening, not an optional visual riff.
         # Ordinary model prose and an audible name invitation are sufficient.
-        definitions = [d for d in definitions if d['name'] in {'ask_face_question','respond_with_intent','use_memory_opportunity'}]
+        definitions = [d for d in definitions if d['name'] in STARTUP_GREETING_TOOLS]
+    elif context.get('trigger')=='visual_arrival' and not context.get('agency_step'):
+        # Someone arrived: greeting them is not optional (owner requirement, October 2; in
+        # earlier live runs arrivals usually ended in remain_silent). Silence remains only
+        # for a real reason: people talking to each other, a device, an unfinished thought.
+        definitions = [d for d in definitions if d['name'] in GREETING_TOOLS]
+        for definition in definitions:
+            if definition['name']=='remain_silent':
+                definition['parameters']['properties']['reason']['enum'] = [
+                    r for r in definition['parameters']['properties']['reason']['enum'] if r!='no_response_needed']
     if context.get('agency_step') and not context.get('inspection_description_allowed') and not context.get('photo_inspection'):
         names = {'contribute': {'respond_with_intent','use_memory_opportunity','use_observation','use_visual_memory'},
                  'inspect': {'inspect_view'}, 'look': {'shift_attention'}, 'gesture': {'respond_with_gesture'},

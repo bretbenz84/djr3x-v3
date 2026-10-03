@@ -1,10 +1,52 @@
 # Current implementation status
 
-Updated October 2, 2026. This is the consolidated
+Updated October 3, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Goal initiative review repairs — October 3
+
+A code review of the October 2 goal implementation found twelve problems; all but one are
+fixed (details in [Rex's own goals](AGENCY_IMPLEMENTATION_PLAN.md#review-repairs-october-3)):
+
+- **Greetings are required.** Arrivals no longer offer optional lull activities or "nothing
+  to add" silence; contradictory lull instructions are removed from the greeting call.
+- **Home range.** Self-initiated moves stay within `roam_radius_m` (default 3 m, setting)
+  of where Rex started or was last sent, because the base has no drop-off sensing.
+- **Easing off.** Unanswered spoken beats lengthen the wait (up to five minutes); speech
+  or an arrival restores the pace. Goals are planned at most 20 s before they are due.
+- **Lasting quiet.** "Be quiet", "quiet", "shut up", "hush", "stop talking" keep Rex from
+  starting anything until invited back; "stop" remains a two-minute pause.
+- **Pose holds age out.** A requested pose blocks his own movement for 90 s, not forever.
+- **Privacy.** A person's goal is shown only on that person's turns; an unrecognized
+  person inherits a known person's visit for at most three minutes.
+- **Planner vision.** The planner receives the current frame even for an unchanged view.
+- **Also:** floor yields pause rather than discard goals; name questions follow the person
+  through track renumbering; a blip of servo noise no longer cancels a move under way;
+  planner crashes back off; self-initiated seeks get 4 paid looks; tiny or weak face
+  detections no longer count as newcomers.
+- **Still open:** a private-memory reply is withheld, not regenerated, when another
+  substantial face appears before speech starts (about 1 frame in 3,000 in recent logs).
+
+Verification: **916 blocked-I/O checks pass** (71.9 seconds); no hardware ran.
+
+Hosted probe after the repairs (real GPT-5.6 Terra and GPT-6 Luna, fictional inputs, fake
+transports, accelerated clock), ignored folder
+`local/validation/agency-e18eee25f34842b3bd33b4f380dc67e2/`:
+
+| Case | Greeting | Goals (planner calls) | Completed beats |
+| --- | --- | --- | --- |
+| Known friend | "Hey, Sam! Good to see you—how's your day going?" | catch up, twice (2) | 5 |
+| New visitor | "Hey, glad you're here! What's your name?" | get to know, entertain (2) | 5 |
+| Room with a painting | not applicable | investigate, entertain (2) | 5 |
+
+Unanswered lines spread out as designed (known friend: 24, 24, 43 and 80 simulated seconds
+apart). 6 Terra and 24 Luna calls; about 40,000 and 550,000 input tokens. One inspect beat
+recited a description of the painting after hearing its story; its instruction was
+tightened afterwards and not re-measured. The rejected-humor case was not re-run. The
+probe still cannot judge real perception, movement, pacing in wall-clock time or cost.
 
 ## Goal-based initiative — October 2
 

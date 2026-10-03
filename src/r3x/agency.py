@@ -22,6 +22,16 @@ STEP_KINDS = ('contribute', 'inspect', 'look', 'gesture', 'pose', 'drive')
 # A person goal survives camera dropouts and face-track renumbering this long. Live
 # October 1: one continuously present owner produced 175 track IDs in ten minutes.
 PRESENCE_GRACE_SECONDS = 45.
+# An unrecognized face or voice continues a known person's visit this long after they were
+# last positively recognized. Live sessions showed recognition gaps of up to 50 seconds while
+# the owner stayed put; beyond this window an unrecognized person is treated as someone else,
+# so a stranger does not inherit private material.
+IDENTITY_INHERIT_SECONDS = 180.
+# Easing off: each spoken beat that nobody answers lengthens the wait before the next one
+# (0, 15, 30, 60, 120, 240 extra seconds, then five minutes). Any human speech or a new
+# arrival resets it. Without this he spoke every 15-25 seconds for as long as a face was in view.
+EASE_STEP_SECONDS = 15.
+EASE_MAX_SECONDS = 300.
 # With nobody seen or heard this long, Rex starts no new goals: an empty room is not an
 # audience, and each goal costs a planner call.
 ALONE_PAUSE_SECONDS = 300.
@@ -202,6 +212,11 @@ class AgencyPlan:
         self.face_at = float('-inf')
         self.speech_at = float('-inf')
         self.goals = deque(maxlen=6)  # Finished goals for variety; never executed again.
+        self.unanswered = 0  # Spoken beats since a human last spoke.
+
+    def ease_seconds(self):
+        if self.unanswered <= 1: return 0.
+        return min(EASE_MAX_SECONDS, EASE_STEP_SECONDS * 2 ** (self.unanswered - 2))
 
     def _emit(self, event, **fields):
         self.trace.emit(event, revision=self.revision, **fields)
@@ -252,6 +267,10 @@ class AgencyPlan:
 
     def observe_speech(self, person_id, now):
         self.speech_at = max(self.speech_at, now)
+        if self.unanswered:
+            # Someone answered: back to a lively pace (the lull still applies).
+            self.unanswered = 0
+            self.due_at = min(self.due_at, now)
         if person_id:
             self.person_seen[person_id] = max(self.person_seen.get(person_id, float('-inf')), now)
             self.person_spoke[person_id] = max(self.person_spoke.get(person_id, float('-inf')), now)
@@ -266,13 +285,16 @@ class AgencyPlan:
     def present(self, person, now):
         if not person:
             return now - max(self.face_at, self.speech_at) <= PRESENCE_GRACE_SECONDS
-        if now - self.person_seen.get(person, float('-inf')) <= PRESENCE_GRACE_SECONDS:
+        recognized = self.person_seen.get(person, float('-inf'))
+        if now - recognized <= PRESENCE_GRACE_SECONDS:
             return True
-        # Their face and voice can both go unrecognized while they keep talking (live
-        # October 1). Trusted speech with nobody else recognized is still their visit.
+        # Their face and voice can both go unrecognized while they stay (live October 1).
+        # An unrecognized face or trusted speech, with nobody else recognized, continues their
+        # visit, but only for a bounded time after the last positive recognition.
         # A snapshot: the background planner reads this while the conversation thread writes it.
         others = any(p != person and now - t <= PRESENCE_GRACE_SECONDS for p, t in list(self.person_seen.items()))
-        return now - self.speech_at <= PRESENCE_GRACE_SECONDS and not others
+        return (now - recognized <= IDENTITY_INHERIT_SECONDS and not others and
+                now - max(self.face_at, self.speech_at) <= PRESENCE_GRACE_SECONDS)
 
     def subject_present(self, now):
         record = self.record
@@ -329,6 +351,9 @@ class AgencyPlan:
             self._retire('beats_used' if used else reason)
         self.ending = reason
         if subject is not None: self.pending_subject = dict(subject)
+        if reason == 'person_arrived':
+            self.unanswered = 0  # New company gets a lively Rex.
+            self.due_at = float('-inf')
         self.revision += 1
         self._emit('agency_goal_ending', reason=reason, subject=subject)
 
@@ -348,10 +373,19 @@ class AgencyPlan:
         record.pop('previous_goals', None)  # Offered separately as recent_goals.
         return record
 
-    def summary(self, now):
-        """What the reply model sees on a human turn: the goal, never a script."""
+    def summary(self, now, audience_person=None, recognized=()):
+        """What the reply model sees on a human turn: the goal, never a script.
+
+        A goal about one person is shown only on that person's own turns. Review October 3:
+        it was shown on anyone's turn, so a visitor's reply could draw on the owner's facts.
+        audience_person is who this reply may use private memory for; recognized are the
+        people identified by face or voice on this turn."""
         if not self.applicable(now): return None
         record = self.record
+        if record['scope'] == 'audience':
+            subject = record.get('subject_person')
+            if subject and audience_person != subject: return None
+            if not subject and (audience_person or any(recognized)): return None
         step = record['steps'][record['cursor']]
         return {'goal_kind': record['goal_kind'], 'subject': record['subject'], 'objective': record['objective'],
                 'scope': record['scope'], 'next_beat': {'kind': step['kind'], 'instruction': step['instruction']},
@@ -502,8 +536,10 @@ class AgencyPlan:
         else:
             record['cursor'] += 1
             record['attempts'] = 0
-        self.due_at = now + max(5, step['delay_seconds'])
+        if heard: self.unanswered += 1
+        self.due_at = now + max(5, step['delay_seconds']) + self.ease_seconds()
         self.save()
-        self._emit('agency_step_finished', plan_id=record['id'], **row, due_at=self.due_at)
+        self._emit('agency_step_finished', plan_id=record['id'], **row, due_at=self.due_at,
+                   unanswered=self.unanswered)
         if record['cursor'] >= len(record['steps']):
             self._emit('agency_goal_beats_used', plan_id=record['id'], goal_kind=record['goal_kind'])

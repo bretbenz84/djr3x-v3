@@ -136,7 +136,8 @@ def run_case(name, folder, key):
                         for i,(predicate,value) in enumerate(FRIEND_FACTS):
                             conn.execute('INSERT INTO claims VALUES(?,?,?,?,?,?,?,?,?,?,?)',('fixture-claim-'+str(i),
                                 friend,predicate,value,friend,None,'fixture-turn','self_report','accepted',None,1))
-                world.people=[('sam' if friend else 'visitor',friend,2.,0.)]
+                # Arrival cases stand close enough to count as an arrival to greet (face area gate).
+                world.people=[('sam' if friend else 'visitor',friend,1.1 if name in {'known_friend','new_visitor'} else 2.,0.)]
                 if name=='curious_room':world.objects=[('object:plant','potted plant',2.6,1.2)]
                 state=CoreState(store,SpeakerTracker('synthetic-agency:3'),trace)
                 scene=SyntheticScene(clock,painted_wall if name=='curious_room' else None)
@@ -190,7 +191,7 @@ def run_case(name, folder, key):
                     if result and result.status!='prepared':receipts.append({'kind':'proactive',**asdict(result)})
                     completed=[r for r in rows if r['event']=='agency_step_finished' and r['status']=='completed']
                     spoke=bool(result and result.completed_text)
-                    if name=='known_friend' and not answered and spoke and completed:
+                    if name=='known_friend' and not answered and spoke:
                         human('Pretty good, actually. Biscuit stole one of my running socks this morning.')
                         answered=True
                     if name=='new_visitor' and not answered and spoke:
@@ -223,10 +224,12 @@ def run_case(name, folder, key):
             'step_kinds':[r['kind'] for r in rows if r['event']=='agency_step_finished' and r['status']=='completed'],
             'goals':[{k:r.get(k) for k in ('goal_kind','subject','objective','origin')} for r in rows if r['event']=='agency_plan_saved'],
             'planner_calls':sum(r['event']=='model_request' and str(r.get('purpose','')).startswith('agency_plan') for r in rows),
+            'greeting':next((x['completed_text'] for x in receipts if x['kind']=='proactive' and x['completed_text']),None)
+                       if any(r['event']=='proactive_turn' and r.get('kind')=='visual_arrival' for r in rows) else None,
             'spoken':[(r.get('purpose'),r.get('completed_text')) for r in rows if r['event']=='delivery' and r.get('completed_text')]}
     (folder/(name+'-result.json')).write_text(json.dumps(result,indent=2))
     print(json.dumps({'case':name,'completed_steps':result['completed_steps'],'step_kinds':result['step_kinds'],
-                      'planner_calls':result['planner_calls'],'goals':result['goals'],'trace':str(path)}),flush=True)
+                      'planner_calls':result['planner_calls'],'greeting':result['greeting'],'goals':result['goals'],'trace':str(path)}),flush=True)
     return result
 
 

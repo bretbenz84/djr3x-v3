@@ -39,6 +39,13 @@ class StopWordTests(unittest.TestCase):
                      'Stop by the store later.', 'cancel my trip'):
             self.assertFalse(is_stop_command(text), text)
 
+    def test_quiet_phrases_are_told_apart_from_halts(self):
+        from r3x.session import is_quiet_command
+        for text in ("Be quiet.", "Shut up!", "Rex, be quiet", "Oh, hush", "Quiet, quiet!", "Stop talking"):
+            self.assertTrue(is_quiet_command(text), text)
+        for text in ("Stop!", "Whoa, Rex, stop", "Freeze", "Stop, be quiet", "Be quiet about the cable repair", "Okay"):
+            self.assertFalse(is_quiet_command(text), text)
+
 
 def face(x, width, identity=None):
     return {'box': [x - width/2, .3, width, width], 'identity': identity}

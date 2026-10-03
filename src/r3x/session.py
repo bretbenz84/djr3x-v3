@@ -17,6 +17,32 @@ STOP_COMMANDS = frozenset({"stop","cancel","halt","whoa","freeze","shut up","sto
 STOP_WRAPPERS = frozenset({"oh","hey","no","whoa","rex","okay","ok","please","now","wait"})
 
 
+# Stop phrases that ask for silence rather than a halt. They also leave Rex quiet (no
+# self-started talk or movement) until someone invites him to talk again; a plain "stop"
+# only pauses his initiative for two minutes. Review October 3: with goals always running,
+# "be quiet" bought two minutes before the next unprompted line.
+QUIET_COMMANDS = frozenset({"shut up","stop talking","be quiet","quiet","hush"})
+
+
+def is_quiet_command(text: str) -> bool:
+    """A stop command made only of quiet phrases (syntax only, like is_stop_command)."""
+    if not is_stop_command(text):
+        return False
+    words = text.lower().replace(",", " ").replace(".", " ").replace("!", " ").replace("?", " ").split()
+    i = 0
+    while i < len(words):
+        pair = " ".join(words[i:i+2])
+        if pair in STOP_COMMANDS:
+            if pair not in QUIET_COMMANDS: return False
+            i += 2
+        elif words[i] in STOP_COMMANDS:
+            if words[i] not in QUIET_COMMANDS: return False
+            i += 1
+        else:
+            i += 1
+    return True
+
+
 def is_stop_command(text: str) -> bool:
     words = text.lower().replace(",", " ").replace(".", " ").replace("!", " ").replace("?", " ").split()
     phrases, i = 0, 0
@@ -85,8 +111,9 @@ class Session:
         text = call.arguments.get('text') if isinstance(call.arguments, dict) else None
         if not isinstance(text, str) or not text.strip():
             return False
+        from .output import plain_text
         def norm(value):
-            return ' '.join(value.lower().split())
+            return ' '.join(plain_text(value).lower().split())  # Delivery tags are not words.
         said = [norm(m['content']) for m in self.history_messages()
                 if m.get('role') == 'assistant' and isinstance(m.get('content'), str)][-4:]
         return norm(text) in said
@@ -172,6 +199,8 @@ class Session:
             try:
                 self._run_planning(job, cancel)
             except BaseException as exc:  # A planner bug must never take the conversation down.
+                with self._lock:  # Back off like any failure; never a paid retry every few seconds.
+                    self.state.agency.failed('PlanningCrashed:'+type(exc).__name__, self.trace.clock())
                 self.trace.emit('agency_planning_crashed', turn_id=job['turn_id'], error_type=type(exc).__name__)
         thread = threading.Thread(target=run, name='r3x-agency-planner', daemon=True)
         self._planning_thread = thread
@@ -217,7 +246,7 @@ class Session:
             self.trace.emit('agency_planning_finished', turn_id=job['turn_id'],
                 model=self.agency_planner.capability.model, planning_seconds=self.trace.clock()-started)
 
-    def cancel(self, reason='explicit_stop') -> None:
+    def cancel(self, reason='explicit_stop', *, quiet=False) -> None:
         with self._lock:
             self.proactive_hold_until = self.trace.clock()+120
             self.revision += 1
@@ -228,8 +257,16 @@ class Session:
                 self.state.initiative.cancel_schedule(reason)
                 self.state.conversation_intent.suspend(reason)
                 self.state.cancel()
+                if quiet and not self.state.frozen:
+                    # Same switch the model uses for "stop starting conversations". Direct
+                    # questions still get answers; an invitation to talk again resumes him.
+                    self.state.initiative.quiet = True
+                    self.state.initiative.policy_source = None
+                    self.state.initiative.cancel_schedule('initiative_quiet')
         self.output.cancel()
         self.trace.emit("cancel", revision=self.revision)
+        if quiet and self.state and self.state.initiative.quiet:
+            self.trace.emit('initiative_quiet', source='stop_phrase')
 
     def note_speech(self, ended_at: float, sustained: bool = True) -> None:
         """Yield an unheard reply to resumed, non-echo microphone speech.
@@ -399,7 +436,7 @@ class Session:
                 return delivery
             # Syntax-only emergency control. No names/facts are parsed in Python.
             if not opportunity and transcript.trusted and is_stop_command(transcript.text):
-                self.cancel()
+                self.cancel(quiet=is_quiet_command(transcript.text))
                 delivery.status = "interrupted"
                 return delivery
             context = {}
@@ -471,6 +508,10 @@ class Session:
                     'outside the camera view (see drive.targets). Nobody has been identified. You may turn to look with '
                     'drive_base (face or find_person), optionally saying something, or use remain_silent. '
                      if opportunity.kind=='unseen_presence' else
+                    'Someone just came into view (see arrival). Greet them now, briefly and warmly, in your own words: '
+                    'by name with a "how are you" when you know them, or a hello and a name question when you do not. '
+                    'This is a greeting, not a reply to the earlier conversation. '
+                     if opportunity.kind=='visual_arrival' else
                     'Proactive opportunity; nobody spoke. The previous exchange was already processed. '
                     'There is no new human reply; do not answer the earlier utterance again. '
                     'Continue the next grounded step of the private agency plan; do not repeat the previous answer. ')+'Observation: '+json.dumps(evidence)})
@@ -511,7 +552,10 @@ class Session:
             context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and getattr(self.output,'robot',None) and self.output.robot.owner.state=='active')
             if context['robot_pose_enabled']:
                 from .servo_poses import LIMITS, NAMED_POSES
-                held = set(getattr(self.output.robot.owner,'held_channels',()))
+                owner = self.output.robot.owner
+                if opportunity and hasattr(owner,'yield_stale_hold'):
+                    owner.yield_stale_hold()  # An aged human pose no longer blocks his own beats.
+                held = set(getattr(owner,'held_channels',()))
                 commanded = getattr(self.output.robot.owner,'commanded',{})
                 context['robot_pose_state'] = {'already_at':[
                     name for name,targets in NAMED_POSES.items()
@@ -577,10 +621,12 @@ class Session:
                 from .faces import VISIBLE_FACE_MAX_AGE
                 def fresh_faces():
                     now = self.trace.clock()
+                    # A tiny or weak detection (a portrait, a false positive) is not a newcomer.
                     return [f for f in latest_faces(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE
-                            and f.get('face_epoch', 0) >= self.state.min_face_epoch]
+                            and f.get('face_epoch', 0) >= self.state.min_face_epoch
+                            and (f.get('identity') or (f.get('face_width_px') or 48) >= 48)]
                 # The reply's own current-view sample: no extra camera read.
-                faces_at_start = len(context.get('current_view', {}).get('faces', []))
+                faces_at_start = max(len(context.get('current_view', {}).get('faces', [])), 1)
                 def memory_audience_valid():
                     if previous_memory_guard and not previous_memory_guard(): return False
                     if not memory_accessed[0]: return True
@@ -657,7 +703,11 @@ class Session:
                 self.trace.emit('agency_step_started',turn_id=turn_id,**agency_step)
             elif self.state and self.agency_planner and not opportunity:
                 # The goal Rex chose steers this reply only when it fits; the human comes first.
-                context['agency_plan'] = self.state.agency.summary(self.trace.clock())
+                speaker = context.get('speaker') or {}
+                context['agency_plan'] = self.state.agency.summary(self.trace.clock(),
+                    audience_person=memory_subject,
+                    recognized=[f.get('identity') for f in context.get('faces', [])] +
+                               [speaker.get('person_id') if speaker.get('state') == 'supported' else None])
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
                                 context, self.state is not None, images=scene_images)
@@ -803,8 +853,10 @@ class Session:
                     except ValueError as exc:
                         self.trace.emit('invitation_rejected',turn_id=turn_id,reason=str(exc))
                         call = replace(call,arguments={**call.arguments,'invitation_update':None})
-                if not agency_step and context.get('visual_arrival',{}).get('startup_greeting') and call.name not in {'ask_face_question','respond_with_intent','use_memory_opportunity'}:
-                    raise ProviderFailure('StartupGreetingRequiresSpeech')
+                from .semantics import greeting_violation
+                violation = None if agency_step else greeting_violation(context, call)
+                if violation:
+                    raise ProviderFailure(violation)
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=dict(call.arguments))
                 with self._lock:
                     cancel.check()

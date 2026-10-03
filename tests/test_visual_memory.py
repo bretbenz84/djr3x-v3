@@ -105,7 +105,8 @@ class VisualMemoryTests(MemoryFixture):
         from dataclasses import replace
         self.begin("Hello again.")
         self.session.note_speech(0)
-        result=self.session.process_opportunity(replace(event(),speech_marker=0),0,lambda:True)
+        lull=replace(event(),speech_marker=0,kind='ambient',target_track=None)
+        result=self.session.process_opportunity(lull,0,lambda:True)
         self.assertEqual(result.status,'completed')
         self.assertEqual([t['name'] for t in grounded_tools(self.brain.snapshots[-1].context)],['describe_view'])
 

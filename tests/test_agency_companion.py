@@ -174,6 +174,31 @@ class PhysicalPlanTests(MemoryFixture):
         self.assertEqual(self.state.agency.record['cursor'],1)
         self.assertEqual(visible,[])
 
+    def test_his_own_servo_noise_does_not_cancel_a_move_under_way_but_speech_does(self):
+        # Review October 3: only wheel noise was exempt; a pose sequence could be cut short by
+        # the microphone hearing its own servos as a blip of "speech".
+        from r3x.runtime import VoiceRuntime
+        for sustained,expected in ((False,'suppressed'),(True,'interrupted')):
+            with self.subTest(sustained=sustained):
+                self.setup_pose()
+                trace=self.state.trace
+                class HealthyRuntime(VoiceRuntime):
+                    @property
+                    def audio_seen_at(inner):return trace.clock()
+                    @audio_seen_at.setter
+                    def audio_seen_at(inner,value):pass
+                runtime=HealthyRuntime(None,None,None,self.session,trace)
+                runtime.started_at=self.clock()-10
+                self.state.agency.observe_speech(None,self.clock())
+                self.brain.text=ToolCall('pose','set_robot_pose',{'poses':['look_left','look_right'],'look_after':None,'say_before':None,'text':None})
+                value=draft();value['steps']=[{**value['steps'][0],'kind':'pose','instruction':'Look left then right.'}]
+                planner=Planner();planner.choose=lambda f,c:deepcopy(value)
+                self.session.agency_planner=planner
+                session,clock=self.session,self.clock
+                self.robot.owner.on_camera_motion=lambda moving,*args:session.note_speech(clock(),sustained=sustained) if moving else None
+                result=runtime.proactive_tick()
+                self.assertEqual(result.status,expected)
+
     def test_public_gesture_and_question_survive_their_own_camera_reframe(self):
         from r3x.runtime import VoiceRuntime
         from r3x.physical_attention import PhysicalGesture
@@ -231,6 +256,23 @@ class PhysicalPlanTests(MemoryFixture):
         release=self.robot.execute_pose('release_poses',Cancellation(),'agency',hold_pose=False)
         self.assertEqual(release.status,'rejected')
         self.assertIn(0,self.robot.owner.held_channels)
+
+    def test_recent_human_pose_blocks_his_own_moves_but_an_aged_one_yields(self):
+        # Review October 3: one "look right" left a hold that refused every self-initiated
+        # pose and drive for the rest of the session.
+        from r3x.servos import HOLD_YIELD_SECONDS
+        self.setup_pose()
+        held=self.robot.execute_pose('look_right',Cancellation(),'human')
+        self.assertEqual(held.status,'pulses_reached')
+        self.assertTrue(self.robot.owner.human_hold_active())
+        blocked=self.robot.execute_pose('look_left',Cancellation(),'agency',hold_pose=False)
+        self.assertEqual(blocked.reason,'AgencyCannotOverrideHeldPose')
+        self.clock.wait(HOLD_YIELD_SECONDS+1)
+        self.assertFalse(self.robot.owner.human_hold_active())
+        result,planner=self.perform('pose')
+        self.assertIn('pose',planner.requests[0]['capabilities'])
+        self.assertEqual(self.state.agency.record['outcomes'][0]['status'],'completed')
+        self.assertEqual(self.robot.owner.held_channels,set())
 
     def test_drive_plan_executes_early_without_speech_or_visible_person(self):
         from tests.test_drive_session import DriveSessionTests,drive_call,step

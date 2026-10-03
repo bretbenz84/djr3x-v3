@@ -68,7 +68,10 @@ class PlanTests(memory_tests.MemoryFixture):
         self.tick(self.trace.at+9)
         self.assertEqual(len(self.planner.requests),1)
         self.assertEqual(self.state.agency.record['cursor'],2)
-        self.tick(self.trace.at+9)
+        # Two unanswered lines: he eases off. The next goal is prepared but not performed yet.
+        self.assertEqual(self.tick(self.trace.at+9).status,'prepared')
+        self.assertEqual(len(self.executor.snapshots),2)
+        self.tick(self.trace.at+30)
         self.assertEqual(len(self.planner.requests),2)
         self.assertEqual(len(self.executor.snapshots),3)
         self.assertEqual(self.store.claims(),[])
@@ -502,7 +505,7 @@ class GoalTests(memory_tests.MemoryFixture):
         from r3x.scene import SceneImage
         self.setup_owner()
         self.runtime.scene_observer=SimpleNamespace(
-            snapshot=lambda:('scene',(SceneImage('frame',self.trace.at,'data:image/png;base64,synthetic'),)),
+            snapshot=lambda *a:('scene',(SceneImage('frame',self.trace.at,'data:image/png;base64,synthetic'),)),
             attempted=lambda scene_id:None)
         self.tick(100)
         self.assertEqual([i.frame_id for i in self.planner.images[0]],['frame'])
@@ -564,7 +567,7 @@ class GoalTests(memory_tests.MemoryFixture):
         from r3x.scene import SceneImage
         self.setup_owner()
         self.runtime.scene_observer=SimpleNamespace(
-            snapshot=lambda:('scene',(SceneImage('frame',self.trace.at,'data:image/png;base64,synthetic'),)),
+            snapshot=lambda *a:('scene',(SceneImage('frame',self.trace.at,'data:image/png;base64,synthetic'),)),
             attempted=lambda scene_id:None)
         self.state.observation_available=lambda cue:True
         self.tick(100)
@@ -590,6 +593,104 @@ class GoalTests(memory_tests.MemoryFixture):
             'alone','session',100,None,None,(),float('-inf'),False,'reconsideration'),0,lambda:True)
         self.assertEqual(result.status,'completed')
         self.assertEqual(self.state.agency.record['scope'],'general')
+
+    def test_unanswered_lines_ease_off_and_any_reply_restores_the_pace(self):
+        # Review October 3: with a face in view he spoke every 15-25 seconds indefinitely.
+        self.setup_owner()
+        agency=self.state.agency
+        gaps=[]
+        self.tick(100)
+        for _ in range(6):
+            agency.observe_faces([{'track_id':'t','identity':None,'at':self.trace.at}],self.trace.at)
+            before=len(self.executor.snapshots); start=self.trace.at
+            while len(self.executor.snapshots)==before:
+                agency.observe_faces([{'track_id':'t','identity':None,'at':self.trace.at}],self.trace.at)
+                self.tick(self.trace.at+5)
+            gaps.append(self.trace.at-start)
+        self.assertLess(gaps[0],20)
+        self.assertGreater(gaps[-1],100)
+        self.assertEqual(gaps,sorted(gaps))
+        agency.observe_speech(None,self.trace.at)
+        self.assertEqual(agency.unanswered,0)
+        self.assertLessEqual(agency.due_at,self.trace.at)
+
+    def test_unrecognized_presence_continues_a_visit_only_for_a_bounded_time(self):
+        agency=self.state.agency;agency.load()
+        agency.observe_faces([{'track_id':'a','identity':'one','at':100}],100)
+        # Live sessions: recognition gaps of up to 50 seconds while the owner stayed put.
+        agency.observe_faces([{'track_id':'b','identity':None,'at':160}],160)
+        self.assertTrue(agency.present('one',160))
+        # Still an unrecognized face four minutes later: no longer assumed to be that person.
+        agency.observe_faces([{'track_id':'c','identity':None,'at':340}],340)
+        self.assertFalse(agency.present('one',340))
+        # Someone else recognized ends it at once.
+        agency.observe_faces([{'track_id':'d','identity':'two','at':150}],150)
+        self.assertFalse(agency.present('one',160))
+
+    def test_yielding_the_floor_pauses_the_goal_without_discarding_it(self):
+        # Review October 3: every time people talked to each other the goal was thrown away.
+        self.setup_owner();self.tick(100)
+        plan_id=self.state.agency.record['id']
+        self.state.initiative.cancel_schedule('human_floor')  # What a recorded yield_floor does.
+        self.state.initiative.feedback.append({'action':'yield_floor','expires_at':self.trace.at+120})
+        self.assertEqual(self.state.agency.record['id'],plan_id)
+        self.assertFalse(self.state.agency.dirty)
+        self.assertIsNone(self.tick(self.trace.at+30))  # Held while the floor is theirs.
+        self.assertEqual(self.tick(self.trace.at+130).status,'completed')
+        self.assertEqual(len(self.planner.requests),1)
+
+    def test_goal_about_one_person_is_not_shown_on_someone_elses_turn(self):
+        agency=self.state.agency;agency.load()
+        agency.observe_faces([{'track_id':'a','identity':'one','at':100}],100)
+        plan=draft();plan['scope']='audience'
+        agency.install(plan,'["person:one"]',{},['contribute'],agency.revision,100,subject_person='one')
+        self.assertIsNotNone(agency.summary(101,audience_person='one',recognized=['one']))
+        self.assertIsNone(agency.summary(101,audience_person=None,recognized=[None]))   # A stranger's turn.
+        self.assertIsNone(agency.summary(101,audience_person='two',recognized=['two']))
+        general=draft()
+        agency.install(general,'[]',{},['contribute'],agency.revision,102)
+        self.assertIsNotNone(agency.summary(103,audience_person=None,recognized=[None]))
+
+    def test_planner_crash_backs_off_instead_of_retrying_every_few_seconds(self):
+        self.setup_owner()
+        def crash(facts,cancel): raise RuntimeError('unexpected')
+        self.planner.choose=crash
+        self.tick(100);self.session.join_planning()
+        self.assertGreaterEqual(self.state.agency.planner_retry_at,110)
+        self.assertTrue(any(r['event']=='agency_planning_crashed' for r in self.trace.rows))
+
+    def test_be_quiet_lasts_until_invited_back_but_stop_is_a_short_pause(self):
+        # Review October 3: "be quiet" bought two minutes before the next unprompted line.
+        self.setup_owner();self.tick(100)
+        self.session.cancel()  # A plain "stop".
+        self.assertFalse(self.state.initiative.quiet)
+        self.state.agency.observe_speech(None,self.trace.at)
+        self.assertIsNone(self.tick(self.trace.at+60))            # Paused for two minutes...
+        self.assertIsNotNone(self.tick(self.trace.at+70))         # ...then he resumes.
+        calls=len(self.executor.snapshots)
+        self.session.cancel(quiet=True)  # "Be quiet."
+        self.assertTrue(self.state.initiative.quiet)
+        for wait in (130,600,3000):
+            self.state.agency.observe_speech(None,self.trace.at)
+            self.assertIsNone(self.tick(self.trace.at+wait))
+        self.assertEqual(len(self.executor.snapshots),calls)
+        self.assertTrue(any(r['event']=='initiative_quiet' for r in self.trace.rows))
+        self.state.initiative.quiet=False  # What set_initiative(available) does on "you can talk again."
+        self.state.agency.observe_speech(None,self.trace.at)
+        self.assertIsNotNone(self.tick(self.trace.at+20))
+
+    def test_planner_gets_the_current_frame_even_when_the_view_was_already_offered(self):
+        from r3x.scene import SceneImage
+        self.setup_owner()
+        asked=[]
+        def snapshot(include_offered=False):
+            asked.append(include_offered)
+            # The real observer withholds an already-offered or unchanged view.
+            return ('scene',(SceneImage('frame',self.trace.at,'data:image/png;base64,synthetic'),)) if include_offered else None
+        self.runtime.scene_observer=SimpleNamespace(snapshot=snapshot,attempted=lambda scene_id:None)
+        self.tick(100)
+        self.assertIn(True,asked)
+        self.assertEqual([i.frame_id for i in self.planner.images[0]],['frame'])
 
     def test_drop_it_ends_the_goal_but_keeps_it_as_context_for_the_next(self):
         self.setup_owner();self.tick(100)

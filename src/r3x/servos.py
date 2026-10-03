@@ -18,6 +18,7 @@ from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles, ba
                           UNPOWERED_REST, expressive_lanes)
 
 BASE_HELD = frozenset({0, 1, 2, 4, 6, *THROTTLE})   # Neck, head, hero elbow, poker arm, throttle.
+HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,8 @@ class ServoOwner:
         self.state = 'new'
         self.version = 0
         self.held_channels = set()
+        self.pose_held_at = float('-inf')  # When a human-requested pose hold was last set.
+        self._base_held = False
         self._talking_head_origin: dict[int, int] | None = None
         self._motion = threading.Event()
         self.motion_until = 0.
@@ -137,6 +140,23 @@ class ServoOwner:
 
     def motion_risk(self) -> bool:
         return self._motion.is_set() or self.clock() < self.motion_until
+
+    def human_hold_active(self):
+        """A pose a person asked for blocks Rex's own movement only while it is recent.
+
+        Review October 3: one "look right" (often chosen by the reply model itself) left a
+        hold that refused every self-initiated pose and drive until someone said to release
+        it. A hold now yields to his own initiative after HOLD_YIELD_SECONDS; requests from
+        people and "release" work as before."""
+        return bool(self.held_channels) and self.clock() - self.pose_held_at < HOLD_YIELD_SECONDS
+
+    def yield_stale_hold(self):
+        """Drop an aged pose hold before Rex's own beat; a recent one stays."""
+        if (self.held_channels and not self.human_hold_active() and not self._motion.is_set()
+                and not self._base_held):  # Never touch the drive stance of a moving base.
+            self.held_channels.clear()
+            return True
+        return False
 
     def release_microphone_hold(self):
         self.microphone_hold = (0., 0.)
@@ -229,14 +249,18 @@ class ServoOwner:
                      lifecycle_lanes(request.kind, current, request.first_look))
             if request.kind == 'pose' and not request.hold_pose:
                 channels = {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
-                if request.pose == 'release_poses' or channels.intersection(self.held_channels):
+                if request.pose == 'release_poses' or (
+                        channels.intersection(self.held_channels) and self.human_hold_active()):
                     return receipt('rejected', 'AgencyCannotOverrideHeldPose')
+                self.held_channels.difference_update(channels)  # An aged hold gives way.
             self.version += 1
             if request.kind == 'pose' and request.hold_pose and request.pose not in ('release_poses','wave'):  # dict poses too
                 self.held_channels.update(ch for lane in lanes for beat in lane for ch, _ in beat.targets)
+                self.pose_held_at = self.clock()
             if request.kind == 'base_park':
                 # Talking/idle lanes skip held channels while the base drives.
                 self.held_channels.update(BASE_HELD)
+                self._base_held = True
             accepted = True
             self.release_microphone_hold()
             self._motion.set()
@@ -310,6 +334,7 @@ class ServoOwner:
                 self.held_channels.clear()
             if request.kind == 'base_release':
                 self.held_channels.difference_update(BASE_HELD)
+                self._base_held = False
             if request.kind == 'startup':
                 self._talking_head_origin = self._bus.positions((0,1,2))
             return receipt('pulses_reached')

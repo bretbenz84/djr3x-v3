@@ -115,7 +115,7 @@ class Initiative:
                 self.agency.replace(reason)
         if reason in {'new_session','forgotten','forget_person','correct_claim','retract_claim','cancel_association','reset_face_identity'}:
             self.invitations.invalidate(reason,erase=True)
-        elif reason in {'explicit_stop','initiative_quiet','participant_boundary'}:
+        elif reason in {'explicit_stop','initiative_quiet','participant_boundary','human_floor'}:
             self.invitations.invalidate(reason)
         self.schedule_revision += 1  # Also invalidates in-flight proposals.
 
