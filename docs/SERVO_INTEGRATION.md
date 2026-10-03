@@ -182,6 +182,15 @@ where it is. Checked with the pulse simulator only (four new checks, one with he
 running in another thread during the return); on the robot, confirm the head resumes
 following at once and the arm return is unchanged.
 
+Second run the same day (`aa6782c0`): the owner still saw everything wait for the arm. The
+log shows the servos were free, but idle movement waited about two seconds to resume (a
+one-second after-drive hold plus its usual pause) and stayed still whenever he was
+listening or answering, which was most moments after a drive: once nothing moved for the
+whole five-second return because the owner was speaking. `IdleMotion.wake` now starts a
+head-led phrase the instant the wheels stop and keeps idle movement going for six seconds
+regardless of listening or working (the arm is moving then anyway); it never competes with
+talking motion, which already moves the head. Two new pulse-simulator checks.
+
 ## Idle arms and elbow lifecycle
 
 The user requested random hero/poker arm movement while awake. A low-priority

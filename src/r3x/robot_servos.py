@@ -25,6 +25,7 @@ class RobotServos:
             self.idle.stop()
             self.reflex.stop()
         self.talking.before_start = quiet
+        self.idle.busy = lambda: self.talking._thread is not None
         self.trace = None
         self.wait = wait
         self.closed = False
@@ -142,6 +143,7 @@ class RobotServos:
         import threading
         self.owner.begin_arm_return()
         self.idle.look_at_people()   # The drive centred the head; an earlier held look is over.
+        self.idle.wake()             # The head and arms move now, not after the usual idle pause.
         def run():
             receipt = self.owner.return_arm()
             if self.trace:

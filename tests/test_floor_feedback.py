@@ -521,8 +521,9 @@ class TurnAroundAndComeTests(unittest.TestCase):
             try:
                 state = CoreState(store, SpeakerTracker('synthetic:3'), Trace())
                 offered = {'source_turn_id': 't', 'state_revision': store.revision, 'drive': context}
-                with self.assertRaisesRegex(ValueError, 'NearestPersonNeedsTurnOrSearchFirst'):
-                    state.propose_drive(drive_call(step('approach', target='nearest_person')), offered, Cancellation())
+                # "Come here" alone is valid too: the drive owner looks for the person (October 3).
+                alone = state.propose_drive(drive_call(step('approach', target='nearest_person')), offered, Cancellation())
+                self.assertEqual([s.action for s in alone.steps], ['approach'])
                 plan = state.propose_drive(drive_call(step('move', meters=-.3), step('turn', degrees=180),
                                                       step('approach', target='nearest_person', stop_at_m=1)),
                                            offered, Cancellation())
@@ -1076,3 +1077,83 @@ class DamagedTargetTests(unittest.TestCase):
         for name in ('sought', 'drive.last_sought'):
             plan = self.propose(drive_call(step('approach', target=name)), self.drive())
             self.assertEqual(plan.steps[0].target, 'sought')
+
+
+
+class ComeHereTests(unittest.TestCase):
+    """October 3, run aa6782c0: "come over here" was refused, then a second turn left him
+    facing away and the approach gave up; near the person the firmware steered him aside."""
+    def start(self, person, heard_bearing):
+        clock, fake, drive, world = base_setup(self)
+        drive.start()
+        self.addCleanup(drive.close)
+        world.people.append(('face-1', 'person-1', *person))
+        settle()
+        context = drive.context('requested', {'status': 'observed', 'bearing_deg': heard_bearing, 'ended_at': 1.})
+        return clock, fake, drive, world, context
+
+    def run_plan(self, clock, drive, context, *steps):
+        targets = {t['target_id']: t for t in context['targets']}
+        return drive.execute(DrivePlan('p', tuple(steps), 'requested', 'come here', targets, clock()+120), Cancellation())
+
+    def distance(self, fake, person):
+        return math.hypot(person[0] - fake.x, person[1] - fake.y)
+
+    def test_come_here_with_nobody_in_view_turns_to_the_voice_and_arrives(self):
+        person = (2.5*math.cos(math.radians(88)), 2.5*math.sin(math.radians(88)))   # Beside him, out of view.
+        clock, fake, drive, world, context = self.start(person, 88.)
+        nearest = next(t for t in context['targets'] if t['target_id'] == 'nearest_person')
+        self.assertFalse(nearest['visible_now'])
+        receipt = self.run_plan(clock, drive, context, DriveStep('approach', target='nearest_person'))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        first = next(c for c in fake.commands if c['cmd'] == 'turn')
+        self.assertAlmostEqual(first['deg'], 88., delta=1.)       # Toward the voice first, not a sweep.
+        self.assertLess(self.distance(fake, person), 1.35)
+
+    def test_the_voice_stays_where_it_was_heard_after_he_turns_to_face_it(self):
+        person = (2.5*math.cos(math.radians(88)), 2.5*math.sin(math.radians(88)))
+        clock, fake, drive, world, context = self.start(person, 88.)
+        self.run_plan(clock, drive, context, DriveStep('face', target='speaker'))
+        self.assertAlmostEqual(fake.theta, 88., delta=3.)
+        # The next request was spoken during the turn: no new bearing, the remembered one is offered.
+        later = drive.context('requested', {'status': 'unavailable', 'bearing_deg': None, 'ended_at': 2.})
+        speaker = next(t for t in later['targets'] if t['target_id'] == 'speaker')
+        self.assertLess(abs(speaker['bearing_deg']), 5)           # Straight ahead now, not "88 degrees left".
+        self.assertEqual(speaker['where'], 'straight ahead')
+        # The same utterance's bearing is never applied twice against a new heading.
+        again = drive.context('requested', {'status': 'observed', 'bearing_deg': 88., 'ended_at': 1.})
+        self.assertLess(abs(next(t for t in again['targets'] if t['target_id'] == 'speaker')['bearing_deg']), 5)
+        self.assertNotIn('speaker', [t['target_id'] for t in drive.context('self_initiated')['targets']])
+
+    def test_the_logged_extra_turn_no_longer_strands_him_facing_away(self):
+        person = (2.6, 0.)                                         # Already facing the person.
+        clock, fake, drive, world, context = self.start(person, 0.)
+        receipt = self.run_plan(clock, drive, context, DriveStep('turn', degrees=88.),
+                                DriveStep('approach', target='nearest_person', stop_at_m=1.))
+        self.assertEqual(receipt.status, 'completed', receipt)     # Was: refused, target_not_currently_detected.
+        self.assertLess(self.distance(fake, person), 1.5)
+        self.assertLess(abs(fake.theta), 25.)                      # Facing the person again.
+
+    def test_nobody_anywhere_is_reported_after_looking_around(self):
+        clock, fake, drive, world, context = self.start((2.5, 0.), 0.)
+        world.people.clear()
+        settle()
+        receipt = self.run_plan(clock, drive, drive.context('requested'), DriveStep('approach', target='nearest_person'))
+        self.assertEqual(receipt.steps[0]['reason'], 'no_person_found_after_looking_around', receipt)
+        self.assertGreater(receipt.turned_deg, 90.)                # He did look around.
+        self.assertEqual([c for c in fake.commands if c['cmd'] in {'move', 'drive'} and (c.get('lin') or c.get('dist'))], [])
+
+    def test_firmware_steering_is_off_for_the_last_stretch_and_restored(self):
+        person = (3.4, 0.)
+        clock, fake, drive, world, context = self.start(person, 0.)
+        gain = drive._assist_gain
+        self.assertIsNotNone(gain)
+        receipt = self.run_plan(clock, drive, context, DriveStep('approach', target='nearest_person', stop_at_m=1.))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        steering = [(i, c['assist_gain']) for i, c in enumerate(fake.commands) if c['cmd'] == 'config' and 'max_lin' not in c]
+        self.assertEqual([g for _, g in steering], [0., gain])     # Off once when close, back on at the end.
+        first_drive = next(i for i, c in enumerate(fake.commands) if c['cmd'] == 'drive' and c['lin'] > 0)
+        self.assertGreater(steering[0][0], first_drive)            # Far away the firmware still steers.
+        rolled = sum(c['lin']*.15 for c in fake.commands[:steering[0][0]] if c['cmd'] == 'drive')
+        self.assertGreater(rolled, .8)                             # Switched off about 1.2 m from the stop.
+        self.assertTrue(drive._assist_on)

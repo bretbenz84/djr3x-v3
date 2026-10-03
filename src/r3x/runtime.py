@@ -423,7 +423,8 @@ class VoiceRuntime:
                                or not self.turns.empty())
                     self.robot.before_frame(capturing=capturing or conversation_busy, calm=working, allow_idle=(
                         not capturing
-                        and not (self.drive is not None and self.drive.motion_risk())
+                        # Only while the wheels turn: the second after a drive is not a reason to sit still.
+                        and not (self.drive is not None and self.drive.moving.is_set())
                         and self.trace.clock()-self.audio_seen_at<=.5))
                 now = self.trace.clock()
                 if now>=next_visual:

@@ -58,6 +58,15 @@ TIGHT_LEG_M = .6          # Beside a wall he could not turn away from: short gua
 TIGHT_SIDE_M = .35        # A side return this close, or...
 TIGHT_CORNER_M = .5       # ...a front-corner return this close, is a tight space: go slower.
 TIGHT_PACE = .6
+# October 3, second run. A voice's direction is remembered as a room heading, so it stays
+# right after he turns and for requests spoken while he moves (the model re-used "88 degrees
+# left" after he had already turned to face it, and he ended up facing away).
+VOICE_MEMORY_S = 120.
+# Closing on a target, the firmware's wall-steering treats what is ahead as something to go
+# around (owner: "the firmware starts steering him away rather than just slowing him down").
+# The host turns that steering off for the last stretch; the firmware still slows and stops.
+CLOSING_M = 1.2           # Something this near straight ahead, with the target ahead too.
+CLOSING_DEG = 20.
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
 NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
@@ -74,7 +83,11 @@ CONFIG = {'max_lin': .25, 'max_ang': round(math.radians(60), 3), 'accel_lin': .3
           'stop_zone_m': .15, 'slow_zone_m': .6, 'default_turn_rate': TURN_RATE,
           'watchdog_ms': 500, 'drive_expiry_ms': 300,
           # V2 pushes these: firmware defaults keep the gamepad owner until Start is pressed.
-          'manual_autoreturn': True, 'manual_idle_return_secs': 4}
+          'manual_autoreturn': True, 'manual_idle_return_secs': 4,
+          # The firmware's own default wall-steering gain (V2 calib.h ASSIST_GAIN). The host
+          # zeroes it while closing on a target; pushing it at every connect means a run
+          # that died mid-approach cannot leave the steering off for the next one.
+          'assist_gain': 2.}
 # Match the firmware's charger-entry threshold and the operator battery gauge.
 # A freshly unplugged pack can retain 13.61 V for minutes; 13.6 V reintroduced
 # the old surface-charge lockout even after firmware had released its latch.
@@ -340,6 +353,10 @@ class DriveBase:
         self._plan_parks = False
         self._view_since = float('-inf')
         self._start_heading = None
+        self._voice = None            # Room heading and time of the last located voice.
+        self._voice_key = None
+        self._assist_gain = None      # The firmware's wall-steering gain, as acknowledged at connect.
+        self._assist_on = True
 
     # Lifecycle -----------------------------------------------------------
     def start(self):
@@ -352,6 +369,8 @@ class DriveBase:
             raise ProviderFailure('DriveConfigUnacknowledged')
         if not ack.get('accepted'):
             raise ProviderFailure('DriveConfigRejected:' + str(ack.get('reason')))
+        # Only firmware that reports the steering gain can have it switched (0.2.x does).
+        self._assist_gain = CONFIG['assist_gain'] if 'assist_gain' in (ack.get('config') or {}) else None
         self._spawn('heartbeat', self._heartbeat)
         deadline = time.monotonic() + 1.5
         while self.link.snapshot()[0] is None:
@@ -391,6 +410,7 @@ class DriveBase:
     def close(self):
         self._closing.set()
         self.cancel()
+        self._assist(True)
         if not self._lock.acquire(timeout=5.):
             raise ProviderFailure('DrivePlanStillActive')
         try:
@@ -483,7 +503,8 @@ class DriveBase:
         # turn (September 27: with no face visible the model silently dropped "come to me").
         targets.append({'target_id': 'nearest_person', 'kind': 'nearest_person', 'visible_now': bool(faces),
                         'where': 'largest visible face, resolved when the step runs' if faces else
-                                 'nobody in view now; usable after a turn or find_person step in the same plan'})
+                                 'nobody in view now; facing or approaching it looks for the person first '
+                                 '(toward the last voice, radar bodies, then around)'})
         for row in (self.objects() if self.objects else ())[:8]:
             bearing = image_bearing(row['box'], self._neck())
             targets.append({'target_id': row['target_id'], 'kind': 'object', 'label': row['label'],
@@ -492,11 +513,20 @@ class DriveBase:
         for body in bodies or ():
             targets.append({'target_id': body['target_id'], 'kind': 'radar_body', 'bearing_deg': body['bearing_deg'],
                             'range_m': body['range_m'], 'moving': body['moving'], 'where': describe_bearing(body['bearing_deg'])})
-        if speaker_direction and speaker_direction.get('status') == 'observed' and speaker_direction.get('bearing_deg') is not None:
-            bearing = float(speaker_direction['bearing_deg'])
-            targets.append({'target_id': 'speaker', 'kind': 'voice_direction', 'bearing_deg': round(bearing),
-                            'where': describe_bearing(bearing)})
         telemetry, _ = self.link.snapshot()
+        facing = self._heading(telemetry) if telemetry else None
+        heard = (speaker_direction and speaker_direction.get('status') == 'observed'
+                 and speaker_direction.get('bearing_deg') is not None)
+        if heard and facing is not None and speaker_direction.get('ended_at') != self._voice_key:
+            # Each utterance's bearing is taken once, against the heading he had when it was heard.
+            self._voice_key = speaker_direction.get('ended_at')
+            self._voice = {'heading': wrap(facing + float(speaker_direction['bearing_deg'])), 'at': now}
+        voice = self._voice_bearing(now)
+        if origin == 'requested' and (voice is not None or heard):
+            bearing = voice if voice is not None else float(speaker_direction['bearing_deg'])
+            targets.append({'target_id': 'speaker', 'kind': 'voice_direction', 'bearing_deg': round(bearing),
+                            'where': describe_bearing(bearing),
+                            'heard_seconds_ago': round(now - self._voice['at']) if voice is not None else 0})
         displacement = None
         if telemetry and self.origin:
             odom = telemetry.get('odom') or {}
@@ -532,9 +562,41 @@ class DriveBase:
                 'recent_motion': list(self.history),
                 'meaning': ('Robot-relative bearings, positive = left. Face/object bearings come from the head camera '
                             '(approximate, re-measured with the neck centered when a step runs). Radar bodies are moving '
-                            'bodies seen by the base radar ring: where to look, not who. speaker is the microphone-array '
-                            'direction of the last utterance. Clearance is what base sensors report now; there is no map. '
+                            'bodies seen by the base radar ring: where to look, not who. speaker is where the last located '
+                            'voice came from, kept relative to where the base faces now as it turns (heard_seconds_ago is its age). Clearance is what base sensors report now; there is no map. '
                             'path.direct_approach blocked_early means a straight approach will stop at an obstacle first.')}
+
+    def _voice_bearing(self, now=None):
+        """Base-relative bearing of the last located voice, while it is recent."""
+        now = self.clock() if now is None else now
+        telemetry, _ = self.link.snapshot()
+        facing = self._heading(telemetry) if telemetry else None
+        if self._voice is None or facing is None or now - self._voice['at'] > VOICE_MEMORY_S:
+            return None
+        return wrap(self._voice['heading'] - facing)
+
+    def _assist(self, on):
+        """Firmware wall-steering on or off (its own slow and stop zones are untouched).
+
+        Off sets the steering gain to zero: the firmware keeps only its last-resort push
+        away from a wall inside 13 cm. A partial config is applied at once and does not
+        interrupt motion (V2 config_params.cpp)."""
+        if self._assist_gain is None or on == self._assist_on:
+            return
+        try:
+            self.link.send({'cmd': 'config', 'assist_gain': self._assist_gain if on else 0.})
+            self._assist_on = on
+        except ProviderFailure:
+            pass
+
+    @staticmethod
+    def _near_target(space, bearing, range_m=None, stop_at=0.):
+        """The target is ahead and near: what the front sensors see now is the target or
+        stands right before it, so slowing and stopping is wanted, not steering around."""
+        if bearing is None or abs(bearing) > CLOSING_DEG:
+            return False
+        ahead = space.get('front_center_m')
+        return (range_m is not None and range_m - stop_at <= CLOSING_M) or (ahead is not None and ahead <= CLOSING_M)
 
     # Execution -----------------------------------------------------------
     def _check(self, cancel):
@@ -883,10 +945,17 @@ class DriveBase:
 
     def _find_offered(self, step, plan, cancel):
         """Acquire a camera target; if unseen, turn to where it should be and look again."""
-        target = self._acquire(step, plan, cancel)
+        offered = plan.targets.get(step.target) or {}
+        anyone = step.target == 'nearest_person'
+        target = self._acquire(step, plan, cancel, timeout=1.2 if anyone and not offered.get('visible_now', True) else 2.5)
         if target is not None:
             return target, 0., None
-        offered = plan.targets.get(step.target) or {}
+        if anyone:
+            # "Come here" with nobody in view is a request to find the person, never a
+            # refusal (October 3: refused once, then given up on after a wrong turn).
+            search = self._find_person(DriveStep('find_person'), plan, cancel)
+            target = self._acquire(step, plan, cancel) if search['status'] == 'completed' else None
+            return target, search.get('turned_deg', 0.), None if target else 'no_person_found_after_looking_around'
         predicted = self._predicted(offered)
         if predicted is None or offered.get('kind') not in {'face', 'object'}:
             return None, 0., 'target_not_currently_detected'
@@ -1116,12 +1185,16 @@ class DriveBase:
                 space = self.space(now)
                 lin, ang, result, reason = controller.step(now, telemetry, space, current)
                 lin = min(lin, max(.05, controller.speed * self._caution(space)))
+                if current is not None:
+                    # Near the target the firmware must slow him, not steer him off it.
+                    self._assist(not self._near_target(space, current['bearing_deg'], current.get('range_m'), stop_at))
                 if result is None:
                     self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                     self.wait(.15)
         finally:
             self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
             self.link.send({'cmd': 'stop'})
+            self._assist(True)
             if self.sounds:
                 self.sounds.stop()
         return result, reason, controller.travel, last
@@ -1336,6 +1409,7 @@ class DriveBase:
                 if expected is not None and abs(expected) > 40:
                     outcome = ('off_course', 'target_outside_steering_range')
                     break
+                self._assist(not self._near_target(space, expected))
                 ang = 0. if expected is None else max(-.2, min(.2, math.radians(expected)*1.2))
                 lin = max(.05, min(speed * self._caution(space), math.sqrt(2*CONFIG['accel_lin']*max(0., room)),
                                    (budget_m - travelled)/.6))
@@ -1348,6 +1422,7 @@ class DriveBase:
             try:
                 self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
                 self.link.send({'cmd': 'stop'})
+                self._assist(True)
             finally:
                 if self.sounds:
                     self.sounds.stop()
@@ -1466,9 +1541,12 @@ class DriveBase:
         if self._fresh_faces(self.clock()):
             return {**row, 'status': 'completed', 'reason': 'person_already_visible', 'turned_deg': 0.}
         candidates = [b['bearing_deg'] for b in ((self.radar.bodies() if self.radar else None) or [])]
-        speaker = plan.targets.get('speaker')
-        if speaker:
-            candidates.append(speaker['bearing_deg'])
+        # Whoever just spoke is the likeliest person to find: look there before radar bodies.
+        voice = self._voice_bearing()
+        if voice is None and plan.targets.get('speaker'):
+            voice = self._predicted(plan.targets['speaker'])   # Offered at plan time; he may have turned since.
+        if voice is not None:
+            candidates.insert(0, voice)
         prior = self._resolve(step.target, plan, self.clock()) if step.target else None
         if prior is not None:
             candidates.insert(0, prior['bearing_deg'])  # The model's chosen first place to look.
@@ -1584,6 +1662,7 @@ class DriveBase:
                 pass
             if self.sounds:
                 self.sounds.stop(now=True)
+            self._assist(True)   # Never left off after a plan, however it ended.
             if self._parked:
                 self._parked = False
                 self.servos.finish_base_motion()

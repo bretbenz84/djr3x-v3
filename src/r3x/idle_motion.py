@@ -48,6 +48,7 @@ class IdleMotion:
         self.rng = rng or random.Random()
         self.trace = None
         self.face = None           # () -> {'neck': pulse centring the face, 'y': 0..1, 'at': seen} or None
+        self.busy = lambda: False  # True while talking motion owns the servos: idle never competes with it.
         self._lock = threading.Lock()
         self._thread = None
         self._cancel = None
@@ -63,6 +64,7 @@ class IdleMotion:
         self._glance_until = float('-inf')
         self._scan_at = float('-inf')
         self._face_at = float('-inf')
+        self._wake_until = float('-inf')   # After a drive: alive even while he listens or works.
         self._counts = {}          # Phrase outcomes since the last summary row.
         self._report_at = float('-inf')
         self.closed = False
@@ -207,13 +209,34 @@ class IdleMotion:
             self.closed = True
             self._stop()
 
+    def wake(self, seconds=6.):
+        """The wheels just stopped: the head goes back to the people now and the other parts
+        resume, without the usual pause and while the throttle arm is still returning.
+
+        Owner, October 3 (twice): after a drive everything waited for the arm to un-park.
+        Releasing the servos was not enough: idle movement waited two seconds to resume and
+        stayed still whenever he was listening or answering, which is most moments after a
+        drive. For these few seconds neither stills him; the arm is moving anyway."""
+        with self._lock:
+            if self.closed: return
+            now = self.owner.clock()
+            self._wake_until, self._resume, self._allowed = now + seconds, now, True
+            for part in ('head', 'visor', 'elbow', 'wrist', 'poker'):
+                self._due[part] = now
+            self._rest.clear()
+            self._scan_at = now          # With nobody in view he looks around at once.
+            if not self.busy():
+                self._start(now, calm=False)
+
     def tick(self, allowed: bool, calm: bool = False):
         with self._lock:
             if self.closed: return
+            now = self.owner.clock()
+            if now < self._wake_until and not self.busy():
+                allowed, calm = True, False
             if not allowed:
                 self._stop()
                 return
-            now = self.owner.clock()
             if self.trace and now >= self._report_at:
                 # One row per phrase would be about 40 a minute; summarize every half minute.
                 if self._counts:
@@ -228,20 +251,26 @@ class IdleMotion:
             if not self._allowed:
                 self._allowed = True
                 self._resume = now + self.rng.uniform(.6, 1.2)
-            if (now < self._resume or self.owner.state != 'active' or self.owner._motion.is_set()
-                    or getattr(self.owner, '_base_held', False)):
-                return
-            phrase = self._compose(now, calm)
-            if phrase is None:
-                return
-            self._index += 1
-            request = ServoRequest(f'idle:{self._index}', self.owner.version, 'idle', now + 30., idle=phrase)
-            token = self._cancel = Cancellation()
-            def run():
-                result = self.owner.execute(request, token)
-                key = result.status if result.status != 'rejected' else 'rejected:' + str(result.reason)
-                self._counts[key] = self._counts.get(key, 0) + 1
-                if self.trace and result.status == 'failed':
-                    self.trace.emit('idle_motion', parts=[part for part, _ in phrase.parts], **asdict(result))
-            self._thread = threading.Thread(target=run, name='r3x-idle-motion', daemon=True)
-            self._thread.start()
+            self._start(now, calm)
+
+    def _start(self, now, calm):
+        """Begin the next phrase if the owner is free and a part is due (the lock is held)."""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        if (now < self._resume or self.owner.state != 'active' or self.owner._motion.is_set()
+                or getattr(self.owner, '_base_held', False)):
+            return
+        phrase = self._compose(now, calm)
+        if phrase is None:
+            return
+        self._index += 1
+        request = ServoRequest(f'idle:{self._index}', self.owner.version, 'idle', now + 30., idle=phrase)
+        token = self._cancel = Cancellation()
+        def run():
+            result = self.owner.execute(request, token)
+            key = result.status if result.status != 'rejected' else 'rejected:' + str(result.reason)
+            self._counts[key] = self._counts.get(key, 0) + 1
+            if self.trace and result.status == 'failed':
+                self.trace.emit('idle_motion', parts=[part for part, _ in phrase.parts], **asdict(result))
+        self._thread = threading.Thread(target=run, name='r3x-idle-motion', daemon=True)
+        self._thread.start()

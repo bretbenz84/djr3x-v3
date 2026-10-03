@@ -13,8 +13,9 @@ hallway no-reverse rule. No firmware was changed.
   (`turn`, `move`, `face`, `approach`, `find_person`, `seek`). It carries optional
   `say_before`/`say_after` lines, and `look_after` only when the person asked what is
   there or the next move depends on the view.
-  - `nearest_person` is always offered, so "turn around and come to me" works with
-    nobody in view.
+  - `nearest_person` is always offered and always valid: with nobody in view he looks for
+    the person first (toward the last voice, radar bodies, then around). The last located
+    voice is remembered as a room heading, so `speaker` stays correct as he turns.
   - The `gpt-5.6-terra` route planner runs only when a direct approach is already
     blocked.
 - **Seeking described things.** `seek` uses hosted vision looks (gpt-5.4-mini) to find
@@ -33,6 +34,9 @@ hallway no-reverse rule. No firmware was changed.
   - When blocked short of the target he re-aims, then detours on an open side (at most
     twice), then reports blocked.
   - While seeking he never reverses to make arm room. Explicit turns still may.
+- **Closing on a target.** For the last 1.2 m of an approach the host switches the
+  firmware's wall-steering off (gain 0, restored afterwards), so the firmware slows and
+  stops him instead of steering around what he is driving to (October 3; simulated only).
 - **Safety and stance.**
   - The throttle arm parks, the hero elbow (7424) and poker arm (8000) are raised, and
     the head is centred and level, right before the first wheel command. All are held
@@ -641,3 +645,41 @@ with and without room to turn, a wall closing during a guarded leg, an obstacle 
 wheel slip, arrival ending the search, damaged and unknown target ids, a dictated route).
 Unmeasured on the floor: the column geometry against real walls, whether 12 degree turns
 and the slow pace stall on carpet, and how the firmware assist behaves on a guarded leg.
+
+## October 3, second run: "come here"
+
+Owner's run `aa6782c09e1c42bb98390c4ba44c27be` (2.5 minutes, real hardware, with the
+midday repairs loaded): "this needs to work, but currently still feels broken". From the
+log, then the changes. **Simulated base only; not yet run on the robot.**
+
+- **"Can you come over here to me?" was refused.** The model asked to approach
+  `nearest_person`; nobody was in view, and validation rejected the plan
+  (`NearestPersonNeedsTurnOrSearchFirst`) although the voice had been located 88 degrees
+  to his left. The rule is removed. Facing or approaching `nearest_person` with nobody in
+  view now runs the person search itself: the last voice first, then radar bodies, then
+  90 degrees either side and behind; only after that does it report
+  `no_person_found_after_looking_around`.
+- **Turned left a second time and faced away.** He turned 88 degrees to the voice and a
+  face was straight ahead. "Turn that way and come towards" was spoken while that turn
+  was still running, so it carried no voice direction, no `speaker` target was offered,
+  and the model repeated the "88 degrees left" it had just said. The approach then gave
+  up at once (`target_not_currently_detected`). Now the drive owner keeps the last
+  located voice as a room heading for two minutes and offers `speaker` relative to where
+  he faces now (it reads "straight ahead" in the simulated repeat of this case), each utterance's
+  bearing is applied once, the instructions say not to add a turn from an angle mentioned
+  earlier, and an approach that finds nobody looks toward that voice before giving up.
+- **The firmware steered him away near the person.** Its assist steers toward the open
+  side whenever a front return is within 0.9 m, which near a target is the target. The
+  host now sends `config assist_gain 0` when the target is within 20 degrees of straight
+  ahead and either its range is within 1.2 m of the stop distance or something is within
+  1.2 m straight ahead, and restores the gain when the approach ends, the plan ends or the
+  link closes. The firmware's slow zone, stop zone and its push away from a wall inside
+  13 cm are untouched. The default gain (2.0, V2 `calib.h`) is also pushed at every
+  connect, so a run that died mid-approach cannot leave steering off. No firmware change;
+  V2 `config_params.cpp` at `fb96f08` shows a partial config applies at once without
+  interrupting motion.
+
+Verification: 5 new simulated checks (come here from out of view, the voice heading after
+turning, the logged extra turn, nobody found, the steering switch and its restore).
+Unmeasured: how the base tracks straight with steering off on the real floor, and the
+voice heading's accuracy (the array's bearing varied by tens of degrees in earlier runs).

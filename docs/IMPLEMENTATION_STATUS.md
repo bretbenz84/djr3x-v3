@@ -28,9 +28,19 @@ run on the robot**. One read-only live sensor reading was taken at the owner's i
   wheels stop; the throttle arm returns in the background
   ([servo integration](SERVO_INTEGRATION.md#october-3-the-head-is-free-the-moment-a-drive-ends)).
 
-Verification: **959 blocked-I/O checks pass** (82.4 seconds; fake clocks, pulses, drive and
-providers; 19 are new and 5 existing seek checks also run with tucked arms). No hosted model was called. Live acceptance of every item above is
-pending.
+Second run `aa6782c09e1c42bb98390c4ba44c27be` (afternoon, with those repairs loaded):
+
+- **"Come over here" refused, then a second turn left him facing away.** Approaching the
+  nearest person now looks for them (last voice, radar, around) instead of being refused or
+  giving up; the last voice is kept as a room heading so it stays right after he turns.
+- **Firmware steered him aside near the person.** Its wall-steering is switched off for the
+  last 1.2 m of an approach and restored after; it still slows and stops him.
+- **Servos still seemed to wait for the arm.** They were free but idle movement resumed two
+  seconds late and not at all while he listened; it now starts the instant the wheels stop.
+
+Verification: **966 blocked-I/O checks pass** (86.4 seconds; fake clocks, pulses, drive and
+providers; 26 are new today and 5 existing seek checks also run with tucked arms). No
+hosted model was called. Live acceptance of every item above is pending.
 
 ## Feeling alive: live-run repairs — October 3 (evening)
 

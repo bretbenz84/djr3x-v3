@@ -153,6 +153,38 @@ class IdleTests(unittest.TestCase):
         self.idle.close();self.clock.wait(30);self.idle.tick(True)
         self.assertEqual(len(self.port.targets),count)
 
+    def test_waking_after_a_drive_moves_at_once_even_while_he_listens_or_works(self):
+        # October 3 (aa6782c0): the servos were free when the wheels stopped, but idle waited
+        # two seconds to resume and stayed still while the owner spoke; the head looked locked
+        # until the arm had finished returning.
+        self.execute('startup');self.port.packets.clear()
+        self.idle.tick(False)                      # He is listening: normally still.
+        self.assertIsNone(self.idle._thread)
+        self.idle.wake()
+        self.assertIsNotNone(self.idle._thread)    # No pause: the first phrase starts now.
+        self.idle._thread.join(5)
+        moved={ch for ch,_ in self.commands()}
+        self.assertTrue(moved & {0,1,2})           # The head leads.
+        before=len(self.port.targets)
+        for _ in range(40):                        # Still "listening" (allowed False) for 4 s...
+            self.idle.tick(False,True)
+            if self.idle._thread: self.idle._thread.join(5)
+            self.clock.wait(.1)
+        self.assertGreater(len(self.port.targets),before)   # ...and he keeps moving.
+        self.clock.wait(6.)
+        self.idle.tick(False)
+        count=len(self.port.targets)
+        self.clock.wait(5.);self.idle.tick(False)
+        self.assertEqual(len(self.port.targets),count)      # Afterwards listening stills him again.
+
+    def test_waking_never_competes_with_talking_motion(self):
+        self.execute('startup');self.port.packets.clear()
+        self.idle.busy=lambda:True
+        self.idle.wake()
+        self.assertIsNone(self.idle._thread)
+        self.idle.tick(False)
+        self.assertIsNone(self.idle._thread)
+
     def test_calm_keeps_the_view_settled_and_the_array_still(self):
         # While Rex listens for a reply or works on one, idle life continues without
         # view-changing head moves or microphone-arm swings.
