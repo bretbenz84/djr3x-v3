@@ -15,7 +15,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
-                          UNPOWERED_REST, expressive_lanes)
+                          UNPOWERED_REST, expressive_lanes, IdlePhrase)
 
 BASE_HELD = frozenset({0, 1, 2, 4, 6, *THROTTLE})   # Neck, head, hero elbow, poker arm, throttle.
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
@@ -33,7 +33,7 @@ class ServoRequest:
     primitive: str = 'tilt'
     intensity: str = 'subtle'
     hold_seconds: float = .5
-    face_neck: int | None = None   # Idle: neck pulse of the face in front, when one is visible
+    idle: IdlePhrase | None = None  # Idle: which parts move in this phrase and where the gaze points
     hold_pose: bool = True        # Human poses persist; agency poses never acquire a hold.
 
 
@@ -79,7 +79,11 @@ class ServoOwner:
         self.camera_moving = False
         self.commanded: dict[int, int] = {}   # Last pulses sent or read back; camera bearings use the neck.
         self.talking_neck: int | None = None  # Gaze anchor for the current reply's talking lanes.
+        self.talking_tilt: int | None = None  # Head pitch the talking sway centres on for this reply.
+        self.gaze_tilt: int | None = None     # Pitch the idle gaze last chose (a face, a held look); None is level.
         self.microphone_moved_until = 0.       # Channel 7 carries the microphone array.
+        self.microphone_still_since = float('-inf')  # When the array arm last stopped moving.
+        self.head_moved_at = float('-inf')     # When the head last finished a view-changing move.
         self.energized_channels: tuple[int, ...] = ()  # Channels that were off at start.
 
     def start(self) -> None:
@@ -168,32 +172,42 @@ class ServoOwner:
     def refresh_microphone_hold(self):
         """Bounded 30-second lease, centered before any qualifying robot capture.
 
-        Idle excursions can target channel 7 and invalidate the hold. Motion wins
-        the lock; learning waits for recentering and a new settled hold.
+        The hold is about the array arm (channel 7) resting at its calibrated centre.
+        Other joints' idle movement does not move the array and no longer releases the
+        hold (October 3: with continuous idle motion it would never have been valid);
+        their noise is judged separately per capture (motion_risk). Idle excursions of
+        channel 7 itself invalidate the hold; learning waits for recentering and a new
+        settled hold.
         """
         if self.clock() < self.microphone_hold[1] or not self._lock.acquire(blocking=False):
             return
         try:
-            if self.state != 'active' or not self._bus or self.motion_risk() or 7 in self.held_channels:
+            if self.state != 'active' or not self._bus or 7 in self.held_channels:
                 return
             center = sum(LIMITS[7]) // 2
             current = self._bus.positions((7,))[7]
             validate_pose({7:current})
-            if abs(current-center) > 2:
-                self._motion.set()
-                self.on_motion()
-                self._bus.profiles({7:(22,6)})
-                self._bus.targets({7:center})
-                self.commanded[7] = center
-                self.microphone_moved_until = self.clock() + 5.5
-                deadline = self.clock() + 5.
-                while abs(self._bus.positions((7,))[7]-center)>2:
-                    if self._cancel.is_set() or self.clock() >= deadline:
-                        self._hold({7})
-                        raise ProviderFailure('MicrophoneCenterNotCompleted')
-                    self.wait(.025)
+            if abs(current-center) <= 2:
+                now = self.clock()
+                self.microphone_hold = (max(now, self.microphone_still_since+1.5), now+30.)
+                return
+            if self.motion_risk():
+                return   # Recentre once the other joints have settled.
+            self._motion.set()
+            self.on_motion()
+            self._bus.profiles({7:(22,6)})
+            self._bus.targets({7:center})
+            self.commanded[7] = center
+            self.microphone_moved_until = self.clock() + 5.5
+            deadline = self.clock() + 5.
+            while abs(self._bus.positions((7,))[7]-center)>2:
+                if self._cancel.is_set() or self.clock() >= deadline:
+                    self._hold({7})
+                    raise ProviderFailure('MicrophoneCenterNotCompleted')
+                self.wait(.025)
             now = self.clock()
             self.motion_until = now + 1.5
+            self.microphone_still_since = now
             self.microphone_hold = (now+1.5, now+30.)
         except Exception:
             self.release_microphone_hold()
@@ -225,6 +239,7 @@ class ServoOwner:
             return receipt('rejected', 'ServoBusy')
         touched = set()
         accepted = False
+        reframed = False
         try:
             if self.state not in {'ready', 'active', 'stopped'} or self._bus is None:
                 return receipt('rejected', 'ServoUnavailableOrParked')
@@ -239,8 +254,9 @@ class ServoOwner:
             cancel.check()
             current = self._bus.positions(LIMITS)
             validate_pose(current)
-            lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels, self.talking_neck) if request.kind == 'talking' else
-                     idle_lanes(current,self.rng,self.held_channels,request.face_neck) if request.kind == 'idle' else
+            lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels, self.talking_neck,
+                                   self.talking_tilt) if request.kind == 'talking' else
+                     idle_lanes(current,self.rng,self.held_channels,request.idle) if request.kind == 'idle' else
                      expressive_lanes(current,request.kind,request.target,request.primitive,request.intensity,
                                       request.hold_seconds,self.held_channels) if request.kind in {'attention','gesture'} else
                      pose_lanes(request.pose,current) if request.kind == 'pose' else
@@ -262,12 +278,14 @@ class ServoOwner:
                 self.held_channels.update(BASE_HELD)
                 self._base_held = True
             accepted = True
-            self.release_microphone_hold()
+            if any(ch == 7 for lane in lanes for beat in lane for ch, _ in beat.targets):
+                self.release_microphone_hold()   # Only the array arm's own movement ends its hold.
             self._motion.set()
             self.state = 'parking' if request.kind in {'park', 'shutdown'} else 'moving'
             # Each lane owns disjoint channels. One loop owns every wire operation.
             indices = [0] * len(lanes)
             active = {}
+            resting = {}   # (lane, beat) -> when a staggered beat may start
             while len(completed) < len(lanes) or active:
                 cancel.check()
                 if self._cancel.is_set():
@@ -281,6 +299,8 @@ class ServoOwner:
                             continue
                     if lane_id not in active:
                         beat = lane[indices[lane_id]]
+                        if beat.wait > 0 and now < resting.setdefault((lane_id, indices[lane_id]), now + beat.wait):
+                            continue
                         targets = dict(beat.targets)
                         observed = self._bus.positions(targets)
                         validate_pose(observed)
@@ -293,9 +313,11 @@ class ServoOwner:
                             raise Cancelled()
                         if self.clock() >= request.expires_at:
                             raise ProviderFailure('ServoRequestExpired')
-                        if {0,1,2}.intersection(changes) and not self.camera_moving:
-                            self.camera_moving = True
-                            self.on_camera_motion(True, request.request_id, request.kind)
+                        if {0,1,2}.intersection(changes) and beat.reframes:
+                            reframed = True
+                            if not self.camera_moving:
+                                self.camera_moving = True
+                                self.on_camera_motion(True, request.request_id, request.kind)
                         touched.update(targets)  # Include partially sent batches on failure.
                         self._bus.targets(targets)
                         changed.update(changes)
@@ -372,6 +394,9 @@ class ServoOwner:
                     self.motion_until = self.clock() + .5
                     if self.microphone_moved_until == float('inf'):
                         self.microphone_moved_until = self.motion_until
+                        self.microphone_still_since = self.clock()
+                    if reframed:
+                        self.head_moved_at = self.clock()
                     self._motion.clear()
                 self._lock.release()
 
@@ -413,6 +438,7 @@ class TalkingMotion:
             self.owner.talking_neck = self.gaze() if self.gaze else None
         except Exception:
             self.owner.talking_neck = None
+        self.owner.talking_tilt = self.owner.gaze_tilt   # Not wherever the last sway stopped.
         def run():
             index = 0
             while not self._token.event.is_set():

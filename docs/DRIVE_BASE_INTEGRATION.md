@@ -557,3 +557,13 @@ motion or charge-assert command was sent. The battery LaunchAgent was stopped fo
 upload, then restored successfully and confirmed holding the serial port again.
 This supersedes the pre-upload status above. Physical unplug timing and L1+R1
 reproduction remain untested because the operator is away.
+
+## October 3: pace
+
+Owner request: his wheel moves "could be slower if desired... some variety in speed would
+also help, even while turning". Each drive step takes an optional `pace`: `slow` (60% of
+the approved 0.25 m/s and 45 degrees per second), `easy` (80%) or `normal`. It only scales
+downward; clearance, limits and firmware caps are unchanged, and turn timeouts lengthen
+with the slower rate. The model chooses it per step and is told to vary it. Checked with
+the simulated base only: confirm on the robot that a 27 degree-per-second turn does not
+stall on carpet.

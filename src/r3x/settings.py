@@ -31,7 +31,7 @@ class Settings:
     camera_framerate: float = 30.0
     record_evaluation: bool = False
     agency_planner_model: str = "gpt-5.6-terra"
-    proactive_lull_seconds: float = 8.0
+    proactive_lull_seconds: float = 5.0
     scene_observations_enabled: bool = True
     object_memory_enabled: bool = False
     news_feed_urls: tuple[str, ...] = ("https://feeds.bbci.co.uk/news/rss.xml",)

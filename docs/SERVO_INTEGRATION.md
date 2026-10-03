@@ -96,6 +96,75 @@ physical adapters after successful robot startup, accepting only controller puls
 receipts. See [agency increment 2](AGENCY_IMPLEMENTATION_PLAN.md#increment-2-implementation--october-1-2026)
 for finite trajectories, held-pose priority, cancellation and camera settling limits.
 
+## October 3: continuous idle life and gaze
+
+Supersedes the scheduling and head behaviour in the two September sections below (their
+ranges and the single servo owner are kept). **Not yet run on the robot.**
+
+Live run `30ec1b04` (10.4 minutes): the idle scheduler waited 4-9 quiet seconds, then one
+request moved eight channels together. It ran 15 times; 5 were cut short by his own beats
+and 6 by a phantom transcript of their own noise. The owner: "He sits motionless for a
+while, then suddenly all the servos move at the same time", and asked for slow, measured
+movement that is always going on and is not just back and forth.
+
+**Idle life** (`idle_motion.py`, `servo_poses.idle_lanes`). Each part keeps its own rhythm:
+head every 1-3 s, wrist 4-10 s, elbow 5-12 s, visor 6-14 s, poker arm 6-15 s, throttle arm
+9-20 s, the microphone-carrying hero arm 30-60 s. A phrase moves the one to three parts
+that are due, each starting 0.4-1.3 s after the last, then pauses 0.3-0.7 s. Every move
+goes somewhere new (a bounded step from where the joint is, not a swing between two ends)
+at Maestro speeds 5-18, a third to a half of the September idle; the visor sometimes does a
+slow half-blink and the wrist sometimes rolls past and eases back. The visor stays in its
+speaking range (6000-6750), above the camera. Hero-arm excursions are smaller (700-1400
+from centre, was 1300-2000) and slower. No new servo writer: one request, one executor;
+lanes may now start after a wait.
+
+**Gaze.** Two modes, chosen by the conversation model:
+
+- *Following people* (default). With a face in view the head moves half of the way toward
+  centring it on each step (V2's centring gain 0.5 and dead zone), on the neck and the
+  tilt, aiming to keep the face 40% of the way down the picture so the body is in view (in
+  the live run the owner's face sat about 75% down, his body below the frame). Every 7-16 s
+  it glances 12-24 degrees aside for 1.4-2.8 s and comes back, as V2's gaze engine did;
+  the owner found V2's constant tracking creepy. With nobody in view it looks around the
+  room every 6-13 s and drifts in between.
+- *Holding a chosen direction.* After Rex's own `look_*` pose or silent look, the head
+  stays there with small living movement for up to 30 s, or until the model uses the new
+  `look_at_people` step, someone speaks (the voice reflex), or a drive ends. A look a
+  person asked for is still a held pose (90 s against his own moves, until released).
+
+`robot_pose_state.gaze` tells the model which mode is active. Talking sways around the
+pitch the gaze chose instead of snapping back to level for each line.
+
+**Camera and listening.** Head moves under about 5 degrees no longer count as a new camera
+view, so scene settling, planner frames and arrival greetings are not reset by small
+movement; larger looks still do. While Rex is transcribing or working on a reply, idle life
+continues but stays calm: no view-changing head moves and no hero-arm swings. Confirmed
+speech still stops idle movement at once.
+
+**Microphone hold.** The hold that qualifies a capture for voice learning now tracks the
+array arm (channel 7) only: other joints moving no longer release it, since with continuous
+idle movement it would never have been valid. Their noise still marks the capture
+(`motion_risk`) and keeps it out of learning. A hero-arm move ends the hold and a new one
+waits 1.5 s after the arm stops.
+
+**His own noise.** See [core operations](CORE_OPERATIONS.md) and `runtime.py`: a sound that
+starts while his servos move is suspected self-noise until it has 0.25 s of continuous
+voiced audio or 0.4 s within a second. Until then it does not stop idle movement, yield a
+beat or hold up his initiative. The capture is still transcribed; a trusted transcript of
+an unconfirmed capture is marked untrusted unless recognized clearly (average log
+probability at least -0.1) or it is a stop or shutdown command. A suspected capture open
+3.5 s gets a still moment so it can end.
+
+Evidence: 935 blocked-I/O checks, with fake pulses and clocks covering staggered starts,
+speed and range bounds, small versus view-changing head moves, face following with dead
+zone, glances and stale-frame rejection, room scanning, held directions, calm mode, the
+array-arm hold and the self-noise rules. In a simulated ten minutes the scheduler started
+464 phrases with at most 3.7 s between starts; real moves take longer, so the robot will
+run fewer. **Unverified on the robot:** how the motion looks, whether following is
+comfortable, whether slow moves are quiet enough for the microphone, vertical aim (the
+tilt scale is V2's estimate), clearance of the hero wrist (4600-7400, just beyond its talking
+range) and poker arm while the throttle arm moves, servo temperature under continuous use, and voice-learning coverage.
+
 ## Idle arms and elbow lifecycle
 
 The user requested random hero/poker arm movement while awake. A low-priority

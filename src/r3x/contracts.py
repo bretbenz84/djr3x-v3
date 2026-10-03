@@ -51,6 +51,7 @@ class Capture:
     source_offset: float = 0.  # Derived PCM offset in the independently retained original.
     robot_microphone_hold: bool | None = None  # None: non-robot capture; True: bounded hold covered full PCM.
     motion_risk: bool = False
+    self_noise_risk: bool = False  # Only brief sounds, all while Rex's own servos or wheels moved.
 
 
 @dataclass(frozen=True)

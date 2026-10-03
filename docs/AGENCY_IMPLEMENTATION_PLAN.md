@@ -1,8 +1,10 @@
 # Rex's own goals
 
 Status, October 3, 2026: implemented in software, reviewed and repaired (see "Review
-repairs" below), and checked with the hosted probe on fictional inputs. **Live acceptance
-on the robot is pending.** This replaces the October 1
+repairs" below), and checked with the hosted probe on fictional inputs. The first live run
+of this design (`30ec1b04`) was judged a big improvement by the owner; his criticisms are
+addressed under "Live run October 3" below and **those changes have not yet run on the
+robot.** This replaces the October 1
 "persistent narrative and step plan" design, whose history is summarized at the end.
 
 ## Why the October 1 design was replaced
@@ -56,12 +58,14 @@ look, inspect and drive.
    and one current low-detail camera frame (the latest settled frame, even when that view
    was already offered or is unchanged). A reply never waits for planning and human
    speech never cancels it; an explicit stop does.
-4. With a live goal, one beat runs at each eligible lull (eight seconds of quiet by default,
+4. With a live goal, one beat runs at each eligible lull (five seconds of quiet by default,
    plus the beat's own 3-45 second delay). Luna performs it with fresh context and the
    offered tool, adapting it to whatever was just said.
-5. **Easing off.** Each spoken beat nobody answers adds to the wait before the next one
-   (0, 15, 30, 60, 120, 240 seconds, then five minutes). Any human speech or a new arrival
-   restores the lively pace. A new goal is planned at most 20 seconds before it is due.
+5. **Easing off.** Each spoken beat nobody answers adds to the wait before the next
+   spoken beat (0, 10, 20, 40, 80 seconds, then two minutes). A beat that needs no words
+   (pose, look, drive) is not delayed, and it is performed silently once two lines have
+   gone unanswered. Any human speech or a new arrival restores the lively pace. A new goal
+   is planned at most 20 seconds before it is due.
 
 **What steers it.** Human turns no longer end the goal. The reply model sees the goal
 (`agency_plan`: objective and next beat) and may move it along when it fits. A goal about
@@ -123,6 +127,32 @@ instead of twelve.
 
 **Pose holds.** A pose a person asked for blocks Rex's own poses and drives for 90
 seconds, then yields to his initiative. "Release" and new requests work as before.
+
+## Live run October 3: feeling alive
+
+Session `30ec1b046fb749558934ca55b50ffc06` (10.4 minutes, real hardware, the owner alone):
+8 planner calls, 11 saved goals (3 were improvised after a revision), 19 beats started,
+12 self-initiated lines heard, 29 spoken phrases in all, one self-initiated drive. Against
+the October 1 baseline (40 planner calls, 2 lines) the owner said Rex "finally feels like
+he has agency". What he still disliked, what the trace showed, and what changed:
+
+| Owner's criticism | In the trace | Change |
+| --- | --- | --- |
+| "Sits there not doing anything for what feels like forever" when nobody talks | Gaps of 24-65 s between his lines; two beats were cancelled by phantom "Okay."/"What." (his own servo noise) and each then waited its full 15 s pause | Lull 5 s (was 8); planner pauses usually 3-8 s; an interrupted beat retries in 4 s; easing off caps at 2 minutes and delays talking only; brief sounds during his own motion no longer cancel a beat |
+| Moved on his own once | 1 drive beat in 19; the planner preferred poses and looks | Most goals include a drive beat; a plain turn or short roll counts; moves may be silent |
+| "Doesn't always have to announce why" | The one drive was followed by an explanation | Silent drive, pose and look beats are encouraged; required once two lines go unanswered |
+| Did not turn toward a voice from the side | One utterance at 92° was skipped by the head reflex as "behind"; when asked to turn he searched 250° the long way | A voice 50° or more off-centre prompts a body turn (`face` the `speaker` target) with the reply spoken first; the model may skip it when something else has his interest |
+| Room and furniture instead of people; never mentioned the owner standing there in his underwear | Goals: the couch, wall art, a chair, a window (twice); the camera sat high, with the face about three quarters down the frame | Planner and reply instructions put people first and anything out of the ordinary about them above all; decor is a last resort and never twice running; the idle gaze frames the face in the upper part of the picture so the camera sees the person |
+| Wheel moves always at one speed | Fixed 0.25 m/s and 45°/s | Each drive step takes a pace: slow (60%), easy (80%) or normal |
+
+Also found in the trace and fixed: the performer ended three impersonal goals with
+`revise_agency_plan` for no real reason, and each fell back to the same remark about the
+owner's car bumper (three times). Only a goal about a person can now be revised (they left
+or refused); the improvised beat is told not to return to the subject of his last two lines.
+
+Not verified: none of this has run on the robot or against the hosted models. Whether the
+planner now notices people, how often it drives, whether silent moves read as alive rather
+than aimless, and what the changes cost are all open until the next run.
 
 ## Review repairs (October 3)
 

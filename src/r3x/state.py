@@ -181,14 +181,15 @@ class CoreState:
                 if raw['stop_at_m'] is not None and not .4 <= raw['stop_at_m'] <= 2.5:
                     raise ValueError('DriveStopDistanceOutOfRange')
                 steps.append(DriveStep(action, target='sought', stop_at_m=raw['stop_at_m'],
-                                       description=(raw.get('description') or '').strip() or None))
+                                       description=(raw.get('description') or '').strip() or None, pace=raw.get('pace')))
                 continue
             if action == 'turn' and not 1 <= raw['degrees'] <= limits['turn_deg']:
                 raise ValueError('DriveTurnOutOfRange')
             if action == 'move' and not .05 <= raw['meters'] <= limits['total_m']:
                 raise ValueError('DriveMoveOutOfRange')
             if action == 'seek':
-                steps.append(DriveStep('seek', description=raw['description'].strip(), prefer=raw['direction']))
+                steps.append(DriveStep('seek', description=raw['description'].strip(), prefer=raw['direction'],
+                                       pace=raw.get('pace')))
                 continue
             if (action in {'face', 'approach'} or raw['target'] is not None) and raw['target'] not in offered:
                 raise ValueError('DriveTargetNotOffered')
@@ -207,7 +208,7 @@ class CoreState:
             sign = -1. if raw['direction'] in {'right', 'backward'} else 1.
             steps.append(DriveStep(action, sign*raw['degrees'] if raw['degrees'] is not None else None,
                                    sign*raw['meters'] if raw['meters'] is not None else None,
-                                   raw['target'], raw['stop_at_m']))
+                                   raw['target'], raw['stop_at_m'], pace=raw.get('pace')))
         if meters > limits['total_m'] or degrees > limits['total_turn_deg']:
             raise ValueError('DrivePlanExceedsLimits')
         if args['look_after'] is not None and not context.get('inspection_enabled'):

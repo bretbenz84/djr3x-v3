@@ -54,7 +54,7 @@ class InitiativeCoreTests(MemoryFixture):
         snapshot = self.brain.snapshots[-1]
         self.assertEqual(snapshot.context['trigger'],'reconsideration')
         self.assertEqual(snapshot.speaker,'unresolved')
-        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)},{'respond_with_intent','revise_agency_plan'})
+        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)},{'respond_with_intent'} | ({'revise_agency_plan'} if snapshot.context['agency_step']['scope']=='audience' else set()))
         users = [m['content'] for m in snapshot.messages if m.get('role')=='user']
         self.assertEqual(users,['Rex, we finally fixed the camera.'])
         self.assertEqual(self.store.rows('SELECT * FROM turns'),sources)
@@ -301,7 +301,7 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.state.initiative.outcomes[-1]['response'],'not_applicable')
 
     def test_lull_setting_validates_and_is_consumed(self):
-        self.assertEqual(Settings().proactive_lull_seconds,8)
+        self.assertEqual(Settings().proactive_lull_seconds,5)
         for invalid in (True,0,float('nan'),121):
             with self.assertRaises(ValueError):Settings(proactive_lull_seconds=invalid)
         self.setup_core();self.runtime.lull_seconds=10;self.turn()

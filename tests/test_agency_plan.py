@@ -172,7 +172,9 @@ class PlanTests(memory_tests.MemoryFixture):
         self.setup_owner();self.tick(100)
         context=self.executor.snapshots[0].context
         names={x['name'] for x in grounded_tools(context)}
-        self.assertEqual(names,{'respond_with_intent','revise_agency_plan'})
+        # Only a goal about a person can lose its premise; an impersonal beat is simply done.
+        self.assertEqual(names,{'respond_with_intent'} if context['agency_step']['scope']=='general'
+                         else {'respond_with_intent','revise_agency_plan'})
 
     def test_conversation_bursts_and_feeds_do_not_exhaust_a_rolling_attempt_budget(self):
         self.setup_owner()
@@ -594,6 +596,52 @@ class GoalTests(memory_tests.MemoryFixture):
         self.assertEqual(result.status,'completed')
         self.assertEqual(self.state.agency.record['scope'],'general')
 
+    def test_ignored_rex_talks_less_but_keeps_doing(self):
+        # Owner, October 3: with nobody answering he sat "not doing anything for what feels
+        # like forever". Easing off now delays spoken beats only; a silent move is not delayed,
+        # the performer is told to keep it wordless, and the planner hears how his lines landed.
+        from r3x.agency import SILENT_KINDS
+        from r3x.output import Delivery
+        self.setup_owner()
+        agency=self.state.agency
+        steps=[{'kind':'contribute','instruction':'Tease.','evidence_ids':[],'delay_seconds':4},
+               {'kind':'pose','instruction':'Look left, silently.','evidence_ids':[],'delay_seconds':4},
+               {'kind':'contribute','instruction':'Opine.','evidence_ids':[],'delay_seconds':4}]
+        agency.install({**draft(),'steps':steps},'[]',{},['contribute','pose'],agency.revision,100)
+        agency.unanswered=3
+        self.assertEqual(agency.engagement()['unanswered_lines'],3)
+        heard=Delivery(status='completed',medium='audio');heard.completed_text=['A line.']
+        agency.finish(agency.step(100),heard,None,100)
+        self.assertIn('pose',SILENT_KINDS)
+        self.assertEqual(agency.due_at,104)                    # The move comes after its breathing room only.
+        self.assertEqual(agency.step(104)['unanswered_lines'],4)
+        moved=Delivery(status='suppressed',medium='none')
+        agency.finish(agency.step(104),moved,{'kind':'set_robot_pose','executor':{'status':'pulses_reached','changed_channels':[0]}},104)
+        self.assertEqual(agency.unanswered,4)                  # A silent move is not another unanswered line.
+        self.assertEqual(agency.due_at,104+4+agency.ease_seconds())   # Talking again waits.
+        self.assertEqual(agency.ease_seconds(),40.)
+        agency.unanswered=20
+        self.assertEqual(agency.ease_seconds(),120.)           # Two minutes at most; it was five.
+
+    def test_an_unheard_beat_cut_off_by_a_sound_is_retried_within_seconds(self):
+        # Live October 3: a noise cancelled a beat and its 15-second breathing room was then waited.
+        from r3x.output import Delivery
+        self.setup_owner()
+        agency=self.state.agency
+        steps=[{'kind':'contribute','instruction':'Ask.','evidence_ids':[],'delay_seconds':15}]
+        agency.install({**draft(),'steps':steps},'[]',{},['contribute'],agency.revision,100)
+        agency.finish(agency.step(100),Delivery(status='interrupted',medium='none'),None,100)
+        self.assertEqual(agency.record['outcomes'][-1]['status'],'interrupted')
+        self.assertEqual(agency.due_at,104)
+
+    def test_planner_is_told_how_his_lines_landed_and_to_look_at_people_first(self):
+        from r3x.agency import PLANNER_INSTRUCTIONS
+        self.setup_owner();self.tick(100)
+        self.assertEqual(self.planner.requests[0]['engagement']['unanswered_lines'],0)
+        for phrase in ('LOOK AT THE PEOPLE FIRST','NOT wearing','out of the ordinary','never twice running',
+                       'completely silent','pace (slow, easy, normal)','look_at_people','unanswered_lines'):
+            self.assertIn(phrase,PLANNER_INSTRUCTIONS)
+
     def test_unanswered_lines_ease_off_and_any_reply_restores_the_pace(self):
         # Review October 3: with a face in view he spoke every 15-25 seconds indefinitely.
         self.setup_owner()
@@ -774,6 +822,43 @@ class PlannerAdapterTests(memory_tests.unittest.TestCase):
         self.assertFalse(payload['store'])
         self.assertEqual([t['name'] for t in payload['tools']],['compose_agency_plan'])
 
+    def reply_payload(self, context):
+        from r3x.adapters.hosted import OpenAIBrain
+        from tests.test_adapters import Client, Response
+        from r3x.contracts import Snapshot, Cancellation
+        response=Response([{'type':'response.output_item.done','item':{
+            'type':'function_call','call_id':'quiet','name':'remain_silent','arguments':json.dumps({'reason':'other_addressee'})}},
+            {'type':'response.completed','response':{}}])
+        brain=OpenAIBrain('fake-key');brain.client=Client(response)
+        list(brain.reply(Snapshot('s','t',0,({'role':'user','content':'Hey Rex.'},),context=context,tools_enabled=True),Cancellation()))
+        payload=brain.client.calls[0][1]['json']
+        return payload,' '.join(str(row.get('content')) for row in payload['input'] if row.get('role')=='developer')
+
+    def test_a_voice_beyond_the_head_turn_asks_for_a_body_turn_and_a_voice_in_front_does_not(self):
+        # Owner, October 3: facing away, he answered a voice from the side without turning
+        # until told to ("can you turn over to face me?"), then searched the long way round.
+        def drive(bearing):
+            return {'available':True,'origin':'requested','limits':{},'targets':[
+                {'target_id':'speaker','kind':'voice_direction','bearing_deg':bearing,'where':'to your left'}]}
+        base={'conversation_intent':{'revision':0},'people':[],'faces':[],'source_turn_id':'t'}
+        _,notes=self.reply_payload({**base,'drive':drive(92)})
+        self.assertIn('FACE THE SPEAKER',notes)
+        self.assertIn('say_before',notes)
+        _,notes=self.reply_payload({**base,'drive':drive(20)})
+        self.assertNotIn('FACE THE SPEAKER',notes)
+        _,notes=self.reply_payload({**base,'drive':{**drive(120),'available':False}})
+        self.assertNotIn('FACE THE SPEAKER',notes)
+
+    def test_the_model_can_choose_the_gaze_and_a_drive_pace(self):
+        from r3x.semantics import TOOLS, validate
+        pose=next(t for t in TOOLS if t['name']=='set_robot_pose')
+        self.assertIn('look_at_people',pose['parameters']['properties']['poses']['items']['enum'])
+        self.assertIn('follows the nearest face',pose['description'])
+        drive=next(t for t in TOOLS if t['name']=='drive_base')
+        pace=drive['parameters']['properties']['steps']['items']['properties']['pace']
+        self.assertEqual(pace['enum'],['slow','easy','normal',None])
+        validate('set_robot_pose',{'poses':['look_left','look_at_people'],'look_after':None,'say_before':None,'text':None})
+
     def test_cheaper_execution_requires_step_action_or_explicit_revision(self):
         from r3x.adapters.hosted import OpenAIBrain
         from tests.test_adapters import Client, Response
@@ -782,7 +867,7 @@ class PlannerAdapterTests(memory_tests.unittest.TestCase):
             'type':'function_call','call_id':'change','name':'revise_agency_plan','arguments':json.dumps({'reason':'A real boundary changed.'})}},
             {'type':'response.completed','response':{}}])
         brain=OpenAIBrain('fake-key');brain.client=Client(response)
-        context={'trigger':'reconsideration','agency_step':{'kind':'contribute'},
+        context={'trigger':'reconsideration','agency_step':{'kind':'contribute','scope':'audience'},
                  'conversation_intent':{'revision':0},'people':[],'faces':[]}
         result=list(brain.reply(Snapshot('s','t',0,(),context=context,tools_enabled=True),Cancellation()))
         self.assertEqual(result[0].name,'revise_agency_plan')

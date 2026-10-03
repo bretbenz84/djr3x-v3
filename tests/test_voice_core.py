@@ -462,3 +462,102 @@ class VoiceReflexRuntimeTests(unittest.TestCase):
         with patch('sys.stdin.isatty', return_value=False):
             runtime.run()
         self.assertEqual(faced, [25., 25.])   # One turn per utterance, none per frame.
+
+
+class SelfNoiseRuntimeTests(unittest.TestCase):
+    """October 3 run 30ec1b04: Rex's own servo noise was heard as "Okay." and "Oh."; each
+    froze his idle movement, several cancelled his own beats and two cost a reply call."""
+    def run_frames(self, parts, transcripts):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        import time
+        trace = Trace()
+        session = Session("session", Brain(), OutputOwner(SyntheticTTS(), SyntheticSink(), trace), trace)
+        self.addCleanup(session.close)
+        labels, frames = [], []
+        for speech, count, motion in parts:
+            for _ in range(count):
+                i = len(frames)
+                labels.append(speech)
+                frames.append(Frame(bytes(1024), 200+i*.032, 200+(i+1)*.032, False, motion))
+        self.noted, self.yielded, self.idle_allowed = [], [], []
+        outer = self
+        answers = list(transcripts)
+        class Mic:
+            dropped = status_errors = 0
+            def read(inner):
+                if not frames:
+                    deadline = time.monotonic()+3
+                    while time.monotonic() < deadline and (not runtime.captures.empty() or runtime.asr_busy.is_set()
+                            or not runtime.turns.empty() or session._processing.locked()):
+                        time.sleep(.01)
+                    runtime.stop.set(); return None
+                frame = frames.pop(0)
+                trace.at = frame.ended_at
+                return frame
+            def cancel(inner): pass
+        class VAD:
+            def reset(inner): pass
+            def is_speech(inner, pcm): return labels.pop(0)
+        class ASR:
+            def transcribe(inner, *args): return answers.pop(0)
+        class Robot:
+            reflex = SimpleNamespace(stop=lambda: None)
+            idle = SimpleNamespace(stop=lambda: None)
+            owner = SimpleNamespace(release_microphone_hold=lambda: None)
+            def note_speech(inner): outer.noted.append(trace.at)
+            def before_frame(inner, **kw): outer.idle_allowed.append((trace.at, kw['allow_idle']))
+            def capture_held(inner, capture): return False
+        original = session.note_speech
+        session.note_speech = lambda at, sustained=True: (self.yielded.append(at), original(at, sustained))
+        runtime = VoiceRuntime(Mic(), VAD(), ASR(), session, trace, robot=Robot())
+        with patch('sys.stdin.isatty', return_value=False):
+            runtime.run()
+        self.session, self.trace_rows = session, trace.rows
+        return [r for r in trace.rows if r['event'] == 'capture']
+
+    def test_a_brief_sound_during_his_own_motion_neither_stills_him_nor_becomes_a_turn(self):
+        captures = self.run_frames([(True, 3, True), (False, 50, True)], [Transcript('Okay.', -.25, True)])
+        self.assertEqual([c['self_noise_risk'] for c in captures], [True])    # Still captured and transcribed.
+        self.assertEqual(self.noted, [])                 # Idle movement was never stopped for it...
+        self.assertTrue(all(allowed for _, allowed in self.idle_allowed[1:]))
+        self.assertEqual(self.yielded, [])               # ...and no beat or reply yielded to it.
+        distrusted = [r for r in self.trace_rows if r['event'] == 'transcript_distrusted']
+        self.assertEqual(len(distrusted), 1)
+        self.assertEqual(self.session.brain.calls, 0)    # No reply call for his own noise.
+        self.assertTrue(any(r['event'] == 'untrusted_not_answered' for r in self.trace_rows))
+
+    def test_speech_during_his_motion_is_confirmed_within_a_quarter_second_and_answered(self):
+        captures = self.run_frames([(True, 30, True), (False, 50, False)], [Transcript('Tell me a joke.', -.05, True)])
+        self.assertEqual([c['self_noise_risk'] for c in captures], [False])
+        self.assertTrue(self.noted)
+        self.assertAlmostEqual(self.noted[0]-200, .256, delta=.04)    # He goes still to listen.
+        self.assertFalse(any(allowed for at, allowed in self.idle_allowed if 200.4 < at < 200.9))
+        self.assertEqual(self.session.brain.calls, 1)
+        self.assertFalse(any(r['event'] == 'transcript_distrusted' for r in self.trace_rows))
+
+    def test_a_sound_in_stillness_and_a_clearly_heard_word_keep_their_usual_trust(self):
+        # Not during his motion: confirmed at once, as before.
+        captures = self.run_frames([(True, 2, False), (False, 50, False)], [Transcript('Yes.', -.25, True)])
+        self.assertEqual([c['self_noise_risk'] for c in captures], [False])
+        self.assertEqual(len(self.noted), 2)
+        self.assertEqual(self.session.brain.calls, 1)
+        # During his motion but recognized clearly: still a turn.
+        self.run_frames([(True, 4, True), (False, 50, True)], [Transcript('Yes.', -.02, True)])
+        self.assertEqual(self.session.brain.calls, 1)
+
+    def test_a_short_stop_during_his_motion_still_stops_him(self):
+        self.run_frames([(True, 5, True), (False, 50, True)], [Transcript('Stop.', -.3, True)])
+        self.assertFalse(any(r['event'] == 'transcript_distrusted' for r in self.trace_rows))
+        self.assertTrue(any(r['event'] == 'input_invalidated' for r in self.trace_rows))
+
+    def test_a_suspected_capture_that_stays_open_gets_a_still_moment_to_end(self):
+        # Blips every half second keep the capture open; after 3.5 s idle pauses so it can close.
+        parts = []
+        for _ in range(12):
+            parts += [(True, 1, True), (False, 15, True)]
+        self.run_frames(parts + [(False, 50, True)], [Transcript('Oh.', -.8, False)])
+        early = [allowed for at, allowed in self.idle_allowed if at < 203.]
+        late = [allowed for at, allowed in self.idle_allowed if 204.5 < at < 206.]
+        self.assertTrue(all(early[1:]))
+        self.assertFalse(any(late))

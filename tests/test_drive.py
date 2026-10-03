@@ -267,6 +267,17 @@ class DriveOwnerTests(unittest.TestCase):
         self.assertEqual(len(turns), 1)
         self.assertEqual(turns[0]['rate'], 45.)
 
+    def test_pace_slows_turns_and_moves_and_never_exceeds_the_approved_speed(self):
+        # Owner, October 3: his moves need not always be the same speed, turns included.
+        self.start()
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=30., pace='slow'), DriveStep('move', meters=.3, pace='easy'),
+                                          DriveStep('turn', degrees=-30.), DriveStep('move', meters=.3, pace='normal')), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+        turns = [c['rate'] for c in self.fake.commands if c['cmd'] == 'turn']
+        moves = [c['speed'] for c in self.fake.commands if c['cmd'] == 'move']
+        self.assertEqual(turns, [27., 45.])
+        self.assertEqual([round(v, 3) for v in moves], [.2, .25])
+
     def test_move_is_shortened_to_front_clearance(self):
         self.start()
         self.world.objects.append(('object-a', 'chair', 1.27, 0.))  # 1.0 m of front clearance.

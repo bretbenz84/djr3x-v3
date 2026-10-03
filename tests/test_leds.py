@@ -66,7 +66,30 @@ class LEDTests(unittest.TestCase):
         self.clock.wait(.1);self.led.tick()
         self.assertEqual(len(self.ports['head'].commands),before)
         self.clock.wait(.5);self.led.tick()
-        self.assertEqual(len(self.ports['head'].commands),before+1)
+        self.assertEqual(self.ports['head'].commands[before:],['SPEAK:neutral','SPEAK_LEVEL:0'])
+
+    def test_mouth_start_is_repeated_so_one_lost_command_cannot_darken_a_whole_line(self):
+        # Owner, October 3: the mouth animation fired inconsistently. The head board drops
+        # serial bytes while repainting; SPEAK: was sent once per phrase.
+        token=self.led.begin(speaking=True)
+        head=self.ports['head'].commands
+        starts=lambda: sum(c=='SPEAK:neutral' for c in head)
+        self.assertEqual(starts(),1)
+        for _ in range(3):
+            self.clock.wait(.13);self.led.pcm(b'\x00\x40'*1024,self.clock());self.led.tick()
+        self.assertEqual(starts(),3)
+        # Every repeat restarts the firmware level at zero, so the level follows it at once.
+        for index,command in enumerate(head):
+            if command=='SPEAK:neutral' and index>head.index('SPEAK:neutral'):
+                self.assertTrue(head[index+1].startswith('SPEAK_LEVEL:'))
+        for _ in range(40):
+            self.clock.wait(.05);self.led.tick()
+        self.assertEqual(starts(),5)   # Then once a second while he keeps talking.
+        self.assertEqual(self.led.finish(token),'commands_sent')
+        count=starts()
+        self.clock.wait(2.);self.led.tick()
+        self.assertEqual(starts(),count)   # Never after the phrase ends.
+        token=self.led.begin(speaking=True)
         self.assertEqual(self.led.finish(token),'commands_sent')
         self.assertEqual(self.ports['head'].commands[-4:],['SPEAK_STOP']*3+['ACTIVE'])
 

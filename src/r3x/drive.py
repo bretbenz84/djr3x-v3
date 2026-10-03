@@ -51,6 +51,10 @@ NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box i
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
 FILLS_VIEW = .6
 TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns used 40.
+# Owner request October 3: his moves need not always be the same speed, turns included.
+# The model picks a pace per step; these scale the approved speed and turn rate downward
+# only. Unverified on the robot: confirm the slow turn does not stall on carpet.
+PACE = {'slow': .6, 'easy': .8, 'normal': 1., None: 1.}
 # Owner feedback September 27: stopping 4-5 ft away was too far.
 DEFAULT_STOP_AT = {'face': .8, 'nearest_person': .8, 'object': .6, 'radar_body': .9, 'voice_direction': .9}
 # Pushed at every connect; config can only lower firmware hard caps.
@@ -79,6 +83,7 @@ class DriveStep:
     stop_at_m: float | None = None
     description: str | None = None   # seek: what to look for, in the person's words.
     prefer: str | None = None        # seek: sweep left or right first.
+    pace: str | None = None          # slow, easy or normal (None): scales this step's speed and turn rate.
 
 
 @dataclass(frozen=True)
@@ -301,6 +306,7 @@ class DriveBase:
         self.on_motion = []         # callables(plan_or_none), before and after base motion
         self.sounds = None          # MotionSounds: whir while the wheels move, accents at the end
         self._origin = 'requested'
+        self._pace = 1.
         self.trace = None
         self.reflex_allowed = lambda: True
         self._lock = threading.Lock()
@@ -611,8 +617,9 @@ class DriveBase:
             if not allowed:
                 return {**row, 'status': 'refused', 'reason': note}
         before, before_odom = self._heading(telemetry), self._odom_heading(telemetry)
-        status, reason, _ = self._finite({'cmd': 'turn', 'deg': round(allowed, 1), 'rate': TURN_RATE},
-                                         max(8., abs(allowed)/TURN_RATE + 8.), cancel)
+        rate = round(TURN_RATE * self._pace, 1)
+        status, reason, _ = self._finite({'cmd': 'turn', 'deg': round(allowed, 1), 'rate': rate},
+                                         max(8., abs(allowed)/rate + 8.), cancel)
         row.update(commanded_deg=round(allowed, 1), status=status, reason=note if status == 'completed' else reason)
         measured = odom = None
         if status == 'completed' and verify and before is not None and abs(allowed) <= 170:
@@ -666,7 +673,7 @@ class DriveBase:
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
         start = self._telemetry().get('odom') or {}
-        speed = speed or LIMITS[plan.origin]['speed_mps']
+        speed = speed or LIMITS[plan.origin]['speed_mps'] * self._pace
         status, reason, done = self._finite({'cmd': 'move', 'dist': round(allowed, 2), 'speed': speed},
                                             max(8., abs(allowed)/speed + 10.), cancel)
         end = (done or {}).get('odom') or self._telemetry().get('odom') or {}
@@ -970,7 +977,7 @@ class DriveBase:
         """One closed-loop run toward a camera target; returns (result, reason, travel, last seen)."""
         self._ensure_parked(cancel)
         controller = Approach(self.clock(), 'face' if kind in {'face', 'nearest_person'} else 'object',
-                              stop_at, LIMITS[plan.origin]['speed_mps'], budget_m)
+                              stop_at, LIMITS[plan.origin]['speed_mps'] * self._pace, budget_m)
         result, reason, last = None, None, None
         if self.sounds:
             self.sounds.start('move', self._origin)
@@ -1021,7 +1028,7 @@ class DriveBase:
         self._ensure_parked(cancel)
         start = self._telemetry().get('odom') or {}
         hold = self._heading(self._telemetry())
-        speed = LIMITS[plan.origin]['speed_mps']
+        speed = LIMITS[plan.origin]['speed_mps'] * self._pace
         outcome, travelled = 'distance', 0.
         if self.sounds:
             self.sounds.start('move', self._origin)
@@ -1161,7 +1168,7 @@ class DriveBase:
         description = self._sought['description']
         self._ensure_parked(cancel)
         start = self._telemetry().get('odom') or {}
-        speed = LIMITS[plan.origin]['speed_mps']
+        speed = LIMITS[plan.origin]['speed_mps'] * self._pace
         pool = ThreadPoolExecutor(1, thread_name_prefix='r3x-cruise-locate')
         future, latest, misses, outcome, travelled = None, None, 0, None, 0.
         looked_at = float('-inf')
@@ -1392,6 +1399,7 @@ class DriveBase:
             for step in plan.steps:
                 self._check(cancel)
                 current, step_odom = step, (self.link.snapshot()[0] or {}).get('odom') or {}
+                self._pace = PACE.get(step.pace, 1.)
                 ok, reason = self.availability()
                 if not ok:
                     receipt.steps.append({'action': step.action, 'status': 'refused', 'reason': reason})

@@ -353,6 +353,11 @@ WHAT YOU SEE
   room; claim a change only when previous_conditions is supplied.
 
 YOUR OWN GOALS
+People before furniture. What catches your eye first is the people. When you can see them and something is
+out of the ordinary (what someone is wearing or not wearing, holding or doing; anything odd, new or changed
+in the room), say so and tease them warmly about it, by name: "Bret, why are you in your underwear?" is the
+kind of thing a friend says. Keep it affectionate and about the choice or the situation, never their body.
+Ordinary decor is a last resort, and never the subject twice running.
 You are not a chatbot waiting for input. You keep a goal of your own: catching up with someone you know,
 getting to know someone new, investigating something in the room that caught your eye, or livening up a
 dead moment. When people talk to you, answer them first, fully and naturally, in one generation (usually
@@ -535,6 +540,8 @@ class OpenAIBrain(HTTPProvider):
                  if snapshot.context.get('visual_arrival',{}).get('startup_greeting') else
                  'These images show the person who just arrived. Greet them now, even if the scene contains '
                  'nothing novel; one visible detail may flavor the hello, but never list what you see. '
+                 'If something about them is out of the ordinary (what they are wearing or not wearing, '
+                 'carrying or doing), tease them about it warmly as part of the hello. '
                  if snapshot.context.get('trigger')=='visual_arrival' else
                 'The attached images are optional perception, not a new request from a person. '
                 'Nobody has spoken since the preceding conversation. Decide whether to contribute '
@@ -587,8 +594,22 @@ class OpenAIBrain(HTTPProvider):
                 'Never claim movement resumed using ordinary prose alone. Put a quick acknowledgment such as "On it" in say_before, '
                 'spoken before moving; text is spoken only after every step succeeds. '
                 'When someone starts talking, a reflex already turns your head toward them. Other physical pose requests likewise require the tool.')
+        drive_context = snapshot.context.get('drive') or {}
+        voice = next((t for t in drive_context.get('targets', ()) if t.get('target_id') == 'speaker'), None)
+        if (voice and drive_context.get('available') and not snapshot.continuation
+                and not snapshot.context.get('agency_step') and abs(voice.get('bearing_deg') or 0) >= 50):
+            # Owner, October 3: facing away, he answered a voice from the side or behind
+            # without turning until asked ("can you turn over to face me?").
+            notes.append('\nFACE THE SPEAKER: the person who just spoke is ' + str(voice.get('where')) +
+                ', further round than your head can turn. If they were talking to you, turn your body to face them as '
+                'part of this reply: one drive_base call with the single step action face, target speaker (a turn '
+                'of that size, never a full search), your whole spoken reply in say_before so they hear the answer '
+                'first, say_after null, and no announcement of the turn. Skip the turn when the words were not for you, '
+                'when you were asked to stay put or be still, when this turn needs a different tool, or when you are '
+                'in the middle of something that honestly interests you more; then just answer.')
         if snapshot.context.get('drive') and not snapshot.continuation:
-            notes.append('\nWheeled base: you can drive with drive_base. Moving is part of how you express yourself. '
+            notes.append('\nWheeled base: you can drive with drive_base. Each step takes a pace (slow, easy or normal): '
+                'vary it to suit the moment instead of always moving at one speed.  Moving is part of how you express yourself. '
                 'When it genuinely adds something, roll toward someone who just arrived, turn to face a voice from outside '
                 'your camera view, or go get a closer look at what is being discussed. Do not move on every turn. Your own '
                 'moves may cross the room toward something interesting: the base stops for obstacles and its time-of-flight '
@@ -647,6 +668,13 @@ class OpenAIBrain(HTTPProvider):
                 'question. Never announce what is visible ("I see a clock"); ask about its story or react to it. Do not default '
                 'to music bits. The private narrative is character perspective, never text to recite or evidence. '
                 'A general-scope beat stays public: friendly questions are welcome, but no private memory, quotes or personal facts. '
+                'If an attached camera image shows something out of the ordinary about a person (what they are '
+                'wearing or not wearing, holding or doing), that outranks the planned line: point it out and tease them. '
+                'When agency_step.unanswered_lines is 2 or more, nobody has answered your recent lines: do a pose, look or '
+                'drive beat without a word (text, say_before and say_after null) and keep any other beat to one short line. '
+                'Drive steps take a pace: slow or easy for a stroll, a creep or a lazy swivel, normal to get somewhere; '
+                'do not always move at the same speed. After looking away at something, look_at_people in a later pose '
+                'returns your eyes to the people. '
                 'Do the action rather than promising it. A contribution is ordinary spoken language via respond_with_intent; '
                 'set intent_update=null. Silent look, pose and drive beats need no narration; drive and pose beats may use '
                 'say_before/say_after or look_after when a line or a look makes the moment. When the beat says to ask or say '

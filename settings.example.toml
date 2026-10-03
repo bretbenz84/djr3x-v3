@@ -43,9 +43,10 @@ camera_height = 720
 camera_framerate = 30.0
 
 # Conversation worker: consider a lull after this much silence and completed work.
-# Default 8-second lull floor for plan advancement; valid 3-120. No camera/face required.
+# Default 5-second lull floor for plan advancement; valid 3-120. No camera/face required.
+# (8 seconds until October 3, when the owner found Rex's own pacing too slow.)
 # Saved plan step delays also apply; model/TTS time adds to this eligibility interval.
-proactive_lull_seconds = 8.0
+proactive_lull_seconds = 5.0
 
 # Optional live WAV retention for human labeling. Accepted enrollment audio is
 # always kept atomically in the core DB; this retains all endpointed test captures.

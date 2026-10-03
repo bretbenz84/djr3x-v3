@@ -684,38 +684,15 @@ class SurroundingsTests(unittest.TestCase):
 
 
 class IdleHeadTests(unittest.TestCase):
-    def test_looks_at_the_face_in_front_or_around_and_never_while_driving(self):
+    def test_idle_never_moves_the_head_while_the_base_holds_it_for_driving(self):
+        # Gaze behavior itself is covered in tests/test_idle_motion.py.
         import random
-        from r3x.servo_poses import LIMITS, NECK_CENTER, idle_lanes
+        from r3x.servo_poses import LIMITS, IdlePhrase, idle_lanes
         current = {ch: (low + high)//2 for ch, (low, high) in LIMITS.items()}
         current.update({8: 4200, 9: 7720, 10: 5120})
-        rng = random.Random(4)
-        heads = lambda face: [dict(l[0].targets) for l in idle_lanes(current, rng, face_neck=face) if 0 in dict(l[0].targets)]
-        facing = [heads(4000)[0][0] for _ in range(40)]
-        self.assertGreater(sum(abs(n - 4000) <= 40 for n in facing), 20)      # Mostly on the face...
-        self.assertTrue(any(abs(n - 4000) > 40 for n in facing))               # ...with glances away.
-        around = [heads(None)[0] for _ in range(40)]
-        self.assertGreater(max(h[0] for h in around) - min(h[0] for h in around), 3000)   # Left and right.
-        self.assertGreater(max(h[2] for h in around) - min(h[2] for h in around), 500)    # Up and down.
-        self.assertTrue(all(abs(h[0] - NECK_CENTER) <= 35*77.6 for h in around))
-        driving = idle_lanes(current, rng, held=frozenset({0, 1, 2, 4, 6, 8, 9, 10}), face_neck=4000)
-        self.assertFalse(any({0, 1, 2}.intersection(dict(l[0].targets)) for l in driving))
-
-    def test_idle_forwards_visible_face_to_the_servo_owner(self):
-        from r3x.idle_motion import IdleMotion
-        calls = []
-        class Owner:
-            state, version, held_channels = 'active', 1, set()
-            clock = staticmethod(lambda: 100.)
-            def motion_risk(self): return False
-            def execute(self, request, cancel):
-                calls.append(('execute', request.face_neck))
-        idle = IdleMotion(Owner())
-        idle.face = lambda: 4100
-        idle._allowed, idle._next = True, 0.
-        idle.tick(True)
-        idle._thread.join(1.)
-        self.assertEqual(calls, [('execute', 4100)])
+        driving = idle_lanes(current, random.Random(4), held=frozenset({0, 1, 2, 4, 6, 8, 9, 10}),
+                             phrase=IdlePhrase((('head', 0.), ('wrist', 0.), ('poker', 0.)), ((0, 4000),)))
+        self.assertEqual([{ch for ch, _ in lane[0].targets} for lane in driving], [{5}])
 
 
 class PlanValidationRepairTests(unittest.TestCase):
@@ -751,6 +728,14 @@ class PlanValidationRepairTests(unittest.TestCase):
         from tests.test_drive_session import step
         plan = self.propose(step('find_person', target='nearest_person'), step('approach', target='nearest_person'))
         self.assertEqual([s.action for s in plan.steps], ['find_person', 'approach'])
+
+    def test_a_step_pace_is_validated_and_reaches_the_plan(self):
+        from tests.test_drive_session import step
+        plan = self.propose({**step('turn', degrees=40), 'pace': 'slow'},
+                            step('move', meters=.5), {**step('find_person'), 'pace': None})
+        self.assertEqual([s.pace for s in plan.steps], ['slow', None, None])
+        with self.assertRaises(ValueError):
+            self.propose({**step('move', meters=.5), 'pace': 'warp'})
 
     def test_a_foot_then_ten_feet_fits_in_one_requested_plan(self):
         from tests.test_drive_session import step

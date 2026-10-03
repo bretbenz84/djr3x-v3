@@ -16,6 +16,16 @@ YIELD_VOICED_SECONDS = .5
 # direction must still be clear (3+ strong samples, one dominant beam), which the
 # single-frame noises heard as "Oh." rarely were.
 REFLEX_VOICED_SECONDS = .3
+# A sound that starts while Rex's own servos move is suspected self-noise until it lasts
+# like speech. Live October 3 (30ec1b04): 6 of 10 idle moves were heard as "Okay."/"Oh."
+# (0.03-0.42 s voiced); each froze idle motion, several cancelled his own beats and two
+# cost a reply call. Real utterances in that run had at least 0.74 s voiced. A suspected
+# sound is still captured and transcribed (nothing is discarded); it just does not stop
+# his movement or his initiative, and its transcript needs clearer recognition to be trusted.
+CONFIRM_RUN_SECONDS = .25      # Continuous voiced time that confirms speech during motion.
+CONFIRM_RECENT_SECONDS = .4    # Or this much voiced time within the last second.
+SUSPECT_OPEN_SECONDS = 3.5     # A suspected capture open this long gets a still moment to end.
+SELF_NOISE_LOGPROB = -.1       # Trust floor for a suspected capture (the usual floor is lower).
 # How long the idle tick waits for a just-started goal plan before returning to listening.
 # Hosted planning takes seconds and finishes in the background; this bounds the pause.
 PLANNING_GLANCE_SECONDS = .25
@@ -45,6 +55,7 @@ class VoiceRuntime:
         self.robot = robot
         self.drive = drive
         self._initiative_gate = None
+        self.speech_confirmed = False   # The forming capture has lasted like speech, or began in stillness.
 
     def cancel(self, quiet=False):
         if self.robot:
@@ -118,6 +129,18 @@ class VoiceRuntime:
                         self.trace.emit("transcript_rejected", capture_id=part.capture_id, reason="stale")
                         break
                     command = transcript.text.strip().lower().rstrip('.!?')
+                    shutdown = command in {'shut down','shutdown','rex shut down','rex, shut down','shut down rex'}
+                    if (capture.self_noise_risk and transcript.trusted and not shutdown
+                            and not is_stop_command(transcript.text)
+                            and (transcript.avg_logprob is None or transcript.avg_logprob < SELF_NOISE_LOGPROB)):
+                        # Lower confidence, not a discard: the words stay in the trace and
+                        # history evidence, but a brief sound made while his own servos
+                        # moved does not become a turn unless it was recognized clearly.
+                        transcript = replace(transcript, trusted=False)
+                        if perceived:
+                            perceived = replace(perceived, transcript=transcript)
+                        self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
+                                        reason='brief_sound_during_own_motion', avg_logprob=transcript.avg_logprob)
                     if transcript.trusted and command in {'shut down','shutdown','rex shut down','rex, shut down','shut down rex'}:
                         self.trace.emit('shutdown_requested',source='voice',capture_id=part.capture_id)
                         self.stop.set()
@@ -192,7 +215,7 @@ class VoiceRuntime:
                     'startup' if now-self.started_at < 2 else
                     'audio_unavailable' if not 0 <= now-self.audio_seen_at <= .5 else
                     'human_work_pending' if self.asr_busy.is_set() or not self.captures.empty() or
-                        not self.turns.empty() or bool(self.endpoint.frames) else
+                        not self.turns.empty() or (self.speech_confirmed and bool(self.endpoint.frames)) else
                     'unresolved_speech' if self.session._latest_speech > self.session.resolved_audio_at and
                         now-self.session._latest_speech < self.lull_seconds else
                     'explicit_stop_or_human_floor' if now < self.session.proactive_hold_until else
@@ -378,6 +401,9 @@ class VoiceRuntime:
         vad_fresh_at = None
         direction = getattr(self.perception, 'direction', None)
         reflexed = False
+        run = 0.                 # Continuous voiced time ending at the latest frame.
+        from collections import deque
+        recent = deque()         # (ended_at, seconds) of voiced frames in the last second.
         next_resources = 0.
         next_visual = 0.
         # Nonblocking terminal input is polled alongside frames; no orphan stdin worker.
@@ -385,11 +411,18 @@ class VoiceRuntime:
         try:
             while not self.stop.is_set():
                 if self.robot:
-                    capturing = bool(self.endpoint.frames)
+                    frames = self.endpoint.frames
+                    # Confirmed speech stills him to listen. A suspected sound does not,
+                    # unless it keeps the capture open: then a still moment lets it end.
+                    capturing = bool(frames) and (self.speech_confirmed or
+                        self.audio_seen_at - frames[0].started_at >= SUSPECT_OPEN_SECONDS)
                     conversation_busy = self.session._processing.locked() and not self.session.preparing_plan
-                    self.robot.before_frame(capturing=capturing or conversation_busy, allow_idle=(
-                        not capturing and self.captures.empty() and self.turns.empty()
-                        and not self.asr_busy.is_set() and not conversation_busy
+                    # Idle life continues while he thinks or works; it stays calm then
+                    # (no view-changing head moves, the microphone arm at rest).
+                    working = (conversation_busy or self.asr_busy.is_set() or not self.captures.empty()
+                               or not self.turns.empty())
+                    self.robot.before_frame(capturing=capturing or conversation_busy, calm=working, allow_idle=(
+                        not capturing
                         and not (self.drive is not None and self.drive.motion_risk())
                         and self.trace.clock()-self.audio_seen_at<=.5))
                 now = self.trace.clock()
@@ -429,11 +462,13 @@ class VoiceRuntime:
                         gap_seconds=frame.started_at-previous_end if previous_end is not None else None,
                         utterance_discarded=bool(self.endpoint.frames))
                     self.endpoint.reset()
+                    self.speech_confirmed = False
                     self.vad.reset()
                     previous_dropped = counts
                 previous_end = frame.ended_at
                 if frame.started_at <= self.cancel_before:
                     self.endpoint.reset()
+                    self.speech_confirmed = False
                     continue
                 # Silero's recurrent state drifted numb after long echo/servo noise
                 # (September 27: live 2 speech frames where a fresh model found 30).
@@ -447,13 +482,23 @@ class VoiceRuntime:
                     vad_fresh_at = frame.started_at
                 previous_echo = frame.echo_risk
                 speech = self.vad.is_speech(frame.pcm)
-                if speech and self.robot:
-                    # Even motion-contaminated VAD activity stops decorative idle
-                    # motion. Existing echo/hold guards still exclude it from learning.
+                seconds = frame.ended_at - frame.started_at
+                run = run + seconds if speech else 0.
+                while recent and frame.ended_at - recent[0][0] > 1.:
+                    recent.popleft()
+                if speech:
+                    recent.append((frame.ended_at, seconds))
+                    if (not frame.motion_risk or frame.echo_risk or run >= CONFIRM_RUN_SECONDS
+                            or sum(s for _, s in recent) >= CONFIRM_RECENT_SECONDS):
+                        self.speech_confirmed = True
+                if speech and self.robot and self.speech_confirmed:
+                    # Speech stops decorative idle motion so the rest is heard cleanly.
+                    # Existing echo/hold guards still exclude it from learning.
                     self.robot.note_speech()
                 health.observe(frame,speech,self.endpoint.frames,
                     vad_probability=getattr(self.vad,'last_probability',None))
-                if speech and not frame.echo_risk and not (self.drive is not None and self.drive.moving.is_set()):
+                if (speech and self.speech_confirmed and not frame.echo_risk
+                        and not (self.drive is not None and self.drive.moving.is_set())):
                     # Motor noise or talk while the wheels run does not yield the plan;
                     # the capture still becomes a turn, and a spoken stop still halts.
                     voiced = (self.endpoint.voiced if self.endpoint.frames else 0.) + frame.ended_at - frame.started_at
@@ -467,11 +512,14 @@ class VoiceRuntime:
                             if outcome != 'started':
                                 self.trace.emit('voice_reflex_skipped', reason=outcome,
                                                 bearing_deg=round(evidence['bearing_deg'], 1))
+                confirmed = self.speech_confirmed
                 capture = self.endpoint.push(frame, speech)
                 if not self.endpoint.frames:
                     reflexed = False
+                    self.speech_confirmed = False
                 if capture:
-                    capture = replace(capture,device=getattr(self.mic,"source_device",getattr(self.mic,"device_name","configured_microphone")))
+                    capture = replace(capture,device=getattr(self.mic,"source_device",getattr(self.mic,"device_name","configured_microphone")),
+                                      self_noise_risk=not confirmed)
                     if self.robot:
                         capture = replace(capture,robot_microphone_hold=self.robot.capture_held(capture))
                     if self.recorder:
@@ -479,7 +527,8 @@ class VoiceRuntime:
                     self.trace.emit("capture", capture_id=capture.capture_id,
                         started_at=capture.started_at, ended_at=capture.ended_at,
                         speech_ended_at=capture.speech_ended_at, truncated=capture.truncated,
-                        echo_risk=capture.echo_risk, motion_risk=capture.motion_risk, pcm_bytes=len(capture.pcm),
+                        echo_risk=capture.echo_risk, motion_risk=capture.motion_risk,
+                        self_noise_risk=capture.self_noise_risk, pcm_bytes=len(capture.pcm),
                         vad_voiced_seconds=sum(b-a for a,b in capture.voiced_intervals),
                         robot_microphone_hold=capture.robot_microphone_hold)
                     self.enqueue(self.captures, (capture, self.session.revision), "captures")

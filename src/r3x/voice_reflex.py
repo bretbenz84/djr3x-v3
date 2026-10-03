@@ -33,6 +33,7 @@ class VoiceReflex:
         self.owner = owner
         self.trace = None
         self.faces = None          # () -> fresh face boxes in the current camera frame
+        self.on_voice = lambda: None   # A voice in front returns the idle gaze to people.
         self._lock = threading.Lock()
         self._thread = None
         self._cancel = None
@@ -46,6 +47,7 @@ class VoiceReflex:
                 return 'unavailable'
             if abs(bearing) > FORWARD_DEG:
                 return 'behind'
+            self.on_voice()
             if self._thread is not None and self._thread.is_alive():
                 return 'already_turning'
             aim = bearing

@@ -395,8 +395,8 @@ on recent conversation. Greeting wording comes from the LLM, not Python template
 Recognition alone never identifies the acoustic speaker or saves a new identity.
 
 Expect an initial opportunity after at least eight seconds of startup and three
-seconds of stable face observations, with eight seconds free of detected speech
-by default (the configured lull interval). After a conversation, allow that same
+seconds of stable face observations, with five seconds free of detected speech
+by default (the configured lull interval; eight until October 3). After a conversation, allow that same
 interval after completed work. Queued audio/transcripts, ASR
 work, a pending name question, and an explicit stop prevent new greetings. Silence
 choices also impose a two-minute pause. Greetings are limited to one attempt per
@@ -427,7 +427,7 @@ handles immediate human replies and executes successive plan steps. A stronger c
 occurs only for plan creation/revision. Hosted checks exercise actual models with
 fictional evidence and simulated playback; real-room acceptance remains pending.
 
-`proactive_lull_seconds` is the lull floor (default 8.0, valid 3–120). Private
+`proactive_lull_seconds` is the lull floor (default 5.0, valid 3–120). Private
 preparation begins after two quiet seconds without consuming a speech opportunity;
 output waits for the lull floor and step delay. No camera, visible person or new
 observation is required. Planning can overlap the lull; model/TTS latency still applies. Feeds and camera inputs

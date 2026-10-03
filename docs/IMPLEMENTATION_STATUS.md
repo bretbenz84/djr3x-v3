@@ -6,6 +6,41 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Feeling alive: live-run repairs — October 3 (evening)
+
+The owner's run `30ec1b046fb749558934ca55b50ffc06` (10.4 minutes, real hardware) was the
+first he called a big improvement: 8 goals planned, 19 beats started, 12 self-initiated
+lines heard, one self-initiated drive. His criticisms and what changed, all in software and
+**none of it yet run on the robot** (details in [Rex's own goals](AGENCY_IMPLEMENTATION_PLAN.md#live-run-october-3-feeling-alive)
+and [servo integration](SERVO_INTEGRATION.md#october-3-continuous-idle-life-and-gaze)):
+
+- **Motionless, then every servo at once.** Idle movement ran 15 times in ten minutes and
+  each run moved eight channels together. It is now continuous: each body part has its own
+  slow rhythm and one to three parts move at a time, starting at different moments.
+- **His own servo noise was heard as speech.** 6 of 10 idle moves produced a phantom
+  "Okay."/"Oh.", which froze the movement, cancelled his own beats and twice cost a reply
+  call. Brief sounds during his own motion no longer stop him or his initiative and need
+  clearer recognition to count as a turn. Nothing is discarded.
+- **Gaze.** The head follows the nearest face (V2's proportional centring), framed so the
+  camera sees the person, with glances away; the model can point it somewhere instead and
+  return it with `look_at_people`.
+- **Slow pacing when nobody answers.** The lull is 5 s (was 8), beat pauses are shorter, an
+  interrupted beat retries in 4 s (was up to 15), easing off caps at two minutes (was five)
+  and delays talking only: silent moves continue.
+- **Moved on his own only once; furniture over people.** The planner now looks at the
+  people first (anything out of the ordinary, such as what someone is or is not wearing),
+  treats decor as a last resort, includes a drive in most goals, may move without a word,
+  and chooses a pace for each drive step.
+- **Did not turn to a voice from the side.** A voice beyond the head's reach now prompts a
+  body turn as part of the reply, unless something else has his interest.
+- **Mouth animation missed some lines.** The start command was sent once per phrase over
+  a link the head board is known to drop bytes on; it is now repeated.
+
+Verification: **935 blocked-I/O checks pass** (75.4 seconds; fake clocks, pulses, LEDs,
+drive and providers). No hardware ran and no hosted model was called for this change, so
+the planner's new choices, the performer's use of pace, gaze and silence, the real servo
+noise level and the mouth fix are all unmeasured until the next robot run.
+
 ## Goal initiative review repairs — October 3
 
 A code review of the October 2 goal implementation found twelve problems; all but one are

@@ -17,7 +17,7 @@ Three commits on `main`, compared with the previous design at `0222341`:
 
 ```sh
 git diff 0222341 HEAD -- src tests tools      # about 1,700 lines added, 540 removed
-.venv/bin/python tools/run_checks.py          # 914 checks, blocked I/O, about 70 s
+.venv/bin/python tools/run_checks.py          # 935 checks (after the October 3 live-run repairs), blocked I/O, about 75 s
 ```
 
 Nothing here has run on the robot. Evidence is the contract suite (fake clocks, providers,

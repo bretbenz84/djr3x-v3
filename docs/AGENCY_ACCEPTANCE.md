@@ -84,3 +84,16 @@ and a plant target, rejected humor). It uses live Terra/Luna calls, fake servo/b
 transports, synthetic playback and an accelerated clock. It records actual words, goals,
 pulse changes and drive receipts. It does not establish hearing, real perception, physical
 movement or wall-clock pacing.
+
+## Feeling-alive run (October 3 changes)
+
+Compare the next robot run with `30ec1b04` (10.4 minutes: 12 self-initiated lines, 1
+self-initiated drive, 15 idle moves of which 6 produced a phantom transcript, longest
+stretch without a line about 65 seconds). Record: `idle_motion_summary` rows (phrases per
+half minute and the gaze mode), captures marked `self_noise_risk` and `transcript_distrusted`
+rows (and any real short reply that was distrusted), beats cancelled as `human_speech`
+with no real speech, drive beats and their paces, silent beats, `FACE THE SPEAKER` turns
+taken or skipped, goal subjects (people versus decor), `led_delivery` rows against
+lines where the mouth stayed dark, and voice-learning captures with a valid microphone hold.
+The owner judges whether the movement is continuous without being fidgety, whether face
+following is comfortable rather than creepy, and whether the servo noise is acceptable.

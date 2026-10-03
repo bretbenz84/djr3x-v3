@@ -21,3 +21,12 @@ def addressee_neck(faces, neck_deg, speaker_id=None, speaker_direction=None):
         return None
     bearing = max(-MAX_GAZE_DEG, min(MAX_GAZE_DEG, bearing))
     return round(NECK_CENTER - bearing*NECK_PULSES_PER_DEG)
+
+
+def face_aim(faces, neck_deg):
+    """Where the idle gaze finds the nearest (largest) face: the neck pulse centring it,
+    how far down the frame it sits (0 top, 1 bottom) and when it was seen."""
+    if not faces:
+        return None
+    face = max(faces, key=lambda f: f['box'][2]*f['box'][3])
+    return {'neck': addressee_neck([face], neck_deg), 'y': face['box'][1] + face['box'][3]/2, 'at': face['at']}

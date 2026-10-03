@@ -183,6 +183,7 @@ class Session:
                                 'Seek a described thing to drive to something without a target.'},
             'current_goal': agency.context(now),
             'recent_goals': agency.goal_history(now),
+            'engagement': agency.engagement(),
             'boundaries': context.get('participation', {}),
             'actual_actions': context.get('action_continuity', {}),
             'pending_question': context.get('pending_question'),
@@ -561,7 +562,9 @@ class Session:
                     name for name,targets in NAMED_POSES.items()
                     if all(abs(commanded.get(ch,-10000)-value)<=2 for ch,value in targets)],
                     'joint_percent':{str(ch):round(100*(value-LIMITS[ch][0])/(LIMITS[ch][1]-LIMITS[ch][0]))
-                                     for ch,value in commanded.items() if ch in LIMITS}, 'held_parts':
+                                     for ch,value in commanded.items() if ch in LIMITS},
+                    'gaze': ({'people': 'following_faces', 'direction': 'holding_chosen_direction'}.get(
+                        self.output.robot.idle.mode()) if hasattr(getattr(self.output.robot, 'idle', None), 'mode') else None), 'held_parts':
                     [name for name,channels in (('neck',{0}),('head_lift',{1}),('head_tilt',{2}),('visor',{3}),('hero_elbow',{4}),('hero_wrist',{5}),('poker_arm',{6}),('hero_arm',{7}),('throttle_arm',{8,9,10})) if held.intersection(channels)]}
                 if opportunity and held: context['robot_pose_enabled']=False
             if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:

@@ -307,7 +307,7 @@ class App:
                 perception = Perception(asr,encoder,trace,camera,direction)
                 session = Session(session_id, brain, output, trace, state=state)
                 if self.robot and camera:
-                    from .gaze import addressee_neck
+                    from .gaze import addressee_neck, face_aim
                     from .faces import VISIBLE_FACE_MAX_AGE
                     def gaze():
                         now = trace.clock()
@@ -320,7 +320,7 @@ class App:
                     def idle_face():
                         now = trace.clock()
                         faces = [f for f in camera.latest(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
-                        return addressee_neck(faces, self.robot.owner.neck_degrees()) if faces else None
+                        return face_aim(faces, self.robot.owner.neck_degrees())
                     self.robot.idle.face = idle_face
                     def reflex_faces():
                         now = trace.clock()

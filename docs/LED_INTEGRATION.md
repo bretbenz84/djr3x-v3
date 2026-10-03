@@ -111,3 +111,20 @@ unavailable capabilities remain rejected. No regex interprets human speech.
 The 597 blocked-I/O checks include the logged argument combination, silent
 execution without TTS or another model call, and chest COMPLIMENT execution.
 Live model selection and visible rendering remain unverified by these tests.
+
+## October 3: mouth animation missed some lines
+
+The owner reported the mouth did not always animate when Rex spoke. In run `30ec1b04`
+every one of the 29 spoken phrases has a `led_delivery` row with `commands_sent`, so the
+host believed it had started the mouth each time. V2's head firmware (`head_nano.ino` at
+`fb96f08`) documents that the board drops serial bytes while it repaints its LEDs, which
+is why `SPEAK_STOP` is sent three times. `SPEAK:<emotion>` was sent once per phrase,
+straight after an `EYE:` command that triggers a repaint; when it was lost the firmware
+never entered its speaking mode and ignored the levels that followed.
+
+`LEDs.tick` now repeats `SPEAK:<emotion>` 0.12 s and 0.24 s after the start and then once
+a second while the phrase plays, each followed at once by the current level (the firmware
+restarts the level at zero on `SPEAK:`). A lost start is recovered within a fraction of a
+second instead of costing the whole line. The cause is inferred from the firmware source
+and the trace, not observed on the board; confirm on the robot that every line animates
+and that the once-a-second repeat is not visible as a flicker.

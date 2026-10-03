@@ -50,8 +50,9 @@ it or reads its data.
 - **Body (Pololu Maestro, 11 servos).**
   - Startup and park choreography, and talking motion driven by actual playback.
   - The head turns toward whoever he is answering.
-  - Idle movement: arm wander, and head looks at the face in front of him or around
-    the room.
+  - Idle life: slow, staggered movement of one to three parts at a time whenever he
+    is not talking; the head follows the nearest face with glances away, or holds a
+    direction the model chose (October 3; not yet run on the robot).
   - Model-selected poses and a microphone hold for enrollment.
 - **Lights.** Head and chest startup/shutdown, speaking lights and model-selected
   animations.

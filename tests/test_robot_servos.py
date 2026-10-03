@@ -64,20 +64,49 @@ class RobotServoTests(unittest.TestCase):
         self.assertTrue(self.robot.capture_held(capture))
         self.assertFalse(self.robot.owner.microphone_held_during(ready,ready+1))
 
-    def test_talking_invalidates_hold_and_new_lease_waits_for_settling(self):
+    def test_talking_keeps_the_hold_and_an_array_arm_move_makes_a_new_lease_wait_for_settling(self):
         self.robot.start()
+        self.clock.wait(1.6)
+        hold=self.robot.owner.microphone_hold
         request=ServoRequest('talk',self.robot.owner.version,'talking',self.clock()+60)
         self.robot.owner.execute(request,Cancellation())
-        self.assertEqual(self.robot.owner.microphone_hold,(0.,0.))
+        # Talking never moves the array arm, so the arm's hold stands; the servo noise is
+        # still reported per frame and keeps noisy captures out of voice learning.
+        self.assertEqual(self.robot.owner.microphone_hold,hold)
         self.assertTrue(self.robot.owner.motion_risk())
-        self.robot.before_frame()
+        capture=Capture('c','s',b'',self.clock(),self.clock()+1,self.clock()+1,motion_risk=True)
+        self.assertFalse(self.robot.capture_held(capture))
+        wave=self.robot.execute_pose('wave',Cancellation(),'wave',hold_pose=False)
+        self.assertEqual(wave.status,'pulses_reached')
         self.assertEqual(self.robot.owner.microphone_hold,(0.,0.))
-        self.clock.wait(.6)
         self.robot.before_frame()
         ready,_=self.robot.owner.microphone_hold
-        self.assertGreater(ready,self.clock())
-        self.clock.wait(1.5)
-        self.assertFalse(self.robot.owner.motion_risk())
+        self.assertGreater(ready,self.clock())      # Settling after the arm stopped.
+        self.clock.wait(1.6)
+        self.assertTrue(self.robot.owner.microphone_held_during(self.clock(),self.clock()+1))
+
+    def test_look_at_people_turns_to_the_face_follows_and_never_holds(self):
+        self.robot.start()
+        self.robot.idle.face=lambda:{'neck':4300,'y':.4,'at':self.clock()}
+        held=self.robot.execute_pose('look_right',Cancellation(),'look')        # A person asked.
+        self.assertEqual(held.status,'pulses_reached')
+        self.assertEqual(self.robot.owner.held_channels,{0})
+        self.assertEqual(self.robot.idle.mode(),'direction')
+        own=self.robot.execute_pose('look_at_people',Cancellation(),'own',hold_pose=False)
+        self.assertEqual((own.status,own.reason),('rejected','AgencyCannotOverrideHeldPose'))
+        self.assertEqual(self.robot.idle.mode(),'direction')                    # His own cannot override it.
+        asked=self.robot.execute_pose('look_at_people',Cancellation(),'asked')
+        self.assertEqual(asked.status,'pulses_reached')
+        self.assertEqual(self.port.pose[0],4300)
+        self.assertEqual(self.robot.owner.held_channels,set())
+        self.assertEqual(self.robot.idle.mode(),'people')
+        # His own look somewhere becomes the chosen direction; a voice returns him to people.
+        self.robot.execute_pose('look_left',Cancellation(),'own-look',hold_pose=False)
+        self.assertEqual(self.robot.idle.mode(),'direction')
+        self.assertEqual(self.robot.owner.held_channels,set())
+        self.assertEqual(self.robot.reflex.face(20.),'started')
+        self.robot.reflex.stop()
+        self.assertEqual(self.robot.idle.mode(),'people')
 
     def test_direction_invalidation_only_when_the_microphone_arm_moves(self):
         from r3x.contracts import Cancellation

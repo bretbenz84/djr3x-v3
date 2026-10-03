@@ -4,6 +4,7 @@ import time
 from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
+from .servo_poses import LIMITS
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
 from .voice_reflex import VoiceReflex
@@ -19,6 +20,7 @@ class RobotServos:
         self.idle = IdleMotion(self.owner)
         self.talking = TalkingMotion(self.owner)
         self.reflex = VoiceReflex(self.owner)
+        self.reflex.on_voice = self.idle.look_at_people   # Someone is talking: look at them again.
         def quiet():
             self.idle.stop()
             self.reflex.stop()
@@ -59,9 +61,9 @@ class RobotServos:
         self.talking.cancel()
         self.owner.cancel()
 
-    def before_frame(self, *, allow_idle=False, capturing=False):
+    def before_frame(self, *, allow_idle=False, capturing=False, calm=False):
         self.idle.trace = self.reflex.trace = self.trace
-        self.idle.tick(allow_idle and self.talking._thread is None)
+        self.idle.tick(allow_idle and self.talking._thread is None, calm)
         if (not capturing and self.talking._thread is None and self.idle._thread is None and
                 not (self.reflex._thread and self.reflex._thread.is_alive())):
             self.owner.refresh_microphone_hold()
@@ -70,8 +72,32 @@ class RobotServos:
         self.idle.stop()
         self.reflex.stop()   # The model's explicit move replaces an unfinished reflex.
         self.talking.stop()
-        return self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
+        follow = name == 'look_at_people'
+        if follow:
+            # Following faces is the idle gaze's job, never a held pose. When a person asks
+            # for it, their earlier held look gives way; Rex's own cannot override a hold.
+            if hold_pose:
+                self.owner.held_channels.difference_update({0, 1, 2})
+            hold_pose = False
+            try:
+                aim = self.idle.face() if self.idle.face else None
+            except Exception:
+                aim = None
+            if aim:
+                name = {0: max(LIMITS[0][0], min(LIMITS[0][1], int(aim['neck'])))}
+        receipt = self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
             self.owner.clock()+60,pose=name,hold_pose=hold_pose),cancel)
+        if receipt.status == 'pulses_reached':
+            if follow or name == 'release_poses':
+                self.idle.look_at_people()
+            else:
+                self.idle.posed(receipt.changed_channels or self._pose_channels(name), own=not hold_pose)
+        return receipt
+
+    @staticmethod
+    def _pose_channels(name):
+        from .servo_poses import NAMED_POSES
+        return tuple(name) if isinstance(name, dict) else tuple(ch for ch, _ in NAMED_POSES.get(name, ()))
 
     def execute_expression(self, request, cancel):
         self.idle.stop()
@@ -81,6 +107,10 @@ class RobotServos:
         from dataclasses import replace
         receipt = self.owner.execute(replace(request,version=self.owner.version),cancel)
         if self.trace:self.trace.emit('servo_expression',**asdict(receipt))
+        if receipt.status == 'pulses_reached' and request.kind == 'attention':
+            # A silent look is the model choosing a direction; looking forward returns to people.
+            if request.target == 'forward': self.idle.look_at_people()
+            else: self.idle.hold_direction()
         return receipt
 
     def prepare_base_motion(self, cancel):
@@ -108,6 +138,8 @@ class RobotServos:
         A later drive plan or shutdown joins this worker before using the owner.
         """
         import threading
+        self.idle.stop()             # The arm's return must not find the owner busy.
+        self.idle.look_at_people()   # The drive centred the head; an earlier held look is over.
         def run():
             receipt = self.owner.execute(ServoRequest('base-release', self.owner.version, 'base_release',
                                                       self.owner.clock()+30.), Cancellation())

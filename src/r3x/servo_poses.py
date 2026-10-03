@@ -3,7 +3,7 @@
 Source/calibration provenance and physical limitations: docs/SERVO_INTEGRATION.md.
 No devices, V2 imports, independent gesture workers, or inferred shaft positions.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 
@@ -98,6 +98,8 @@ class Beat:
     dwell: float = 0.
     throttle_duration: float | None = None
     throttle_idle: bool = False
+    wait: float = 0.        # Seconds this beat's lane rests before the targets are sent.
+    reframes: bool = True   # False: a head move too small to count as a new camera view.
 
 
 def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left') -> tuple[tuple[Beat, ...], ...]:
@@ -163,8 +165,11 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
 
 
 def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = None, held=frozenset(),
-                  neck: int | None = None) -> tuple[tuple[Beat, ...], ...]:
+                  neck: int | None = None, tilt: int | None = None) -> tuple[tuple[Beat, ...], ...]:
     """Independent speech lanes around stable head anchors, not interrupted poses.
+
+    tilt is where the gaze had the head pitched when the reply began (looking down at a
+    seated face): the sway centres there instead of snapping back to level for each line.
 
     V2's neck/lift ranges and head/arm profiles, with smooth bounded beats instead
     of random per-frame reversals. Talking leaves microphone-hold channel 7 fixed.
@@ -181,6 +186,8 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     origin = dict(current if head_origin is None else head_origin)
     if neck is not None:
         origin[0] = max(LIMITS[0][0], min(LIMITS[0][1], int(neck)))
+    if tilt is not None:
+        origin[2] = max(LIMITS[2][0] + 120, min(LIMITS[2][1] - 120, int(tilt)))
     def offset(ch, amount):
         return max(LIMITS[ch][0], min(LIMITS[ch][1], origin[ch]+amount))
     head = tuple(Beat(((0,offset(0,neck)),(1,offset(1,lift))),
@@ -210,25 +217,46 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
 
 LOOK_NECK_DEG = 35.       # Idle glances stay inside the talking gaze range.
 NECK_PER_DEG = (5472 - 1984) / 45.
+# V2 gaze engine (intelligence/gaze_engine.py, fb96f08): tilt covers about 20 degrees down
+# and 25 up from level across its asymmetric travel; a higher pulse looks lower.
+TILT_DOWN_PER_DEG = (5504 - 4320) / 20.
+TILT_UP_PER_DEG = (4320 - 3904) / 25.
+# A head move inside these pulse deltas (about 5 degrees of neck) leaves the camera view
+# effectively unchanged: it does not restart scene settling or arrival tracking.
+HEAD_SMALL = {0: 400, 1: 180, 2: 220}
 
 
-def idle_head(current: dict[int, int], rng, face_neck=None) -> Beat:
-    """Owner request September 27: when still, look at the face in front of him, or look
-    around left/right and up/down. V2's room scan biased pitch downward (people sit)."""
-    lift0, tilt0 = dict(DRIVE_HEAD)[1], dict(DRIVE_HEAD)[2]
-    if face_neck is not None and rng.random() < .75:
-        neck = face_neck + rng.randint(-40, 40)          # Hold on the face, never frozen.
-        vertical = rng.uniform(-.1, .25)
-        dwell = rng.uniform(1.5, 3.)
-    else:
-        neck = round(NECK_CENTER + rng.uniform(-LOOK_NECK_DEG, LOOK_NECK_DEG) * NECK_PER_DEG)
-        vertical = rng.uniform(-.35, 1.)                 # Negative looks up, positive down.
-        dwell = rng.uniform(.8, 2.)
-    # Tilt is inverted (higher pulse looks lower); lift lowers the head with smaller pulses.
-    tilt = tilt0 + vertical * .65 * ((LIMITS[2][1] - tilt0) if vertical >= 0 else (tilt0 - LIMITS[2][0]))
-    lift = lift0 - vertical * 200
-    clamp = lambda ch, v: max(LIMITS[ch][0], min(LIMITS[ch][1], round(v)))
-    return Beat(((0, clamp(0, neck)), (1, clamp(1, lift)), (2, clamp(2, tilt))), speed=18, acceleration=4, dwell=dwell)
+@dataclass(frozen=True)
+class IdlePhrase:
+    """One stretch of idle life: which parts move, each after its own short wait, so
+    joints start and finish at different moments instead of all at once."""
+    parts: tuple[tuple[str, float], ...]
+    head: tuple[tuple[int, int], ...] = ()   # Gaze-chosen head targets; empty drifts in place.
+    head_speed: int = 9
+    head_dwell: float = 0.
+
+
+IDLE_CHANNELS = {'head': (0, 1, 2), 'visor': (3,), 'elbow': (4,), 'wrist': (5,), 'poker': (6,),
+                 'hero': (7,), 'throttle': THROTTLE}
+THROTTLE_IDLE = (((8,4400),(9,7480),(10,4760)), ((8,3920),(9,8080),(10,5600)),
+                 ((8,4080),(9,7840),(10,4920)), ((8,4480),(9,7640),(10,5360)), REST)
+
+
+def head_reframes(current, targets) -> bool:
+    return any(abs(current[ch] - value) > HEAD_SMALL[ch] for ch, value in targets if ch in HEAD_SMALL)
+
+
+def _elsewhere(rng, low, high, here, least, most=None):
+    """A new resting point between `least` and `most` away from here: idle neither dithers
+    in place nor swings between the same two ends, and one move stays short enough (a few
+    seconds at idle speed) that the head can keep answering what it sees."""
+    most = most or high - low
+    for _ in range(8):
+        value = here + rng.choice((-1, 1)) * rng.randint(least, most)
+        if low <= value <= high:
+            return value
+    middle = (low + high) // 2
+    return max(low, min(high, here + (1 if here < middle else -1) * rng.randint(least, most)))
 
 
 def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, held):
@@ -264,31 +292,68 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
     return (lane,)
 
 
-def idle_lanes(current: dict[int, int], rng, held=frozenset(), face_neck=None) -> tuple[tuple[Beat, ...], ...]:
-    """V2 arm wander ranges plus a head look; return the microphone axis before listening settles."""
-    def target(ch, center, amplitude, minimum):
-        direction = (-1 if current[ch]>=center+minimum else
-                     1 if current[ch]<=center-minimum else rng.choice((-1,1)))
-        return max(LIMITS[ch][0], min(LIMITS[ch][1],
-            center+direction*rng.randint(*amplitude)))
-    hero = target(7,5984,(1300,2000),900)
-    poker = target(6,6000,(800,1500),550)
-    lanes = ((Beat(((7,hero),),speed=16,acceleration=4,dwell=.6),
-             Beat(((7,5984),),speed=16,acceleration=4)),
-            (Beat(((6,poker),),speed=35,acceleration=6),))
-    if not set(THROTTLE).intersection(held):
-        choices = (((8,4400),(9,7480),(10,4760)),
-                   ((8,3920),(9,8080),(10,5600)),
-                   ((8,4080),(9,7840),(10,4920)),
-                   ((8,4480),(9,7640),(10,5360)),REST)
-        target = rng.choice([p for p in choices if any(abs(current[ch]-v)>2 for ch,v in p)])
-        route = (() if throttle_clear(current,dict(target)) else pose_lanes('throttle_rest',current)[0])
-        previous = dict(route[-1].targets) if route else current
-        if not throttle_clear(previous,dict(target)): raise ValueError('IdleRouteOutsideClearance')
-        lanes += (route+(Beat(target,throttle_duration=rng.uniform(2.3,3.3),throttle_idle=True),),)
-    if not {0, 1, 2}.intersection(held):
-        lanes += ((idle_head(current, rng, face_neck),),)
-    return tuple(lane for lane in lanes if not set(dict(lane[0].targets)).intersection(held))
+def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhrase | None = None) -> tuple[tuple[Beat, ...], ...]:
+    """Slow, measured idle movement for the parts one phrase names (owner, October 3:
+    "always some motion going on, slow and measured", never every servo at once).
+
+    Each part goes somewhere new at its own pace rather than back and forth: speeds are a
+    third to a half of the September idle. Ranges stay inside what talking and V2 idle
+    already use; the visor stays in its speaking range, above the camera. The hero arm
+    carries the microphone array, so it swings less far, slowly, and returns to centre."""
+    if phrase is None:
+        phrase = IdlePhrase(tuple((part, 0.) for part in IDLE_CHANNELS))
+    clamp = lambda ch, value: max(LIMITS[ch][0], min(LIMITS[ch][1], round(value)))
+    lanes = []
+    for part, wait in phrase.parts:
+        channels = IDLE_CHANNELS[part]
+        if set(channels).intersection(held):
+            continue
+        if part == 'head':
+            targets = tuple((ch, clamp(ch, value)) for ch, value in phrase.head) or (
+                (0, clamp(0, current[0] + rng.randint(-150, 150))),
+                (1, clamp(1, current[1] + rng.randint(-60, 60))),
+                (2, clamp(2, current[2] + rng.randint(-60, 60))))
+            lane = (Beat(targets, speed=phrase.head_speed, acceleration=3, dwell=phrase.head_dwell,
+                         reframes=head_reframes(current, targets)),)
+        elif part == 'visor':
+            first = _elsewhere(rng, 6050, 6750, current[3], 150, 500)
+            lane = (Beat(((3, first),), speed=rng.randint(5, 10), acceleration=2),)
+            if rng.random() < .25:   # A slow half-blink: down to the speaking floor and open again.
+                lane = (Beat(((3, 6000),), speed=rng.randint(8, 14), acceleration=3, dwell=rng.uniform(.2, .6)),
+                        Beat(((3, rng.randint(6350, 6700)),), speed=rng.randint(6, 10), acceleration=2))
+        elif part == 'elbow':
+            lane = (Beat(((4, _elsewhere(rng, 6500, 7200, current[4], 150, 500)),),
+                         speed=rng.randint(5, 11), acceleration=2),)
+        elif part == 'wrist':
+            target = _elsewhere(rng, 4600, 7400, current[5], 500, 1600)   # Just beyond the talking range.
+            lane = (Beat(((5, target),), speed=rng.randint(8, 18), acceleration=3),)
+            if rng.random() < .3:    # Roll a little past, pause, ease back.
+                back = clamp(5, target + (-1 if target > current[5] else 1) * rng.randint(250, 500))
+                lane = (Beat(((5, target),), speed=rng.randint(10, 18), acceleration=3, dwell=rng.uniform(.3, .9)),
+                        Beat(((5, back),), speed=rng.randint(6, 10), acceleration=2))
+        elif part == 'poker':
+            lane = (Beat(((6, _elsewhere(rng, 4500, 7500, current[6], 500, 1500)),),
+                         speed=rng.randint(7, 15), acceleration=3),)
+        elif part == 'hero':
+            side = (-1 if current[7] >= 5984 + 500 else 1 if current[7] <= 5984 - 500 else rng.choice((-1, 1)))
+            lane = (Beat(((7, clamp(7, 5984 + side * rng.randint(700, 1400))),), speed=9, acceleration=2,
+                         dwell=rng.uniform(.8, 1.6)),
+                    Beat(((7, 5984),), speed=9, acceleration=2))
+        elif part == 'throttle':
+            target = rng.choice([p for p in THROTTLE_IDLE if any(abs(current[ch]-v) > 2 for ch, v in p)])
+            route = (() if throttle_clear(current, dict(target)) else pose_lanes('throttle_rest', current)[0])
+            previous = dict(route[-1].targets) if route else current
+            if not throttle_clear(previous, dict(target)): raise ValueError('IdleRouteOutsideClearance')
+            lane = route + (Beat(target, throttle_duration=rng.uniform(3., 4.6), throttle_idle=True),)
+        else:
+            raise ValueError('UnknownIdlePart')
+        if wait > 0:
+            lane = (replace(lane[0], wait=wait), *lane[1:])
+        for beat in lane:
+            validate_pose({**{ch: current[ch] for ch in THROTTLE}, **dict(beat.targets)}
+                          if beat.throttle_duration else dict(beat.targets))
+        lanes.append(tuple(lane))
+    return tuple(lanes)
 
 
 def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ...]:
@@ -337,7 +402,7 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
 # Explicit look requests (September 28). look_left mirrors look_right about the centre:
 # the startup scan's 4000 is only ~19 degrees, less than a 20% joint request, so a
 # "look left" after one visibly swung right. Down/up use lift (smaller pulse lowers)
-# and tilt (higher pulse looks lower), as idle_head does; level is the drive stance.
+# and tilt (higher pulse looks lower), as the idle gaze does; level is the drive stance.
 # A request for "down" through head_lift 30% raised the head above level (3600).
 # Named look_* (not head_*) because the model announced "head_right" as "Turning right."
 # Side and up/down are separate steps the model chains; each keeps the other axis.
@@ -353,7 +418,10 @@ NAMED_POSES = {
 }
 # One-shot gestures run and return to where they started; nothing is held afterwards.
 GESTURES = ('wave',)
-POSE_COMMANDS = (*NAMED_POSES, *GESTURES, 'release_poses')
+# Owner request October 3: the model chooses between following faces and looking where it
+# decides. look_at_people resumes following faces; any look_* step holds that direction.
+GAZE = ('look_at_people',)
+POSE_COMMANDS = (*NAMED_POSES, *GESTURES, *GAZE, 'release_poses')
 
 
 def wave_lanes(current):
@@ -388,6 +456,9 @@ def pose_lanes(name, current):
         validate_pose(target)
     elif name == 'wave':
         return wave_lanes(current)
+    elif name == 'look_at_people':
+        # RobotServos aims at a visible face; with none in view, people are usually ahead.
+        target = dict(((0, NECK_CENTER),) + DRIVE_HEAD)
     elif name == 'release_poses':
         # Resume from rest, so the next speech loop has a valid clearance route.
         target = dict(REST)

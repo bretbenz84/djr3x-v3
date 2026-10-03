@@ -66,6 +66,8 @@ class LEDs:
         self.worker = None
         self.fade_at = None
         self.eye_color = (255,200,0)
+        self.mouth = 'neutral'            # Emotion of the running mouth animation.
+        self.speak_sent, self.speak_sends = float('-inf'), 0
         self.trace = None
 
     def _send(self, zone, command):
@@ -125,6 +127,16 @@ class LEDs:
             now = self.clock()
             while self.samples and self.samples[0][1]<=now:
                 self.sample = self.samples.popleft()
+            # The head board loses serial bytes while it repaints its LEDs (V2 sends
+            # SPEAK_STOP three times for that reason). SPEAK: was sent once per phrase,
+            # so a lost one left the mouth dark for the whole line while levels kept
+            # arriving (owner, October 3: the mouth animation fired inconsistently).
+            # Repeat it shortly after the start and then every second; it restarts the
+            # level from zero, so the current level is sent again right after.
+            if now-self.speak_sent >= (.12 if self.speak_sends < 3 else 1.):
+                self._send('head','SPEAK:'+self.mouth)
+                self.speak_sent, self.speak_sends = now, self.speak_sends+1
+                self.last_level, self.last_sent = -1, float('-inf')
             pcm,at = self.sample
             level = 180 if self.demo else 0
             if self.speaking and pcm and 0 <= now-at < .2:
@@ -189,6 +201,7 @@ class LEDs:
             self.eye_color = COLORS[emotion]
             self._send('head','EYE:'+','.join(map(str,self.eye_color)))
             self._send('head','SPEAK:'+emotion)
+            self.mouth, self.speak_sent, self.speak_sends = emotion, self.clock(), 1
             self._send('chest','COMPLIMENT' if pattern=='compliment' else 'SPEAK:'+emotion)
             return self.version
 

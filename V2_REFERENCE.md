@@ -981,3 +981,27 @@ dependencies or resident models. Focused `test_agency_companion.py` checks use t
 stores, fake pulse/ESP32 transports and blocked external I/O. Hosted fictional-context
 evaluation and outstanding physical/social acceptance are recorded in implementation
 status. V2 was neither changed nor run during this review.
+
+## Face following and gaze breaks — October 3, 2026
+
+Read-only reference at `fb96f086925841479952c649b0a39a8f6c77f70c`. The V2 tree still
+carries only the owner-authorized firmware and gamepad-test edits listed above; the files
+read here (`config.py` face-tracking settings, `intelligence/gaze_engine.py`,
+`hardware/leds_head.py`, `arduino/head_nano/head_nano.ino`) are unmodified. Nothing was
+imported, run or changed in V2.
+
+- Behavior preserved: proportional face centring with a dead zone (centring gain 0.5,
+  60 px dead zone), on yaw and pitch; breaks in eye contact to the side and slightly down,
+  never up (side 15-25 degrees, down at most 5); a short hold when the face is lost before
+  scanning; the asymmetric tilt scale (about 20 degrees down, 25 up from neutral).
+- Adaptation: V2 ran a 12 Hz closed loop with its own servo writer and a duty-cycle state
+  machine tied to conversation phases. V3 takes one partial step per idle phrase (every
+  1-3 s) through the single servo owner, glances away every 7-16 s, frames the face 40%
+  down the picture, and lets the conversation model switch between following people and
+  holding a chosen direction. No V2 settings, calibration files or globals were copied;
+  the constants are in `idle_motion.py` and `servo_poses.py`.
+- Mouth start: V2's firmware comments record that the head board drops serial bytes while
+  repainting; V3 now repeats `SPEAK:` (see docs/LED_INTEGRATION.md).
+- Dependencies: none added. Checks: `tests/test_idle_motion.py`, `tests/test_leds.py`
+  with fake pulses, clocks and serial. Remaining live validation: tracking feel and
+  vertical aim on the robot, and the mouth animation on every line.
