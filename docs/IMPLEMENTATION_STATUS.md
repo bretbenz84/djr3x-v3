@@ -38,9 +38,38 @@ Second run `aa6782c09e1c42bb98390c4ba44c27be` (afternoon, with those repairs loa
 - **Servos still seemed to wait for the arm.** They were free but idle movement resumed two
   seconds late and not at all while he listened; it now starts the instant the wheels stop.
 
-Verification: **966 blocked-I/O checks pass** (86.4 seconds; fake clocks, pulses, drive and
-providers; 26 are new today and 5 existing seek checks also run with tucked arms). No
-hosted model was called. Live acceptance of every item above is pending.
+Third run `30cbd0250b6648d48c663fc66ec7901e` (11 minutes, with both repairs loaded): the
+memory recall and the "face me" search worked on the robot. The owner's verdict: "still
+struggling with logical things". From the log:
+
+- **Waited 69 seconds for a reply.** "Well, you have eyes, don't you?" was taken by the
+  model as a request for quiet (`set_initiative`), which executed without a word. Quiet is
+  now always followed by one spoken line, and its description excludes teasing, rhetorical
+  questions and criticism.
+- **"You're a little too close" produced a turn**, and he was 21 cm from the owner's knees.
+  See the [drive document](DRIVE_BASE_INTEGRATION.md#october-3-third-run-distance-from-people-and-the-voice-target),
+  which also covers the phantom voice bearing that turned him away from the owner.
+- **A question answered by a silent move.** "Do you have access to your compass direction?"
+  got a wordless 17 degree turn. A requested drive plan with no line of its own now gets a
+  follow-up reply.
+- **A remark got no reply at all.** The model aimed a look at a face id the tool does not
+  take; the error failed the turn. A refused look, pose, gesture, light or inspection now
+  goes back to the model, which still answers.
+- **Rex's own next beat leaked into replies.** "How you doing over there?" was answered by
+  inspecting a clock, because the reply model was shown the next scripted beat of Rex's
+  goal. Replies now see the goal's subject (and its objective only when it is about that
+  person), never the next beat. The planner is also told not to state a guessed object as
+  fact (it invented a telescope).
+
+Not fixed, measured: the 15 spoken replies took 3.9-7.3 s from end of speech to first
+audio (median 5.4 s) against the owner's 4 s limit, and once the conversation history
+filled, 17 of 22 full-size reply calls reported zero cached input tokens on about 38,000.
+The cause is not established.
+
+Verification: **973 blocked-I/O checks pass** (93.5 seconds; fake clocks, pulses, drive and
+providers; 33 are new today and 5 existing seek checks also run with tucked arms). No
+hosted model was called, so none of the wording changes is measured against the real
+model. Live acceptance of every item above is pending.
 
 ## Feeling alive: live-run repairs — October 3 (evening)
 

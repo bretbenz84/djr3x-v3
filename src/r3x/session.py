@@ -880,60 +880,70 @@ class Session:
                             call = replace(call, arguments={**call.arguments, 'intent_update': None})
                             self.trace.emit('conversation_intent_rejected', source_id=turn_id,
                                 reason='IntentAudienceChanged', operation='continued_without_intent')
-                    if call.name == 'describe_view':
+                    try:
+                        if call.name == 'describe_view':
+                            from .contracts import ToolResult
+                            model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
+                            try:
+                                revision = self.state.save_visual(call,context,self.session_id,model,cancel)
+                            except ValueError as exc:
+                                if str(exc) != 'VisualEvidenceUnavailable': raise
+                                result = ToolResult(call.call_id,'rejected','VisualEvidenceUnavailable',self.state.store.revision)
+                                self.trace.emit('tool_result',name=call.name,request_id=result.request_id,
+                                    outcome=result.outcome,reason=result.reason,revision=result.revision,data={})
+                                delivery.status,delivery.medium='suppressed','none'
+                                put_phrase(phrases,None,cancel)
+                                worker.join(timeout=2)
+                                return delivery
+                            visual_selected = context['scene_description']['request_id']
+                            result = ToolResult(visual_selected,'ok','VisualDescriptionSaved',revision)
+                            self.trace.emit('visual_description_saved',turn_id=turn_id,observation_id=visual_selected,model=model)
+                        elif call.name == 'inspect_view':
+                            inspection_request = self.state.propose_inspection(call,context,cancel)
+                            from .contracts import ToolResult
+                            result = ToolResult(inspection_request.request_id,'ok','InspectionProposed',self.state.store.revision)
+                        elif call.name == 'drive_base':
+                            from .contracts import ToolResult
+                            try:
+                                drive_plan = self.state.propose_drive(call,context,cancel)
+                                result = ToolResult(drive_plan.request_id,'ok','DriveProposed',self.state.store.revision)
+                            except ValueError as exc:
+                                drive_plan = None
+                                result = ToolResult(call.call_id,'rejected',str(exc),self.state.store.revision)
+                                self.trace.emit('drive_rejected',turn_id=turn_id,reason=str(exc))
+                        elif call.name in {'set_robot_pose','set_robot_joints'}:
+                            pose = self.state.propose_pose(call,context,cancel)
+                            from .contracts import ToolResult
+                            result = ToolResult(call.call_id,'ok','PoseProposed',self.state.store.revision)
+                        elif call.name == 'animate_lights':
+                            if isinstance(call.arguments.get('text'), str) and not call.arguments['text'].strip():
+                                call.arguments['text'] = None
+                            if call.arguments.get('text') is None or call.arguments.get('pattern') in {'compliment','blink'}:
+                                call.arguments['timing'] = 'before_speech'
+                            self.trace.emit('light_request_prepared',turn_id=turn_id,arguments=dict(call.arguments))
+                            light_request = self.state.propose_lights(call,context,cancel)
+                            from .contracts import ToolResult
+                            result = ToolResult(light_request.request_id,'ok','LEDProposed',self.state.store.revision)
+                        elif call.name == 'respond_with_gesture':
+                            gesture, anchor = self.state.propose_performance(call, context, cancel)
+                            performance_gesture = gesture
+                            from .contracts import ToolResult
+                            result = ToolResult(gesture.request_id,'ok','PerformanceProposed',self.state.store.revision)
+                        elif call.name == 'shift_attention':
+                            attention_intent = self.state.propose_attention(call, context, cancel)
+                            from .contracts import ToolResult
+                            result = ToolResult(attention_intent.request_id, 'ok', 'AttentionProposed', self.state.store.revision)
+                        else:
+                            result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel,context=context)
+                    except ValueError as exc:
+                        if opportunity:
+                            raise
+                        # October 3: a look aimed at a face id the tool does not take raised an
+                        # error, the whole turn failed, and the person's remark got no reply. A
+                        # refused proposal goes back to the model, which still answers them.
                         from .contracts import ToolResult
-                        model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
-                        try:
-                            revision = self.state.save_visual(call,context,self.session_id,model,cancel)
-                        except ValueError as exc:
-                            if str(exc) != 'VisualEvidenceUnavailable': raise
-                            result = ToolResult(call.call_id,'rejected','VisualEvidenceUnavailable',self.state.store.revision)
-                            self.trace.emit('tool_result',name=call.name,request_id=result.request_id,
-                                outcome=result.outcome,reason=result.reason,revision=result.revision,data={})
-                            delivery.status,delivery.medium='suppressed','none'
-                            put_phrase(phrases,None,cancel)
-                            worker.join(timeout=2)
-                            return delivery
-                        visual_selected = context['scene_description']['request_id']
-                        result = ToolResult(visual_selected,'ok','VisualDescriptionSaved',revision)
-                        self.trace.emit('visual_description_saved',turn_id=turn_id,observation_id=visual_selected,model=model)
-                    elif call.name == 'inspect_view':
-                        inspection_request = self.state.propose_inspection(call,context,cancel)
-                        from .contracts import ToolResult
-                        result = ToolResult(inspection_request.request_id,'ok','InspectionProposed',self.state.store.revision)
-                    elif call.name == 'drive_base':
-                        from .contracts import ToolResult
-                        try:
-                            drive_plan = self.state.propose_drive(call,context,cancel)
-                            result = ToolResult(drive_plan.request_id,'ok','DriveProposed',self.state.store.revision)
-                        except ValueError as exc:
-                            drive_plan = None
-                            result = ToolResult(call.call_id,'rejected',str(exc),self.state.store.revision)
-                            self.trace.emit('drive_rejected',turn_id=turn_id,reason=str(exc))
-                    elif call.name in {'set_robot_pose','set_robot_joints'}:
-                        pose = self.state.propose_pose(call,context,cancel)
-                        from .contracts import ToolResult
-                        result = ToolResult(call.call_id,'ok','PoseProposed',self.state.store.revision)
-                    elif call.name == 'animate_lights':
-                        if isinstance(call.arguments.get('text'), str) and not call.arguments['text'].strip():
-                            call.arguments['text'] = None
-                        if call.arguments.get('text') is None or call.arguments.get('pattern') in {'compliment','blink'}:
-                            call.arguments['timing'] = 'before_speech'
-                        self.trace.emit('light_request_prepared',turn_id=turn_id,arguments=dict(call.arguments))
-                        light_request = self.state.propose_lights(call,context,cancel)
-                        from .contracts import ToolResult
-                        result = ToolResult(light_request.request_id,'ok','LEDProposed',self.state.store.revision)
-                    elif call.name == 'respond_with_gesture':
-                        gesture, anchor = self.state.propose_performance(call, context, cancel)
-                        performance_gesture = gesture
-                        from .contracts import ToolResult
-                        result = ToolResult(gesture.request_id,'ok','PerformanceProposed',self.state.store.revision)
-                    elif call.name == 'shift_attention':
-                        attention_intent = self.state.propose_attention(call, context, cancel)
-                        from .contracts import ToolResult
-                        result = ToolResult(attention_intent.request_id, 'ok', 'AttentionProposed', self.state.store.revision)
-                    else:
-                        result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel,context=context)
+                        result = ToolResult(call.call_id,'rejected',str(exc) or type(exc).__name__,self.state.store.revision)
+                        self.trace.emit('tool_refused',turn_id=turn_id,name=call.name,reason=result.reason)
                     if result.outcome!='ok' and opportunity:
                         raise ProviderFailure(result.reason)
                     if (result.outcome=='ok' and call.arguments.get('intent_update') is not None and latest_faces
@@ -1075,7 +1085,7 @@ class Session:
                         spoke = True
                         delivery.status, delivery.medium = 'requested', 'audio'
                         put_phrase(phrases,text,cancel)
-                    def drive_followup(call, output, images=(), inspection=None, replan=False):
+                    def drive_followup(call, output, images=(), inspection=None, replan=False, wordless=False):
                         # One bounded continuation: explain a refusal/incomplete motion,
                         # or answer look_after from a frame captured after motion.
                         continuation = (*call.preamble,
@@ -1093,7 +1103,13 @@ class Session:
                             messages = (*messages, {'role':'developer','content':
                                 'Answer the look question in one short sentence about what matters for the request. '
                                 'Describe the scene in detail only if the person asked what you see.'})
-                        if status != 'completed':
+                        if wordless:
+                            # October 3: "do you have access to your compass?" was answered by a
+                            # silent 17 degree turn; the person waited for words that never came.
+                            messages = (*messages, {'role':'developer','content':
+                                'You moved without a word, right after a person spoke to you. Now answer what they '
+                                'actually said in one or two short sentences. Mention the move only if they asked for it.'})
+                        elif status != 'completed':
                             # September 27: after a refused plan Rex repeated "I'm on it".
                             messages = (*messages, {'role':'developer','content':
                                 'The movement did not happen as planned (receipt status: '+str(status or output.get('outcome'))+
@@ -1200,6 +1216,9 @@ class Session:
                         elif receipt and receipt['status']=='completed':
                             if args['say_after']:
                                 speak(args['say_after'])
+                            elif not opportunity and not spoke and not generated.strip():
+                                if drive_followup(call,{'drive':receipt},wordless=True)[1]:
+                                    raise ProviderFailure('ToolContinuationLimit')
                         elif not opportunity:
                             # Refused, rejected or incomplete: the model explains from the receipt.
                             output = {'drive':receipt} if receipt else {**asdict(result),'nothing_moved':True,
@@ -1365,13 +1384,11 @@ class Session:
                         'Attention outcome: ' + str(asdict(receipt)) + '; target=' + attention_intent.target +
                         '. No speech or new observation. Controller receipts verify output pulses only; simulation never means physical motion.'})
                 elif result.outcome=="ok" and (call.name=="remain_silent" or
-                    call.name=="set_initiative" and result.data['mode']=='quiet' or
                     call.name=="conversation_feedback" and result.data['text'] is None):
                     from dataclasses import asdict
                     import json
                     delivery.status, delivery.medium = "suppressed", "none"
-                    if (call.name=='set_initiative' or
-                        call.name=='remain_silent' and result.data['reason']!='no_response_needed'):
+                    if call.name=='remain_silent' and result.data['reason']!='no_response_needed':
                         self.proactive_hold_until = self.trace.clock()+120
                         self.state.initiative.cancel_schedule('quiet_or_human_floor')
                     self.history.extend((
@@ -1434,7 +1451,11 @@ class Session:
                         # recent memories; the result is already in continuation.
                         memory = context['personal_memory']
                         context['personal_memory'] = {k:memory[k] for k in ('person_id','now','local_now')}
-                    if call.name=='set_initiative' and result.outcome=='ok':
+                    quiet_set = call.name=='set_initiative' and result.outcome=='ok' and result.data['mode']=='quiet'
+                    if quiet_set:
+                        self.proactive_hold_until = self.trace.clock()+120
+                        self.state.initiative.cancel_schedule('quiet_or_human_floor')
+                    elif call.name=='set_initiative' and result.outcome=='ok':
                         self.proactive_hold_until = float('-inf')
                     continuation = (*call.preamble,
                         {"type":"function_call","call_id":call.call_id,"name":call.name,
@@ -1447,6 +1468,16 @@ class Session:
                         self.history.append({"role":"developer","content":"A person was forgotten. Do not reuse previous personal context."})
                     followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
                                         snapshot.speaker,context,False,continuation)
+                    if quiet_set:
+                        # October 3: "Well, you have eyes, don't you?" was taken as a request for
+                        # quiet and executed without a word; the owner waited 69 seconds, then
+                        # asked whether Rex was going to say something. Quiet is now always heard.
+                        from dataclasses import replace
+                        followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
+                            'You have just switched yourself to quiet: you will not start conversations until '
+                            'they invite you to. Tell them so in one short sentence, in character. If their '
+                            'words were not really a request to stop talking, say you may have misread them '
+                            'and that they only need to say you can talk again.'}))
                     if result.outcome!='ok' and call.name=='respond_with_intent':
                         from dataclasses import replace
                         followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':

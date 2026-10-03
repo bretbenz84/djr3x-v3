@@ -683,3 +683,34 @@ Verification: 5 new simulated checks (come here from out of view, the voice head
 turning, the logged extra turn, nobody found, the steering switch and its restore).
 Unmeasured: how the base tracks straight with steering off on the real floor, and the
 voice heading's accuracy (the array's bearing varied by tens of degrees in earlier runs).
+
+## October 3, third run: distance from people and the voice target
+
+Owner's run `30cbd0250b6648d48c663fc66ec7901e` (11 minutes, real hardware, with both
+earlier repairs loaded). Drive-related findings; the conversational ones are in
+[implementation status](IMPLEMENTATION_STATUS.md). **Simulated base only.**
+
+- **Stopped at the owner's knees** ("you're a little too close to me"). The model asked for
+  0.8 m; the approach ended blocked at 0.21 m from the nearest front return with the face
+  about 0.7 m away. The default stop for people is 1.0 m by face (was 0.8) and the nearest
+  a front return may be on a person approach is 0.32 m (was 0.22). The 0.22 m hold for a
+  wall beside the path is unchanged.
+- **"Too close" produced a 45 degree turn.** The tool text said the owner means about 45
+  degrees by "a little"; the phrase matched "a little too close". It now applies only to
+  requested turns, and "too close / back off / give me room" is a move backward of about
+  0.6 m with no turn.
+- **Turned 115 degrees away from the owner while he was in view.** "You tell me." produced
+  six direction samples split between -5 and 115 degrees; 115 won on energy and became the
+  `speaker` target. The same bearing (100-115 degrees) appeared for "Hmm." and for a noise.
+  With the owner 0.7 m away, the array also read a centred face as 22-38 degrees to the
+  right (it sits beside the camera). Now a bearing within 50 degrees of a visible face is
+  aimed at that face, and one that points away from everyone in view replaces the
+  remembered voice only with at least 8 samples in one direction (80% of the weight). The
+  unadopted bearing is still logged (`voice_direction_not_adopted`). This places a turn
+  target only; it attributes no speech to the visible person.
+- **"1. 42 meters" was heard as forty-two meters.** The phrase splitter cut at a period that
+  was the end of the text received so far. It now cuts only at a mark followed by a space,
+  and the model is told to give distances roughly and in feet.
+
+Unmeasured: whether 1.0 m / 0.32 m is the distance the owner wants (0.8 m was his earlier
+request, 4-5 ft too far), and the direction thresholds, which come from one run.

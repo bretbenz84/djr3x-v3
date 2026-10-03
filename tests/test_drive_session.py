@@ -215,6 +215,22 @@ class DriveSessionTests(MemoryFixture):
         self.turn()
         self.assertEqual(planner.calls, 0)
 
+    def test_a_person_is_never_answered_by_a_wordless_move(self):
+        # October 3 (30cbd025): "Do you have access to your compass direction?" was answered
+        # by a silent 17 degree turn; the answer came 12 seconds later from an unrelated beat.
+        self.setup_drive(drive_call(step('turn', degrees=-17.)), followup='I can track turns, but I have no compass reading.')
+        delivery = self.turn('Do you have access to your compass direction?')
+        self.assertEqual(delivery.completed_text, ['I can track turns, but I have no compass reading.'])
+        self.assertEqual(len(self.brain.snapshots), 2)
+        notes = [m['content'] for m in self.brain.snapshots[-1].messages if m.get('role') == 'developer']
+        self.assertIn('moved without a word', notes[-1])
+        self.assertEqual(self.rows('drive_result')[-1]['status'], 'completed')
+
+    def test_a_move_with_its_own_line_needs_no_second_call(self):
+        self.setup_drive(drive_call(step('turn', degrees=-17.), text='Turning.'))
+        self.assertEqual(self.turn('Turn right a touch.').completed_text, ['Turning.'])
+        self.assertEqual(len(self.brain.snapshots), 1)
+
     def test_a_route_the_person_dictated_is_never_replaced_by_the_planner(self):
         # October 3: "slight left, forward a few feet, slight right, then go on" ran as the
         # planner's own 30 degrees and one metre because the microwave's direct path was blocked.

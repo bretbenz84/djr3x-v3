@@ -15,7 +15,7 @@ from uuid import uuid4
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, clearance, describe_bearing, face_range, image_bearing,
-                          move_allowance, radar_bodies, wrap, FRONT_MARGIN, PERSON_MARGIN)
+                          move_allowance, radar_bodies, wrap, FRONT_MARGIN, PERSON_MARGIN, WALL_HOLD_M)
 from .providers import Capability
 
 # Owner-approved limits: 0.25 m/s and 1.5 m legs (first test); requested plans may cover 10 m
@@ -65,6 +65,14 @@ VOICE_MEMORY_S = 120.
 # Closing on a target, the firmware's wall-steering treats what is ahead as something to go
 # around (owner: "the firmware starts steering him away rather than just slowing him down").
 # The host turns that steering off for the last stretch; the firmware still slows and stops.
+# October 3, third run: with the owner in view straight ahead, a three-sample bearing 115
+# degrees to the left (a recurring phantom near the array's side) became the speaker target
+# and he turned away. A bearing that agrees with a visible face is refined to that face (at
+# close range the array sits well beside the camera: -25 degrees read for a centred face);
+# one that points away from everyone in view moves the remembered voice only when strong.
+VOICE_FACE_AGREE_DEG = 50.
+VOICE_STRONG_SAMPLES = 8
+VOICE_STRONG_SHARE = .8
 CLOSING_M = 1.2           # Something this near straight ahead, with the target ahead too.
 CLOSING_DEG = 20.
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
@@ -76,8 +84,9 @@ TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns use
 # The model picks a pace per step; these scale the approved speed and turn rate downward
 # only. Unverified on the robot: confirm the slow turn does not stall on carpet.
 PACE = {'slow': .6, 'easy': .8, 'normal': 1., None: 1.}
-# Owner feedback September 27: stopping 4-5 ft away was too far.
-DEFAULT_STOP_AT = {'face': .8, 'nearest_person': .8, 'object': .6, 'radar_body': .9, 'voice_direction': .9}
+# Owner feedback: 4-5 ft was too far (September 27); 0.8 m by face left him at a seated
+# person's knees, "a little too close" (October 3).
+DEFAULT_STOP_AT = {'face': 1., 'nearest_person': 1., 'object': .6, 'radar_body': .9, 'voice_direction': .9}
 # Pushed at every connect; config can only lower firmware hard caps.
 CONFIG = {'max_lin': .25, 'max_ang': round(math.radians(60), 3), 'accel_lin': .35, 'accel_ang': 2.,
           'stop_zone_m': .15, 'slow_zone_m': .6, 'default_turn_rate': TURN_RATE,
@@ -520,13 +529,14 @@ class DriveBase:
         if heard and facing is not None and speaker_direction.get('ended_at') != self._voice_key:
             # Each utterance's bearing is taken once, against the heading he had when it was heard.
             self._voice_key = speaker_direction.get('ended_at')
-            self._voice = {'heading': wrap(facing + float(speaker_direction['bearing_deg'])), 'at': now}
+            self._note_voice(speaker_direction, facing, faces, now)
         voice = self._voice_bearing(now)
         if origin == 'requested' and (voice is not None or heard):
             bearing = voice if voice is not None else float(speaker_direction['bearing_deg'])
             targets.append({'target_id': 'speaker', 'kind': 'voice_direction', 'bearing_deg': round(bearing),
                             'where': describe_bearing(bearing),
-                            'heard_seconds_ago': round(now - self._voice['at']) if voice is not None else 0})
+                            'heard_seconds_ago': round(now - self._voice['at']) if voice is not None else 0,
+                            'basis': self._voice.get('basis', 'voice') if voice is not None else 'voice'})
         displacement = None
         if telemetry and self.origin:
             odom = telemetry.get('odom') or {}
@@ -565,6 +575,30 @@ class DriveBase:
                             'bodies seen by the base radar ring: where to look, not who. speaker is where the last located '
                             'voice came from, kept relative to where the base faces now as it turns (heard_seconds_ago is its age). Clearance is what base sensors report now; there is no map. '
                             'path.direct_approach blocked_early means a straight approach will stop at an obstacle first.')}
+
+    def _note_voice(self, direction, facing, faces, now):
+        """Remember where a voice came from, weighing it against who is in view.
+
+        This places a direction to turn toward. It never says that the visible person
+        spoke: attribution stays with the speaker tracker."""
+        bearing = float(direction['bearing_deg'])
+        seen = [image_bearing(f['box'], self._neck()) for f in faces]
+        nearest = min(seen, key=lambda b: abs(wrap(bearing - b)), default=None)
+        basis = 'voice'
+        if nearest is not None and abs(wrap(bearing - nearest)) <= VOICE_FACE_AGREE_DEG:
+            bearing, basis = nearest, 'voice_and_face'
+        elif nearest is not None and self._voice_bearing(now) is not None:
+            clusters = direction.get('clusters') or [{}]
+            strong = ((direction.get('samples') or 0) >= VOICE_STRONG_SAMPLES and
+                      (clusters[0].get('weight_share') or 0.) >= VOICE_STRONG_SHARE)
+            if not strong:
+                # Kept as evidence in the turn's record; it only does not move the target.
+                if self.trace:
+                    self.trace.emit('voice_direction_not_adopted', bearing_deg=round(bearing),
+                                    samples=direction.get('samples'), nearest_face_deg=round(nearest),
+                                    kept_deg=round(self._voice_bearing(now)))
+                return
+        self._voice = {'heading': wrap(facing + bearing), 'at': now, 'basis': basis}
 
     def _voice_bearing(self, now=None):
         """Base-relative bearing of the last located voice, while it is recent."""
@@ -793,7 +827,7 @@ class DriveBase:
         centre, path = space.get('path_center_m'), space.get('path_m')
         if centre is None or path is None or 'front_depth_matrix_unavailable' in space['health']:
             return None
-        if centre - FRONT_MARGIN < .3 or centre < path + SIDE_OPEN_MORE_M or path < PERSON_MARGIN + .05:
+        if centre - FRONT_MARGIN < .3 or centre < path + SIDE_OPEN_MORE_M or path < WALL_HOLD_M + .05:
             return None
         return min(TIGHT_LEG_M, centre - FRONT_MARGIN)
 
@@ -806,7 +840,7 @@ class DriveBase:
             row['turned_deg'] = abs(round(straightened, 1))
         def too_close():
             path = self.space().get('path_m')
-            return 'wall_beside_path_too_close' if path is None or path < PERSON_MARGIN else None
+            return 'wall_beside_path_too_close' if path is None or path < WALL_HOLD_M else None
         def allowance():
             space = self.space()
             allowed, note = move_allowance(meters, space)

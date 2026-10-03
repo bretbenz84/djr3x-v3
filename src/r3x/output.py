@@ -39,7 +39,9 @@ class Phrases:
         self.pending += delta
         chunks = []
         while self.pending:
-            cut = next((m.end() for m in re.finditer(r"[.!?](?:\s|$)", self.pending)
+            # Only a mark followed by whitespace ends a phrase: mid-stream, "1." may be the
+            # start of "1.42" (October 3: "rolled 1. 42 meters" was heard as forty-two meters).
+            cut = next((m.end() for m in re.finditer(r"[.!?]\s", self.pending)
                         if m.end() >= 25), 0)
             if not cut and len(self.pending) >= 320:
                 cut = self.pending.rfind(" ", 0, 320)

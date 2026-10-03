@@ -233,16 +233,23 @@ class InitiativeCoreTests(MemoryFixture):
         result=self.session.process_opportunity(event,0,lambda:self.runtime.turns.empty())
         self.assertEqual(result.status,'interrupted');self.assertEqual(self.brain.calls,1)
 
-    def test_explicit_quiet_is_silent_and_survives_other_speech_and_history_eviction(self):
+    def test_explicit_quiet_is_acknowledged_once_and_survives_other_speech_and_history_eviction(self):
+        # October 3 (30cbd025): a remark misread as a request for quiet was executed without a
+        # word and the owner waited 69 seconds for a reply. Quiet is now always heard.
         class Quiet(Brain):
             def reply(self,snapshot,cancel):
                 self.calls+=1
-                yield ToolCall(uuid4().hex,'set_initiative',{'mode':'quiet','source_turn_id':snapshot.context['source_turn_id']})
+                if snapshot.continuation:
+                    self.notes=[m['content'] for m in snapshot.messages if m.get('role')=='developer']
+                    yield 'Quiet until you say otherwise.'
+                else:
+                    yield ToolCall(uuid4().hex,'set_initiative',{'mode':'quiet','source_turn_id':snapshot.context['source_turn_id']})
         self.setup_core(Quiet())
         result=self.turn('Please stop starting conversations until I ask you to again.')
-        self.assertEqual(result.status,'suppressed');self.assertEqual(self.brain.calls,1)
+        self.assertEqual(result.status,'completed');self.assertEqual(self.brain.calls,2)
         self.assertTrue(self.state.initiative.quiet)
-        self.assertEqual(result.completed_text,[])
+        self.assertEqual(result.completed_text,['Quiet until you say otherwise.'])
+        self.assertIn('switched yourself to quiet',self.brain.notes[-1])
         self.session.brain=Brain();self.trace.at=120
         self.assertEqual(self.turn('Rex, what does that mean?',observation(B)).status,'completed')
         self.session.history.clear()

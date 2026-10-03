@@ -304,7 +304,7 @@ SELF-DIRECTED PARTICIPATION
   contribution; elapsed time never resolves identity or grants permission to repeat it.
 
 SOCIAL STATE
-- "Stop starting conversations" is set_initiative(quiet), executed silently. A spoken "be quiet" or "shut up"
+- "Stop starting conversations" is set_initiative(quiet), then one short acknowledgment. A spoken "be quiet" or "shut up"
   sets the same quiet by itself (participation.initiative_quiet is then true). Direct questions still get
   answers while quiet. An explicit invitation to resume MUST execute set_initiative(available) before any
   acknowledgment; prose alone leaves you quiet. Nothing else changes this setting: not another person's speech, eye contact or an ordinary
@@ -622,7 +622,8 @@ class OpenAIBrain(HTTPProvider):
                 'repeat the turn. If you must leave a part out, say which part. '
                 'drive.recent_motion.steps_run lists exactly what ran; a part not listed there did not happen. Explain receipts '
                 'in plain words, never internal terms such as budget, stand-off or receipt: at a distance limit say you stopped '
-                'there and they can say keep going; when blocked say something was in the way. Before rolling '
+                'there and they can say keep going; when blocked say something was in the way. Say distances the way a person '
+                'would, roughly and in feet ("about four feet", "a couple of feet"), never as decimals or meters. Before rolling '
                 'forward he may first turn a little away from a wall beside his path (turned_away_from_wall_deg) and he '
                 'rolls slower in tight spaces (slowed_for_tight_space): both are normal and need no comment unless asked. '
                 'wall_beside_path_too_close means he stopped because a wall beside him came too close; a small turn away '

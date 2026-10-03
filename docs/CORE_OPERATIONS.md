@@ -475,7 +475,8 @@ defer dispatch. The model receives its last completed reply explicitly at each l
 new wording or a new camera frame does not make a repeated premise novel.
 
 An explicit "stop starting conversations until I ask" can call `set_initiative`
-with `mode=quiet`, silently. It creates a session-wide quiet boundary that survives
+with `mode=quiet`; since October 3 Rex then says one short line so a misread request is
+heard, not silent. It creates a session-wide quiet boundary that survives
 ordinary replies and history eviction. Direct questions still receive answers.
 An explicit invitation to initiate again uses `mode=available`; its acknowledgment
 follows the executed result. Both modes require a trusted current source, never a

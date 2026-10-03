@@ -93,6 +93,8 @@ Walls and furniture are what Rex falls back on when nobody is around or everythi
 - Ordinary decor (wall art, curtains, chairs, clocks, shelves) comes LAST and never twice running. Check
   recent_goals: if the last goal was about the room, this one is about a person, their day or a bit.
 - If nothing unusual is visible, do not invent it: go with their life (catch_up) or a bit (entertain).
+- Name a thing only when you can plainly tell what it is. When unsure, the beat asks what it is ("What is that
+  on the tripod?"); never state a guess as fact (a "telescope" that was not one cost a whole exchange).
 
 GOALS (goal_kind)
 - catch_up: a person Rex knows (subject.display_name, subject.known_facts, recent exchanges). Plan an actual
@@ -430,9 +432,13 @@ class AgencyPlan:
             subject = record.get('subject_person')
             if subject and audience_person != subject: return None
             if not subject and (audience_person or any(recognized)): return None
-        step = record['steps'][record['cursor']]
-        return {'goal_kind': record['goal_kind'], 'subject': record['subject'], 'objective': record['objective'],
-                'scope': record['scope'], 'next_beat': {'kind': step['kind'], 'instruction': step['instruction']},
+        # No next beat: shown one, the reply model carried it out instead of answering
+        # (October 3: "how you doing over there?" was answered by inspecting a clock).
+        # The objective of a goal about a thing reads like a script too ("approach the clock,
+        # inspect it closely"); only a goal about this person carries its objective.
+        return {'goal_kind': record['goal_kind'], 'subject': record['subject'],
+                **({'objective': record['objective']} if record['scope'] == 'audience' else {}),
+                'scope': record['scope'],
                 'beats_left': len(record['steps']) - record['cursor'],
                 'meaning': 'The goal Rex chose for himself. Answer the human first; let the reply move the goal '
                            'along only when it fits naturally. Never recite it or force it.'}

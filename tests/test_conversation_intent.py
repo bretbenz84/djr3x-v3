@@ -196,8 +196,12 @@ class ConversationIntentTests(MemoryFixture):
 
     def test_quiet_survives_direct_reply_and_resume_does_not_reactivate(self):
         self.greet()
-        self.session.brain=IntentBrain(lambda c:ToolCall('quiet','set_initiative',dict(mode='quiet',source_turn_id=c['source_turn_id'])))
-        self.assertEqual(self.human('Please stop starting conversations.').status,'suppressed')
+        class Quiet(Brain):
+            def reply(inner,snapshot,cancel):
+                if snapshot.continuation: yield 'Quiet until you say so.'
+                else: yield ToolCall('quiet','set_initiative',dict(mode='quiet',source_turn_id=snapshot.context['source_turn_id']))
+        self.session.brain=Quiet()
+        self.assertEqual(self.human('Please stop starting conversations.').completed_text,['Quiet until you say so.'])
         self.assertEqual(self.state.conversation_intent.record.status,'suspended')
         self.session.brain=Brain('Sure, I can answer that.')
         self.assertEqual(self.human('What is two plus two?').status,'completed')

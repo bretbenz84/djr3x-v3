@@ -29,7 +29,10 @@ NECK_PULSES_PER_DEG = (5472 - 1984) / 45.  # V2 owner: neck sweeps about 90 degr
 FACE_WIDTH = .16
 MATRIX_CLEAR = 3.5
 FRONT_MARGIN = .35      # Host stop short of a front return; firmware still stops at its zone.
-PERSON_MARGIN = .22     # Approaching a person: knees/chair legs may be this close, never closer.
+# Approaching a person: knees/chair legs may be this close, never closer. Was 0.22 m until
+# October 3, when he stopped 21 cm from the owner's knees: "you're a little too close to me".
+PERSON_MARGIN = .32
+WALL_HOLD_M = .22       # A wall beside the path nearer than this stops a guarded leg.
 REAR_MARGIN = .30
 
 

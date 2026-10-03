@@ -87,7 +87,10 @@ class PlanTests(memory_tests.MemoryFixture):
         self.session.process_turn(capture,Transcript('Tell me about jazz instead.',-.01,True),0,memory_tests.observation())
         self.assertEqual(len(self.planner.requests),1)
         goal=self.executor.snapshots[-1].context['agency_plan']
-        self.assertEqual(goal['next_beat']['instruction'],'Develop the rhythm idea without repeating the invitation.')
+        # The reply sees the goal, never the next scripted beat (October 3: it carried the beat
+        # out instead of answering the person).
+        self.assertNotIn('next_beat',goal)
+        self.assertNotIn('Develop the rhythm idea',str(goal))
         self.tick(self.trace.at+9)
         self.assertEqual(len(self.planner.requests),1)
         self.assertEqual(self.state.agency.record['id'],plan_id)

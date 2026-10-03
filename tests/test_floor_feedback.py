@@ -89,7 +89,8 @@ class SeatedApproachTests(unittest.TestCase):
         plan = DrivePlan('p', (DriveStep('approach', target='face-1'),), 'requested', 'come here', targets, clock()+60)
         receipt = drive.execute(plan, Cancellation())
         distance = math.hypot(2.2 - fake.x, fake.y)
-        self.assertLess(distance, 1.05, receipt)   # V2-style radial personal distance stopped at ~1.4 m.
+        self.assertLess(distance, 1.25, receipt)   # V2-style radial personal distance stopped at ~1.4 m.
+        self.assertGreater(distance, .95, receipt)  # And not at the knees: the default is 1 m by face (October 3).
         self.assertGreater(world.front_obstacle(), .15)
         self.assertIn('clearance_at_stop_m', receipt.steps[0])
 
@@ -1157,3 +1158,33 @@ class ComeHereTests(unittest.TestCase):
         rolled = sum(c['lin']*.15 for c in fake.commands[:steering[0][0]] if c['cmd'] == 'drive')
         self.assertGreater(rolled, .8)                             # Switched off about 1.2 m from the stop.
         self.assertTrue(drive._assist_on)
+
+    def test_a_faint_bearing_pointing_away_from_the_person_in_view_does_not_move_the_target(self):
+        # Run 30cbd025: "You tell me." gave three samples at 115 degrees left while the owner
+        # sat straight ahead; he turned 115 degrees away and lost him.
+        person = (2.5*math.cos(math.radians(73)), 2.5*math.sin(math.radians(73)))
+        clock, fake, drive, world, context = self.start(person, 73.)
+        self.run_plan(clock, drive, context, DriveStep('face', target='speaker'))
+        settle()
+        phantom = {'status': 'observed', 'bearing_deg': 115., 'ended_at': 2., 'samples': 6,
+                   'clusters': [{'bearing_deg': 115., 'samples': 3, 'weight_share': .72}]}
+        speaker = next(t for t in drive.context('requested', phantom)['targets'] if t['target_id'] == 'speaker')
+        self.assertLess(abs(speaker['bearing_deg']), 10)           # Still where he is looking.
+        before = fake.theta
+        self.run_plan(clock, drive, drive.context('requested', phantom), DriveStep('face', target='speaker'))
+        self.assertAlmostEqual(fake.theta, before, delta=10.)      # He does not turn away.
+        # A strong, single-direction voice from elsewhere is believed: somebody else may be there.
+        strong = {'status': 'observed', 'bearing_deg': -100., 'ended_at': 3., 'samples': 14,
+                  'clusters': [{'bearing_deg': -100., 'samples': 14, 'weight_share': 1.}]}
+        speaker = next(t for t in drive.context('requested', strong)['targets'] if t['target_id'] == 'speaker')
+        self.assertAlmostEqual(speaker['bearing_deg'], -100, delta=3)
+
+    def test_a_voice_that_agrees_with_a_visible_face_is_aimed_at_the_face(self):
+        # At close range the array heard a centred face 25 to 38 degrees to the right, and
+        # "face speaker" turned him off the person he was looking at.
+        clock, fake, drive, world, context = self.start((1.2, 0.), -35.)
+        speaker = next(t for t in context['targets'] if t['target_id'] == 'speaker')
+        self.assertLess(abs(speaker['bearing_deg']), 5)
+        self.assertEqual(speaker['basis'], 'voice_and_face')
+        self.run_plan(clock, drive, context, DriveStep('face', target='speaker'))
+        self.assertLess(abs(fake.theta), 8.)                        # No swing away from them.

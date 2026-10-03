@@ -41,6 +41,21 @@ class AttentionTests(MemoryFixture):
         self.assertEqual(receipts[0]['outcome'],'simulated')
         self.assertFalse(any(r['event']=='speech_generated' for r in self.state.trace.rows))
 
+    def test_a_refused_look_still_gets_the_person_an_answer(self):
+        # October 3 (30cbd025): the model aimed a look at a face id, which this tool does not
+        # take; the turn failed and "I'm not going to do it until later tonight" got no reply.
+        class Refused(Brain):
+            def reply(inner, snapshot, cancel):
+                inner.calls += 1
+                inner.snapshots.append(snapshot)
+                yield 'Later tonight it is.' if snapshot.continuation else choice('face-9a3642b3b6e94a55a76e8268d1a716ae')
+        self.setup_session(brain=Refused())
+        result = self.turn("No, I'm not going to do it until later tonight.")
+        self.assertEqual((result.status, result.completed_text), ('completed', ['Later tonight it is.']))
+        self.assertIn('InvalidAttentionTarget', str(self.brain.snapshots[-1].continuation))
+        self.assertFalse(any(r['event']=='turn_failed' for r in self.state.trace.rows))
+        self.assertIsNone(self.state.attention.active)
+
     def test_proactive_choice_uses_same_owner_without_inventing_a_speaker(self):
         self.setup_session()
         result=self.session.process_opportunity(replace(event(),kind="ambient",target_track=None),0,lambda:True)

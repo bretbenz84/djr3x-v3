@@ -327,6 +327,25 @@ class CoreTests(unittest.TestCase):
         self.assertIsNone(result["speaker_accuracy"])
         self.assertEqual(result["failures"], [{"event":"trace_parse_failed","line":5}])
 
+class PhraseTests(unittest.TestCase):
+    def test_a_decimal_arriving_in_two_pieces_stays_one_number(self):
+        # October 3: "I faced you and rolled 1." / "42 meters" was spoken as "forty-two meters".
+        from r3x.output import Phrases
+        splitter = Phrases()
+        chunks = []
+        for delta in ('I faced you and rolled 1.', '42 meters, then stopped.', ' Here I am.'):
+            chunks += splitter.add(delta)
+        chunks.append(splitter.finish())
+        self.assertEqual(chunks, ['I faced you and rolled 1.42 meters, then stopped.', 'Here I am.'])
+
+    def test_a_finished_sentence_is_still_spoken_as_soon_as_the_next_one_starts(self):
+        from r3x.output import Phrases
+        splitter = Phrases()
+        self.assertEqual(splitter.add('This first sentence is complete.'), [])
+        self.assertEqual(splitter.add(' And'), ['This first sentence is complete.'])
+        self.assertEqual(splitter.finish(), 'And')
+
+
 class ListeningTests(unittest.TestCase):
     setup_core = CoreTests.setup_core
     turn = CoreTests.turn
