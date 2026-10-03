@@ -24,8 +24,12 @@ hallway no-reverse rule. No firmware was changed.
     heading are ignored.
   - Arrival needs a near straight-ahead return and a reasonably large target, not a box
     size alone.
-- **Obstacles.** Straight moves judge room along the body's path (`path_m`). A hallway
-  corner beside the path does not block.
+- **Obstacles.** Straight moves judge room along the body's path (`path_m`). Walls and
+  corners beside the path do not block.
+  - Pointed at a wall that crosses one side of his path, he first turns away from it in
+    place (12 degrees at a time, at most three), then rolls. He rolls slower where a wall is
+    close. If he cannot turn away he still creeps forward in short legs, and stops himself
+    if the wall comes inside 22 cm (October 3; checked in the simulated base only).
   - When blocked short of the target he re-aims, then detours on an open side (at most
     twice), then reports blocked.
   - While seeking he never reverses to make arm room. Explicit turns still may.
@@ -567,3 +571,73 @@ downward; clearance, limits and firmware caps are unchanged, and turn timeouts l
 with the slower rate. The model chooses it per step and is told to vary it. Checked with
 the simulated base only: confirm on the robot that a 27 degree-per-second turn does not
 stall on carpet.
+
+## October 3: hallways, the lost search and turn sizes
+
+Owner's run `d4634610d3c34bcda70ccfa1a1a893b3` (about 18 minutes, real hardware): finding
+and driving to the microwave through a tight kitchen. Findings, then what changed. **All of
+it is checked in the simulated base only; none has run on the robot.**
+
+**Live reading.** The owner left Rex where he refused "move forward five feet" and offered
+the sensors. Read-only: the controller lock was taken so the battery menu released the
+port, only `hello` was sent (no heartbeat, configuration or motion), 41 telemetry frames
+were read and the port was returned. Front-left radial 4.0 m and the centre and left of the
+8x8 matrix open beyond 3.5 m; front-right radial 0.40 m; the two rightmost matrix columns
+0.54-0.66 m; sides 0.26 m (left-back) and 0.43 m (right-front). So straight ahead was open
+and a wall crossed the right edge of his path about 20 degrees off his heading. The host
+computed 0.40 - 0.35 = 0.05 m of room and refused. With those readings the firmware's own
+steering assist would have been nearly neutral (about -0.08 rad/s: the close left-back
+return cancels the push away from the front-right wall), so the firmware alone would not
+have freed him.
+
+- **Hallways blocked motion.** Two causes. The matrix side bands counted every wall they
+  saw, so even pointed straight down a hallway a move was shortened to the range at which
+  the outer columns met the walls. And a wall crossing one side of the path refused the
+  move outright. Now:
+  - `matrix_path` counts a matrix zone only when it lies inside the corridor the body
+    sweeps (half-width 0.27 m plus 0.05 m), using each column's angle across the 45 degree
+    view. `path_left_m`, `path_center_m` and `path_right_m` say which side limits the path.
+  - Before a forward move, when one side is short within 0.8 m while straight ahead and
+    the other side are at least 0.3 m more open, he turns away in place: 12 degrees, re-read,
+    at most three times, never a reverse (owner: "it would be good if he oriented himself
+    to avoid the walls before he moved").
+  - Where a side return is within 0.35 m or a front corner within 0.5 m he rolls at 60% of
+    the step's pace ("in tight clearance hallways he should move slower").
+  - If the turn is refused (arms beside something) and only a side return limits the path,
+    he is no longer refused: legs of at most 0.6 m at the slow pace, the firmware assist
+    steering, and the host stopping the leg when the wall comes inside 0.22 m
+    (`wall_beside_path_too_close`). An obstacle straight ahead still shortens or refuses.
+  - Person approaches now judge room by the same path reading, not the nearest front
+    return of any kind.
+- **Went back to the microwave when told "come towards me".** The model named the visible
+  face with characters missing from its id. Validation treated any unrecognized approach
+  target as "the thing sought earlier". A damaged id is now repaired only to the single
+  offered target it abbreviates; an unknown target is refused; "sought" resumes a search
+  only when named or right after a seek in the same plan. Reaching the sought thing ends
+  the search, so `last_sought` is empty afterwards.
+- **A dictated route was replaced.** "Slight left, forward a few feet, slight right, then
+  on" ran as the route planner's own 30 degrees and one metre because the direct path to
+  the microwave was blocked. The planner no longer runs when the plan already contains
+  turn or move steps.
+- **Turned the wrong amount looking for a target.** Twenty logged turns: the IMU read the
+  commanded angle plus 3-10 degrees; wheel odometry read up to twice that on left turns
+  (30 commanded: IMU 33, odometry 58; 90: 94 and 148). The owner's remarks matched the
+  IMU. Predicting where an offered target should be used odometry, so after a left turn
+  he looked tens of degrees off (an 86 degree turn for a target about 30 away). It now
+  uses the IMU heading, odometry only without one.
+- **Turns too small.** "Slight left" became 12-15 degrees and "turn left" 30. The tool
+  text now says a little/slight/a bit is about 45 and never under 30 without a number, a
+  plain turn is 90, and a correction changes the next turn by a visible amount.
+
+Not changed: the consistent 3-10 degree turn overshoot (firmware coast), and two stops
+where the front-right radial read 0.07-0.08 m; whether those were real edges is unknown.
+
+V2 firmware `control.cpp` was read at `fb96f08` for the steering assist and stop zones
+(the V2 working tree has unrelated uncommitted battery changes); nothing was copied or
+flashed.
+
+Verification: 13 new simulated checks (hallway straight and angled, the logged readings
+with and without room to turn, a wall closing during a guarded leg, an obstacle ahead,
+wheel slip, arrival ending the search, damaged and unknown target ids, a dictated route).
+Unmeasured on the floor: the column geometry against real walls, whether 12 degree turns
+and the slow pace stall on carpet, and how the firmware assist behaves on a guarded leg.

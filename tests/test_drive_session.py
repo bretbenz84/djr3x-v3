@@ -215,6 +215,20 @@ class DriveSessionTests(MemoryFixture):
         self.turn()
         self.assertEqual(planner.calls, 0)
 
+    def test_a_route_the_person_dictated_is_never_replaced_by_the_planner(self):
+        # October 3: "slight left, forward a few feet, slight right, then go on" ran as the
+        # planner's own 30 degrees and one metre because the microwave's direct path was blocked.
+        planner = FakePlanner({'steps': [step('turn', degrees=30.), step('move', meters=1.)]})
+        self.setup_drive(drive_call(step('turn', degrees=40.), step('move', meters=.4),
+                                    step('approach', target='object-dog')))
+        self.world.objects[:] = [('object-box', 'box', .85, 0.), ('object-dog', 'dog', 2.2, .1)]
+        self.session.route_planner = planner
+        settle()
+        self.turn('Go a bit left, forward a little, then on to the dog.')
+        self.assertEqual(planner.calls, 0)
+        first = next(c for c in self.fake.commands if c['cmd'] == 'turn')
+        self.assertEqual(first['deg'], 40.)
+
     def test_turn_look_then_one_follow_up_plan_from_the_fresh_view(self):
         calls = []
         class Brain:

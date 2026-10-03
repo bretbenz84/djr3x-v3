@@ -65,18 +65,49 @@ def matrix_sectors(matrix):
 
 BODY_HALF_WIDTH = .27   # About the sensor ring radius.
 PATH_MARGIN = .05       # Lateral gap kept when driving straight past something beside the path.
+# The front matrix looks level from the front of the ring across 45 degrees (V2 calib.h),
+# so each of its eight columns is 5.6 degrees wide; column 0 is the robot's left.
+MATRIX_COLUMN_DEG = tuple(19.6875 - 5.625*col for col in range(8))
+PATH_SIDES = {'left': range(0, 3), 'center': range(3, 5), 'right': range(5, 8)}
 
 
-def _path_front(ring, sectors):
-    """Forward room along the body's straight path (September 27 hallway run).
+def matrix_path(matrix):
+    """Forward room inside the body's straight corridor, per left/centre/right columns.
 
-    The matrix counts in full. A 22.5 degree front radial counts in full unless the matrix
-    band on its side is clear well beyond its return: then the return lies outside the
-    matrix view (at least ~22 degrees off-axis) and counts only when that places it inside
-    the body's path. A hallway corner beside the robot no longer blocks the hallway."""
-    if sectors is None:
+    October 3 hallway run: the side bands counted every wall they saw, so a hallway's own
+    walls shortened or refused each forward move even when he was pointed straight down it.
+    A zone now counts only when its return lies inside the corridor the body sweeps
+    (half-width plus margin); a wall beside the path does not. Like matrix_sectors, each
+    side takes its second-nearest qualifying zone so one speckle zone cannot block."""
+    if not matrix or len(matrix.get('grid', ())) != 64 or len(matrix.get('rej', ())) != 8:
         return None
-    limits = list(sectors.values())
+    result = {}
+    for name, columns in PATH_SIDES.items():
+        ahead = []
+        for col in columns:
+            angle = math.radians(MATRIX_COLUMN_DEG[col])
+            for row in range(8):
+                value = matrix['grid'][row*8+col]
+                if not 25 <= value < min(matrix['rej'][row], 3500):
+                    continue
+                if value/1000.*abs(math.sin(angle)) < BODY_HALF_WIDTH + PATH_MARGIN:
+                    ahead.append(value/1000.)
+        ahead.sort()
+        result[name] = ahead[1] if len(ahead) >= 2 else MATRIX_CLEAR
+    return result
+
+
+def _path_sides(ring, sectors, corridor):
+    """Forward room along the body's straight path, by side (September 27 hallway run).
+
+    Matrix zones count when they lie inside the corridor. A 22.5 degree front radial counts
+    in full unless the matrix band on its side is clear well beyond its return: then the
+    return lies outside the matrix view (at least ~22 degrees off-axis) and counts only
+    when that places it inside the body's path. A hallway corner beside the robot no
+    longer blocks the hallway."""
+    if sectors is None or corridor is None:
+        return None
+    sides = dict(corridor)
     sine = math.sin(math.radians(22.5))
     for side, keys in (('left', ('fl_radial', 'fl')), ('right', ('fr_radial', 'fr'))):
         radial = next((ring[k] for k in keys if ring.get(k) is not None), None)
@@ -85,8 +116,8 @@ def _path_front(ring, sectors):
         beside = (sectors[side] > radial + .15 and
                   RING_RADIUS*sine + radial*sine >= BODY_HALF_WIDTH + PATH_MARGIN)
         if not beside:
-            limits.append(radial)
-    return min(limits)
+            sides[side] = min(sides[side], radial)
+    return sides
 
 
 def clearance(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
@@ -98,7 +129,9 @@ def clearance(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
         ring = {key: _meters(tof.get(key)) for key, _ in RING + (('fl_radial', 0), ('fr_radial', 0))}
     else:
         health.append('drive_telemetry_stale')
-    sectors = matrix_sectors(matrix) if matrix and 0 <= now - matrix['received_at'] <= matrix_age else None
+    fresh = matrix if matrix and 0 <= now - matrix['received_at'] <= matrix_age else None
+    sectors = matrix_sectors(fresh)
+    sides = _path_sides(ring, sectors, matrix_path(fresh))
     if sectors is None:
         health.append('front_depth_matrix_unavailable')
     radial_front = [v for v in (ring.get('fl_radial'), ring.get('fr_radial')) if v is not None]
@@ -113,7 +146,12 @@ def clearance(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
     front = least(radial_front + (list(sectors.values()) if sectors else []))
     result = {
         'front_m': front,
-        'path_m': _path_front(ring, sectors),
+        'path_m': min(sides.values()) if sides else None,
+        # What limits the straight path, by side: one short side beside an open centre is a
+        # wall to straighten away from, not an obstacle ahead.
+        'path_left_m': sides['left'] if sides else None,
+        'path_center_m': sides['center'] if sides else None,
+        'path_right_m': sides['right'] if sides else None,
         'front_left_m': least([ring.get('fl_radial') or ring.get('fl')] + ([sectors['left']] if sectors else [])),
         'front_center_m': sectors['center'] if sectors else None,
         'front_right_m': least([ring.get('fr_radial')] + ([sectors['right']] if sectors else [])),

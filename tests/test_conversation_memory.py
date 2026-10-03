@@ -281,6 +281,66 @@ class ConversationMemoryTests(MemoryFixture):
                 self.assertEqual(result.status,'completed')
                 self.assertEqual(result.completed_text,['Your private project was a telescope.'])
 
+    def recall_brain(self):
+        class Recall:
+            snapshots=[]
+            def reply(self,snapshot,cancel):
+                self.snapshots.append(snapshot)
+                if snapshot.continuation: yield 'You were going to take the bumper off.'
+                else: yield ToolCall('recall-plans','recall_conversations',{'query':'car bumper plan','after':None,'before':None})
+        return Recall()
+
+    def test_restarted_face_track_is_the_same_visit_for_recall(self):
+        # Live October 3 (d4634610): Rex greeted the owner by name, then answered "I don't
+        # have a record of you mentioning the car": his own movement had restarted the face
+        # track, unrecognized, a second before the lookup (PrivateRecallRequiresKnownAudience).
+        from r3x.speakers import VoiceObservation
+        self.setup_memory(); self.turn(self.session('morning'),'I will take the bumper off my car today.')
+        session=self.session('noon')
+        self.turn(session,'Good morning.',faces=[face(100,self.person)],voice=VoiceObservation(NS))
+        self.state.trace.at += 30
+        brain=session.brain=self.recall_brain()
+        unrecognized=[face(130,None,'restarted')]
+        cap=Capture(uuid4().hex,'noon',bytes(96000),96,99,100,voiced_intervals=((0.,3.),))
+        result=session.process_turn(cap,Transcript('Do you remember what I planned today?',0,True),0,
+            VoiceObservation(NS),tuple(unrecognized),latest_faces=lambda now:tuple(unrecognized))
+        self.assertEqual(result.completed_text,['You were going to take the bumper off.'])
+        first=brain.snapshots[0].context
+        self.assertEqual(first['personal_memory']['person_id'],self.person)        # The morning is in view...
+        self.assertIn('bumper',first['personal_memory']['recent_exchanges'][0]['human_text'])
+        self.assertIn('bumper off my car',str(brain.snapshots[-1].continuation))   # ...and the lookup works.
+        self.assertFalse([r for r in self.state.trace.rows if r.get('reason')=='PrivateRecallRequiresKnownAudience'])
+        row=self.store.rows("SELECT evidence FROM conversation_exchange_evidence WHERE exchange_id IN "
+                            "(SELECT id FROM conversation_exchanges WHERE human_text LIKE 'Do you remember%')")[0]
+        self.assertIn('recently_recognized_person',row['evidence'])
+        self.assertEqual(self.state.current[4].person_id,None)   # Memory access never names the speaker.
+
+    def test_the_carried_visit_ends_with_time_company_or_somebody_else(self):
+        from r3x.speakers import VoiceObservation
+        from tests.test_memory_core import B
+        self.setup_memory(); self.turn(self.session('morning'),'A private plan.')
+        other=self.enroll('Jamie',B)
+        session=self.session('noon')
+        def seen(faces, voice=None):
+            self.turn(session,'Okay.',faces=faces,voice=voice or VoiceObservation(NS))
+            return cm.subject(self.state.context())
+        def stranger():
+            self.state.faces=[face(100,None,'unknown')]
+            self.state.begin(uuid4().hex,Capture(uuid4().hex,'noon',bytes(96000),96,99,100,voiced_intervals=((0.,3.),)),
+                             Transcript('Hello.',0,True),VoiceObservation(NS),tuple(self.state.faces))
+            return cm.subject(self.state.context(self.state.faces))
+        self.assertEqual(seen([face(100,self.person)]),self.person)
+        self.assertEqual(stranger(),self.person)                 # A fresh, not yet recognized track.
+        self.state.trace.at += cm.VISIT_GRACE_SECONDS + 1
+        self.assertIsNone(stranger())                            # Too long unconfirmed.
+        self.assertEqual(seen([face(100,self.person)]),self.person)
+        self.assertIsNone(seen([face(100,self.person),face(100,None,'visitor')]))
+        self.assertIsNone(stranger())                            # Company ended the carry.
+        self.assertEqual(seen([face(100,self.person)]),self.person)
+        self.assertEqual(seen([face(100,other)]),other)          # Somebody else, recognized.
+        self.state.faces=[]
+        self.assertEqual(self.state.audience_seen[0],other)
+
     def test_withheld_reply_always_states_its_reason(self):
         self.setup_memory(); self.turn(self.session('old'),'A private project.')
         current=[face(100,self.person)]

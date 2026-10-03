@@ -141,3 +141,35 @@ motor as “dramatic”; these development probes do not establish perfect groun
 or live acceptance. No new resident models or physical devices; RSS, large-archive
 query cost and acoustic accuracy remain unmeasured. Private receipts:
 `local/validation/conversation-memory-1a771a221c3d494b978ae9b4f1d24a64/`.
+
+## October 3: the same visit survives a restarted face track
+
+Run `d4634610d3c34bcda70ccfa1a1a893b3`: at 06:03 the owner said he would take his car's
+bumper off; the exchange was stored. At 11:35 Rex greeted him by name, then answered "Do
+you remember what I told you I was planning on doing today?" with silence and "I told you
+I was going to work on my car" with "I don't have a record of you mentioning the car".
+The storage and the model were not at fault. Private memory was gated on recognizing his
+face at that instant, and Rex's own head and wheel movement restarts face tracks, which
+stay unrecognized for about a second. On the first question the new track left the reply
+with no memory context and no recall tool; on the second the tool was offered, then
+refused two seconds later (`PrivateRecallRequiresKnownAudience`) when the track restarted
+again.
+
+The state owner now remembers the last private audience that evidence supported
+(`note_audience`), and `conversation_memory.subject` carries that person for up to 90
+seconds (`VISIT_GRACE_SECONDS`) while nothing contradicts the same visit: the view is
+empty or holds one not-yet-recognized face, and no supported voice belongs to somebody
+else. Two faces at once, or a face or voice recognized as another person, end the carry
+at once; a fresh recognition is then required. Exchanges archived this way record
+`audience_basis: recently_recognized_person`. Carrying authorizes memory use only: it
+never attributes an utterance, enrolls a voice or face, or changes the reply guard, which
+already treated a renumbered track as the same visit.
+
+Limit, accepted for this repair: someone who replaces the recognized person within 90
+seconds, alone and never seen beside them, would be treated as the same visit until the
+window lapses. Face evidence cannot tell that case from the owner's own face at a distance
+(his track read "unrecognized" at similarity 0.33 and 0.61 in this run).
+
+Verification: two new synthetic checks through the production Session (recall after a
+restarted track, with the stored basis; the carry ending by time, company and another
+recognized person). No hosted model or camera was used; real-room behaviour is untested.

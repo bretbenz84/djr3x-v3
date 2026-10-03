@@ -886,3 +886,193 @@ class ReacquireAfterNudgeTests(unittest.TestCase):
         receipt = self.approach(clock, drive)
         self.assertEqual(receipt.steps[-1]['refound_by'], ['body_turn'], receipt)
         self.assertEqual(receipt.steps[-1]['status'], 'completed')
+
+
+def hallway(fake, half_width):
+    """Sensors for a straight hallway along the room's x axis, walls at y = +/- half_width.
+
+    Rays leave from where each sensor sits: the matrix at the front of the ring, the
+    radials and side sensors on the ring at their own bearings."""
+    def ray(origin_deg, direction_deg):
+        heading = fake.theta
+        ox = fake.x + .27*math.cos(math.radians(heading + origin_deg))
+        oy = fake.y + .27*math.sin(math.radians(heading + origin_deg))
+        slope = math.sin(math.radians(heading + direction_deg))
+        if abs(slope) < 1e-6:
+            return 4000
+        distance = ((half_width if slope > 0 else -half_width) - oy) / slope
+        return int(max(20, min(4000, distance*1000)))
+    def sensors():
+        columns = [ray(0., 19.6875 - 5.625*col) for col in range(8)]
+        ring = {key: ray(bearing, bearing) for key, bearing in
+                (('fl_radial', 22.5), ('fr_radial', -22.5), ('lf', 67.5), ('lb', 112.5), ('rf', -67.5), ('rb', -112.5))}
+        return {**ring, 'fl': ring['fl_radial'], 'fr': ring['fr_radial']}, columns*8
+    return sensors
+
+
+# The robot's own readings on October 3, left where it refused "move forward five feet":
+# straight ahead and the left open, a wall crossing the right side of its path.
+LIVE_TOF = {'fl': 3500, 'fr': 401, 'rl': 463, 'rr': 951, 'lf': 600, 'lb': 261, 'rf': 429, 'rb': 2000,
+            'fl_radial': 4000, 'fr_radial': 401}
+LIVE_GRID = [4000, 6, 4000, 4000, 4000, 4000, 616, 559, 4000, 4000, 4000, 4000, 4000, 4000, 635, 559,
+             4000, 4000, 4000, 4000, 4000, 4000, 646, 561, 4000, 4000, 4000, 4000, 4000, 4000, 659, 566,
+             4000, 4000, 4000, 4000, 4000, 4000, 648, 558, 4000, 4000, 4000, 4000, 4000, 4000, 635, 541,
+             4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000]
+
+
+class TuckedArms:
+    """The servo owner parks the arms before the wheels move, as on the robot."""
+    def prepare_base_motion(self, cancel):
+        return type('R', (), {'status': 'pulses_reached', 'reason': None})()
+    def finish_base_motion(self):
+        pass
+
+
+class HallwayMoveTests(SeekTests):
+    """October 3 floor run: hallways blocked every forward move."""
+    def start(self, things):
+        clock, fake, drive, world = super().start(things)
+        drive.servos = TuckedArms()
+        return clock, fake, drive, world
+
+    def moves(self, fake):
+        return [c for c in fake.commands if c['cmd'] == 'move']
+
+    def test_walls_beside_a_straight_hallway_neither_shorten_nor_refuse_the_move(self):
+        clock, fake, drive, world = self.start([])
+        fake.sensors = hallway(fake, .45)
+        settle()
+        space = drive.space()
+        self.assertLess(space['front_m'], 1.)          # The walls are seen...
+        self.assertGreater(space['path_m'], 3.)        # ...but they are beside the path.
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=2.))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertAlmostEqual(fake.x, 2., places=1)
+        self.assertFalse([c for c in fake.commands if c['cmd'] == 'turn'])
+        # 18 cm either side is tight: he rolls slower than the open-room pace.
+        self.assertTrue(receipt.steps[0]['slowed_for_tight_space'])
+        self.assertTrue(all(m['speed'] <= .15 + 1e-6 for m in self.moves(fake)))
+
+    def test_pointed_at_a_hallway_wall_he_turns_away_first_then_moves(self):
+        clock, fake, drive, world = self.start([])
+        fake.theta = -20.                               # Angled toward the right wall.
+        fake.sensors = hallway(fake, .6)
+        settle()
+        self.assertEqual(drive._short_side(drive.space(), .8), -1)
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=1.))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        turns = [c for c in fake.commands if c['cmd'] == 'turn']
+        self.assertTrue(turns and all(c['deg'] > 0 for c in turns))    # Left, away from the wall.
+        self.assertGreater(receipt.steps[0]['turned_away_from_wall_deg'], 0)
+        self.assertAlmostEqual(sum(m['dist'] for m in self.moves(fake)), 1., places=2)
+        self.assertFalse([m for m in self.moves(fake) if m['dist'] < 0])   # Never a reverse.
+        self.assertLess(abs(fake.y), .3)                # He went down the hallway, not into the wall.
+
+    def test_an_open_room_move_is_not_turned(self):
+        clock, fake, drive, world = self.start([])
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=1.))
+        self.assertEqual(receipt.status, 'completed')
+        self.assertFalse([c for c in fake.commands if c['cmd'] == 'turn'])
+        self.assertNotIn('slowed_for_tight_space', receipt.steps[0])
+        self.assertEqual(self.moves(fake)[0]['speed'], .25)
+
+    def test_the_logged_refusal_now_moves_slowly_beside_the_wall(self):
+        clock, fake, drive, world = self.start([])
+        # The left arms are against something, so he cannot turn away; the old code refused.
+        fake.sensors = lambda: ({**LIVE_TOF, 'lf': 60, 'lb': 60}, LIVE_GRID)
+        settle()
+        space = drive.space()
+        self.assertAlmostEqual(space['path_right_m'], .40, places=2)
+        self.assertGreater(space['path_center_m'], 3.)
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=1.52))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertAlmostEqual(fake.x, 1.52, places=1)
+        self.assertTrue(receipt.steps[0]['slowed_for_tight_space'])
+        self.assertTrue(all(m['dist'] <= .6 + 1e-6 and m['speed'] <= .15 + 1e-6 for m in self.moves(fake)))
+
+    def test_with_room_to_turn_the_logged_pose_straightens_before_moving(self):
+        clock, fake, drive, world = self.start([])
+        fake.sensors = lambda: (LIVE_TOF, LIVE_GRID)
+        settle()
+        self.run_plan(clock, drive, DriveStep('move', meters=1.52))
+        first = next(c for c in fake.commands if c['cmd'] in {'turn', 'move'})
+        self.assertEqual((first['cmd'], first['deg']), ('turn', 12.))   # Left, away from the right wall.
+
+    def test_a_wall_closing_inside_the_hold_distance_stops_the_guarded_leg(self):
+        clock, fake, drive, world = self.start([])
+        def closing():
+            rolled = fake.pending[2]*fake._progress() if fake.pending and fake.pending[1] == 'move' else 0.
+            near = int(max(60, 400 - (fake.x + rolled)*1500))      # The wall nears as he advances.
+            return {**LIVE_TOF, 'lf': 60, 'lb': 60, 'fr': near, 'fr_radial': near}, LIVE_GRID
+        fake.sensors = closing
+        settle()
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=1.52))
+        step = receipt.steps[0]
+        self.assertEqual((step['status'], step['reason']), ('blocked', 'wall_beside_path_too_close'), receipt)
+        self.assertNotEqual(receipt.status, 'completed')
+        self.assertLess(fake.x, .3, receipt)             # Stopped by the host, well short of the leg.
+
+    def test_a_real_obstacle_straight_ahead_still_shortens_and_refuses(self):
+        clock, fake, drive, world = self.start([])
+        fake.sensors = shaped_room(world, [(.55, y/10, .12) for y in range(-12, 13, 2)])   # A wall across the way.
+        settle()
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=1.))
+        self.assertEqual(receipt.steps[0]['status'], 'refused', receipt)
+        self.assertEqual(receipt.steps[0]['reason'], 'path_blocked')
+        self.assertFalse(self.moves(fake))
+
+    def test_turn_bookkeeping_follows_the_imu_when_wheels_slip(self):
+        clock, fake, drive, world = self.start([])
+        fake.odom_slip = 1.                              # Odometry reads twice the real turn.
+        receipt = self.run_plan(clock, drive, DriveStep('turn', degrees=30.))
+        self.assertAlmostEqual(receipt.steps[0]['odometry_deg'], 60., delta=2.)
+        self.assertAlmostEqual(drive._rotation(), 30., delta=2.)   # Where targets are now expected.
+
+    def test_arriving_ends_the_search_so_later_plans_cannot_resume_it(self):
+        clock, fake, drive, world = self.start([('door', 'door', 1.6, 0.)])
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        self.assertEqual(receipt.steps[-1]['status'], 'completed', receipt)
+        self.assertIsNone(drive.context('requested')['last_sought'])
+
+
+class DamagedTargetTests(unittest.TestCase):
+    """October 3: "come towards me" named a face id with characters missing; it was read as
+    the microwave sought earlier and he turned away from the person."""
+    def propose(self, call, drive):
+        from r3x.memory import Memory
+        from r3x.speakers import SpeakerTracker
+        from r3x.state import CoreState
+        from tests.test_voice_core import Trace
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            store = Memory(Path(temp).resolve()/'core.sqlite3')
+            store.start()
+            try:
+                state = CoreState(store, SpeakerTracker('synthetic:3'), Trace())
+                context = {'source_turn_id': 't', 'state_revision': store.revision, 'drive': drive}
+                return state.propose_drive(call, context, Cancellation())
+            finally:
+                store.close()
+
+    def drive(self):
+        face = {'target_id': 'face-404ed8a94f984e8f89fb70bd91f9a53f', 'kind': 'face', 'bearing_deg': 3}
+        return {'available': True, 'origin': 'requested', 'vision_seek': True, 'last_sought': 'microwave oven',
+                'targets': [face, {'target_id': 'nearest_person', 'kind': 'nearest_person', 'visible_now': True}]}
+
+    def test_a_face_id_with_missing_characters_still_means_that_face(self):
+        from tests.test_drive_session import drive_call, step
+        plan = self.propose(drive_call(step('approach', target='face-404ed8a94f984e8f89fbf9a53f')), self.drive())
+        self.assertEqual(plan.steps[0].target, 'face-404ed8a94f984e8f89fb70bd91f9a53f')
+
+    def test_an_unknown_target_is_refused_rather_than_becoming_the_old_search(self):
+        from tests.test_drive_session import drive_call, step
+        with self.assertRaisesRegex(ValueError, 'DriveTargetNotOffered'):
+            self.propose(drive_call(step('approach', target='face-0000000000000000')), self.drive())
+
+    def test_keep_going_and_a_spelling_of_sought_still_resume_the_search(self):
+        from tests.test_drive_session import drive_call, step
+        for name in ('sought', 'drive.last_sought'):
+            plan = self.propose(drive_call(step('approach', target=name)), self.drive())
+            self.assertEqual(plan.steps[0].target, 'sought')

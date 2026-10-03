@@ -369,6 +369,7 @@ class Session:
             context['current_view'] = {'sampled_at':now,'faces':visible,
                 'meaning':'Latest fresh face evidence for who is visible now. Empty means no fresh detected face, not proof the room is empty. Separate from speech-time faces; never authorizes speaker attribution or enrollment.'}
             self.trace.emit('reply_visual_context',turn_id=turn_id,**context['current_view'])
+            self.state.note_audience(context)   # The same visit survives a restarted face track.
 
         def observation_ready():
             # Camera/feed freshness authorizes starting this remark. Ordinary
@@ -1119,6 +1120,11 @@ class Session:
                                        (drive_plan.targets.get(s.target) or {}).get('path',{}).get('direct_approach')=='blocked_early']
                             if not any(s.action=='approach' or s.action=='move' and s.meters>0 for s in drive_plan.steps):
                                 blocked = []  # Only turning toward it: nothing will run into the obstacle.
+                            if any(s.action in {'turn','move'} for s in drive_plan.steps):
+                                # The plan already carries a route (October 3: the person dictated
+                                # "slight left, forward a few feet, slight right" and the planner
+                                # replaced it with its own turn and distance).
+                                blocked = []
                             if blocked and self.route_planner is not None and self.route_planner.available():
                                 self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='drive_route_planning',
                                                 model=self.route_planner.capability.model,blocked_targets=blocked)

@@ -6,7 +6,7 @@ import unittest
 
 from r3x.contracts import Cancellation, Playback, ProviderFailure
 from r3x.output import Delivery, OutputOwner
-from r3x.servo_poses import HEAD_PARK, PARK, REST, FULL_DOWN, TUCK, UNPOWERED_REST
+from r3x.servo_poses import HEAD_PARK, PARK, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 
 
@@ -368,6 +368,70 @@ class ServoTests(unittest.TestCase):
                             for event,row in trace.rows))
         self.assertEqual(self.owner.state,'active')
         self.assertEqual(self.execute('shutdown').status,'pulses_reached')
+
+
+class ArmReturnTests(unittest.TestCase):
+    """October 3: after a drive the head and other servos waited for the arm to un-park."""
+    setUp, request, execute = ServoTests.setUp, ServoTests.request, ServoTests.execute
+
+    def parked(self):
+        self.owner.start()
+        self.assertEqual(self.execute().status, 'pulses_reached')
+        self.assertEqual(self.execute('base_park').status, 'pulses_reached')
+        self.assertTrue({0, 1, 2, 4, 6, *THROTTLE} <= self.owner.held_channels)
+
+    def test_head_is_free_the_moment_the_drive_ends_while_the_arm_is_still_out(self):
+        self.parked()
+        self.owner.begin_arm_return()
+        self.assertEqual(self.owner.held_channels, set(THROTTLE))
+        self.assertFalse(self.owner._base_held)
+        self.assertTrue(self.owner.motion_risk())         # The arm is about to move: not a still moment.
+        look = self.owner.execute(self.request('pose', pose={0: 4000}, hold_pose=False), Cancellation())
+        self.assertEqual(look.status, 'pulses_reached')    # Before the arm has moved at all.
+        self.assertEqual(self.port.pose[0], 4000)
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(PARK))
+        talk = self.owner.execute(self.request('talking'), Cancellation())
+        self.assertEqual(talk.status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(PARK))   # Talking left the arm alone.
+
+    def test_nothing_else_commands_the_arm_until_it_is_back_at_rest(self):
+        self.parked()
+        self.owner.begin_arm_return()
+        for kind in ('base_park', 'shutdown'):
+            early = self.execute(kind)
+            self.assertEqual((early.status, early.reason), ('rejected', 'ServoBusy'))
+        self.assertFalse(self.owner.yield_stale_hold())
+        receipt = self.owner.return_arm()
+        self.assertEqual(receipt.status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
+        self.assertFalse(self.owner.held_channels & set(THROTTLE))
+        self.assertFalse(self.owner._arm_returning)
+        self.assertEqual(self.owner.execute(self.request('pose', pose='throttle_offer'), Cancellation()).status,
+                         'pulses_reached')
+
+    def test_the_arm_returns_beside_running_head_motion(self):
+        import threading
+        self.parked()
+        self.owner.begin_arm_return()
+        results = {}
+        worker = threading.Thread(target=lambda: results.update(arm=self.owner.return_arm()))
+        worker.start()
+        for index in range(6):
+            pose = self.owner.execute(self.request('pose', pose={0: 4000 + 200*index}, hold_pose=False), Cancellation())
+            self.assertEqual(pose.status, 'pulses_reached')
+        worker.join(5)
+        self.assertEqual(results['arm'].status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
+
+    def test_a_stop_holds_the_arm_where_it_is(self):
+        self.parked()
+        self.owner.begin_arm_return()
+        self.port.stall = True                              # The arm never arrives...
+        self.port.on_target = self.owner.cancel             # ...and a stop comes while it travels.
+        receipt = self.owner.return_arm()
+        self.assertEqual(receipt.status, 'cancelled')
+        self.assertTrue(set(THROTTLE) <= self.owner.held_channels)
+        self.assertFalse(self.owner._arm_returning)
 
 
 class TalkingOutputTests(unittest.TestCase):

@@ -132,17 +132,18 @@ class RobotServos:
         return receipt
 
     def finish_base_motion(self):
-        """Return the arm to rest in the background; speech need not wait for it.
+        """The drive is over: the head and the other servos are free at once, while the
+        throttle arm returns to rest in the background.
 
-        Talking motion is rejected (ServoBusy) while the return runs; audio is not.
-        A later drive plan or shutdown joins this worker before using the owner.
+        Owner, October 3: he stayed frozen until the arm had un-parked. Talking and idle
+        motion now carry on beside the return (they never command the arm's channels while
+        it is on its way). A later drive plan or shutdown joins this worker first.
         """
         import threading
-        self.idle.stop()             # The arm's return must not find the owner busy.
+        self.owner.begin_arm_return()
         self.idle.look_at_people()   # The drive centred the head; an earlier held look is over.
         def run():
-            receipt = self.owner.execute(ServoRequest('base-release', self.owner.version, 'base_release',
-                                                      self.owner.clock()+30.), Cancellation())
+            receipt = self.owner.return_arm()
             if self.trace:
                 self.trace.emit('servo_base_release', **asdict(receipt))
         self._arm_return = threading.Thread(target=run, name='r3x-arm-return', daemon=True)

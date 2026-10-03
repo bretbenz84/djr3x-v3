@@ -23,6 +23,7 @@ class CoreState:
         self.current = None
         self.conversation_source = None  # Last trusted input, separate from archived noise.
         self.forgotten = False
+        self.audience_seen = None  # (person_id, at): last evidenced private audience this run.
         self.frozen = frozen
         self.require_microphone_hold = require_microphone_hold
         from datetime import date
@@ -151,10 +152,24 @@ class CoreState:
         steps, meters, degrees = [], 0., 0.
         for raw in args['steps']:
             action = raw['action']
-            if (action == 'approach' and raw.get('target') not in offered and raw.get('target') != 'sought' and
-                    (any(s.action == 'seek' for s in steps) or drive.get('last_sought'))):
-                # An approach naming anything unrecognized right after a seek can only mean
-                # what was just sought (September 27: the model wrote "drive.last_sought").
+            named = raw.get('target')
+            if action in {'face', 'approach', 'find_person'} and isinstance(named, str) and named not in offered and named != 'sought':
+                # October 3: the model dropped characters from a face id ("come towards me");
+                # the unrecognized id was read as the thing sought earlier and he turned back
+                # to the microwave. A damaged id is repaired only to the one offered target
+                # it clearly abbreviates; it never becomes a different goal.
+                def shared(a, b):
+                    return next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+                close = [key for key in offered if shared(key, named) >= 12]
+                if len(close) == 1:
+                    named = close[0]
+                    raw = {**raw, 'target': named}
+            if (action == 'approach' and named not in offered and named != 'sought' and
+                    (any(s.action == 'seek' for s in steps) or
+                     (drive.get('last_sought') and isinstance(named, str) and 'sought' in named))):
+                # An approach naming anything unrecognized right after a seek in the same plan
+                # can only mean what was just sought; so does a spelling of the word itself
+                # (September 27: the model wrote "drive.last_sought").
                 raw = {**raw, 'target': 'sought'}
             if action == 'seek' and raw.get('target') is not None:
                 # September 27: the model put "white door on the left" in target. A seek names
@@ -366,7 +381,7 @@ class CoreState:
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
         speaker_person = self.store.person(attribution.person_id) if attribution.person_id else None
         from .face_attribution import public_face
-        return {"source_turn_id":turn_id,"state_revision":self.store.revision,
+        return self.note_audience({"source_turn_id":turn_id,"state_revision":self.store.revision,
                 "current_utterance":transcript.text,"calendar_date":self.calendar_today().isoformat(),
                 "participation":self.initiative.context(self.trace.clock()),
                 "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
@@ -380,7 +395,27 @@ class CoreState:
                 "transcript_trusted":transcript.trusted,
                 "acoustic_limits":{"overlap_detector":"window consistency only", "overlap":capture.overlap,
                     "speaker_boundary_proposed":capture.parent_capture_id is not None},
-                "enrollment":[e.progress() for e in self.enrollments.values()]}
+                "enrollment":[e.progress() for e in self.enrollments.values()]})
+
+    def note_audience(self, context):
+        """Remember the private audience while evidence supports it, and offer it back to
+        the memory gate for a short while after (conversation_memory.subject).
+
+        A contradiction (several faces, somebody else recognized) ends the carry at once;
+        a fresh recognition is then needed."""
+        from . import conversation_memory as cm
+        now = self.trace.clock()
+        who = cm.evidenced_subject(context)
+        if who:
+            self.audience_seen = (who, now)
+        elif self.audience_seen and cm.contradicted(context, self.audience_seen[0]):
+            self.audience_seen = None
+        context.pop('recent_audience', None)
+        if self.audience_seen:
+            context['recent_audience'] = {'person_id':self.audience_seen[0],
+                'seconds_ago':round(now-self.audience_seen[1],1),
+                'meaning':'Last person recognized as the private audience. Keeps their memories usable through brief camera gaps; not proof they are visible now or that they spoke.'}
+        return context
 
     def opportunity_context(self, event, *, advance_memory_cursor=True):
         """No acoustic observation/source turn is fabricated for an opportunity."""
@@ -412,7 +447,7 @@ class CoreState:
         from .memory_opportunities import candidates
         offered = candidates(self.store,faces,self.calendar_today(),self.memory_cursor)
         if advance_memory_cursor: self.memory_cursor += len(offered)
-        return {'observations':cues,'calendar_date':self.calendar_today().isoformat(),'memory_opportunities':offered,'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
+        return self.note_audience({'observations':cues,'calendar_date':self.calendar_today().isoformat(),'memory_opportunities':offered,'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
                 'participation':self.initiative.context(self.trace.clock()),
                 'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
                                'quiet_seconds':event.quiet_seconds,
@@ -424,7 +459,7 @@ class CoreState:
                                          and not any(r['heard_complete_phrases'] for r in self.initiative.outcomes)}} if event.kind=='visual_arrival' else {}),
                 'speaker':{'person_id':None,'state':'unresolved','reason':'no_speech_observed'},
                 'faces':faces,'people':people,'claims':[],
-                'pending_question':self.pending,'frozen_evaluation':self.frozen}
+                'pending_question':self.pending,'frozen_evaluation':self.frozen})
 
     def intent_context(self, context, *, human=False):
         from .conversation_intent import faces_for
@@ -1038,6 +1073,7 @@ class CoreState:
             self.last_inspection = None
             self.attention.scene.invalidate(self.trace.clock())
             self.forgotten = True
+            self.audience_seen = None
             from .speakers import VoiceObservation,Attribution
             self.current = (turn_id,replace(capture,pcm=b""),transcript,
                             VoiceObservation(observation.namespace),Attribution(reason="person_forgotten"))

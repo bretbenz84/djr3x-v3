@@ -46,6 +46,18 @@ LOST_AFTER_S = 2.5         # Unseen this long mid-approach: stop and look for th
 LOOK_NECK_MAX = 40.        # Head looks while re-finding a person stay inside the talking gaze range.
 MAX_REACQUIRES = 3
 VOICE_LEG_M = 2.           # With only a voice to go on, roll this far toward it looking for a face.
+# October 3 hallway run: pointed slightly into a hallway wall he refused every forward move,
+# though straight ahead was open. One short side beside an open centre is a wall to turn
+# away from before moving, not an obstacle; tight spaces are driven slower, never refused
+# while the wall stays outside the hold distance.
+STRAIGHTEN_DEG = 12.      # One turn away from the wall; repeated while it still crosses the path.
+MAX_STRAIGHTEN = 3
+STRAIGHTEN_WITHIN_M = .8  # Only walls this near ahead: a far one is met by a later leg.
+SIDE_OPEN_MORE_M = .3     # Straight ahead and the far side this much more open than the short side.
+TIGHT_LEG_M = .6          # Beside a wall he could not turn away from: short guarded legs.
+TIGHT_SIDE_M = .35        # A side return this close, or...
+TIGHT_CORNER_M = .5       # ...a front-corner return this close, is a tight space: go slower.
+TIGHT_PACE = .6
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
 NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
@@ -186,7 +198,8 @@ class Approach:
             return 0., 0., 'timeout', 'approach time limit'
         if self.travel >= self.max_travel:
             return 0., 0., 'distance_limit', 'distance limit reached before the target'
-        front = space['front_m']
+        # What the body would drive into; a hallway wall beside the path is not in the way.
+        front = space['path_m'] if space.get('path_m') is not None else space['front_m']
         if front is None:
             return 0., 0., 'aborted', 'front clearance unavailable'
         speed_now = max(0., float(odom.get('lin', 0)))
@@ -452,8 +465,9 @@ class DriveBase:
         targets = []
         faces = self._fresh_faces(now)
         def path(bearing, distance=None):
-            # Front sensors cover roughly +/-25 degrees: which band a straight approach crosses.
-            band = 'front_center_m' if abs(bearing) <= 8 else 'front_left_m' if bearing > 0 else 'front_right_m'
+            # Front sensors cover roughly +/-25 degrees: which part of the path a straight
+            # approach crosses. Walls beside the path (a hallway) are not in its way.
+            band = 'path_center_m' if abs(bearing) <= 8 else 'path_left_m' if bearing > 0 else 'path_right_m'
             clear = space.get(band) if space.get(band) is not None else space['front_m']
             if clear is None:
                 return {'clear_to_m': None, 'direct_approach': 'unknown'}
@@ -493,7 +507,8 @@ class DriveBase:
         return {'available': ok, 'unavailable_reason': reason, 'base_status': self.base_status(),
                 'clearance_m': {k: (round(v, 1) if isinstance(v, float) else v) for k, v in space.items() if k != 'health'},
                 'clearance_meaning': ('Nearest time-of-flight return in meters by direction, measured now. path_m is what the '
-                    'body would drive into straight ahead; front_m is the nearest front return even beside the path; '
+                    'body would drive into straight ahead (path_left_m, path_center_m and path_right_m say which side of '
+                    'it); front_m is the nearest front return even beside the path; '
                     'left_m/right_m are the sides and rear_m behind. 3.5 or more means nothing within range; null means '
                     'not reporting. The sensors see objects, not what they are.'),
                 'radar_view': {'status': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
@@ -543,7 +558,8 @@ class DriveBase:
             wait(.02)
         return None
 
-    def _finite(self, command, timeout, cancel):
+    def _finite(self, command, timeout, cancel, guard=None):
+        """Run one firmware turn or move to its done. guard() may name a reason to stop early."""
         seq = self.link.send(command)
         ack = self._await_ack(seq, .5, self.wait)
         if ack is not None and not ack.get('accepted'):
@@ -564,6 +580,12 @@ class DriveBase:
                 if self.clock() >= deadline:
                     self.link.send({'cmd': 'stop'})
                     return 'timeout', 'no_done_before_deadline', None
+                why = guard() if guard else None
+                if why:
+                    self.link.send({'cmd': 'stop'})
+                    self._view_since = self.clock() + .3
+                    self._sleep(.3, cancel)   # Let the base settle before odometry is read.
+                    return 'blocked', why, None
                 self._check(cancel)
                 self.wait(.05)
         except Cancelled:
@@ -663,19 +685,93 @@ class DriveBase:
     def _vision_budget(self):
         return SELF_VISION_CALLS if self._origin == 'self_initiated' else PLAN_VISION_CALLS
 
+    @staticmethod
+    def _short_side(space, need):
+        """+1 left / -1 right when only that side of the straight path is short of need while
+        straight ahead and the other side are clearly more open: a wall beside, not ahead."""
+        rooms = {1: space.get('path_left_m'), 0: space.get('path_center_m'), -1: space.get('path_right_m')}
+        if any(value is None for value in rooms.values()):
+            return None
+        for side in (1, -1):
+            if (rooms[side] - FRONT_MARGIN < need and
+                    min(rooms[0], rooms[-side]) >= rooms[side] + SIDE_OPEN_MORE_M):
+                return side
+        return None
+
+    def _straighten(self, need, plan, cancel):
+        """Turn away from a wall that crosses one side of the path, before rolling forward.
+
+        Owner, October 3: he should orient himself to avoid the walls before he moves.
+        Small turns in place, re-reading the sensors after each; never a reverse, and it
+        stops as soon as the path is open, the turn is refused or the other side closes."""
+        turned, first = 0., None
+        for _ in range(MAX_STRAIGHTEN):
+            side = self._short_side(self.space(), need)
+            if side is None or (first is not None and side != first):
+                break
+            first = side
+            turn = self._turn(-side * STRAIGHTEN_DEG, plan, cancel, escape=False)
+            if turn['status'] != 'completed':
+                break
+            turned += -side * turn.get('turned_deg', 0.)
+        return turned
+
+    @staticmethod
+    def _caution(space):
+        """Speed factor: slower where a wall is close beside or at a front corner (owner,
+        October 3: in tight clearance hallways he should move slower)."""
+        sides = [v for v in (space.get('left_m'), space.get('right_m')) if v is not None]
+        corners = [v for v in (space.get('front_left_m'), space.get('front_right_m')) if v is not None]
+        tight = (sides and min(sides) < TIGHT_SIDE_M) or (corners and min(corners) < TIGHT_CORNER_M)
+        return TIGHT_PACE if tight else 1.
+
+    def _beside_wall(self, space):
+        """Room for a guarded leg when only a side return limits the path and straight ahead
+        is open; None when the limit is ahead or the wall is already at the hold distance."""
+        centre, path = space.get('path_center_m'), space.get('path_m')
+        if centre is None or path is None or 'front_depth_matrix_unavailable' in space['health']:
+            return None
+        if centre - FRONT_MARGIN < .3 or centre < path + SIDE_OPEN_MORE_M or path < PERSON_MARGIN + .05:
+            return None
+        return min(TIGHT_LEG_M, centre - FRONT_MARGIN)
+
     def _move(self, meters, plan, cancel, speed=None):
-        allowed, note = move_allowance(meters, self.space())
         row = {'action': 'move', 'requested_m': round(meters, 2)}
+        straightened = self._straighten(min(meters, STRAIGHTEN_WITHIN_M), plan, cancel) if meters > 0 else 0.
+        if straightened:
+            # Reported so the model can say he lined up with the hallway first.
+            row['turned_away_from_wall_deg'] = round(straightened, 1)
+            row['turned_deg'] = abs(round(straightened, 1))
+        def too_close():
+            path = self.space().get('path_m')
+            return 'wall_beside_path_too_close' if path is None or path < PERSON_MARGIN else None
+        def allowance():
+            space = self.space()
+            allowed, note = move_allowance(meters, space)
+            tight = self._beside_wall(space) if meters > 0 and allowed < min(meters, .2) else None
+            if tight is not None:
+                # Not refused: a short, slow leg the firmware steers along the wall, and the
+                # host stops if the wall still comes inside the hold distance.
+                return min(meters, tight), 'beside_wall', space
+            return allowed, note, space
+        allowed, note, space = allowance()
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
         self._ensure_parked(cancel)
-        allowed, note = move_allowance(meters, self.space())   # Clearance after the park settles.
+        allowed, note, space = allowance()   # Clearance after the park settles.
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
         start = self._telemetry().get('odom') or {}
         speed = speed or LIMITS[plan.origin]['speed_mps'] * self._pace
-        status, reason, done = self._finite({'cmd': 'move', 'dist': round(allowed, 2), 'speed': speed},
-                                            max(8., abs(allowed)/speed + 10.), cancel)
+        caution = self._caution(space) if meters > 0 else 1.
+        if note == 'beside_wall':
+            caution = TIGHT_PACE
+        if caution < 1.:
+            speed = max(min(speed, .1), speed * caution)
+            row['slowed_for_tight_space'] = True
+        status, reason, done = self._finite({'cmd': 'move', 'dist': round(allowed, 2), 'speed': round(speed, 3)},
+                                            max(8., abs(allowed)/speed + 10.), cancel,
+                                            too_close if note == 'beside_wall' else None)
         end = (done or {}).get('odom') or self._telemetry().get('odom') or {}
         travelled = math.hypot(float(end.get('x', 0)) - float(start.get('x', 0)), float(end.get('y', 0)) - float(start.get('y', 0)))
         return {**row, 'commanded_m': round(allowed, 2), 'travelled_m': round(travelled, 2), 'status': status,
@@ -685,23 +781,43 @@ class DriveBase:
         """A long move as firmware legs of at most step_m, each against fresh clearance."""
         step = LIMITS[plan.origin]['step_m']
         remaining, rows = abs(meters), []
-        while remaining > .05:
+        while remaining > .05 and len(rows) < 16:
             leg = math.copysign(min(step, remaining), meters)
             rows.append(self._move(leg, plan, cancel))
-            remaining -= abs(leg)
-            if rows[-1]['status'] != 'completed' or rows[-1]['reason'] == 'shortened_by_clearance':
+            last = rows[-1]
+            if last['status'] != 'completed' or last['reason'] == 'shortened_by_clearance':
                 break
+            if last['reason'] == 'beside_wall':
+                # A guarded leg along a wall: carry on from fresh readings while it makes headway.
+                if last.get('travelled_m', 0.) < .05:
+                    break
+                remaining -= last['travelled_m']
+                continue
+            remaining -= abs(leg)
         row = {**rows[-1], 'requested_m': round(meters, 2), 'travelled_m': round(sum(r['travelled_m'] for r in rows), 2)}
+        turned = sum(r.get('turned_deg', 0.) for r in rows)
+        if turned:
+            row['turned_deg'] = round(turned, 1)
+            row['turned_away_from_wall_deg'] = round(sum(r.get('turned_away_from_wall_deg', 0.) for r in rows), 1)
+        if any(r.get('slowed_for_tight_space') for r in rows):
+            row['slowed_for_tight_space'] = True
         if len(rows) > 1:
             row['legs'] = rows
         if row['status'] == 'completed' and remaining > .05:
             row['reason'] = 'shortened_by_clearance'
+        elif row['status'] == 'completed' and row['reason'] == 'beside_wall':
+            row['reason'] = None
         return row
 
     def _rotation(self):
-        """Base rotation since the plan started, from wheel odometry (the IMU drifts)."""
+        """Base rotation since the plan started, from the IMU heading (odometry without one).
+
+        October 3: across twenty logged turns the IMU read the commanded angle plus a 3-10
+        degree overshoot, while wheel odometry read up to twice that on left turns (wheel
+        slip). Predicting where a target should be from odometry then turned him the wrong
+        amount ("turned 86 degrees" looking for something 30 degrees away)."""
         telemetry, _ = self.link.snapshot()
-        now = self._odom_heading(telemetry) if telemetry else None
+        now = self._heading(telemetry) if telemetry else None
         return wrap(now - self._start_heading) if now is not None and self._start_heading is not None else 0.
 
     def _predicted(self, offered):
@@ -997,7 +1113,9 @@ class DriveBase:
                     # Absolute heading of the person: firmware steering around obstacles
                     # turns the base, and this says which way to look when they drop out.
                     last = {**current, 'heading': wrap(heading + current['bearing_deg']) if heading is not None else None}
-                lin, ang, result, reason = controller.step(now, telemetry, self.space(now), current)
+                space = self.space(now)
+                lin, ang, result, reason = controller.step(now, telemetry, space, current)
+                lin = min(lin, max(.05, controller.speed * self._caution(space)))
                 if result is None:
                     self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                     self.wait(.15)
@@ -1057,7 +1175,8 @@ class DriveBase:
                     break
                 heading = self._heading(telemetry)
                 ang = 0. if hold is None or heading is None else max(-.2, min(.2, math.radians(wrap(hold - heading))*1.2))
-                lin = max(.05, min(speed, math.sqrt(2*CONFIG['accel_lin']*max(0., room)), (distance_m - travelled)/.6))
+                lin = max(.05, min(speed * self._caution(self.space(now)), math.sqrt(2*CONFIG['accel_lin']*max(0., room)),
+                                   (distance_m - travelled)/.6))
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                 self.wait(.15)
         finally:
@@ -1218,7 +1337,8 @@ class DriveBase:
                     outcome = ('off_course', 'target_outside_steering_range')
                     break
                 ang = 0. if expected is None else max(-.2, min(.2, math.radians(expected)*1.2))
-                lin = max(.05, min(speed, math.sqrt(2*CONFIG['accel_lin']*max(0., room)), (budget_m - travelled)/.6))
+                lin = max(.05, min(speed * self._caution(space), math.sqrt(2*CONFIG['accel_lin']*max(0., room)),
+                                   (budget_m - travelled)/.6))
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                 self.wait(.15)
         except BaseException:
@@ -1261,6 +1381,10 @@ class DriveBase:
         stand_off = max(FRONT_MARGIN, step.stop_at_m or DEFAULT_STOP_AT['object'])
         travelled, turned, misses, detours, swing_refusals, carried, cruises = 0., 0., 0, [], 0, None, 0
         def result(status, reason, **extra):
+            if status == 'completed':
+                # Arrived: the search is over. October 3: a later, unrelated "come towards me"
+                # was steered back to the microwave he had already reached.
+                self._sought = None
             out = {**row, 'status': status, 'reason': reason, 'travelled_m': round(travelled, 2),
                    'turned_deg': round(turned, 1), **extra}
             if swing_refusals:
@@ -1391,7 +1515,7 @@ class DriveBase:
             self._notify(plan)
             self._vision_calls = 0   # The last sought thing persists across plans ("keep going").
             start = self.link.snapshot()[0]
-            self._start_heading = self._odom_heading(start) if start else None
+            self._start_heading = self._heading(start) if start else None
             self._plan_parks = plan.park_arm   # The arm parks right before the first wheel command.
             self._origin = plan.origin
             self._view_since = self.clock()

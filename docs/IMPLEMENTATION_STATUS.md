@@ -6,6 +6,32 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Kitchen and hallway run repairs — October 3 (midday)
+
+The owner's run `d4634610d3c34bcda70ccfa1a1a893b3` (about 18 minutes, real hardware)
+exposed four faults. All repairs are software, checked with simulated hardware; **none has
+run on the robot**. One read-only live sensor reading was taken at the owner's invitation
+(no motion; see the drive document).
+
+- **Forgot the morning's plan and denied hearing it.** Memory access required recognizing
+  the owner's face at that instant, and Rex's own movement keeps restarting face tracks.
+  A recognized person now remains the private audience for up to 90 seconds unless someone
+  else appears ([conversation memory](CONVERSATION_MEMORY.md#october-3-the-same-visit-survives-a-restarted-face-track)).
+- **Hallways blocked every forward move.** Walls beside the path no longer count; pointed
+  at a wall he turns away first, goes slower in tight spaces and is not refused while the
+  way straight ahead is open ([drive base](DRIVE_BASE_INTEGRATION.md#october-3-hallways-the-lost-search-and-turn-sizes)).
+- **Returned to the microwave when told "come towards me"; turns the wrong size.** A
+  mistyped target id no longer becomes the old search, arriving ends a search, a dictated
+  route is not replaced by the route planner, target bookkeeping follows the IMU instead of
+  slipping wheel odometry, and "slight" means about 45 degrees.
+- **Head frozen until the arm un-parked.** The head and other servos are released when the
+  wheels stop; the throttle arm returns in the background
+  ([servo integration](SERVO_INTEGRATION.md#october-3-the-head-is-free-the-moment-a-drive-ends)).
+
+Verification: **959 blocked-I/O checks pass** (82.4 seconds; fake clocks, pulses, drive and
+providers; 19 are new and 5 existing seek checks also run with tucked arms). No hosted model was called. Live acceptance of every item above is
+pending.
+
 ## Feeling alive: live-run repairs — October 3 (evening)
 
 The owner's run `30ec1b046fb749558934ca55b50ffc06` (10.4 minutes, real hardware) was the

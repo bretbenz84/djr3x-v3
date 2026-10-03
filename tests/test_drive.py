@@ -63,6 +63,8 @@ class FakeBase:
         seq, kind, amount = self.pending[:3]
         if kind == 'turn':
             self.theta += amount * fraction * self.turn_scale
+            # Wheel slip: odometry reads more rotation than the base made (October 3 floor logs).
+            self.odom_extra = getattr(self, 'odom_extra', 0.) + amount * fraction * getattr(self, 'odom_slip', 0.)
             self.imu_offset = getattr(self, 'imu_offset', 0.) + self.imu_drift
         else:
             travelled = amount * fraction
@@ -124,7 +126,8 @@ class FakeBase:
             self._finish('completed')
 
     def odom(self):
-        return {'x': round(self.x, 3), 'y': round(self.y, 3), 'theta': math.radians(self.theta),
+        return {'x': round(self.x, 3), 'y': round(self.y, 3),
+                'theta': math.radians(self.theta + getattr(self, 'odom_extra', 0.)),
                 'lin': getattr(self, 'linear', 0.), 'ang': 0.}
 
     def read(self, size):

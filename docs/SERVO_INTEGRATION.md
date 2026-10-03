@@ -165,6 +165,23 @@ comfortable, whether slow moves are quiet enough for the microphone, vertical ai
 tilt scale is V2's estimate), clearance of the hero wrist (4600-7400, just beyond its talking
 range) and poker arm while the throttle arm moves, servo temperature under continuous use, and voice-learning coverage.
 
+## October 3: the head is free the moment a drive ends
+
+Owner: after driving, "the head and other servos wait for the arm to un-park before he
+turns his head or does any other motion". The un-park was one servo request of about five
+seconds, and the owner runs one request at a time, so idle gaze, talking sway and gestures
+were refused (`ServoBusy`) and the drive stance stayed held until it finished.
+
+Now `begin_arm_return` releases the neck, head, hero elbow and poker arm the instant the
+wheels stop, and `return_arm` walks the throttle arm back to rest outside the
+single-request lock, using the same staged route and clearance checks. Only the arm's
+three channels stay held; a request that would command them, and park or shutdown, are
+refused until it is back (the next drive and shutdown already wait for it). The Maestro
+adapter takes each wire exchange whole so the two cannot interleave. A stop holds the arm
+where it is. Checked with the pulse simulator only (four new checks, one with head moves
+running in another thread during the return); on the robot, confirm the head resumes
+following at once and the arm return is unchanged.
+
 ## Idle arms and elbow lifecycle
 
 The user requested random hero/poker arm movement while awake. A low-priority

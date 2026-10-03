@@ -70,6 +70,9 @@ class ServoOwner:
         self.held_channels = set()
         self.pose_held_at = float('-inf')  # When a human-requested pose hold was last set.
         self._base_held = False
+        self._arm_returning = False        # The throttle arm is walking back to rest after a drive.
+        self._arm_cancel = threading.Event()
+        self._arm_wait = wait or self._arm_cancel.wait
         self._talking_head_origin: dict[int, int] | None = None
         self._motion = threading.Event()
         self.motion_until = 0.
@@ -132,6 +135,7 @@ class ServoOwner:
 
     def cancel(self) -> None:
         self._cancel.set()
+        self._arm_cancel.set()
         self.release_microphone_hold()
 
     def microphone_moving(self) -> bool:
@@ -143,7 +147,7 @@ class ServoOwner:
         return neck_degrees(self.commanded.get(0, NECK_CENTER))
 
     def motion_risk(self) -> bool:
-        return self._motion.is_set() or self.clock() < self.motion_until
+        return self._motion.is_set() or self._arm_returning or self.clock() < self.motion_until
 
     def human_hold_active(self):
         """A pose a person asked for blocks Rex's own movement only while it is recent.
@@ -157,7 +161,7 @@ class ServoOwner:
     def yield_stale_hold(self):
         """Drop an aged pose hold before Rex's own beat; a recent one stays."""
         if (self.held_channels and not self.human_hold_active() and not self._motion.is_set()
-                and not self._base_held):  # Never touch the drive stance of a moving base.
+                and not self._base_held and not self._arm_returning):  # Never the drive stance or a returning arm.
             self.held_channels.clear()
             return True
         return False
@@ -263,6 +267,11 @@ class ServoOwner:
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))
+            if self._arm_returning and (request.kind in {'base_park', 'park', 'shutdown'} or any(
+                    ch in THROTTLE for lane in lanes for beat in lane for ch, _ in beat.targets)):
+                # The throttle arm is still returning from its drive park; callers that need
+                # it (the next drive, shutdown) wait for the return first.
+                return receipt('rejected', 'ServoBusy')
             if request.kind == 'pose' and not request.hold_pose:
                 channels = {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
                 if request.pose == 'release_poses' or (
@@ -354,6 +363,8 @@ class ServoOwner:
             self.state = 'parked' if request.kind in {'park', 'shutdown'} else 'active'
             if request.kind == 'pose' and request.pose == 'release_poses':
                 self.held_channels.clear()
+                if self._arm_returning:
+                    self.held_channels.update(THROTTLE)
             if request.kind == 'base_release':
                 self.held_channels.difference_update(BASE_HELD)
                 self._base_held = False
@@ -399,6 +410,78 @@ class ServoOwner:
                         self.head_moved_at = self.clock()
                     self._motion.clear()
                 self._lock.release()
+
+    def begin_arm_return(self) -> None:
+        """The drive is over: free the head, hero elbow and poker arm at once.
+
+        Owner, October 3: after every drive the head and the other servos stayed frozen
+        until the throttle arm had finished un-parking. Only the arm's own three channels
+        stay held now, until return_arm has walked it back to rest."""
+        self._arm_cancel.clear()
+        self._arm_returning = True
+        self.held_channels.difference_update(BASE_HELD - set(THROTTLE))
+        self._base_held = False
+
+    def return_arm(self) -> ServoReceipt:
+        """Walk the throttle arm from its drive park to rest beside other motion.
+
+        Runs outside the single-request lock: its channels are held, so no other request
+        commands them (execute rejects one that would), and the bus takes each wire
+        exchange whole. The route and its clearance checks are base_lanes' own."""
+        changed, done = set(), False
+        def receipt(status, reason=None):
+            return ServoReceipt('base-release', status, self.version, self.clock(), self.medium,
+                                (0,) if status == 'pulses_reached' else (), reason,
+                                changed_channels=tuple(sorted(changed)))
+        try:
+            if self.state not in {'active', 'moving'} or self._bus is None:
+                return receipt('rejected', 'ServoUnavailableOrParked')
+            current = self._bus.positions(THROTTLE)
+            lanes = base_lanes('base_release', current)
+            for beat in (lanes[0] if lanes else ()):
+                targets = dict(beat.targets)
+                observed = self._bus.positions(targets)
+                validate_pose(observed)
+                if not throttle_clear(observed, targets):
+                    raise ProviderFailure('ThrottleRouteChanged')
+                if self._arm_cancel.is_set():
+                    raise Cancelled()
+                self._bus.profiles(motion_profiles(beat, observed))
+                self._bus.targets(targets)
+                changed.update(ch for ch, value in targets.items() if abs(observed[ch]-value) > 2)
+                self.commanded.update(targets)
+                deadline = self.clock() + 25.
+                while any(abs(value - targets[ch]) > 2 for ch, value in self._bus.positions(targets).items()):
+                    if self._arm_cancel.is_set():
+                        raise Cancelled()
+                    if self.clock() >= deadline:
+                        raise ProviderFailure('ServoArrivalTimeout')
+                    self._arm_wait(.025)
+            done = True
+            return receipt('pulses_reached')
+        except Cancelled:
+            try:
+                self._hold(set(THROTTLE))
+            except Exception:
+                self.state = 'faulted'
+                return receipt('failed', 'ServoCancelHoldFailed')
+            return receipt('cancelled', 'ServoCancelled')
+        except ValueError as exc:
+            return receipt('rejected', str(exc))
+        except Exception as exc:
+            self.state = 'faulted'
+            reason = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
+            if reason in {'ServoArrivalTimeout', 'ThrottleRouteChanged'}:
+                try:
+                    self._hold(set(THROTTLE))
+                except Exception:
+                    reason += ':HoldFailed'
+            return receipt('failed', reason)
+        finally:
+            if done:
+                self.held_channels.difference_update(THROTTLE)
+            self.motion_until = max(self.motion_until, self.clock() + .5)
+            self._arm_returning = False
 
     def _hold(self, channels: set[int]) -> None:
         if channels and self._bus:
