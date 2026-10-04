@@ -30,14 +30,14 @@ LIMITS = {
 ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek')
 SEEK_SWEEP_DEG = 80.      # Just under the ~90 degree camera view, so consecutive looks overlap.
 SEEK_LOOKS = 4            # Current view plus three turns: about a full circle.
-PLAN_VISION_CALLS = 24    # Hosted looks per plan (search, re-locating while rolling, routes around things).
-SELF_VISION_CALLS = 6     # Rex's own curiosity gets fewer paid looks than a human request.
+PLAN_VISION_CALLS = 40    # Hosted looks per plan (search, re-locating while rolling, routes around things).
+SELF_VISION_CALLS = 8     # Rex's own curiosity gets fewer paid looks than a human request.
 # October 3: he saw the microwave over a counter that juts out and could not plan a way
 # around it; he stopped at a table with open floor beside it. When an approach is blocked
 # he now looks at the floor (head tipped slightly down), and a hosted look at that picture
 # plus the range sensors by direction picks the next leg. He keeps his own position as he
 # goes, so afterwards he can turn back to where the target should be and check.
-ROUTE_LEGS = 5            # Camera-chosen legs per approach.
+ROUTE_LEGS = 8            # Camera-chosen legs per approach (five ran out part-way round a kitchen island).
 ROUTE_LEG_M = 1.5
 ROUTE_LOOK_DOWN_DEG = 12. # Enough to bring the floor a metre ahead into the picture.
 ROUTE_BEYOND_VIEW_DEG = 60.   # The open way lies past the picture's edge: turn this far and go.
@@ -91,6 +91,12 @@ NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box i
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
 FILLS_VIEW = .6
 TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns used 40.
+# The base coasts after the firmware ends a turn. Thirty-odd logged turns (October 1-3)
+# ended 2-10 degrees past the command, more at the faster rate: about 0.11 s of coasting.
+# Turns of 12 degrees or more are commanded that much short, so they end near the request
+# (owner: "sometimes the turning goes a little too far and then he loses sight").
+TURN_COAST_S = .11
+TURN_COAST_FROM_DEG = 12.
 # Owner request October 3: his moves need not always be the same speed, turns included.
 # The model picks a pace per step; these scale the approved speed and turn rate downward
 # only. Unverified on the robot: confirm the slow turn does not stall on carpet.
@@ -752,22 +758,6 @@ class DriveBase:
         return wrap(math.degrees(math.atan2(dy, dx)) - heading), math.hypot(dx, dy)
 
     @staticmethod
-    def _sight_lines_meet(first, second):
-        """Where two sight lines (x, y, room heading) cross, or None when they are nearly
-        parallel or cross behind him: two looks from the same spot fix no position."""
-        (x1, y1, h1), (x2, y2, h2) = first, second
-        d1 = (math.cos(math.radians(h1)), math.sin(math.radians(h1)))
-        d2 = (math.cos(math.radians(h2)), math.sin(math.radians(h2)))
-        det = d1[0]*d2[1] - d1[1]*d2[0]
-        if abs(det) < math.sin(math.radians(8.)):
-            return None
-        t1 = ((x2 - x1)*d2[1] - (y2 - y1)*d2[0]) / det
-        t2 = ((x2 - x1)*d1[1] - (y2 - y1)*d1[0]) / det
-        if not (.3 <= t1 <= 12. and .3 <= t2 <= 12.):
-            return None
-        return (x1 + t1*d1[0], y1 + t1*d1[1])
-
-    @staticmethod
     def _odom_heading(telemetry):
         theta = (telemetry.get('odom') or {}).get('theta')
         return math.degrees(float(theta)) if isinstance(theta, (int, float)) else None
@@ -803,7 +793,10 @@ class DriveBase:
                 return {**row, 'status': 'refused', 'reason': note}
         before, before_odom = self._heading(telemetry), self._odom_heading(telemetry)
         rate = round(TURN_RATE * self._pace, 1)
-        status, reason, _ = self._finite({'cmd': 'turn', 'deg': round(allowed, 1), 'rate': rate},
+        command = allowed
+        if abs(allowed) >= TURN_COAST_FROM_DEG:
+            command = math.copysign(abs(allowed) - rate * TURN_COAST_S, allowed)
+        status, reason, _ = self._finite({'cmd': 'turn', 'deg': round(command, 1), 'rate': rate},
                                          max(8., abs(allowed)/rate + 8.), cancel)
         row.update(commanded_deg=round(allowed, 1), status=status, reason=note if status == 'completed' else reason)
         measured = odom = None
@@ -821,7 +814,18 @@ class DriveBase:
         # Report the controller's closed-loop turn unless both sensors agree otherwise.
         agreed = measured is not None and odom is not None and abs(measured - odom) <= 5
         row['turned_deg'] = abs(measured if agreed else allowed if status == 'completed' else 0.)
+        self._step_trace(row)
         return row
+
+    def _step_trace(self, row):
+        """Every turn and move with where it left him: October 3, a trip turned 657 degrees
+        and the log held only the total."""
+        if self.trace:
+            telemetry, _ = self.link.snapshot()
+            heading = self._heading(telemetry) if telemetry else None
+            self.trace.emit('drive_step', **{k: v for k, v in row.items() if k != 'legs'},
+                            heading_deg=round(heading, 1) if heading is not None else None,
+                            at_m=[round(v, 2) for v in self._at])
 
     def _arms(self):
         """Arm reach for the swing check: tucked when the servo owner parks them before any
@@ -937,8 +941,11 @@ class DriveBase:
                                             too_close if note == 'beside_wall' else None)
         end = (done or {}).get('odom') or self._telemetry().get('odom') or {}
         travelled = math.hypot(float(end.get('x', 0)) - float(start.get('x', 0)), float(end.get('y', 0)) - float(start.get('y', 0)))
-        return {**row, 'commanded_m': round(allowed, 2), 'travelled_m': round(travelled, 2), 'status': status,
-                'reason': note if status == 'completed' else reason}
+        row = {**row, 'commanded_m': round(allowed, 2), 'travelled_m': round(travelled, 2), 'status': status,
+               'reason': note if status == 'completed' else reason}
+        self._track()
+        self._step_trace(row)
+        return row
 
     def _legs(self, meters, plan, cancel):
         """A long move as firmware legs of at most step_m, each against fresh clearance."""
@@ -1214,13 +1221,20 @@ class DriveBase:
             out['refound_by'] = reacquired
         return out
 
+    def _head(self, pose, cancel, request_id):
+        """A head move the drive owner makes for its own looking. It is not a person's pose:
+        October 3, each such look started the 90-second "a person posed me" hold, which then
+        refused Rex's own moves and the back-off reflex after every route look."""
+        move = getattr(self.servos, 'drive_look', None) or self.servos.execute_pose
+        return move(pose, cancel, request_id)
+
     def _look(self, degrees, cancel):
         """Point the head (neck) degrees left of the base (0 recentres); False without servos."""
         if self.servos is None or not hasattr(self.servos, 'execute_pose'):
             return False
         from .drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
         degrees = max(-LOOK_NECK_MAX, min(LOOK_NECK_MAX, degrees))
-        receipt = self.servos.execute_pose({0: round(NECK_CENTER - degrees*NECK_PULSES_PER_DEG)}, cancel, 'drive-look')
+        receipt = self._head({0: round(NECK_CENTER - degrees*NECK_PULSES_PER_DEG)}, cancel, 'drive-look')
         self._view_since = self.clock() + .3
         return getattr(receipt, 'status', None) == 'pulses_reached'
 
@@ -1343,14 +1357,14 @@ class DriveBase:
             from .servo_poses import DRIVE_HEAD, NECK_CENTER, TILT_DOWN_PER_DEG
             level = dict(DRIVE_HEAD)
             down = {0: NECK_CENTER, 2: round(level[2] + ROUTE_LOOK_DOWN_DEG * TILT_DOWN_PER_DEG)}
-            tipped = getattr(owner.execute_pose(down, cancel, 'drive-route-look'), 'status', None) == 'pulses_reached'
+            tipped = getattr(self._head(down, cancel, 'drive-route-look'), 'status', None) == 'pulses_reached'
             self._view_since = self.clock() + .3
         self._sleep(.5, cancel)
         try:
             return self.look(max(self._view_since, self.clock() - .5))
         finally:
             if tipped:
-                owner.execute_pose({2: level[2]}, cancel, 'drive-route-look')
+                self._head({2: level[2]}, cancel, 'drive-route-look')
                 self._view_since = self.clock() + .3
 
     def _route_leg(self, goal, goal_bearing, plan, cancel, budget_m, tried, in_view=True):
@@ -1509,6 +1523,51 @@ class DriveBase:
                 'heading': wrap(heading + bearing) if heading is not None else None,
                 'from': tuple(self._at)}, None
 
+    def _find_again(self, plan, cancel, shifted=0):
+        """Look for the remembered thing: where it should be first, then to either side,
+        with the head before the body. Returns (found, why not, degrees the base turned).
+
+        October 3: after each leg he swung his whole body back to a predicted bearing,
+        looked twice at that one spot, and gave up; the predictions were off and the turns
+        overshot. The head covers 40 degrees either side at once, so the body turns only
+        when the thing lies beyond that, and once more, directly, when it has been found."""
+        description = self._sought['description']
+        expected, turned = self._expected_sought(), 0.
+        can_look = self.servos is not None and hasattr(self.servos, 'execute_pose')
+        if expected is not None and abs(expected) > (LOOK_NECK_MAX + 25. if can_look else 35.):
+            # Never back up to make room here (September 27: a hallway corner beside the
+            # arms turned every re-aim into a reverse, and he looped).
+            turn = self._turn(max(-120., min(120., expected)), plan, cancel, escape=False)
+            turned += turn.get('turned_deg', 0.)
+            expected = self._expected_sought()
+        if not can_look:
+            # No head to look around with: a second look from the same spot, as before.
+            found, why = self._locate(description, cancel, self._sought)
+            if found is None and self._vision_calls < self._vision_budget():
+                found, why = self._locate(description, cancel, self._sought)
+            return found, why, turned
+        centre = max(-LOOK_NECK_MAX, min(LOOK_NECK_MAX, expected or 0.))
+        first = -shifted or (-1 if centre > 0 else 1)   # After moving left, look right of the old heading first.
+        angles = []
+        for angle in (centre, centre + first*LOOK_NECK_MAX, centre - first*LOOK_NECK_MAX):
+            angle = max(-LOOK_NECK_MAX, min(LOOK_NECK_MAX, angle))
+            if all(abs(angle - seen) >= 15. for seen in angles):
+                angles.append(angle)
+        found, why, moved = None, 'not_found', False
+        for index, angle in enumerate(angles):
+            if self._vision_calls >= self._vision_budget():
+                break
+            if abs(angle - self._neck()) > 2.:
+                moved = self._look(angle, cancel) or moved
+            if index or shifted:
+                self._sought['slack'] = 90.   # Anywhere in this view: the note says which one it is.
+            found, why = self._locate(description, cancel, self._sought)
+            if found is not None:
+                break
+        if moved:
+            self._look(0., cancel)   # Level and centred again: bearings below are base-relative.
+        return found, why, turned
+
     def _expected_sought(self):
         """Base-relative bearing where the remembered thing should be now.
 
@@ -1527,25 +1586,44 @@ class DriveBase:
         return wrap(self._sought['heading'] - heading)
 
     def _remember_sought(self, description, found):
-        """The thing's room heading survives this plan, so "keep going" finds the same one;
-        sightings from different places fix where it is (owner, October 3: after going
-        around a corner he should turn and check the thing is still ahead of him)."""
+        """The thing's room heading survives this plan, so "keep going" finds the same one.
+
+        Sightings from different places can also fix where it is, but only when at least
+        three of them agree: October 3, a position taken from two sight lines a metre apart
+        sent him turning the wrong way after every leg (657 degrees in one trip)."""
         previous = self._sought if self._sought and self._sought.get('description') == description else {}
         sightings = list(previous.get('sightings', ()))
-        position = previous.get('position')
         if found.get('heading') is not None and found.get('from') is not None:
-            line = (*found['from'], found['heading'])
-            # The widest baseline gives the best fix: try the oldest sightings first.
-            for earlier in sightings:
-                if math.hypot(line[0] - earlier[0], line[1] - earlier[1]) >= .4:
-                    met = self._sight_lines_meet(earlier, line)
-                    if met is not None:
-                        position = met
-                        break
-            sightings = (sightings + [line])[-4:]
+            sightings = (sightings + [(*found['from'], found['heading'])])[-6:]
         self._sought = {'description': description, 'note': found.get('note'),
                         'heading': found.get('heading'), 'box_width': found['box_width'],
-                        'sightings': sightings, 'position': position}
+                        'sightings': sightings, 'position': self._fixed_position(sightings)}
+
+    @staticmethod
+    def _fixed_position(sightings):
+        """The point nearest all sight lines, when three or more lines from spread-out
+        places pass within 8 degrees of it; otherwise None (a direction is all he has)."""
+        if len(sightings) < 3:
+            return None
+        spread = max(abs(wrap(a[2] - b[2])) for a in sightings for b in sightings)
+        if spread < 15.:
+            return None
+        # Least squares over the lines' normals: sum((p - p_i) . n_i)^2 is smallest at p.
+        a11 = a12 = a22 = b1 = b2 = 0.
+        for x, y, heading in sightings:
+            nx, ny = -math.sin(math.radians(heading)), math.cos(math.radians(heading))
+            a11 += nx*nx; a12 += nx*ny; a22 += ny*ny
+            along = nx*x + ny*y
+            b1 += nx*along; b2 += ny*along
+        det = a11*a22 - a12*a12
+        if abs(det) < 1e-6:
+            return None
+        point = ((b1*a22 - b2*a12)/det, (a11*b2 - a12*b1)/det)
+        for x, y, heading in sightings:
+            dx, dy = point[0] - x, point[1] - y
+            if math.hypot(dx, dy) < .5 or abs(wrap(math.degrees(math.atan2(dy, dx)) - heading)) > 8.:
+                return None
+        return point
 
     def _seek(self, step, plan, cancel):
         """Look for a described thing the detector cannot name; sweep until found."""
@@ -1702,14 +1780,16 @@ class DriveBase:
         stand_off = max(FRONT_MARGIN, step.stop_at_m or DEFAULT_STOP_AT['object'])
         travelled, turned, misses, detours, swing_refusals, carried, cruises = 0., 0., 0, [], 0, None, 0
         tried = []   # What each leg around something did, in words, for the next look.
+        shifted = 0  # +1 after a leg off to the left (the thing has slid right of its old heading), -1 after one to the right.
         def went(detour):
-            nonlocal travelled, turned
+            nonlocal travelled, turned, shifted
+            shifted = 1 if detour['side'] == 'left' else -1
             turned += detour['turned_deg']
             travelled += detour['travelled_m']
             detours.append({k: detour[k] for k in ('side', 'travelled_m', 'status', 'by', 'note') if k in detour})
             if detour.get('by') == 'camera' and self._sought.get('position') is None:
-                # One sighting gives a direction, not a place: after moving aside the thing may
-                # sit well off the old heading until a second sighting fixes where it is.
+                # A sighting gives a direction, not a place: after moving aside the thing may
+                # sit well off the old heading until enough sightings fix where it is.
                 self._sought['slack'] = ROUTE_SLACK_DEG
         def result(status, reason, **extra):
             if status == 'completed':
@@ -1727,34 +1807,23 @@ class DriveBase:
         while True:
             if self._vision_calls >= self._vision_budget():
                 return result('look_limit', 'vision_look_limit_reached')
-            expected = self._expected_sought()
-            if expected is not None and abs(expected) > 35:
-                # Out of view after a detour: face where the thing should be before looking.
-                # Never back up to make room here (September 27: a hallway corner beside
-                # the arms turned every re-aim into a reverse, and he looped).
-                turn = self._turn(max(-90., min(90., expected)), plan, cancel, escape=False)
-                turned += turn.get('turned_deg', 0.)
-                if turn['status'] not in {'completed', 'refused'}:
-                    return result(turn['status'], turn['reason'])
             if carried is not None:
                 found, why, carried = carried, None, None
             else:
-                found, why = self._locate(self._sought['description'], cancel, self._sought)
+                found, why, swung = self._find_again(plan, cancel, shifted)
+                turned += swung
             if found is None:
-                misses += 1
-                if misses >= 2:
-                    # Out of sight after going around something (a corner, a cabinet): one
-                    # more leg toward where it should be, then he looks for it again.
-                    onward = (self._route_leg(self._sought['description'], self._expected_sought(), plan, cancel,
-                                              budget_m - travelled, tried, in_view=False)
-                              if any(d.get('by') == 'camera' for d in detours)
-                              and sum(d.get('by') == 'camera' for d in detours) < ROUTE_LEGS else None)
-                    if onward is None or not onward['travelled_m']:
-                        return result('lost', why)
-                    went(onward)
-                    misses = 0
+                # Out of sight even after looking to both sides (a corner, a cabinet): one
+                # more leg toward where it should be, then he looks for it again.
+                onward = (self._route_leg(self._sought['description'], self._expected_sought(), plan, cancel,
+                                          budget_m - travelled, tried, in_view=False)
+                          if any(d.get('by') == 'camera' for d in detours)
+                          and sum(d.get('by') == 'camera' for d in detours) < ROUTE_LEGS else None)
+                if onward is None or not onward['travelled_m']:
+                    return result('lost', why)
+                went(onward)
                 continue
-            misses = 0
+            shifted = 0
             self._remember_sought(self._sought['description'], found)
             if found['box_width'] >= FILLS_VIEW:
                 return result('completed', 'target_fills_the_view')
@@ -1927,6 +1996,12 @@ class DriveBase:
             if self.sounds:
                 self.sounds.stop(now=True)
             self._assist(True)   # Never left off after a plan, however it ended.
+            # He moved, so what the front sensors saw before is no baseline: October 3, ending
+            # 11 cm from a kitchen island looked like "someone came very close" and he backed
+            # away on his own, through his spoken report, which then failed to finish.
+            self.flinch.baseline.clear()
+            self.flinch.clear.clear()
+            self.flinch.ticks = 0
             if self._parked:
                 self._parked = False
                 self.servos.finish_base_motion()

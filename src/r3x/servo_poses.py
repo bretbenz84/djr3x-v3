@@ -421,7 +421,11 @@ GESTURES = ('wave',)
 # Owner request October 3: the model chooses between following faces and looking where it
 # decides. look_at_people resumes following faces; any look_* step holds that direction.
 GAZE = ('look_at_people',)
-POSE_COMMANDS = (*NAMED_POSES, *GESTURES, *GAZE, 'release_poses')
+# hold_arms moves nothing: every arm stays where it is until a person says it may move.
+# The array arm (7) is left to the microphone lease, which only ever rests it at its centre;
+# idle movement stops swinging it while the arms are held (idle_motion).
+ARM_HOLD = (4, 5, 6, *THROTTLE)
+POSE_COMMANDS = (*NAMED_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses')
 
 
 def wave_lanes(current):
@@ -459,6 +463,8 @@ def pose_lanes(name, current):
     elif name == 'look_at_people':
         # RobotServos aims at a visible face; with none in view, people are usually ahead.
         target = dict(((0, NECK_CENTER),) + DRIVE_HEAD)
+    elif name == 'hold_arms':
+        return ()   # Nothing moves: the servo owner only marks the arms held.
     elif name == 'release_poses':
         # Resume from rest, so the next speech loop has a valid clearance route.
         target = dict(REST)

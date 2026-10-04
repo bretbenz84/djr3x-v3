@@ -175,7 +175,8 @@ class IdleMotion:
         due = sorted((at, part) for part, at in self._due.items()
                      if at <= now and now >= self._rest.get(part, float('-inf'))
                      and not held.intersection(IDLE_CHANNELS[part])
-                     and not (part == 'hero' and calm))   # The array stays put while Rex listens or works.
+                     and not (part == 'hero' and (calm or getattr(self.owner, 'hold_until_released', False))))
+        # The array stays put while Rex listens or works, and while a person has told him to keep his arms still.
         if not due:
             return None
         chosen = [part for _, part in due[:PHRASE_PARTS]]

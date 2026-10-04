@@ -37,6 +37,7 @@ class FakeBase:
         self.x = self.y = self.theta = 0.   # metres, degrees (+left)
         self.pending = None
         self.turn_scale = 1.
+        self.turn_coast = .11               # Seconds the base keeps turning after the firmware ends a turn.
         self.block_after = None
         self.owner, self.state, self.charging, self.fault = 'auto', 'idle', False, None
         self.batt_mv = 12800
@@ -63,6 +64,11 @@ class FakeBase:
         seq, kind, amount = self.pending[:3]
         if kind == 'turn':
             self.theta += amount * fraction * self.turn_scale
+            # The real base coasts about 0.11 s past the end of a turn (October logs: 12
+            # commanded became 16, 90 became 94-100). Only a full, unstopped turn coasts.
+            duration = self.pending[4]
+            if fraction >= 1. and duration and abs(amount) >= 5:
+                self.theta += math.copysign(abs(amount) / duration * self.turn_coast, amount)
             # Wheel slip: odometry reads more rotation than the base made (October 3 floor logs).
             self.odom_extra = getattr(self, 'odom_extra', 0.) + amount * fraction * getattr(self, 'odom_slip', 0.)
             self.imu_offset = getattr(self, 'imu_offset', 0.) + self.imu_drift

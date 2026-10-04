@@ -781,3 +781,50 @@ crossing sight lines, the bearing to a fixed position, the sensor list, the tabl
 side sensors alone). Unmeasured and needing the robot: whether the hosted look picks usable
 floor in real pictures, whether 12 degrees shows enough floor, the accuracy of the kept
 position over a few metres, and the added pauses (a head tip, about two seconds per look).
+
+
+## October 3, first run of the camera route: what the log showed
+
+Owner's run `eef0a6efaf95497fa4a1524a9de03f9f` (9 minutes, real hardware): "it fell
+short... sometimes the turning goes a little too far and then he loses sight of what he's
+looking at, and at one point he gave up and turned around."
+
+**What worked on the robot.** The hosted floor look answered every time (five looks, each
+with a floor point and a reason such as "use the open left floor... skirting the island"),
+he rolled five camera-chosen legs (0.6-1.5 m), the microwave grew in the picture from
+about 10% to 15% of its width, and "come here" afterwards reached the owner (3.5 m).
+
+**What failed.** The trip ended `lost` after 5.5 m and **657 degrees of turning**.
+
+- After each leg he turned his whole body back to where he calculated the microwave should
+  be, then looked twice at that one spot. The calculated position came from only two
+  sightings about a metre apart, which is not enough: one look found the microwave at the
+  far left edge of the picture, 36 degrees from where he was pointing.
+- Five legs ran out part-way round the kitchen island.
+- Each head look made by the drive owner started the 90-second "a person posed me" hold,
+  which then refused his own moves. Ending 11 cm from the island also read to the back-off
+  reflex as someone stepping close; he backed away on his own in the middle of his spoken
+  report, and the report failed to finish (`PlaybackStalled`).
+- The log held only the total turning, not each turn.
+
+**Changes (simulated only).**
+
+- **He looks back with his head first.** The neck covers 40 degrees either side, so the
+  body no longer swings back after a leg. He looks where the thing should be, then to the
+  side it will have slid toward, then the other side; the body turns only when the thing
+  lies beyond the head's reach, and once more, directly, when it is found.
+- **A position needs three agreeing sightings.** Three or more sight lines from spread-out
+  places that pass within 8 degrees of one point; otherwise he has a direction only.
+- **Turn coast.** Thirty-odd logged turns ended 2-10 degrees past the command, more at the
+  faster rate (about 0.11 s of coasting). Turns of 12 degrees or more are now commanded
+  that much short. The simulated base coasts the same way.
+- **More room to finish.** Eight camera legs per approach (was five), 40 hosted looks per
+  request (was 24), and the route look is told to keep going round the same side.
+- **Drive looks are not a person's pose**, and the reflex's baseline is forgotten after
+  his own motion, so arriving near something is not "someone came close".
+- **Every turn and move is logged** (`drive_step`) with the heading and position it left
+  him at.
+
+Unmeasured: all of it on the floor. The coast figure comes from turns at 27 and 45
+degrees per second on this floor; the head-look order is a guess about which way a target
+slides.

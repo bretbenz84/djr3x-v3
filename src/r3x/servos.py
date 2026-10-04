@@ -15,7 +15,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
-                          UNPOWERED_REST, expressive_lanes, IdlePhrase)
+                          UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD)
 
 BASE_HELD = frozenset({0, 1, 2, 4, 6, *THROTTLE})   # Neck, head, hero elbow, poker arm, throttle.
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
@@ -69,6 +69,7 @@ class ServoOwner:
         self.version = 0
         self.held_channels = set()
         self.pose_held_at = float('-inf')  # When a human-requested pose hold was last set.
+        self.hold_until_released = False   # "Leave your hand there until I say": no 90-second yield.
         self._base_held = False
         self._arm_returning = False        # The throttle arm is walking back to rest after a drive.
         self._arm_cancel = threading.Event()
@@ -156,7 +157,8 @@ class ServoOwner:
         hold that refused every self-initiated pose and drive until someone said to release
         it. A hold now yields to his own initiative after HOLD_YIELD_SECONDS; requests from
         people and "release" work as before."""
-        return bool(self.held_channels) and self.clock() - self.pose_held_at < HOLD_YIELD_SECONDS
+        return bool(self.held_channels) and (self.hold_until_released or
+                                             self.clock() - self.pose_held_at < HOLD_YIELD_SECONDS)
 
     def yield_stale_hold(self):
         """Drop an aged pose hold before Rex's own beat; a recent one stays."""
@@ -282,6 +284,12 @@ class ServoOwner:
             if request.kind == 'pose' and request.hold_pose and request.pose not in ('release_poses','wave'):  # dict poses too
                 self.held_channels.update(ch for lane in lanes for beat in lane for ch, _ in beat.targets)
                 self.pose_held_at = self.clock()
+                if request.pose == 'hold_arms':
+                    # October 3: "leave that hand there until I say you can move it" was
+                    # answered by moving the hand to another pose. This holds every arm where
+                    # it is, with no time limit, until release_poses.
+                    self.held_channels.update(ARM_HOLD)
+                    self.hold_until_released = True
             if request.kind == 'base_park':
                 # Talking/idle lanes skip held channels while the base drives.
                 self.held_channels.update(BASE_HELD)
@@ -363,6 +371,7 @@ class ServoOwner:
             self.state = 'parked' if request.kind in {'park', 'shutdown'} else 'active'
             if request.kind == 'pose' and request.pose == 'release_poses':
                 self.held_channels.clear()
+                self.hold_until_released = False
                 if self._arm_returning:
                     self.held_channels.update(THROTTLE)
             if request.kind == 'base_release':

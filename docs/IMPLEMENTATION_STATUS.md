@@ -110,6 +110,25 @@ planner is retired. Details and limits:
 pass (108 seconds). The hosted look has not been tried on a real picture; the first floor
 run is its first test.
 
+First floor run of it, `eef0a6efaf95497fa4a1524a9de03f9f`: the hosted look worked and he
+rolled five legs round the kitchen island, but lost the microwave after 657 degrees of
+turning; see the [drive document](DRIVE_BASE_INTEGRATION.md#october-3-first-run-of-the-camera-route-what-the-log-showed)
+for the causes and repairs (head-first look back, three-sighting positions, turn coast,
+eight legs). The same run showed two conversational faults, now changed:
+
+- **"Leave that hand there until I say you can move it"** was answered by moving the hand
+  to another pose. A new `hold_arms` step moves nothing and holds the elbow, wrist, poker
+  arm and throttle arm where they are with no time limit, until `release_poses`; idle
+  movement also stops swinging the microphone arm. Ordinary requested poses still give way
+  to his own movement after 90 seconds. A requested drive still parks the arm first.
+- **"Stop talking until I greet you again"** was acknowledged, then an "Okay." ninety
+  seconds later got a spoken reply and switched him back on. A new `silent` setting allows
+  only two choices per utterance, staying silent or being released; any words the model
+  produces otherwise are withheld.
+
+**1,009 blocked-I/O checks pass** (115 seconds). No hosted model was called, so whether
+the model now chooses `hold_arms` and `silent` for those requests is unmeasured.
+
 ## Feeling alive: live-run repairs — October 3 (evening)
 
 The owner's run `30ec1b046fb749558934ca55b50ffc06` (10.4 minutes, real hardware) was the

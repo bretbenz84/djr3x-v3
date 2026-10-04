@@ -257,6 +257,36 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.session.brain.calls,1)
         self.assertTrue(self.state.initiative.quiet)
 
+    def test_told_not_to_speak_he_says_one_line_then_nothing_until_released(self):
+        # October 3 (eef0a6ef): "Stop talking until I greet you again" was acknowledged, then an
+        # "Okay." ninety seconds later got a spoken reassurance and switched him back on.
+        from r3x.semantics import grounded_tools
+        class Told(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1;self.snapshots.append(snapshot)
+                if snapshot.continuation: yield 'Not a word until you greet me.'
+                else: yield ToolCall(uuid4().hex,'set_initiative',{'mode':'silent','source_turn_id':snapshot.context['source_turn_id']})
+        self.setup_core(Told())
+        result=self.turn('Stop talking until I greet you again.')
+        self.assertEqual(result.completed_text,['Not a word until you greet me.'])     # The one line.
+        self.assertTrue(self.state.initiative.silent and self.state.initiative.quiet)
+        chatty=self.session.brain=Brain('I will stay quiet until you greet me again.')    # A model that answers anyway.
+        self.trace.at=140
+        result=self.turn('Okay.')
+        self.assertEqual((result.status,result.completed_text),('suppressed',[]))          # Withheld.
+        self.assertEqual({d['name'] for d in grounded_tools(chatty.snapshots[-1].context)},{'set_initiative','remain_silent'})
+        self.assertTrue(chatty.snapshots[-1].context['participation']['silent_until_released'])
+        self.assertTrue(self.state.initiative.silent)
+        class Released(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1
+                if snapshot.continuation: yield 'Hello again. I missed talking.'
+                else: yield ToolCall(uuid4().hex,'set_initiative',{'mode':'available','source_turn_id':snapshot.context['source_turn_id']})
+        self.session.brain=Released();self.trace.at=200
+        result=self.turn('Hello, Rex.')
+        self.assertEqual(result.completed_text,['Hello again. I missed talking.'])
+        self.assertFalse(self.state.initiative.silent or self.state.initiative.quiet)
+
     def test_explicit_resume_updates_policy_after_success_and_uses_bounded_continuation(self):
         class Resume(Brain):
             def reply(self,snapshot,cancel):

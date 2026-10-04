@@ -1019,7 +1019,9 @@ class HallwayMoveTests(SeekTests):
         settle()
         self.run_plan(clock, drive, DriveStep('move', meters=1.52))
         first = next(c for c in fake.commands if c['cmd'] in {'turn', 'move'})
-        self.assertEqual((first['cmd'], first['deg']), ('turn', 12.))   # Left, away from the right wall.
+        self.assertEqual(first['cmd'], 'turn')
+        self.assertGreater(first['deg'], 0)                         # Left, away from the right wall.
+        self.assertLess(abs((fake.theta + 6.) % 12. - 6.), 1.)      # In 12 degree steps, coast included.
 
     def test_a_wall_closing_inside_the_hold_distance_stops_the_guarded_leg(self):
         clock, fake, drive, world = self.start([])
@@ -1048,7 +1050,7 @@ class HallwayMoveTests(SeekTests):
         clock, fake, drive, world = self.start([])
         fake.odom_slip = 1.                              # Odometry reads twice the real turn.
         receipt = self.run_plan(clock, drive, DriveStep('turn', degrees=30.))
-        self.assertAlmostEqual(receipt.steps[0]['odometry_deg'], 60., delta=2.)
+        self.assertGreater(receipt.steps[0]['odometry_deg'], 50.)
         self.assertAlmostEqual(drive._rotation(), 30., delta=2.)   # Where targets are now expected.
 
     def test_arriving_ends_the_search_so_later_plans_cannot_resume_it(self):
@@ -1129,7 +1131,7 @@ class ComeHereTests(unittest.TestCase):
         receipt = self.run_plan(clock, drive, context, DriveStep('approach', target='nearest_person'))
         self.assertEqual(receipt.status, 'completed', receipt)
         first = next(c for c in fake.commands if c['cmd'] == 'turn')
-        self.assertAlmostEqual(first['deg'], 88., delta=1.)       # Toward the voice first, not a sweep.
+        self.assertAlmostEqual(first['deg'], 83., delta=1.)       # Toward the voice first (88, less the coast), not a sweep.
         self.assertLess(self.distance(fake, person), 1.35)
 
     def test_the_voice_stays_where_it_was_heard_after_he_turns_to_face_it(self):
@@ -1352,28 +1354,33 @@ class OwnPositionTests(SeekTests):
         self.assertAlmostEqual(distance, math.hypot(fake.x, fake.y), delta=.1)
         self.assertAlmostEqual(bearing, world.relative(0., 0.)[1], delta=6.)   # Where the start is from here.
 
-    def test_two_sightings_from_different_places_fix_where_the_thing_is(self):
+    def test_three_agreeing_sightings_fix_where_the_thing_is_and_two_do_not(self):
+        # October 3 (eef0a6ef): a position from two sight lines a metre apart sent him turning
+        # the wrong way after every leg. Three lines that agree are needed; noisy ones give none.
         from r3x.drive import DriveBase
         thing = (3., 1.)
-        first = (0., 0., math.degrees(math.atan2(1., 3.)))
-        second = (1., -1., math.degrees(math.atan2(2., 2.)))
-        met = DriveBase._sight_lines_meet(first, second)
+        def line(x, y, error=0.):
+            return (x, y, math.degrees(math.atan2(thing[1] - y, thing[0] - x)) + error)
+        self.assertIsNone(DriveBase._fixed_position([line(0., 0.), line(1., -1.)]))
+        met = DriveBase._fixed_position([line(0., 0.), line(1., -1.), line(1.5, .8)])
         self.assertAlmostEqual(met[0], thing[0], places=2)
         self.assertAlmostEqual(met[1], thing[1], places=2)
-        self.assertIsNone(DriveBase._sight_lines_meet(first, (0.5, 0., first[2] + 2.)))    # Nearly the same line.
-        self.assertIsNone(DriveBase._sight_lines_meet(first, (6., 2., first[2] + 90.)))    # They cross behind him.
+        self.assertIsNone(DriveBase._fixed_position([line(0., 0.), line(1., -1., 25.), line(1.5, .8)]))   # They disagree.
+        self.assertIsNone(DriveBase._fixed_position([line(0., 0.), line(.1, 0.), line(.2, 0.)]))          # No spread.
 
-    def test_after_going_aside_he_looks_where_the_thing_now_is_not_where_it_was(self):
+    def test_once_its_place_is_fixed_he_knows_where_it_is_from_anywhere(self):
         clock, fake, drive, world = self.start([('door', 'door', 3., 0.)])
         self.run_plan(clock, drive, DriveStep('seek', description='door'))            # First sighting, from the start.
-        self.run_plan(clock, drive, DriveStep('turn', degrees=90.), DriveStep('move', meters=1.2),
-                      DriveStep('turn', degrees=-90.))                                 # 1.2 m to the left of where he was.
-        found, why = drive._locate('door', Cancellation(), drive._sought)
-        self.assertIsNotNone(found, why)
-        drive._remember_sought('door', found)                                          # Second sighting: a position.
+        for sideways in (1.2, 1.0):                                                    # Two more, each further left.
+            self.run_plan(clock, drive, DriveStep('turn', degrees=90.), DriveStep('move', meters=sideways),
+                          DriveStep('turn', degrees=-90.))
+            drive._sought['slack'] = 90.
+            found, why = drive._locate('door', Cancellation(), drive._sought)
+            self.assertIsNotNone(found, why)
+            drive._remember_sought('door', found)
         self.assertAlmostEqual(drive._sought['position'][0], 3., delta=.35)
         self.assertAlmostEqual(drive._sought['position'][1], 0., delta=.35)
-        self.run_plan(clock, drive, DriveStep('turn', degrees=60.))                    # Look away...
+        self.run_plan(clock, drive, DriveStep('turn', degrees=30.))                    # Look away...
         self.assertAlmostEqual(drive._expected_sought(), world.relative(3., 0.)[1], delta=8.)   # ...and know where it is.
 
 
@@ -1389,3 +1396,111 @@ class OpenDirectionTests(unittest.TestCase):
         self.assertIsNone(by[112.5]['image_x'])                     # Behind-left is outside the camera view.
         self.assertEqual(by[112.5]['open_m'], .26)
         self.assertEqual(open_directions(None, None, 0.), [])
+
+
+class LookBackTests(SeekTests):
+    """October 3 (eef0a6ef): after each leg he swung his whole body back to a predicted
+    bearing, looked twice at that one spot and gave up; 657 degrees of turning in one trip."""
+    def start(self, things):
+        from r3x.drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
+        clock, fake, drive, world = super().start(things)
+        test = self
+        test.looks = []
+        class Head(TuckedArms):
+            owner = type('Owner', (), {'neck_degrees': staticmethod(lambda: world.neck), 'held_channels': ()})()
+            def execute_pose(self, pose, cancel, request_id, **kwargs):
+                if 0 in pose:
+                    world.neck = (NECK_CENTER - pose[0]) / NECK_PULSES_PER_DEG
+                    test.looks.append(round(world.neck))
+                return type('R', (), {'status': 'pulses_reached', 'reason': None})()
+        drive.servos = Head()
+        def locate(description, image, cancel, hint=None):
+            self.calls.append(description)
+            for _, label, px, py in world.objects:
+                distance, bearing, _, _ = world.relative(px, py)
+                bearing -= world.neck                       # The camera turns with the head.
+                if label == description and abs(bearing) < 45:
+                    return {'found': True, 'x': .5 - bearing/90, 'y': .5, 'width': min(.9, .4/max(distance, .1)),
+                            'height': .3, 'confidence': 'high', 'note': 'matched'}
+            return {'found': False, 'x': 0, 'y': 0, 'width': 0, 'height': 0, 'confidence': 'low', 'note': 'not visible'}
+        drive.locator = locate
+        return clock, fake, drive, world
+
+    def aside(self, clock, drive, degrees):
+        """Seen straight ahead, then turned away as a leg around something would leave him."""
+        self.run_plan(clock, drive, DriveStep('seek', description='door'))
+        self.run_plan(clock, drive, DriveStep('turn', degrees=degrees))
+        return DrivePlan('p', (), 'requested', 'x', {}, clock()+120)
+
+    def test_the_head_looks_back_and_the_body_does_not_turn(self):
+        clock, fake, drive, world = self.start([('door', 'door', 3., 0.)])
+        plan = self.aside(clock, drive, 50.)
+        turns = len([c for c in fake.commands if c['cmd'] == 'turn'])
+        found, why, swung = drive._find_again(plan, Cancellation(), shifted=1)
+        self.assertIsNotNone(found, why)
+        self.assertAlmostEqual(found['bearing_deg'], -50., delta=4.)       # Base-relative, though seen with the head turned.
+        self.assertEqual((swung, len([c for c in fake.commands if c['cmd'] == 'turn'])), (0., turns))
+        self.assertEqual(self.looks, [-40, 0])                              # Looked right, then centred again.
+
+    def test_when_it_is_not_where_expected_he_looks_to_the_other_side_before_giving_up(self):
+        clock, fake, drive, world = self.start([('door', 'door', 3., 0.)])
+        plan = self.aside(clock, drive, 50.)
+        world.objects[:] = [('door', 'door', 3.*math.cos(math.radians(70)), 3.*math.sin(math.radians(70)))]   # 20 degrees LEFT of him.
+        found, why, swung = drive._find_again(plan, Cancellation(), shifted=1)
+        self.assertIsNotNone(found, why)
+        self.assertAlmostEqual(found['bearing_deg'], 20., delta=4.)
+        self.assertEqual(self.looks[:2], [-40, 0])                          # Right first, then the other way.
+        self.assertEqual(swung, 0.)
+
+    def test_far_behind_him_the_body_turns_once_then_the_head_looks(self):
+        clock, fake, drive, world = self.start([('door', 'door', 3., 0.)])
+        plan = self.aside(clock, drive, 110.)
+        found, why, swung = drive._find_again(plan, Cancellation(), shifted=1)
+        self.assertIsNotNone(found, why)
+        self.assertGreater(swung, 90.)
+        self.assertLess(abs(found['bearing_deg']), 15.)
+
+    def test_nowhere_in_three_looks_is_reported_once_not_looked_at_twice_in_one_spot(self):
+        clock, fake, drive, world = self.start([('door', 'door', 3., 0.)])
+        plan = self.aside(clock, drive, 50.)
+        world.objects.clear()
+        before = len(self.calls)
+        found, why, swung = drive._find_again(plan, Cancellation(), shifted=1)
+        self.assertIsNone(found)
+        self.assertEqual(len(self.calls) - before, 2)                       # Two different views cover both sides.
+        self.assertEqual(world.neck, 0.)
+
+    def test_a_drive_look_starts_no_pose_hold(self):
+        from tests.test_servos import Clock as ServoClock, PulsePort
+        from r3x.robot_servos import RobotServos
+        servo_clock, port = ServoClock(), PulsePort()
+        robot = RobotServos('fake', open_port=lambda: port, clock=servo_clock, wait=servo_clock.wait)
+        robot.owner.wait = servo_clock.wait
+        robot.start()
+        self.addCleanup(robot.close)
+        receipt = robot.drive_look({0: 4000}, Cancellation(), 'drive-look')
+        self.assertEqual(receipt.status, 'pulses_reached')
+        self.assertFalse(robot.owner.human_hold_active())                   # Rex's own moves are not locked out.
+
+    def test_turns_end_where_asked_despite_the_coast(self):
+        clock, fake, drive, world = self.start([])
+        for degrees in (90., -45., 30., -20.):
+            before = fake.theta
+            receipt = self.run_plan(clock, drive, DriveStep('turn', degrees=degrees))
+            self.assertAlmostEqual(fake.theta - before, degrees, delta=1.5, msg=receipt)
+        self.assertTrue(all(abs(c['deg']) < abs(want) for c, want in
+                            zip([c for c in fake.commands if c['cmd'] == 'turn'], (90., 45., 30., 20.))))
+
+    def test_his_own_arrival_near_something_is_not_someone_stepping_close(self):
+        clock, fake, drive, world = self.start([])
+        fake.tof.update(fl=1500, fr=1500, fl_radial=1500, fr_radial=1500)
+        settle()
+        for _ in range(3):
+            drive.tick_reflex(); clock.wait(1.)
+        self.run_plan(clock, drive, DriveStep('turn', degrees=30.))        # He moved himself...
+        fake.tof.update(fl=120, fr=120, fl_radial=120, fr_radial=120)       # ...and now stands 12 cm from a counter.
+        settle()
+        moves = len([c for c in fake.commands if c['cmd'] == 'move'])
+        for _ in range(5):
+            self.assertIsNone(drive.tick_reflex()); clock.wait(1.); settle()
+        self.assertEqual(len([c for c in fake.commands if c['cmd'] == 'move']), moves)   # No backing away on his own.

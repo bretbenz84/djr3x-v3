@@ -208,7 +208,8 @@ class DriveSessionTests(MemoryFixture):
         settle()
         self.turn('Go a bit left, forward a little, then on to the dog.')
         commands = [c for c in self.fake.commands if c['cmd'] in {'turn', 'move'}]
-        self.assertEqual((commands[0]['cmd'], commands[0]['deg']), ('turn', 40.))
+        self.assertEqual(commands[0]['cmd'], 'turn')
+        self.assertAlmostEqual(self.rows('drive_result')[-1]['steps'][0]['measured_deg'], 40., delta=1.)
         self.assertEqual((commands[1]['cmd'], commands[1]['dist']), ('move', .4))
         self.assertFalse([r for r in self.rows('model_request') if r.get('purpose') == 'drive_route_planning'])
 

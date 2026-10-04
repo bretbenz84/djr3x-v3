@@ -95,6 +95,16 @@ class RobotServos:
                 self.idle.posed(receipt.changed_channels or self._pose_channels(name), own=not hold_pose)
         return receipt
 
+    def drive_look(self, pose, cancel, request_id):
+        """A head move the drive owner makes to look at something mid-drive. The drive
+        stance already holds the head, and this is nobody's requested pose: it must not
+        start the hold that keeps Rex's own movement off a person's pose for 90 seconds."""
+        held_at = self.owner.pose_held_at
+        try:
+            return self.execute_pose(pose, cancel, request_id)
+        finally:
+            self.owner.pose_held_at = held_at
+
     @staticmethod
     def _pose_channels(name):
         from .servo_poses import NAMED_POSES

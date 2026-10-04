@@ -89,6 +89,7 @@ class Initiative:
         self.invitations = Invitations(trace)
         self.schedule_revision = 0
         self.quiet = False
+        self.silent = False   # Not a word, replies included, until the person releases him.
         self.policy_source = None
         self.attempts = deque(maxlen=16)
         self.outcomes = deque(maxlen=16)
@@ -154,7 +155,7 @@ class Initiative:
         return row
 
     def context(self, now: float | None = None) -> dict:
-        return {"initiative_quiet": self.quiet, "policy_source_turn_id": self.policy_source,
+        return {"initiative_quiet": self.quiet, "silent_until_released": self.silent, "policy_source_turn_id": self.policy_source,
                 "recent_opportunities": list(self.outcomes),
                 "lull_attempts_since_source": self.lull_attempts,
                 "feedback": [dict(row) for row in self.feedback

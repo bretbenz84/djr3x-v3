@@ -434,6 +434,42 @@ class ArmReturnTests(unittest.TestCase):
         self.assertFalse(self.owner._arm_returning)
 
 
+class HoldArmsTests(unittest.TestCase):
+    """October 3 (eef0a6ef): "leave that hand there until I say you can move it" was answered
+    by moving the hand to another pose."""
+    setUp, request, execute = ServoTests.setUp, ServoTests.request, ServoTests.execute
+
+    def test_hold_arms_moves_nothing_and_has_no_time_limit(self):
+        self.owner.start()
+        self.execute()
+        self.assertEqual(self.owner.execute(self.request('pose', pose='throttle_down'), Cancellation()).status, 'pulses_reached')
+        before, sent = dict(self.port.pose), len(self.port.targets)
+        held = self.owner.execute(self.request('pose', pose='hold_arms'), Cancellation())
+        self.assertEqual(held.status, 'pulses_reached')
+        self.assertEqual((self.port.pose, len(self.port.targets)), (before, sent))     # Not one servo command.
+        self.assertTrue({4, 5, 6, *THROTTLE} <= self.owner.held_channels)
+        self.clock.wait(600.)                                                           # Ten minutes later...
+        self.assertTrue(self.owner.human_hold_active())                                 # ...it still stands,
+        self.assertFalse(self.owner.yield_stale_hold())                                 # and his own beats cannot clear it.
+        for kind in ('talking', 'idle'):
+            self.execute(kind)
+            self.assertEqual({ch: self.port.pose[ch] for ch in (4, 5, 6, *THROTTLE)},
+                             {ch: before[ch] for ch in (4, 5, 6, *THROTTLE)})
+        nudge = self.owner.execute(self.request('pose', pose={4: 7000}, hold_pose=False), Cancellation())
+        self.assertEqual((nudge.status, nudge.reason), ('rejected', 'AgencyCannotOverrideHeldPose'))
+
+    def test_only_being_told_releases_it_and_an_ordinary_pose_still_yields(self):
+        self.owner.start()
+        self.execute()
+        self.owner.execute(self.request('pose', pose='hold_arms'), Cancellation())
+        self.owner.execute(self.request('pose', pose='release_poses'), Cancellation())
+        self.assertFalse(self.owner.hold_until_released)
+        self.assertFalse(self.owner.held_channels)
+        self.owner.execute(self.request('pose', pose='throttle_down'), Cancellation())   # An ordinary requested pose...
+        self.clock.wait(91.)
+        self.assertFalse(self.owner.human_hold_active())                                 # ...still gives way after 90 s.
+
+
 class TalkingOutputTests(unittest.TestCase):
     def test_actual_audio_start_and_finally_stop_own_talking_motion(self):
         for fail in (False, True):

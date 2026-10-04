@@ -565,7 +565,8 @@ class Session:
                                      for ch,value in commanded.items() if ch in LIMITS},
                     'gaze': ({'people': 'following_faces', 'direction': 'holding_chosen_direction'}.get(
                         self.output.robot.idle.mode()) if hasattr(getattr(self.output.robot, 'idle', None), 'mode') else None), 'held_parts':
-                    [name for name,channels in (('neck',{0}),('head_lift',{1}),('head_tilt',{2}),('visor',{3}),('hero_elbow',{4}),('hero_wrist',{5}),('poker_arm',{6}),('hero_arm',{7}),('throttle_arm',{8,9,10})) if held.intersection(channels)]}
+                    [name for name,channels in (('neck',{0}),('head_lift',{1}),('head_tilt',{2}),('visor',{3}),('hero_elbow',{4}),('hero_wrist',{5}),('poker_arm',{6}),('hero_arm',{7}),('throttle_arm',{8,9,10})) if held.intersection(channels)],
+                    'arms_held_until_told': bool(getattr(owner,'hold_until_released',False))}
                 if opportunity and held: context['robot_pose_enabled']=False
             if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:
                 context['drive'] = self.output.drive.context('self_initiated' if opportunity else 'requested',
@@ -730,6 +731,7 @@ class Session:
                             history_turns=len(self.history.turns),
                             history_characters=self.history.size(snapshot.messages),
                             reasoning_effort=getattr(self.brain,"reasoning_effort",None))
+            went_silent, withheld = [False], [False]
             def generate(request):
                 nonlocal first_token_at, generated
                 calls = []
@@ -756,6 +758,15 @@ class Session:
                             self.trace.emit("model_first_text", turn_id=turn_id)
                         if request.context.get('photo_inspection',{}).get('intent')=='teach':
                             raise ProviderFailure('PhotoTeachingRequiresDecision')
+                        if (self.state and self.state.initiative.silent and not went_silent[0]
+                                and not opportunity):
+                            # Told not to speak until released (October 3: he answered an
+                            # "okay" two minutes into such a request). Words are withheld
+                            # unless this very turn set the silence or lifted it.
+                            if not withheld[0]:
+                                withheld[0] = True
+                                self.trace.emit('silent_reply_withheld', turn_id=turn_id)
+                            continue
                         generated += delta
                         if len(generated) > 4000:
                             raise ProviderFailure("ReplyLengthLimit")
@@ -811,7 +822,10 @@ class Session:
                     'The previous beat was abandoned and nothing from it was spoken or performed. '
                     'Do the replacement beat now. Do not repeat the abandoned premise or explain the planning correction.'}))
                 calls=generate(recovery)
-            if not calls and not generated.strip():
+            if not calls and not generated.strip() and withheld[0]:
+                delivery.status, delivery.medium = 'suppressed', 'none'   # Silence kept, not a failure.
+                self.trace.emit('reply_suppressed', turn_id=turn_id, reason='silent_until_released')
+            elif not calls and not generated.strip():
                 raise ProviderFailure('EmptyModelResponse')
             if calls and len(calls)==1 and self.state and not generated.strip():
                 from .photo_memory import PHOTO_TOOLS
@@ -1422,7 +1436,8 @@ class Session:
                         # recent memories; the result is already in continuation.
                         memory = context['personal_memory']
                         context['personal_memory'] = {k:memory[k] for k in ('person_id','now','local_now')}
-                    quiet_set = call.name=='set_initiative' and result.outcome=='ok' and result.data['mode']=='quiet'
+                    quiet_set = call.name=='set_initiative' and result.outcome=='ok' and result.data['mode'] in ('quiet','silent')
+                    went_silent[0] = quiet_set and result.data['mode']=='silent'
                     if quiet_set:
                         self.proactive_hold_until = self.trace.clock()+120
                         self.state.initiative.cancel_schedule('quiet_or_human_floor')
@@ -1445,10 +1460,13 @@ class Session:
                         # asked whether Rex was going to say something. Quiet is now always heard.
                         from dataclasses import replace
                         followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
-                            'You have just switched yourself to quiet: you will not start conversations until '
-                            'they invite you to. Tell them so in one short sentence, in character. If their '
-                            'words were not really a request to stop talking, say you may have misread them '
-                            'and that they only need to say you can talk again.'}))
+                            ('You have just gone silent: you will say nothing at all, not even answers, until they '
+                             'release you. Say so in one short sentence, in character, naming what will release you.'
+                             if went_silent[0] else
+                             'You have just switched yourself to quiet: you will not start conversations until '
+                             'they invite you to. Tell them so in one short sentence, in character.') +
+                            ' If their words were not really a request to stop talking, say you may have misread '
+                            'them and that they only need to say you can talk again.'}))
                     if result.outcome!='ok' and call.name=='respond_with_intent':
                         from dataclasses import replace
                         followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':

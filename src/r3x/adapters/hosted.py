@@ -304,6 +304,8 @@ SELF-DIRECTED PARTICIPATION
   contribution; elapsed time never resolves identity or grants permission to repeat it.
 
 SOCIAL STATE
+- "Don't speak until ..." is set_initiative(silent): one short line, then remain_silent for everything until their
+  words release you; then set_initiative(available) and greet them back.
 - "Stop starting conversations" is set_initiative(quiet), then one short acknowledgment. A spoken "be quiet" or "shut up"
   sets the same quiet by itself (participation.initiative_quiet is then true). Direct questions still get
   answers while quiet. An explicit invitation to resume MUST execute set_initiative(available) before any
@@ -708,7 +710,7 @@ class OpenAIBrain(HTTPProvider):
             offered = grounded_tools(snapshot.context)
             teach = snapshot.context.get('photo_inspection',{}).get('intent')=='teach'
             payload.update(tools=list(TOOLS), parallel_tool_calls=False,
-                tool_choice={'type':'allowed_tools','mode':'required' if teach or (snapshot.context.get('agency_step') and not snapshot.continuation) else 'auto',
+                tool_choice={'type':'allowed_tools','mode':'required' if teach or (snapshot.context.get('agency_step') and not snapshot.continuation) or (snapshot.context.get('participation',{}).get('silent_until_released') and not snapshot.continuation) else 'auto',
                              'tools':[{'type':'function','name':d['name']} for d in offered]} if offered else 'none')
         yield from self._stream_response(payload, snapshot, cancel, offered)
 
@@ -883,7 +885,8 @@ are that floor point in the image as fractions (0 = left/top edge, 1 = right/bot
 roughly how far away that point is. If the photo shows no usable floor but the sensors show one side wide
 open beyond the picture's edge, set beyond_view to left or right. If there is no way, or you cannot tell,
 set way to false. Never invent open floor you cannot see. already_tried lists earlier legs and how they
-went: do not repeat one that failed. note is a few words on the way you chose, or why there is none."""
+went: do not repeat one that failed, and when earlier legs went round one side and rolled, keep going round
+that same side until it is closed rather than switching back and forth. note is a few words on the way you chose, or why there is none."""
 LOCATE_BUDGET = 150  # Hosted looks per run: finding things, re-finding them while rolling, routes around obstacles.
 
 

@@ -996,7 +996,8 @@ class CoreState:
             self.agency.clear(name)
             self.initiative.invitations.invalidate(name,erase=True)
         if name=='set_initiative':
-            self.initiative.quiet = data['mode']=='quiet'
+            self.initiative.quiet = data['mode'] in ('quiet','silent')
+            self.initiative.silent = data['mode']=='silent'
             self.initiative.policy_source = data['source_turn_id']
             if self.initiative.quiet:
                 self.initiative.cancel_schedule('initiative_quiet')
