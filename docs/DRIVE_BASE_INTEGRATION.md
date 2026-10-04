@@ -865,8 +865,8 @@ Owner's runs `b0d3ef1d42c0486fa58d806d5dc07e33` (33 minutes) and
   flat 20 s limit on one approach run, which is four metres at the easy pace, now scales
   with the distance allowed.
 
-**Still open, from these runs.** Turns toward the owner were refused or shortened by the
-arm-swing check six times near furniture (returns 0.50-0.61 m from the pivot); the tucked
+**Still open, from these runs.** The arm-swing check shortened six turns and refused three
+"come here" requests outright near furniture (returns 0.50-0.61 m from the pivot); the tucked
 arm reach it uses is an estimate that has not been measured. A microwave trip still takes
 about three minutes. After a leg the body still turns 65-85 degrees back toward a person
 who is close by.
