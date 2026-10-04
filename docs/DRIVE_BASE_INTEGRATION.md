@@ -828,3 +828,45 @@ about 10% to 15% of its width, and "come here" afterwards reached the owner (3.5
 Unmeasured: all of it on the floor. The coast figure comes from turns at 27 and 45
 degrees per second on this floor; the head-look order is a guess about which way a target
 slides.
+
+## October 3 evening: the camera route works on the floor
+
+Owner's runs `b0d3ef1d42c0486fa58d806d5dc07e33` (33 minutes) and
+`7af54a9421214133b83735e42ad15335` (8 minutes), real hardware, all earlier repairs loaded:
+"they were really good. Rex found his targets and drove to them."
+
+**Measured on the robot, from the logs.**
+
+| | Result |
+| --- | --- |
+| Microwave trips | 3 attempted; 2 reported reached (188 s over 6.6 m, 183 s over 6.4 m, seven legs each); 1 reported blocked after 82 s, though the microwave filled 33% of the view when he stopped |
+| Finding the target again | 53 of 53 hosted looks found it; it was never lost |
+| Floor-route looks | 22 looks, 21 proposed a way; several proposals repeated a direction that had just failed |
+| Turns | 111 logged; mean error +0.3 degrees, 92 within 3 degrees (before the coast correction: 2-10 degrees over) |
+| "Come here" | Reached the owner each time, the longest over 7.4 m; three arrivals 0.9-1.2 m from him were reported as failures (`blocked`, `approach time limit`) |
+| Back-off reflex | Did not fire after his own drives |
+| Cost of looks | about 133,000 tokens across both runs |
+
+**What the step log showed, and the changes (simulated only).**
+
+- **Arrived, then hunted for a way round the counter.** In all three microwave trips the
+  box reached 30-40% of the view (from 9%) while a counter beside or under it stopped him.
+  Arrival required something straight ahead at the stand-off, so he kept asking for routes:
+  up to 75 s and about 300 degrees of turning after he was already there. A thing at least
+  30% wide that has at least doubled in the picture since first seen now counts as reached
+  whatever stops him (`grew_in_view` in the receipt). A thing that only looks big from far
+  away still does not.
+- **A route leg undone by straightening.** Sent right, he turned right, then the
+  wall-straightening turned him back in three 12 degree steps and the move was refused,
+  three times from one spot. Route legs no longer straighten, and the same direction from
+  the same spot is not tried again after it failed.
+- **Arrivals told as failures.** A person approach that stops on a table, knees or the
+  clock within 0.3 m of the stop distance is now completed ("stopped within reach"). The
+  flat 20 s limit on one approach run, which is four metres at the easy pace, now scales
+  with the distance allowed.
+
+**Still open, from these runs.** Turns toward the owner were refused or shortened by the
+arm-swing check six times near furniture (returns 0.50-0.61 m from the pivot); the tucked
+arm reach it uses is an estimate that has not been measured. A microwave trip still takes
+about three minutes. After a leg the body still turns 65-85 degrees back toward a person
+who is close by.

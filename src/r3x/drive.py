@@ -88,6 +88,11 @@ CLOSING_M = 1.2           # Something this near straight ahead, with the target 
 CLOSING_DEG = 20.
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
 NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
+# October 3 evening: three microwave trips reached it (30-40% of the view, up from 9%) and
+# then spent up to 75 s and 300 degrees looking for a way "around" the counter under it; one
+# was reported as a failure. A thing that wide which has at least doubled in the picture
+# since he first saw it is near, whatever the sensors are stopping him on.
+GROWN_NEAR = 2.
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
 FILLS_VIEW = .6
 TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns used 40.
@@ -233,7 +238,9 @@ class Approach:
         if self.last_xy is not None:
             self.travel += math.hypot(xy[0]-self.last_xy[0], xy[1]-self.last_xy[1])
         self.last_xy = xy
-        if now - self.started >= 20:
+        if now - self.started >= max(20., self.max_travel / .08):
+            # Was a flat 20 s: at the easy pace that is four metres, and a 6.9 m "come here"
+            # ended "timed out" 0.9 m from the person (October 3).
             return 0., 0., 'timeout', 'approach time limit'
         if self.travel >= self.max_travel:
             return 0., 0., 'distance_limit', 'distance limit reached before the target'
@@ -374,6 +381,7 @@ class DriveBase:
         self.locator = None           # (description, image, cancel) -> hosted vision geometry
         self.router = None            # (image, facts, cancel) -> hosted choice of open floor to drive to
         self._at = [0., 0.]           # His own position in metres since connect, kept from wheel travel along the IMU heading.
+        self._dead_ends = []          # (x, y, room heading) of legs that went nowhere in this plan.
         self._odom_mark = None
         self.look = None              # (after) -> fresh sharp camera image, or None
         self._sought = None           # description, note and absolute heading of the last thing sought
@@ -902,9 +910,10 @@ class DriveBase:
             return None
         return min(TIGHT_LEG_M, centre - FRONT_MARGIN)
 
-    def _move(self, meters, plan, cancel, speed=None):
+    def _move(self, meters, plan, cancel, speed=None, straighten=True):
         row = {'action': 'move', 'requested_m': round(meters, 2)}
-        straightened = self._straighten(min(meters, STRAIGHTEN_WITHIN_M), plan, cancel) if meters > 0 else 0.
+        straightened = (self._straighten(min(meters, STRAIGHTEN_WITHIN_M), plan, cancel)
+                        if meters > 0 and straighten else 0.)
         if straightened:
             # Reported so the model can say he lined up with the hallway first.
             row['turned_away_from_wall_deg'] = round(straightened, 1)
@@ -1211,6 +1220,12 @@ class DriveBase:
                 kind = 'face'
         final = self._resolve(step.target, plan, self.clock(), fresh=False)
         space = self.space()
+        reach = (final or last or {}).get('range_m')
+        if result in {'blocked', 'timeout'} and kind in {'face', 'nearest_person'} and reach is not None and reach - stop_at <= .3:
+            # Stopped by a table, knees or the clock while within arm's reach of the stop
+            # distance: he is there. October 3: three such arrivals (0.9-1.2 m from the person)
+            # were told as "I didn't make it to you".
+            result, reason = 'completed', 'stopped within reach of the person: ' + str(reason)
         out = {**row, 'status': result, 'reason': reason, 'travelled_m': round(travelled, 2),
                'turned_deg': turned, 'stop_at_m': stop_at, **extra,
                'clearance_at_stop_m': {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()},
@@ -1409,6 +1424,15 @@ class DriveBase:
             bearing = (.5 - float(choice['x'])) * 2 * HALF_FOV
             distance = max(.3, min(ROUTE_LEG_M, float(choice.get('distance_m') or ROUTE_LEG_M)))
         said = f"{abs(bearing):.0f} degrees {'left' if bearing > 0 else 'right'}, {distance:.1f} m"
+        heading = self._heading(telemetry) if telemetry else None
+        way = wrap(heading + bearing) if heading is not None else None
+        self._track(telemetry)
+        if way is not None and any(math.hypot(self._at[0] - x, self._at[1] - y) < .3 and abs(wrap(way - failed)) < 20.
+                                   for x, y, failed in self._dead_ends):
+            # October 3 evening: sent right three times from one spot after that way had
+            # already been refused. The same way from the same place is not tried again.
+            tried.append(said + ': already failed from here; not repeated')
+            return None
         row = {'side': 'left' if bearing > 0 else 'right', 'by': 'camera', 'note': str(choice.get('note') or '')[:120],
                'travelled_m': 0., 'turned_deg': 0.}
         if abs(bearing) > 8:
@@ -1416,10 +1440,17 @@ class DriveBase:
             row['turned_deg'] = turn.get('turned_deg', 0.)
             if turn['status'] != 'completed':
                 tried.append(said + ': could not turn that way (' + str(turn.get('reason')) + ')')
+                if way is not None:
+                    self._dead_ends.append((*self._at, way))
                 return {**row, 'status': 'blocked'}
-        move = self._move(min(distance, budget_m), plan, cancel)
+        # No straightening here: the look chose this direction, and turning away from the
+        # wall beside it only undid the turn (three 12 degree turns back, then no move).
+        move = self._move(min(distance, budget_m), plan, cancel, straighten=False)
         row['travelled_m'] = move.get('travelled_m', 0.)
         row['turned_deg'] += move.get('turned_deg', 0.)
+        if row['travelled_m'] < .25 and way is not None:
+            self._dead_ends.append((self._at[0] - row['travelled_m']*math.cos(math.radians(way)),
+                                    self._at[1] - row['travelled_m']*math.sin(math.radians(way)), way))
         tried.append(said + f": rolled {row['travelled_m']:.1f} m, {move['status']}"
                      + (' (' + str(move['reason']) + ')' if move.get('reason') else ''))
         return {**row, 'status': move['status']}
@@ -1597,6 +1628,7 @@ class DriveBase:
             sightings = (sightings + [(*found['from'], found['heading'])])[-6:]
         self._sought = {'description': description, 'note': found.get('note'),
                         'heading': found.get('heading'), 'box_width': found['box_width'],
+                        'first_width': previous.get('first_width') or found['box_width'],
                         'sightings': sightings, 'position': self._fixed_position(sightings)}
 
     @staticmethod
@@ -1852,11 +1884,15 @@ class DriveBase:
                 continue   # Blocked, off course, lost or budget: re-evaluate from the latest look.
             clearance = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()}
             ahead = space.get('front_center_m')
-            if (ahead is not None and ahead - stand_off < NEAR_AHEAD_M and abs(bearing) <= 8
-                    and found['box_width'] >= NEAR_WIDTH):
-                # Blocked straight ahead where the thing is, and it looks near: arrived. Side
-                # returns (a hallway corner) never make arrival; they are for going around.
-                return result('completed', 'reached_stand_off_at_target', clearance_at_stop_m=clearance)
+            wide = found['box_width'] >= NEAR_WIDTH and abs(bearing) <= 8
+            grown = found['box_width'] >= GROWN_NEAR * (self._sought.get('first_width') or found['box_width'])
+            if wide and (grown or (ahead is not None and ahead - stand_off < NEAR_AHEAD_M)):
+                # Blocked with the thing ahead and near: arrived. Near means either something
+                # straight ahead at the stand-off, or the thing itself has at least doubled in
+                # the picture since first seen (it sits above or behind what stops him). A
+                # side return beside a thing that only looks big from afar is not arrival.
+                return result('completed', 'reached_stand_off_at_target', clearance_at_stop_m=clearance,
+                              grew_in_view=round(found['box_width'] / (self._sought.get('first_width') or found['box_width']), 1))
             detour = self._go_around(self._sought['description'], bearing, space, stand_off, plan, cancel,
                                      budget_m - travelled, detours, tried)
             if detour is None:
@@ -1925,6 +1961,7 @@ class DriveBase:
             self.moving.set()
             self._notify(plan)
             self._vision_calls = 0   # The last sought thing persists across plans ("keep going").
+            self._dead_ends = []
             start = self.link.snapshot()[0]
             self._start_heading = self._heading(start) if start else None
             self._plan_parks = plan.park_arm   # The arm parks right before the first wheel command.

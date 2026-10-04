@@ -73,6 +73,11 @@ class RobotServos:
         self.idle.stop()
         self.reflex.stop()   # The model's explicit move replaces an unfinished reflex.
         self.talking.stop()
+        if name == 'hold_arms':
+            # Nothing moves and nothing is heard, so there is nothing for newer speech to
+            # interrupt: October 3, "keep your hand down and don't move it" was understood
+            # and then cancelled 0.2 s later by someone else talking.
+            cancel = Cancellation()
         follow = name == 'look_at_people'
         if follow:
             # Following faces is the idle gaze's job, never a held pose. When a person asks

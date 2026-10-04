@@ -129,6 +129,22 @@ eight legs). The same run showed two conversational faults, now changed:
 **1,009 blocked-I/O checks pass** (115 seconds). No hosted model was called, so whether
 the model now chooses `hold_arms` and `silent` for those requests is unmeasured.
 
+Evening runs `b0d3ef1d` and `7af54a94` (41 minutes together): the owner called them
+"really good". On the robot, two of three microwave trips reported success (the third had
+in fact arrived), the target was found in 53 of 53 looks, turns landed within 3 degrees 92
+times in 111, and "keep your hand down and don't move it" chose `hold_arms`, which was then
+cancelled 0.2 s later by someone else speaking. Changes from those logs, simulated only:
+arrival is recognised when the target has grown large in view, an arrival within reach of
+a person is no longer told as a failure, a failed route direction is not repeated, and
+`hold_arms` cannot be interrupted. Details:
+[drive base](DRIVE_BASE_INTEGRATION.md#october-3-evening-the-camera-route-works-on-the-floor).
+
+Unchanged and measured in those runs: replies took a median of 5.0 s and 6.0 s to first
+audio (4 of 46 under the owner's 4 s limit), and 56 of 89 full-size reply calls reported no
+cached input. `silent` was not exercised.
+
+**1,019 blocked-I/O checks pass** (115 seconds).
+
 ## Feeling alive: live-run repairs — October 3 (evening)
 
 The owner's run `30ec1b046fb749558934ca55b50ffc06` (10.4 minutes, real hardware) was the
