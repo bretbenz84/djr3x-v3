@@ -65,6 +65,7 @@ class IdleMotion:
         self._scan_at = float('-inf')
         self._face_at = float('-inf')
         self._wake_until = float('-inf')   # After a drive: alive even while he listens or works.
+        self._wake_at = float('-inf')
         self._counts = {}          # Phrase outcomes since the last summary row.
         self._report_at = float('-inf')
         self.closed = False
@@ -210,30 +211,34 @@ class IdleMotion:
             self.closed = True
             self._stop()
 
-    def wake(self, seconds=6.):
+    def wake(self, seconds=6., delay=0.):
         """The wheels just stopped: the head goes back to the people now and the other parts
         resume, without the usual pause and while the throttle arm is still returning.
 
         Owner, October 3 (twice): after a drive everything waited for the arm to un-park.
         Releasing the servos was not enough: idle movement waited two seconds to resume and
         stayed still whenever he was listening or answering, which is most moments after a
-        drive. For these few seconds neither stills him; the arm is moving anyway."""
+        drive. For these few seconds neither stills him; the arm is moving anyway.
+
+        delay: seconds of stillness first. October 5: a picture asked for after a drive
+        failed because the head set off wandering 10 ms after the wheels stopped and the
+        camera counted as moving for the whole capture window."""
         with self._lock:
             if self.closed: return
             now = self.owner.clock()
-            self._wake_until, self._resume, self._allowed = now + seconds, now, True
+            self._wake_at, self._wake_until, self._resume, self._allowed = now + delay, now + delay + seconds, now + delay, True
             for part in ('head', 'visor', 'elbow', 'wrist', 'poker'):
-                self._due[part] = now
+                self._due[part] = now + delay
             self._rest.clear()
-            self._scan_at = now          # With nobody in view he looks around at once.
-            if not self.busy():
+            self._scan_at = now + delay  # With nobody in view he looks around at once.
+            if not delay and not self.busy():
                 self._start(now, calm=False)
 
     def tick(self, allowed: bool, calm: bool = False):
         with self._lock:
             if self.closed: return
             now = self.owner.clock()
-            if now < self._wake_until and not self.busy():
+            if self._wake_at <= now < self._wake_until and not self.busy():
                 allowed, calm = True, False
             if not allowed:
                 self._stop()

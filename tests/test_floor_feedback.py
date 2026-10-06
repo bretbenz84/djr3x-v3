@@ -372,7 +372,7 @@ class GoingAroundTests(SeekTests):
             def prepare_base_motion(self, cancel):
                 events.append('park')
                 return type('R', (), {'status': 'pulses_reached', 'reason': None})()
-            def finish_base_motion(self):
+            def finish_base_motion(self, look_pending=False):
                 events.append('release')
         drive.servos = Servos()
         drive._sought = {'description': 'door'}
@@ -833,7 +833,7 @@ class VoiceAndObstacleApproachTests(unittest.TestCase):
         class Servos:   # As on the robot: arms tucked before the wheels move.
             def prepare_base_motion(self, cancel):
                 return type('R', (), {'status': 'pulses_reached', 'reason': None})()
-            def finish_base_motion(self):
+            def finish_base_motion(self, look_pending=False):
                 pass
         drive.servos = Servos()
         settle()
@@ -867,7 +867,7 @@ class ReacquireAfterNudgeTests(unittest.TestCase):
             def prepare_base_motion(self, cancel):
                 world.neck = 0.
                 return type('R', (), {'status': 'pulses_reached', 'reason': None})()
-            def finish_base_motion(self):
+            def finish_base_motion(self, look_pending=False):
                 pass
             def execute_pose(self, pose, cancel, request_id):
                 world.neck = (NECK_CENTER - pose[0]) / NECK_PULSES_PER_DEG
@@ -980,7 +980,7 @@ class TuckedArms:
     """The servo owner parks the arms before the wheels move, as on the robot."""
     def prepare_base_motion(self, cancel):
         return type('R', (), {'status': 'pulses_reached', 'reason': None})()
-    def finish_base_motion(self):
+    def finish_base_motion(self, look_pending=False):
         pass
 
 
@@ -1405,10 +1405,36 @@ class CameraRouteTests(SeekTests):
             seen.append(list(self.poses))
             return router(image, facts, cancel)
         drive.router = watching
+        tipped, looked = [], []
+        head, look = drive._head, drive.look
+        def timed_head(pose, cancel, request_id):
+            if 2 in pose and pose[2] > dict(DRIVE_HEAD)[2]:
+                tipped.append(clock())
+            return head(pose, cancel, request_id)
+        def timed_look(after):
+            looked.append((after, clock()))
+            return look(after)
+        drive._head, drive.look = timed_head, timed_look
         self.run_plan(clock, drive, DriveStep('seek', description='door'), DriveStep('approach', target='sought'))
         level = dict(DRIVE_HEAD)[2]
         self.assertGreater(seen[0][-2][2], level)                  # Tilt pulse above level looks down...
         self.assertEqual(seen[0][-1][2], level)                    # ...and is level again before he drives on.
+        # Owner, October 5: the head needs about 1.5 s after tipping before the picture is clear.
+        after, at = next((a, t) for a, t in looked if tipped and a >= tipped[0])
+        self.assertGreaterEqual(after, tipped[0] + 1.5 - 1e-6)
+        self.assertGreaterEqual(at, tipped[0] + 1.5 - 1e-6)
+
+    def test_a_picture_asked_for_after_the_drive_holds_idle_motion_until_it_is_taken(self):
+        clock, fake, drive, world = self.start([])
+        flags = []
+        class Head(TuckedArms):
+            def finish_base_motion(self, look_pending=False):
+                flags.append(look_pending)
+        drive.servos = Head()
+        plan = DrivePlan('p', (DriveStep('move', meters=.3),), 'requested', 'go', {}, clock()+60, look_after='What is there?')
+        drive.execute(plan, Cancellation())
+        self.run_plan(clock, drive, DriveStep('move', meters=.3))
+        self.assertEqual(flags, [True, False])
 
     def test_a_leg_that_fails_is_told_to_the_next_look(self):
         clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])

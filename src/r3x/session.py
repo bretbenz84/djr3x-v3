@@ -1167,7 +1167,12 @@ class Session:
                                 self.state.attention.scene.invalidate(self.trace.clock())
                                 look = InspectionRequest(drive_plan.request_id+':look','current',args['look_after'],
                                     self.state.attention.scene.view_epoch,self.trace.clock(),captured_after=(drive_action.receipt.finished_at or self.trace.clock())+.3)
-                            data, images = self.output.execute_inspection(look,cancel,lambda: True)
+                            try:
+                                data, images = self.output.execute_inspection(look,cancel,lambda: True)
+                            finally:
+                                robot = getattr(self.output,'robot',None)
+                                if robot is not None:
+                                    robot.idle.wake()   # The picture is taken (or not): the head may wander again.
                             data = {**data,'question':args['look_after'],'source_turn_id':context.get('source_turn_id'),
                                     'event_id':context.get('event_id'),'after_drive':receipt['status']}
                             self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))

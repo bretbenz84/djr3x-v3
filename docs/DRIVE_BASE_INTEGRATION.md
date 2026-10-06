@@ -930,3 +930,36 @@ speed (both are proportional terms; the host's angle term damps the firmware's c
 simulation), whether 0.06-0.12 m/s stalls on carpet, how the 13 cm push behaves inside the
 door, and the tucked-arm reach the swing check uses, which refused the aim and detour
 turns near the jamb and is still an estimate.
+
+## October 5 evening, second repair: blurred floor looks and the picture that "failed"
+
+Owner: the head is not still enough for a clear picture until about 1.5 s after it tips
+down, so the route looks were probably blurred; and Rex said he could not get a camera
+view, which he wanted checked against the log.
+
+**The failed picture was real, not invented.** After the blocked hallway approach the plan
+asked for a look ("What do you see down the hallway and in the room?"). The log has
+`inspection_result ... status: failed, reason: FreshCurrentViewUnavailable`. Ten
+milliseconds after the wheels stopped, idle head motion began (`camera_motion moving:
+true, source head:idle`) and the camera counted as moving for six seconds, the whole
+three-second capture window. That was a consequence of the October 3 change that wakes
+idle movement the instant a drive ends.
+
+**Changes (simulated only).**
+
+- **1.5 s settle before a route look.** After the head tips down for the floor picture the
+  look waits `HEAD_SETTLE_S` (1.5 s) instead of 0.3-0.5 s; the same wait applies after a
+  neck turn before a hosted look.
+- **The least shaken of several frames.** A deliberate look no longer takes the first
+  frame after the settle time: frames keep coming for 0.3 s and the sharpest (variance of
+  the Laplacian on a small grey copy, compared only between frames of the same view) is
+  the one sent (`looking.fresh_look`).
+- **A picture asked for after a drive keeps the head still.** When the plan has
+  `look_after`, the drive end tells the servo owner so (`finish_base_motion(look_pending)`)
+  and idle motion wakes with a 4 s delay; the session wakes it as soon as the picture is
+  taken, so the pause is only as long as the capture.
+
+Checks: `tests/test_looking.py` (sharpest frame chosen, frames before the settle ignored,
+timeout honest), the delayed idle wake, the route look's timing and the drive-end flag.
+Not measured: whether 1.5 s is enough on the robot (the owner's estimate) and the
+sharpness score on real head-camera frames.

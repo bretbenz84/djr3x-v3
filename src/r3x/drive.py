@@ -41,6 +41,9 @@ SELF_VISION_CALLS = 8     # Rex's own curiosity gets fewer paid looks than a hum
 ROUTE_LEGS = 8            # Camera-chosen legs per approach (five ran out part-way round a kitchen island).
 ROUTE_LEG_M = 1.5
 ROUTE_LOOK_DOWN_DEG = 12. # Enough to bring the floor a metre ahead into the picture.
+# Owner, October 5: the head needs about 1.5 s after tipping down before it is still
+# enough for a clear picture; the 0.3-0.5 s allowed before gave blurred route looks.
+HEAD_SETTLE_S = 1.5
 ROUTE_BEYOND_VIEW_DEG = 60.   # The open way lies past the picture's edge: turn this far and go.
 ROUTE_SLACK_DEG = 60.     # After a leg, before two sightings fix its position, the thing may sit this far off.
 SIDE_WAY_M = .8           # A side sensor this open is a way around when nothing in front is.
@@ -1383,7 +1386,7 @@ class DriveBase:
         from .drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
         degrees = max(-LOOK_NECK_MAX, min(LOOK_NECK_MAX, degrees))
         receipt = self._head({0: round(NECK_CENTER - degrees*NECK_PULSES_PER_DEG)}, cancel, 'drive-look')
-        self._view_since = self.clock() + .3
+        self._view_since = self.clock() + HEAD_SETTLE_S   # A hosted look waits for the head to be still.
         return getattr(receipt, 'status', None) == 'pulses_reached'
 
     def _face_near(self, expected, cancel, wait=1.5):
@@ -1506,8 +1509,8 @@ class DriveBase:
             level = dict(DRIVE_HEAD)
             down = {0: NECK_CENTER, 2: round(level[2] + ROUTE_LOOK_DOWN_DEG * TILT_DOWN_PER_DEG)}
             tipped = getattr(self._head(down, cancel, 'drive-route-look'), 'status', None) == 'pulses_reached'
-            self._view_since = self.clock() + .3
-        self._sleep(.5, cancel)
+            self._view_since = self.clock() + HEAD_SETTLE_S
+        self._sleep(HEAD_SETTLE_S if tipped else .5, cancel)
         try:
             return self.look(max(self._view_since, self.clock() - .5))
         finally:
@@ -2174,7 +2177,8 @@ class DriveBase:
             self.flinch.ticks = 0
             if self._parked:
                 self._parked = False
-                self.servos.finish_base_motion()
+                # A picture is wanted after this drive: the head stays still for it first.
+                self.servos.finish_base_motion(look_pending=bool(plan.look_after))
             self.motion_until = self.clock() + 1.
             self.moving.clear()
             self._notify(plan)

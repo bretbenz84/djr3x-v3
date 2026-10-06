@@ -10,6 +10,10 @@ from .idle_motion import IdleMotion
 from .voice_reflex import VoiceReflex
 
 
+# A picture asked for after a drive has a 3 s capture window from 0.3 s after the stop.
+LOOK_STILL_S = 4.
+
+
 class RobotServos:
     capability = Capability('robot_servos','Pololu Maestro','startup, idle arms, talking, microphone hold and park',
         dependencies=('pyserial',),resources=('exclusive Maestro; eleven calibrated channels',),
@@ -147,18 +151,21 @@ class RobotServos:
             self.trace.emit('servo_base_park', **asdict(receipt))
         return receipt
 
-    def finish_base_motion(self):
+    def finish_base_motion(self, look_pending=False):
         """The drive is over: the head and the other servos are free at once, while the
         throttle arm returns to rest in the background.
 
         Owner, October 3: he stayed frozen until the arm had un-parked. Talking and idle
         motion now carry on beside the return (they never command the arm's channels while
         it is on its way). A later drive plan or shutdown joins this worker first.
+
+        look_pending: a picture is about to be taken from where he stopped, so the head
+        stays still for it first (the session wakes idle motion once it is taken).
         """
         import threading
         self.owner.begin_arm_return()
         self.idle.look_at_people()   # The drive centred the head; an earlier held look is over.
-        self.idle.wake()             # The head and arms move now, not after the usual idle pause.
+        self.idle.wake(delay=LOOK_STILL_S if look_pending else 0.)   # Now, not after the usual idle pause.
         def run():
             receipt = self.owner.return_arm()
             if self.trace:

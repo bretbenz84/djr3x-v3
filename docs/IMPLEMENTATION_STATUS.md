@@ -18,6 +18,12 @@ Refused turns are logged. Simulated in a geometric hallway and a 0.8 m doorway w
 firmware's steering modelled; **not yet run on the robot**
 ([drive base](DRIVE_BASE_INTEGRATION.md#october-5-evening-stuck-in-a-hallway-with-the-door-still-to-come)).
 
+Same evening: the floor-look picture now waits 1.5 s for the head to be still and keeps
+the least shaken of a short run of frames, and a picture asked for after a drive holds
+idle head motion until it is taken (the logged "camera view failed" was real: idle motion
+had started 10 ms after the stop)
+([drive base](DRIVE_BASE_INTEGRATION.md#october-5-evening-second-repair-blurred-floor-looks-and-the-picture-that-failed)).
+
 ## Kitchen and hallway run repairs — October 3 (midday)
 
 The owner's run `d4634610d3c34bcda70ccfa1a1a893b3` (about 18 minutes, real hardware)

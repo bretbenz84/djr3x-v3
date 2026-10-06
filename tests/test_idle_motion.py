@@ -177,6 +177,26 @@ class IdleTests(unittest.TestCase):
         self.clock.wait(5.);self.idle.tick(False)
         self.assertEqual(len(self.port.targets),count)      # Afterwards listening stills him again.
 
+    def test_a_picture_wanted_after_the_drive_keeps_the_head_still_first(self):
+        # October 5 (4153bcbc): the look asked for after a drive failed because idle head
+        # motion set off 10 ms after the wheels stopped and the camera counted as moving
+        # for the whole capture window.
+        self.execute('startup');self.port.packets.clear()
+        self.idle.wake(delay=4.)
+        self.assertIsNone(self.idle._thread)
+        before=len(self.port.targets)
+        for _ in range(30):                        # 3 s: the picture's window, nothing moves...
+            self.idle.tick(True)
+            if self.idle._thread: self.idle._thread.join(5)
+            self.clock.wait(.1)
+        self.assertEqual(len(self.port.targets),before)
+        self.clock.wait(1.5);self.idle.tick(False) # ...then the delayed wake applies even while he listens.
+        if self.idle._thread: self.idle._thread.join(5)
+        self.assertGreater(len(self.port.targets),before)
+        self.execute('startup');self.port.packets.clear()
+        self.idle.wake(delay=4.);self.idle.wake()  # The picture was taken early: wandering resumes now.
+        self.assertIsNotNone(self.idle._thread)
+
     def test_waking_never_competes_with_talking_motion(self):
         self.execute('startup');self.port.packets.clear()
         self.idle.busy=lambda:True
