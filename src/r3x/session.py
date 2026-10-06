@@ -319,6 +319,71 @@ class Session:
     def history_messages(self):
         return self.history.messages()
 
+    def _perform_impression(self, data, phrases, delivery, cancel, worker, turn_id):
+        """Intro in Rex's voice, the prepared take in the cloned voice, then the outro.
+
+        Preparation starts at once so Rex's own intro covers the engine. The take is
+        awaited before it is queued: a failed render gets a fixed cover line (like a
+        failed movement), never a half-rendered impression or a silent turn.
+        """
+        from .impersonation import VoiceReference
+        from .output import ClonedPhrase
+        reference = VoiceReference(data['reference_wav'],data['reference_text'],data['voice'],data['subject'])
+        take = self.output.cloner.prepare(data['script'],reference)
+        record = {'take':take,'data':data,'status':'preparing','heard_before':len(delivery.completed_text)}
+        self.trace.emit('impression_started',turn_id=turn_id,voice=data['voice'],subject=data['subject'],
+                        requested=data['requested'],words=len(data['script'].split()),script_capped=data['script_capped'])
+        delivery.status, delivery.medium = 'requested', 'audio'
+        try:
+            if data['intro']:
+                heard = len(delivery.completed_text)
+                put_phrase(phrases,data['intro'],cancel)
+                while len(delivery.completed_text) <= heard:
+                    cancel.check()
+                    if not worker.is_alive() or delivery.error:
+                        raise ProviderFailure('OutputWorkerStopped')
+                    time.sleep(.02)
+            rendered = self.output.await_take(take,cancel,filler=bool(data['requested']))
+            record['stats'] = dict(take.stats)
+            if not rendered:
+                record['status'] = 'failed'
+                record['error'] = take.error
+                self.trace.emit('impression_failed',turn_id=turn_id,voice=data['voice'],reason=take.error)
+                put_phrase(phrases,"Huh. My impression module just blew a fuse. We'll try that one again later.",cancel)
+                return record
+            record['heard_before'] = len(delivery.completed_text)
+            put_phrase(phrases,ClonedPhrase(data['script'],take,data['voice']),cancel)
+            record['status'] = 'queued'
+            if data['outro']:
+                put_phrase(phrases,data['outro'],cancel)
+            return record
+        except BaseException:
+            take.close()
+            raise
+
+    def _finish_impression(self, record, delivery, turn_id):
+        """Only completed cloned audio counts as a performed impression."""
+        import json
+        from .output import plain_text
+        data = record['data']
+        take = record['take']
+        take.close()
+        heard = ' '.join(delivery.completed_text[record['heard_before']:])
+        performed = record['status']=='queued' and plain_text(data['script']).split() and \
+            ' '.join(plain_text(data['script']).split()) in heard
+        self.trace.emit('impression_done',turn_id=turn_id,voice=data['voice'],subject=data['subject'],
+                        requested=data['requested'],performed=bool(performed),status=record['status'],
+                        reason=record.get('error'),delivery_status=delivery.status,**record.get('stats',{}))
+        if performed and self.state:
+            with self._lock:
+                self.state.impressions.record(data['voice'],data['subject'],data['script'],data['requested'],self.trace.clock())
+            self.history.append({'role':'developer','content':'Impression performed: the line '+json.dumps(data['script'])+
+                ' was spoken in '+data['subject']+"'s cloned voice ("+('requested' if data['requested'] else 'spontaneous cameo')+
+                '). It is parody you performed, not something they said and not a fact about them.'})
+        elif record['status']=='failed':
+            self.history.append({'role':'developer','content':'The impression of '+data['subject']+
+                ' could not be rendered ('+str(record.get('error'))+'); only the cover line was spoken.'})
+
     def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int, observation=None, faces=(), *, latest_faces=None) -> Delivery:
         return self._process(capture,transcript,submitted_revision,observation,faces,latest_faces=latest_faces)
 
@@ -399,6 +464,7 @@ class Session:
         agency_step = None
         agency_revision_reason = None
         action_outcome = None
+        impression = None
         try:
             with self._lock:
                 if self.closed or source_session != self.session_id or submitted_revision != self.revision:
@@ -550,6 +616,10 @@ class Session:
                 led = self.output.leds
                 context.update(led_enabled=led.state=='ready',led_version=led.version,
                     led_patterns=[p for p in PATTERNS if (p!='compliment' or 'chest' in led.ports) and (p!='blink' or 'head' in led.ports)])
+            if (self.state and not self.state.frozen and not opportunity and getattr(self.output,'cloner',None) is not None
+                    and self.state.voice_references is not None):
+                from . import impersonation
+                context['impersonation'] = impersonation.context(self.state, self.trace.clock())
             context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and getattr(self.output,'robot',None) and self.output.robot.owner.state=='active')
             if context['robot_pose_enabled']:
                 from .servo_poses import LIMITS, NAMED_POSES
@@ -1385,6 +1455,8 @@ class Session:
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {}), **({"next_opportunity":None} if "next_opportunity" in call.arguments else {})})},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                     self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
+                elif result.outcome=='ok' and call.name=='impersonate':
+                    impression = self._perform_impression(result.data,phrases,delivery,cancel,worker,turn_id)
                 elif result.outcome=='ok' and call.name=='use_visual_memory':
                     visual_selected = result.data['observation_id']
                     visual_proposed_text=result.data['text']
@@ -1617,6 +1689,8 @@ class Session:
                             'selected_text':visual_proposed_text or generated[:1200],
                             'heard_text':' '.join(delivery.completed_text) if delivery.medium=='audio' else '',
                             'delivery_status':delivery.status,'at':self.trace.clock()})
+            if impression is not None:
+                self._finish_impression(impression,delivery,turn_id)
             if self.state and action_started:
                 with self._lock:
                     outcome=self.state.actions.finish(delivery,self.trace.clock())

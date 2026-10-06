@@ -12,7 +12,7 @@ These additions follow the core reliability/cost work and applicable
 | Feature | Intended V3 experience | Integration boundary |
 | --- | --- | --- |
 | Existing Jeopardy game | Bring back the familiar game, including its useful rules, scoring and presentation. Rex can host naturally and handle questions, interruptions and resumption. | Reuse V2's game knowledge and proven behavior; explicit game state owns scores, answer windows and progression. One conversation/output owner handles language and actual delivery. Do not transplant an independent conversation loop. |
-| On-device voice-cloning / impersonation bits | Playful impressions of known people or supported reference voices, using the local voice capability. | Adapt V2's local TTS and reference-audio lessons as an optional capability. Measure shared M2/MLX memory, ASR contention and time to first audio. Keep generated parody distinct from facts, original voice samples and identity evidence. |
+| On-device voice-cloning / impersonation bits | **Implemented October 6, 2026** ([voice impressions](IMPERSONATION.md)): requested impressions of famous voices, known people and the current speaker, and rare spontaneous cameos, all chosen and written by the conversation model through the `impersonate` tool and spoken by the local Breeze engine. | Live acceptance on the robot (playback quality, time to first cloned audio under the full workload, how often cameos land) remains open. Parody stays distinct from facts, original voice samples and identity evidence. |
 | Room exploration | Rex can look around, investigate unfamiliar things and build useful remembered observations about his surroundings. | Stage observation, optional physical inspection and memory; an inspected image is evidence, not proof of a complete room map. Dedicated room recognition is optional, not an assumed prerequisite. |
 | Autonomous motion | Eventually choose purposeful movement as part of attention, exploration and social interaction, beyond explicit drive commands. | September 27: bounded LLM-selected base plans, vision seek of described things, radar priors and self-initiated moves are implemented and floor-tested ([drive base](DRIVE_BASE_INTEGRATION.md)). Roaming, navigation, mapping, localization and compass heading still do not exist. |
 | Interest-aware idle banter and news | As Rex learns a person's interests, bring up relevant events, callbacks and follow-ups naturally. | Extend the existing proactive core and sourced news inputs; dedicated interest-aware retrieval/ranking and its acceptance checks remain future work. Do not create a separate news-speaking agent or periodic chatter loop. |
@@ -44,15 +44,14 @@ V3 already has proactive arrival/lull opportunities, quiet/resume, memory
 opportunities, sourced general news/weather and scene inputs. Their live social
 quality remains under evaluation. The targeted personalization above is a desired
 extension, not a claim that personalized news acquisition is already implemented.
-Jeopardy, local impersonations and physical exploration remain future integrations;
+Jeopardy and physical exploration remain future integrations (local impressions landed October 6);
 bounded purposeful base motion is implemented and in floor testing. Motion-aware noticing is also still the documented
 [future idea](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues).
 
 V2 reference starting points: `features/jeopardy.py`,
-`docs/jeopardy_live_reliability_review.md`, `features/impersonation.py`,
-`docs/local_tts_impersonation_plan.md`, `docs/exploration_mode_plan.md`,
+`docs/jeopardy_live_reliability_review.md`, `docs/exploration_mode_plan.md`,
 `hardware/motion.py`, and `awareness/current_events.py`. Recheck active code,
 working-tree status and measured behavior before each extraction; V2 plans are not
-proof of implemented or reliable behavior. These features copy no V2 code or personal
-data yet; the drive base, startup and motion sounds were extracted separately
-(see [V2_REFERENCE.md](../V2_REFERENCE.md)).
+proof of implemented or reliable behavior. The remaining features copy no V2 code or
+personal data yet; the drive base, startup and motion sounds, and the impression
+engine were extracted separately (see [V2_REFERENCE.md](../V2_REFERENCE.md)).

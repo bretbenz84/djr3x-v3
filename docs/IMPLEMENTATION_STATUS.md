@@ -1,10 +1,22 @@
 # Current implementation status
 
-Updated October 5, 2026. This is the consolidated
+Updated October 6, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Voice impressions — October 6
+
+Owner request: port V2's cloned-voice impressions as a model tool. `impersonate` lets the
+conversation model perform a short parody in a famous voice, a known person's voice or the
+current speaker's own voice (once six clean voiced seconds are on file), framed by lines in
+Rex's voice, and slip in rare budgeted cameos when someone mentions a person he has a voice
+for. The local Breeze TTS 2 engine renders each take completely before playback and shares
+one MLX lock with transcription. 1052 synthetic checks pass; the real engine synthesized
+takes to files on the robot (about 1.5 times real time, 2.9–3.7 s load, 6.4 GB peak MLX
+memory); a five-call hosted probe chose the tool with a good script. **No live playback
+yet** ([voice impressions](IMPERSONATION.md)).
 
 ## Hallway crawl — October 5 (evening)
 
@@ -530,6 +542,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 | Implemented; in live use | V2 speech leveling (−20 LUFS) on every phrase; V2 startup sounds with servo wake-up, short cached please-wait/ready lines and spoken hardware notice; stop phrases wrapped or repeated ("Oh, stop!"); unreliable noise transcripts kept but never answered; one-time microphone recovery after a silent input | [V2 reference](../V2_REFERENCE.md#speech-leveling-and-startup-audio--september-27-2026), [drive repairs](DRIVE_BASE_INTEGRATION.md#talkative-arrivals-noise-replies-surroundings--september-27) |
 | Installed and running | Wake supervisor ("wake up rex", chimes, charger cues, mic-wedge relaunch, V3 auto-update) and servo/LED/battery menu-bar apps copied from V2 and run by the four LaunchAgents; no-motion handover measured at 0.7 s | [Operator services](OPERATOR_CUTOVER.md) |
 | Implemented | Action continuity after interruption, bounded outcome history, no automatic resumption of abandoned work | [Integration pass](CORE_INTEGRATION_PASS.md) |
+| Implemented; live playback pending | Model-chosen voice impressions (famous clips, known people, the current speaker) and budgeted cameos through the local Breeze engine, the one output owner and the shared MLX lock | [Voice impressions](IMPERSONATION.md) |
 | Implemented | External-review repairs, scene-change cutoff repair and introduction recovery | [Review follow-up](REVIEW_2026_09_13.md), [introduction recovery](INTRODUCTION_RECOVERY.md) |
 
 The agreed core software slices have no outstanding feature implementation stage.
@@ -594,7 +607,7 @@ separate categories.
 | Optional vision extensions | Adaptive image detail, general inspection-request coalescing and supported cross-session visual association are future options, not missing requirements of the completed core. Exact-image description reuse already exists. |
 | Motion-aware proactive noticing (partial implementation) | Commanded head/base motion, settling and bounded returning-view suppression are implemented. Independent subject motion, robust object continuity and unknown/manual camera movement remain future work. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
 | Compass heading | The drive base publishes raw QMC5883L magnetometer counts; V2's calibrated, current-gated compass fusion (`hardware/compass.py`, calibration file) is not ported. V3 uses gyro yaw only. |
-| Owner-requested companion features | Jeopardy, optional local voice-cloning/impersonation bits, room exploration, progressively interest-tailored idle banter/news, and the September 18 “Do you ever think” long-lull thought experiments. Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); maps, localization and exploration are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
+| Owner-requested companion features | Jeopardy, room exploration, progressively interest-tailored idle banter/news, and the September 18 “Do you ever think” long-lull thought experiments. Voice impressions landed October 6 ([details](IMPERSONATION.md)); lull-time impression beats are not offered. Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); maps, localization and exploration are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
 | Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search, offline conversational providers and a polished GUI remain separate future work. |
 
 Mouth-motion/active-speaker research is not an active implementation task. The user

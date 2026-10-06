@@ -6,6 +6,7 @@ import time
 
 from ..contracts import Capture, Cancellation, ProviderFailure, Transcript
 from ..providers import Capability
+from ..mlx_schedule import MLX_LOCK
 
 
 class QwenASR:
@@ -21,7 +22,8 @@ class QwenASR:
         if not (self.model_path / "config.json").is_file():
             raise ProviderFailure("ASRModelMissing")
         from mlx_audio.stt.utils import load_model
-        self.model = load_model(str(self.model_path))
+        with MLX_LOCK:   # Metal work shares one lock with the voice cloner.
+            self.model = load_model(str(self.model_path))
 
     def cancel(self):
         pass  # The in-flight operation owns its token and checks each decoded token.
@@ -35,7 +37,7 @@ class QwenASR:
         import mlx.core as mx
         if capture.sample_rate != 16000 or len(capture.pcm) % 2:
             raise ProviderFailure("InvalidASRPCM")
-        with self.lock:
+        with self.lock, MLX_LOCK:
             cancel.check()
             if self.model is None:
                 raise ProviderFailure("ASRNotStarted")

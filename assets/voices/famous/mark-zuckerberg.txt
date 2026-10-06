@@ -1,0 +1,1 @@
+So it's not like, you know, a pain in the ass for people who want to use this. And, you know, I think one of the protocols they've used that they built, they basically didn't encrypt it. So it's like plain text. And they're like, well, we can't have you plug into it because it would be insecure.

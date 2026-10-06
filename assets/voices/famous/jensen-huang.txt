@@ -1,0 +1,1 @@
+And if it doesn't know your language, you'll speak it in that language, and it'll probably figure out that it doesn't completely understand your language, go and learn it instantly and comes back and talk to you. And so I think the technology divide has a real chance, finally, that you don't have to speak Python or C++ or Fortran.

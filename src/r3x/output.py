@@ -1,5 +1,6 @@
 """The sole speech owner. Generated text is never a delivery receipt."""
 from dataclasses import dataclass, field
+from pathlib import Path
 from queue import Empty, Full, Queue
 import re
 import threading
@@ -71,10 +72,91 @@ class Delivery:
     lights: list[dict] = field(default_factory=list)
 
 
+@dataclass
+class ClonedPhrase:
+    """Words performed in another voice: a prepared Take from the voice cloner."""
+    text: str
+    take: object
+    voice: str
+
+
+class FillerLoop:
+    """V2's "thinking" chirps while an impression renders: cycled short effects on the
+    speech sink, started only when nothing else is playing and stopped the moment the
+    take is ready. Never marks echo risk; the microphone keeps listening."""
+    ASSETS = Path(__file__).resolve().parents[2] / 'assets' / 'audio' / 'effects'
+    GAIN = .5
+    PIECE = 1024
+
+    def __init__(self, sink, trace=None):
+        self.sink, self.trace = sink, trace
+        self._thread = None
+        self._stop = threading.Event()
+        self._cancel = Cancellation()
+
+    @classmethod
+    def clips(cls):
+        import wave
+        from array import array
+        import random
+        clips = []
+        for path in sorted(cls.ASSETS.glob('thinking-*.wav')):
+            with wave.open(str(path), 'rb') as clip:
+                if clip.getnchannels() != 1 or clip.getsampwidth() != 2 or clip.getframerate() != 22050:
+                    continue
+                samples = array('h', clip.readframes(clip.getnframes()))
+                for i in range(len(samples)):
+                    samples[i] = int(samples[i] * cls.GAIN)
+                clips.append(samples.tobytes())
+        random.shuffle(clips)
+        return clips
+
+    def start(self):
+        try:
+            clips = self.clips()
+        except (OSError, ValueError):
+            clips = []
+        if not clips:
+            return False
+        gap = b'\0' * (2 * 22050 // 2)   # Half a second between chirps.
+        def pieces():
+            while not self._stop.is_set():
+                for clip in clips:
+                    for pcm in (clip, gap):
+                        for i in range(0, len(pcm), self.PIECE):
+                            if self._stop.is_set():
+                                return
+                            yield pcm[i:i + self.PIECE]
+        def run():
+            try:
+                self.sink.play(pieces(), self._cancel, lambda at: None, visualize=False)
+            except Cancelled:
+                pass
+            except Exception as exc:   # A filler never fails the impression.
+                if self.trace:
+                    self.trace.emit('filler_sound_failed', error_type=type(exc).__name__)
+        self._thread = threading.Thread(target=run, name='r3x-filler', daemon=True)
+        self._thread.start()
+        return True
+
+    def stop(self, now=False):
+        thread, self._thread = self._thread, None
+        if thread is None:
+            return
+        self._stop.set()
+        if now:
+            self._cancel.event.set()
+        thread.join(1.)
+        if thread.is_alive():
+            self._cancel.event.set()
+            thread.join(1.)
+
+
 class OutputOwner:
     def __init__(self, tts: TTS, sink: Sink, trace, *, attention=None, gestures=None, inspection=None,
-                 speech_motion=None, leds=None, robot=None, drive=None):
+                 speech_motion=None, leds=None, robot=None, drive=None, cloner=None):
         self.tts, self.sink, self.trace = tts, sink, trace
+        self.cloner = cloner     # Optional voice cloner for model-chosen impressions.
         self.attention = attention
         self.gestures = gestures
         self.inspection = inspection
@@ -213,6 +295,32 @@ class OutputOwner:
             if token is not None: self._finish_lights(token,light,delivery,turn_id,status)
         cancel.check()
 
+    def await_take(self, take, cancel: Cancellation, *, filler: bool, timeout: float = 60.) -> bool:
+        """Wait for a prepared cloned take; play the thinking filler meanwhile when asked.
+
+        The caller has let any preceding phrase finish, so the sink is free for the
+        filler. Returns True when the take rendered; False carries take.error.
+        """
+        loop = None
+        deadline = time.monotonic() + timeout
+        try:
+            while not take.ready.wait(.05):
+                cancel.check()
+                if time.monotonic() > deadline:
+                    take.close()
+                    take.error = take.error or 'ImpersonationPreparationTimeout'
+                    return False
+                if filler and loop is None and not self.active.is_set():
+                    loop = FillerLoop(self.sink, self.trace)
+                    if not loop.start():
+                        loop = None
+                        filler = False
+            cancel.check()
+            return take.error is None
+        finally:
+            if loop is not None:
+                loop.stop(now=cancel.event.is_set())
+
     def echo_risk(self) -> bool:
         return self.active.is_set() or self.trace.clock() < self.echo_until
 
@@ -272,13 +380,17 @@ class OutputOwner:
                     text = performance.text
                     if performance.timing == 'before_speech':
                         self._gesture(performance, cancel, turn_id, delivery)
+                cloned = text if isinstance(text, ClonedPhrase) else None
+                if cloned:
+                    text = cloned.text
                 prerecorded = getattr(text, 'pcm', None)   # Cached canned line (startup ready line).
                 if prerecorded is not None:
                     text = text.text
                 text = speech_text(text)
                 if not text:
                     continue
-                self.trace.emit("speech_generated", turn_id=turn_id, text=text)
+                self.trace.emit("speech_generated", turn_id=turn_id, text=text,
+                                **({'voice': cloned.voice} if cloned else {}))
                 synthesis_at = self.trace.clock()
                 first_pcm_at = None
                 talking_started = False
@@ -287,7 +399,8 @@ class OutputOwner:
                 if self.leds: self.leds.clear_pcm()
                 def chunks():
                     nonlocal first_pcm_at
-                    stream = iter((prerecorded,)) if prerecorded is not None else self.tts.synthesize(text,cancel)
+                    stream = (iter((prerecorded,)) if prerecorded is not None else
+                              cloned.take.chunks(cancel) if cloned else self.tts.synthesize(text,cancel))
                     try:
                         for chunk in stream:
                             cancel.check()  # Speech may have resumed during the TTS request.
@@ -351,7 +464,7 @@ class OutputOwner:
                 delivery.underruns += receipt.underruns
                 self.trace.emit("phrase_completed", turn_id=turn_id, text=plain_text(text),
                                 frames=receipt.frames, underruns=receipt.underruns,
-                                completed_at=receipt.completed_at)
+                                completed_at=receipt.completed_at, **({'voice': cloned.voice} if cloned else {}))
                 cancel.check()
                 if performance and performance.timing == 'after_speech':
                     self._gesture(performance, cancel, turn_id, delivery)

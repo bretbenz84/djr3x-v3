@@ -243,3 +243,7 @@ __marimo__/
 !/assets/audio/startup/*.wav
 !/assets/audio/motion/*.wav
 !/assets/audio/operator/*.wav
+# Thinking-filler effects copied from V2 (sound effects, not recordings of people)
+!/assets/audio/effects/*.wav
+# Public famous-voice reference clips for impressions (see assets/voices/README.md)
+!/assets/voices/famous/*.wav

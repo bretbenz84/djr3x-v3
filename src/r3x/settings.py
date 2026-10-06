@@ -34,6 +34,7 @@ class Settings:
     proactive_lull_seconds: float = 5.0
     scene_observations_enabled: bool = True
     object_memory_enabled: bool = False
+    impersonation_enabled: bool = True  # Local Breeze voice cloning for model-chosen impressions.
     news_feed_urls: tuple[str, ...] = ("https://feeds.bbci.co.uk/news/rss.xml",)
     weather_enabled: bool = True
     weather_location: str = "Sacramento, CA"
@@ -63,7 +64,7 @@ class Settings:
                 raise ValueError('Hardware port must be an explicit macOS /dev/cu. device')
         if self.input_device_index is not None and (type(self.input_device_index) is not int or self.input_device_index < 0):
             raise ValueError("input_device_index must be a nonnegative integer")
-        for name in ("echo_isolated","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","direction_enabled","object_memory_enabled"):
+        for name in ("echo_isolated","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","direction_enabled","object_memory_enabled","impersonation_enabled"):
             if type(getattr(self,name)) is not bool:
                 raise ValueError(f"{name} must be boolean")
         from .observations import https_url

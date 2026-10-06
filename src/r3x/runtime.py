@@ -438,6 +438,9 @@ class VoiceRuntime:
                                     captures_queued=self.captures.qsize(),turns_queued=self.turns.qsize(),
                                     threads=threading.active_count())
                     next_resources = now+30
+                    cloner = getattr(self.session.output,'cloner',None)
+                    if cloner is not None:
+                        cloner.release_idle()   # A voice engine nobody used for ten minutes gives its memory back.
                 if sys.stdin.isatty() and select.select([sys.stdin], [], [], 0)[0]:
                     command = sys.stdin.readline().strip().lower()
                     if command in {"quit", "exit", "shut down", "shutdown"}:

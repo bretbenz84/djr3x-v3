@@ -54,6 +54,9 @@ class CoreState:
         self.initiative.agency = self.agency
         from .conversation_intent import ConversationIntent
         self.conversation_intent = ConversationIntent(trace, self.initiative.cancel_schedule)
+        from .impersonation import Impressions
+        self.impressions = Impressions()
+        self.voice_references = None   # ReferenceStore when a voice cloner is composed.
 
     def apply_photo(self,call,context,cancel):
         cancel.check()
@@ -710,6 +713,61 @@ class CoreState:
                 "participant":participant,"at":now,"expires_at":now+120 if action=="yield_floor" else None,
                 "text":args["text"],"reason":"conversation_feedback"},True
 
+    def _impersonate(self, conn, args, context):
+        """Resolve the chosen voice to a reference clip the cloner can use. Nothing here
+        is a fact or an identity: the parody is bounded, the voice comes only from
+        offered targets, and a stranger's voice is this session's own clean samples."""
+        from . import impersonation
+        from .output import plain_text
+        turn_id,capture,transcript,observation,attribution = self.current
+        self._source_allowed(args,'impersonate')
+        offered = (context or {}).get('impersonation') or {}
+        if self.frozen or self.voice_references is None or not offered.get('available'):
+            raise ValueError('ImpersonationUnavailable')
+        if not args['requested']:
+            allowed, reason = self.impressions.spontaneous_allowed(self.trace.clock())
+            if not allowed:
+                raise ValueError('SpontaneousImpressionCooldown:' + str(reason))
+        script = impersonation.cap_script(plain_text(args['script']),
+            impersonation.MAX_SCRIPT_WORDS if args['requested'] else impersonation.CAMEO_MAX_SCRIPT_WORDS)
+        if not script:
+            raise ValueError('InvalidImpressionScript')
+        target = args['target']
+        reference = None
+        if target == 'self':
+            if not offered.get('speaker',{}).get('ready'):
+                raise ValueError('SpeakerVoiceNotReady')
+            if attribution.person_id and self.store.person(attribution.person_id)['status']=='supported':
+                person = self.store.person(attribution.person_id)
+                reference = self.voice_references.person_reference(self.store,conn,person['id'],person['name'])
+            else:
+                proposal = self.evidence.get(attribution.track_id) if attribution.track_id else None
+                if proposal is None or attribution.reason=='tentative_continuity':
+                    raise ValueError('SpeakerVoiceNotReady')
+                reference = self.voice_references.track_reference(proposal.samples,attribution.track_id,
+                                                                  capture.session_id,'you')
+            kind = 'speaker'
+        elif any(p['target_id']==target for p in offered.get('people',[])):
+            person = self._person(target)
+            if person['status']!='supported': raise ValueError('VoiceReferenceUnavailable')
+            reference = self.voice_references.person_reference(self.store,conn,person['id'],person['name'])
+            kind = 'person'
+        elif target in offered.get('famous',[]):
+            reference = impersonation.famous_voices().get(target)
+            kind = 'famous'
+        else:
+            raise ValueError('ImpressionTargetNotOffered')
+        if reference is None:
+            raise ValueError('VoiceReferenceUnavailable')
+        for key in ('intro','outro'):
+            if args[key] is not None and not plain_text(args[key]):
+                args[key] = None
+        return {'subject':reference.name,'voice':reference.key,'target_kind':kind,'script':script,
+                'script_capped':script!=' '.join(plain_text(args['script']).split()),
+                'intro':args['intro'],'outro':args['outro'],'requested':args['requested'],
+                'reference_wav':reference.wav_path,'reference_text':reference.text,
+                'meaning':'Voice reference resolved; nothing has been performed yet.'}
+
     def _apply(self, conn, name, args, context=None):
         turn_id,capture,transcript,observation,attribution = self.current
         if name == 'use_visual_memory':
@@ -737,6 +795,8 @@ class CoreState:
             return {'text':args['text'],'source_turn_id':turn_id,
                     'records':[{'observation_id':key,'status':'retracted'} for key in args['observation_ids']],
                     'replacement_saved':False},True
+        if name == 'impersonate':
+            return self._impersonate(conn,args,context), False
         if name == "remain_silent":
             data = {"reason":args["reason"]}
             if not self.frozen and args['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:
@@ -1059,6 +1119,8 @@ class CoreState:
                 self.learn_observation()
         if name=='cancel_association':
             self.initiative.discard_association(data.get('person_id'),data.get('track_id'))
+            if self.voice_references is not None and data.get('track_id'):
+                self.voice_references.forget_track(data['track_id'])
             for key, proposal in self.enrollments.items():
                 if proposal.person_id==data.get('person_id'):
                     self.initiative.discard_association(None,key)
@@ -1073,6 +1135,9 @@ class CoreState:
         if name=="forget_person":
             self.initiative.forget()
             self.tracker.forget(data["person_id"])
+            self.impressions = type(self.impressions)()   # Performed parody of a forgotten person is not kept.
+            if self.voice_references is not None:
+                self.voice_references.close()
             self.pending = None
             self.attention.clear()
             self.attention.recent.clear()

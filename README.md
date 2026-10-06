@@ -45,6 +45,13 @@ it or reads its data.
   leaves, someone redirects it or a new arrival replaces it. He eases off when nobody
   answers and, with nobody seen or heard for five minutes, starts no new goals. Live acceptance is pending
   ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
+- **Voice impressions (October 6).** Ask for an impression of Jimmy Carter, of a known
+  person or of yourself, and Rex writes a short parody and performs it in that cloned
+  voice through the local Breeze engine, framed by lines in his own voice. Now and then,
+  when someone brings up a person whose voice he has, he slips in a short surprise cameo
+  of that person butting into the conversation. "Do me" works once Rex has heard about
+  six seconds of your clean speech; a stranger's voice lasts for the session only. Parody
+  is never stored as a fact. Live acceptance pending ([details](docs/IMPERSONATION.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080.
 - **Body (Pololu Maestro, 11 servos).**
@@ -131,6 +138,7 @@ python3.11 -m venv .venv
 .venv/bin/python -m pip install --no-build-isolation --no-deps -e .
 .venv/bin/python tools/prepare_core_models.py      # pinned public CAM++ assets
 .venv/bin/python tools/prepare_face_models.py      # face models from the offline cache
+.venv/bin/python tools/prepare_voice_cloning.py    # Breeze TTS 2 8-bit for impressions (about 4.6 GB; --source DIR copies a local snapshot)
 ```
 
 Credentials and the Rex voice live in ignored `local/secrets.toml`
@@ -143,8 +151,10 @@ models on its own.
 - Everything private is under ignored `local/`: settings, credentials, the store
   (`local/core.sqlite3`), recordings, voiceprints, visual memory, caches and session
   traces. Never commit or publish it.
-- Bundled audio (`assets/audio/startup`, `assets/audio/motion`) is V2's sound effects
-  converted to WAV. It contains no personal recordings.
+- Bundled audio (`assets/audio/startup`, `assets/audio/motion`, `assets/audio/effects`) is
+  V2's sound effects converted to WAV. It contains no personal recordings. The famous
+  reference voices in `assets/voices/famous` are public clips ([provenance](assets/voices/README.md));
+  references to people Rex knows are derived under `local/` and never tracked.
 - No V2 personal data has been imported. Any import makes independent copies with a
   source digest and explicit ID mapping. Nothing opens a writable connection to V2's
   databases.
@@ -157,6 +167,7 @@ models on its own.
 | [Drive base](docs/DRIVE_BASE_INTEGRATION.md) | Wheels, radar, safety gates, vision seek and floor-run repairs. |
 | [Servo integration](docs/SERVO_INTEGRATION.md) | Choreography, talking and idle motion, poses, microphone hold. |
 | [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |
+| [Voice impressions](docs/IMPERSONATION.md) | The `impersonate` tool, reference voices, the local cloning engine, checks and open acceptance. |
 | [Operator services](docs/OPERATOR_CUTOVER.md) | Wake supervisor, menu-bar apps, auto-update, rollback. |
 | [Live test script](docs/LIVE_TEST_SCRIPT.md) | Lines to say and results to check in hands-on conversation tests. |
 | [DESIGN.md](DESIGN.md) | Who decides what, turn flow, identity and memory design. |

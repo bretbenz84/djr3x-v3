@@ -110,6 +110,10 @@ TOOLS = (
          'purpose':TEXT,'look_after':NULL_TEXT,
          'say_before':{'type':['string','null'],'description':'Spoken first, before any motion: an acknowledgment such as "On my way" or "Turning around". null for none.'},
          'say_after':{'type':['string','null'],'description':'Spoken only after every step completed: an arrival remark such as "Here I am". Never a departure line. null for none.'}}),
+    schema("impersonate", "Perform a short voice impression: Rex speaks a few lines in another person's cloned voice through his local voice engine, then is himself again. Use it when a human explicitly asks for an impression, impersonation or imitation of themselves (\"do me\"), of a known person, or of a famous voice (requested true). You may also use it spontaneously, rarely, as a surprise cameo when someone brings up a person whose voice is listed in impersonation.famous (for example a trip to Plains, Georgia and Jimmy Carter) and impersonation.spontaneous_allowed is true (requested false); a cameo must add to the moment, never interrupt a serious one. target is self for the current speaker, allowed only when impersonation.speaker.ready is true. When someone asks you to do them and ready is false, this tool is the wrong answer even with an empty script: reply in ordinary prose that you have not heard enough of their voice yet (about six seconds of clear talk) and get them talking; nothing else is needed from them. Otherwise target is a listed people target_id or a listed famous slug (Ike is dwight-eisenhower, FDR franklin-roosevelt, JFK john-kennedy, LBJ lyndon-johnson). script is the complete parody in the target's own first-person voice: two or three short sentences, 25 to 35 words for a request and under 25 for a cameo (the engine renders at about real time and a longer take only means a longer wait), PG, affectionate exaggeration of a signature line, fixation, cadence or quirk, never mean. For a requested famous bit the figure reacts to a droid borrowing his voice; for a cameo the figure butts into the specific thing just discussed and never mentions droids or impressions. For a real person riff only on what they actually said this session or a saved interest: no health, bodies, family, religion, politics, money, nothing they asked you not to raise, no biography dump, and no invented facts about a stranger. No stage directions, quotation marks, delivery tags or names of the voice in script. intro is an optional short line in your own voice first: for a request a stall such as \"Okay, clearing my vocal buffers. Ahem.\" (preparing the voice takes several seconds), for a cameo your actual reply to what they said followed by a hand-off. outro is an optional line in your own voice after the bit (a bow or your reaction). null for none; never repeat the script in them. Only completed audio counts as performed, and parody is never a fact about anyone or evidence of their voice.",
+           {"target":TEXT,"script":TEXT,"intro":NULL_TEXT,"outro":NULL_TEXT,
+            "requested":{"type":"boolean","description":"true only when a human asked for this impression in this or the immediately preceding turn; false for a spontaneous cameo."},
+            "source_turn_id":TEXT}),
     schema("remain_silent", "End this turn without speech for an unfinished thought/thinking pause, clear external conversation/device announcements, or an uninvited fragment. Use unfinished_thought when a clause is still waiting for its action/object/destination or the speaker asks for time to think; do not ask them to finish. Explicit requests to stop unsolicited conversation use set_initiative(quiet) when available; addressee corrections require silence, never an acknowledgment. Listening acknowledgments and incidental coughs normally use no_response_needed; interpret meaning in context, not by word matching. Short answers authorizing an action still require the action. Complete introductions and ordinary questions normally deserve speech. Unknown speaker identity does not justify silence. No follow-up model call; no acoustic synthetic-voice claim.",
            {"reason":{"type":"string","enum":["other_addressee","device_speech","background_conversation","no_response_needed","unfinished_thought"]}}),
 )
@@ -245,6 +249,13 @@ def grounded_tools(context):
         if name=='use_observation' and not context.get('observations'):continue
         if name in {"recall_conversations","remember_episode","retract_episode"} and not context.get("personal_memory",{}).get("person_id"): continue
         if name=='remember_followup' and not context.get('speaker',{}).get('person_id'):continue
+        if name=='impersonate':
+            offered_voices = context.get('impersonation') or {}
+            if not offered_voices.get('available') or context.get('trigger'): continue
+            targets = ([ 'self'] if offered_voices.get('speaker',{}).get('ready') else []) + \
+                      [p['target_id'] for p in offered_voices.get('people',[])] + list(offered_voices.get('famous',[]))
+            if not targets: continue
+            definition['parameters']['properties']['target']['enum'] = targets
         if name=='use_memory_opportunity' and (not context.get('trigger') or not context.get('memory_opportunities')):continue
         identity_targets = context.get("identity_action_targets", {}).get(name, [])
         if name in {"rename_person", "forget_person"} and not identity_targets:
@@ -406,6 +417,12 @@ def validate(name, args):
                         raise ValueError('InvalidDriveNumber')
                 if step['target'] is not None and (not isinstance(step['target'],str) or not 0<len(step['target'])<=120):
                     raise ValueError('InvalidDriveTarget')
+        elif name=='impersonate' and key=='requested':
+            if type(value) is not bool:
+                raise ValueError('InvalidImpressionRequest')
+        elif name=='impersonate' and key=='script':
+            if not isinstance(value,str) or not 0<len(value.strip())<=600 or len(value.split())>70:
+                raise ValueError('InvalidImpressionScript')
         elif name=='revise_visual' and key=='revisions':
             if not isinstance(value,list) or not 1<=len(value)<=32:
                 raise ValueError('InvalidVisualRevisions')

@@ -295,7 +295,8 @@ Corrections supersede or retract earlier claims; ordinary recall uses the curren
 accepted view. Do not silently rewrite the original transcript. Queries must not
 present an old claim without its correction, or a report from Bret as Jeff's own
 statement. Personal facts, generated jokes, and raw conversational questions remain
-different record types; generated impersonation text is not biographical evidence.
+different record types; generated impersonation text is not biographical evidence
+(a performed impression is recorded as an impression with its subject, never as a claim).
 
 Use parameterized transactions with one write owner and idempotent operations.
 Keep memory lookup small and deterministic initially. Semantic embeddings, large
@@ -340,11 +341,16 @@ interrupted/failed states. Keep generated transcript text distinct from what was
 actually played. A cancellation invalidates queued tails and late callbacks. Bounded
 queues provide backpressure; overflow or dropped input is logged, never silent.
 
-Online ElevenLabs is the first TTS candidate. Preserve its tested request and playback
-details through an adapter. Local Breeze and impersonations are later capabilities:
-ordinary Breeze speech uses the established 1.5-second preroll when introduced;
-the current v2 impression path prepares a complete take. Neither behavior should
-be replaced by old abort-on-underrun logic. Verify output content and live playback
+Online ElevenLabs is Rex's voice; its tested request and playback details live in
+one adapter. Voice impressions (October 6) add a second, optional engine without a
+second speaker: the conversation model calls `impersonate` with the parody it wrote,
+the state owner resolves the voice to an offered reference clip, and the one output
+owner plays Rex's intro, the cloned take and his outro through the same sink, lights
+and talking motion. Local Breeze prepares each take completely before playback (V2's
+impression policy); an underrun never discards remaining audio, and a failed render
+gets a fixed cover line. Ordinary Breeze speech for Rex himself is not implemented;
+if it ever is, it keeps the established 1.5-second preroll. See
+[voice impressions](docs/IMPERSONATION.md). Verify output content and live playback
 separately under load before claiming a speech regression fixed.
 
 ## Configuration, model lifecycle, and platform

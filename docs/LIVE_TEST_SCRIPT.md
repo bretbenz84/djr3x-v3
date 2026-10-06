@@ -199,6 +199,34 @@ ever dropped.
 Afterwards, run the report below and note how many goals he picked and how many lines he
 said on his own.
 
+### Run 2c — Voice impressions — about 5 minutes
+
+Needs the prepared Breeze snapshot (`tools/prepare_voice_cloning.py`) and
+`impersonation_enabled = true`. First time through, the engine loads during the intro
+line; expect roughly ten to twenty seconds between the intro and the cloned voice,
+covered by the thinking chirps.
+
+**Say:** "Rex, do an impression of Jimmy Carter."
+
+- [ ] A short line in Rex's own voice, chirps while it renders, then two or three
+      sentences in a recognizably different voice, then a bow in Rex's voice.
+- [ ] The cloned lines are as loud as Rex's lines and the mouth lights and talking motion
+      run during them.
+- [ ] The session log has `impression_prepared` with `synthesis_seconds` and
+      `impression_done` with `performed: true`.
+
+**Say:** "Do him again." then "Now do me." (if your voice profile is supported).
+
+- [ ] The second Carter bit is a different joke.
+- [ ] "Do me" plays your own cloned voice; if Rex says he has not heard enough of you,
+      talk for a few sentences and ask again.
+
+**Say, in passing:** "We might drive out to the Reagan library next month."
+
+- [ ] Either an ordinary reply or, at most once in ten minutes, a short Reagan cameo that
+      is about the trip; never a cameo during a serious moment.
+- [ ] "Stop" during a cloned line cuts it like any other speech.
+
 ## Two-person tests — Bret and Jeremy
 
 **Jeremy being new is expected and useful:** this tests the real first-time visitor

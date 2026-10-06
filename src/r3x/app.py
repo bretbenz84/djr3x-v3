@@ -20,6 +20,7 @@ class App:
         self.radar = None
         self.startup_audio = None
         self.hardware_handoff = None
+        self.cloner = None
 
     def configure_live(self):
         from .adapters.asr import QwenASR
@@ -69,11 +70,14 @@ class App:
             if camera:
                 from .adapters.hosted import OpenAIVisualLocator
                 locator = OpenAIVisualLocator(secrets.openai_api_key)
+        if self.settings.impersonation_enabled:
+            from .adapters.breeze import VoiceCloner
+            self.cloner = VoiceCloner(self.paths.root / 'models/breeze-tts-8bit', level=PCMLeveler)
         # A disconnected camera removes its dependents for this run, not the setting.
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,locator,agency_planner) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,locator,agency_planner,self.cloner) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -329,6 +333,14 @@ class App:
                 if agency and 'agency_planner' in active:
                     agency.trace = trace
                     session.agency_planner = agency
+                if self.cloner and 'voice_cloner' in active:
+                    from .impersonation import ReferenceStore
+                    self.cloner.trace = trace
+                    output.cloner = self.cloner
+                    state.voice_references = ReferenceStore(self.paths.root / 'cache' / 'voice_refs')
+                elif self.cloner:
+                    failure = next((r for r in self.owner.results if r.capability=='voice_cloner' and r.operation=='start'),None)
+                    trace.emit('impersonation_unavailable',reason=failure.reason if failure and failure.reason else (failure.error_type if failure else 'not_started'))
                 if startup_delivery and startup_delivery.completed_text:
                     session.history.append({'role':'assistant','content':' '.join(startup_delivery.completed_text)})
                 if self.settings.camera_enabled and camera is None:
@@ -360,6 +372,7 @@ class App:
             else:
                 self.close()
                 if runtime and runtime.session.state.photo_memory:runtime.session.state.photo_memory.close()
+                if runtime and runtime.session.state.voice_references:runtime.session.state.voice_references.close()
                 memory.close()
                 trace.emit("shutdown", report=self.doctor())
                 # Only acknowledge handoff after device closure, including failed

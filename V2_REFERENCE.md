@@ -1,5 +1,48 @@
 # V2 reference and extraction map
 
+## Voice impressions extraction — October 6, 2026
+
+Owner request (port the voice-cloning impressions, including "impersonate me", as an
+LLM tool). Source V2 HEAD `fb96f086925841479952c649b0a39a8f6c77f70c`; working tree had
+uncommitted firmware/battery edits unrelated to these files. Read, not copied:
+`features/impersonation.py`, `features/organic_impersonation.py`, `audio/local_tts.py`,
+`audio/breeze_ref_cache.py`, `docs/local_tts_impersonation_plan.md`,
+`docs/local_tts_backends.md`, `docs/presidential_voice_refs.md` and the impersonation tests.
+
+Preserved behavior: Breeze TTS 2 8-bit (`mlx-community/Breeze-TTS-2-mlx-8bit` at
+`c6e4a2ff`, mlx-audio 0.5.1), reference audio passed by file path (an array is not
+resampled), voice `S0`, `cfg_scale` 1.0, temperature 0.7, repetition penalty 1.2, the
+750-token cap and the word-count duration bound, one complete take prepared before
+playback, no abort on underruns, no caching of generated speech, the 45-word script cap
+at sentence boundaries, intro/outro framing in Rex's own voice, the thinking filler for
+requested bits but not cameos, the cameo budget (ten minutes between cameos, an hour per
+voice, four per run), reference building from accepted recordings (two voiced seconds
+per clip, six total, twenty seconds at most, 0.3 s gaps, 0.5 s tail), silence trimming,
+and the per-chunk MLX lock discipline. Copied with adaptation: `audio/breeze_fast_depth.py`
+→ `src/r3x/adapters/breeze_fast_depth.py` (class patch guarded by a V3 marker). The
+reference-prefix cache was not ported (little benefit for occasional, varied voices).
+
+V3 adaptation: the conversation model writes the parody inside the `impersonate` call
+(no separate script LLM call, no regex target parsing, no roster scan of utterances for
+cameos; the model decides from `impersonation` context); the state owner validates
+offered targets, budget and source trust and resolves references; the one output owner
+plays intro, cloned take and outro with the usual lights, talking motion and echo gate;
+references for people come from V3's own store (artifacts removed on forget) and for
+strangers from their current track's clean samples (session-scoped); the engine loads on
+first use and unloads after ten idle minutes; a shared MLX lock now also covers the
+Qwen3-ASR adapter. Dropped: V2's capture flow and pending slots, `--local-tts` mode,
+ElevenLabs fallback, episode/decision-ledger writes, phrase-cycler state files, and all
+`IMPERSONATION_*`/`BREEZE_*` configuration (one `impersonation_enabled` setting remains).
+
+Assets: `assets/voices/famous` (26 clips plus transcripts, regular files only) and the
+14 `assets/audio/sound_effects/thinking/*.mp3` chirps (V2 `77b2008`) converted to
+22,050 Hz mono WAV under `assets/audio/effects/`. The model snapshot was copied from V2's
+`assets/models/breeze_tts/8bit` into ignored `local/models/breeze-tts-8bit` by
+`tools/prepare_voice_cloning.py`, which hashed the weights and wrote provenance. V2's
+Rex clone reference (`assets/voices/rex`) and the one captured person clip under
+`assets/voices/people` were not copied. Checks and remaining live validation:
+[voice impressions](docs/IMPERSONATION.md#verification).
+
 ## Authorized V2 battery menu fix — September 27, 2026
 
 Owner-approved V2 change (not an extraction): after V3 quit, V2's battery menu app
@@ -478,7 +521,7 @@ Do not copy credentials or assume a machine-specific voice ID belongs in tracked
 | Enrollment mic hold | [hardware/servos.py](/Users/bbenziger/djr3x-v2/hardware/servos.py), `hold_voice_enrollment_mic`, `release_voice_enrollment_hold` | Midpoint of configured safe range, settling, bounded lease, release/invalidate on movement and cancellation; required before enrollment on the physical robot |
 | Local TTS | [audio/local_tts.py](/Users/bbenziger/djr3x-v2/audio/local_tts.py), [local TTS notes](/Users/bbenziger/djr3x-v2/docs/local_tts_backends.md) | Breeze 8-bit is the chosen voice; preserve its verified reference pair and API contract. Offline mode should be a deliberate capability profile |
 | Local scheduling | [utils/mlx_lock.py](/Users/bbenziger/djr3x-v2/utils/mlx_lock.py), [utils/local_work.py](/Users/bbenziger/djr3x-v2/utils/local_work.py), [audio/breeze_fast_depth.py](/Users/bbenziger/djr3x-v2/audio/breeze_fast_depth.py), [audio/breeze_ref_cache.py](/Users/bbenziger/djr3x-v2/audio/breeze_ref_cache.py) | Coordinate ASR/TTS and optional local work; do not assume Python threads make MLX workloads independent |
-| Impersonations | [features/impersonation.py](/Users/bbenziger/djr3x-v2/features/impersonation.py), [impersonation plan](/Users/bbenziger/djr3x-v2/docs/local_tts_impersonation_plan.md) | Reuse eligible natural recordings, match transcript to reference audio, keep useful partial captures, resolve nicknames, and use supported biographical material |
+| Impersonations | [features/impersonation.py](/Users/bbenziger/djr3x-v2/features/impersonation.py), [impersonation plan](/Users/bbenziger/djr3x-v2/docs/local_tts_impersonation_plan.md) | Extracted October 6, 2026 (see the entry at the top of this file). Reuse eligible natural recordings, match transcript to reference audio, and keep generated parody apart from biography |
 | Single-instance handling | [utils/single_instance.py](/Users/bbenziger/djr3x-v2/utils/single_instance.py) | Useful lifecycle example; avoid two processes competing for the same microphone or database |
 
 Breeze currently uses `mlx-community/Breeze-TTS-2-mlx-8bit` with the v2 integration

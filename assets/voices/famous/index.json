@@ -1,0 +1,123 @@
+{
+ "barack-obama": {
+  "name": "Barack Obama",
+  "aliases": []
+ },
+ "bill-gates": {
+  "name": "Bill Gates",
+  "aliases": []
+ },
+ "donald-trump": {
+  "name": "Donald Trump",
+  "aliases": []
+ },
+ "dwight-eisenhower": {
+  "name": "Dwight Eisenhower",
+  "aliases": [
+   "Ike"
+  ]
+ },
+ "elon-musk": {
+  "name": "Elon Musk",
+  "aliases": []
+ },
+ "franklin-roosevelt": {
+  "name": "Franklin Roosevelt",
+  "aliases": [
+   "FDR"
+  ]
+ },
+ "george-hw-bush": {
+  "name": "George H. W. Bush",
+  "aliases": [
+   "Bush Senior",
+   "the elder Bush"
+  ]
+ },
+ "gerald-ford": {
+  "name": "Gerald Ford",
+  "aliases": []
+ },
+ "greta-thunberg": {
+  "name": "Greta Thunberg",
+  "aliases": []
+ },
+ "harry-truman": {
+  "name": "Harry Truman",
+  "aliases": []
+ },
+ "herbert-hoover": {
+  "name": "Herbert Hoover",
+  "aliases": []
+ },
+ "hillary-clinton": {
+  "name": "Hillary Clinton",
+  "aliases": []
+ },
+ "jensen-huang": {
+  "name": "Jensen Huang",
+  "aliases": []
+ },
+ "jimmy-carter": {
+  "name": "Jimmy Carter",
+  "aliases": []
+ },
+ "joe-biden": {
+  "name": "Joe Biden",
+  "aliases": []
+ },
+ "john-kennedy": {
+  "name": "John F. Kennedy",
+  "aliases": [
+   "JFK",
+   "Jack Kennedy"
+  ]
+ },
+ "kamala-harris": {
+  "name": "Kamala Harris",
+  "aliases": []
+ },
+ "lyndon-johnson": {
+  "name": "Lyndon B. Johnson",
+  "aliases": [
+   "LBJ"
+  ]
+ },
+ "mark-zuckerberg": {
+  "name": "Mark Zuckerberg",
+  "aliases": []
+ },
+ "oprah-winfrey": {
+  "name": "Oprah Winfrey",
+  "aliases": []
+ },
+ "richard-nixon": {
+  "name": "Richard Nixon",
+  "aliases": []
+ },
+ "ronald-reagan": {
+  "name": "Ronald Reagan",
+  "aliases": []
+ },
+ "star-trek-computer": {
+  "name": "the Star Trek ship computer",
+  "aliases": [
+   "the Enterprise computer",
+   "Majel Barrett computer voice"
+  ]
+ },
+ "theodore-roosevelt": {
+  "name": "Theodore Roosevelt",
+  "aliases": [
+   "Teddy Roosevelt"
+  ]
+ },
+ "william-taft": {
+  "name": "William Howard Taft",
+  "aliases": []
+ },
+ "woodrow-wilson": {
+  "name": "Woodrow Wilson",
+  "aliases": []
+ }
+}
