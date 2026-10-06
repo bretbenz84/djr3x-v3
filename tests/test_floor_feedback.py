@@ -420,6 +420,7 @@ class TightHallwayTests(SeekTests):
     def test_tight_hallway_goes_forward_and_never_reverses(self):
         clock, fake, drive, world = self.start([('door', 'door', 5., .7)])   # ~8 degrees left, far.
         fake.tof.update(lf=300, lb=300, rf=450, rb=450)   # Walls close on both sides; arms on the left.
+        fake.assist_on = False                             # Fixed readings: a pose, not a room.
         receipt = self.run_plan(clock, drive, DriveStep('approach', description='door', target='sought'))
         backward = [c for c in fake.commands if c['cmd'] == 'move' and c['dist'] < 0]
         self.assertEqual(backward, [], receipt)
@@ -428,6 +429,7 @@ class TightHallwayTests(SeekTests):
     def test_a_refused_aim_turn_keeps_going_forward(self):
         clock, fake, drive, world = self.start([('door', 'door', 3., 1.5)])   # ~27 degrees left.
         fake.tof.update(lf=300, lb=300)                    # Left arm swing blocked.
+        fake.assist_on = False
         receipt = self.run_plan(clock, drive, DriveStep('approach', description='door', target='sought'))
         step = receipt.steps[-1]
         self.assertGreater(step.get('aim_turns_refused_for_arm_clearance', 0), 0, receipt)
@@ -911,26 +913,57 @@ class ReacquireAfterNudgeTests(unittest.TestCase):
         self.assertEqual(receipt.steps[-1]['status'], 'completed')
 
 
-def hallway(fake, half_width):
+def hallway(fake, half_width, door=None):
     """Sensors for a straight hallway along the room's x axis, walls at y = +/- half_width.
 
+    door=(x, centre_y, half_gap) adds a wall across the hallway at x with an opening.
     Rays leave from where each sensor sits: the matrix at the front of the ring, the
     radials and side sensors on the ring at their own bearings."""
+    segments = [((-9., half_width), (9., half_width)), ((-9., -half_width), (9., -half_width))]
+    if door:
+        dx, cy, gap = door
+        segments += [((dx, -half_width), (dx, cy - gap)), ((dx, cy + gap), (dx, half_width))]
     def ray(origin_deg, direction_deg):
         heading = fake.theta
         ox = fake.x + .27*math.cos(math.radians(heading + origin_deg))
         oy = fake.y + .27*math.sin(math.radians(heading + origin_deg))
-        slope = math.sin(math.radians(heading + direction_deg))
-        if abs(slope) < 1e-6:
-            return 4000
-        distance = ((half_width if slope > 0 else -half_width) - oy) / slope
-        return int(max(20, min(4000, distance*1000)))
+        dxr, dyr = math.cos(math.radians(heading + direction_deg)), math.sin(math.radians(heading + direction_deg))
+        best = 4.
+        for (ax, ay), (bx, by) in segments:
+            ex, ey = bx - ax, by - ay
+            denom = dxr*ey - dyr*ex
+            if abs(denom) < 1e-9:
+                continue
+            t = ((ax - ox)*ey - (ay - oy)*ex) / denom
+            u = ((ax - ox)*dyr - (ay - oy)*dxr) / denom
+            if t > 0 and 0 <= u <= 1:
+                best = min(best, t)
+        return int(max(20, min(4000, best*1000)))
     def sensors():
         columns = [ray(0., 19.6875 - 5.625*col) for col in range(8)]
         ring = {key: ray(bearing, bearing) for key, bearing in
-                (('fl_radial', 22.5), ('fr_radial', -22.5), ('lf', 67.5), ('lb', 112.5), ('rf', -67.5), ('rb', -112.5))}
+                (('fl_radial', 22.5), ('fr_radial', -22.5), ('lf', 67.5), ('lb', 112.5), ('rf', -67.5), ('rb', -112.5),
+                 ('rl', 157.5), ('rr', -157.5))}
         return {**ring, 'fl': ring['fl_radial'], 'fr': ring['fr_radial']}, columns*8
     return sensors
+
+
+def watched(fake, sensors):
+    """Wrap a room's sensors to record the closest any side sensor ever read (metres)."""
+    record = {'side_m': 9.}
+    def wrapped():
+        tof, grid = sensors()
+        record['side_m'] = min(record['side_m'], *[tof[k]/1000. for k in ('lf', 'lb', 'rf', 'rb')])
+        return tof, grid
+    fake.sensors = wrapped
+    return record
+
+
+class Trace:
+    def __init__(self):
+        self.rows = []
+    def emit(self, kind, **fields):
+        self.rows.append({'kind': kind, **fields})
 
 
 # The robot's own readings on October 3, left where it refused "move forward five feet":
@@ -987,9 +1020,11 @@ class HallwayMoveTests(SeekTests):
         turns = [c for c in fake.commands if c['cmd'] == 'turn']
         self.assertTrue(turns and all(c['deg'] > 0 for c in turns))    # Left, away from the wall.
         self.assertGreater(receipt.steps[0]['turned_away_from_wall_deg'], 0)
-        self.assertAlmostEqual(sum(m['dist'] for m in self.moves(fake)), 1., places=2)
+        self.assertAlmostEqual(fake.x, 1., delta=.1)
         self.assertFalse([m for m in self.moves(fake) if m['dist'] < 0])   # Never a reverse.
         self.assertLess(abs(fake.y), .3)                # He went down the hallway, not into the wall.
+        # The turn is sized by how far the wall slants across his path, not a fixed step.
+        self.assertAlmostEqual(turns[0]['deg'], 20. + 3. - 45*.11, delta=4.)   # Coast allowed for.
 
     def test_an_open_room_move_is_not_turned(self):
         clock, fake, drive, world = self.start([])
@@ -999,43 +1034,102 @@ class HallwayMoveTests(SeekTests):
         self.assertNotIn('slowed_for_tight_space', receipt.steps[0])
         self.assertEqual(self.moves(fake)[0]['speed'], .25)
 
-    def test_the_logged_refusal_now_moves_slowly_beside_the_wall(self):
+    def test_the_logged_refusal_now_crawls_instead_of_refusing(self):
         clock, fake, drive, world = self.start([])
         # The left arms are against something, so he cannot turn away; the old code refused.
         fake.sensors = lambda: ({**LIVE_TOF, 'lf': 60, 'lb': 60}, LIVE_GRID)
+        fake.assist_on = False
         settle()
         space = drive.space()
         self.assertAlmostEqual(space['path_right_m'], .40, places=2)
         self.assertGreater(space['path_center_m'], 3.)
         receipt = self.run_plan(clock, drive, DriveStep('move', meters=1.52))
+        step = receipt.steps[0]
+        self.assertNotEqual(step['status'], 'refused', receipt)
+        self.assertTrue(step['crawled'] and step['slowed_for_tight_space'], receipt)
+        self.assertFalse(self.moves(fake))                                   # A continuous crawl, not legs.
+        self.assertTrue([c for c in fake.commands if c['cmd'] == 'drive' and c['lin'] > 0])
+
+    def test_pressed_against_a_hallway_wall_he_eases_off_it_and_carries_on(self):
+        clock, fake, drive, world = self.start([])
+        fake.y = .28                                     # His left side 8 cm from the wall of a 1.2 m hallway.
+        record = watched(fake, hallway(fake, .6))
+        settle()
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=2.))
         self.assertEqual(receipt.status, 'completed', receipt)
-        self.assertAlmostEqual(fake.x, 1.52, places=1)
-        self.assertTrue(receipt.steps[0]['slowed_for_tight_space'])
-        self.assertTrue(all(m['dist'] <= .6 + 1e-6 and m['speed'] <= .15 + 1e-6 for m in self.moves(fake)))
+        self.assertGreater(fake.x, 1.8)
+        self.assertLess(abs(fake.y), .2, fake.y)         # Off the wall, toward the middle.
+        self.assertGreaterEqual(record['side_m'], .05)    # Never scraped along it.
 
     def test_with_room_to_turn_the_logged_pose_straightens_before_moving(self):
         clock, fake, drive, world = self.start([])
         fake.sensors = lambda: (LIVE_TOF, LIVE_GRID)
+        fake.assist_on = False
         settle()
         self.run_plan(clock, drive, DriveStep('move', meters=1.52))
-        first = next(c for c in fake.commands if c['cmd'] in {'turn', 'move'})
+        first = next(c for c in fake.commands if c['cmd'] in {'turn', 'move', 'drive'})
         self.assertEqual(first['cmd'], 'turn')
         self.assertGreater(first['deg'], 0)                         # Left, away from the right wall.
-        self.assertLess(abs((fake.theta + 6.) % 12. - 6.), 1.)      # In 12 degree steps, coast included.
+        self.assertAlmostEqual(first['deg'], 12. - 45*.11, places=1)   # The side sensors see no wall: the plain step.
 
-    def test_a_wall_closing_inside_the_hold_distance_stops_the_guarded_leg(self):
+    def test_the_october_5_hallway_pose_is_driven_through(self):
+        """Live readings that evening: a 1.2 m hallway, him 7 cm right of centre and angled
+        about 11 degrees into the right wall (right side 0.25 m, left 0.34-0.40 m). Every
+        leg then stopped within 0.3 m on the hold; twelve feet were asked for."""
         clock, fake, drive, world = self.start([])
-        def closing():
-            rolled = fake.pending[2]*fake._progress() if fake.pending and fake.pending[1] == 'move' else 0.
-            near = int(max(60, 400 - (fake.x + rolled)*1500))      # The wall nears as he advances.
-            return {**LIVE_TOF, 'lf': 60, 'lb': 60, 'fr': near, 'fr_radial': near}, LIVE_GRID
-        fake.sensors = closing
+        fake.y, fake.theta = -.075, -11.
+        record = watched(fake, hallway(fake, .6))
         settle()
-        receipt = self.run_plan(clock, drive, DriveStep('move', meters=1.52))
+        self.assertEqual(drive._short_side(drive.space(), .8), -1)
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=3.66))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertGreater(fake.x, 3.4, receipt)
+        self.assertLess(abs(fake.y), .25)
+        self.assertLess(abs(fake.theta), 15.)
+        self.assertGreaterEqual(record['side_m'], .12, record)      # Hallway walls never approached.
+        self.assertFalse([m for m in self.moves(fake) if m['dist'] < 0])
         step = receipt.steps[0]
-        self.assertEqual((step['status'], step['reason']), ('blocked', 'wall_beside_path_too_close'), receipt)
-        self.assertNotEqual(receipt.status, 'completed')
-        self.assertLess(fake.x, .3, receipt)             # Stopped by the host, well short of the leg.
+        self.assertTrue(step['crawled'] and step['slowed_for_tight_space'], step)
+
+    def test_a_narrower_doorway_is_centred_and_passed(self):
+        """The door beyond the hallway: a 0.8 m opening for a 0.54 m body, off his line."""
+        clock, fake, drive, world = self.start([])
+        door_x, centre, gap = 2.5, .15, .4
+        record = watched(fake, hallway(fake, .9, door=(door_x, centre, gap)))
+        margins = []
+        base_sensors = fake.sensors
+        def sensors():
+            if abs(fake.x - door_x) < .3:
+                margins.append(gap - abs(fake.y - centre) - .27)    # Room between his side and the jamb.
+            return base_sensors()
+        fake.sensors = sensors
+        settle()
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=4.))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertGreater(fake.x, 3.8, receipt)
+        self.assertTrue(margins)
+        self.assertGreater(min(margins), .02, min(margins))          # Through the opening, both sides clear.
+        self.assertFalse([m for m in self.moves(fake) if m['dist'] < 0])
+
+    def test_something_across_the_hallway_stops_the_crawl_short(self):
+        clock, fake, drive, world = self.start([])
+        fake.sensors = hallway(fake, .45, door=(1.2, 0., 0.))        # A wall across it, no opening.
+        settle()
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=2.))
+        step = receipt.steps[0]
+        self.assertEqual((step['status'], step['reason']), ('completed', 'shortened_by_clearance'), receipt)
+        self.assertTrue(.3 < fake.x < .9, fake.x)                   # Stopped by the host short of it.
+
+    def test_a_refused_turn_leaves_a_trace(self):
+        clock, fake, drive, world = self.start([])
+        drive.trace = Trace()
+        fake.tof.update(lf=90, lb=90, rf=90, rb=90, fl_radial=90, fr_radial=90, fl=90, fr=90)
+        settle()
+        receipt = self.run_plan(clock, drive, DriveStep('turn', degrees=90.))
+        self.assertEqual(receipt.steps[0]['status'], 'refused', receipt)
+        rows = [r for r in drive.trace.rows if r['kind'] == 'drive_step' and r['action'] == 'turn']
+        self.assertEqual([r['status'] for r in rows], ['refused'], rows)    # After the escape move, still refused.
+        self.assertTrue(rows[0]['reason'].startswith('turn_path_blocked'), rows[0])
 
     def test_a_real_obstacle_straight_ahead_still_shortens_and_refuses(self):
         clock, fake, drive, world = self.start([])

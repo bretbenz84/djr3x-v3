@@ -870,3 +870,63 @@ Owner's runs `b0d3ef1d42c0486fa58d806d5dc07e33` (33 minutes) and
 arm reach it uses is an estimate that has not been measured. A microwave trip still takes
 about three minutes. After a leg the body still turns 65-85 degrees back toward a person
 who is close by.
+
+## October 5 evening: stuck in a hallway, with the door still to come
+
+Owner's run `4153bcbc1be24457ae3ce29cf29e2b09` (real hardware) ended with Rex stopped in
+a hallway about 1.2 m wide; the owner left him there and invited a live read of the range
+sensors (no motion, `hello` only, the controller lock taken so the battery menu released
+the port). Readings: right side 0.25 m (front) and 0.34 m (back), left side 0.40 and 0.34 m,
+front-right radial 0.40 m, everything else open. So he stood 7 cm right of centre, angled
+about 11 degrees into the right wall, with the wall crossing his path 0.6 m ahead. The
+owner then moved him to the workshop and asked for hallways to work, adding that the door
+is tighter still (a 0.8 m opening for a 0.54 m body leaves 13 cm a side when centred).
+
+**What the step log showed.** The firmware's own wall steering was doing its job: over the
+last two legs his heading drifted 10 degrees away from the wall. The host kept interrupting
+it. Each "guarded leg" stopped within 0.25-0.3 m because the 22.5 degree radial came
+inside the 0.22 m hold (`wall_beside_path_too_close`), then the next leg started over from a
+standstill. The straightening turn did not fire for those legs because the matrix saw the
+wall ahead as well as beside, and refused turns left no trace at all, so the earlier part of
+the run (`aim_turns_refused_for_arm_clearance: 4`, `detour_turn_refused`) could not be
+read. A detour sequence had already brought him against the door jamb (all fronts 0.08-0.10 m).
+
+**Changes (simulated only; nothing has run on the robot).**
+
+- **Tight space is driven as one slow continuous crawl, not firmware legs.** A wall within
+  0.5 m of either side, a front corner within 0.5 m, or one side of the path limited while
+  straight ahead is open, makes the move a `drive` setpoint refreshed every 0.15 s at up to
+  0.12 m/s (the firmware's stop zone at that speed is about 0.10 m). The firmware's wall
+  steering stays on and finishes its work; the host no longer stops him for a wall beside
+  the path until a return on the path is inside 0.12 m, something is in the path straight
+  ahead (centre of the corridor under 0.40 m), a side is under 7 cm and closing, the
+  firmware reports blocked, or the wheels make no headway for 2 s. A crawl that stops for
+  something ahead after making headway reports `shortened_by_clearance` like any move;
+  `crawled` and `steered_deg` are in the receipt.
+- **The host adds the two things the firmware cannot read.** The two side sensors of a
+  side give the slant of the wall there (`wall_angle`); a wall converging on his path adds
+  a turn away proportional to the angle. The depth matrix's corridor reading adds a turn
+  toward the more open side when a door jamb or wall crosses one side of the path ahead.
+  Both are capped (0.4 rad/s together) and sit on top of the firmware's centring, front
+  lean and 13 cm push, which are the same sign.
+- **The turn before moving is sized by the wall.** Pointed into a wall beside him, the
+  straightening turn is the convergence angle plus 3 degrees (8 to 30), 12 only when the
+  side sensors cannot see a wall (a jamb ahead). It also fires when a wall within 0.5 m
+  beside him converges, whether or not the matrix sees it ahead. A refused turn no longer
+  ends the matter: the crawl steers instead.
+- **Refused and shortened turns are logged** as `drive_step` rows with their reason.
+
+**Simulated checks** (`tests/test_floor_feedback.py`, a geometric hallway whose readings
+answer his motion, with the firmware's wall steering modelled in the fake base from V2
+`control.cpp`): the logged pose driven twelve feet down a 1.2 m hallway without the walls
+coming nearer than 0.12 m; pointed 20 degrees into a wall he turns 23 degrees away then
+crawls; pressed 8 cm from a wall he eases off it; a 0.8 m doorway 15 cm off his line is
+passed with both sides clear; a wall across the hallway stops the crawl short; a refused
+turn leaves a trace. The firmware model is a transcription of its steering terms, not the
+firmware: the real base's coast, sensor cones and 50 Hz loop are not modelled.
+
+**Unmeasured on the floor.** Whether host and firmware steering together weave at crawl
+speed (both are proportional terms; the host's angle term damps the firmware's centring in
+simulation), whether 0.06-0.12 m/s stalls on carpet, how the 13 cm push behaves inside the
+door, and the tucked-arm reach the swing check uses, which refused the aim and detour
+turns near the jamb and is still an estimate.

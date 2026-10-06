@@ -1,10 +1,22 @@
 # Current implementation status
 
-Updated October 3, 2026. This is the consolidated
+Updated October 5, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Hallway crawl — October 5 (evening)
+
+Run `4153bcbc1be24457ae3ce29cf29e2b09` left Rex stopped in a 1.2 m hallway; a live sensor
+read (no motion) showed him angled into the right wall. The host had been stopping every
+leg within 0.3 m while the firmware's own wall steering was straightening him. Tight space
+is now one slow continuous crawl: the firmware keeps steering, the host adds the slant of
+the wall beside him and what the depth matrix sees ahead, sizes the turn before moving by
+that slant, and stops only for something in the path, a wall about to touch, or no headway.
+Refused turns are logged. Simulated in a geometric hallway and a 0.8 m doorway with the
+firmware's steering modelled; **not yet run on the robot**
+([drive base](DRIVE_BASE_INTEGRATION.md#october-5-evening-stuck-in-a-hallway-with-the-door-still-to-come)).
 
 ## Kitchen and hallway run repairs — October 3 (midday)
 

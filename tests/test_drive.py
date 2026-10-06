@@ -47,6 +47,11 @@ class FakeBase:
         self.sensors = None                 # callable -> (ToF overrides in mm, 64-zone grid in mm): shaped rooms
         self.imu_drift = 0.                 # degrees added to IMU yaw per completed turn
         self.matrix = True
+        self.assist_gain = 2.               # Firmware wall-steering (V2 calib.h ASSIST_GAIN), config can change it.
+        self.assist_on = True               # Off for fixtures whose readings are a pose, not a room that answers motion.
+        self.setpoint = None                # (lin, ang, set_at) of the last drive command.
+        self.drive_mark = None
+        self.rolled = 0.                    # Fraction of the pending move already rolled.
         self.closed = False
         self.last_telemetry = 0.
 
@@ -59,6 +64,50 @@ class FakeBase:
             with self.lock:
                 self.handle(command)
         return len(data)
+
+    def readings(self):
+        tof = dict(self.tof)
+        front = self.front() if self.front else None
+        if front is not None:
+            mm = int(max(20, front*1000))
+            tof.update(fl=mm, fr=mm, fl_radial=mm, fr_radial=mm)
+        grid = None
+        if self.sensors:
+            overrides, grid = self.sensors()
+            tof.update(overrides)
+        return tof, grid
+
+    def assist(self, lin):
+        """V2 firmware hallway steering (control.cpp hall_assist_correction): centre between
+        the side pairs within 450 mm, lean away from what the front pair sees within 900 mm,
+        push hard inside 130 mm; capped at 0.6 of max_ang. Forward drive only."""
+        if lin <= .02 or not self.assist_on:
+            return 0.
+        tof, _ = self.readings()
+        def nearest(keys, cap):
+            return min([tof[k] for k in keys if tof.get(k, -1) >= 0] + [cap])
+        turn = self.assist_gain * (nearest(('lf', 'lb'), 450) - nearest(('rf', 'rb'), 450)) / 1000.
+        turn += max(-.25, min(.25, self.assist_gain * .7 * (nearest(('fl',), 900) - nearest(('fr',), 900)) / 1000.))
+        left, right = nearest(('lf', 'lb'), 32767), nearest(('rf', 'rb'), 32767)
+        if left < 130:
+            turn -= 12. * (130 - left) / 1000.
+        if right < 130:
+            turn += 12. * (130 - right) / 1000.
+        cap = .6 * math.radians(60)
+        return max(-cap, min(cap, turn))
+
+    def _drive_advance(self):
+        """Roll the last drive setpoint forward to now; it expires 0.3 s after it was set."""
+        if self.setpoint is None:
+            return
+        lin, ang, set_at = self.setpoint
+        until = min(self.clock(), set_at + .3)
+        dt = until - self.drive_mark
+        if dt > 0:
+            self.theta += math.degrees(ang + self.assist(lin)) * dt
+            self._roll(lin * dt)
+        self.drive_mark = until
+        self.linear = lin if self.clock() < set_at + .3 else 0.
 
     def _finish(self, result, fraction=1.):
         seq, kind, amount = self.pending[:3]
@@ -73,8 +122,9 @@ class FakeBase:
             self.odom_extra = getattr(self, 'odom_extra', 0.) + amount * fraction * getattr(self, 'odom_slip', 0.)
             self.imu_offset = getattr(self, 'imu_offset', 0.) + self.imu_drift
         else:
-            self._roll(amount * fraction)
+            self._roll(amount * (fraction - self.rolled))
         self.pending = None
+        self.rolled = 0.
         self.state = 'blocked' if result == 'blocked' else 'idle'
         self.emit(type='done', seq=seq, result=result, odom=self.odom())
 
@@ -92,6 +142,8 @@ class FakeBase:
         if name == 'hello':
             self.emit(type='hello', proto=1, fw='test', caps=self.caps, boot_id=7)
         elif name == 'config':
+            if isinstance(command.get('assist_gain'), (int, float)):
+                self.assist_gain = float(command['assist_gain'])
             # Real firmware echoes every effective parameter: a line well over 512 bytes.
             echo = {key: 0.123456 for key in ('max_lin', 'max_ang', 'slow_zone_m', 'stop_zone_m', 'default_turn_deg',
                 'default_turn_rate', 'watchdog_ms', 'drive_expiry_ms', 'manual_idle_return_secs', 'kp', 'ki', 'kd',
@@ -106,6 +158,8 @@ class FakeBase:
             self.emit(type='ack', seq=seq, accepted=True, reason=None)
             if self.pending:
                 self._finish('superseded', self._progress())
+            self._drive_advance()
+            self.setpoint = None
             amount = command['deg'] if name == 'turn' else command['dist']
             rate = command.get('rate', 45.) if name == 'turn' else command.get('speed', .2)
             duration = abs(amount) / rate
@@ -115,20 +169,37 @@ class FakeBase:
             self.emit(type='ack', seq=seq, accepted=True, reason=None)
             if self.pending:
                 self._finish('superseded', self._progress())
+            self._drive_advance()
+            self.setpoint, self.linear = None, 0.
+            if self.state == 'moving':
+                self.state = 'idle'
         elif name == 'drive':
-            dt = .15
-            self.theta += math.degrees(command['ang']) * dt
-            self._roll(command['lin'] * dt)
+            self.emit(type='ack', seq=seq, accepted=True, reason=None)
+            self._drive_advance()
+            self.setpoint, self.drive_mark = (command['lin'], command['ang'], self.clock()), self.clock()
             self.linear = command['lin']
+            if command['lin'] or command['ang']:
+                self.state = 'moving'
+            elif self.state == 'moving':
+                self.state = 'idle'
 
     def _progress(self):
         _, _, _, started, duration = self.pending
         return min(1., (self.clock() - started) / duration) if duration else 1.
 
     def _advance(self):
+        self._drive_advance()
         if not self.pending:
             return
         seq, kind, amount, started, duration = self.pending
+        if kind == 'move':
+            # Rolled as it goes, steered by the firmware's wall assist like the real base.
+            progress = self._progress()
+            dt = progress * duration - self.rolled * duration
+            if dt > 0:
+                self.theta += math.degrees(self.assist(amount / duration if amount > 0 else 0.)) * dt
+                self._roll(amount * (progress - self.rolled))
+                self.rolled = progress
         if kind == 'move' and self.block_after is not None and abs(amount) > self.block_after:
             if self._progress() >= self.block_after / abs(amount):
                 self._finish('blocked', self.block_after / abs(amount))
@@ -150,15 +221,8 @@ class FakeBase:
             self._advance()
             if time.monotonic() - self.last_telemetry > .002:
                 self.last_telemetry = time.monotonic()
-                tof = dict(self.tof)
+                tof, grid = self.readings()
                 front = self.front() if self.front else None
-                if front is not None:
-                    mm = int(max(20, front*1000))
-                    tof.update(fl=mm, fr=mm, fl_radial=mm, fr_radial=mm)
-                grid = None
-                if self.sensors:
-                    overrides, grid = self.sensors()
-                    tof.update(overrides)
                 self.emit(type='telemetry', state=self.state, owner=self.owner, fault=self.fault,
                           blocked_dir='front' if self.state == 'blocked' else 'none', odom=self.odom(),
                           tof_mm=tof, batt_mv=self.batt_mv, charging=self.charging,

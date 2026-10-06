@@ -32,7 +32,13 @@ FRONT_MARGIN = .35      # Host stop short of a front return; firmware still stop
 # Approaching a person: knees/chair legs may be this close, never closer. Was 0.22 m until
 # October 3, when he stopped 21 cm from the owner's knees: "you're a little too close to me".
 PERSON_MARGIN = .32
-WALL_HOLD_M = .22       # A wall beside the path nearer than this stops a guarded leg.
+# October 5 hallway run: guarded legs stopped at 0.22 m on the 22.5 degree radial while he
+# was angled a dozen degrees into a 1.2 m hallway's wall, and the firmware alone did not
+# straighten him. In tight space the host now steers a slow crawl (drive.py _crawl); a
+# return this near on the path means the crawl failed to clear it and must stop.
+WALL_HOLD_M = .12
+SCRAPE_M = .07          # A side return this close is the body about to touch the wall.
+WALL_SEEN_M = .6        # Both side sensors within this: they see one wall, so its angle is known.
 REAR_MARGIN = .30
 
 
@@ -212,6 +218,60 @@ def move_allowance(meters: float, space: dict) -> tuple[float, str | None]:
     if allowed < .05:
         return 0., 'path_blocked'
     return math.copysign(allowed, meters), None if allowed >= abs(meters) - 1e-6 else 'shortened_by_clearance'
+
+
+def wall_angle(tof, side):
+    """Degrees a wall beside him converges toward his path ahead (negative: it opens away).
+
+    From the two side sensors of that side (+1 left, -1 right) on the ring: the line through
+    their two return points is the wall. None when either is missing or beyond WALL_SEEN_M,
+    when they may be seeing different things."""
+    if not isinstance(tof, dict):
+        return None
+    front = _meters(tof.get('lf' if side > 0 else 'rf'))
+    back = _meters(tof.get('lb' if side > 0 else 'rb'))
+    if front is None or back is None or max(front, back) > WALL_SEEN_M:
+        return None
+    pf = _point(side*67.5, RING_RADIUS + front)
+    pb = _point(side*112.5, RING_RADIUS + back)
+    along = math.degrees(math.atan2(pf[1] - pb[1], pf[0] - pb[0]))
+    return -side * along
+
+
+def _point(bearing, radius):
+    b = math.radians(bearing)
+    return radius*math.cos(b), radius*math.sin(b)
+
+
+# Host steering added to the firmware's own during the slow crawl through tight space
+# (rad/s, + = left). The firmware already centres him between the side sensors, leans
+# away from a wall its front pair sees coming and pushes hard inside 13 cm (V2 calib.h
+# ASSIST_*); the host adds only what the firmware cannot read: which way a wall beside
+# him slants (from the two side sensors of that side) and what the depth matrix sees
+# crossing the path ahead, such as a door jamb on one side.
+STEER_ANGLE_GAIN = 2.5       # rad/s per radian a wall converges toward the path.
+STEER_PATH_M = 1.5
+STEER_PATH_GAIN = .5         # rad/s per metre the corridor is more open on one side.
+STEER_TERM_MAX = .25
+STEER_MAX = .4
+
+
+def _clamp(value, limit):
+    return max(-limit, min(limit, value))
+
+
+def steer(space, tof):
+    """Host share of the crawl steering from the current readings; 0 when nothing slants
+    toward him and the corridor ahead is even."""
+    turn = 0.
+    for side in (1, -1):
+        angle = wall_angle(tof, side)
+        if angle is not None and angle > 0:
+            turn -= side * STEER_ANGLE_GAIN * math.radians(angle)   # Away from the wall closing in.
+    pl, pr = space.get('path_left_m'), space.get('path_right_m')
+    if pl is not None and pr is not None:
+        turn += _clamp(STEER_PATH_GAIN * (min(pl, STEER_PATH_M) - min(pr, STEER_PATH_M)), STEER_TERM_MAX)
+    return _clamp(turn, STEER_MAX)
 
 
 def _pivot(bearing, radius):

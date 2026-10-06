@@ -15,7 +15,8 @@ from uuid import uuid4
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, clearance, describe_bearing, face_range, image_bearing,
-                          move_allowance, radar_bodies, wrap, FRONT_MARGIN, PERSON_MARGIN, WALL_HOLD_M)
+                          move_allowance, radar_bodies, steer, wall_angle, wrap, FRONT_MARGIN, PERSON_MARGIN,
+                          SCRAPE_M, WALL_HOLD_M)
 from .providers import Capability
 
 # Owner-approved limits: 0.25 m/s and 1.5 m legs (first test); requested plans may cover 10 m
@@ -65,7 +66,22 @@ STRAIGHTEN_DEG = 12.      # One turn away from the wall; repeated while it still
 MAX_STRAIGHTEN = 3
 STRAIGHTEN_WITHIN_M = .8  # Only walls this near ahead: a far one is met by a later leg.
 SIDE_OPEN_MORE_M = .3     # Straight ahead and the far side this much more open than the short side.
-TIGHT_LEG_M = .6          # Beside a wall he could not turn away from: short guarded legs.
+# October 5 evening: angled a dozen degrees into a 1.2 m hallway's wall, every guarded leg
+# stopped within 0.3 m on its hold, the straighten turn did not fire once the matrix saw
+# the wall ahead too, and he ended against the door jamb. The firmware was nudging him
+# away from the wall all along (10 degrees over those legs); the host kept stopping him
+# first. In tight space the host now drives a slow continuous crawl, lets the firmware's
+# steering finish its work, and adds only what the firmware cannot read (drive_space.steer).
+# The door beyond is narrower still (about 0.8 m for a 0.54 m body): the same crawl.
+CRAWL_SPEED = .12         # Top crawl speed; the firmware's stop zone at this speed is about 0.10 m.
+CRAWL_MIN_SPEED = .06
+CRAWL_TICK_S = .15        # Setpoint refresh, inside the firmware's 300 ms drive deadman.
+CRAWL_STALL_S = 2.        # No wheel progress this long: something holds him.
+HALLWAY_M = .5            # A side return within this on either side is tight space: crawl.
+STRAIGHTEN_MIN_DEG = 8.   # The turn away from a wall is the angle it converges by, within these.
+STRAIGHTEN_MAX_DEG = 30.
+STRAIGHTEN_MARGIN_DEG = 3.
+STRAIGHTEN_SIDE_M = .5    # A wall this near beside him that converges ahead is turned away from first.
 TIGHT_SIDE_M = .35        # A side return this close, or...
 TIGHT_CORNER_M = .5       # ...a front-corner return this close, is a tight space: go slower.
 TIGHT_PACE = .6
@@ -792,13 +808,13 @@ class DriveBase:
                 retry = self._turn(degrees, plan, cancel, verify, escape=False)
                 return {**retry, 'escape': moved, 'travelled_m': moved.get('travelled_m', 0.)}
         if not allowed:
-            return {**row, 'status': 'refused', 'reason': note}
+            return self._refused_turn(row, note)
         if not self._parked and self.servos is not None and self._plan_parks:
             self._ensure_parked(cancel)
             telemetry = self._telemetry()
             allowed, note = allowed_turn(degrees, telemetry, self._arms())
             if not allowed:
-                return {**row, 'status': 'refused', 'reason': note}
+                return self._refused_turn(row, note)
         before, before_odom = self._heading(telemetry), self._odom_heading(telemetry)
         rate = round(TURN_RATE * self._pace, 1)
         command = allowed
@@ -822,6 +838,12 @@ class DriveBase:
         # Report the controller's closed-loop turn unless both sensors agree otherwise.
         agreed = measured is not None and odom is not None and abs(measured - odom) <= 5
         row['turned_deg'] = abs(measured if agreed else allowed if status == 'completed' else 0.)
+        self._step_trace(row)
+        return row
+
+    def _refused_turn(self, row, note):
+        """October 5: refused turns left no trace, so a hallway run could not be read."""
+        row = {**row, 'status': 'refused', 'reason': note}
         self._step_trace(row)
         return row
 
@@ -873,22 +895,46 @@ class DriveBase:
                 return side
         return None
 
+    def _wall_turn(self, space, need):
+        """Degrees to turn in place before rolling (+ left), 0 for none.
+
+        Away from a wall that crosses one side of the path (_short_side), or from a wall
+        within half a metre beside him that the side sensors say converges ahead. The size
+        is the convergence angle plus a margin, between 8 and 30 degrees; 12 when the side
+        sensors cannot tell (a door jamb ahead rather than a wall beside)."""
+        tof = (self.link.snapshot()[0] or {}).get('tof_mm')
+        side = self._short_side(space, need)
+        if side is None:
+            for candidate in (1, -1):
+                near = space.get('left_m' if candidate > 0 else 'right_m')
+                angle = wall_angle(tof, candidate)
+                if (near is not None and near <= STRAIGHTEN_SIDE_M and angle is not None
+                        and angle >= STRAIGHTEN_MIN_DEG - STRAIGHTEN_MARGIN_DEG):
+                    side = candidate
+                    break
+            if side is None:
+                return 0.
+        angle = wall_angle(tof, side)
+        degrees = STRAIGHTEN_DEG if angle is None or angle <= 0 else angle + STRAIGHTEN_MARGIN_DEG
+        return -side * max(STRAIGHTEN_MIN_DEG, min(STRAIGHTEN_MAX_DEG, degrees))
+
     def _straighten(self, need, plan, cancel):
-        """Turn away from a wall that crosses one side of the path, before rolling forward.
+        """Turn away from a wall beside the path before rolling forward.
 
         Owner, October 3: he should orient himself to avoid the walls before he moves.
-        Small turns in place, re-reading the sensors after each; never a reverse, and it
-        stops as soon as the path is open, the turn is refused or the other side closes."""
+        Turns in place, re-reading the sensors after each; never a reverse, and it stops
+        as soon as no wall needs it, the turn is refused or the other side closes. A
+        refused turn is not the end: the crawl that follows steers."""
         turned, first = 0., None
         for _ in range(MAX_STRAIGHTEN):
-            side = self._short_side(self.space(), need)
-            if side is None or (first is not None and side != first):
+            degrees = self._wall_turn(self.space(), need)
+            if not degrees or (first is not None and (degrees > 0) != (first > 0)):
                 break
-            first = side
-            turn = self._turn(-side * STRAIGHTEN_DEG, plan, cancel, escape=False)
+            first = degrees
+            turn = self._turn(degrees, plan, cancel, escape=False)
             if turn['status'] != 'completed':
                 break
-            turned += -side * turn.get('turned_deg', 0.)
+            turned += math.copysign(turn.get('turned_deg', 0.), degrees)
         return turned
 
     @staticmethod
@@ -900,54 +946,140 @@ class DriveBase:
         tight = (sides and min(sides) < TIGHT_SIDE_M) or (corners and min(corners) < TIGHT_CORNER_M)
         return TIGHT_PACE if tight else 1.
 
-    def _beside_wall(self, space):
-        """Room for a guarded leg when only a side return limits the path and straight ahead
-        is open; None when the limit is ahead or the wall is already at the hold distance."""
+    @staticmethod
+    def _tight(space, need):
+        """Tight space for a forward move: a wall within half a metre of either side, a front
+        corner close, or one side of the path limited while straight ahead is more open. The
+        move is then a steered crawl rather than one firmware leg."""
+        sides = [v for v in (space.get('left_m'), space.get('right_m')) if v is not None]
+        corners = [v for v in (space.get('front_left_m'), space.get('front_right_m')) if v is not None]
+        path, centre = space.get('path_m'), space.get('path_center_m')
+        return bool((sides and min(sides) < HALLWAY_M) or (corners and min(corners) < TIGHT_CORNER_M)
+                    or DriveBase._short_side(space, need) is not None
+                    or (path is not None and centre is not None and centre - path >= SIDE_OPEN_MORE_M
+                        and path - FRONT_MARGIN < need))
+
+    @staticmethod
+    def _crawl_hold(space, tof):
+        """Why a crawl may not go on: something in the path straight ahead, a return inside
+        the hold distance on the path, or a side wall about to touch while it closes in."""
         centre, path = space.get('path_center_m'), space.get('path_m')
-        if centre is None or path is None or 'front_depth_matrix_unavailable' in space['health']:
-            return None
-        if centre - FRONT_MARGIN < .3 or centre < path + SIDE_OPEN_MORE_M or path < WALL_HOLD_M + .05:
-            return None
-        return min(TIGHT_LEG_M, centre - FRONT_MARGIN)
+        if centre is None or 'front_depth_matrix_unavailable' in space['health']:
+            return 'front_clearance_unknown'
+        if centre - FRONT_MARGIN < .05:
+            return 'path_blocked'
+        if path is not None and path < WALL_HOLD_M:
+            return 'wall_beside_path_too_close'
+        for side, key in ((1, 'left'), (-1, 'right')):
+            near, corner = space.get(key + '_m'), space.get('front_radial_' + key + '_m')
+            if near is not None and near < SCRAPE_M and ((corner is not None and corner < .25)
+                                                         or (wall_angle(tof, side) or 0.) > 3.):
+                return 'wall_too_close_' + key
+        return None
+
+    def _crawl(self, meters, plan, cancel, speed, row):
+        """A slow forward crawl through tight space as a continuous drive setpoint.
+
+        The firmware keeps steering him away from walls as it does on every move; the host
+        no longer stops him for a wall beside the path and adds each tick what the firmware
+        cannot read (drive_space.steer): the slant of a wall beside him and what the depth
+        matrix sees crossing the path ahead. It runs until the distance is made, something
+        is in the path ahead, a wall is about to touch, the firmware blocks, or the wheels
+        stop making headway."""
+        self._ensure_parked(cancel)
+        start = self._telemetry()
+        start_odom, start_heading = dict(start.get('odom') or {}), self._heading(start)
+        speed = max(CRAWL_MIN_SPEED, min(speed * TIGHT_PACE, CRAWL_SPEED))
+        row = {**row, 'commanded_m': round(meters, 2), 'slowed_for_tight_space': True, 'crawled': True}
+        def travelled_from(odom):
+            return math.hypot(float(odom.get('x', 0)) - float(start_odom.get('x', 0)),
+                              float(odom.get('y', 0)) - float(start_odom.get('y', 0)))
+        status, reason = 'completed', None
+        travelled, progressed_at, last_mark = 0., self.clock(), 0.
+        self._assist(True)
+        if self.sounds:
+            self.sounds.start('move', self._origin)
+        try:
+            seq = self.link.send({'cmd': 'drive', 'lin': round(speed, 3), 'ang': 0.})
+            ack = self._await_ack(seq, .5, self.wait)
+            if ack is not None and not ack.get('accepted'):
+                return {**row, 'status': 'refused', 'reason': 'controller_refused_' + str(ack.get('reason')), 'travelled_m': 0.}
+            while True:
+                self._check(cancel)
+                if self.link.failure:
+                    raise ProviderFailure(self.link.failure)
+                telemetry, _ = self.link.snapshot()
+                if not telemetry or not 0 <= self.clock() - telemetry['received_at'] <= .5:
+                    status, reason = 'blocked', 'drive_telemetry_stale'
+                    break
+                self._track(telemetry)
+                travelled = travelled_from(telemetry.get('odom') or {})
+                if travelled >= meters - .02:
+                    break
+                if travelled - last_mark >= .01:
+                    last_mark, progressed_at = travelled, self.clock()
+                elif self.clock() - progressed_at > CRAWL_STALL_S:
+                    status, reason = 'blocked', 'no_progress'
+                    break
+                if telemetry.get('blocked_dir') in ('front', 'both'):
+                    status, reason = 'blocked', 'blocked'
+                    break
+                space = self.space()
+                why = self._crawl_hold(space, telemetry.get('tof_mm'))
+                if why:
+                    status, reason = 'blocked', why
+                    break
+                ang = steer(space, telemetry.get('tof_mm'))
+                lin = speed if abs(ang) < .3 else max(CRAWL_MIN_SPEED, speed * .6)
+                self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
+                self.wait(CRAWL_TICK_S)
+        finally:
+            try:
+                self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
+                self.link.send({'cmd': 'stop'})
+            except ProviderFailure:
+                pass
+            if self.sounds:
+                self.sounds.stop()
+        self._view_since = self.clock() + .3
+        self._sleep(.3, cancel)   # Let the base settle before odometry is read.
+        self._track()
+        after = self.link.snapshot()[0] or {}
+        travelled = max(travelled, travelled_from(after.get('odom') or {}))
+        if reason == 'path_blocked' and travelled >= .05:
+            status, reason = 'completed', 'shortened_by_clearance'   # Went as far as the room ahead allowed.
+        row.update(travelled_m=round(travelled, 2), status=status, reason=reason)
+        heading = self._heading(after) if after else None
+        if start_heading is not None and heading is not None:
+            row['steered_deg'] = round(wrap(heading - start_heading), 1)
+        self._step_trace(row)
+        return row
 
     def _move(self, meters, plan, cancel, speed=None, straighten=True):
         row = {'action': 'move', 'requested_m': round(meters, 2)}
-        straightened = (self._straighten(min(meters, STRAIGHTEN_WITHIN_M), plan, cancel)
-                        if meters > 0 and straighten else 0.)
+        need = min(meters, STRAIGHTEN_WITHIN_M)
+        straightened = self._straighten(need, plan, cancel) if meters > 0 and straighten else 0.
         if straightened:
             # Reported so the model can say he lined up with the hallway first.
             row['turned_away_from_wall_deg'] = round(straightened, 1)
             row['turned_deg'] = abs(round(straightened, 1))
-        def too_close():
-            path = self.space().get('path_m')
-            return 'wall_beside_path_too_close' if path is None or path < WALL_HOLD_M else None
-        def allowance():
-            space = self.space()
-            allowed, note = move_allowance(meters, space)
-            tight = self._beside_wall(space) if meters > 0 and allowed < min(meters, .2) else None
-            if tight is not None:
-                # Not refused: a short, slow leg the firmware steers along the wall, and the
-                # host stops if the wall still comes inside the hold distance.
-                return min(meters, tight), 'beside_wall', space
-            return allowed, note, space
-        allowed, note, space = allowance()
+        speed = speed or LIMITS[plan.origin]['speed_mps'] * self._pace
+        space = self.space()
+        if meters > 0 and self._tight(space, need):
+            held = self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm'))
+            if held:
+                return {**row, 'status': 'refused', 'reason': held, 'travelled_m': 0.}
+            return self._crawl(meters, plan, cancel, speed, row)
+        allowed, note = move_allowance(meters, space)
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
         self._ensure_parked(cancel)
-        allowed, note, space = allowance()   # Clearance after the park settles.
+        allowed, note = move_allowance(meters, self.space())   # Clearance after the park settles.
         if not allowed:
             return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
         start = self._telemetry().get('odom') or {}
-        speed = speed or LIMITS[plan.origin]['speed_mps'] * self._pace
-        caution = self._caution(space) if meters > 0 else 1.
-        if note == 'beside_wall':
-            caution = TIGHT_PACE
-        if caution < 1.:
-            speed = max(min(speed, .1), speed * caution)
-            row['slowed_for_tight_space'] = True
         status, reason, done = self._finite({'cmd': 'move', 'dist': round(allowed, 2), 'speed': round(speed, 3)},
-                                            max(8., abs(allowed)/speed + 10.), cancel,
-                                            too_close if note == 'beside_wall' else None)
+                                            max(8., abs(allowed)/speed + 10.), cancel)
         end = (done or {}).get('odom') or self._telemetry().get('odom') or {}
         travelled = math.hypot(float(end.get('x', 0)) - float(start.get('x', 0)), float(end.get('y', 0)) - float(start.get('y', 0)))
         row = {**row, 'commanded_m': round(allowed, 2), 'travelled_m': round(travelled, 2), 'status': status,
@@ -966,8 +1098,8 @@ class DriveBase:
             last = rows[-1]
             if last['status'] != 'completed' or last['reason'] == 'shortened_by_clearance':
                 break
-            if last['reason'] == 'beside_wall':
-                # A guarded leg along a wall: carry on from fresh readings while it makes headway.
+            if last.get('crawled'):
+                # A crawl through tight space: carry on from fresh readings while it makes headway.
                 if last.get('travelled_m', 0.) < .05:
                     break
                 remaining -= last['travelled_m']
@@ -980,12 +1112,13 @@ class DriveBase:
             row['turned_away_from_wall_deg'] = round(sum(r.get('turned_away_from_wall_deg', 0.) for r in rows), 1)
         if any(r.get('slowed_for_tight_space') for r in rows):
             row['slowed_for_tight_space'] = True
+        if any(r.get('crawled') for r in rows):
+            row['crawled'] = True
+            row['steered_deg'] = round(sum(r.get('steered_deg', 0.) for r in rows), 1)
         if len(rows) > 1:
             row['legs'] = rows
         if row['status'] == 'completed' and remaining > .05:
             row['reason'] = 'shortened_by_clearance'
-        elif row['status'] == 'completed' and row['reason'] == 'beside_wall':
-            row['reason'] = None
         return row
 
     def _rotation(self):
