@@ -60,9 +60,12 @@ elbow/wrist move is staged one joint at a time (elbow down to the lower of the t
 elbow up) so the ceiling is never crossed on the way. Named poses from the readings:
 `poker_out` (1057/1389), `poker_up` (1500/942, 45 degrees up with the hand level),
 `poker_down` (elbow down, wrist straight). The drive stance adds elbow 1920 / wrist 1564
-beside the raised arm. Idle moves the elbow and wrist low and slowly with the swing.
-Elbow 1920 / wrist 1564 is also the arm's park (`POKER_PARK`): the cold-start hold for
-its two channels, and where shutdown returns it in clearance stages. First live start,
+beside the raised arm. Elbow 1920 / wrist 1564 is also the arm's park (`POKER_PARK`): the
+cold-start hold for its two channels, and where shutdown returns it in clearance stages.
+Awake, the arm sits at `poker_up` (45 degrees up, hand level): startup takes it there from
+the park in clearance stages beside the head and throttle lanes, and idle life wanders the
+elbow and wrist slowly around that pose (owner, October 10 evening: after the wake the arm
+stayed at its park and looked wrong). First live start,
 October 10 evening: the code had assumed an elbow-down rest, so the arm, which stands at
 its park when switched on, dropped at once and shutdown left it down; corrected the same
 day.

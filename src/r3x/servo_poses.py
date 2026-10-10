@@ -227,6 +227,9 @@ DRIVE_ARMS = ((4, 7424), (6, 8000))
 # the assumed elbow-down rest, and shutdown left it down).
 POKER_PARK = ((12, POKER_ELBOW_UP), (13, 6256))
 POKER_DRIVE = POKER_PARK
+# Owner, October 10 evening: awake, the arm sits 45 degrees up with the hand level (1500 /
+# 942 us). Startup takes it there from its park and idle life wanders around it.
+POKER_UP = ((12, 6000), (13, 3768))
 HEAD_PARK = ((0, NECK_CENTER), (1, 2600), (2, HEAD_FULL_DOWN[0]), (11, HEAD_FULL_DOWN[1]),
              (3, VISOR_DOWN), (4, 6300))
 # Where each joint hangs once the robot has been powered off (the board then reads 0).
@@ -314,6 +317,8 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         throttle = bridge + (TUCK, ((8, 4800), (9, 8000), (10, 3800)),
                              ((8, 3680), (9, 8720), (10, 5920)), REST)
         lanes = (head, neck, tuple(Beat(p, throttle_duration=1.25) for p in throttle))
+        if any(abs(current[ch] - value) > 2 for ch, value in POKER_UP):
+            lanes += (poker_lane(current, dict(POKER_UP), speed=12, acceleration=3),)
     else:
         # V2's coordinated head/visor/elbow droop, alongside tuck then park. Decorative
         # channels 5–7 keep their current pose; the poker elbow/wrist return to their park.
@@ -429,7 +434,7 @@ IDLE_CHANNELS = {'head': HEAD, 'visor': (3,), 'elbow': (4,), 'wrist': (5,), 'pok
                  'hero': (7,), 'throttle': THROTTLE}
 THROTTLE_IDLE = (((8,4400),(9,7480),(10,4760)), ((8,3920),(9,8080),(10,5600)),
                  ((8,4080),(9,7840),(10,4920)), ((8,4480),(9,7640),(10,5360)), REST)
-POKER_IDLE = {12: (POKER_ELBOW_DOWN, 5200), 13: (4800, 6800)}   # Low, gentle; well under the ceiling.
+POKER_IDLE = {12: (5200, 6800), 13: (2900, 4700)}   # Around the awake 45-degree pose; under the ceiling.
 
 
 def head_reframes(current, targets) -> bool:
@@ -639,7 +644,7 @@ NAMED_POSES = {
     'throttle_down': FULL_DOWN, 'throttle_rest': REST,
     # Poker arm, owner's console readings October 10.
     'poker_out': ((12,4228),(13,5556)),      # Straight out: elbow 1057 us, wrist 1389 us.
-    'poker_up': ((12,6000),(13,3768)),       # 45 degrees up with the hand level: 1500 / 942 us.
+    'poker_up': POKER_UP,                    # 45 degrees up with the hand level: 1500 / 942 us.
     'poker_down': ((12,POKER_ELBOW_DOWN),(13,POKER_WRIST_STRAIGHT)),   # Elbow down, wrist straight.
 }
 # One-shot gestures run and return to where they started; nothing is held afterwards.

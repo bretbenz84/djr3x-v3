@@ -171,6 +171,26 @@ class PoseTests(unittest.TestCase):
         self.assertTrue(all(value == curled[12] for ch, value in sent[:sent.index((13, POKER_DRIVE[1][1]))] if ch == 12))
         self.assertEqual({ch: self.port.pose[ch] for ch in POKER}, dict(POKER_DRIVE))
 
+    def test_startup_raises_the_poker_arm_to_45_degrees_and_idle_wanders_around_it(self):
+        # Owner, October 10 evening: the arm stayed at its park after the wake and looked wrong.
+        import random
+        from r3x.servo_poses import POKER, POKER_PARK, POKER_UP, IdlePhrase, idle_lanes
+        port, clock = PulsePort(), Clock()
+        owner = ServoOwner(lambda: port, medium='simulation', clock=clock, wait=clock.wait)
+        self.addCleanup(owner.close)
+        owner.start()
+        self.assertEqual({ch: port.pose[ch] for ch in POKER}, dict(POKER_PARK))
+        port.packets.clear()
+        self.assertEqual(owner.execute(ServoRequest('s', owner.version, 'startup', clock()+120), Cancellation()).status, 'pulses_reached')
+        self.assertEqual({ch: port.pose[ch] for ch in POKER}, dict(POKER_UP))
+        sent = [(p[1], p[2]+128*p[3]) for p in port.targets if p[1] in POKER]
+        self.assertLess(sent.index((12, POKER_UP[0][1])), sent.index((13, POKER_UP[1][1])))   # Elbow down before the wrist moves.
+        for seed in range(12):   # Idle drifts around the 45-degree pose, never back down to the park or the floor.
+            lanes = idle_lanes(dict(port.pose), random.Random(seed), phrase=IdlePhrase((('poker', 0.),)))
+            final = {ch: value for lane in lanes for beat in lane for ch, value in beat.targets if ch in POKER}
+            self.assertTrue(5200 <= final[12] <= 6800 and 2900 <= final[13] <= 4700, final)
+            self.assertLessEqual(abs(final[12] - POKER_UP[0][1]) + abs(final[13] - POKER_UP[1][1]), 1800)
+
     def test_shutdown_returns_the_poker_arm_to_its_park(self):
         # First live start, October 10: the arm began at its park (elbow up, wrist 1564 us),
         # dropped at once to an assumed elbow-down rest, and shutdown left it there.

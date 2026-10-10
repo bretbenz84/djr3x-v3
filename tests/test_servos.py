@@ -93,7 +93,7 @@ class ServoTests(unittest.TestCase):
         neck = [i for i,p in enumerate(targets) if p[:2] == bytes((0x84,0))]
         self.assertLess(first_throttle, neck[1])
         result = self.execute('shutdown')
-        self.assertEqual(result.completed_lanes, (0, 1))
+        self.assertEqual(result.completed_lanes, (0, 1, 2))   # Head/visor, throttle, and the poker arm back to its park.
         self.assertEqual(result.status, 'pulses_reached')
         for ch, value in HEAD_PARK + PARK:
             self.assertEqual(self.port.pose[ch], value)
