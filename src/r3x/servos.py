@@ -266,7 +266,7 @@ class ServoOwner:
                      idle_lanes(current,self.rng,self.held_channels,request.idle) if request.kind == 'idle' else
                      expressive_lanes(current,request.kind,request.target,request.primitive,request.intensity,
                                       request.hold_seconds,self.held_channels) if request.kind in {'attention','gesture'} else
-                     pose_lanes(request.pose,current) if request.kind == 'pose' else
+                     pose_lanes(request.pose,current,further=request.hold_pose) if request.kind == 'pose' else
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))
@@ -361,7 +361,12 @@ class ServoOwner:
                     else:
                         active[lane_id][1] = None
                         if self.clock() >= deadline:
-                            raise ProviderFailure('ServoArrivalTimeout')
+                            # Name the channels still short of their targets: the board's own
+                            # stored channel range clamps a target outside it, so the pulse
+                            # never arrives (first live run October 10: shutdown head lane).
+                            lagging = ','.join(f'ch{ch}@{observed[ch]}->{value}' for ch, value in beat.targets
+                                               if abs(observed[ch] - value) > 2)
+                            raise ProviderFailure('ServoArrivalTimeout:' + lagging)
                 if len(completed) < len(lanes) or active:
                     self.wait(.025)
             cancel.check()
@@ -399,7 +404,7 @@ class ServoOwner:
             self.state = 'faulted'
             # A working link can hold on timeout. A failed link is never retried.
             reason = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
-            if reason in {'ServoArrivalTimeout', 'ServoRequestExpired', 'ThrottleRouteChanged'}:
+            if reason.split(':')[0] in {'ServoArrivalTimeout', 'ServoRequestExpired', 'ThrottleRouteChanged'}:
                 try:
                     self._hold(touched)
                 except Exception:

@@ -72,6 +72,28 @@ September calibration is mirrored inside the same 4544-6976 travel (up 5120, dow
 6976, speaking 4880-5520 with 5520 the old camera-hiding floor). The real endpoints and
 the camera-clear pulse were not read; confirm them on the robot.
 
+**First live run (session `f07e53af`, October 10 evening).** The wake choreography,
+`tilt_left`, `tilt_right`, `look_level`, `look_up`, `look_down` and `poker_up` all reached
+their pulses on the robot. Three findings:
+
+- The poker arm dropped at startup and stayed down at shutdown: the cold-start hold had
+  assumed an elbow-down rest while the arm stands at its park when switched on. Fixed above.
+- "Can you look left?" moved the head to the right. Rex was already following Bret at the
+  neck's left limit (the voice reflex aimed at 1984 twice; he stood 55-65 degrees left), and
+  `look_left` was a fixed 33-degree pose, so it swung back toward centre; "turn your head
+  left" then found him already there and moved nothing. Side looks are now relative: from
+  nearer the centre they go to the 33-degree pose; already there or beyond, a person's
+  request goes on to the neck's limit on that side, and Rex's own repeated step moves
+  nothing (`neck_target`; `already_at` reports a side look at or beyond its pose).
+- Shutdown failed with `ServoArrivalTimeout` on the head/visor lane after 25 s; the throttle
+  parked. The trace did not say which channel never arrived. A timeout now names each
+  channel still short of its target with its pulse (for example `ch3@6400->6976`). The
+  likely cause is the Maestro's own stored channel range clamping a target it has never been
+  sent before: the visor park 6976 (1744 µs) is the only new lifecycle value outside anything
+  the September code commanded; the head pair's park (1013/1904 µs) is the owner's reading.
+  Confirm from the next shutdown's reason, then either widen the board's range in the
+  Maestro Control Center or lower the park pulse to the board's limit.
+
 **Also.** `IncompletePokerPose` mirrors the throttle's batch rule; held parts report
 `head_pitch_and_tilt` and `poker_elbow_and_wrist`; `robot_pose_state.joint_percent` is
 now by joint name with the head as pitch/tilt; the servo menu-bar console lists all 14

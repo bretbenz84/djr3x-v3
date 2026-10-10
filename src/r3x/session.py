@@ -622,14 +622,14 @@ class Session:
                 context['impersonation'] = impersonation.context(self.state, self.trace.clock())
             context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and getattr(self.output,'robot',None) and self.output.robot.owner.state=='active')
             if context['robot_pose_enabled']:
-                from .servo_poses import HEAD_POSES, HELD_PARTS, NAMED_POSES, at_pose, joint_percents
+                from .servo_poses import HEAD_POSES, HELD_PARTS, NAMED_POSES, NECK_POSES, at_pose, joint_percents
                 owner = self.output.robot.owner
                 if opportunity and hasattr(owner,'yield_stale_hold'):
                     owner.yield_stale_hold()  # An aged human pose no longer blocks his own beats.
                 held = set(getattr(owner,'held_channels',()))
                 commanded = getattr(self.output.robot.owner,'commanded',{})
                 context['robot_pose_state'] = {'already_at':[
-                    name for name in (*NAMED_POSES, *HEAD_POSES) if at_pose(name, commanded)],
+                    name for name in (*NAMED_POSES, *NECK_POSES, *HEAD_POSES) if at_pose(name, commanded)],
                     'joint_percent':joint_percents(commanded),
                     'gaze': ({'people': 'following_faces', 'direction': 'holding_chosen_direction'}.get(
                         self.output.robot.idle.mode()) if hasattr(getattr(self.output.robot, 'idle', None), 'mode') else None), 'held_parts':

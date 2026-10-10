@@ -93,6 +93,29 @@ class PoseTests(unittest.TestCase):
         self.run_pose('look_level')
         self.assertEqual((self.port.pose[1], self.port.pose[2], self.port.pose[11]), (lift, *HEAD_LEVEL))
 
+    def test_a_side_look_never_swings_the_head_back_the_other_way(self):
+        # First live run October 10: Rex was following Bret at the neck's left limit; "look
+        # left" went to the fixed 33-degree pose, which moved his head to the right.
+        from r3x.servo_poses import LIMITS, NECK_LEFT, NECK_RIGHT, at_pose
+        self.assertEqual(self.run_pose({0: LIMITS[0][0]}).status, 'pulses_reached')   # Facing hard left.
+        self.port.packets.clear()
+        self.assertEqual(self.run_pose('look_left').status, 'pulses_reached')
+        self.assertEqual(self.port.pose[0], LIMITS[0][0])                                # Stays hard left...
+        self.assertEqual([p for p in self.port.targets if p[1] == 0 and p[2]+128*p[3] > LIMITS[0][0]], [])
+        self.assertTrue(at_pose('look_left', self.port.pose))                            # ...and counts as looking left.
+        self.assertEqual(self.run_pose('look_right').status, 'pulses_reached')
+        self.assertEqual(self.port.pose[0], NECK_RIGHT)                                  # From the left: the usual pose.
+        self.assertEqual(self.run_pose('look_right').status, 'pulses_reached')
+        self.assertEqual(self.port.pose[0], LIMITS[0][1])                                # Asked again: further right.
+        self.run_pose('look_center')
+        self.assertEqual(self.run_pose('look_left').status, 'pulses_reached')
+        self.assertEqual(self.port.pose[0], NECK_LEFT)
+        self.assertFalse(at_pose('look_right', self.port.pose))
+        # Rex's own repeated step (no hold) is content with looking left already: nothing moves.
+        self.assertEqual(self.run_pose('release_poses').status, 'pulses_reached')   # The person's hold is over.
+        own = self.owner.execute(ServoRequest('own', self.owner.version, 'pose', self.clock()+60, pose='look_left', hold_pose=False), Cancellation())
+        self.assertEqual((own.status, own.changed_channels, self.port.pose[0]), ('pulses_reached', (), NECK_LEFT))
+
     def test_side_tilts_cock_the_head_and_keep_the_pitch_and_neck(self):
         # October 10: two facing head servos; moved the same way they cock the head to a side.
         from r3x.servo_poses import HEAD_LEVEL, LOOK_PITCH, LOOK_TILT, NECK_CENTER, head_pose

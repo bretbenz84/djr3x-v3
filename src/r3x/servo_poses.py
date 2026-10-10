@@ -620,6 +620,11 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
 # steps the model chains; each keeps the other axes. October 10: up/down pitch the two
 # head servos against each other; tilt_* cock the head to a side (the new expression).
 NECK_LEFT, NECK_RIGHT = 2 * NECK_CENTER - 8000, 8000
+# First live run October 10: Rex was following Bret at the neck's left limit when asked to
+# "look left", and the fixed 33-degree pose swung his head back to the right. A side look
+# now never moves the head the other way: from anywhere nearer the centre it goes to the
+# 33-degree pose; already there or beyond, it goes on to the neck's limit on that side.
+NECK_POSES = {'look_left': -1, 'look_right': 1}
 LOOK_PITCH, LOOK_TILT = .8, .8
 HEAD_POSES = {
     'look_down': {'lift': 3200, 'pitch': -LOOK_PITCH}, 'look_up': {'lift': 4200, 'pitch': LOOK_PITCH},
@@ -627,7 +632,7 @@ HEAD_POSES = {
     'tilt_left': {'tilt': -LOOK_TILT}, 'tilt_right': {'tilt': LOOK_TILT}, 'tilt_straight': {'tilt': 0.},
 }
 NAMED_POSES = {
-    'look_left': ((0,NECK_LEFT),), 'look_right': ((0,NECK_RIGHT),), 'look_center': ((0,NECK_CENTER),),
+    'look_center': ((0,NECK_CENTER),),
     'visor_down': ((3,VISOR_DOWN),), 'visor_up': ((3,VISOR_UP),),
     'throttle_offer': ((8,2176),(9,2601),(10,5938)),
     'throttle_high_five': ((8,2176),(9,9361),(10,6302)),
@@ -646,7 +651,19 @@ GAZE = ('look_at_people',)
 # The array arm (7) is left to the microphone lease, which only ever rests it at its centre;
 # idle movement stops swinging it while the arms are held (idle_motion).
 ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE)
-POSE_COMMANDS = (*NAMED_POSES, *HEAD_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses')
+POSE_COMMANDS = (*NAMED_POSES, *NECK_POSES, *HEAD_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses')
+
+
+def neck_target(name, current, further=True) -> int:
+    """look_left/look_right from the current neck: the 33-degree pose, or, when the head
+    already looks that far, the limit on that side (a person asking again wants more) or,
+    for Rex's own repeated step, no move at all."""
+    side = NECK_POSES[name]
+    pose = NECK_RIGHT if side > 0 else NECK_LEFT
+    neck = current[0]
+    if side * (neck - pose) >= -2:          # Already at the pose or beyond it on that side.
+        return (LIMITS[0][1] if side > 0 else LIMITS[0][0]) if further else neck
+    return pose
 
 
 def pose_channels(name) -> tuple[int, ...]:
@@ -655,11 +672,16 @@ def pose_channels(name) -> tuple[int, ...]:
         return tuple(name)
     if name in HEAD_POSES:
         return ((1,) if 'lift' in HEAD_POSES[name] else ()) + HEAD_PAIR
+    if name in NECK_POSES:
+        return (0,)
     return tuple(ch for ch, _ in NAMED_POSES.get(name, ()))
 
 
 def at_pose(name, commanded) -> bool:
     """Whether the commanded pulses already stand at a named pose."""
+    if name in NECK_POSES:
+        # Looking that way at least as far as the pose counts, since the step would only go further.
+        return 0 in commanded and NECK_POSES[name] * (commanded[0] - (NECK_RIGHT if NECK_POSES[name] > 0 else NECK_LEFT)) >= -2
     if name in HEAD_POSES:
         spec = HEAD_POSES[name]
         if not set(HEAD_PAIR).issubset(commanded):
@@ -694,7 +716,7 @@ def reflex_lanes(target):
     return ((Beat(((0, target[0]),), speed=60, acceleration=15),),)
 
 
-def pose_lanes(name, current):
+def pose_lanes(name, current, further=True):
     if isinstance(name, dict):
         target = dict(name)
         for pair in (THROTTLE, POKER):   # A partial arm request keeps the unnamed joints where they are.
@@ -713,6 +735,8 @@ def pose_lanes(name, current):
         target = dict(REST)
     elif name in HEAD_POSES:
         target = head_targets(HEAD_POSES[name], current)
+    elif name in NECK_POSES:
+        target = {0: neck_target(name, current, further)}
     else:
         if name not in NAMED_POSES: raise ValueError('UnknownRobotPose')
         target = dict(NAMED_POSES[name])

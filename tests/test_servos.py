@@ -102,6 +102,22 @@ class ServoTests(unittest.TestCase):
         self.assertEqual(self.execute('talking').status, 'rejected')
         self.assertEqual(len(self.port.targets), count)
 
+    def test_arrival_timeout_names_the_channel_that_never_arrived(self):
+        # First live run October 10: shutdown failed with a bare ServoArrivalTimeout, so the
+        # channel the board would not move (its stored range clamps targets) was unknown.
+        self.owner.start()
+        self.execute()
+        original_write = self.port.write
+        def clamped_write(packet):
+            if packet[0] == 0x84 and packet[1] == 3:
+                packet = bytes((0x84, 3, 6400 & 127, 6400 >> 7))   # The board stops the visor short.
+            return original_write(packet)
+        self.port.write = clamped_write
+        result = self.execute('shutdown')
+        self.assertEqual(result.status, 'failed')
+        self.assertEqual(result.reason, 'ServoArrivalTimeout:ch3@6400->6976')
+        self.assertEqual(self.owner.state, 'faulted')
+
     def test_powered_off_robot_holds_unpowered_rest_then_wakes(self):
         self.port.pose = {ch: 0 for ch in self.port.pose}
         self.owner.start()
@@ -197,7 +213,7 @@ class ServoTests(unittest.TestCase):
         self.port.stall = True
         result = self.execute()
         self.assertEqual(result.status, 'failed')
-        self.assertEqual(result.reason, 'ServoArrivalTimeout')
+        self.assertTrue(result.reason.startswith('ServoArrivalTimeout:ch'), result.reason)
         self.assertLess(self.clock(), 27.)
         self.assertEqual(self.owner.state, 'faulted')
 
