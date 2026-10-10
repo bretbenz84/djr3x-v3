@@ -436,6 +436,19 @@ THROTTLE_IDLE = (((8,4400),(9,7480),(10,4760)), ((8,3920),(9,8080),(10,5600)),
                  ((8,4080),(9,7840),(10,4920)), ((8,4480),(9,7640),(10,5360)), REST)
 POKER_IDLE = {12: (5200, 6800), 13: (2900, 4700)}   # Around the awake 45-degree pose; under the ceiling.
 
+# Head expressions on the two-servo head (owner, October 10 evening: "dogs cock their heads
+# left and right when they're perplexed"; use the new freedom for more expression). Each is
+# a finite run of (pitch change, tilt change, dwell) from where the head is, then back to it;
+# "subtle" halves the amounts. 'side' expressions cock away from any lean already there.
+HEAD_EXPRESSIONS = {
+    'nod': {'moves': ((-.3, 0., .25), (.1, 0., .25)), 'speed': 35},
+    'tilt': {'moves': ((0., .6, .5),), 'speed': 20, 'side': True},                  # One cock and back.
+    'perplexed': {'moves': ((-.08, .6, .7), (-.08, -.6, .7)), 'speed': 25, 'side': True},   # The dog's double cock, looking slightly down.
+    'wiggle': {'moves': ((0., .35, .12), (0., -.35, .12), (0., .35, .12)), 'speed': 50, 'acceleration': 10},  # Quick playful side to side.
+    'sympathetic': {'moves': ((-.15, .45, 1.2),), 'speed': 12, 'acceleration': 3, 'side': True},   # Slow cock, slightly down, held.
+}
+GESTURE_PRIMITIVES = (*HEAD_EXPRESSIONS, 'lift', 'arm_emphasis')
+
 
 def head_reframes(current, targets) -> bool:
     return any(abs(current[ch] - value) > HEAD_SMALL[ch] for ch, value in targets if ch in HEAD_SMALL)
@@ -475,16 +488,17 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
         if target != 'unfocused':
             raise ValueError('GestureIsNotDirectionalGaze')
         scale = .5 if intensity=='subtle' else 1.
-        if primitive in ('nod', 'tilt'):
-            # The two head servos: a nod dips and comes back; a tilt cocks the head to one
-            # side (away from any lean it already has) and straightens again.
+        if primitive in HEAD_EXPRESSIONS:
+            # The two head servos: finite moves from where the head is, then back to it. A
+            # sided expression cocks away from any lean the head already has.
+            spec = HEAD_EXPRESSIONS[primitive]
             pitch0, tilt0 = head_pose(current)
+            side = (-1. if tilt0 > .2 else 1.) if spec.get('side') else 1.
             start = tuple((ch, current[ch]) for ch in HEAD_PAIR)
-            moves = ((-.3, 0., .25), (.1, 0., .25)) if primitive == 'nod' else (
-                (0., (-1. if tilt0 > .2 else 1.) * .6, .5),)
-            lane = tuple(Beat(tuple(head_pulses(pitch0+dp*scale, tilt0+dt*scale).items()),
-                              speed=35 if primitive=='nod' else 20,acceleration=6,dwell=dwell) for dp,dt,dwell in moves)
-            lane += (Beat(start,speed=35 if primitive=='nod' else 20,acceleration=6),)
+            lane = tuple(Beat(tuple(head_pulses(pitch0+dp*scale, tilt0+side*dt*scale).items()),
+                              speed=spec['speed'],acceleration=spec.get('acceleration',6),dwell=dwell)
+                         for dp,dt,dwell in spec['moves'])
+            lane += (Beat(start,speed=spec['speed'],acceleration=spec.get('acceleration',6)),)
         else:
             channels = {'lift':(1,160), 'arm_emphasis':(4,200)}
             if primitive not in channels:raise ValueError('UnknownExpression')
@@ -521,7 +535,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 pitch, tilt = head_pose(current)
                 targets = ((0, clamp(0, current[0] + rng.randint(-150, 150))),
                            (1, clamp(1, current[1] + rng.randint(-60, 60))),
-                           *head_pulses(pitch + rng.uniform(-.03, .03), tilt + rng.uniform(-.03, .03)).items())
+                           *head_pulses(pitch + rng.uniform(-.03, .03), tilt + rng.uniform(-.06, .06)).items())
             lane = (Beat(targets, speed=phrase.head_speed, acceleration=3, dwell=phrase.head_dwell,
                          reframes=head_reframes(current, targets)),)
         elif part == 'visor':
@@ -647,8 +661,10 @@ NAMED_POSES = {
     'poker_up': POKER_UP,                    # 45 degrees up with the hand level: 1500 / 942 us.
     'poker_down': ((12,POKER_ELBOW_DOWN),(13,POKER_WRIST_STRAIGHT)),   # Elbow down, wrist straight.
 }
-# One-shot gestures run and return to where they started; nothing is held afterwards.
-GESTURES = ('wave',)
+# One-shot gestures run and return to where they started; nothing is held afterwards. The
+# head expressions (not the plain one-cock 'tilt', which tilt_left/tilt_right cover as held
+# looks) are also steps people can ask for and Rex can plan.
+GESTURES = ('wave', 'nod', 'perplexed', 'wiggle', 'sympathetic')
 # Owner request October 3: the model chooses between following faces and looking where it
 # decides. look_at_people resumes following faces; any look_* step holds that direction.
 GAZE = ('look_at_people',)
@@ -730,6 +746,8 @@ def pose_lanes(name, current, further=True):
         validate_pose(target)
     elif name == 'wave':
         return wave_lanes(current)
+    elif name in GESTURES:
+        return expressive_lanes(current, 'gesture', 'unfocused', name, 'normal', .5, frozenset())
     elif name == 'look_at_people':
         # RobotServos aims at a visible face; with none in view, people are usually ahead.
         target = dict(((0, NECK_CENTER),) + DRIVE_HEAD)

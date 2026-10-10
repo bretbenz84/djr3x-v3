@@ -138,6 +138,22 @@ class PoseTests(unittest.TestCase):
         self.run_pose('look_level')
         self.assertEqual((self.port.pose[2], self.port.pose[11]), HEAD_LEVEL)
 
+    def test_head_expressions_as_pose_steps_return_the_head_and_hold_nothing(self):
+        # Owner, October 10 evening: use the new freedom for expression, like a perplexed dog.
+        from r3x.servo_poses import GESTURES, HEAD_PAIR, head_pose
+        self.run_pose('look_down')
+        before, held = dict(self.port.pose), set(self.owner.held_channels)
+        for name in ('perplexed', 'wiggle', 'sympathetic', 'nod'):
+            self.assertIn(name, GESTURES)
+            self.port.packets.clear()
+            self.assertEqual(self.run_pose(name).status, 'pulses_reached')
+            self.assertEqual(self.port.pose, before)                       # Back where it was, pitched down.
+            self.assertEqual(self.owner.held_channels, held)                # The expression itself holds nothing.
+            sent = [(p[1], p[2]+128*p[3]) for p in self.port.targets if p[1] in HEAD_PAIR]
+            cocked = [abs(head_pose(dict(sent[i:i+2]))[1]) for i in range(0, len(sent), 2)]
+            self.assertGreater(max(cocked), .3 if name != 'nod' else -1)     # It visibly cocked (or nodded).
+        self.assertAlmostEqual(head_pose(self.port.pose)[0], -.8, delta=.03)   # Still looking down afterwards.
+
     def test_head_pair_is_never_sent_alone_or_outside_the_measured_envelope(self):
         from r3x.servo_poses import HEAD_FULL_UP, head_pulses
         before = len(self.port.targets)

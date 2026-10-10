@@ -262,6 +262,25 @@ class IdleTests(unittest.TestCase):
         self.assertGreater(max(h[2] for h in looks)-min(h[2] for h in looks),400)    # Up and down.
         self.assertTrue(all(abs(h[0]-NECK_CENTER)<=35*NECK_PER_DEG+1 for h in looks))
 
+    def test_following_a_face_now_and_then_settles_into_a_gentle_head_cock(self):
+        # Owner, October 10 evening: a little more tilt in idle life, used like a listening dog.
+        from r3x.servo_poses import head_pose
+        self.execute('startup');self.clock.wait(.5)
+        self.idle.face=lambda:{'neck':self.port.pose[0],'y':.4,'at':self.clock()}
+        tilts=[]
+        for _ in range(900):
+            self.clock.wait(.2)
+            targets,_,_=self.idle._head(self.clock(),False)
+            if targets and self.clock()>=self.idle._glance_until:
+                tilt=head_pose(dict(targets))[1]
+                tilts.append(round(tilt,2))
+                self.owner.commanded.update(dict(targets))
+        cocked=[t for t in tilts if abs(t)>=.14]
+        self.assertGreater(len(cocked),10)                      # Cocks happen...
+        self.assertTrue(all(abs(t)<=.31 for t in tilts))       # ...gently...
+        self.assertGreater(len([t for t in tilts if abs(t)<.05]),len(cocked))   # ...and mostly it is straight.
+        self.assertTrue(any(t>0 for t in cocked) and any(t<0 for t in cocked))  # Both sides.
+
     def test_a_chosen_direction_is_kept_until_people_are_chosen_a_voice_or_time(self):
         self.execute('startup')
         self.idle.face=lambda:{'neck':4000,'y':.4,'at':self.clock()}

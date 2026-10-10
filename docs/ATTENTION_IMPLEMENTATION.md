@@ -261,8 +261,9 @@ image tokens, cache reuse, description quality and repetition separately.
 
 Implemented after the user explicitly selected coordinated speech/gestures as the
 next slice. The optional `respond_with_gesture` tool uses the same primary model
-call to supply a spoken phrase, one expressive primitive (`nod`, `tilt`, `lift`, or
-`arm_emphasis`), a supported target, subtle/normal intensity and before/after timing.
+call to supply a spoken phrase, one expressive primitive (`nod`, `tilt`, `perplexed`,
+`wiggle`, `sympathetic`, `lift`, or `arm_emphasis`; the head ones use the October 10
+two-servo head), a supported target, subtle/normal intensity and before/after timing.
 These are intent parameters, not prerecorded animation clips or random triggers.
 Ordinary prose streams normally and requires no gesture tool or planner. The
 coordinated phrase is bounded by the existing 1,200-character tool-text limit.

@@ -64,8 +64,9 @@ class PhysicalMotionTests(unittest.TestCase):
 
     def test_gestures_return_to_start_and_do_not_touch_microphone(self):
         adapter=PhysicalGesture(self.robot);adapter.start()
-        from r3x.servo_poses import head_pose
-        for primitive in ('nod','tilt','lift','arm_emphasis'):
+        from r3x.servo_poses import GESTURE_PRIMITIVES, head_pose
+        self.assertEqual(set(GESTURE_PRIMITIVES), {'nod','tilt','perplexed','wiggle','sympathetic','lift','arm_emphasis'})
+        for primitive in GESTURE_PRIMITIVES:
             for intensity in ('subtle','normal'):
                 before=self.port.pose.copy();self.port.packets.clear()
                 receipt=adapter.execute(Gesture('g',primitive,'unfocused',intensity,self.clock()+30),Cancellation())
@@ -73,18 +74,30 @@ class PhysicalMotionTests(unittest.TestCase):
                 self.assertEqual(self.port.pose,before)
                 self.assertFalse(self.robot.owner.held_channels)
                 sent=[(p[1],p[2]+128*p[3]) for p in self.port.targets]
-                if primitive in ('nod','tilt'):
+                if primitive not in ('lift','arm_emphasis'):
                     # Both head servos move together; a tilt cocks the head (both pulses the
                     # same way, here lower = to the right), a nod pitches it (against each other).
-                    first={ch:value for ch,value in sent[:2]}
-                    self.assertEqual(set(first),{2,11})
-                    pitch,tilt=head_pose(first)
+                    scale=1. if intensity=='normal' else .5
+                    pairs=[{ch:value for ch,value in sent[i:i+2]} for i in range(0,len(sent),2)]
+                    self.assertTrue(all(set(p)=={2,11} for p in pairs))
+                    poses=[head_pose(p) for p in pairs[:-1]]      # The last pair is the return.
+                    first=pairs[0];pitch,tilt=poses[0]
                     if primitive=='tilt':
                         self.assertLess(first[2],before[2]);self.assertLess(first[11],before[11])
-                        self.assertAlmostEqual(tilt,.6 if intensity=='normal' else .3,delta=.03)
-                    else:
+                        self.assertAlmostEqual(tilt,.6*scale,delta=.03)
+                    elif primitive=='nod':
                         self.assertLess(first[2],before[2]);self.assertGreater(first[11],before[11])
-                        self.assertAlmostEqual(pitch,-.3 if intensity=='normal' else -.15,delta=.03)
+                        self.assertAlmostEqual(pitch,-.3*scale,delta=.03)
+                    elif primitive=='perplexed':   # The dog's double cock: one side, then the other, slightly down.
+                        self.assertEqual([round(t/abs(t)) for _,t in poses],[1,-1])
+                        self.assertTrue(all(abs(abs(t)-.6*scale)<.03 and -.1*scale<p<0 for p,t in poses))
+                    elif primitive=='wiggle':      # Quick alternation, level.
+                        self.assertEqual([round(t/abs(t)) for _,t in poses],[1,-1,1])
+                        self.assertTrue(all(abs(p)<.02 for p,_ in poses))
+                    elif primitive=='sympathetic': # One slow cock, slightly down, held.
+                        self.assertEqual(len(poses),1)
+                        self.assertAlmostEqual(tilt,.45*scale,delta=.03);self.assertAlmostEqual(pitch,-.15*scale,delta=.03)
+                        self.assertEqual([p[2]+128*p[3] for p in self.port.packets if p[0]==0x87 and p[1]==2][0],12)
 
     def test_stale_closed_uncalibrated_and_cancelled_actions_cannot_succeed(self):
         before=len(self.port.targets)

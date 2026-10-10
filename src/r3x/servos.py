@@ -15,7 +15,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
-                          UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD)
+                          UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES)
 
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
@@ -282,7 +282,7 @@ class ServoOwner:
                     return receipt('rejected', 'AgencyCannotOverrideHeldPose')
                 self.held_channels.difference_update(channels)  # An aged hold gives way.
             self.version += 1
-            if request.kind == 'pose' and request.hold_pose and request.pose not in ('release_poses','wave'):  # dict poses too
+            if request.kind == 'pose' and request.hold_pose and request.pose not in ('release_poses', *GESTURES):  # dict poses too
                 self.held_channels.update(ch for lane in lanes for beat in lane for ch, _ in beat.targets)
                 self.pose_held_at = self.clock()
                 if request.pose == 'hold_arms':

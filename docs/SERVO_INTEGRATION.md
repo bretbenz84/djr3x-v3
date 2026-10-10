@@ -51,6 +51,18 @@ a slight random one; face following moves the pitch and keeps the tilt. The `til
 gesture is now a real side cock (0.6, or 0.3 subtle) that straightens again, and `nod`
 pitches both servos. The camera reframe rule counts both head servos.
 
+*Expressions (October 10 evening; owner: "dogs cock their heads left and right when they're
+perplexed", use the freedom for more expression).* `HEAD_EXPRESSIONS` adds `perplexed`
+(cock 0.6 to one side, swing to the other, slightly down, 0.7 s each), `wiggle` (three
+quick 0.35 cocks side to side) and `sympathetic` (a slow 0.45 cock, slightly down, held
+1.2 s). All return the head to where it was and hold nothing. They are offered to the
+reply model as `respond_with_gesture` primitives (with guidance on when each fits and to
+keep most lines plain) and, apart from the plain `tilt`, as `set_robot_pose` steps for
+requests and Rex's own plans. The choice stays with the conversation model: no event is
+mapped to an animation. Idle life carries a little more tilt: drift ±0.06, glances away
+cock 0.1-0.25, room scans ±0.3, and while following a face the head settles into a gentle
+0.15-0.3 cock for 3-8 s every 10-25 s, then straightens.
+
 **Poker arm.** Channel 6 still swings the arm. New `poker_elbow` (12: 864 µs down, 1920
 up) and `poker_wrist` (13: 496 down, 1440 straight, 2486 curled up and inward). The elbow
 rises fully only with the wrist at or below 1564 µs; curled further in, the measured ceiling
