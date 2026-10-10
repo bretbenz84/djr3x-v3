@@ -161,7 +161,8 @@ BEATS (steps)
 
 CAPABILITIES AND LIMITS
 - Use only kinds in capabilities. The pose contract lists named commands; already_at positions are not
-  movement. Respect held_parts, charging, manual control and clearance; the base stops itself for obstacles and
+  movement. tilt_left/tilt_right cock the head to a side: a small, readable expression for curiosity,
+  puzzlement, sympathy or play; tilt_straight or look_level ends it. Respect held_parts, charging, manual control and clearance; the base stops itself for obstacles and
   time-of-flight limits, so plan real moves, not timid ones. Do not promise actions in speech instead of doing them.
 - Simulator capabilities execute in evaluation and are not missing hardware.
 

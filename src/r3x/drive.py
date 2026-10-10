@@ -1505,9 +1505,9 @@ class DriveBase:
         tipped = False
         owner = self.servos
         if owner is not None and hasattr(owner, 'execute_pose'):
-            from .servo_poses import DRIVE_HEAD, NECK_CENTER, TILT_DOWN_PER_DEG
+            from .servo_poses import DRIVE_HEAD, HEAD_PAIR, NECK_CENTER, head_pulses, pitch_from_degrees
             level = dict(DRIVE_HEAD)
-            down = {0: NECK_CENTER, 2: round(level[2] + ROUTE_LOOK_DOWN_DEG * TILT_DOWN_PER_DEG)}
+            down = {0: NECK_CENTER, **head_pulses(pitch_from_degrees(-ROUTE_LOOK_DOWN_DEG), 0.)}
             tipped = getattr(self._head(down, cancel, 'drive-route-look'), 'status', None) == 'pulses_reached'
             self._view_since = self.clock() + HEAD_SETTLE_S
         self._sleep(HEAD_SETTLE_S if tipped else .5, cancel)
@@ -1515,7 +1515,7 @@ class DriveBase:
             return self.look(max(self._view_since, self.clock() - .5))
         finally:
             if tipped:
-                self._head({2: level[2]}, cancel, 'drive-route-look')
+                self._head({ch: level[ch] for ch in HEAD_PAIR}, cancel, 'drive-route-look')
                 self._view_since = self.clock() + .3
 
     def _route_leg(self, goal, goal_bearing, plan, cancel, budget_m, tried, in_view=True):

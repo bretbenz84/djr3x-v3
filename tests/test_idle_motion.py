@@ -46,11 +46,11 @@ class IdleTests(unittest.TestCase):
             self.port.packets.clear()
             self.assertEqual(self.execute('idle').status,'pulses_reached')
             commands=self.commands()
-            self.assertEqual({ch for ch,_ in commands},set(range(11)))
+            self.assertEqual({ch for ch,_ in commands},set(LIMITS))
             for ch,value in commands:
                 self.assertTrue(LIMITS[ch][0]<=value<=LIMITS[ch][1])
             # The visor stays in its speaking range, above the camera.
-            self.assertTrue(all(6000<=value<=6750 for ch,value in commands if ch==3))
+            self.assertTrue(all(4770<=value<=5520 for ch,value in commands if ch==3))   # Inverted visor: low is up.
             # The arm that carries the microphone swings less far than before and returns.
             hero=next(value for ch,value in commands if ch==7)
             self.assertTrue(700<=abs(hero-5984)<=1400)
@@ -69,7 +69,7 @@ class IdleTests(unittest.TestCase):
         self.assertEqual(self.execute('idle',IdlePhrase((('wrist',0.),('poker',1.),('elbow',2.2)))).status,'pulses_reached')
         first={}
         for at,ch in sent:first.setdefault(ch,at-began)
-        self.assertEqual(set(first),{5,6,4})
+        self.assertEqual(set(first),{5,6,12,13,4})   # The poker part is the arm swing plus its elbow and wrist.
         self.assertLess(first[5],.1)
         self.assertGreaterEqual(first[6],1.)
         self.assertGreaterEqual(first[4],2.2)
@@ -78,7 +78,7 @@ class IdleTests(unittest.TestCase):
         self.execute('startup')
         events=[]
         self.owner.on_camera_motion=lambda moving,request,kind:events.append(moving)
-        head={ch:self.port.pose[ch] for ch in (0,1,2)}
+        head={ch:self.port.pose[ch] for ch in (0,1,2,11)}
         moved=self.owner.head_moved_at=float('-inf')
         small=tuple((ch,head[ch]+HEAD_SMALL[ch]-10) for ch in head)
         self.assertEqual(self.execute('idle',IdlePhrase((('head',0.),),small)).status,'pulses_reached')
@@ -141,11 +141,11 @@ class IdleTests(unittest.TestCase):
         self.assertGreater(len(phrases),30)       # Was 15 moves in ten minutes of the October 3 run.
         gaps=[b[0]-a[0] for a,b in zip(phrases,phrases[1:])]
         self.assertLess(max(gaps),8.)             # Never "motionless for a while".
-        parts={0:'head',1:'head',2:'head',3:'visor',4:'elbow',5:'wrist',6:'poker',7:'hero',8:'throttle',9:'throttle',10:'throttle'}
+        parts={0:'head',1:'head',2:'head',11:'head',3:'visor',4:'elbow',5:'wrist',6:'poker',12:'poker',13:'poker',7:'hero',8:'throttle',9:'throttle',10:'throttle'}
         for _,channels in phrases:
             self.assertLessEqual(len({parts[ch] for ch in channels}),3)   # Never every servo at once.
         moved=set().union(*(channels for _,channels in phrases))
-        self.assertEqual(moved,set(range(11)))    # Over time every part takes its turn.
+        self.assertEqual(moved,set(LIMITS))       # Over time every part takes its turn.
         self.idle.tick(False);self.clock.wait(20)
         count=len(self.port.targets)
         self.idle.tick(False)
@@ -220,18 +220,21 @@ class IdleTests(unittest.TestCase):
         self.execute('startup');self.clock.wait(.5)
         face={'neck':4000,'y':.72}
         self.idle.face=lambda:{**face,'at':self.clock()}
-        neck,tilt=self.port.pose[0],self.port.pose[2]
+        from r3x.servo_poses import head_pose
+        neck,pitch=self.port.pose[0],head_pose(self.port.pose)[0]
         targets,speed,_=self.idle._head(self.clock(),False)
         target=dict(targets)
         # V2 centring gain 0.5: half the way to the face, not a snap.
         self.assertAlmostEqual(target[0],neck+.5*(4000-neck),delta=2)
-        self.assertGreater(target[2],tilt)        # A face low in the picture: look further down.
-        self.assertEqual(self.owner.gaze_tilt,round(target[2]))
-        self.owner.commanded.update({0:4000,2:round(target[2])})
+        # A face low in the picture: both head servos pitch the head further down (left falls, right rises).
+        self.assertLess(target[2],self.port.pose[2]);self.assertGreater(target[11],self.port.pose[11])
+        self.assertLess(head_pose(target)[0],pitch)
+        self.assertAlmostEqual(self.owner.gaze_pitch,head_pose(target)[0],delta=.01)
+        self.owner.commanded.update({0:4000,2:target[2],11:target[11]})
         face['y']=.40
         targets,_,_=self.idle._head(self.clock(),False)
         self.assertLessEqual(abs(dict(targets)[0]-4000),40)     # Inside the dead zone: only a little life.
-        self.assertEqual(dict(targets)[2],round(target[2]))
+        self.assertAlmostEqual(dict(targets)[2],target[2],delta=3)
         # Constant tracking was creepy in V2: within 16 seconds he looks aside, then comes back.
         looked=[]
         for _ in range(200):

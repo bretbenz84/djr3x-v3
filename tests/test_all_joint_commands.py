@@ -97,7 +97,8 @@ class JointCommands(MemoryFixture):
     def test_joint_cancellation_and_shutdown(self):
         self.setup_robot(ToolCall('j','set_robot_joints',{'positions':positions(visor=0,hero_arm=25),'text':None}))
         self.turn('Lower your visor and hold your hero arm.')
-        self.assertEqual(self.port.pose[3],LIMITS[3][0])
+        from r3x.servo_poses import VISOR_DOWN
+        self.assertEqual(self.port.pose[3],VISOR_DOWN)   # Inverted visor: 0 % is the high pulse.
         owner=self.robot.owner
         cancelled=Cancellation();cancelled.event.set()
         before=len(self.port.targets)
@@ -118,7 +119,7 @@ class ChainedPoseCommands(MemoryFixture):
         return [r for r in self.state.trace.rows if r['event'] == event]
 
     def test_spoken_sequence_runs_every_step_in_order_before_the_acknowledgment(self):
-        from r3x.servo_poses import HEAD_DOWN, NECK_LEFT, NECK_RIGHT
+        from r3x.servo_poses import LOOK_PITCH, NECK_LEFT, NECK_RIGHT, head_pose
         self.setup_robot(ToolCall('p','set_robot_pose',{'poses':['look_right','look_left','look_up','look_down'],
                                                         'look_after':None,'say_before':None,'text':'Looking around.'}))
         result = self.turn('Look right, then left, then up, then down.')
@@ -127,7 +128,8 @@ class ChainedPoseCommands(MemoryFixture):
         neck = [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,0))]
         self.assertLess(neck.index(NECK_RIGHT), neck.index(NECK_LEFT))
         self.assertEqual(self.port.pose[0], NECK_LEFT)            # The later up/down kept the side.
-        self.assertEqual({ch:self.port.pose[ch] for ch,_ in HEAD_DOWN}, dict(HEAD_DOWN))
+        self.assertEqual(self.port.pose[1], 3200)
+        self.assertAlmostEqual(head_pose(self.port.pose)[0], -LOOK_PITCH, delta=.02)   # Both head servos pitched down.
         events = [r['event'] for r in self.state.trace.rows]
         self.assertLess(max(i for i,e in enumerate(events) if e=='robot_pose_result'), events.index('phrase_completed'))
 
@@ -189,7 +191,7 @@ class ChainedPoseCommands(MemoryFixture):
 
     def test_mixed_head_arm_and_light_steps_run_in_the_order_asked(self):
         # "Look left then right then up then down then hold your hand out and blink your eyes."
-        from r3x.servo_poses import HEAD_DOWN, NAMED_POSES
+        from r3x.servo_poses import LOOK_PITCH, NAMED_POSES, head_pose
         from tests.test_leds import rig
         steps = ['look_left','look_right','look_up','look_down','throttle_offer','blink']
         self.setup_robot(ToolCall('p','set_robot_pose',{'poses':steps,'look_after':None,'say_before':None,'text':'Ta-da.'}))
@@ -206,7 +208,8 @@ class ChainedPoseCommands(MemoryFixture):
         self.assertEqual([r['pose'] for r in self.rows('robot_pose_result')], steps[:5])
         self.assertEqual([l['pattern'] for l in result.lights if l['request_id'].endswith(':5')], ['blink'])
         self.assertEqual(ports['head'].commands.count('EYE:0,0,0'), 3)
-        self.assertEqual({ch:self.port.pose[ch] for ch,_ in HEAD_DOWN}, dict(HEAD_DOWN))
+        self.assertEqual(self.port.pose[1], 3200)
+        self.assertAlmostEqual(head_pose(self.port.pose)[0], -LOOK_PITCH, delta=.02)
         self.assertEqual({ch:self.port.pose[ch] for ch,_ in NAMED_POSES['throttle_offer']}, dict(NAMED_POSES['throttle_offer']))
 
     def test_say_before_is_heard_before_any_step_moves(self):

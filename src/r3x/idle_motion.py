@@ -23,8 +23,9 @@ import random
 import threading
 
 from .contracts import Cancellation, ProviderFailure
-from .servo_poses import (DRIVE_HEAD, HEAD_SMALL, IDLE_CHANNELS, LIMITS, LOOK_NECK_DEG, NECK_CENTER,
-                          NECK_PER_DEG, TILT_DOWN_PER_DEG, TILT_UP_PER_DEG, IdlePhrase)
+from .servo_poses import (DRIVE_HEAD, HEAD, HEAD_SMALL, IDLE_CHANNELS, LOOK_NECK_DEG, NECK_CENTER,
+                          NECK_PER_DEG, PITCH_SMALL, TILT_SMALL, IdlePhrase, degrees_from_pitch, head_pose,
+                          head_pulses, pitch_from_degrees)
 from .servos import ServoRequest
 
 # Seconds between one part's moves. The head moves most; the array arm least, because
@@ -87,7 +88,7 @@ class IdleMotion:
         commanded = self.owner.commanded
         self._anchor = {ch: commanded.get(ch, default) for ch, default in ((0, NECK_CENTER), *DRIVE_HEAD)}
         self.gaze, self._anchor_until = 'direction', now + DIRECTION_SECONDS
-        self.owner.gaze_tilt = self._anchor[2]
+        self.owner.gaze_pitch = head_pose(self._anchor)[0]
 
     def posed(self, channels, own, now=None):
         """A pose just ran. Rex's own head look becomes the held direction; his own arm
@@ -103,22 +104,30 @@ class IdleMotion:
                     self._rest[part] = now + POSE_REST_SECONDS
 
     def _head(self, now, calm):
-        """Head targets for this phrase, or () for a small drift where it already points."""
+        """Head targets for this phrase, or () for a small drift where it already points.
+
+        The head is a neck pulse, a lift pulse, and a pitch and side tilt for the two head
+        servos (fractions of their measured travel, servo_poses.head_pulses)."""
         commanded = self.owner.commanded
         level = dict(DRIVE_HEAD)
-        current = {0: commanded.get(0, NECK_CENTER), 1: commanded.get(1, level[1]), 2: commanded.get(2, level[2])}
+        current = {ch: commanded.get(ch, level.get(ch, NECK_CENTER)) for ch in HEAD}
+        pitch, tilt = head_pose(current)
         rng = self.rng
-        def near(center, neck=60, tilt=40, lift=50):
-            return ((0, center[0] + rng.randint(-neck, neck)), (1, center.get(1, level[1]) + rng.randint(-lift, lift)),
-                    (2, center[2] + rng.randint(-tilt, tilt)))
-        def bounded(targets):
-            # During conversation work the camera view must stay settled: small moves only.
-            if not calm:
-                return targets
-            return tuple((ch, max(current[ch] - HEAD_SMALL[ch] + 20, min(current[ch] + HEAD_SMALL[ch] - 20, value)))
-                         for ch, value in targets)
+        def look(neck, lift, pitch, tilt):
+            if calm:
+                # During conversation work the camera view must stay settled: small moves only.
+                neck = max(current[0] - HEAD_SMALL[0] + 20, min(current[0] + HEAD_SMALL[0] - 20, neck))
+                lift = max(current[1] - HEAD_SMALL[1] + 20, min(current[1] + HEAD_SMALL[1] - 20, lift))
+                pitch = max(pitch0 - PITCH_SMALL, min(pitch0 + PITCH_SMALL, pitch))
+                tilt = max(tilt0 - TILT_SMALL, min(tilt0 + TILT_SMALL, tilt))
+            return ((0, neck), (1, lift), *head_pulses(pitch, tilt).items())
+        pitch0, tilt0 = pitch, tilt
+        def near(anchor, neck=60, lift=50, pitch_by=.03, tilt_by=.03):
+            anchor_pitch, anchor_tilt = head_pose(anchor)
+            return look(anchor[0] + rng.randint(-neck, neck), anchor.get(1, level[1]) + rng.randint(-lift, lift),
+                        anchor_pitch + rng.uniform(-pitch_by, pitch_by), anchor_tilt + rng.uniform(-tilt_by, tilt_by))
         if self.mode(now) == 'direction':
-            return bounded(near(self._anchor)), rng.randint(5, 8), 0.
+            return near(self._anchor), rng.randint(5, 8), 0.
         aim = None
         if self.face:
             try:
@@ -134,26 +143,23 @@ class IdleMotion:
         if aim is not None and aim.get('at', now) > self.owner.head_moved_at + .1:
             if now >= self._glance_at and not calm:
                 # Break eye contact like V2's gaze engine: 12-24 degrees aside, level or a
-                # little down, never up, then back.
+                # little down, never up, with a slight cock of the head, then back.
                 self._glance_until = now + rng.uniform(1.4, 2.8)
                 self._glance_at = self._glance_until + rng.uniform(7., 16.)
                 neck = aim['neck'] + rng.choice((-1, 1)) * rng.uniform(12., 24.) * NECK_PER_DEG
-                tilt = current[2] + rng.uniform(0., 5.) * TILT_DOWN_PER_DEG
-                return ((0, neck), (1, current[1]), (2, tilt)), rng.randint(12, 18), 0.
+                glance_pitch = pitch_from_degrees(degrees_from_pitch(pitch) - rng.uniform(0., 5.))
+                return look(neck, current[1], glance_pitch, tilt + rng.uniform(-.15, .15)), rng.randint(12, 18), 0.
             error = aim['neck'] - current[0]
             neck = current[0] + (FACE_GAIN * error if abs(error) > NECK_DEAD_DEG * NECK_PER_DEG else rng.randint(-40, 40))
             off = aim['y'] - FACE_Y
-            tilt = current[2]
             if abs(off) > Y_DEAD:
-                # A face low in the frame needs the head lower: tilt's pulse rises. The
-                # linkage is asymmetric, so work in degrees below level and convert back.
-                below = (tilt - level[2]) / (TILT_DOWN_PER_DEG if tilt >= level[2] else TILT_UP_PER_DEG)
-                below += FACE_GAIN * off * 2 * VERTICAL_HALF_FOV
-                tilt = level[2] + below * (TILT_DOWN_PER_DEG if below >= 0 else TILT_UP_PER_DEG)
-            tilt = max(LIMITS[2][0], min(LIMITS[2][1], round(tilt)))
-            self.owner.gaze_tilt = tilt
+                # A face low in the frame needs the head pitched lower. The travel is
+                # asymmetric, so work in degrees above level and convert back.
+                degrees = degrees_from_pitch(pitch) - FACE_GAIN * off * 2 * VERTICAL_HALF_FOV
+                pitch = pitch_from_degrees(degrees)
+            self.owner.gaze_pitch = pitch
             far = abs(error) > 12 * NECK_PER_DEG
-            return bounded(((0, neck), (1, level[1] + rng.randint(-50, 50)), (2, tilt))), 16 if far else 9, 0.
+            return look(neck, level[1] + rng.randint(-50, 50), pitch, tilt), 16 if far else 9, 0.
         if aim is not None or now - self._face_at <= FACE_LOST_SECONDS:
             return (), rng.randint(5, 8), 0.          # Waiting for a fresh look at them.
         # Nobody in view: look around the room now and then (V2's scan leaned downward,
@@ -161,11 +167,11 @@ class IdleMotion:
         self._glance_at = None
         if now >= self._scan_at and not calm:
             self._scan_at = now + rng.uniform(6., 13.)
-            self.owner.gaze_tilt = None
+            self.owner.gaze_pitch = None
             vertical = rng.uniform(-.3, 1.)           # Negative looks up, positive down.
-            tilt = level[2] + vertical * .65 * ((LIMITS[2][1] - level[2]) if vertical >= 0 else (level[2] - LIMITS[2][0]))
             neck = NECK_CENTER + rng.uniform(-LOOK_NECK_DEG, LOOK_NECK_DEG) * NECK_PER_DEG
-            return ((0, neck), (1, level[1] - vertical * 200), (2, tilt)), rng.randint(10, 16), rng.uniform(.4, 1.2)
+            return (look(neck, level[1] - vertical * 200, -vertical * .65, rng.uniform(-.2, .2)),
+                    rng.randint(10, 16), rng.uniform(.4, 1.2))
         return (), rng.randint(5, 8), 0.
 
     def _compose(self, now, calm):

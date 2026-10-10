@@ -2,41 +2,210 @@
 
 Source/calibration provenance and physical limitations: docs/SERVO_INTEGRATION.md.
 No devices, V2 imports, independent gesture workers, or inferred shaft positions.
+
+October 10: the head rides on two facing servos (channels 2 and 11) whose linkages hold
+one centre post. Driven against each other they pitch the head up or down; driven the
+same way they shift the post sideways and tilt (cock) the head to one side. Every head
+move therefore sets both channels, computed from a pitch and a tilt (head_pulses). The
+poker arm gained an elbow (12) and a wrist (13) with a measured clearance ceiling, and
+the visor servo now runs inverted (low pulses up).
 """
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 
+# Calibrated limits per channel. The October 10 servo-console readings (Maestro
+# microseconds x 4) are the limits of the two head servos and the poker elbow/wrist.
 LIMITS = MappingProxyType({
-    0: (1984, 8960), 1: (2600, 7744), 2: (3904, 5504), 3: (4544, 6976),
+    0: (1984, 8960), 1: (2600, 7744), 2: (4032, 8128), 3: (4544, 6976),
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
     8: (2176, 9088), 9: (2048, 9984), 10: (2048, 9984),
+    11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
 })
-JOINTS = {
-    'neck': 0, 'head_lift': 1, 'head_tilt': 2, 'visor': 3,
-    'hero_elbow': 4, 'hero_wrist': 5, 'poker_arm': 6, 'hero_arm': 7,
-    'throttle_shoulder': 8, 'throttle_elbow': 9, 'throttle_wrist': 10,
-}
 THROTTLE = (8, 9, 10)
+HEAD_PAIR = (2, 11)          # head_left, head_right: always commanded together.
+POKER = (12, 13)             # Poker elbow and wrist: always commanded together (clearance).
+HEAD = (0, 1, *HEAD_PAIR)    # Everything the camera rides on.
+PAIRS = (THROTTLE, HEAD_PAIR, POKER)
+
+
+def _clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+# Two-servo head, console readings October 10 (left, right).
+HEAD_LEVEL = (5832, 6480)        # 1458 / 1620 us
+HEAD_FULL_UP = (8128, 5248)      # 2032 / 1312 us: the left servo rises as the right falls.
+HEAD_FULL_DOWN = (4052, 7616)    # 1013 / 1904 us
+# A full side tilt moves both servos the same way by about this much in total (the four
+# measured tilted poses moved 828-1492, each with one servo already at its limit). What
+# one servo cannot take within its limits, the other takes.
+TILT_SHIFT = 1100
+HEAD_ENVELOPE = 600              # A pair further than this from any pitch/tilt is refused.
+# Degrees the full pitch travel covers: V2's gaze-engine estimate, unverified on this linkage.
+PITCH_DOWN_DEG, PITCH_UP_DEG = 20., 25.
+
+
+def _pitch_pulses(pitch: float) -> tuple[float, float]:
+    left, right = HEAD_LEVEL
+    if pitch >= 0:
+        return (left + pitch*(HEAD_FULL_UP[0]-left), right + pitch*(HEAD_FULL_UP[1]-right))
+    return (left - pitch*(HEAD_FULL_DOWN[0]-left), right - pitch*(HEAD_FULL_DOWN[1]-right))
+
+
+def head_pulses(pitch: float, tilt: float = 0.) -> dict[int, int]:
+    """Pulses for the two head servos. pitch runs -1 (fully down) to 1 (fully up) and tilt
+    -1 (cocked to Rex's left) to 1 (to his right); both are fractions of measured travel.
+    Tilting right lowers both pulses, as the console readings showed."""
+    pitch, tilt = _clamp(float(pitch), -1., 1.), _clamp(float(tilt), -1., 1.)
+    left, right = _pitch_pulses(pitch)
+    sign = -1 if tilt > 0 else 1
+    shift = abs(tilt) * TILT_SHIFT
+    room = [(LIMITS[2][1]-left) if sign > 0 else (left-LIMITS[2][0]),
+            (LIMITS[11][1]-right) if sign > 0 else (right-LIMITS[11][0])]
+    take = [min(shift/2, room[0]), min(shift/2, room[1])]
+    take[0] += min(shift-sum(take), room[0]-take[0])
+    take[1] += min(shift-sum(take), room[1]-take[1])
+    return {2: round(left + sign*take[0]), 11: round(right + sign*take[1])}
+
+
+def _fit_head(pulses) -> tuple[float, float, int]:
+    """(pitch, tilt, pulse error) that best explain a pair of head pulses."""
+    left, right = pulses[2], pulses[11]
+    def score(pitch):
+        base = _pitch_pulses(pitch)
+        tilt = _clamp(-((left-base[0]) + (right-base[1]))/TILT_SHIFT, -1., 1.)
+        got = head_pulses(pitch, tilt)
+        return abs(got[2]-left) + abs(got[11]-right), pitch, tilt
+    best = min(score(i/100.) for i in range(-100, 101))
+    best = min(best, *(score(_clamp(best[1] + i/1000., -1., 1.)) for i in range(-10, 11)))
+    return best[1], best[2], best[0]
+
+
+def head_pose(pulses) -> tuple[float, float]:
+    """The (pitch, tilt) a pair of head pulses stands for."""
+    return _fit_head(pulses)[:2]
+
+
+def pitch_from_degrees(degrees: float) -> float:
+    """Pitch fraction for degrees above level (negative looks down)."""
+    return _clamp(degrees / (PITCH_UP_DEG if degrees >= 0 else PITCH_DOWN_DEG), -1., 1.)
+
+
+def degrees_from_pitch(pitch: float) -> float:
+    return pitch * (PITCH_UP_DEG if pitch >= 0 else PITCH_DOWN_DEG)
+
+
+def head_targets(spec: dict, current) -> dict[int, int]:
+    """Pulses for a head pose given as lift/pitch/tilt, keeping whatever it leaves out."""
+    pitch, tilt = head_pose(current)
+    targets = head_pulses(spec.get('pitch', pitch), spec.get('tilt', tilt))
+    if 'lift' in spec:
+        targets[1] = spec['lift']
+    return targets
+
+
+# Poker elbow (12) and wrist (13), console readings October 10. The elbow rises fully only
+# while the wrist is at or below 1564 us; curled further inward the wrist meets the arm and
+# the elbow's ceiling falls (measured pairs, linear between them).
+POKER_ELBOW_DOWN, POKER_ELBOW_UP = 3456, 7680
+POKER_WRIST_DOWN, POKER_WRIST_STRAIGHT, POKER_WRIST_IN = 1984, 5760, 9944
+POKER_ELBOW_CEILING = ((6256, 7680), (7576, 7228), (8544, 6836), (9984, 6388))
+
+
+def poker_elbow_max(wrist: int) -> int:
+    if wrist <= POKER_ELBOW_CEILING[0][0]:
+        return POKER_ELBOW_UP
+    for (w0, e0), (w1, e1) in zip(POKER_ELBOW_CEILING, POKER_ELBOW_CEILING[1:]):
+        if wrist <= w1:
+            return round(e0 + (e1-e0)*(wrist-w0)/(w1-w0))
+    return POKER_ELBOW_CEILING[-1][1]
+
+
+def poker_clear(pose) -> bool:
+    return pose[12] <= poker_elbow_max(pose[13]) + 2
+
+
+def poker_route(start, target) -> list[dict[int, int]]:
+    """Stages between two clear poker poses that stay clear throughout: the elbow drops to
+    the lower of the two first, then the wrist moves, then the elbow rises. Each stage moves
+    one joint, so the ceiling (which only falls as the wrist curls in) is never crossed."""
+    low = min(start[12], target[12])
+    route, previous = [], {ch: start[ch] for ch in POKER}
+    for stage in ({12: low, 13: start[13]}, {12: low, 13: target[13]}, {ch: target[ch] for ch in POKER}):
+        if stage != previous:
+            route.append(stage)
+            previous = stage
+    return route or [dict(previous)]
+
+
+# Visor (3). October 10: the servo now runs inverted, low pulses up and high pulses down.
+# These mirror the September calibration inside the same travel; the real endpoints and
+# the pulse where the visor starts to hide the camera still need console readings.
+VISOR_UP, VISOR_DOWN = 5120, 6976
+VISOR_SPEECH = (4880, 5520)      # Expressive range while speaking, clear of the camera.
+
+# name -> (channel or head axis, value at 0 %, value at 100 %)
+JOINT_RANGES = {
+    'neck': (0, 1984, 8960), 'head_lift': (1, 2600, 7744),
+    'head_pitch': ('pitch', -1., 1.), 'head_tilt': ('tilt', -1., 1.),
+    'visor': (3, VISOR_DOWN, 4544),
+    'hero_elbow': (4, 6300, 7424), 'hero_wrist': (5, 1984, 9984), 'poker_arm': (6, 3968, 8000),
+    'hero_arm': (7, 3968, 8000),
+    'throttle_shoulder': (8, 2176, 9088), 'throttle_elbow': (9, 2048, 9984), 'throttle_wrist': (10, 2048, 9984),
+    'poker_elbow': (12, POKER_ELBOW_DOWN, POKER_ELBOW_UP), 'poker_wrist': (13, POKER_WRIST_DOWN, POKER_WRIST_IN),
+}
+JOINTS = tuple(JOINT_RANGES)
+# Body parts named to the model when their channels are held.
+HELD_PARTS = (('neck', {0}), ('head_lift', {1}), ('head_pitch_and_tilt', {2, 11}), ('visor', {3}),
+              ('hero_elbow', {4}), ('hero_wrist', {5}), ('poker_arm', {6}), ('hero_arm', {7}),
+              ('throttle_arm', {8, 9, 10}), ('poker_elbow_and_wrist', {12, 13}))
 
 
 def joint_targets(positions):
-    """Map bounded model percentages into calibrated pulses, without wire access."""
+    """Map bounded model percentages into calibrated pulses, without wire access.
+
+    head_pitch and head_tilt resolve to both head servos together; one given without the
+    other puts the other at its middle (level, or straight)."""
     import math
     if not isinstance(positions, dict) or set(positions) != set(JOINTS):
         raise ValueError('InvalidJointFields')
-    targets = {}
+    targets, head = {}, {}
     for name, value in positions.items():
         if value is None:
             continue
         if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 100:
             raise ValueError('InvalidJointPosition')
-        channel = JOINTS[name]
-        low, high = LIMITS[channel]
-        targets[channel] = round(low + (high-low)*value/100)
+        channel, low, high = JOINT_RANGES[name]
+        at = low + (high-low)*value/100
+        if isinstance(channel, str):
+            head[channel] = at
+        else:
+            targets[channel] = round(at)
+    if head:
+        targets.update(head_pulses(head.get('pitch', 0.), head.get('tilt', 0.)))
     if not targets:
         raise ValueError('EmptyJointRequest')
     return targets
+
+
+def joint_percents(commanded) -> dict[str, int]:
+    """Where each joint is, as the percentages set_robot_joints uses."""
+    head = head_pose(commanded) if set(HEAD_PAIR).issubset(commanded) else None
+    result = {}
+    for name, (channel, low, high) in JOINT_RANGES.items():
+        if isinstance(channel, str):
+            if head is None:
+                continue
+            value = head[0] if channel == 'pitch' else head[1]
+        elif channel in commanded:
+            value = commanded[channel]
+        else:
+            continue
+        result[name] = round(100*(value-low)/(high-low))
+    return result
+
+
 PARK = ((8, 9088), (9, 9984), (10, 2048))
 TUCK = ((8, 6544), (9, 8400), (10, 2048))
 REST = ((8, 4200), (9, 7720), (10, 5120))
@@ -46,15 +215,20 @@ RAISED = 2176
 # saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
 # driving on September 27; set this from the servo console reading.
 NECK_CENTER = 5472
-# Head lift/tilt held while the base drives (owner: level stance when moving).
-# V2 neutrals until the owner reads level values from the servo console.
-DRIVE_HEAD = ((1, 3600), (2, 4320))
+# Head lift and the level, straight head pair held while the base drives (owner: level
+# stance when moving). The pair is the owner's "level headed" console reading.
+DRIVE_HEAD = ((1, 3600), (2, HEAD_LEVEL[0]), (11, HEAD_LEVEL[1]))
 # Owner request September 27: while the base drives, the hero-arm elbow is fully up
 # (higher pulse lifts it) and the poker arm at its highest value, held until done.
 DRIVE_ARMS = ((4, 7424), (6, 8000))
-HEAD_PARK = ((0, NECK_CENTER), (1, 2600), (2, 5504), (3, 4544), (4, 6300))
+# Owner, October 10: the poker elbow up (1920 us) with the wrist at 1564 us while driving.
+POKER_DRIVE = ((12, POKER_ELBOW_UP), (13, 6256))
+# Elbow down, wrist straight: assumed where the poker arm hangs unpowered (not measured).
+POKER_REST = ((12, POKER_ELBOW_DOWN), (13, POKER_WRIST_STRAIGHT))
+HEAD_PARK = ((0, NECK_CENTER), (1, 2600), (2, HEAD_FULL_DOWN[0]), (11, HEAD_FULL_DOWN[1]),
+             (3, VISOR_DOWN), (4, 6300))
 # Where each joint hangs once the robot has been powered off (the board then reads 0).
-UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK)
+UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK, *POKER_REST)
 
 
 def validate_pose(pose: dict[int, int]) -> None:
@@ -62,8 +236,14 @@ def validate_pose(pose: dict[int, int]) -> None:
                        type(value) is not int or not LIMITS[ch][0] <= value <= LIMITS[ch][1]
                        for ch, value in pose.items()):
         raise ValueError('InvalidServoPulse')
-    if set(pose).intersection(THROTTLE) and not set(THROTTLE).issubset(pose):
-        raise ValueError('IncompleteThrottlePose')
+    for pair, error in ((THROTTLE, 'IncompleteThrottlePose'), (HEAD_PAIR, 'IncompleteHeadPose'),
+                        (POKER, 'IncompletePokerPose')):
+        if set(pose).intersection(pair) and not set(pair).issubset(pose):
+            raise ValueError(error)
+    if set(HEAD_PAIR).issubset(pose) and _fit_head(pose)[2] > HEAD_ENVELOPE:
+        raise ValueError('HeadPairOutsideEnvelope')
+    if set(POKER).issubset(pose) and not poker_clear(pose):
+        raise ValueError('PokerElbowWristCollision')
 
 
 def full_down_corridor(pose: dict[int, int]) -> bool:
@@ -102,6 +282,13 @@ class Beat:
     reframes: bool = True   # False: a head move too small to count as a new camera view.
 
 
+def poker_lane(current, target, speed=20, acceleration=5) -> tuple[Beat, ...]:
+    """The staged, clearance-safe poker elbow/wrist move to target."""
+    start = {ch: current[ch] for ch in POKER}
+    return tuple(Beat(tuple(stage.items()), speed=speed, acceleration=acceleration)
+                 for stage in poker_route(start, target))
+
+
 def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left') -> tuple[tuple[Beat, ...], ...]:
     """Parallel lanes, advanced by a single executor. Park never enters a gesture."""
     if kind not in {'startup', 'park', 'shutdown'} or first_look not in {'left', 'right'}:
@@ -118,7 +305,7 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         first, second = (4000, 8000) if first_look == 'left' else (8000, 4000)
         # Slower lifecycle glide: V2 also paced intermediate targets in software.
         # Direct V3 targets need lower Maestro speed/acceleration caps.
-        head = (Beat(((1, 3600), (2, 4320), (3, 6400), (4, 6720)), speed=12, acceleration=3),)
+        head = (Beat((*DRIVE_HEAD, (3, VISOR_UP), (4, 6720)), speed=12, acceleration=3),)
         neck = (Beat(((0, first),), speed=12, acceleration=3, dwell=.3),
                 Beat(((0, second),), speed=12, acceleration=3, dwell=.3),
                 Beat(((0, NECK_CENTER),), speed=12, acceleration=3, dwell=.2))
@@ -127,7 +314,7 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         lanes = (head, neck, tuple(Beat(p, throttle_duration=1.25) for p in throttle))
     else:
         # V2's coordinated head/visor/elbow droop, alongside tuck then park.
-        # Decorative channels 5–7 keep their current pose, as in V2 shutdown.
+        # Decorative channels 5–7 and the poker elbow/wrist keep their current pose.
         lanes = ((Beat(HEAD_PARK, speed=12, acceleration=3, dwell=.8),),
                  tuple(Beat(p, throttle_duration=1.5) for p in bridge + (TUCK, PARK)))
     # Reject an unsafe route BEFORE any lane begins to move.
@@ -165,10 +352,10 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
 
 
 def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = None, held=frozenset(),
-                  neck: int | None = None, tilt: int | None = None) -> tuple[tuple[Beat, ...], ...]:
+                  neck: int | None = None, pitch: float | None = None) -> tuple[tuple[Beat, ...], ...]:
     """Independent speech lanes around stable head anchors, not interrupted poses.
 
-    tilt is where the gaze had the head pitched when the reply began (looking down at a
+    pitch is where the gaze had the head pitched when the reply began (looking down at a
     seated face): the sway centres there instead of snapping back to level for each line.
 
     V2's neck/lift ranges and head/arm profiles, with smooth bounded beats instead
@@ -186,27 +373,28 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     origin = dict(current if head_origin is None else head_origin)
     if neck is not None:
         origin[0] = max(LIMITS[0][0], min(LIMITS[0][1], int(neck)))
-    if tilt is not None:
-        origin[2] = max(LIMITS[2][0] + 120, min(LIMITS[2][1] - 120, int(tilt)))
+    pitch0, tilt0 = head_pose(origin)
+    if pitch is not None:
+        pitch0 = _clamp(float(pitch), -.9, .9)
     def offset(ch, amount):
         return max(LIMITS[ch][0], min(LIMITS[ch][1], origin[ch]+amount))
     head = tuple(Beat(((0,offset(0,neck)),(1,offset(1,lift))),
                      speed=45,acceleration=8,dwell=.25)
                  for neck,lift in ((520,160),(-520,-160),(0,0)))  # About +/-7 degrees; V2's 260 barely read.
-    # The thin headtilt linkage gets a slower, modest sway, never jitter.
-    tilt = tuple(Beat(((2,offset(2,amount)),),speed=20,acceleration=6,dwell=.6)
-                 for amount in (120,-120,0))
+    # The two head servos sway slowly together: a small nod with a slight cock to each side.
+    sway = tuple(Beat(tuple(head_pulses(pitch0+dp, tilt0+dt).items()),speed=20,acceleration=6,dwell=.6)
+                 for dp,dt in ((.06,.1),(-.06,-.1),(0.,0.)))
     # V2's speech floor permits visible expression instead of pinning the visor
     # at neutral. Keep it in the upper part of calibrated travel while speaking.
     visor = tuple(Beat(((3,target),),speed=45,acceleration=8,dwell=.15)
-                  for target in (6520,6000,6640,6200))
+                  for target in (5000,5520,4880,5320))
     # V2 neutral-expression elbow/wrist range, with independent pacing. These
     # are channels 4/5, not channel 7 (the microphone-bearing hero-arm axis).
     elbow = tuple(Beat(((4,target),),speed=35,acceleration=8,dwell=.35)
                   for target in (7100,6740))
     wrist = tuple(Beat(((5,target),),speed=35,acceleration=8,dwell=.25)
                   for target in (7120,4880))
-    lanes = (head,tilt,visor,elbow,wrist,
+    lanes = (head,sway,visor,elbow,wrist,
              tuple(Beat(p,dwell=1.,throttle_duration=1.7) for p in targets))
     lanes = tuple(lane for lane in lanes if lane and not set(dict(lane[0].targets)).intersection(held))
     for lane in lanes:
@@ -217,13 +405,10 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
 
 LOOK_NECK_DEG = 35.       # Idle glances stay inside the talking gaze range.
 NECK_PER_DEG = (5472 - 1984) / 45.
-# V2 gaze engine (intelligence/gaze_engine.py, fb96f08): tilt covers about 20 degrees down
-# and 25 up from level across its asymmetric travel; a higher pulse looks lower.
-TILT_DOWN_PER_DEG = (5504 - 4320) / 20.
-TILT_UP_PER_DEG = (4320 - 3904) / 25.
-# A head move inside these pulse deltas (about 5 degrees of neck) leaves the camera view
+# A head move inside these pulse deltas (about 5 degrees) leaves the camera view
 # effectively unchanged: it does not restart scene settling or arrival tracking.
-HEAD_SMALL = {0: 400, 1: 180, 2: 220}
+HEAD_SMALL = {0: 400, 1: 180, 2: 450, 11: 300}
+PITCH_SMALL, TILT_SMALL = .12, .12   # The same idea in pitch/tilt fractions.
 
 
 @dataclass(frozen=True)
@@ -236,10 +421,11 @@ class IdlePhrase:
     head_dwell: float = 0.
 
 
-IDLE_CHANNELS = {'head': (0, 1, 2), 'visor': (3,), 'elbow': (4,), 'wrist': (5,), 'poker': (6,),
+IDLE_CHANNELS = {'head': HEAD, 'visor': (3,), 'elbow': (4,), 'wrist': (5,), 'poker': (6, *POKER),
                  'hero': (7,), 'throttle': THROTTLE}
 THROTTLE_IDLE = (((8,4400),(9,7480),(10,4760)), ((8,3920),(9,8080),(10,5600)),
                  ((8,4080),(9,7840),(10,4920)), ((8,4480),(9,7640),(10,5360)), REST)
+POKER_IDLE = {12: (POKER_ELBOW_DOWN, 5200), 13: (4800, 6800)}   # Low, gentle; well under the ceiling.
 
 
 def head_reframes(current, targets) -> bool:
@@ -272,19 +458,30 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
     clamp = lambda ch, value: max(LIMITS[ch][0], min(LIMITS[ch][1], round(value)))
     if kind == 'attention':
         targets = {'left':((0,NECK_CENTER-1040),), 'right':((0,NECK_CENTER+1040),),
-                   'up':HEAD_UP, 'forward':((0,NECK_CENTER),)+DRIVE_HEAD,
+                   'up':tuple(head_targets(HEAD_POSES['look_up'], current).items()),
+                   'forward':((0,NECK_CENTER),)+DRIVE_HEAD,
                    'unfocused':((0,clamp(0,current[0]+520)),)}[target]
         lane = (Beat(targets,speed=35,acceleration=6,dwell=hold_seconds),)
     elif kind == 'gesture':
         if target != 'unfocused':
             raise ValueError('GestureIsNotDirectionalGaze')
         scale = .5 if intensity=='subtle' else 1.
-        channels = {'nod':(1,160), 'tilt':(2,120), 'lift':(1,160), 'arm_emphasis':(4,200)}
-        if primitive not in channels:raise ValueError('UnknownExpression')
-        ch,amount=channels[primitive]
-        offsets = (-amount,amount,0) if primitive=='nod' else (amount,0)
-        lane = tuple(Beat(((ch,clamp(ch,current[ch]+offset*scale)),),
-            speed=20 if ch==2 else 35,acceleration=6,dwell=.25 if offset else 0.) for offset in offsets)
+        if primitive in ('nod', 'tilt'):
+            # The two head servos: a nod dips and comes back; a tilt cocks the head to one
+            # side (away from any lean it already has) and straightens again.
+            pitch0, tilt0 = head_pose(current)
+            start = tuple((ch, current[ch]) for ch in HEAD_PAIR)
+            moves = ((-.3, 0., .25), (.1, 0., .25)) if primitive == 'nod' else (
+                (0., (-1. if tilt0 > .2 else 1.) * .6, .5),)
+            lane = tuple(Beat(tuple(head_pulses(pitch0+dp*scale, tilt0+dt*scale).items()),
+                              speed=35 if primitive=='nod' else 20,acceleration=6,dwell=dwell) for dp,dt,dwell in moves)
+            lane += (Beat(start,speed=35 if primitive=='nod' else 20,acceleration=6),)
+        else:
+            channels = {'lift':(1,160), 'arm_emphasis':(4,200)}
+            if primitive not in channels:raise ValueError('UnknownExpression')
+            ch,amount=channels[primitive]
+            lane = tuple(Beat(((ch,clamp(ch,current[ch]+offset*scale)),),
+                speed=35,acceleration=6,dwell=.25 if offset else 0.) for offset in (amount,0))
     else:raise ValueError('UnknownExpression')
     if any(ch in held for beat in lane for ch,_ in beat.targets):
         raise ValueError('ExpressionConflictsWithHeldPose')
@@ -299,7 +496,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
     Each part goes somewhere new at its own pace rather than back and forth: speeds are a
     third to a half of the September idle. Ranges stay inside what talking and V2 idle
     already use; the visor stays in its speaking range, above the camera. The hero arm
-    carries the microphone array, so it swings less far, slowly, and returns to centre."""
+    carries the speaker array, so it swings less far, slowly, and returns to centre."""
     if phrase is None:
         phrase = IdlePhrase(tuple((part, 0.) for part in IDLE_CHANNELS))
     clamp = lambda ch, value: max(LIMITS[ch][0], min(LIMITS[ch][1], round(value)))
@@ -309,18 +506,21 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
         if set(channels).intersection(held):
             continue
         if part == 'head':
-            targets = tuple((ch, clamp(ch, value)) for ch, value in phrase.head) or (
-                (0, clamp(0, current[0] + rng.randint(-150, 150))),
-                (1, clamp(1, current[1] + rng.randint(-60, 60))),
-                (2, clamp(2, current[2] + rng.randint(-60, 60))))
+            if phrase.head:
+                targets = tuple((ch, clamp(ch, value)) for ch, value in phrase.head)
+            else:
+                pitch, tilt = head_pose(current)
+                targets = ((0, clamp(0, current[0] + rng.randint(-150, 150))),
+                           (1, clamp(1, current[1] + rng.randint(-60, 60))),
+                           *head_pulses(pitch + rng.uniform(-.03, .03), tilt + rng.uniform(-.03, .03)).items())
             lane = (Beat(targets, speed=phrase.head_speed, acceleration=3, dwell=phrase.head_dwell,
                          reframes=head_reframes(current, targets)),)
         elif part == 'visor':
-            first = _elsewhere(rng, 6050, 6750, current[3], 150, 500)
+            first = _elsewhere(rng, 4770, 5470, current[3], 150, 500)
             lane = (Beat(((3, first),), speed=rng.randint(5, 10), acceleration=2),)
             if rng.random() < .25:   # A slow half-blink: down to the speaking floor and open again.
-                lane = (Beat(((3, 6000),), speed=rng.randint(8, 14), acceleration=3, dwell=rng.uniform(.2, .6)),
-                        Beat(((3, rng.randint(6350, 6700)),), speed=rng.randint(6, 10), acceleration=2))
+                lane = (Beat(((3, VISOR_SPEECH[1]),), speed=rng.randint(8, 14), acceleration=3, dwell=rng.uniform(.2, .6)),
+                        Beat(((3, rng.randint(4820, 5170)),), speed=rng.randint(6, 10), acceleration=2))
         elif part == 'elbow':
             lane = (Beat(((4, _elsewhere(rng, 6500, 7200, current[4], 150, 500)),),
                          speed=rng.randint(5, 11), acceleration=2),)
@@ -332,8 +532,13 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 lane = (Beat(((5, target),), speed=rng.randint(10, 18), acceleration=3, dwell=rng.uniform(.3, .9)),
                         Beat(((5, back),), speed=rng.randint(6, 10), acceleration=2))
         elif part == 'poker':
-            lane = (Beat(((6, _elsewhere(rng, 4500, 7500, current[6], 500, 1500)),),
-                         speed=rng.randint(7, 15), acceleration=3),)
+            # The arm swings a little, and its elbow and wrist drift low and slow, always
+            # routed in clearance-safe stages (the first stage rides with the swing).
+            target = {ch: _elsewhere(rng, *POKER_IDLE[ch], current[ch], 300, 900) for ch in POKER}
+            speed = rng.randint(7, 15)
+            route = poker_lane(current, target, speed=speed, acceleration=3)
+            lane = (Beat(((6, _elsewhere(rng, 4500, 7500, current[6], 500, 1500)), *route[0].targets),
+                         speed=speed, acceleration=3), *route[1:])
         elif part == 'hero':
             side = (-1 if current[7] >= 5984 + 500 else 1 if current[7] <= 5984 - 500 else rng.choice((-1, 1)))
             lane = (Beat(((7, clamp(7, 5984 + side * rng.randint(700, 1400))),), speed=9, acceleration=2,
@@ -357,7 +562,8 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
 
 
 def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ...]:
-    """Throttle park, centered neck and raised hero elbow/poker arm before base motion; the return to rest.
+    """Throttle park, centered neck, raised hero elbow/poker arm and the poker elbow/wrist
+    drive pose before base motion; the throttle's return to rest.
 
     V2 parks the throttle arm before every non-reverse base command. The neck is
     centered so head-camera bearings are base-relative. Return uses the validated
@@ -391,30 +597,41 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
         lanes += (tuple(Beat(tuple(stage.items()), throttle_duration=1.25) for stage in stages),)
     if kind == 'base_park':
         head = tuple((ch, value) for ch, value in ((0, NECK_CENTER),) + DRIVE_HEAD if abs(current.get(ch, value) - value) > 2)
+        if head and set(HEAD_PAIR).intersection(ch for ch, _ in head):
+            head = tuple((ch, value) for ch, value in ((0, NECK_CENTER),) + DRIVE_HEAD if ch in dict(head) or ch in HEAD_PAIR)
         if head:
             lanes += ((Beat(head, speed=20, acceleration=5),),)
         arms = tuple((ch, value) for ch, value in DRIVE_ARMS if abs(current.get(ch, value) - value) > 2)
         if arms:
             lanes += ((Beat(arms, speed=35, acceleration=8),),)
+        if set(POKER).issubset(current) and any(abs(current[ch] - value) > 2 for ch, value in POKER_DRIVE):
+            lanes += (poker_lane(current, dict(POKER_DRIVE)),)
     return lanes
 
 
 # Explicit look requests (September 28). look_left mirrors look_right about the centre:
 # the startup scan's 4000 is only ~19 degrees, less than a 20% joint request, so a
-# "look left" after one visibly swung right. Down/up use lift (smaller pulse lowers)
-# and tilt (higher pulse looks lower), as the idle gaze does; level is the drive stance.
-# A request for "down" through head_lift 30% raised the head above level (3600).
-# Named look_* (not head_*) because the model announced "head_right" as "Turning right."
-# Side and up/down are separate steps the model chains; each keeps the other axis.
+# "look left" after one visibly swung right. Named look_* (not head_*) because the model
+# announced "head_right" as "Turning right." Side, up/down and the side tilt are separate
+# steps the model chains; each keeps the other axes. October 10: up/down pitch the two
+# head servos against each other; tilt_* cock the head to a side (the new expression).
 NECK_LEFT, NECK_RIGHT = 2 * NECK_CENTER - 8000, 8000
-HEAD_DOWN, HEAD_UP = ((1, 3200), (2, 5300)), ((1, 4200), (2, 4000))
+LOOK_PITCH, LOOK_TILT = .8, .8
+HEAD_POSES = {
+    'look_down': {'lift': 3200, 'pitch': -LOOK_PITCH}, 'look_up': {'lift': 4200, 'pitch': LOOK_PITCH},
+    'look_level': {'lift': 3600, 'pitch': 0., 'tilt': 0.},
+    'tilt_left': {'tilt': -LOOK_TILT}, 'tilt_right': {'tilt': LOOK_TILT}, 'tilt_straight': {'tilt': 0.},
+}
 NAMED_POSES = {
     'look_left': ((0,NECK_LEFT),), 'look_right': ((0,NECK_RIGHT),), 'look_center': ((0,NECK_CENTER),),
-    'look_down': HEAD_DOWN, 'look_up': HEAD_UP, 'look_level': DRIVE_HEAD,
-    'visor_down': ((3,4544),), 'visor_up': ((3,6400),),
+    'visor_down': ((3,VISOR_DOWN),), 'visor_up': ((3,VISOR_UP),),
     'throttle_offer': ((8,2176),(9,2601),(10,5938)),
     'throttle_high_five': ((8,2176),(9,9361),(10,6302)),
     'throttle_down': FULL_DOWN, 'throttle_rest': REST,
+    # Poker arm, owner's console readings October 10.
+    'poker_out': ((12,4228),(13,5556)),      # Straight out: elbow 1057 us, wrist 1389 us.
+    'poker_up': ((12,6000),(13,3768)),       # 45 degrees up with the hand level: 1500 / 942 us.
+    'poker_down': POKER_REST,                # Elbow down, wrist straight.
 }
 # One-shot gestures run and return to where they started; nothing is held afterwards.
 GESTURES = ('wave',)
@@ -424,8 +641,29 @@ GAZE = ('look_at_people',)
 # hold_arms moves nothing: every arm stays where it is until a person says it may move.
 # The array arm (7) is left to the microphone lease, which only ever rests it at its centre;
 # idle movement stops swinging it while the arms are held (idle_motion).
-ARM_HOLD = (4, 5, 6, *THROTTLE)
-POSE_COMMANDS = (*NAMED_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses')
+ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE)
+POSE_COMMANDS = (*NAMED_POSES, *HEAD_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses')
+
+
+def pose_channels(name) -> tuple[int, ...]:
+    """The channels a named pose or pose dict commands (gestures and gaze steps: none)."""
+    if isinstance(name, dict):
+        return tuple(name)
+    if name in HEAD_POSES:
+        return ((1,) if 'lift' in HEAD_POSES[name] else ()) + HEAD_PAIR
+    return tuple(ch for ch, _ in NAMED_POSES.get(name, ()))
+
+
+def at_pose(name, commanded) -> bool:
+    """Whether the commanded pulses already stand at a named pose."""
+    if name in HEAD_POSES:
+        spec = HEAD_POSES[name]
+        if not set(HEAD_PAIR).issubset(commanded):
+            return False
+        pitch, tilt = head_pose(commanded)
+        return (abs(commanded.get(1, -10000) - spec.get('lift', commanded.get(1, -10000))) <= 2 and
+                abs(pitch - spec.get('pitch', pitch)) <= .05 and abs(tilt - spec.get('tilt', tilt)) <= .05)
+    return name in NAMED_POSES and all(abs(commanded.get(ch, -10000) - value) <= 2 for ch, value in NAMED_POSES[name])
 
 
 def wave_lanes(current):
@@ -455,8 +693,9 @@ def reflex_lanes(target):
 def pose_lanes(name, current):
     if isinstance(name, dict):
         target = dict(name)
-        if set(target).intersection(THROTTLE):
-            target = {**{ch: current[ch] for ch in THROTTLE}, **target}
+        for pair in (THROTTLE, POKER):   # A partial arm request keeps the unnamed joints where they are.
+            if set(target).intersection(pair):
+                target = {**{ch: current[ch] for ch in pair}, **target}
         validate_pose(target)
     elif name == 'wave':
         return wave_lanes(current)
@@ -468,26 +707,31 @@ def pose_lanes(name, current):
     elif name == 'release_poses':
         # Resume from rest, so the next speech loop has a valid clearance route.
         target = dict(REST)
+    elif name in HEAD_POSES:
+        target = head_targets(HEAD_POSES[name], current)
     else:
         if name not in NAMED_POSES: raise ValueError('UnknownRobotPose')
         target = dict(NAMED_POSES[name])
-    if not set(target).intersection(THROTTLE):
-        return ((Beat(tuple(target.items()),speed=20,acceleration=5),),)
-    other = {ch: value for ch, value in target.items() if ch not in THROTTLE}
-    target = {ch: target[ch] for ch in THROTTLE}
-    start = {ch:current[ch] for ch in THROTTLE}
-    stages = [target]
-    if not throttle_clear(start,target):
-        if full_down_corridor(start):
-            stages = [{8:RAISED,9:5589,10:9511}, {8:RAISED,9:8400,10:2048},target]
-        elif full_down_corridor(target):
-            stages = [{**start,8:RAISED},{**target,8:RAISED},target]
-        else:
-            stages = [dict(REST),target]
-    previous = start
-    for stage in stages:
-        validate_pose(stage)
-        if not throttle_clear(previous,stage): raise ValueError('ThrottleRouteOutsideClearance')
-        previous = stage
-    lanes = (tuple(Beat(tuple(stage.items()),throttle_duration=1.7) for stage in stages),)
-    return lanes + (((Beat(tuple(other.items()), speed=20, acceleration=5),),) if other else ())
+    lanes = ()
+    if set(target).intersection(THROTTLE):
+        throttle = {ch: target.pop(ch) for ch in THROTTLE}
+        start = {ch:current[ch] for ch in THROTTLE}
+        stages = [throttle]
+        if not throttle_clear(start,throttle):
+            if full_down_corridor(start):
+                stages = [{8:RAISED,9:5589,10:9511}, {8:RAISED,9:8400,10:2048},throttle]
+            elif full_down_corridor(throttle):
+                stages = [{**start,8:RAISED},{**throttle,8:RAISED},throttle]
+            else:
+                stages = [dict(REST),throttle]
+        previous = start
+        for stage in stages:
+            validate_pose(stage)
+            if not throttle_clear(previous,stage): raise ValueError('ThrottleRouteOutsideClearance')
+            previous = stage
+        lanes += (tuple(Beat(tuple(stage.items()),throttle_duration=1.7) for stage in stages),)
+    if set(POKER).issubset(target):
+        lanes += (poker_lane(current, {ch: target.pop(ch) for ch in POKER}),)
+    if target:
+        lanes += ((Beat(tuple(target.items()), speed=20, acceleration=5),),)
+    return lanes

@@ -13,11 +13,11 @@ from typing import Callable
 from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
-from .servo_poses import (LIMITS, THROTTLE, lifecycle_lanes, motion_profiles, base_lanes,
+from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD)
 
-BASE_HELD = frozenset({0, 1, 2, 4, 6, *THROTTLE})   # Neck, head, hero elbow, poker arm, throttle.
+BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
 
 
@@ -83,8 +83,8 @@ class ServoOwner:
         self.camera_moving = False
         self.commanded: dict[int, int] = {}   # Last pulses sent or read back; camera bearings use the neck.
         self.talking_neck: int | None = None  # Gaze anchor for the current reply's talking lanes.
-        self.talking_tilt: int | None = None  # Head pitch the talking sway centres on for this reply.
-        self.gaze_tilt: int | None = None     # Pitch the idle gaze last chose (a face, a held look); None is level.
+        self.talking_pitch: float | None = None  # Head pitch (-1 down .. 1 up) the talking sway centres on this reply.
+        self.gaze_pitch: float | None = None     # Pitch the idle gaze last chose (a face, a held look); None is level.
         self.microphone_moved_until = 0.       # Channel 7 carries the microphone array.
         self.microphone_still_since = float('-inf')  # When the array arm last stopped moving.
         self.head_moved_at = float('-inf')     # When the head last finished a view-changing move.
@@ -120,8 +120,9 @@ class ServoOwner:
             return readback
         rest = dict(UNPOWERED_REST)
         targets = {ch: rest[ch] for ch in self.energized_channels}
-        if set(targets).intersection(THROTTLE):   # The arm moves as one three-channel batch.
-            targets.update({ch: readback[ch] or rest[ch] for ch in THROTTLE})
+        for pair in PAIRS:   # The throttle arm, the head pair and the poker elbow/wrist move together.
+            if set(targets).intersection(pair):
+                targets.update({ch: readback[ch] or rest[ch] for ch in pair})
         pose = {**readback, **targets}
         validate_pose(pose)
         self._bus.profiles({ch: (10, 2) for ch in self.energized_channels})
@@ -261,7 +262,7 @@ class ServoOwner:
             current = self._bus.positions(LIMITS)
             validate_pose(current)
             lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels, self.talking_neck,
-                                   self.talking_tilt) if request.kind == 'talking' else
+                                   self.talking_pitch) if request.kind == 'talking' else
                      idle_lanes(current,self.rng,self.held_channels,request.idle) if request.kind == 'idle' else
                      expressive_lanes(current,request.kind,request.target,request.primitive,request.intensity,
                                       request.hold_seconds,self.held_channels) if request.kind in {'attention','gesture'} else
@@ -330,7 +331,7 @@ class ServoOwner:
                             raise Cancelled()
                         if self.clock() >= request.expires_at:
                             raise ProviderFailure('ServoRequestExpired')
-                        if {0,1,2}.intersection(changes) and beat.reframes:
+                        if set(HEAD).intersection(changes) and beat.reframes:
                             reframed = True
                             if not self.camera_moving:
                                 self.camera_moving = True
@@ -378,7 +379,7 @@ class ServoOwner:
                 self.held_channels.difference_update(BASE_HELD)
                 self._base_held = False
             if request.kind == 'startup':
-                self._talking_head_origin = self._bus.positions((0,1,2))
+                self._talking_head_origin = self._bus.positions(HEAD)
             return receipt('pulses_reached')
         except (Cancelled, KeyboardInterrupt):
             if accepted:
@@ -494,8 +495,9 @@ class ServoOwner:
 
     def _hold(self, channels: set[int]) -> None:
         if channels and self._bus:
-            if channels.intersection(THROTTLE):
-                channels.update(THROTTLE)
+            for pair in PAIRS:
+                if channels.intersection(pair):
+                    channels.update(pair)
             pose = self._bus.positions(sorted(channels))
             validate_pose(pose)
             self._bus.targets(pose)
@@ -530,7 +532,7 @@ class TalkingMotion:
             self.owner.talking_neck = self.gaze() if self.gaze else None
         except Exception:
             self.owner.talking_neck = None
-        self.owner.talking_tilt = self.owner.gaze_tilt   # Not wherever the last sway stopped.
+        self.owner.talking_pitch = self.owner.gaze_pitch   # Not wherever the last sway stopped.
         def run():
             index = 0
             while not self._token.event.is_set():

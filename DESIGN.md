@@ -452,7 +452,7 @@ contracts from still-unmeasured semantic and live social experience.
 The September 25 [servo foundation](docs/SERVO_INTEGRATION.md) adds a single injected-
 transport executor for lifecycle choreography and optional playback-driven talking
 motion. Its follow-on adds explicit live composition, operator handoff and bounded
-microphone holds. Explicit requested poses and bounded control of all eleven joints are exposed through the same state/output/servo owners; finite model-selected physical directional attention and gestures are now implemented in the October 1 agency increment.
+microphone holds. Explicit requested poses and bounded control of all fourteen servo channels (the two-servo head as pitch and side tilt) are exposed through the same state/output/servo owners; finite model-selected physical directional attention and gestures are now implemented in the October 1 agency increment.
 Pulse-readback receipts are distinct from measured joint arrival. Service cutover,
 live cold-start (powered-off) wake-up and movement/enrollment validation remain pending.
 

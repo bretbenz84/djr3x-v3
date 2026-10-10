@@ -18,7 +18,7 @@ class Clock:
 
 class PulsePort:
     def __init__(self):
-        self.pose = {**dict(HEAD_PARK), 5: 6000, 6: 6000, 7: 5984, **dict(PARK)}
+        self.pose = dict(UNPOWERED_REST)
         self.packets = []
         self.channel = 0
         self.closed = False
@@ -105,7 +105,7 @@ class ServoTests(unittest.TestCase):
     def test_powered_off_robot_holds_unpowered_rest_then_wakes(self):
         self.port.pose = {ch: 0 for ch in self.port.pose}
         self.owner.start()
-        self.assertEqual(self.owner.energized_channels, tuple(range(11)))
+        self.assertEqual(self.owner.energized_channels, tuple(range(11)) + (11, 12, 13))
         self.assertEqual(self.port.pose, dict(UNPOWERED_REST))
         self.assertEqual(self.owner.commanded, dict(UNPOWERED_REST))
         self.assertEqual(self.execute().status, 'pulses_reached')
@@ -211,7 +211,7 @@ class ServoTests(unittest.TestCase):
             if packet[0] in (0x84,0x9F):
                 channels = {packet[1]} if packet[0]==0x84 else {8,9,10}
                 self.assertTrue(channels <= speeds & accels)
-                if packet[0] == 0x84: self.assertLess(packet[1], 8)
+                if packet[0] == 0x84: self.assertNotIn(packet[1], (8,9,10))
 
     def test_busy_owner_rejects_other_writer(self):
         self.owner.start()
@@ -241,8 +241,12 @@ class ServoTests(unittest.TestCase):
             return [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,ch))]
         self.assertGreater(len(targets(0)),3)
         self.assertGreater(len(targets(3)),4)
-        self.assertEqual(set(targets(3)),{6000,6200,6520,6640})
-        self.assertEqual(set(targets(2)),{4200,4320,4440})
+        self.assertEqual(set(targets(3)),{5000,5520,4880,5320})   # Inverted visor: lower pulses are higher.
+        # The two head servos sway together: a slight nod with a slight cock to each side, and back.
+        from r3x.servo_poses import head_pulses
+        self.assertEqual(len(targets(2)), len(targets(11)))   # The startup anchor is the level head.
+        self.assertEqual(set(zip(targets(2), targets(11))),
+                         {tuple(head_pulses(dp, dt).values()) for dp, dt in ((.06,.1),(-.06,-.1),(0,0))})
         self.assertGreater(len(targets(4)),2)
         self.assertGreater(len(targets(5)),2)
         self.assertGreater(len(set(targets(0))),1)
@@ -278,7 +282,7 @@ class ServoTests(unittest.TestCase):
         from r3x.servo_poses import talking_lanes,LIMITS
         current = {**self.port.pose,**dict(REST)}
         for endpoint in (0,1):
-            anchor = {ch:LIMITS[ch][endpoint] for ch in (0,1,2)}
+            anchor = {ch:LIMITS[ch][endpoint] for ch in (0,1,2,11)}
             lanes = talking_lanes(current,anchor)
             for lane in lanes[:2]:
                 for beat in lane:

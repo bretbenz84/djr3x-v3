@@ -54,9 +54,10 @@ it or reads its data.
   is never stored as a fact. Live acceptance pending ([details](docs/IMPERSONATION.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080.
-- **Body (Pololu Maestro, 11 servos).**
+- **Body (Pololu Maestro, 14 servos).**
   - Startup and park choreography, and talking motion driven by actual playback.
-  - The head turns toward whoever he is answering.
+  - The head turns toward whoever he is answering, and since October 10 can cock to a
+    side (two facing servos pitch and tilt it) for curious or playful moments.
   - Idle life: slow, staggered movement of one to three parts at a time whenever he
     is not talking; the head follows the nearest face with glances away, or holds a
     direction the model chose (October 3; not yet run on the robot).

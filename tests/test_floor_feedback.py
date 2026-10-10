@@ -1408,7 +1408,7 @@ class CameraRouteTests(SeekTests):
         tipped, looked = [], []
         head, look = drive._head, drive.look
         def timed_head(pose, cancel, request_id):
-            if 2 in pose and pose[2] > dict(DRIVE_HEAD)[2]:
+            if 2 in pose and pose[2] < dict(DRIVE_HEAD)[2]:   # Head left falls when the head pitches down.
                 tipped.append(clock())
             return head(pose, cancel, request_id)
         def timed_look(after):
@@ -1417,7 +1417,7 @@ class CameraRouteTests(SeekTests):
         drive._head, drive.look = timed_head, timed_look
         self.run_plan(clock, drive, DriveStep('seek', description='door'), DriveStep('approach', target='sought'))
         level = dict(DRIVE_HEAD)[2]
-        self.assertGreater(seen[0][-2][2], level)                  # Tilt pulse above level looks down...
+        self.assertLess(seen[0][-2][2], level)                     # Head-left pulse below level looks down...
         self.assertEqual(seen[0][-1][2], level)                    # ...and is level again before he drives on.
         # Owner, October 5: the head needs about 1.5 s after tipping before the picture is clear.
         after, at = next((a, t) for a, t in looked if tipped and a >= tipped[0])

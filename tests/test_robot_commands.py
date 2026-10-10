@@ -74,22 +74,86 @@ class PoseTests(unittest.TestCase):
         # Live September 28: "look down and to your left" raised the head (head_lift 30%)
         # and a following "look to your left" (old 4000) swung the neck back right.
         # Side and up/down are separate steps; each keeps the other axis.
-        from r3x.servo_poses import DRIVE_HEAD, NECK_CENTER
-        lift, tilt = dict(DRIVE_HEAD)[1], dict(DRIVE_HEAD)[2]
+        from r3x.servo_poses import DRIVE_HEAD, HEAD_LEVEL, NECK_CENTER, head_pose
+        lift = dict(DRIVE_HEAD)[1]
         self.run_pose('look_down');self.run_pose('look_left')
         self.assertLess(self.port.pose[0], NECK_CENTER)
         self.assertLess(self.port.pose[1], lift)      # Smaller lift lowers the head.
-        self.assertGreater(self.port.pose[2], tilt)   # Larger tilt looks lower.
-        down = (self.port.pose[1], self.port.pose[2])
+        # Looking down drives the two head servos against each other: left falls, right rises.
+        self.assertLess(self.port.pose[2], HEAD_LEVEL[0]);self.assertGreater(self.port.pose[11], HEAD_LEVEL[1])
+        down = (self.port.pose[1], self.port.pose[2], self.port.pose[11])
         self.run_pose('look_right');self.run_pose('look_left')
-        self.assertEqual((self.port.pose[1], self.port.pose[2]), down)  # Neck poses keep up/down.
+        self.assertEqual((self.port.pose[1], self.port.pose[2], self.port.pose[11]), down)  # Neck poses keep up/down.
         left = NECK_CENTER-self.port.pose[0]
         self.run_pose('look_right')
         self.assertEqual(left, self.port.pose[0]-NECK_CENTER)  # As far left as right.
         self.run_pose('look_up')
-        self.assertGreater(self.port.pose[1], lift);self.assertLess(self.port.pose[2], tilt)
+        self.assertGreater(self.port.pose[1], lift)
+        self.assertGreater(self.port.pose[2], HEAD_LEVEL[0]);self.assertLess(self.port.pose[11], HEAD_LEVEL[1])
         self.run_pose('look_level')
-        self.assertEqual((self.port.pose[1], self.port.pose[2]), (lift, tilt))
+        self.assertEqual((self.port.pose[1], self.port.pose[2], self.port.pose[11]), (lift, *HEAD_LEVEL))
+
+    def test_side_tilts_cock_the_head_and_keep_the_pitch_and_neck(self):
+        # October 10: two facing head servos; moved the same way they cock the head to a side.
+        from r3x.servo_poses import HEAD_LEVEL, LOOK_PITCH, LOOK_TILT, NECK_CENTER, head_pose
+        self.run_pose('look_right')
+        self.run_pose('tilt_right')
+        self.assertLess(self.port.pose[2], HEAD_LEVEL[0] - 300)   # Tilting right lowers both pulses...
+        self.assertLess(self.port.pose[11], HEAD_LEVEL[1] - 300)
+        tilt_right = (self.port.pose[2], self.port.pose[11])
+        self.assertAlmostEqual(head_pose(self.port.pose)[0], 0., delta=.03)      # ...and keeps the pitch...
+        self.assertAlmostEqual(head_pose(self.port.pose)[1], LOOK_TILT, delta=.03)
+        self.assertGreater(self.port.pose[0], NECK_CENTER)                        # ...and the neck.
+        self.run_pose('tilt_left')
+        self.assertGreater(self.port.pose[2], tilt_right[0]);self.assertGreater(self.port.pose[11], tilt_right[1])
+        self.assertAlmostEqual(head_pose(self.port.pose)[1], -LOOK_TILT, delta=.03)
+        self.run_pose('look_up')                                                  # Pitch steps keep the tilt.
+        self.assertAlmostEqual(head_pose(self.port.pose)[1], -LOOK_TILT, delta=.05)
+        self.assertAlmostEqual(head_pose(self.port.pose)[0], LOOK_PITCH, delta=.05)
+        self.run_pose('tilt_straight')
+        self.assertAlmostEqual(head_pose(self.port.pose)[1], 0., delta=.03)
+        self.run_pose('look_level')
+        self.assertEqual((self.port.pose[2], self.port.pose[11]), HEAD_LEVEL)
+
+    def test_head_pair_is_never_sent_alone_or_outside_the_measured_envelope(self):
+        from r3x.servo_poses import HEAD_FULL_UP, head_pulses
+        before = len(self.port.targets)
+        self.assertEqual(self.run_pose({2: 7000}).reason, 'IncompleteHeadPose')
+        self.assertEqual(self.run_pose({2: 8128, 11: 7616}).reason, 'HeadPairOutsideEnvelope')
+        self.assertEqual(len(self.port.targets), before)
+        # The owner's measured extremes are reachable: fully up, tilted left.
+        self.assertEqual(self.run_pose(head_pulses(1., -1.)).status, 'pulses_reached')
+        self.assertEqual(self.port.pose[2], HEAD_FULL_UP[0])
+
+    def test_poker_arm_routes_through_clearance_and_refuses_a_collision(self):
+        # October 10: the elbow can rise fully only with the wrist at or below 1564 us.
+        from r3x.servo_poses import POKER, POKER_DRIVE, poker_elbow_max
+        self.assertEqual(self.run_pose(dict(POKER_DRIVE)).status, 'pulses_reached')
+        before = len(self.port.targets)
+        self.assertEqual(self.run_pose({12: 7680, 13: 9944}).reason, 'PokerElbowWristCollision')
+        self.assertEqual(self.run_pose({12: 7680}).status, 'pulses_reached')   # Elbow alone keeps the wrist.
+        self.assertEqual(len(self.port.targets), before + 2)   # One target per channel, nothing for the refusal.
+        self.port.packets.clear()
+        curled = {12: poker_elbow_max(9944), 13: 9944}
+        self.assertEqual(self.run_pose(curled).status, 'pulses_reached')
+        sent = [(p[1], p[2]+128*p[3]) for p in self.port.targets]
+        # The elbow drops before the wrist is ever asked to curl in (one joint per stage).
+        self.assertEqual(sent[0], (12, curled[12]))
+        self.assertTrue(all(value == curled[12] for ch, value in sent[:sent.index((13, 9944))] if ch == 12))
+        self.port.packets.clear()
+        self.assertEqual(self.run_pose(dict(POKER_DRIVE)).status, 'pulses_reached')
+        sent = [(p[1], p[2]+128*p[3]) for p in self.port.targets]
+        # The wrist uncurls before the elbow rises.
+        self.assertLess(sent.index((13, POKER_DRIVE[1][1])), sent.index((12, 7680)))
+        self.assertTrue(all(value == curled[12] for ch, value in sent[:sent.index((13, POKER_DRIVE[1][1]))] if ch == 12))
+        self.assertEqual({ch: self.port.pose[ch] for ch in POKER}, dict(POKER_DRIVE))
+
+    def test_visor_runs_inverted(self):
+        from r3x.servo_poses import VISOR_DOWN, VISOR_UP
+        self.run_pose('visor_up');up = self.port.pose[3]
+        self.run_pose('visor_down')
+        self.assertLess(up, self.port.pose[3])                    # Low pulses raise the visor now.
+        self.assertEqual((up, self.port.pose[3]), (VISOR_UP, VISOR_DOWN))
 
     def test_talking_preserves_requested_visor_and_fully_lowered_arm(self):
         self.run_pose('visor_down');self.run_pose('throttle_down')

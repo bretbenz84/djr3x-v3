@@ -6,6 +6,78 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 10: two-servo head, poker elbow and wrist, inverted visor
+
+The owner reworked the head and the poker arm and measured the new positions in the
+Pololu Maestro Control Center (microseconds; the code uses quarter-microseconds, x4).
+The measured extremes are the calibrated limits. **Not yet run on the robot.**
+
+**Head.** The single head-tilt servo is gone. Two servos in the head face each other,
+each with a linkage onto one centre post: `head_left` (channel 2, the old channel) and
+`head_right` (channel 11). Driven against each other they pitch the head; driven the same
+way they shift the post sideways and cock the head to one side (called *tilt* below; the
+owner also called it yaw). Readings (left / right, µs):
+
+| pose | left | right |
+|---|---|---|
+| level | 1458 | 1620 |
+| level, fully down | 1013 | 1904 |
+| level, fully up | 2032 | 1312 |
+| down, tilted right | 1008 | 1702 |
+| down, tilted left | 1350 | 1849 |
+| up, tilted left | 2032 | 1587 |
+| up, tilted right | 1659 | 1312 |
+
+`servo_poses.head_pulses(pitch, tilt)` turns a pitch (-1 fully down .. 1 fully up) and a
+tilt (-1 cocked to Rex's left .. 1 to his right) into the pair of pulses: pitch moves the
+servos against each other along the measured level/up/down line (the travel is asymmetric),
+and a full tilt shifts both the same way by about 275 µs in total, each within its limits,
+the other taking what one cannot. Tilting right lowers both pulses. `head_pose` is the
+inverse (a least-error fit); it reproduces all seven readings exactly. Every head command
+sets both channels (`IncompleteHeadPose` otherwise), and a pair that no pitch/tilt
+explains within 150 µs is refused as `HeadPairOutsideEnvelope`, so the two servos cannot
+be driven into the corners the linkage never saw (for example both at their highest).
+Where one servo sits at its limit the decomposition is ambiguous (fully down tilted right
+also reads as a lesser pitch with more tilt); poses are still exact, only the reading of
+them is not. Pitch in degrees still uses V2's 20 down / 25 up estimate, unverified here.
+
+What uses it: the level drive stance and startup head are the owner's level reading; park
+is fully down. `look_down`/`look_up` pitch by 0.8 and keep the tilt; new `tilt_left`,
+`tilt_right` and `tilt_straight` steps cock the head by 0.8 and keep the pitch and neck;
+`look_level` levels and straightens. `set_robot_joints` offers `head_pitch` and
+`head_tilt` (0-100, 50 level/straight) instead of a raw servo. The talking sway nods
+slightly with a slight cock to each side; idle glances away carry a small cock; room scans
+a slight random one; face following moves the pitch and keeps the tilt. The `tilt`
+gesture is now a real side cock (0.6, or 0.3 subtle) that straightens again, and `nod`
+pitches both servos. The camera reframe rule counts both head servos.
+
+**Poker arm.** Channel 6 still swings the arm. New `poker_elbow` (12: 864 µs down, 1920
+up) and `poker_wrist` (13: 496 down, 1440 straight, 2486 curled up and inward). The elbow
+rises fully only with the wrist at or below 1564 µs; curled further in, the measured ceiling
+falls (wrist 1894 → elbow 1807, 2136 → 1709, 2496 → 1597; linear between). A pair above
+the ceiling is refused (`PokerElbowWristCollision`) before anything moves, and every
+elbow/wrist move is staged one joint at a time (elbow down to the lower of the two, wrist,
+elbow up) so the ceiling is never crossed on the way. Named poses from the readings:
+`poker_out` (1057/1389), `poker_up` (1500/942, 45 degrees up with the hand level),
+`poker_down` (elbow down, wrist straight). The drive stance adds elbow 1920 / wrist 1564
+beside the raised arm (`POKER_DRIVE`). Idle moves the elbow and wrist low and slowly with
+the swing. The unpowered rest for the two new channels (elbow down, wrist straight) is an
+assumption, not a reading: check it before the first cold start.
+
+**Visor.** The servo now runs inverted: low pulses raise it, high pulses lower it. The
+September calibration is mirrored inside the same 4544-6976 travel (up 5120, down/park
+6976, speaking 4880-5520 with 5520 the old camera-hiding floor). The real endpoints and
+the camera-clear pulse were not read; confirm them on the robot.
+
+**Also.** `IncompletePokerPose` mirrors the throttle's batch rule; held parts report
+`head_pitch_and_tilt` and `poker_elbow_and_wrist`; `robot_pose_state.joint_percent` is
+now by joint name with the head as pitch/tilt; the servo menu-bar console lists all 14
+channels with the new limits and direction hints. Unverified on the robot: the tilt
+direction (readings are taken as Rex's left/right), how far a 0.8 tilt visibly cocks the
+head and whether the linkage binds anywhere inside the envelope, the poker arm's
+clearance of the body and other arms, the visor's real endpoints, and whether the
+motion reads as expressive. Synthetic checks only.
+
 ## Implemented
 
 - `servo_poses.py` owns pulse limits and small lifecycle/talking sequences.

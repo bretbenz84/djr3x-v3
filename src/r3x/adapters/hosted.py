@@ -586,7 +586,8 @@ class OpenAIBrain(HTTPProvider):
         if snapshot.context.get('visual_novelty'):
             notes.append('\nUse visual_novelty to distinguish stored observations, selected-but-unheard remarks and actual heard remarks. A new conversational angle should connect to the people or their current activity; rewording an inventory is still repetition. An unmentioned detail need not become speech. Corrections revise old interpretations rather than proving the scene changed.')
         if snapshot.context.get('robot_pose_enabled'):
-            notes.append('\nRobot motion: You can physically move all eleven servos using set_robot_pose or set_robot_joints. '
+            notes.append('\nRobot motion: You can physically move all fourteen servos using set_robot_pose or set_robot_joints. '
+                'Your head can also cock to one side (tilt_left/tilt_right): use it for curiosity, puzzlement, a playful or sympathetic moment, and straighten it (tilt_straight or look_level) when the moment passes. '
                 '"Look left/right/up/down" moves the head with set_robot_pose, chaining steps as the request needs, never the wheels; '
                 '"turn left/right" or "turn around" drives the base. To look somewhere and say what is there, use one set_robot_pose '
                 'with look_after instead of describing the old view. '

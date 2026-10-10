@@ -622,20 +622,18 @@ class Session:
                 context['impersonation'] = impersonation.context(self.state, self.trace.clock())
             context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and getattr(self.output,'robot',None) and self.output.robot.owner.state=='active')
             if context['robot_pose_enabled']:
-                from .servo_poses import LIMITS, NAMED_POSES
+                from .servo_poses import HEAD_POSES, HELD_PARTS, NAMED_POSES, at_pose, joint_percents
                 owner = self.output.robot.owner
                 if opportunity and hasattr(owner,'yield_stale_hold'):
                     owner.yield_stale_hold()  # An aged human pose no longer blocks his own beats.
                 held = set(getattr(owner,'held_channels',()))
                 commanded = getattr(self.output.robot.owner,'commanded',{})
                 context['robot_pose_state'] = {'already_at':[
-                    name for name,targets in NAMED_POSES.items()
-                    if all(abs(commanded.get(ch,-10000)-value)<=2 for ch,value in targets)],
-                    'joint_percent':{str(ch):round(100*(value-LIMITS[ch][0])/(LIMITS[ch][1]-LIMITS[ch][0]))
-                                     for ch,value in commanded.items() if ch in LIMITS},
+                    name for name in (*NAMED_POSES, *HEAD_POSES) if at_pose(name, commanded)],
+                    'joint_percent':joint_percents(commanded),
                     'gaze': ({'people': 'following_faces', 'direction': 'holding_chosen_direction'}.get(
                         self.output.robot.idle.mode()) if hasattr(getattr(self.output.robot, 'idle', None), 'mode') else None), 'held_parts':
-                    [name for name,channels in (('neck',{0}),('head_lift',{1}),('head_tilt',{2}),('visor',{3}),('hero_elbow',{4}),('hero_wrist',{5}),('poker_arm',{6}),('hero_arm',{7}),('throttle_arm',{8,9,10})) if held.intersection(channels)],
+                    [name for name,channels in HELD_PARTS if held.intersection(channels)],
                     'arms_held_until_told': bool(getattr(owner,'hold_until_released',False))}
                 if opportunity and held: context['robot_pose_enabled']=False
             if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:

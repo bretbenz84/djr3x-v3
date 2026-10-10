@@ -3,7 +3,7 @@
 rex_servo_menubar.py — macOS menu bar servo console for the Pololu Maestro.
 
 A small always-on menu bar app (rumps/Cocoa, sibling of rex_battery_menubar.py)
-titled "Servo Control". The dropdown shows all 11 of Rex's servos as live sliders
+titled "Servo Control". The dropdown shows all 14 of Rex's servos as live sliders
 (labelled with the current position in Maestro microseconds) plus a "Restart
 Pololu" action. Slide a slider and the servo moves — the same Pololu compact
 protocol `set target` commands hardware/servos.py sends for the main GUI's
@@ -25,10 +25,19 @@ returns to its configured home/startup position — the recover-a-weird-pose
 button. (The Maestro has no soft-reboot over serial; go-home + a fresh
 position read is the meaningful restart.)
 
-Servo definitions mirror config.SERVO_CHANNELS (channels, min/max/neutral in
-quarter-microseconds) and honor the same .env overrides
+Servo definitions mirror V3's src/r3x/servo_poses.py LIMITS (channels, min/max/neutral
+in quarter-microseconds) and honor the same .env overrides
 (SERVO_<NAME>_MIN_US / _MAX_US / _NEUTRAL_US, Maestro Control Center
 microseconds) — keep _SERVO_DEFAULTS in sync if the robot gains a servo.
+
+October 10, 2026 rework: the head rides on two facing servos, headleft (ch 2, the old
+headtilt) and headright (ch 11). Moving them against each other pitches the head
+(headleft up = higher pulse, headright up = lower pulse); moving them the same way
+cocks it to a side. The sliders are independent, so keep pairs near the measured
+poses (level 1458/1620 µs, up 2032/1312, down 1013/1904). The poker arm gained an
+elbow (ch 12) and wrist (ch 13): the elbow can rise fully only with the wrist at or
+below 1564 µs; curled further in, the elbow's ceiling drops (2496 µs → 1597 µs).
+The visor servo is inverted: low pulses raise it, high pulses lower it.
 
 Run directly for debugging:
     venv/bin/python tools/rex_servo_menubar.py
@@ -75,15 +84,19 @@ _CMD_SET_ACCEL = 0x89
 _CMD_GET_POSITION = 0x90
 _CMD_GO_HOME = 0xA2
 
-# Mirror of config.SERVO_CHANNELS (q-µs). Keep in sync when the robot changes.
+# Mirror of src/r3x/servo_poses.py LIMITS (q-µs). Keep in sync when the robot changes.
 _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
     "neck":     {"ch": 0, "min": 1984, "max": 8960, "neutral": 5472},
     "headlift": {"ch": 1, "min": 2600, "max": 7744, "neutral": 6000},  # min 650 us
-    "headtilt": {"ch": 2, "min": 3904, "max": 5504, "neutral": 4320},
-    "visor":    {"ch": 3, "min": 4544, "max": 6976, "neutral": 6560},  # 1640 µs — 6000 hid part of the camera
+    # Two-servo head (October 10): measured extremes are the limits; neutral is the level pose.
+    "headleft": {"ch": 2, "min": 4032, "max": 8128, "neutral": 5832},   # 1008–2032 µs, level 1458
+    "headright": {"ch": 11, "min": 5248, "max": 7616, "neutral": 6480}, # 1312–1904 µs, level 1620
+    "visor":    {"ch": 3, "min": 4544, "max": 6976, "neutral": 4960},  # inverted: 1240 µs is the old 1640 "up" mirrored
     "elbow":    {"ch": 4, "min": 6300, "max": 7424, "neutral": 6720},  # 7424 = the Maestro's own stored channel limit (1856 us)
     "hand":     {"ch": 5, "min": 1984, "max": 9984, "neutral": 6000},
     "pokerarm": {"ch": 6, "min": 3968, "max": 8000, "neutral": 6000},
+    "pokerelbow": {"ch": 12, "min": 3456, "max": 7680, "neutral": 3456},  # 864 (down) – 1920 (up) µs
+    "pokerwrist": {"ch": 13, "min": 1984, "max": 9944, "neutral": 5760},  # 496 (down) – 2486 (up inward) µs; straight 1440
     "heroarm":  {"ch": 7, "min": 3968, "max": 8000, "neutral": 6000},
     # Neutral is only an unsent slider placeholder, never a startup command.
     "throttle_shoulder": {"ch": 8, "min": 2140, "max": 9120, "neutral": 6000,
@@ -97,6 +110,15 @@ _THROTTLE_DIRECTIONS = {
     "throttle_shoulder": "low ↑ / high ↓",
     "throttle_elbow": "low ↓ / high ↑",
     "throttle_wrist": "low ↑ / high ↓",
+}
+# Slider label hints for the reworked joints (the throttle hints above also get nudges).
+_DIRECTIONS = {
+    **_THROTTLE_DIRECTIONS,
+    "headleft": "low ↓ / high ↑ (pair with headright)",
+    "headright": "low ↑ / high ↓ (pair with headleft)",
+    "visor": "low ↑ / high ↓ (inverted)",
+    "pokerelbow": "low ↓ / high ↑ (ceiling drops as wrist curls in)",
+    "pokerwrist": "low ↓ / high ↑ inward",
 }
 
 
@@ -648,7 +670,7 @@ def run_app() -> int:
             self._sequence_menu.add(self._play_menu)
             self._sequence_files = None
             self._record = rumps.MenuItem("Record this pose…", callback=self._record_pose)
-            menu: list = [self._status, self._sequence_menu, self._sequence_status, self._measurement, self._record, self._measurement_status, rumps.MenuItem("Throttle: manual clearance required"), None]
+            menu: list = [self._status, self._sequence_menu, self._sequence_status, self._measurement, self._record, self._measurement_status, rumps.MenuItem("Throttle and poker elbow/wrist: manual clearance required"), None]
             for name, cfg in servos.items():
                 self._by_channel[cfg["ch"]] = name
                 label = rumps.MenuItem(f"{name}", callback=lambda _: None)
@@ -762,7 +784,7 @@ def run_app() -> int:
                 self._record_timer = None
 
         def _set_label(self, name: str, qus: float, state: str = "target") -> None:
-            direction = _THROTTLE_DIRECTIONS.get(name, "")
+            direction = _DIRECTIONS.get(name, "")
             value = f"{qus / 4.0:.2f}".rstrip("0").rstrip(".")
             reading = f"{value} µs ({state})" if state == "target" else state
             self._labels[name].title = f"ch{servos[name]['ch']} {name}: {reading} {direction}".rstrip()

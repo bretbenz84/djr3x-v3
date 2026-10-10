@@ -64,13 +64,27 @@ class PhysicalMotionTests(unittest.TestCase):
 
     def test_gestures_return_to_start_and_do_not_touch_microphone(self):
         adapter=PhysicalGesture(self.robot);adapter.start()
+        from r3x.servo_poses import head_pose
         for primitive in ('nod','tilt','lift','arm_emphasis'):
             for intensity in ('subtle','normal'):
-                before=self.port.pose.copy()
+                before=self.port.pose.copy();self.port.packets.clear()
                 receipt=adapter.execute(Gesture('g',primitive,'unfocused',intensity,self.clock()+30),Cancellation())
                 self.assertEqual(receipt.status,'pulses_reached')
                 self.assertEqual(self.port.pose,before)
                 self.assertFalse(self.robot.owner.held_channels)
+                sent=[(p[1],p[2]+128*p[3]) for p in self.port.targets]
+                if primitive in ('nod','tilt'):
+                    # Both head servos move together; a tilt cocks the head (both pulses the
+                    # same way, here lower = to the right), a nod pitches it (against each other).
+                    first={ch:value for ch,value in sent[:2]}
+                    self.assertEqual(set(first),{2,11})
+                    pitch,tilt=head_pose(first)
+                    if primitive=='tilt':
+                        self.assertLess(first[2],before[2]);self.assertLess(first[11],before[11])
+                        self.assertAlmostEqual(tilt,.6 if intensity=='normal' else .3,delta=.03)
+                    else:
+                        self.assertLess(first[2],before[2]);self.assertGreater(first[11],before[11])
+                        self.assertAlmostEqual(pitch,-.3 if intensity=='normal' else -.15,delta=.03)
 
     def test_stale_closed_uncalibrated_and_cancelled_actions_cannot_succeed(self):
         before=len(self.port.targets)

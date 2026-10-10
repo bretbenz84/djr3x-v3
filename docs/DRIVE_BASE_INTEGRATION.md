@@ -45,9 +45,10 @@ hallway no-reverse rule. No firmware was changed.
   firmware's wall-steering off (gain 0, restored afterwards), so the firmware slows and
   stops him instead of steering around what he is driving to (October 3; simulated only).
 - **Safety and stance.**
-  - The throttle arm parks, the hero elbow (7424) and poker arm (8000) are raised, and
-    the head is centred and level, right before the first wheel command. All are held
-    until the drive ends.
+  - The throttle arm parks, the hero elbow (7424) and poker arm (8000) are raised, the
+    poker elbow goes up with its wrist at 1564 µs (October 10), and the head is centred,
+    level and straight, right before the first wheel command. All are held until the
+    drive ends.
   - Arm-swing checks gate turns. Firmware stop zones stay active.
   - Stop phrases ("stop", "whoa", "Oh, stop!") halt the wheels and silence the motion
     sounds at once.
@@ -442,8 +443,8 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
   A stop command silences them at once. They play through the speech sink without LED
   lip sync and never raise echo risk, so the microphone still hears "stop".
 - **Arm stance while driving (owner).** The pre-drive park also raises the hero-arm
-  elbow fully (7424, higher is up) and the poker arm to 8000, held with the throttle and
-  head until the drive ends.
+  elbow fully (7424, higher is up) and the poker arm to 8000, plus (October 10) the poker
+  elbow up with the wrist at 1564 µs, held with the throttle and head until the drive ends.
 - **IMU.** Gyro yaw measures turns and remembers the sought thing's heading. The
   firmware's accelerometer pitch/roll and the QMC5883L compass are not used; V2's
   compass fusion and calibration are not ported.

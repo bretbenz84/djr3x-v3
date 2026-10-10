@@ -4,7 +4,7 @@ import time
 from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
-from .servo_poses import LIMITS
+from .servo_poses import HEAD, LIMITS, pose_channels
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
 from .voice_reflex import VoiceReflex
@@ -16,7 +16,7 @@ LOOK_STILL_S = 4.
 
 class RobotServos:
     capability = Capability('robot_servos','Pololu Maestro','startup, idle arms, talking, microphone hold and park',
-        dependencies=('pyserial',),resources=('exclusive Maestro; eleven calibrated channels',),
+        dependencies=('pyserial',),resources=('exclusive Maestro; fourteen calibrated channels',),
         shutdown='join idle/talking; park; close port; acknowledge ownership release')
 
     def __init__(self, port, *, open_port=None, clock=time.monotonic, wait=time.sleep):
@@ -87,7 +87,7 @@ class RobotServos:
             # Following faces is the idle gaze's job, never a held pose. When a person asks
             # for it, their earlier held look gives way; Rex's own cannot override a hold.
             if hold_pose:
-                self.owner.held_channels.difference_update({0, 1, 2})
+                self.owner.held_channels.difference_update(HEAD)
             hold_pose = False
             try:
                 aim = self.idle.face() if self.idle.face else None
@@ -101,7 +101,7 @@ class RobotServos:
             if follow or name == 'release_poses':
                 self.idle.look_at_people()
             else:
-                self.idle.posed(receipt.changed_channels or self._pose_channels(name), own=not hold_pose)
+                self.idle.posed(receipt.changed_channels or pose_channels(name), own=not hold_pose)
         return receipt
 
     def drive_look(self, pose, cancel, request_id):
@@ -113,11 +113,6 @@ class RobotServos:
             return self.execute_pose(pose, cancel, request_id)
         finally:
             self.owner.pose_held_at = held_at
-
-    @staticmethod
-    def _pose_channels(name):
-        from .servo_poses import NAMED_POSES
-        return tuple(name) if isinstance(name, dict) else tuple(ch for ch, _ in NAMED_POSES.get(name, ()))
 
     def execute_expression(self, request, cancel):
         self.idle.stop()

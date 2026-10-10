@@ -10,7 +10,7 @@ programs run.
 | `com.djr3x.supervisor` | `operator_tools/rex_supervisor.py` | Listens for "wake up rex" (openWakeWord `wakeuprex.onnx`, score ≥ 0.92 for 4 frames of 80 ms). Plays the chime and launches `python -m r3x live`. Plays the ready chime once at login, and charger connected/disconnected sounds. Auto-updates the V3 checkout. |
 | `com.djr3x.battery` | `operator_tools/tools/rex_battery_menubar.py` | Menu-bar battery readout from the drive ESP32 (percent, volts, amps, watts, runtime), Set-Battery-%, ESP32 restart and gamepad. Paints the chest meter and the mouth charge glow. |
 | `com.djr3x.led` | `operator_tools/tools/rex_led_menubar.py` | Head/chest LED animation buttons. Battery-meter mode (default) leaves both boards to the battery app. |
-| `com.djr3x.servo` | `operator_tools/tools/rex_servo_menubar.py` | Sliders for all eleven servos, throttle nudges, measurement mode, throttle sequence recording/playback and Pololu restart. |
+| `com.djr3x.servo` | `operator_tools/tools/rex_servo_menubar.py` | Sliders for all fourteen servos (two-servo head, poker elbow/wrist since October 10), throttle nudges, measurement mode, throttle sequence recording/playback and Pololu restart. |
 
 Each plist sets `PATH` to include `/opt/homebrew/bin`. launchd's default path lacks
 it, so the first voice launch on September 27 exited at once: V3's camera readiness
