@@ -237,6 +237,11 @@ CASES = (
     ('stacked_spin_back_come', "Spin all the way around, back up a little, then come over to me.",
      drive([FACE, NEAREST]), score_stacked, None),
     ('turn_left', "Turn left.", drive([FACE, NEAREST]), score_turn_left, None),
+    # October 10 (run b954c14c): "Can you turn to your left?" became a look_left head pose, and so did
+    # the correction, with Rex saying "Turning the base now" while posing the head again.
+    ('turn_to_your_left', "Can you turn to your left?", drive([FACE, NEAREST]), score_turn_left, None),
+    ('turn_left_after_head_look', "I asked you to turn left.", drive([FACE, NEAREST]), score_turn_left,
+     ("Can you turn to your left?", "On it.")),
     ('come_here_from_behind', "Rex, come here!", drive([RADAR_BEHIND, SPEAKER_BEHIND]), score_come_unseen, None),
     ('closer_look_path_blocked', "Go take a closer look at the dog.",
      drive([DOG], space(front=.55, front_center=.55, front_left=1.9, left=1.6, front_right=.6, right=.5)),
@@ -302,8 +307,9 @@ def main():
                 session = Session(uuid4().hex, recording, EvalOutput(trace, context), trace, state)
                 try:
                     if seed:
-                        session.brain = SeedBrain('Okay, I will stay put.')
-                        session.process_turn(capture(session), Transcript(seed, -.01, True), session.revision, voice)
+                        said, answer = seed if isinstance(seed, tuple) else (seed, 'Okay, I will stay put.')
+                        session.brain = SeedBrain(answer)
+                        session.process_turn(capture(session), Transcript(said, -.01, True), session.revision, voice)
                         session.brain = recording
                     began = time.monotonic()
                     marker = len(rejections)

@@ -1,10 +1,25 @@
 # Current implementation status
 
-Updated October 6, 2026. This is the consolidated
+Updated October 10, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## October 10 afternoon runs: the new head and poker arm on the floor
+
+Runs `f07e53af`, `6ae27b19`, `6b8fa000` and `b954c14c` (real hardware). The two-servo
+head, its looks and tilts, and `poker_up` reached their pulses. Repaired the same evening,
+all with synthetic checks only: the poker arm and hero elbow now walk back to their awake
+poses after a drive (only the throttle did); the head-lift park is 2624, the board's
+floor, so shutdown no longer times out on it; lone depth-matrix zones no longer block the
+path (a "come here" stalled at 6 cm with every column reading open); blocked moves log the
+clearance that stopped them; and the tool text makes "turn left" a wheel turn, never a
+head look (two corrections in a row were answered with `look_left`). The 15:22 refusals
+were the front-right ring sensor's phantom, not software. Hosted planning check results
+for the turn wording are recorded in the drive doc. **Not yet run on the robot**
+([drive base](DRIVE_BASE_INTEGRATION.md#october-10-evening-stalled-beside-the-couch-turn-left-as-a-head-look-arms-after-a-drive),
+[servos](SERVO_INTEGRATION.md#october-10-two-servo-head-poker-elbow-and-wrist-inverted-visor)).
 
 ## Voice impressions — October 6
 

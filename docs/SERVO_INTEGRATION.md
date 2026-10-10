@@ -109,6 +109,22 @@ their pulses on the robot. Three findings:
   Confirm from the next shutdown's reason, then either widen the board's range in the
   Maestro Control Center or lower the park pulse to the board's limit.
 
+**Second live run (sessions `6b8fa000` and `b954c14c`, October 10 afternoon).** Two more
+findings, both fixed the same evening (pulse simulator only):
+
+- **The poker arm did not come back after driving.** The drive stance raised the arm (8000),
+  put its elbow up and wrist at 1564 µs, and when the wheels stopped only the throttle arm
+  walked back; the hero elbow and the poker channels were merely let go, and idle life
+  never carried them back (the next drive's park changed none of them). `return_arm` now
+  walks every arm the stance moved: the throttle to rest, the hero elbow to its awake
+  6720, the poker arm to mid swing (6000) and its elbow/wrist to `poker_up` by the staged
+  clearance route, all beside one another and beside head motion, which is free at once.
+  Those channels stay held until they are back; a request for them meanwhile is
+  `ServoBusy`, as the throttle already was.
+- **Shutdown timed out again, now named: `ch1@2624->2600`.** The head-lift park of 2600
+  never arrives because the board's own range stops at 2624 (656 µs); the lift's minimum
+  and park are 2624 now. The visor park reached 6976 this time.
+
 **Also.** `IncompletePokerPose` mirrors the throttle's batch rule; held parts report
 `head_pitch_and_tilt` and `poker_elbow_and_wrist`; `robot_pose_state.joint_percent` is
 now by joint name with the head as pitch/tilt; the servo menu-bar console lists all 14
@@ -287,11 +303,12 @@ turns his head or does any other motion". The un-park was one servo request of a
 seconds, and the owner runs one request at a time, so idle gaze, talking sway and gestures
 were refused (`ServoBusy`) and the drive stance stayed held until it finished.
 
-Now `begin_arm_return` releases the neck, head, hero elbow and poker arm the instant the
-wheels stop, and `return_arm` walks the throttle arm back to rest outside the
-single-request lock, using the same staged route and clearance checks. Only the arm's
-three channels stay held; a request that would command them, and park or shutdown, are
-refused until it is back (the next drive and shutdown already wait for it). The Maestro
+Now `begin_arm_return` releases the neck and head the instant the wheels stop, and
+`return_arm` walks the throttle arm back to rest outside the single-request lock, using
+the same staged route and clearance checks (since October 10 the hero elbow and poker
+arm, elbow and wrist walk back beside it). Only those arm channels stay held; a request
+that would command them, and park or shutdown, are refused until they are back (the next
+drive and shutdown already wait for it). The Maestro
 adapter takes each wire exchange whole so the two cannot interleave. A stop holds the arm
 where it is. Checked with the pulse simulator only (four new checks, one with head moves
 running in another thread during the return); on the robot, confirm the head resumes

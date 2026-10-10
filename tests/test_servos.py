@@ -6,7 +6,8 @@ import unittest
 
 from r3x.contracts import Cancellation, Playback, ProviderFailure
 from r3x.output import Delivery, OutputOwner
-from r3x.servo_poses import HEAD_PARK, PARK, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
+from r3x.servo_poses import AWAKE_ARMS, HEAD_PARK, PARK, POKER, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
+from r3x.servos import ARM_RETURN
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 
 
@@ -403,7 +404,7 @@ class ArmReturnTests(unittest.TestCase):
     def test_head_is_free_the_moment_the_drive_ends_while_the_arm_is_still_out(self):
         self.parked()
         self.owner.begin_arm_return()
-        self.assertEqual(self.owner.held_channels, set(THROTTLE))
+        self.assertEqual(self.owner.held_channels, set(ARM_RETURN))   # The head is free; the arms wait.
         self.assertFalse(self.owner._base_held)
         self.assertTrue(self.owner.motion_risk())         # The arm is about to move: not a still moment.
         look = self.owner.execute(self.request('pose', pose={0: 4000}, hold_pose=False), Cancellation())
@@ -424,7 +425,11 @@ class ArmReturnTests(unittest.TestCase):
         receipt = self.owner.return_arm()
         self.assertEqual(receipt.status, 'pulses_reached')
         self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
-        self.assertFalse(self.owner.held_channels & set(THROTTLE))
+        # October 10: the hero elbow, the poker arm and its elbow/wrist come back to their
+        # awake poses too, not only the throttle.
+        self.assertEqual({ch: self.port.pose[ch] for ch in (4, 6)}, dict(AWAKE_ARMS))
+        self.assertEqual({ch: self.port.pose[ch] for ch in POKER}, dict(POKER_UP))
+        self.assertFalse(self.owner.held_channels & set(ARM_RETURN))
         self.assertFalse(self.owner._arm_returning)
         self.assertEqual(self.owner.execute(self.request('pose', pose='throttle_offer'), Cancellation()).status,
                          'pulses_reached')
@@ -450,7 +455,7 @@ class ArmReturnTests(unittest.TestCase):
         self.port.on_target = self.owner.cancel             # ...and a stop comes while it travels.
         receipt = self.owner.return_arm()
         self.assertEqual(receipt.status, 'cancelled')
-        self.assertTrue(set(THROTTLE) <= self.owner.held_channels)
+        self.assertTrue(set(ARM_RETURN) <= self.owner.held_channels)
         self.assertFalse(self.owner._arm_returning)
 
 

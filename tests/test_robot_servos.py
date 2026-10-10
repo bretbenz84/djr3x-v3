@@ -50,7 +50,7 @@ class RobotServoTests(unittest.TestCase):
             owner.close()
         self.assertEqual(events,['capture_started','capture_cancelled','capture_closed'])
         self.assertTrue(self.port.closed)
-        self.assertEqual(self.port.pose[1],2600)
+        self.assertEqual(self.port.pose[1],2624)
         self.assertEqual(self.port.pose[8],9088)
 
     def test_microphone_hold_expires_and_capture_completion_releases_it(self):
@@ -129,7 +129,7 @@ class RobotServoTests(unittest.TestCase):
         self.robot.close()
         self.assertEqual([kind for kind,_ in events],['lights','sound'])
         self.assertEqual(events[1][1][1],awake[1])    # The sound starts with the head still up: it plays over the park.
-        self.assertEqual(self.port.pose[1],2600)
+        self.assertEqual(self.port.pose[1],2624)
         self.assertTrue(self.port.closed)
         def broken(): raise RuntimeError('no speaker')
         robot=RobotServos('/dev/cu.synthetic',open_port=lambda:self.port,clock=self.clock,wait=self.clock.wait)
@@ -139,7 +139,7 @@ class RobotServoTests(unittest.TestCase):
         robot.on_shutdown=broken
         robot.close()                                 # A failed sound never stops the park.
         self.assertTrue(robot.closed)
-        self.assertEqual(self.port.pose[1],2600)
+        self.assertEqual(self.port.pose[1],2624)
 
     def test_faulted_link_reports_park_failure_but_closes_port(self):
         self.robot.start()

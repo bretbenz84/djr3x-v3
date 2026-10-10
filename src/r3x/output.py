@@ -509,6 +509,10 @@ def put_phrase(queue: Queue, value: str | Performance | None, cancel: Cancellati
 
 class TextOutput:
     """Explicit silent replay output. Never creates an audio delivery receipt."""
+    # No hardware adapters: the session reads these like OutputOwner's (October 10: the
+    # hosted drive-planning check failed every turn on a missing 'attention').
+    attention = gestures = inspection = drive = None
+
     def __init__(self,trace):
         self.trace = trace
 

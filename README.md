@@ -70,7 +70,8 @@ it or reads its data.
   - Approaches to a sought thing roll continuously while hosted vision looks run in the
     background. He goes around obstacles and never reverses to make arm room on the way.
   - Safety: throttle-arm park, hero elbow and poker arm raised and head levelled while
-    driving, arm-swing and path-clearance checks, and an immediate halt on stop.
+    driving (the arms walk back to their awake poses when the wheels stop), arm-swing and
+    path-clearance checks, and an immediate halt on stop.
   - V2's motion sounds play at 50% while the wheels move.
   - He can answer questions about battery, charging, obstructions, radar bodies, tilt
     and room climate from live readings.

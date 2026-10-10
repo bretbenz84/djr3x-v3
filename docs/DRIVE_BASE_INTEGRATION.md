@@ -48,7 +48,11 @@ hallway no-reverse rule. No firmware was changed.
   - The throttle arm parks, the hero elbow (7424) and poker arm (8000) are raised, the
     poker elbow goes up with its wrist at 1564 µs (October 10), and the head is centred,
     level and straight, right before the first wheel command. All are held until the
-    drive ends.
+    drive ends; then the head is free at once and the arms walk back to their awake
+    poses in the background (throttle to rest, hero elbow and poker arm to their mid
+    points, poker elbow/wrist to the 45-degree pose; October 10 evening).
+  - A return from the front depth matrix counts only when a neighbouring zone agrees with
+    it (October 10 evening); lone zones no longer block the path.
   - Arm-swing checks gate turns. Firmware stop zones stay active.
   - Stop phrases ("stop", "whoa", "Oh, stop!") halt the wheels and silence the motion
     sounds at once.
@@ -964,3 +968,52 @@ Checks: `tests/test_looking.py` (sharpest frame chosen, frames before the settle
 timeout honest), the delayed idle wake, the route look's timing and the drive-end flag.
 Not measured: whether 1.5 s is enough on the robot (the owner's estimate) and the
 sharpness score on real head-camera frames.
+
+## October 10 evening: stalled beside the couch, "turn left" as a head look, arms after a drive
+
+Owner's runs `6b8fa000` (15:22) and `b954c14c` (16:17), real hardware, after the new head
+and poker arm went in. "Come here" was refused in the first and barely moved in the
+second; "turn left" did not turn; the arms did not come back after driving. From the logs:
+
+- **15:22, "find the sliding glass door and drive to it": refused twice.** Every aim and
+  detour turn was `turn_path_blocked: ring@315 near fr return at 0.5x m` with the
+  front-right radial reading 0.07 m and the depth matrix open: the known phantom on that
+  sensor (see [the front-right sensor note](#safety-gates)). Nothing in V3 changed for it;
+  by the 16:17 run that sensor read 4.0 m, so the refusal did not recur.
+- **16:17, "if you come over here": 0.18 m in 49 s, then "Stop."** The person was in view
+  nine degrees off. The matrix's left column read 0.17 m (a coffee table corner, plausibly)
+  and the centre 0.43 m, so the approach went straight to a route look, turned 33 degrees
+  right, crawled 6 cm and stopped (`shortened_by_clearance`: the centre of the path read
+  under 0.40 m), turned back, and the second look showed every matrix column and ring
+  sensor open while `path_m` was still 0.16 m. That number came from single zones scattered
+  across one band: each column takes its second-nearest zone, but a band pooled 24 zones and
+  took the second nearest of those, so two lone speckles in different columns blocked the
+  path. **Changed:** a matrix return now counts only when one of its eight neighbouring
+  zones returns about the same range (within 10 cm or 20%); the nearest such zone is the
+  band's reading, in `path_m`, `front_m` and the route look's columns alike. A real surface
+  fills neighbouring zones at any range the host acts on. The firmware's own stop zones
+  are untouched. **Logged:** a move that is refused, blocked or shortened now carries
+  `clearance_m` (the path by side, the front radials, sides and rear) and a crawl says what
+  stopped it (`stopped_by`); the route look's facts list `path_by_side_m`. What the three
+  zones at 0.16 m were is not known from the log.
+- **"Can you turn to your left?" became `look_left`, twice.** The model posed the head, and
+  on "I asked you to turn left" said "Turning the base now" while posing the head again.
+  Nothing refused a drive: `drive_base` was offered and the wheels were free (the
+  `human_pose_held` refusal in the log was his own planned swivel, correctly held off by
+  the look he had just been asked for). The tool text now says that "turn left", "turn to
+  your left", "turn around", "rotate" and "face the door" are wheel turns and never a head
+  look unless they say head, neck, eyes or look, and that "I asked you to turn" after a
+  head look means a wheel turn now. The hosted planning check gained these two cases
+  (`turn_to_your_left`, and `turn_left_after_head_look`, where the prior exchange was that
+  question answered "On it."). With the new text, `gpt-6-luna` at low reasoning chose a
+  `drive_base` turn left of 90 degrees in 6 of 6 (two repeats of each, with `turn_left`);
+  evidence `local/validation/drive-planning-d6ec773c…`. The check tool itself had been
+  failing every turn on a missing output attribute since the text-only output lost its
+  adapters; `TextOutput` now carries them as `None`.
+- **Arms after a drive.** See the [servo notes](SERVO_INTEGRATION.md#october-10-two-servo-head-poker-elbow-and-wrist-inverted-visor):
+  only the throttle walked back; the poker arm stayed raised at its park.
+
+Unmeasured on the robot: all of it. The corroboration rule is checked against the
+recorded hallway grid and a synthetic scatter; whether the robot's matrix produces such
+scatter routinely, or whether those zones were a real edge, needs the next run's
+`clearance_m` rows.

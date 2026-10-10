@@ -17,7 +17,7 @@ from types import MappingProxyType
 # Calibrated limits per channel. The October 10 servo-console readings (Maestro
 # microseconds x 4) are the limits of the two head servos and the poker elbow/wrist.
 LIMITS = MappingProxyType({
-    0: (1984, 8960), 1: (2600, 7744), 2: (4032, 8128), 3: (4544, 6976),
+    0: (1984, 8960), 1: (2624, 7744), 2: (4032, 8128), 3: (4544, 6976),
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
     8: (2176, 9088), 9: (2048, 9984), 10: (2048, 9984),
     11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
@@ -147,7 +147,7 @@ VISOR_SPEECH = (4880, 5520)      # Expressive range while speaking, clear of the
 
 # name -> (channel or head axis, value at 0 %, value at 100 %)
 JOINT_RANGES = {
-    'neck': (0, 1984, 8960), 'head_lift': (1, 2600, 7744),
+    'neck': (0, 1984, 8960), 'head_lift': (1, 2624, 7744),
     'head_pitch': ('pitch', -1., 1.), 'head_tilt': ('tilt', -1., 1.),
     'visor': (3, VISOR_DOWN, 4544),
     'hero_elbow': (4, 6300, 7424), 'hero_wrist': (5, 1984, 9984), 'poker_arm': (6, 3968, 8000),
@@ -230,7 +230,15 @@ POKER_DRIVE = POKER_PARK
 # Owner, October 10 evening: awake, the arm sits 45 degrees up with the hand level (1500 /
 # 942 us). Startup takes it there from its park and idle life wanders around it.
 POKER_UP = ((12, 6000), (13, 3768))
-HEAD_PARK = ((0, NECK_CENTER), (1, 2600), (2, HEAD_FULL_DOWN[0]), (11, HEAD_FULL_DOWN[1]),
+# Where the arms the drive stance moved go back to once the wheels stop (owner, October 10:
+# after a drive the poker arm stayed raised and parked instead of returning to its mid
+# points): the hero elbow at its awake neutral (startup), the poker arm at mid swing, and
+# the poker elbow/wrist at POKER_UP (base_lanes 'base_release').
+AWAKE_ARMS = ((4, 6720), (6, 6000))
+# The head lift's lowest pulse is 2624 (656 us): the board's own range clamps anything
+# lower, so a park at 2600 never arrived (shutdown ServoArrivalTimeout:ch1@2624->2600,
+# October 10 run b954c14c).
+HEAD_PARK = ((0, NECK_CENTER), (1, 2624), (2, HEAD_FULL_DOWN[0]), (11, HEAD_FULL_DOWN[1]),
              (3, VISOR_DOWN), (4, 6300))
 # Where each joint hangs once the robot has been powered off (the board then reads 0).
 UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK, *POKER_PARK)
@@ -586,7 +594,8 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
 
 def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ...]:
     """Throttle park, centered neck, raised hero elbow/poker arm and the poker elbow/wrist
-    drive pose before base motion; the throttle's return to rest.
+    drive pose before base motion; afterwards the throttle's return to rest beside the
+    hero elbow, poker arm, elbow and wrist going back to their awake poses.
 
     V2 parks the throttle arm before every non-reverse base command. The neck is
     centered so head-camera bearings are base-relative. Return uses the validated
@@ -629,6 +638,15 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
             lanes += ((Beat(arms, speed=35, acceleration=8),),)
         if set(POKER).issubset(current) and any(abs(current[ch] - value) > 2 for ch, value in POKER_DRIVE):
             lanes += (poker_lane(current, dict(POKER_DRIVE)),)
+    else:
+        # The other arms the stance moved come back beside the throttle's walk: the hero
+        # elbow and the poker arm's swing to their awake mid points, the poker elbow and
+        # wrist to the awake 45-degree pose by the staged clearance route.
+        arms = tuple((ch, value) for ch, value in AWAKE_ARMS if ch in current and abs(current[ch] - value) > 2)
+        if arms:
+            lanes += ((Beat(arms, speed=20, acceleration=5),),)
+        if set(POKER).issubset(current) and any(abs(current[ch] - value) > 2 for ch, value in POKER_UP):
+            lanes += (poker_lane(current, dict(POKER_UP), speed=12, acceleration=3),)
     return lanes
 
 

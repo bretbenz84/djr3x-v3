@@ -379,6 +379,8 @@ class DriveOwnerTests(unittest.TestCase):
         self.assertEqual([s['status'] for s in receipt.steps], ['blocked'])
         self.assertAlmostEqual(receipt.travelled_m, .3, places=2)
         self.assertFalse(any(c['cmd'] == 'turn' for c in self.fake.commands))
+        # October 10: a move that did not go as asked keeps the clearance that decided it.
+        self.assertIn('path_m', receipt.steps[0]['clearance_m'])
 
     def test_swing_check_refuses_a_turn_that_sweeps_an_arm_into_a_shelf(self):
         self.start()
@@ -557,7 +559,7 @@ class ArmParkTests(unittest.TestCase):
     def test_arm_parks_and_neck_centers_before_wheels_then_returns_to_rest(self):
         from tests.test_servos import Clock as ServoClock, PulsePort
         from r3x.robot_servos import RobotServos
-        from r3x.servo_poses import PARK, REST
+        from r3x.servo_poses import AWAKE_ARMS, DRIVE_ARMS, PARK, POKER, POKER_DRIVE, POKER_UP, REST
         servo_clock, port = ServoClock(), PulsePort()
         robot = RobotServos('fake', open_port=lambda: port, clock=servo_clock, wait=servo_clock.wait)
         robot.owner.wait = servo_clock.wait
@@ -573,15 +575,20 @@ class ArmParkTests(unittest.TestCase):
             if command['cmd'] == 'turn' and 'throttle' not in seen:
                 seen['throttle'] = {ch: port.pose[ch] for ch, _ in PARK}
                 seen['neck'] = port.pose[0]
+                seen['arms'] = {ch: port.pose[ch] for ch, _ in DRIVE_ARMS + POKER_DRIVE}
             original(command)
         fake.handle = handle
         receipt = drive.execute(plan(DriveStep('turn', degrees=30.)), Cancellation())
         self.assertEqual(receipt.status, 'completed')
         self.assertEqual(seen['throttle'], dict(PARK))
         self.assertEqual(seen['neck'], 5472)
+        self.assertEqual(seen['arms'], dict(DRIVE_ARMS + POKER_DRIVE))   # The whole stance, before the wheels.
         robot._arm_return.join(5)
         self.assertEqual({ch: port.pose[ch] for ch, _ in REST}, dict(REST))
-        self.assertFalse(robot.owner.held_channels & {0, 8, 9, 10})
+        # October 10: the poker arm and hero elbow come back to their awake mid points too.
+        self.assertEqual({ch: port.pose[ch] for ch in (4, 6)}, dict(AWAKE_ARMS))
+        self.assertEqual({ch: port.pose[ch] for ch in POKER}, dict(POKER_UP))
+        self.assertFalse(robot.owner.held_channels & {0, 4, 6, 8, 9, 10, 12, 13})
 
 
 class GeometryTests(unittest.TestCase):
@@ -593,6 +600,19 @@ class GeometryTests(unittest.TestCase):
         rej = [4095]*7 + [250]
         sectors = matrix_sectors({'grid': grid, 'rej': rej})
         self.assertEqual(sectors, {'left': 3.5, 'center': .9, 'right': 3.5})
+
+    def test_lone_zones_scattered_across_a_band_do_not_block_the_path(self):
+        # October 10 (run b954c14c): every column read open to the model, yet path_m was
+        # 0.16 m from single zones in different columns of one band, and "come here" stalled.
+        from r3x.drive_space import matrix_path, open_directions
+        grid = [3500]*64
+        grid[1*8+5] = grid[4*8+7] = grid[6*8+6] = 160       # Three lone near zones, none touching.
+        matrix = {'grid': grid, 'rej': [4095]*8, 'received_at': 0.}
+        self.assertEqual(matrix_path(matrix), {'left': 3.5, 'center': 3.5, 'right': 3.5})
+        self.assertTrue(all(row['open_m'] >= 3.5 for row in open_directions(None, matrix, 0.)))
+        grid[4*8+6] = 170                                   # A neighbour agrees: something is there.
+        self.assertAlmostEqual(matrix_path(matrix)['right'], .16)
+        self.assertEqual(matrix_sectors(matrix)['right'], .16)
 
     def test_unknown_rear_or_depth_refuses_instead_of_assuming_clear(self):
         space = {'front_m': None, 'rear_m': None, 'health': ['front_depth_matrix_unavailable']}

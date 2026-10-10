@@ -54,22 +54,46 @@ def _meters(value):
     return value / 1000. if math.isfinite(value) and value >= 0 else None
 
 
-def matrix_sectors(matrix):
-    """Second-nearest floor-rejected zone per left/centre/right column band.
+ZONE_AGREE_M = .10      # A neighbouring zone within this (or 20%) corroborates a return.
 
-    The firmware reduces the 8x8 grid to two fused front values; the host keeps
-    three bands so one phantom half cannot hide an open corridor. rej holds the
-    firmware's per-row floor thresholds: at/beyond it is floor, not obstacle.
+
+def matrix_zones(matrix):
+    """Returns above the floor that a neighbouring zone agrees with: zone index -> metres.
+
+    October 10 (run b954c14c): with the person nine degrees away and every column and ring
+    sensor reading open, path_m was 0.16 m from a few lone zones scattered across one
+    band, and "come here" stalled after six centimetres. A real surface at any range the
+    host cares about fills neighbouring zones (each is 5.6 degrees wide, under 4 cm at
+    0.4 m), so a return counts only when one of its eight neighbours returns about the
+    same range. rej holds the firmware's per-row floor thresholds: at/beyond it is floor.
     """
     if not matrix or len(matrix.get('grid', ())) != 64 or len(matrix.get('rej', ())) != 8:
         return None
+    grid, rej = matrix['grid'], matrix['rej']
+    ok = {i: value/1000. for i, value in enumerate(grid) if 25 <= value < min(rej[i//8], 3500)}
+    zones = {}
+    for i, value in ok.items():
+        row, col = divmod(i, 8)
+        for other in (r*8+c for r in (row-1, row, row+1) for c in (col-1, col, col+1)
+                      if 0 <= r < 8 and 0 <= c < 8 and (r, c) != (row, col)):
+            if other in ok and abs(ok[other] - value) <= max(ZONE_AGREE_M, .2*value):
+                zones[i] = value
+                break
+    return zones
+
+
+def matrix_sectors(matrix):
+    """Nearest corroborated zone per left/centre/right column band.
+
+    The firmware reduces the 8x8 grid to two fused front values; the host keeps
+    three bands so one phantom half cannot hide an open corridor.
+    """
+    zones = matrix_zones(matrix)
+    if zones is None:
+        return None
     bands = {'left': range(0, 3), 'center': range(3, 5), 'right': range(5, 8)}
-    result = {}
-    for name, columns in bands.items():
-        zones = sorted(matrix['grid'][row*8+col] for row in range(8) for col in columns
-                       if 25 <= matrix['grid'][row*8+col] < min(matrix['rej'][row], 3500))
-        result[name] = zones[1]/1000. if len(zones) >= 2 else MATRIX_CLEAR
-    return result
+    return {name: min((v for i, v in zones.items() if i % 8 in columns), default=MATRIX_CLEAR)
+            for name, columns in bands.items()}
 
 
 BODY_HALF_WIDTH = .27   # About the sensor ring radius.
@@ -86,23 +110,16 @@ def matrix_path(matrix):
     October 3 hallway run: the side bands counted every wall they saw, so a hallway's own
     walls shortened or refused each forward move even when he was pointed straight down it.
     A zone now counts only when its return lies inside the corridor the body sweeps
-    (half-width plus margin); a wall beside the path does not. Like matrix_sectors, each
-    side takes its second-nearest qualifying zone so one speckle zone cannot block."""
-    if not matrix or len(matrix.get('grid', ())) != 64 or len(matrix.get('rej', ())) != 8:
+    (half-width plus margin); a wall beside the path does not. Only corroborated zones
+    count (matrix_zones), so a lone speckle cannot block."""
+    zones = matrix_zones(matrix)
+    if zones is None:
         return None
     result = {}
     for name, columns in PATH_SIDES.items():
-        ahead = []
-        for col in columns:
-            angle = math.radians(MATRIX_COLUMN_DEG[col])
-            for row in range(8):
-                value = matrix['grid'][row*8+col]
-                if not 25 <= value < min(matrix['rej'][row], 3500):
-                    continue
-                if value/1000.*abs(math.sin(angle)) < BODY_HALF_WIDTH + PATH_MARGIN:
-                    ahead.append(value/1000.)
-        ahead.sort()
-        result[name] = ahead[1] if len(ahead) >= 2 else MATRIX_CLEAR
+        ahead = [value for i, value in zones.items() if i % 8 in columns
+                 and value*abs(math.sin(math.radians(MATRIX_COLUMN_DEG[i % 8]))) < BODY_HALF_WIDTH + PATH_MARGIN]
+        result[name] = min(ahead) if ahead else MATRIX_CLEAR
     return result
 
 
@@ -110,17 +127,17 @@ def open_directions(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
     """How far each range sensor sees, by bearing: the room around him as the sensors know it.
 
     Owner, October 3: the planner needs "which directions have the most open area relative
-    to the camera view". The eight matrix columns cross the middle of the picture (second-
-    nearest zone above the floor, so one speckle does not close a direction); the ring adds
+    to the camera view". The eight matrix columns cross the middle of the picture (nearest
+    corroborated zone above the floor, so one speckle does not close a direction); the ring adds
     the front corners, both sides and behind. image_x is where that bearing falls in the
     head camera picture with the neck centred, None when it is outside the view. 3.5 means
     nothing within range. Missing or stale sensors are simply absent."""
     rows = []
-    if matrix and 0 <= now - matrix['received_at'] <= matrix_age and len(matrix.get('grid', ())) == 64 and len(matrix.get('rej', ())) == 8:
+    zones = matrix_zones(matrix) if matrix and 0 <= now - matrix['received_at'] <= matrix_age else None
+    if zones is not None:
         for col in range(8):
-            zones = sorted(matrix['grid'][row*8+col] for row in range(8)
-                           if 25 <= matrix['grid'][row*8+col] < min(matrix['rej'][row], 3500))
-            rows.append((MATRIX_COLUMN_DEG[col], zones[1]/1000. if len(zones) >= 2 else MATRIX_CLEAR, 'front matrix'))
+            rows.append((MATRIX_COLUMN_DEG[col], min((v for i, v in zones.items() if i % 8 == col), default=MATRIX_CLEAR),
+                         'front matrix'))
     if telemetry and 0 <= now - telemetry['received_at'] <= telemetry_age:
         tof = telemetry.get('tof_mm') or {}
         for key, bearing in (('fl_radial', 22.5), ('fr_radial', -22.5)) + RING[2:]:

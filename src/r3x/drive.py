@@ -850,6 +850,14 @@ class DriveBase:
         self._step_trace(row)
         return row
 
+    @staticmethod
+    def _room_row(space):
+        """The clearance that decided a step, kept in its receipt row (October 10: a crawl
+        stopped after six centimetres and the log could not say which reading stopped it)."""
+        keys = ('path_m', 'path_left_m', 'path_center_m', 'path_right_m', 'front_m', 'front_radial_left_m',
+                'front_radial_right_m', 'left_m', 'right_m', 'rear_m')
+        return {k: (round(space[k], 2) if isinstance(space.get(k), float) else space.get(k)) for k in keys}
+
     def _step_trace(self, row):
         """Every turn and move with where it left him: October 3, a trip turned 657 degrees
         and the log held only the total."""
@@ -1031,6 +1039,7 @@ class DriveBase:
                 why = self._crawl_hold(space, telemetry.get('tof_mm'))
                 if why:
                     status, reason = 'blocked', why
+                    row['stopped_by'], row['clearance_m'] = why, self._room_row(space)
                     break
                 ang = steer(space, telemetry.get('tof_mm'))
                 lin = speed if abs(ang) < .3 else max(CRAWL_MIN_SPEED, speed * .6)
@@ -1071,15 +1080,16 @@ class DriveBase:
         if meters > 0 and self._tight(space, need):
             held = self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm'))
             if held:
-                return {**row, 'status': 'refused', 'reason': held, 'travelled_m': 0.}
+                return {**row, 'status': 'refused', 'reason': held, 'travelled_m': 0., 'clearance_m': self._room_row(space)}
             return self._crawl(meters, plan, cancel, speed, row)
         allowed, note = move_allowance(meters, space)
         if not allowed:
-            return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
+            return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0., 'clearance_m': self._room_row(space)}
         self._ensure_parked(cancel)
-        allowed, note = move_allowance(meters, self.space())   # Clearance after the park settles.
+        space = self.space()
+        allowed, note = move_allowance(meters, space)   # Clearance after the park settles.
         if not allowed:
-            return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0.}
+            return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0., 'clearance_m': self._room_row(space)}
         start = self._telemetry().get('odom') or {}
         status, reason, done = self._finite({'cmd': 'move', 'dist': round(allowed, 2), 'speed': round(speed, 3)},
                                             max(8., abs(allowed)/speed + 10.), cancel)
@@ -1087,6 +1097,8 @@ class DriveBase:
         travelled = math.hypot(float(end.get('x', 0)) - float(start.get('x', 0)), float(end.get('y', 0)) - float(start.get('y', 0)))
         row = {**row, 'commanded_m': round(allowed, 2), 'travelled_m': round(travelled, 2), 'status': status,
                'reason': note if status == 'completed' else reason}
+        if note or status != 'completed':
+            row['clearance_m'] = self._room_row(space)
         self._track()
         self._step_trace(row)
         return row
@@ -1540,6 +1552,7 @@ class DriveBase:
                  'goal_image_x': (round(.5 - goal_bearing/(2*HALF_FOV), 2)
                                   if goal_bearing is not None and abs(goal_bearing) < HALF_FOV else None),
                  'blocked_ahead_m': space.get('path_m'), 'robot_width_m': .55,
+                 'path_by_side_m': {side: space.get(f'path_{side}_m') for side in ('left', 'center', 'right')},
                  'open_by_direction': open_directions(telemetry, matrix, now),
                  'already_tried': tried[-3:]}
         self._vision_calls += 1

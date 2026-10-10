@@ -18,6 +18,7 @@ from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES)
 
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
+ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})   # The arms the drive stance moved: walked back after the wheels stop.
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
 
 
@@ -271,9 +272,9 @@ class ServoOwner:
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))
             if self._arm_returning and (request.kind in {'base_park', 'park', 'shutdown'} or any(
-                    ch in THROTTLE for lane in lanes for beat in lane for ch, _ in beat.targets)):
-                # The throttle arm is still returning from its drive park; callers that need
-                # it (the next drive, shutdown) wait for the return first.
+                    ch in ARM_RETURN for lane in lanes for beat in lane for ch, _ in beat.targets)):
+                # The arms are still returning from their drive stance; callers that need
+                # them (the next drive, shutdown, an arm pose) wait for the return first.
                 return receipt('rejected', 'ServoBusy')
             if request.kind == 'pose' and not request.hold_pose:
                 channels = {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
@@ -379,7 +380,7 @@ class ServoOwner:
                 self.held_channels.clear()
                 self.hold_until_released = False
                 if self._arm_returning:
-                    self.held_channels.update(THROTTLE)
+                    self.held_channels.update(ARM_RETURN)
             if request.kind == 'base_release':
                 self.held_channels.difference_update(BASE_HELD)
                 self._base_held = False
@@ -427,22 +428,27 @@ class ServoOwner:
                 self._lock.release()
 
     def begin_arm_return(self) -> None:
-        """The drive is over: free the head, hero elbow and poker arm at once.
+        """The drive is over: free the head at once.
 
         Owner, October 3: after every drive the head and the other servos stayed frozen
-        until the throttle arm had finished un-parking. Only the arm's own three channels
-        stay held now, until return_arm has walked it back to rest."""
+        until the throttle arm had finished un-parking. Only the arms the stance moved
+        stay held now, until return_arm has walked them back to their awake poses
+        (October 10: the poker arm had been let go here and never came back)."""
         self._arm_cancel.clear()
         self._arm_returning = True
-        self.held_channels.difference_update(BASE_HELD - set(THROTTLE))
+        self.held_channels.difference_update(BASE_HELD - ARM_RETURN)
         self._base_held = False
 
     def return_arm(self) -> ServoReceipt:
-        """Walk the throttle arm from its drive park to rest beside other motion.
+        """Walk the arms the drive stance moved back to their awake poses beside other motion.
 
-        Runs outside the single-request lock: its channels are held, so no other request
-        commands them (execute rejects one that would), and the bus takes each wire
-        exchange whole. The route and its clearance checks are base_lanes' own."""
+        The throttle arm goes from its drive park to rest; the hero elbow and the poker arm,
+        elbow and wrist go back to their mid points (owner, October 10: after a drive the
+        poker arm stayed raised and parked). Runs outside the single-request lock: its
+        channels are held, so no other request commands them (execute rejects one that
+        would), and the bus takes each wire exchange whole. The lanes advance together,
+        each beat waiting for its own arrival; the routes and their clearance checks are
+        base_lanes' own."""
         changed, done = set(), False
         def receipt(status, reason=None):
             return ServoReceipt('base-release', status, self.version, self.clock(), self.medium,
@@ -451,32 +457,44 @@ class ServoOwner:
         try:
             if self.state not in {'active', 'moving'} or self._bus is None:
                 return receipt('rejected', 'ServoUnavailableOrParked')
-            current = self._bus.positions(THROTTLE)
+            current = self._bus.positions(sorted(ARM_RETURN))
             lanes = base_lanes('base_release', current)
-            for beat in (lanes[0] if lanes else ()):
-                targets = dict(beat.targets)
-                observed = self._bus.positions(targets)
-                validate_pose(observed)
-                if not throttle_clear(observed, targets):
-                    raise ProviderFailure('ThrottleRouteChanged')
+            indices = [0] * len(lanes)
+            active = {}   # lane -> arrival deadline
+            while any(index < len(lane) for index, lane in zip(indices, lanes)):
                 if self._arm_cancel.is_set():
                     raise Cancelled()
-                self._bus.profiles(motion_profiles(beat, observed))
-                self._bus.targets(targets)
-                changed.update(ch for ch, value in targets.items() if abs(observed[ch]-value) > 2)
-                self.commanded.update(targets)
-                deadline = self.clock() + 25.
-                while any(abs(value - targets[ch]) > 2 for ch, value in self._bus.positions(targets).items()):
-                    if self._arm_cancel.is_set():
-                        raise Cancelled()
-                    if self.clock() >= deadline:
-                        raise ProviderFailure('ServoArrivalTimeout')
+                for lane_id, lane in enumerate(lanes):
+                    if indices[lane_id] >= len(lane):
+                        continue
+                    beat = lane[indices[lane_id]]
+                    targets = dict(beat.targets)
+                    if lane_id not in active:
+                        observed = self._bus.positions(targets)
+                        validate_pose(observed)
+                        if beat.throttle_duration and not throttle_clear(observed, targets):
+                            raise ProviderFailure('ThrottleRouteChanged')
+                        self._bus.profiles(motion_profiles(beat, observed))
+                        self._bus.targets(targets)
+                        changed.update(ch for ch, value in targets.items() if abs(observed[ch]-value) > 2)
+                        self.commanded.update(targets)
+                        active[lane_id] = self.clock() + 25.
+                        continue
+                    observed = self._bus.positions(targets)
+                    if all(abs(observed[ch] - value) <= 2 for ch, value in targets.items()):
+                        indices[lane_id] += 1
+                        del active[lane_id]
+                    elif self.clock() >= active[lane_id]:
+                        lagging = ','.join(f'ch{ch}@{observed[ch]}->{value}' for ch, value in targets.items()
+                                           if abs(observed[ch] - value) > 2)
+                        raise ProviderFailure('ServoArrivalTimeout:' + lagging)
+                if active:
                     self._arm_wait(.025)
             done = True
             return receipt('pulses_reached')
         except Cancelled:
             try:
-                self._hold(set(THROTTLE))
+                self._hold(set(ARM_RETURN))
             except Exception:
                 self.state = 'faulted'
                 return receipt('failed', 'ServoCancelHoldFailed')
@@ -486,15 +504,15 @@ class ServoOwner:
         except Exception as exc:
             self.state = 'faulted'
             reason = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
-            if reason in {'ServoArrivalTimeout', 'ThrottleRouteChanged'}:
+            if reason.split(':')[0] in {'ServoArrivalTimeout', 'ThrottleRouteChanged'}:
                 try:
-                    self._hold(set(THROTTLE))
+                    self._hold(set(ARM_RETURN))
                 except Exception:
                     reason += ':HoldFailed'
             return receipt('failed', reason)
         finally:
             if done:
-                self.held_channels.difference_update(THROTTLE)
+                self.held_channels.difference_update(ARM_RETURN)
             self.motion_until = max(self.motion_until, self.clock() + .5)
             self._arm_returning = False
 

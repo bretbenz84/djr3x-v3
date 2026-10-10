@@ -148,8 +148,9 @@ class RobotServos:
         return receipt
 
     def finish_base_motion(self, look_pending=False):
-        """The drive is over: the head and the other servos are free at once, while the
-        throttle arm returns to rest in the background.
+        """The drive is over: the head is free at once, while the arms the stance moved
+        return to their awake poses in the background (the throttle to rest, the hero elbow
+        and poker arm to their mid points; October 10).
 
         Owner, October 3: he stayed frozen until the arm had un-parked. Talking and idle
         motion now carry on beside the return (they never command the arm's channels while
