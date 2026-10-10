@@ -75,8 +75,10 @@ it or reads its data.
   - He can answer questions about battery, charging, obstructions, radar bodies, tilt
     and room climate from live readings.
 - **Startup.** The startup whir plays as the servos wake, a short "please wait" line is
-  spoken while the models load, and the droid start-up sound fills the rest until loading
-  finishes and cuts it. A spoken hardware notice follows when something failed to
+  spoken the moment the whir and wake finish, and the droid start-up sound fills the rest
+  until loading finishes and cuts it. The please-wait and ready lines are synthesized once
+  and kept on disk; any still missing are filled in quietly after startup, so later
+  launches never wait on the voice service. A spoken hardware notice follows when something failed to
   connect, then a short ready line (a statement, never an invitation).
 - **Shutdown.** V2's power-down sound plays while the servos move to their parked
   positions and the lights fade.

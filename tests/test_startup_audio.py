@@ -134,6 +134,40 @@ class StartupAudioTests(unittest.TestCase):
         self.assertFalse(outcome['line_cut'])
         self.assertNotIn('filler_started', outcome)   # Readiness arrived before the filler: it never starts.
 
+    def test_line_is_fetched_during_the_whir_and_wake_so_it_follows_them_without_a_pause(self):
+        events = []
+        class SlowTTS(CountingTTS):
+            def synthesize(self, text, cancel):
+                events.append(('synthesis_started', time.monotonic()))
+                time.sleep(.5)                                  # An uncached line: a hosted round trip.
+                return super().synthesize(text, cancel)
+        class Robot:
+            owner = type('Owner', (), {'state': 'ready'})()
+            talking = type('Talking', (), {'start': lambda s, t, c: None, 'stop': lambda s: None})()
+        class Sink(RecordingSink):
+            def play(inner, chunks, cancel, on_start, visualize=True):
+                events.append(('play_started', time.monotonic()))
+                result = RecordingSink.play(inner, chunks, cancel, on_start, visualize)
+                events.append(('play_finished', time.monotonic()))
+                return result
+        robot, sink = Robot(), Sink(pace=.02)                   # The whir takes about 0.8 s.
+        audio = StartupAudio(SlowTTS(), sink, self.dir, robot=robot)
+        audio.start()
+        audio.motion_started()
+        deadline = time.monotonic() + 3
+        while sum(1 for kind, _ in events if kind == 'play_finished') < 1 and time.monotonic() < deadline:
+            time.sleep(.01)
+        robot.owner.state = 'active'                            # The wake finishes as the whir ends.
+        deadline = time.monotonic() + 3
+        while sum(1 for kind, _ in events if kind == 'play_started') < 2 and time.monotonic() < deadline:
+            time.sleep(.005)
+        audio.stop()
+        kinds = [kind for kind, _ in events]
+        self.assertEqual(kinds[:4], ['synthesis_started', 'play_started', 'play_finished', 'play_started'])
+        whir_finished = events[2][1]
+        line_started = events[3][1]
+        self.assertLess(line_started - whir_finished, .25)      # No synthesis gap after the whir.
+
     def test_power_down_clip_follows_stopped_startup_sound_while_the_servos_park(self):
         filler, clip = read_clip('droid_startup.wav'), read_clip('robot_power_down.wav')
         sink = RecordingSink(pace=.004)
@@ -164,6 +198,43 @@ class StartupAudioTests(unittest.TestCase):
         picks = [LineCycle(self.dir / 'state.json').pick('ready', READY_LINES) for _ in READY_LINES]
         self.assertEqual(sorted(picks), sorted(READY_LINES))   # Survives new instances (launches).
         self.assertIn(cycle.pick('ready', READY_LINES), READY_LINES)
+
+    def test_every_boot_and_ready_line_is_cached_in_the_background_without_talking_over_speech(self):
+        tts = CountingTTS()
+        audio = StartupAudio(tts, RecordingSink(), self.dir)
+        audio.speech(BOOT_LINES[0], Cancellation())              # One line already cached by a launch.
+        busy = {'speaking': True}
+        thread = audio.warm(busy=lambda: busy['speaking'], interval=0.)
+        time.sleep(.3)
+        self.assertEqual(tts.texts, [BOOT_LINES[0]])             # Nothing is synthesized while Rex speaks.
+        busy['speaking'] = False
+        thread.join(5.)
+        self.assertFalse(thread.is_alive())
+        expected = list(BOOT_LINES + READY_LINES)
+        self.assertEqual(sorted(tts.texts), sorted(expected))    # Each line exactly once.
+        self.assertEqual(len(list(self.dir.glob('startup-tts/*.pcm'))), len(expected))
+        self.assertIsNone(StartupAudio(tts, RecordingSink(), self.dir).warm())   # A warm cache: no work.
+        again = StartupAudio(tts, RecordingSink(), self.dir)
+        for line in expected:
+            again.speech(line, Cancellation())
+        self.assertEqual(len(tts.texts), len(expected))          # Later launches never synthesize.
+
+    def test_warming_stops_at_close_and_after_a_provider_failure(self):
+        class FailingTTS(CountingTTS):
+            def synthesize(self, text, cancel):
+                self.texts.append(text)
+                raise RuntimeError('provider down')
+        tts = FailingTTS()
+        thread = StartupAudio(tts, RecordingSink(), self.dir).warm(interval=0.)
+        thread.join(2.)
+        self.assertEqual(len(tts.texts), 1)                      # One failure ends the pass; no retries.
+        slow = CountingTTS()
+        audio = StartupAudio(slow, RecordingSink(), self.dir)
+        audio.warm(interval=.2)
+        time.sleep(.05)
+        audio.close()
+        self.assertFalse(audio._warm_thread.is_alive())
+        self.assertLess(len(slow.texts), len(BOOT_LINES + READY_LINES))
 
     def test_canned_lines_are_synthesized_once_then_cached(self):
         tts = CountingTTS()

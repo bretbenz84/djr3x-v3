@@ -70,7 +70,11 @@ Startup: the nine `assets/audio/startup/*.mp3` clips are copied as 22,050 Hz mon
 a cycled `STARTUP_BOOT_TTS_LINES` "please wait" line and `droid_startup` filler over
 servo wake and model loads, then a cycled `STARTUP_READY_TTS_LINES` line after the
 hardware notice. The 48 boot and 34 ready lines are copied verbatim; cycling state and
-the canned-line PCM cache live in ignored `local/cache/`. Spoken intro clips are copied
+the canned-line PCM cache live in ignored `local/cache/`. October 10: like V2's
+`tts.ensure_cached` before the clips, the chosen line is fetched while the whir and
+wake play; unlike V2, every boot and ready line not yet cached is synthesized once in
+the background after startup (paced, paused while Rex speaks), so later launches read
+all of them from disk. Spoken intro clips are copied
 but unplayed (V2 default `PLAY_STARTUP_SPEECH_CLIP = False`). October 10: the shutdown
 clip (`SHUTDOWN_AUDIO_FILE`, started by V2 `_shutdown` alongside the LED fade and servo
 droop) plays from the servo owner's park hook, after the LED fade command and before
