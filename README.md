@@ -74,9 +74,12 @@ it or reads its data.
   - V2's motion sounds play at 50% while the wheels move.
   - He can answer questions about battery, charging, obstructions, radar bodies, tilt
     and room climate from live readings.
-- **Startup.** Servo wake-up with V2's startup sounds, a short "please wait" line, and a
-  spoken hardware notice when something failed to connect. He ends with a short ready
-  line (a statement, never an invitation).
+- **Startup.** The startup whir plays as the servos wake, a short "please wait" line is
+  spoken while the models load, and the droid start-up sound fills the rest until loading
+  finishes and cuts it. A spoken hardware notice follows when something failed to
+  connect, then a short ready line (a statement, never an invitation).
+- **Shutdown.** V2's power-down sound plays while the servos move to their parked
+  positions and the lights fade.
 
 ## Run it
 

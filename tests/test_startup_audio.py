@@ -17,11 +17,12 @@ from tests.test_voice_core import Trace
 class RecordingSink:
     """Consumes pieces at a pace, like a device; records each clip as it plays."""
     def __init__(self, pace=0.):
-        self.played, self.pace = [], pace
+        self.played, self.visualized, self.pace = [], [], pace
 
-    def play(self, chunks, cancel, on_start):
+    def play(self, chunks, cancel, on_start, visualize=True):
         on_start(time.monotonic())
         self.played.append(b'')
+        self.visualized.append(visualize)
         for chunk in chunks:
             cancel.check()
             self.played[-1] += chunk
@@ -71,7 +72,7 @@ class StartupAudioTests(unittest.TestCase):
     def test_clips_are_fed_in_small_pieces(self):
         pieces = []
         class Sink(RecordingSink):
-            def play(inner, chunks, cancel, on_start):
+            def play(inner, chunks, cancel, on_start, visualize=True):
                 pieces.extend(len(c) for c in chunks)
                 return Playback(0, 0., 0., 0)
         StartupAudio(CountingTTS(), Sink(), self.dir)._play(read_clip('startup_whir.wav'), 'whir')
@@ -87,9 +88,9 @@ class StartupAudioTests(unittest.TestCase):
             owner = type('Owner', (), {'state': 'ready'})()
             talking = Talking()
         class Sink(RecordingSink):
-            def play(inner, chunks, cancel, on_start):
+            def play(inner, chunks, cancel, on_start, visualize=True):
                 events.append('play')
-                return RecordingSink.play(inner, chunks, cancel, on_start)
+                return RecordingSink.play(inner, chunks, cancel, on_start, visualize)
         robot, sink = Robot(), Sink()
         audio = StartupAudio(CountingTTS(), sink, self.dir, robot=robot)
         audio.start()
@@ -113,7 +114,7 @@ class StartupAudioTests(unittest.TestCase):
         outcome = {}
         filler = read_clip('droid_startup.wav')
         class Sink(RecordingSink):
-            def play(inner, chunks, cancel, on_start):
+            def play(inner, chunks, cancel, on_start, visualize=True):
                 data = b''
                 for chunk in chunks:
                     data += chunk
@@ -132,6 +133,28 @@ class StartupAudioTests(unittest.TestCase):
         self.assertTrue(audio.stop())
         self.assertFalse(outcome['line_cut'])
         self.assertNotIn('filler_started', outcome)   # Readiness arrived before the filler: it never starts.
+
+    def test_power_down_clip_follows_stopped_startup_sound_while_the_servos_park(self):
+        filler, clip = read_clip('droid_startup.wav'), read_clip('robot_power_down.wav')
+        sink = RecordingSink(pace=.004)
+        audio = StartupAudio(CountingTTS(), sink, self.dir, rng=random.Random(1))
+        audio.start()
+        deadline = time.monotonic() + 3
+        while len(sink.played) < 3 and time.monotonic() < deadline:
+            time.sleep(.01)
+        began = time.monotonic()
+        audio.shutdown_started()                                  # The servo owner's park hook.
+        self.assertLess(time.monotonic() - began, 1.)             # The park never waits for the sound.
+        self.assertTrue(audio._shutdown_thread.is_alive())        # It plays while the servos move.
+        audio.close()                                             # After the park, before the sink closes.
+        self.assertFalse(audio._shutdown_thread.is_alive())
+        self.assertFalse(audio._cancel.event.is_set())            # Startup filler was starved, not cut.
+        self.assertTrue(filler.startswith(sink.played[2]) and len(sink.played[2]) < len(filler))
+        self.assertEqual(sink.played[3], clip)                    # The whole power-down clip, after the filler.
+        self.assertEqual(sink.visualized[3], False)               # No speaking lights on a power-down sound.
+        self.assertEqual(len(sink.played), 4)
+        audio.shutdown_started()                                  # A second park request does not replay it.
+        self.assertEqual(len(sink.played), 4)
 
     def test_startup_lines_are_short(self):
         self.assertTrue(all(len(line.split()) <= 7 for line in BOOT_LINES + READY_LINES))

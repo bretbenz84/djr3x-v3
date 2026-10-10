@@ -132,6 +132,9 @@ motion reads as expressive. Synthetic checks only.
   for output-pulse readback and settling. A completed park rejects subsequent
   animation requests; close itself sends no motion. Channels 5–7 stay where they
   are, matching V2 shutdown rather than the broader V2 test-only reset helper.
+  V2's power-down sound starts with the park (October 10): the servo owner's park
+  hook plays it through the speech sink after the LED fade command, the park never
+  waits for it, and playback closes only after the clip finishes.
 - The throttle always moves as a three-channel batch. Every route is checked
   before any lane moves and rechecked against fresh pulses before each target.
   The latest full-down retraction corridor is included. Lifecycle profiles retain

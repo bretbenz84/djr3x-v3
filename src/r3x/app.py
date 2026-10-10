@@ -89,6 +89,7 @@ class App:
         self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache', robot=self.robot)
         if self.robot:
             self.robot.on_startup = self.startup_audio.motion_started
+            self.robot.on_shutdown = self.startup_audio.shutdown_started   # Power-down clip over the park.
         self.owner = ProviderOwner((tts,sink,self.startup_audio) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(p for p in self.live_components if p not in (tts,sink)))
 
     def readiness(self):
@@ -366,6 +367,8 @@ class App:
                             (runtime.session.output_worker is not None and runtime.session.output_worker.is_alive())):
                 # Do not unload native models under an unfinished worker, but still stop the
                 # wheels, park the servos and fade the lights: they never wait on those workers.
+                if self.robot:
+                    self.robot.on_shutdown = lambda: None   # A stuck output worker may still own the speaker.
                 self.owner.close_only({'drive_base','radar','robot_servos','robot_leds'})
                 trace.emit("shutdown_failed", reason="active_worker_resources_retained_until_process_exit",
                            hardware_released=[r.capability for r in self.owner.results if r.operation=='close'])

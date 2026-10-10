@@ -120,6 +120,27 @@ class RobotServoTests(unittest.TestCase):
         self.assertTrue(self.robot.owner.microphone_moving())
         self.robot.close()
 
+    def test_power_down_hook_runs_as_the_park_begins_and_never_blocks_it(self):
+        events=[]
+        self.robot.start()
+        awake=dict(self.port.pose)
+        self.robot.before_shutdown=lambda: events.append(('lights',dict(self.port.pose)))
+        self.robot.on_shutdown=lambda: events.append(('sound',dict(self.port.pose)))
+        self.robot.close()
+        self.assertEqual([kind for kind,_ in events],['lights','sound'])
+        self.assertEqual(events[1][1][1],awake[1])    # The sound starts with the head still up: it plays over the park.
+        self.assertEqual(self.port.pose[1],2600)
+        self.assertTrue(self.port.closed)
+        def broken(): raise RuntimeError('no speaker')
+        robot=RobotServos('/dev/cu.synthetic',open_port=lambda:self.port,clock=self.clock,wait=self.clock.wait)
+        robot.owner.wait=self.clock.wait
+        self.port.closed=False
+        robot.start()
+        robot.on_shutdown=broken
+        robot.close()                                 # A failed sound never stops the park.
+        self.assertTrue(robot.closed)
+        self.assertEqual(self.port.pose[1],2600)
+
     def test_faulted_link_reports_park_failure_but_closes_port(self):
         self.robot.start()
         self.robot.owner.state='faulted'
@@ -133,6 +154,8 @@ class RobotServoTests(unittest.TestCase):
             app=App(Settings(servo_port='/dev/cu.synthetic'),Path(temporary))
             app.configure_live()
             self.assertEqual([p.capability.name for p in app.owner.providers[:4]],['tts','playback','startup_audio','robot_servos'])
+            self.assertEqual(app.robot.on_startup,app.startup_audio.motion_started)
+            self.assertEqual(app.robot.on_shutdown,app.startup_audio.shutdown_started)   # Playback outlives the park.
             self.assertIsNone(app.robot.owner._bus)
             self.assertFalse((Path(temporary)/'local').exists())
         for value in ('/dev/tty.bad','auto','/dev/cu.bad path','/dev/cu.bad/child'):

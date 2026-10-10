@@ -36,6 +36,7 @@ class RobotServos:
         self.started = False
         self.before_shutdown = lambda: None
         self.on_startup = lambda: None   # Startup sounds begin with the wake choreography.
+        self.on_shutdown = lambda: None  # The power-down sound begins with the park choreography.
         self._arm_return = None
 
     def _sequence(self, kind):
@@ -193,6 +194,10 @@ class RobotServos:
                     self.before_shutdown()
                 except Exception as exc:
                     if self.trace: self.trace.emit('led_fault',reason=type(exc).__name__)
+                try:
+                    self.on_shutdown()
+                except Exception as exc:
+                    if self.trace: self.trace.emit('servo_shutdown_hook_failed',error_type=type(exc).__name__)
                 self._sequence('shutdown')
             elif self.started and self.owner.state not in {'parked','closed'}:
                 raise ProviderFailure('ServoParkUnavailableAfterFault')

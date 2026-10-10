@@ -71,8 +71,11 @@ a cycled `STARTUP_BOOT_TTS_LINES` "please wait" line and `droid_startup` filler 
 servo wake and model loads, then a cycled `STARTUP_READY_TTS_LINES` line after the
 hardware notice. The 48 boot and 34 ready lines are copied verbatim; cycling state and
 the canned-line PCM cache live in ignored `local/cache/`. Spoken intro clips are copied
-but unplayed (V2 default `PLAY_STARTUP_SPEECH_CLIP = False`); the shutdown clip is not
-yet used. No live playback was run for this change.
+but unplayed (V2 default `PLAY_STARTUP_SPEECH_CLIP = False`). October 10: the shutdown
+clip (`SHUTDOWN_AUDIO_FILE`, started by V2 `_shutdown` alongside the LED fade and servo
+droop) plays from the servo owner's park hook, after the LED fade command and before
+the park sequence, through the one speech sink; playback closes only after it finishes.
+Checked with synthetic sinks and pulse ports; no live playback was run for either change.
 
 ## Operator services — September 27, 2026
 

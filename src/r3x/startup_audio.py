@@ -6,6 +6,9 @@ spoken over the model loads, the long droid start-up sound as filler, then a cyc
 launches; the owner had the lines shortened. Canned lines are cached after their first synthesis so later launches
 start instantly and cost nothing. The spoken intro clips (Roger Control etc.) are
 copied but not played: V2 ships with PLAY_STARTUP_SPEECH_CLIP disabled.
+
+Shutdown (owner request, October 10): V2's power-down clip plays while the servos park,
+started by the servo owner's park hook and finished before playback closes.
 """
 import hashlib
 import json
@@ -109,8 +112,8 @@ def read_clip(name: str, sample_rate: int = 22050) -> bytes:
 class StartupAudio:
     """Plays over provider startup on its own thread; stopped before live output."""
     capability = Capability('startup_audio', 'bundled startup clips and cached canned TTS',
-        'startup whir, please-wait line and filler while models load; ready line after',
-        required=False, shutdown='stop playback; join thread')
+        'startup whir, please-wait line and filler while models load; ready line after; power-down clip while the servos park',
+        required=False, shutdown='stop startup playback; let the power-down clip finish; join threads')
 
     def __init__(self, tts, sink, state_dir: Path, *, rng=None, trace=None, robot=None):
         self.tts, self.sink, self.trace, self.robot = tts, sink, trace, robot
@@ -121,6 +124,8 @@ class StartupAudio:
         self._thread = None
         self._line = threading.Event()   # Set while the please-wait line is audible.
         self._ready = threading.Event()  # Startup finished: no filler starts after this.
+        self._shutdown_thread = None
+        self._shutdown_cancel = Cancellation()   # Separate: stopping startup sound never cuts the power-down clip.
 
     def _emit(self, **data):
         if self.trace:
@@ -147,17 +152,19 @@ class StartupAudio:
             pass
         return data
 
-    def _play(self, pcm: bytes, label: str, gentle: bool = False):
+    def _play(self, pcm: bytes, label: str, gentle: bool = False, cancel: Cancellation | None = None,
+              visualize: bool = True):
         """Feed ~0.1 s pieces like streamed speech (a whole clip at once exceeded the
         sink's drain bound and forced an abort). A gentle clip stops by starving the
         stream at readiness, so it drains instead of being force-stopped."""
-        self._cancel.check()
+        cancel = cancel or self._cancel
+        cancel.check()
         def pieces():
             for i in range(0, len(pcm), 4410):
                 if gentle and self._ready.is_set():
                     return
                 yield pcm[i:i+4410]
-        self.sink.play(pieces(), self._cancel, lambda at: None)
+        self.sink.play(pieces(), cancel, lambda at: None, visualize=visualize)
         self._emit(status='played', clip=label)
 
     def motion_started(self):
@@ -233,6 +240,24 @@ class StartupAudio:
             self._thread.join(5.)
         return self._thread is None or not self._thread.is_alive()
 
+    def shutdown_started(self):
+        """The servos are parking: play the power-down clip with them (owner request).
+        Startup playback is stopped first, so only one clip uses the sink; the park
+        never waits for the clip, and close() lets it finish before playback closes."""
+        self.stop()
+        if self._shutdown_thread is not None:
+            return
+        def run():
+            try:
+                self._play(read_clip('robot_power_down.wav'), 'robot_power_down',
+                           cancel=self._shutdown_cancel, visualize=False)
+            except Cancelled:
+                self._emit(status='stopped', clip='robot_power_down')
+            except Exception as exc:
+                self._emit(status='failed', clip='robot_power_down', error_type=type(exc).__name__, reason=str(exc)[:120])
+        self._shutdown_thread = threading.Thread(target=run, name='r3x-shutdown-audio', daemon=True)
+        self._shutdown_thread.start()
+
     def ready_line(self) -> str:
         return self.cycle.pick('ready', READY_LINES)
 
@@ -245,3 +270,9 @@ class StartupAudio:
 
     def close(self):
         self.stop()
+        thread = self._shutdown_thread
+        if thread is not None:
+            thread.join(6.)   # The power-down clip is about two seconds; the sink closes after this.
+            if thread.is_alive():
+                self._shutdown_cancel.event.set()   # Last resort only (a stuck device).
+                thread.join(2.)
