@@ -112,9 +112,9 @@ their pulses on the robot. Three findings:
 **Also.** `IncompletePokerPose` mirrors the throttle's batch rule; held parts report
 `head_pitch_and_tilt` and `poker_elbow_and_wrist`; `robot_pose_state.joint_percent` is
 now by joint name with the head as pitch/tilt; the servo menu-bar console lists all 14
-channels with the new limits and direction hints. Unverified on the robot: the tilt
-direction (readings are taken as Rex's left/right), how far a 0.8 tilt visibly cocks the
-head and whether the linkage binds anywhere inside the envelope, the poker arm's
+channels with the new limits and direction hints. Confirmed on the robot (owner, October
+10 evening): `tilt_left` cocks the head to Rex's own left. Unverified: how far a 0.8 tilt
+visibly cocks the head and whether the linkage binds anywhere inside the envelope, the poker arm's
 clearance of the body and other arms, the visor's real endpoints, and whether the
 motion reads as expressive. Synthetic checks only.
 
