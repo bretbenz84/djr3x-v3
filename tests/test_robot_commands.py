@@ -148,6 +148,18 @@ class PoseTests(unittest.TestCase):
         self.assertTrue(all(value == curled[12] for ch, value in sent[:sent.index((13, POKER_DRIVE[1][1]))] if ch == 12))
         self.assertEqual({ch: self.port.pose[ch] for ch in POKER}, dict(POKER_DRIVE))
 
+    def test_shutdown_returns_the_poker_arm_to_its_park(self):
+        # First live start, October 10: the arm began at its park (elbow up, wrist 1564 us),
+        # dropped at once to an assumed elbow-down rest, and shutdown left it there.
+        from r3x.servo_poses import POKER, POKER_PARK, UNPOWERED_REST
+        self.assertEqual({ch: dict(UNPOWERED_REST)[ch] for ch in POKER}, dict(POKER_PARK))   # Cold start holds it there.
+        self.assertEqual(self.run_pose('poker_out').status, 'pulses_reached')
+        self.port.packets.clear()
+        self.assertEqual(self.run_pose(kind='shutdown').status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in POKER}, dict(POKER_PARK))
+        sent = [(p[1], p[2]+128*p[3]) for p in self.port.targets if p[1] in POKER]
+        self.assertLess(sent.index((13, POKER_PARK[1][1])), sent.index((12, POKER_PARK[0][1])))   # Wrist first, then elbow up.
+
     def test_visor_runs_inverted(self):
         from r3x.servo_poses import VISOR_DOWN, VISOR_UP
         self.run_pose('visor_up');up = self.port.pose[3]

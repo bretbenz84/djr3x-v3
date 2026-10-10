@@ -221,14 +221,16 @@ DRIVE_HEAD = ((1, 3600), (2, HEAD_LEVEL[0]), (11, HEAD_LEVEL[1]))
 # Owner request September 27: while the base drives, the hero-arm elbow is fully up
 # (higher pulse lifts it) and the poker arm at its highest value, held until done.
 DRIVE_ARMS = ((4, 7424), (6, 8000))
-# Owner, October 10: the poker elbow up (1920 us) with the wrist at 1564 us while driving.
-POKER_DRIVE = ((12, POKER_ELBOW_UP), (13, 6256))
-# Elbow down, wrist straight: assumed where the poker arm hangs unpowered (not measured).
-POKER_REST = ((12, POKER_ELBOW_DOWN), (13, POKER_WRIST_STRAIGHT))
+# Owner, October 10: the poker arm's park, elbow up (1920 us) with the wrist at 1564 us. It
+# is where the arm stands when the robot is switched on, the stance while the base drives,
+# and where shutdown returns it (first live start: the arm began there, dropped at once to
+# the assumed elbow-down rest, and shutdown left it down).
+POKER_PARK = ((12, POKER_ELBOW_UP), (13, 6256))
+POKER_DRIVE = POKER_PARK
 HEAD_PARK = ((0, NECK_CENTER), (1, 2600), (2, HEAD_FULL_DOWN[0]), (11, HEAD_FULL_DOWN[1]),
              (3, VISOR_DOWN), (4, 6300))
 # Where each joint hangs once the robot has been powered off (the board then reads 0).
-UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK, *POKER_REST)
+UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK, *POKER_PARK)
 
 
 def validate_pose(pose: dict[int, int]) -> None:
@@ -313,10 +315,12 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
                              ((8, 3680), (9, 8720), (10, 5920)), REST)
         lanes = (head, neck, tuple(Beat(p, throttle_duration=1.25) for p in throttle))
     else:
-        # V2's coordinated head/visor/elbow droop, alongside tuck then park.
-        # Decorative channels 5–7 and the poker elbow/wrist keep their current pose.
+        # V2's coordinated head/visor/elbow droop, alongside tuck then park. Decorative
+        # channels 5–7 keep their current pose; the poker elbow/wrist return to their park.
         lanes = ((Beat(HEAD_PARK, speed=12, acceleration=3, dwell=.8),),
                  tuple(Beat(p, throttle_duration=1.5) for p in bridge + (TUCK, PARK)))
+        if any(abs(current[ch] - value) > 2 for ch, value in POKER_PARK):
+            lanes += (poker_lane(current, dict(POKER_PARK), speed=12, acceleration=3),)
     # Reject an unsafe route BEFORE any lane begins to move.
     for lane in lanes:
         previous = dict(current)
@@ -631,7 +635,7 @@ NAMED_POSES = {
     # Poker arm, owner's console readings October 10.
     'poker_out': ((12,4228),(13,5556)),      # Straight out: elbow 1057 us, wrist 1389 us.
     'poker_up': ((12,6000),(13,3768)),       # 45 degrees up with the hand level: 1500 / 942 us.
-    'poker_down': POKER_REST,                # Elbow down, wrist straight.
+    'poker_down': ((12,POKER_ELBOW_DOWN),(13,POKER_WRIST_STRAIGHT)),   # Elbow down, wrist straight.
 }
 # One-shot gestures run and return to where they started; nothing is held afterwards.
 GESTURES = ('wave',)
