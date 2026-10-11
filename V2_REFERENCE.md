@@ -1055,3 +1055,24 @@ imported, run or changed in V2.
 - Dependencies: none added. Checks: `tests/test_idle_motion.py`, `tests/test_leds.py`
   with fake pulses, clocks and serial. Remaining live validation: tracking feel and
   vertical aim on the robot, and the mouth animation on every line.
+
+
+## Owner-directed front-right firmware disable — October 10, 2026
+
+Direct edit, not an extraction: V2 HEAD `fb96f086925841479952c649b0a39a8f6c77f70c`.
+The source tree already contained unrelated application edits and uncommitted
+firmware battery/calibration, raw diagnostic and crosstalk changes (version 0.2.6).
+These were preserved; the build used the current working tree, not HEAD alone.
+Reviewed persistence commit `7cd43a7`, quarantine `639eb66`, radial/matrix split
+`17de7a6` and current firmware/runbook. New scoped edits: `tof.cpp` skips mux 5
+initialization and polling with an explicit DISABLED log; `protocol.h` identifies
+0.2.7; firmware README documents missing coverage. Other sensors and dependencies
+are preserved. No V2 application or personal database was changed by this task.
+
+Full Bluepad32 build and owner-requested flash succeeded (retry after an initial
+serial transfer failure). All four hardware flags enabled; 26 isolated sensor and
+battery regressions passed. Live boot confirms gamepad support, seven active radial
+sensors and ready matrix; 139 stationary frames keep `fr_radial=-1`. Motor duty
+stayed zero. Battery menu restored; physical gamepad/floor-drive acceptance remains
+open. See [deployment evidence](docs/DRIVE_BASE_INTEGRATION.md#front-right-radial-firmware-disable--october-10-2026).
+Binary SHA-256: `406a0809ecac5218ffc8d0a6e8295b49da2819e35a596eb9658a653bebc482dc`.

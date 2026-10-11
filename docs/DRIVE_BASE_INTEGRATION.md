@@ -1017,3 +1017,29 @@ Unmeasured on the robot: all of it. The corroboration rule is checked against th
 recorded hallway grid and a synthetic scatter; whether the robot's matrix produces such
 scatter routinely, or whether those zones were a real edge, needs the next run's
 `clearance_m` rows.
+
+
+## Front-right radial firmware disable — October 10, 2026
+
+Owner-authorized firmware `0.2.7-fr-disabled` disables the faulty VL53L1X on
+mux channel 5 at initialization: no ranging or polling, `fr_radial=-1` throughout.
+It cannot contribute phantom ranges to drive vetoes or steering. The independent
+front matrix still owns combined `fr`; the other seven radial sensors remain active.
+The matrix and other sensors can still slow/stop the base for obstacles.
+
+Built and flashed the current V2 working-tree firmware with Bluepad32 4.1.0,
+FQBN `esp32-bluepad32:esp32:esp32:UploadSpeed=115200` and all four flags set to 1:
+`MOTION_HW_PRESENT`, `MOTION_GAMEPAD_PRESENT`, `MOTION_TOF_PRESENT`,
+`MOTION_TOF_MATRIX_PRESENT`. Build: 812,817 bytes program, 90,636 bytes globals.
+26 isolated V2 lean-runner sensor/battery regressions passed (native compiled
+filters with recorded fixtures and synthetic battery inputs; blocked hardware I/O).
+
+Initial USB transfer failed; retry completed with every upload hash verified.
+Stationary live verification: hello version matched, all 139 telemetry frames
+reported `fr_radial=-1`, boot logged channel 5 DISABLED, the other seven sensors OK,
+Bluepad32 ready, and matrix ready. Last combined `fr` was 128 mm from the matrix,
+with zero motor duty; IMU, compass and environment were online. `comms_lost` after
+hello is expected without a driving host heartbeat. The battery LaunchAgent was
+restored after verification. No drive command or physical gamepad test was sent;
+floor driving and repaired radial coverage remain unvalidated. Raw stationary
+telemetry and exact build options are retained under ignored `local/firmware/`.

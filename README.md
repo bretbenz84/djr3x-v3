@@ -64,7 +64,7 @@ it or reads its data.
   - Model-selected poses and a microphone hold for enrollment.
 - **Lights.** Head and chest startup/shutdown, speaking lights and model-selected
   animations.
-- **Wheels and radar** (V2 ESP32 firmware, unchanged):
+- **Wheels and radar** (V2 ESP32 firmware; owner-directed front-right radial disable October 10):
   - The model plans turns, moves, facing and approaching people or objects, finding a
     person, and seeking things the detector cannot name ("find the door and go to it").
   - Approaches to a sought thing roll continuously while hosted vision looks run in the

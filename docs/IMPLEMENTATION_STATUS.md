@@ -709,3 +709,12 @@ Stationary telemetry kept charging locked at 14.367 V / 6 mA. Battery menu servi
 restored and serial ownership confirmed. This supersedes the unflashed status
 above; physical unplug latency/gamepad acceptance remains pending. No movement
 or charge assertion was commanded.
+
+
+October 10 owner-directed firmware deployment: `0.2.7-fr-disabled` disables the
+faulty front-right radial on mux 5 (unavailable, not a fabricated clear reading).
+Full Bluepad32/gamepad/motors/radial/matrix build and upload verified; 26 isolated
+sensor/battery regressions pass. Stationary hardware: 139 frames with `fr_radial=-1`,
+seven other radials online, matrix ready, Bluepad32 ready, zero motor duty. Battery
+menu restored. Floor driving/gamepad interaction and hardware repair remain open.
+See [firmware evidence](DRIVE_BASE_INTEGRATION.md#front-right-radial-firmware-disable--october-10-2026).
