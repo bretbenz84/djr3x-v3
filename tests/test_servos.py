@@ -6,7 +6,7 @@ import unittest
 
 from r3x.contracts import Cancellation, Playback, ProviderFailure
 from r3x.output import Delivery, OutputOwner
-from r3x.servo_poses import AWAKE_ARMS, HEAD_PARK, PARK, POKER, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
+from r3x.servo_poses import AWAKE_ARMS, HEAD_PARK, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
 from r3x.servos import ARM_RETURN
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 
@@ -457,6 +457,45 @@ class ArmReturnTests(unittest.TestCase):
         self.assertEqual(receipt.status, 'cancelled')
         self.assertTrue(set(ARM_RETURN) <= self.owner.held_channels)
         self.assertFalse(self.owner._arm_returning)
+
+
+    def test_a_kept_arm_stays_tucked_through_release_and_aged_holds(self):
+        # Owner, October 11: the poker arm stays raised while something is to his left.
+        self.parked()
+        self.owner.begin_arm_return()
+        self.assertEqual(self.owner.return_arm(keep={'poker'}).status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in POKER}, dict(POKER_DRIVE))
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
+        self.assertEqual(self.owner.held_channels, {6, *POKER})
+        self.assertFalse(self.owner.yield_stale_hold())       # Nothing but the kept arm is held.
+        look = self.owner.execute(self.request('pose', pose='look_left'), Cancellation())
+        self.assertEqual(look.status, 'pulses_reached')
+        self.owner.pose_held_at = self.clock() - 1000.
+        self.assertTrue(self.owner.yield_stale_hold())        # The aged look gives way; the arm does not.
+        self.assertEqual(self.owner.held_channels, {6, *POKER})
+        self.assertEqual(self.execute_pose('release_poses').status, 'pulses_reached')
+        self.assertEqual(self.owner.held_channels, {6, *POKER})
+        self.assertEqual({ch: self.port.pose[ch] for ch in POKER}, dict(POKER_DRIVE))
+        # The arm comes out later from where it is; a person's held look is not dropped.
+        self.assertEqual(self.owner.execute(self.request('pose', pose='look_right'), Cancellation()).status,
+                         'pulses_reached')
+        self.owner.begin_arm_return()
+        self.assertTrue({0} <= self.owner.held_channels)
+        self.assertEqual(self.owner.return_arm().status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in POKER}, dict(POKER_UP))
+        self.assertEqual(self.owner.kept_arms, frozenset())
+        self.assertIn(0, self.owner.held_channels)
+
+    def test_the_next_drive_takes_a_kept_arm(self):
+        self.parked()
+        self.owner.begin_arm_return()
+        self.owner.return_arm(keep={'throttle', 'poker'})
+        self.assertEqual(self.owner.kept_arms, {'throttle', 'poker'})
+        self.assertEqual(self.execute('base_park').status, 'pulses_reached')
+        self.assertEqual(self.owner.kept_arms, frozenset())
+
+    def execute_pose(self, name):
+        return self.owner.execute(self.request('pose', pose=name), Cancellation())
 
 
 class HoldArmsTests(unittest.TestCase):

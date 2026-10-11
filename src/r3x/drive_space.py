@@ -221,6 +221,25 @@ def clearance(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
     return result
 
 
+# Owner, October 11: the poker arm reaches about 2 ft (0.61 m) out from the left side
+# sensors and stays at its drive stance while anything is within 3.5 ft of them; the
+# throttle arm reaches about 2 ft ahead of the front sensors and stays parked while
+# anything is that close in front.
+POKER_KEEP_CLEAR_M = 1.07
+THROTTLE_KEEP_CLEAR_M = .61
+
+
+def arms_blocked(space: dict) -> frozenset[str]:
+    """The reaching arms that must stay tucked: an obstacle within their keep-clear distance,
+    or no reading to show there is none (unknown sensing keeps the arm in)."""
+    blocked = set()
+    if space.get('left_m') is None or space['left_m'] < POKER_KEEP_CLEAR_M:
+        blocked.add('poker')
+    if space.get('front_m') is None or space['front_m'] < THROTTLE_KEEP_CLEAR_M:
+        blocked.add('throttle')
+    return frozenset(blocked)
+
+
 def move_allowance(meters: float, space: dict) -> tuple[float, str | None]:
     """Largest same-sign distance the host will request; firmware still gates."""
     if meters > 0:

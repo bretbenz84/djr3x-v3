@@ -15,7 +15,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
-                          UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES)
+                          UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS)
 
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
 ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})   # The arms the drive stance moved: walked back after the wheels stop.
@@ -73,6 +73,10 @@ class ServoOwner:
         self.hold_until_released = False   # "Leave your hand there until I say": no 90-second yield.
         self._base_held = False
         self._arm_returning = False        # The throttle arm is walking back to rest after a drive.
+        # Arms left at their drive stance after a drive because something was within their
+        # reach (October 11). Their channels stay held until the drive owner sees the space
+        # clear and returns them, or the next drive or shutdown takes them.
+        self.kept_arms: frozenset[str] = frozenset()
         self._arm_cancel = threading.Event()
         self._arm_wait = wait or self._arm_cancel.wait
         self._talking_head_origin: dict[int, int] | None = None
@@ -149,6 +153,10 @@ class ServoOwner:
         from .servo_poses import NECK_CENTER
         return neck_degrees(self.commanded.get(0, NECK_CENTER))
 
+    @property
+    def kept_channels(self) -> set[int]:
+        return {ch for arm in self.kept_arms for ch in REACHING_ARMS[arm]}
+
     def motion_risk(self) -> bool:
         return self._motion.is_set() or self._arm_returning or self.clock() < self.motion_until
 
@@ -164,9 +172,10 @@ class ServoOwner:
 
     def yield_stale_hold(self):
         """Drop an aged pose hold before Rex's own beat; a recent one stays."""
-        if (self.held_channels and not self.human_hold_active() and not self._motion.is_set()
+        kept = self.kept_channels
+        if (self.held_channels - kept and not self.human_hold_active() and not self._motion.is_set()
                 and not self._base_held and not self._arm_returning):  # Never the drive stance or a returning arm.
-            self.held_channels.clear()
+            self.held_channels.intersection_update(kept)   # An arm kept clear of an obstacle stays.
             return True
         return False
 
@@ -276,6 +285,11 @@ class ServoOwner:
                 # The arms are still returning from their drive stance; callers that need
                 # them (the next drive, shutdown, an arm pose) wait for the return first.
                 return receipt('rejected', 'ServoBusy')
+            kept = self.kept_channels
+            if kept and request.kind not in {'base_park', 'park', 'shutdown'} and any(
+                    ch in kept for lane in lanes for beat in lane for ch, _ in beat.targets):
+                # Owner, October 11: an arm with something within its reach stays tucked.
+                return receipt('rejected', 'ArmKeptClearOfObstacle:' + ','.join(sorted(self.kept_arms)))
             if request.kind == 'pose' and not request.hold_pose:
                 channels = {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
                 if request.pose == 'release_poses' or (
@@ -296,6 +310,7 @@ class ServoOwner:
                 # Talking/idle lanes skip held channels while the base drives.
                 self.held_channels.update(BASE_HELD)
                 self._base_held = True
+                self.kept_arms = frozenset()   # The stance holds them; the release decides again.
             accepted = True
             if any(ch == 7 for lane in lanes for beat in lane for ch, _ in beat.targets):
                 self.release_microphone_hold()   # Only the array arm's own movement ends its hold.
@@ -379,6 +394,7 @@ class ServoOwner:
             if request.kind == 'pose' and request.pose == 'release_poses':
                 self.held_channels.clear()
                 self.hold_until_released = False
+                self.held_channels.update(self.kept_channels)
                 if self._arm_returning:
                     self.held_channels.update(ARM_RETURN)
             if request.kind == 'base_release':
@@ -436,11 +452,16 @@ class ServoOwner:
         (October 10: the poker arm had been let go here and never came back)."""
         self._arm_cancel.clear()
         self._arm_returning = True
-        self.held_channels.difference_update(BASE_HELD - ARM_RETURN)
-        self._base_held = False
+        if self._base_held:   # Not when a kept arm comes out later: a person's held look stays.
+            self.held_channels.difference_update(BASE_HELD - ARM_RETURN)
+            self._base_held = False
 
-    def return_arm(self) -> ServoReceipt:
+    def return_arm(self, keep=frozenset()) -> ServoReceipt:
         """Walk the arms the drive stance moved back to their awake poses beside other motion.
+
+        keep: REACHING_ARMS with something within their reach (owner, October 11). They stay
+        at their drive stance, held, and become kept_arms; a later call without them (the
+        drive owner saw the space clear) walks them back from there.
 
         The throttle arm goes from its drive park to rest; the hero elbow and the poker arm,
         elbow and wrist go back to their mid points (owner, October 10: after a drive the
@@ -458,7 +479,8 @@ class ServoOwner:
             if self.state not in {'active', 'moving'} or self._bus is None:
                 return receipt('rejected', 'ServoUnavailableOrParked')
             current = self._bus.positions(sorted(ARM_RETURN))
-            lanes = base_lanes('base_release', current)
+            keep = frozenset(keep)
+            lanes = base_lanes('base_release', current, keep)
             indices = [0] * len(lanes)
             active = {}   # lane -> arrival deadline
             while any(index < len(lane) for index, lane in zip(indices, lanes)):
@@ -513,6 +535,8 @@ class ServoOwner:
         finally:
             if done:
                 self.held_channels.difference_update(ARM_RETURN)
+                self.kept_arms = keep
+                self.held_channels.update(self.kept_channels)
             self.motion_until = max(self.motion_until, self.clock() + .5)
             self._arm_returning = False
 

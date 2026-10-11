@@ -147,10 +147,13 @@ class RobotServos:
             self.trace.emit('servo_base_park', **asdict(receipt))
         return receipt
 
-    def finish_base_motion(self, look_pending=False):
+    def finish_base_motion(self, look_pending=False, keep_parked=frozenset()):
         """The drive is over: the head is free at once, while the arms the stance moved
         return to their awake poses in the background (the throttle to rest, the hero elbow
         and poker arm to their mid points; October 10).
+
+        keep_parked: arms with something within their reach (the drive owner's reading,
+        owner October 11); they stay at their drive stance until extend_cleared_arms.
 
         Owner, October 3: he stayed frozen until the arm had un-parked. Talking and idle
         motion now carry on beside the return (they never command the arm's channels while
@@ -159,14 +162,31 @@ class RobotServos:
         look_pending: a picture is about to be taken from where he stopped, so the head
         stays still for it first (the session wakes idle motion once it is taken).
         """
-        import threading
-        self.owner.begin_arm_return()
+        self._start_arm_return(frozenset(keep_parked))
         self.idle.look_at_people()   # The drive centred the head; an earlier held look is over.
         self.idle.wake(delay=LOOK_STILL_S if look_pending else 0.)   # Now, not after the usual idle pause.
+
+    @property
+    def kept_arms(self):
+        return self.owner.kept_arms
+
+    def extend_cleared_arms(self, still_blocked):
+        """Return the kept arms no longer blocked to their awake poses; the rest stay.
+        Nothing starts while an earlier return is still on its way."""
+        kept = self.owner.kept_arms
+        if (not kept or kept <= still_blocked or self.owner.hold_until_released   # "Hold your arms" stays.
+                or (self._arm_return is not None and self._arm_return.is_alive())):
+            return False
+        self._start_arm_return(kept & frozenset(still_blocked))
+        return True
+
+    def _start_arm_return(self, keep):
+        import threading
+        self.owner.begin_arm_return()
         def run():
-            receipt = self.owner.return_arm()
+            receipt = self.owner.return_arm(keep)
             if self.trace:
-                self.trace.emit('servo_base_release', **asdict(receipt))
+                self.trace.emit('servo_base_release', **asdict(receipt), kept_parked=sorted(keep))
         self._arm_return = threading.Thread(target=run, name='r3x-arm-return', daemon=True)
         self._arm_return.start()
 

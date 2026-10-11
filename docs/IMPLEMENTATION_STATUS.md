@@ -1,10 +1,21 @@
 # Current implementation status
 
-Updated October 10, 2026. This is the consolidated
+Updated October 11, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Arms stay tucked beside obstacles — October 11
+
+Owner request. After a drive, the poker arm stays raised at its drive stance while either
+left side sensor reads anything within 3.5 ft (1.07 m; the arm reaches about 2 ft), and the
+throttle arm stays parked while anything is within 2 ft (0.61 m) in front (front ring sensors
+and depth matrix). A missing reading keeps the arm in too. Once the space has read clear for
+2 s he puts the arm out; meanwhile idle and talking motion leave it alone and a pose for it
+is refused. The hero elbow always returns. 1,100 blocked-I/O checks pass (simulated base and
+servo board only). **Not yet run on the robot**
+([details](SERVO_INTEGRATION.md#october-11-arms-stay-tucked-beside-obstacles)).
 
 ## Room recognition and exploring — October 11
 

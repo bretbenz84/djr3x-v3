@@ -591,6 +591,78 @@ class ArmParkTests(unittest.TestCase):
         self.assertFalse(robot.owner.held_channels & {0, 4, 6, 8, 9, 10, 12, 13})
 
 
+class ArmClearanceTests(unittest.TestCase):
+    """Owner, October 11: an arm with something within its reach stays tucked after a drive."""
+    def setUp(self):
+        from tests.test_servos import Clock as ServoClock, PulsePort
+        from r3x.robot_servos import RobotServos
+        servo_clock, self.port = ServoClock(), PulsePort()
+        self.robot = RobotServos('fake', open_port=lambda: self.port, clock=servo_clock, wait=servo_clock.wait)
+        self.robot.owner.wait = servo_clock.wait
+        self.robot.start()
+        self.addCleanup(self.robot.close)
+        self.clock, self.fake, self.drive, self.world = base_setup(self)
+        self.drive.start()
+        self.addCleanup(self.drive.close)
+        self.drive.servos = self.robot
+
+    def pose(self, channels):
+        return {ch: self.port.pose[ch] for ch in channels}
+
+    def drive_and_return(self):
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=30.)), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+        self.robot._arm_return.join(5)
+
+    def test_a_wall_on_the_left_keeps_the_poker_arm_raised_until_it_is_clear(self):
+        from r3x.servo_poses import AWAKE_ARMS, DRIVE_ARMS, POKER, POKER_DRIVE, POKER_UP, REST, THROTTLE
+        self.fake.tof.update(lf=900, lb=1300)   # 3 ft from the left side: inside the 3.5 ft keep-clear.
+        settle()
+        self.drive_and_return()
+        self.assertEqual(self.pose((6, *POKER)), {6: dict(DRIVE_ARMS)[6], **dict(POKER_DRIVE)})
+        self.assertEqual(self.pose(THROTTLE), dict(REST))              # The front is open: the throttle comes out.
+        self.assertEqual(self.pose((4,)), {4: dict(AWAKE_ARMS)[4]})    # The hero elbow always returns.
+        self.assertEqual(self.robot.kept_arms, {'poker'})
+        self.assertEqual(self.drive.tick_arm_clearance(), None)       # Still blocked: nothing moves.
+        out = self.robot.owner.execute(ServoRequestFor(self.robot, 'poker_out'), Cancellation())
+        self.assertEqual((out.status, out.reason), ('rejected', 'ArmKeptClearOfObstacle:poker'))
+        self.fake.tof.update(lf=1500, lb=1500)
+        settle()
+        self.assertIsNone(self.drive.tick_arm_clearance())            # Clear, but not yet for long enough.
+        self.clock.now += 2.
+        settle()
+        self.assertEqual(self.drive.tick_arm_clearance(), {'poker'})
+        self.robot._arm_return.join(5)
+        self.assertEqual(self.pose((6, *POKER)), {6: dict(AWAKE_ARMS)[6], **dict(POKER_UP)})
+        self.assertEqual(self.robot.kept_arms, frozenset())
+        self.assertFalse(self.robot.owner.held_channels & {6, *POKER})
+
+    def test_something_close_in_front_keeps_the_throttle_parked(self):
+        from r3x.servo_poses import AWAKE_ARMS, PARK, POKER, POKER_UP, THROTTLE
+        self.fake.front = lambda: .45    # Something 1.5 ft in front of the sensors, wherever he faces.
+        settle()
+        self.drive_and_return()
+        self.assertEqual(self.pose(THROTTLE), dict(PARK))
+        self.assertEqual(self.pose((6, *POKER)), {6: dict(AWAKE_ARMS)[6], **dict(POKER_UP)})
+        self.assertEqual(self.robot.kept_arms, {'throttle'})
+        self.assertTrue(set(THROTTLE) <= self.robot.owner.held_channels)   # Idle and talking leave it.
+
+    def test_beyond_reach_both_arms_come_out_as_before(self):
+        from r3x.servo_poses import REST, THROTTLE
+        self.fake.tof.update(lf=1200, lb=1200)   # Just beyond 3.5 ft.
+        self.fake.front = lambda: .8     # Beyond 2 ft in front.
+        settle()
+        self.drive_and_return()
+        self.assertEqual(self.robot.kept_arms, frozenset())
+        self.assertEqual(self.pose(THROTTLE), dict(REST))
+
+
+def ServoRequestFor(robot, pose):
+    from r3x.servos import ServoRequest
+    owner = robot.owner
+    return ServoRequest('pose-test', owner.version, 'pose', owner.clock() + 30., pose=pose)
+
+
 class GeometryTests(unittest.TestCase):
     def test_matrix_bands_ignore_floor_and_single_speckles(self):
         grid = [3500]*64

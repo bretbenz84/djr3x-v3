@@ -50,7 +50,10 @@ hallway no-reverse rule. No firmware was changed.
     level and straight, right before the first wheel command. All are held until the
     drive ends; then the head is free at once and the arms walk back to their awake
     poses in the background (throttle to rest, hero elbow and poker arm to their mid
-    points, poker elbow/wrist to the 45-degree pose; October 10 evening).
+    points, poker elbow/wrist to the 45-degree pose; October 10 evening). Since October 11
+    the poker arm stays raised while anything is within 3.5 ft of the left side sensors
+    and the throttle stays parked while anything is within 2 ft in front, until the space
+    reads clear for 2 s ([servos](SERVO_INTEGRATION.md#october-11-arms-stay-tucked-beside-obstacles)).
   - A return from the front depth matrix counts only when a neighbouring zone agrees with
     it (October 10 evening); lone zones no longer block the path.
   - Arm-swing checks gate turns. Firmware stop zones stay active.

@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, clearance, describe_bearing, face_range, image_bearing,
+from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, clearance, describe_bearing, face_range, image_bearing,
                           move_allowance, radar_bodies, steer, wall_angle, wrap, FRONT_MARGIN, PERSON_MARGIN,
                           SCRAPE_M, WALL_HOLD_M)
 from .providers import Capability
@@ -44,6 +44,7 @@ ROUTE_LOOK_DOWN_DEG = 12. # Enough to bring the floor a metre ahead into the pic
 # Owner, October 5: the head needs about 1.5 s after tipping down before it is still
 # enough for a clear picture; the 0.3-0.5 s allowed before gave blurred route looks.
 HEAD_SETTLE_S = 1.5
+ARM_CLEAR_S = 2.            # A kept arm comes out once its space has read clear this long.
 ROUTE_BEYOND_VIEW_DEG = 60.   # The open way lies past the picture's edge: turn this far and go.
 ROUTE_SLACK_DEG = 60.     # After a leg, before two sightings fix its position, the thing may sit this far off.
 SIDE_WAY_M = .8           # A side sensor this open is a way around when nothing in front is.
@@ -395,6 +396,7 @@ class DriveBase:
         self.motion_until = 0.
         self.history = deque(maxlen=6)
         self.flinch = Flinch()
+        self._arm_clear_since = {}    # Kept arm -> when its space was first seen clear.
         self.origin = None
         self.object_tracks = None     # objects including single-frame re-detections after motion
         self.locator = None           # (description, image, cancel) -> hosted vision geometry
@@ -438,6 +440,7 @@ class DriveBase:
         self.state = 'ready'
         if self._reflex:
             self._spawn('reflex', self._reflex_loop)
+        self._spawn('arm-clearance', self._arm_clearance_loop)
 
     def _spawn(self, name, target):
         thread = threading.Thread(target=target, name='r3x-drive-'+name, daemon=True)
@@ -2190,8 +2193,15 @@ class DriveBase:
             self.flinch.ticks = 0
             if self._parked:
                 self._parked = False
+                # Owner, October 11: an arm with something within its reach stays tucked.
+                try:
+                    keep = arms_blocked(self.space())
+                except Exception:
+                    keep = frozenset({'poker', 'throttle'})
+                if keep and self.trace:
+                    self.trace.emit('arm_clearance', status='kept_parked', arms=sorted(keep))
                 # A picture is wanted after this drive: the head stays still for it first.
-                self.servos.finish_base_motion(look_pending=bool(plan.look_after))
+                self.servos.finish_base_motion(look_pending=bool(plan.look_after), keep_parked=keep)
             self.motion_until = self.clock() + 1.
             self.moving.clear()
             self._notify(plan)
@@ -2263,6 +2273,36 @@ class DriveBase:
         plan = DrivePlan('reflex:' + uuid4().hex, (DriveStep('move', meters=-distance),), 'self_initiated',
                          'back off: someone came very close in front', {}, now + 5., park_arm=False)
         return self.execute(plan, Cancellation())
+
+    def tick_arm_clearance(self, now=None):
+        """Bring out an arm kept tucked after a drive once its space has stayed clear for
+        ARM_CLEAR_S. Nothing while the base moves; the next drive decides afresh."""
+        kept = getattr(self.servos, 'kept_arms', None) or frozenset()
+        if not kept or self.moving.is_set():
+            self._arm_clear_since.clear()
+            return None
+        now = self.clock() if now is None else now
+        blocked = arms_blocked(self.space(now))
+        for arm in set(self._arm_clear_since) - (kept - blocked):
+            del self._arm_clear_since[arm]
+        for arm in kept - blocked:
+            self._arm_clear_since.setdefault(arm, now)
+        ready = frozenset(arm for arm, since in self._arm_clear_since.items() if now - since >= ARM_CLEAR_S)
+        if not ready or not self.servos.extend_cleared_arms(kept - ready):
+            return None
+        for arm in ready:
+            del self._arm_clear_since[arm]
+        if self.trace:
+            self.trace.emit('arm_clearance', status='extended', arms=sorted(ready))
+        return ready
+
+    def _arm_clearance_loop(self):
+        while not self._closing.wait(1.):
+            try:
+                self.tick_arm_clearance()
+            except Exception as exc:
+                if self.trace:
+                    self.trace.emit('arm_clearance', status='failed', error_type=type(exc).__name__)
 
     def _reflex_loop(self):
         while not self._closing.wait(1.):

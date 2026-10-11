@@ -6,6 +6,24 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 11: arms stay tucked beside obstacles
+
+Owner: the poker arm reaches about 2 ft out from the left side sensors and the throttle arm
+about 2 ft ahead of the front sensors; after a drive, neither should come out into something.
+When the wheels stop, the drive owner reads the ring (`drive_space.arms_blocked`): the poker
+arm (swing 6, elbow/wrist 12/13) stays at its drive stance (8000, `POKER_PARK`) while the
+nearer left side sensor reads under 1.07 m (3.5 ft), and the throttle stays at `PARK` while
+the nearest front reading (ring radials and depth matrix) is under 0.61 m (2 ft). No reading
+counts as blocked. `return_arm(keep=...)` walks only the other arms back; the kept arms'
+channels stay held (`kept_arms`), so idle and talking skip them, an aged hold or
+`release_poses` does not free them, and any pose for them is refused as
+`ArmKeptClearOfObstacle`. Each second the drive owner rechecks; once an arm's space has read
+clear for 2 s it walks to its awake pose (not while driving, and not while a person's
+`hold_arms` stands). The next drive's park takes kept arms as usual. The reply model sees
+`robot_pose_state.arms_tucked_for_obstacle`. Not covered: an arm already out when someone
+steps up beside him is not pulled in, and startup or requested poses with no drive before
+them are not gated. Synthetic checks only (simulated base and servo board).
+
 ## October 10: two-servo head, poker elbow and wrist, inverted visor
 
 The owner reworked the head and the poker arm and measured the new positions in the

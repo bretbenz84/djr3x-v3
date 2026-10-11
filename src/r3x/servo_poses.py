@@ -238,6 +238,10 @@ POKER_UP = ((12, 6000), (13, 3768))
 # points): the hero elbow at its awake neutral (startup), the poker arm at mid swing, and
 # the poker elbow/wrist at POKER_UP (base_lanes 'base_release').
 AWAKE_ARMS = ((4, 6720), (6, 6000))
+# The arms that reach out from the body, by the channels that carry them. Owner, October 11:
+# either stays at its drive stance after a drive while something is within its reach
+# (drive_space.arms_blocked); base_lanes 'base_release' then leaves it where it is.
+REACHING_ARMS = MappingProxyType({'poker': (6, *POKER), 'throttle': THROTTLE})
 # The head lift's lowest pulse is 2624 (656 us): the board's own range clamps anything
 # lower, so a park at 2600 never arrived (shutdown ServoArrivalTimeout:ch1@2624->2600,
 # October 10 run b954c14c).
@@ -607,10 +611,13 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
     return tuple(lanes)
 
 
-def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ...]:
+def base_lanes(kind: str, current: dict[int, int], keep=frozenset()) -> tuple[tuple[Beat, ...], ...]:
     """Throttle park, centered neck, raised hero elbow/poker arm and the poker elbow/wrist
     drive pose before base motion; afterwards the throttle's return to rest beside the
     hero elbow, poker arm, elbow and wrist going back to their awake poses.
+
+    keep names the REACHING_ARMS that stay at their drive stance on release (an obstacle
+    within reach); the hero elbow always returns.
 
     V2 parks the throttle arm before every non-reverse base command. The neck is
     centered so head-camera bearings are base-relative. Return uses the validated
@@ -618,6 +625,8 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
     """
     if kind not in {'base_park', 'base_release'}:
         raise ValueError('UnknownBaseSequence')
+    if not set(keep) <= set(REACHING_ARMS) or (keep and kind != 'base_release'):
+        raise ValueError('UnknownKeptArm')
     validate_pose(current)
     start = {ch: current[ch] for ch in THROTTLE}
     at = lambda pose: all(abs(start[ch] - value) <= 2 for ch, value in pose)
@@ -632,7 +641,8 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
             stages = [dict(REST), dict(TUCK), dict(PARK)]
     else:
         route = [dict(TUCK), {8: 4800, 9: 8000, 10: 3800}, {8: 3680, 9: 8720, 10: 5920}, dict(REST)]
-        stages = [] if at(REST) else route if at(PARK) or throttle_clear(start, route[0]) else [dict(REST)]
+        stages = ([] if at(REST) or 'throttle' in keep else
+                  route if at(PARK) or throttle_clear(start, route[0]) else [dict(REST)])
     previous = start
     for stage in stages:
         validate_pose(stage)
@@ -657,10 +667,13 @@ def base_lanes(kind: str, current: dict[int, int]) -> tuple[tuple[Beat, ...], ..
         # The other arms the stance moved come back beside the throttle's walk: the hero
         # elbow and the poker arm's swing to their awake mid points, the poker elbow and
         # wrist to the awake 45-degree pose by the staged clearance route.
-        arms = tuple((ch, value) for ch, value in AWAKE_ARMS if ch in current and abs(current[ch] - value) > 2)
+        kept = {ch for arm in keep for ch in REACHING_ARMS[arm]}
+        arms = tuple((ch, value) for ch, value in AWAKE_ARMS
+                     if ch in current and ch not in kept and abs(current[ch] - value) > 2)
         if arms:
             lanes += ((Beat(arms, speed=20, acceleration=5),),)
-        if set(POKER).issubset(current) and any(abs(current[ch] - value) > 2 for ch, value in POKER_UP):
+        if ('poker' not in keep and set(POKER).issubset(current)
+                and any(abs(current[ch] - value) > 2 for ch, value in POKER_UP)):
             lanes += (poker_lane(current, dict(POKER_UP), speed=12, acceleration=3),)
     return lanes
 

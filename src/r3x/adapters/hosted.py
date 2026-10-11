@@ -592,6 +592,8 @@ class OpenAIBrain(HTTPProvider):
                 '"turn left/right" or "turn around" drives the base. To look somewhere and say what is there, use one set_robot_pose '
                 'with look_after instead of describing the old view. '
                 'robot_pose_state.held_parts reports controller holds that persist across turns and speech. '
+                'robot_pose_state.arms_tucked_for_obstacle names arms kept tucked because something is within their reach; '
+                'they come out by themselves once it is clear, and a pose for them is refused until then. '
                 'An explicit request to resume normal motion, stop holding a pose, or relax after a pose requires '
                 'set_robot_pose with poses ["release_poses"]. Execute the tool even when phrased as permission ("you can resume now"). '
                 'Never claim movement resumed using ordinary prose alone. Put a quick acknowledgment such as "On it" in say_before, '

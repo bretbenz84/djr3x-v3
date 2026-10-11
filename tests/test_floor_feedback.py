@@ -372,7 +372,7 @@ class GoingAroundTests(SeekTests):
             def prepare_base_motion(self, cancel):
                 events.append('park')
                 return type('R', (), {'status': 'pulses_reached', 'reason': None})()
-            def finish_base_motion(self, look_pending=False):
+            def finish_base_motion(self, look_pending=False, keep_parked=frozenset()):
                 events.append('release')
         drive.servos = Servos()
         drive._sought = {'description': 'door'}
@@ -833,7 +833,7 @@ class VoiceAndObstacleApproachTests(unittest.TestCase):
         class Servos:   # As on the robot: arms tucked before the wheels move.
             def prepare_base_motion(self, cancel):
                 return type('R', (), {'status': 'pulses_reached', 'reason': None})()
-            def finish_base_motion(self, look_pending=False):
+            def finish_base_motion(self, look_pending=False, keep_parked=frozenset()):
                 pass
         drive.servos = Servos()
         settle()
@@ -867,7 +867,7 @@ class ReacquireAfterNudgeTests(unittest.TestCase):
             def prepare_base_motion(self, cancel):
                 world.neck = 0.
                 return type('R', (), {'status': 'pulses_reached', 'reason': None})()
-            def finish_base_motion(self, look_pending=False):
+            def finish_base_motion(self, look_pending=False, keep_parked=frozenset()):
                 pass
             def execute_pose(self, pose, cancel, request_id):
                 world.neck = (NECK_CENTER - pose[0]) / NECK_PULSES_PER_DEG
@@ -980,7 +980,7 @@ class TuckedArms:
     """The servo owner parks the arms before the wheels move, as on the robot."""
     def prepare_base_motion(self, cancel):
         return type('R', (), {'status': 'pulses_reached', 'reason': None})()
-    def finish_base_motion(self, look_pending=False):
+    def finish_base_motion(self, look_pending=False, keep_parked=frozenset()):
         pass
 
 
@@ -1428,7 +1428,7 @@ class CameraRouteTests(SeekTests):
         clock, fake, drive, world = self.start([])
         flags = []
         class Head(TuckedArms):
-            def finish_base_motion(self, look_pending=False):
+            def finish_base_motion(self, look_pending=False, keep_parked=frozenset()):
                 flags.append(look_pending)
         drive.servos = Head()
         plan = DrivePlan('p', (DriveStep('move', meters=.3),), 'requested', 'go', {}, clock()+60, look_after='What is there?')

@@ -636,8 +636,10 @@ class Session:
                     'gaze': ({'people': 'following_faces', 'direction': 'holding_chosen_direction'}.get(
                         self.output.robot.idle.mode()) if hasattr(getattr(self.output.robot, 'idle', None), 'mode') else None), 'held_parts':
                     [name for name,channels in HELD_PARTS if held.intersection(channels)],
-                    'arms_held_until_told': bool(getattr(owner,'hold_until_released',False))}
-                if opportunity and held: context['robot_pose_enabled']=False
+                    'arms_held_until_told': bool(getattr(owner,'hold_until_released',False)),
+                    # October 11: tucked after a drive because something is within reach.
+                    'arms_tucked_for_obstacle': sorted(getattr(owner,'kept_arms',()))}
+                if opportunity and held - set(getattr(owner,'kept_channels',())): context['robot_pose_enabled']=False
             if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:
                 context['drive'] = self.output.drive.context('self_initiated' if opportunity else 'requested',
                     speaker_direction=None if opportunity else (context.get('speaker') or {}).get('direction'))
