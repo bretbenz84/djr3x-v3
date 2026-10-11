@@ -718,3 +718,14 @@ sensor/battery regressions pass. Stationary hardware: 139 frames with `fr_radial
 seven other radials online, matrix ready, Bluepad32 ready, zero motor duty. Battery
 menu restored. Floor driving/gamepad interaction and hardware repair remain open.
 See [firmware evidence](DRIVE_BASE_INTEGRATION.md#front-right-radial-firmware-disable--october-10-2026).
+
+
+October 10 matrix floor follow-up: owner-confirmed close floor returns now use
+measured rejection thresholds in the bottom two rows, superseding the >=250 mm
+geometric lower bound there. Firmware `0.2.8-matrix-floor` built/flashed with all
+four flags and hashes/version verified. 26 isolated native regressions pass;
+53-frame saved replay removes 42 close-floor blocks. Stationary live capture:
+57/57 matrix frames give clear host path at 3.5 m; firmware front pair 3500/3500,
+zone CLEAR, radial remains disabled, Bluepad32 ready. Battery menu restored.
+No drive/gamepad interaction test; floor-range low objects remain indistinguishable
+in those two rows. [Evidence](DRIVE_BASE_INTEGRATION.md#matrix-floor-calibration--october-10-2026).

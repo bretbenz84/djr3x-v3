@@ -1043,3 +1043,37 @@ hello is expected without a driving host heartbeat. The battery LaunchAgent was
 restored after verification. No drive command or physical gamepad test was sent;
 floor driving and repaired radial coverage remain unvalidated. Raw stationary
 telemetry and exact build options are retained under ignored `local/firmware/`.
+
+## Matrix floor calibration — October 10, 2026
+
+Owner confirms the close bottom-row returns are floor with no obstruction. The
+firmware's previous geometric thresholds were clamped to >=250 mm, so it could
+never reject the observed 80-250 mm floor returns. `0.2.8-matrix-floor` uses a
+measured 70 mm threshold for normalized rows 6/7 (bottom two, zero-based), 10 mm
+below the saved floor minimum. Both firmware aggregation and host clearance use
+this calibration through the existing `tofmx.rej` fields; no host code changed.
+The other six rows retain their geometric thresholds; nearer-than-70 mm bottom
+returns remain obstacles. Objects returning the same ranges as floor in these
+rows cannot be distinguished; upper rows retain obstacle detection. Front-right
+radial remains disabled.
+
+Checks: 26 isolated V2 native sensor/battery regressions, including four compiled
+production geometry/aggregation cases for floor, close upper-row obstacles,
+closer-than-floor returns and missing/single-zone returns. Host production
+clearance replay on 53 recorded hardware frames removed 42 near-floor blocks;
+remaining forward minima were 1.297-3.5 m. This is saved-frame evidence, not a drive
+acceptance test. Full Bluepad32 build: 812,849 bytes program, 90,636 bytes globals;
+all four existing hardware flags enabled. Source changes are confined to V2
+matrix geometry/calibration, a pure floor helper, version 0.2.8, focused native
+tests and firmware README. Existing uncommitted firmware/application edits were
+preserved. V2 HEAD remains fb96f086925841479952c649b0a39a8f6c77f70c.
+
+Deployment: upload hashes verified; live hello confirmed `0.2.8-matrix-floor`.
+138 telemetry frames and 57 matrix frames were captured stationary. Every matrix
+frame published `rej=[4095,4095,4095,4095,1548,517,70,70]`; host production path
+analysis was clear at 3.5 m in all 57 frames. Final firmware `fl/fr=3500`, zone CLEAR,
+front-right radial -1, Bluepad32 ready, seven radials online, zero motor duty.
+No driving/gamepad interaction test was performed. Battery menu LaunchAgent
+restored and serial ownership checked. Capture/build options remain ignored under
+`local/firmware/`. Binary SHA-256:
+`7c1e485b8b2c6e0ea0fbf5f2fa804d34d6710e2cf1065a7b98899c9ca02252ca`.

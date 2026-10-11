@@ -1076,3 +1076,20 @@ sensors and ready matrix; 139 stationary frames keep `fr_radial=-1`. Motor duty
 stayed zero. Battery menu restored; physical gamepad/floor-drive acceptance remains
 open. See [deployment evidence](docs/DRIVE_BASE_INTEGRATION.md#front-right-radial-firmware-disable--october-10-2026).
 Binary SHA-256: `406a0809ecac5218ffc8d0a6e8295b49da2819e35a596eb9658a653bebc482dc`.
+
+
+## Owner-directed matrix floor calibration — October 10, 2026
+
+Direct firmware edit from V2 HEAD `fb96f086925841479952c649b0a39a8f6c77f70c`
+plus its existing working-tree edits and the earlier 0.2.7 radial disable. The owner
+identified the saved bottom-row returns as floor. Added measured row thresholds
+in `calib.h`, a pure `tof_matrix_floor.h` helper used by `tof_matrix.cpp`, version
+0.2.8, native production geometry/aggregation checks and firmware documentation.
+Existing motor/gamepad/battery/radial behavior and upper matrix rows preserved;
+no new dependency. 26 isolated regressions passed; 53-frame saved host replay
+removed 42 near-floor blocks. Full four-flag Bluepad32 build/upload hashes verified.
+Live capture: all 57 matrix frames show clear host path at 3.5 m and calibrated
+bottom thresholds 70/70; final front pair 3500/3500, zone CLEAR, radial still -1,
+Bluepad32 ready. Battery menu restored; no drive/gamepad test. Floor-range objects
+in those bottom rows are indistinguishable from floor, and live driving acceptance
+remains open. [Evidence](docs/DRIVE_BASE_INTEGRATION.md#matrix-floor-calibration--october-10-2026).
