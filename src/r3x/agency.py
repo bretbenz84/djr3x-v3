@@ -182,6 +182,8 @@ Return only compose_agency_plan. Nothing here is spoken or saved as a personal f
 
 
 def evidence_scope(item):
+    # News about someone's saved interest reveals that interest: it belongs to their audience.
+    if item['kind'] == 'observations' and item.get('data', {}).get('kind') == 'interest_news': return 'audience'
     if item['kind'] in {'observations', 'camera'}: return 'general'
     if item['kind'] == 'current_target' and item.get('data', {}).get('kind') == 'object': return 'general'
     if item['kind'] == 'visual_memory' and item.get('data', {}).get('audience') == 'general': return 'general'

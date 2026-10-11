@@ -1,7 +1,9 @@
 """Explicit public-provider and hosted multimodal probes; no real camera, microphone or robot.
 
 Only --live-sources fetches public BBC/Open-Meteo data. --hosted sends synthetic
-text and generated test-frame pixels to the existing hosted model. No personal DB.
+text and generated test-frame pixels to the existing hosted model. --search runs the
+production daily-story search plus one fictional interest topic (paid, about 2-3 cents
+per search request) with a cache in the validation folder. No personal DB.
 """
 from dataclasses import asdict
 import argparse
@@ -21,6 +23,7 @@ from r3x.trace import Trace, report
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live-sources',action='store_true');parser.add_argument('--hosted',action='store_true')
+    parser.add_argument('--search',action='store_true');parser.add_argument('--topic',default='Sacramento Kings basketball')
     args=parser.parse_args()
     folder=Path(__file__).resolve().parents[1]/'local/validation'/('observations-'+uuid4().hex)
     folder.mkdir(parents=True);trace=Trace('observation-probes',folder/'session.jsonl',display=lambda _:None)
@@ -48,6 +51,32 @@ def main():
             evidence['public_sources']={'passed':{'news','weather'}<=kinds,'observations':rows}
             print('Public sources:',sorted(kinds),flush=True)
         finally:source.close()
+    if args.search:
+        from r3x.adapters.hosted import OpenAINewsSearch
+        from r3x.news import NewsCache, normalize_topic
+        key=Secrets.load(folder.parents[1]).openai_api_key
+        if not key:raise SystemExit('Existing OpenAI credential required')
+        search=OpenAINewsSearch(key);raw=[]
+        original=search.search
+        def recorded(prompt):
+            answer,sources,usage=original(prompt);raw.append({'answer':answer,'sources':len(sources),'usage':usage});return answer,sources,usage
+        search.search=recorded
+        source=PublicObservations(Settings(news_feed_urls=(),weather_enabled=False),trace,search=search,
+                                  cache=NewsCache(folder/'news.json'))
+        topic=normalize_topic(args.topic)
+        source.start()
+        try:
+            began=time.monotonic();source.refresh_searches()
+            source.want_topics([topic]);source.refresh_searches()
+            rows=[r.public() for r in source.candidates(True,topics=[topic])]
+            evidence['search']={'seconds':time.monotonic()-began,'model':search.capability.model,'requests':raw,
+                'returned_by_model':[len(r['answer'].get('stories') or []) for r in raw],
+                'categories_returned':[[s.get('category') for s in r['answer'].get('stories') or []] for r in raw],
+                'kept':{k:sum(r['kind']==k for r in rows) for k in ('story','interest_news')},'observations':rows}
+            print(json.dumps({k:v for k,v in evidence['search'].items() if k!='observations'},indent=1)[:3000],flush=True)
+            for r in rows:print(r['kind'],'|',json.loads(r['text'])['headline'],'|',json.loads(r['text']).get('timing'),'|',r['source'])
+        finally:
+            source.stop.set();source.close()
     if args.hosted:
         from r3x.adapters.hosted import OpenAIBrain
         from r3x.memory import Memory

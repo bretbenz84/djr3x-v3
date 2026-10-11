@@ -1093,3 +1093,33 @@ bottom thresholds 70/70; final front pair 3500/3500, zone CLEAR, radial still -1
 Bluepad32 ready. Battery menu restored; no drive/gamepad test. Floor-range objects
 in those bottom rows are indistinguishable from floor, and live driving acceptance
 remains open. [Evidence](docs/DRIVE_BASE_INTEGRATION.md#matrix-floor-calibration--october-10-2026).
+
+## Searched daily news and interest news — October 11, 2026
+
+Owner request: model V3's news on V2 while keeping the BBC feed. Source HEAD
+`95f2403e78c9ef786054fa13a31bb2ac534cc29d`; its uncommitted changes are firmware only, and
+`awareness/`, `memory/interests.py` and `intelligence/web_search.py` are clean. Read, not
+copied: `awareness/current_events.py` (SHA-256 `dad071c9…`) and `memory/interests.py`
+(`a8e629a7…`). No V2 data or cache was read.
+
+Preserved: one hosted web search a day for about five concrete, varied stories (no
+homepages or roundups, light items mixed in, at most one AI/tech story, no gossip about
+minors or graphic tragedy); same-day restarts reuse the cache; a failed fetch keeps the
+older stories, which still count as news for about a day; per-topic interest news, at most four topic searches a day,
+shared between people with the same topic; each story offered once; the event's day stated
+relative to today (V2 commit `2af39e3`).
+
+Adapted: `src/r3x/news.py` plus the existing `PublicObservations` worker, with no new
+thread or service. Stories become ordinary cues for `use_observation`, so the one
+conversation owner chooses whether to speak and only completed audio records delivery.
+V2 found event dates in the text with month-name regexes; V3 asks the search for a
+structured `event_date` and computes the relative day in code. V2's AI rule was only a
+prompt instruction (added July 18 after OpenAI launches dominated); V3 also asks for a
+fixed `category` and keeps at most one `ai_tech` story in code. Stories whose link the
+search never returned are dropped. Interests come from a new `remember_interest` tool:
+a supported speaker's own self-report claim plus a search topic, so correction, retraction
+and forgetting reuse the claim paths. Interest news is offered and revalidated only while
+that person is recognized in view, and it is private evidence for the goal planner.
+
+Checks: `tests/test_news.py` (14 synthetic checks) and a paid probe,
+`tools/check_observation_sources.py --search`. Live conversation use remains unaccepted.

@@ -440,7 +440,8 @@ class Session:
             # scene movement or cue expiry must not interrupt words already audible.
             if delivery.first_audio_at is not None:
                 return True
-            ready = self.state.observation_available(observation_selected)
+            ready = self.state.observation_available(observation_selected,
+                                                     opportunity.faces if opportunity else faces)
             if not ready and not cancel.event.is_set():
                 self.trace.emit('observation_output_rejected', turn_id=turn_id,
                                 cue_id=observation_selected['cue_id'],

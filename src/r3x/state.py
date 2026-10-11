@@ -442,7 +442,7 @@ class CoreState:
                 intent = self.conversation_intent.record
                 if intent is None or intent.status != 'active' or intent.audience != audience({'faces':faces}):
                     raise ValueError('LullRequiresConversationOrActiveIntent')
-        cues=[cue.public() for cue in event.public_cues if self.observation_available(cue.public())]
+        cues=[cue.public() for cue in event.public_cues if self.observation_available(cue.public(),faces)]
         if event.scene_id and event.scene_images:
             scene={'cue_id':event.scene_id,'kind':'scene','source':'current camera snapshots',
                    'source_url':'','published_at':self.wall_clock(),'expires_at':self.wall_clock()+10,
@@ -556,7 +556,7 @@ class CoreState:
                 data={'text':call.arguments['text'],'observation_id':call.arguments['observation_id']}
             elif call.name=='use_observation':
                 cue=next((r for r in context.get('observations',[]) if r['cue_id']==call.arguments['cue_id']),None)
-                if cue is None or not self.observation_available(cue):raise ValueError('ObservationUnavailable')
+                if cue is None or not self.observation_available(cue,context.get('faces',[])):raise ValueError('ObservationUnavailable')
                 data={'text':call.arguments['text'],'cue':cue}
             elif call.name=='use_memory_opportunity':
                 from .memory_opportunities import candidates
@@ -577,12 +577,18 @@ class CoreState:
         except ValueError as exc:
             return ToolResult(request_id,'rejected',str(exc),self.store.revision)
 
-    def observation_available(self, cue):
+    def observation_available(self, cue, faces=None):
         if cue['expires_at']<=self.wall_clock():return False
         provider=self.scene_observer if cue['kind']=='scene' else self.observations
         if provider is not None and not provider.valid(cue['cue_id']):return False
+        if cue['kind']=='interest_news':
+            # Rechecked from the store each time: a forgotten person or retracted interest stops it.
+            from .news import interest_topics
+            if faces is None or cue.get('topic') not in interest_topics(self.store,faces):return False
+        # A searched story is spoken once; headlines and weather may recur after a day.
+        window=7*86400 if cue['kind'] in {'story','interest_news'} else 86400
         return not self.store.rows('SELECT 1 FROM observation_delivery WHERE cue_id=? AND delivered_at>?',
-                                   (cue['cue_id'],self.wall_clock()-86400))
+                                   (cue['cue_id'],self.wall_clock()-window))
 
     def observation_delivered(self, cue):
         with self.store.transaction() as conn:
@@ -826,6 +832,20 @@ class CoreState:
             conn.execute('INSERT INTO memory_followups VALUES(?,?,?,?)',
                          (data['claim_id'],args['kind'],args['on_date'],args['audience']))
             return {**data,'followup_kind':args['kind'],'on_date':args['on_date'],'audience':args['audience']},True
+        if name == "remember_interest":
+            self._source_allowed(args,name)
+            if attribution.state!='supported' or not attribution.person_id:
+                raise ValueError('InterestNeedsSupportedSelfIdentity')
+            from .news import normalize_topic
+            topic=normalize_topic(args['topic'])
+            if not 2<=len(topic)<=80:raise ValueError('InvalidInterestTopic')
+            data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.person_id,
+                subject_reference=None,predicate=args['predicate'],value=args['value'],
+                kind='self_report',source_turn_id=turn_id))
+            if data['status']!='accepted':raise ValueError('InterestNeedsAcceptedClaim')
+            conn.execute('INSERT INTO interests VALUES(?,?)',(data['claim_id'],topic))
+            return {**data,'interest_topic':topic,
+                    'meaning':'Saved as their own stated interest; fresh news about it may be offered while they are here.'},True
         if name in {'recall_conversations','remember_episode','retract_episode'}:
             from . import conversation_memory as cm
             who = cm.subject(context or self.context())

@@ -44,7 +44,11 @@ class App:
                         framerate=self.settings.camera_framerate) if self.settings.camera_enabled else None
         from .observations import PublicObservations
         from .scene import SceneObserver
-        public = PublicObservations(self.settings) if self.settings.news_feed_urls or self.settings.weather_enabled else None
+        from .adapters.hosted import OpenAINewsSearch
+        from .news import NewsCache
+        search = OpenAINewsSearch(secrets.openai_api_key) if self.settings.news_search_enabled else None
+        public = PublicObservations(self.settings, search=search, cache=NewsCache(self.paths.root / 'cache/news.json')) \
+            if self.settings.news_feed_urls or self.settings.weather_enabled or search else None
         scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
         from .objects import Objects
         from .adapters.objects import ObjectDetector

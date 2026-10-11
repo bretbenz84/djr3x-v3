@@ -62,6 +62,12 @@ scene_observations_enabled = true
 # Available in live participation with or without a camera; refreshed outside the turn loop.
 news_feed_urls = ["https://feeds.bbci.co.uk/news/rss.xml"]
 
+# Once a day a hosted web search picks about five concrete, varied stories (V2's daily
+# "things I heard about"), and people's stated interests get up to four topic searches a
+# day while they are here. Paid OpenAI web searches, about 1 cent each; cached in
+# local/cache/news.json so a same-day restart does not search again. false disables both.
+news_search_enabled = true
+
 # Sacramento, CA, per the user's requested weather location. No geolocation lookup.
 # Open-Meteo current conditions, Fahrenheit/mph/inches; no credential required.
 weather_enabled = true

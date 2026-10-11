@@ -33,6 +33,8 @@ CREATE INDEX IF NOT EXISTS claims_subject ON claims(subject_id,status);
 CREATE TABLE IF NOT EXISTS memory_followups(
  claim_id TEXT PRIMARY KEY REFERENCES claims(id) ON DELETE CASCADE,
  kind TEXT NOT NULL,on_date TEXT,audience TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS interests(
+ claim_id TEXT PRIMARY KEY REFERENCES claims(id) ON DELETE CASCADE,topic TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS memory_followup_delivery(
  claim_id TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
  occasion TEXT NOT NULL,delivered_on TEXT NOT NULL, PRIMARY KEY(claim_id,occasion));

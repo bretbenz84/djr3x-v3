@@ -268,8 +268,15 @@ class VoiceRuntime:
                     audience_key=audience_key)
             # Coalesce perception into the next beat. Each feed item/frame no longer
             # creates its own model attempt or consumes a conversation budget.
-            cues = tuple(c for c in self.observations.candidates()
-                         if self.session.state.observation_available(c.public())) if self.observations else ()
+            cues = ()
+            if self.observations:
+                # Interest news is searched and offered only for the recognized people in view.
+                from .news import interest_topics
+                with self.session._lock:
+                    topics = interest_topics(self.session.state.store, self.arrivals.faces)
+                self.observations.want_topics(topics)
+                cues = tuple(c for c in self.observations.candidates(topics=topics)
+                             if self.session.state.observation_available(c.public(), self.arrivals.faces))
             # The planner gets the current frame even when it was already offered or the view
             # is unchanged; review October 3 found it planning blind after the first goal.
             scene = (self.scene_observer.snapshot(True) if planning_only else

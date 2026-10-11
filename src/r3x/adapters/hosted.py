@@ -1009,3 +1009,52 @@ class OpenAIAgencyPlanner(OpenAIBrain):
         if len(calls)!=1 or not isinstance(calls[0],ToolCall) or calls[0].name!='compose_agency_plan':
             raise ProviderFailure('AgencyPlanMissing')
         return calls[0].arguments
+
+
+class OpenAINewsSearch(HTTPProvider):
+    """One hosted web search returning structured stories plus the pages actually searched.
+
+    Runs only in the public-observation worker (once a day, plus budgeted interest topics),
+    never on a reply. It neither speaks nor saves anything; news.stories() validates the answer.
+    """
+    reasoning_effort = "low"
+
+    def __init__(self, key: str, model: str = "gpt-6-luna"):
+        super().__init__()
+        self.key, self.trace = key, None
+        self.capability = Capability("news_search", "OpenAI Responses web_search",
+                                     "daily searched stories and interest news", model, ("httpx",),
+                                     ("network; at most a few searches a day",), required=False)
+
+    def search(self, prompt: str) -> tuple[dict, list[str], dict]:
+        import httpx
+        from ..news import STORY_SCHEMA
+        if self.client is None:
+            raise ProviderFailure("NewsSearchNotStarted")
+        payload = {"model": self.capability.model, "store": False, "reasoning": {"effort": self.reasoning_effort},
+                   "max_output_tokens": 3000, "tools": [{"type": "web_search"}],
+                   "include": ["web_search_call.action.sources"],
+                   "text": {"format": {"type": "json_schema", "name": "stories", "strict": True,
+                                       "schema": STORY_SCHEMA}},
+                   "input": prompt}
+        try:
+            response = self.client.post("https://api.openai.com/v1/responses", json=payload,
+                                        headers={"Authorization": f"Bearer {self.key}"},
+                                        timeout=httpx.Timeout(90, connect=5))
+        except httpx.HTTPError as exc:
+            raise ProviderFailure("OpenAI" + type(exc).__name__)
+        if response.status_code != 200:
+            raise ProviderFailure(f"OpenAIHTTP{response.status_code}")
+        body = response.json()
+        sources, searches = [], 0
+        for item in body.get("output", []):
+            if item.get("type") == "web_search_call":
+                searches += 1
+                sources += [s.get("url") for s in (item.get("action") or {}).get("sources") or [] if s.get("url")]
+        answer = "".join(part.get("text", "") for item in body.get("output", []) if item.get("type") == "message"
+                         for part in item.get("content", []) if part.get("type") == "output_text")
+        try:
+            parsed = json.loads(answer)
+        except ValueError:
+            raise ProviderFailure("NewsSearchResultMalformed")
+        return parsed, sources, {**body.get("usage", {}), "web_search_calls": searches}

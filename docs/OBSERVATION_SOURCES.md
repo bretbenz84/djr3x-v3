@@ -113,6 +113,44 @@ The simple compressed test image used 3,334 data-URL bytes; real scenes may be m
 larger. This does not measure camera/ASR contention, native memory, M2 combined load
 or live group behavior. No microphone, camera, speaker or robot was operated.
 
+## Searched daily stories and interest news (October 11, 2026)
+
+Modeled on V2's daily "things I heard about" ([extraction record](../V2_REFERENCE.md#searched-daily-news-and-interest-news--october-11-2026));
+the BBC feed and weather above are unchanged. `news_search_enabled = false` turns both off.
+
+- **Daily stories.** Once a local day, one hosted web search (`gpt-6-luna`, low reasoning)
+  returns about five concrete events across world, science, sports, culture, weather and the
+  odd. Each story carries a fixed category; code keeps at most one `ai_tech` story, because
+  V2's daily news kept featuring OpenAI launches when the limit was only a prompt instruction.
+  A failed fetch retries hourly, at most three attempts a day.
+- **Interest news.** `remember_interest` saves a supported speaker's own stated interest as
+  an accepted self-report claim plus a short search topic. While that person is recognized
+  in view, each of their topics gets one search a day, at most four topic searches a day in
+  total. Interest stories are not capped for AI: an interest is what the person asked for.
+- **Grounding.** A story is kept only when its link, or at least its site, was among the
+  pages the search returned. Headlines and summaries are bounded and stripped of markup.
+- **Timing.** The search supplies the event's own date. At offer time code states it
+  relative to today ("yesterday", "in 3 days, so it has not happened yet", or that no date
+  is known), so Rex does not call a future event "today".
+- **Offering.** Stories are `story` and `interest_news` cues in the same rotation as
+  headlines and weather, chosen through `use_observation`. Interest news is offered, and
+  rechecked before speech, only while its person is recognized in view; a retracted
+  interest or a forgotten person stops it at once. The goal planner treats it as that
+  person's private evidence. A spoken story is not offered again for a week.
+- **Cache and shutdown.** `local/cache/news.json` holds the day's stories and the
+  attempt/budget counts, written before each paid request, so a same-day restart neither
+  searches again nor resets the budget. Shutdown does not wait for a search in flight.
+
+Evidence: 14 synthetic checks in `tests/test_news.py` (fake search, temporary cache and
+store). One paid probe, `tools/check_observation_sources.py --search`, on October 11:
+the daily search ran 5 searches in 27 s and kept 5 of 5 stories (world, three sports,
+science; no AI story); a fictional topic ("Sacramento Kings basketball") ran 2 searches in
+9 s and kept its 1 story, dated "yesterday". 37,624 and 23,807 input tokens. At $10 per
+1,000 searches plus Luna tokens, that is about 5.4 and 2.2 cents: roughly $1.60 a month
+for daily stories, up to about $4.50 with four interest topics every day. One sports-heavy
+day is not a measure of variety or AI bias; whether Rex brings these up well in
+conversation is untested.
+
 ## Implementation references
 
 The image request uses the documented Responses `input_image` data-URL path in the

@@ -45,6 +45,11 @@ it or reads its data.
   leaves, someone redirects it or a new arrival replaces it. He eases off when nobody
   answers and, with nobody seen or heard for five minutes, starts no new goals. Live acceptance is pending
   ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
+- **News (October 11).** BBC headlines, Sacramento weather and, once a day, about five
+  web-searched stories (at most one about AI or tech) that Rex may bring up in a lull,
+  stating when each event happens. Interests people tell him about themselves are saved
+  and, while they are here, get their own daily news search. Live use is pending
+  ([details](docs/OBSERVATION_SOURCES.md#searched-daily-stories-and-interest-news-october-11-2026)).
 - **Voice impressions (October 6).** Ask for an impression of Jimmy Carter, of a known
   person or of yourself, and Rex writes a short parody and performs it in that cloned
   voice through the local Breeze engine, framed by lines in his own voice. Now and then,

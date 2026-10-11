@@ -15,7 +15,7 @@ These additions follow the core reliability/cost work and applicable
 | On-device voice-cloning / impersonation bits | **Implemented October 6, 2026** ([voice impressions](IMPERSONATION.md)): requested impressions of famous voices, known people and the current speaker, and rare spontaneous cameos, all chosen and written by the conversation model through the `impersonate` tool and spoken by the local Breeze engine. | Live acceptance on the robot (playback quality, time to first cloned audio under the full workload, how often cameos land) remains open. Parody stays distinct from facts, original voice samples and identity evidence. |
 | Room exploration | Rex can look around, investigate unfamiliar things and build useful remembered observations about his surroundings. | Stage observation, optional physical inspection and memory; an inspected image is evidence, not proof of a complete room map. Dedicated room recognition is optional, not an assumed prerequisite. |
 | Autonomous motion | Eventually choose purposeful movement as part of attention, exploration and social interaction, beyond explicit drive commands. | September 27: bounded LLM-selected base plans, vision seek of described things, radar priors and self-initiated moves are implemented and floor-tested ([drive base](DRIVE_BASE_INTEGRATION.md)). Roaming, navigation, mapping, localization and compass heading still do not exist. |
-| Interest-aware idle banter and news | As Rex learns a person's interests, bring up relevant events, callbacks and follow-ups naturally. | Extend the existing proactive core and sourced news inputs; dedicated interest-aware retrieval/ranking and its acceptance checks remain future work. Do not create a separate news-speaking agent or periodic chatter loop. |
+| Interest-aware idle banter and news | As Rex learns a person's interests, bring up relevant events, callbacks and follow-ups naturally. | **Implemented October 11, 2026** ([details](OBSERVATION_SOURCES.md#searched-daily-stories-and-interest-news-october-11-2026)): stated interests saved by `remember_interest`, daily topic searches while the person is here, offered through the shared proactive owner. Live conversational quality is unaccepted; interest-aware banter beyond news is not built. |
 | “Do you ever think” | After a long lull, spark conversation with a fresh LLM-generated hypothetical, such as everyone winning the lottery on the same day. | September 18 addition; use the shared proactive owner, optional participation, varied topics, heard-prompt history and existing call budgets. No fixed lull duration or implementation yet. [Feature details](PROACTIVE_CONVERSATION.md#future-feature-do-you-ever-think) |
 
 ## Personalization should develop through conversation
@@ -42,8 +42,8 @@ These additions follow the core reliability/cost work and applicable
 
 V3 already has proactive arrival/lull opportunities, quiet/resume, memory
 opportunities, sourced general news/weather and scene inputs. Their live social
-quality remains under evaluation. The targeted personalization above is a desired
-extension, not a claim that personalized news acquisition is already implemented.
+quality remains under evaluation. Interest news (October 11) covers the first part of the personalization above;
+learning interests from feedback and choosing topics beyond news remain future work.
 Jeopardy and physical exploration remain future integrations (local impressions landed October 6);
 bounded purposeful base motion is implemented and in floor testing. Motion-aware noticing is also still the documented
 [future idea](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues).
