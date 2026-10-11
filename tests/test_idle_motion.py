@@ -50,7 +50,7 @@ class IdleTests(unittest.TestCase):
             for ch,value in commands:
                 self.assertTrue(LIMITS[ch][0]<=value<=LIMITS[ch][1])
             # The visor stays in its speaking range, above the camera.
-            self.assertTrue(all(4770<=value<=5520 for ch,value in commands if ch==3))   # Inverted visor: low is up.
+            self.assertTrue(all(5382<=value<=6132 for ch,value in commands if ch==3))   # Around the open neutral, never the surprise.
             # The arm that carries the microphone swings less far than before and returns.
             hero=next(value for ch,value in commands if ch==7)
             self.assertTrue(700<=abs(hero-5984)<=1400)

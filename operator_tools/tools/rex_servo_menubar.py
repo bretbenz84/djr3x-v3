@@ -37,7 +37,8 @@ cocks it to a side. The sliders are independent, so keep pairs near the measured
 poses (level 1458/1620 µs, up 2032/1312, down 1013/1904). The poker arm gained an
 elbow (ch 12) and wrist (ch 13): the elbow can rise fully only with the wrist at or
 below 1564 µs; curled further in, the elbow's ceiling drops (2496 µs → 1597 µs).
-The visor servo is inverted: low pulses raise it, high pulses lower it.
+The visor servo is inverted: low pulses raise it, high pulses lower it (open 1433 µs,
+surprise 1136 µs, closed 1744 µs).
 
 Run directly for debugging:
     venv/bin/python tools/rex_servo_menubar.py
@@ -91,7 +92,7 @@ _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
     # Two-servo head (October 10): measured extremes are the limits; neutral is the level pose.
     "headleft": {"ch": 2, "min": 4032, "max": 8128, "neutral": 5832},   # 1008–2032 µs, level 1458
     "headright": {"ch": 11, "min": 5248, "max": 7616, "neutral": 6480}, # 1312–1904 µs, level 1620
-    "visor":    {"ch": 3, "min": 4544, "max": 6976, "neutral": 4960},  # inverted: 1240 µs is the old 1640 "up" mirrored
+    "visor":    {"ch": 3, "min": 4544, "max": 6976, "neutral": 5732},  # inverted: 1433 µs open, 1136 surprise (min), 1744 closed
     "elbow":    {"ch": 4, "min": 6300, "max": 7424, "neutral": 6720},  # 7424 = the Maestro's own stored channel limit (1856 us)
     "hand":     {"ch": 5, "min": 1984, "max": 9984, "neutral": 6000},
     "pokerarm": {"ch": 6, "min": 3968, "max": 8000, "neutral": 6000},

@@ -82,10 +82,16 @@ October 10 evening: the code had assumed an elbow-down rest, so the arm, which s
 its park when switched on, dropped at once and shutdown left it down; corrected the same
 day.
 
-**Visor.** The servo now runs inverted: low pulses raise it, high pulses lower it. The
-September calibration is mirrored inside the same 4544-6976 travel (up 5120, down/park
-6976, speaking 4880-5520 with 5520 the old camera-hiding floor). The real endpoints and
-the camera-clear pulse were not read; confirm them on the robot.
+**Visor.** The servo now runs inverted: low pulses raise it, high pulses lower it, within
+the same 4544-6976 travel. Owner's readings, October 11: the neutral open point is 1433 µs
+(5732; startup and `visor_up`) and the surprise position is 1136 µs (4544, the channel's
+low limit, the widest it opens). Closed and park stay 1744 µs (6976), reached on the robot.
+Speaking (5492-6132) and idle (5382-6082, half-blink to 6132) keep the September offsets
+around the open neutral, mirrored; the old 400-pulse closing excursion partly hid the camera
+then, so check the camera view at 6132. The new `surprised` expression snaps the visor to
+the surprise position with unlimited acceleration while the head lifts 0.15, holds 0.8 s,
+and eases both back; it is a reply-model gesture and a `set_robot_pose` step. The first
+mirrored guess (open 5120) was replaced by these readings.
 
 **First live run (session `f07e53af`, October 10 evening).** The wake choreography,
 `tilt_left`, `tilt_right`, `look_level`, `look_up`, `look_down` and `poker_up` all reached

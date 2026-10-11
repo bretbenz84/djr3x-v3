@@ -258,7 +258,7 @@ class ServoTests(unittest.TestCase):
             return [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,ch))]
         self.assertGreater(len(targets(0)),3)
         self.assertGreater(len(targets(3)),4)
-        self.assertEqual(set(targets(3)),{5000,5520,4880,5320})   # Inverted visor: lower pulses are higher.
+        self.assertEqual(set(targets(3)),{5612,6132,5492,5932})   # Around the 1433 us open neutral; lower is wider.
         # The two head servos sway together: a slight nod with a slight cock to each side, and back.
         from r3x.servo_poses import head_pulses
         self.assertEqual(len(targets(2)), len(targets(11)))   # The startup anchor is the level head.

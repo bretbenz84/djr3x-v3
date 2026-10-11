@@ -168,7 +168,7 @@ class Session:
                                 'position': f.get('position')} for f in faces],
             'conversation': recent_dialogue(self.history_messages()),
             'evidence': evidence, 'capabilities': capabilities,
-            'capability_contract': {'gesture': 'A short spoken thought with a finite head expression (nod, tilt, perplexed, wiggle, sympathetic); not a silent pose.',
+            'capability_contract': {'gesture': 'A short spoken thought with a finite head expression (nod, tilt, perplexed, wiggle, sympathetic, surprised); not a silent pose.',
                 'attention_mode': context.get('attention', {}).get('mode'),
                 'pose': {'enabled': 'pose' in capabilities, 'commands': list(POSE_COMMANDS),
                          'reach_out_hand': 'throttle_offer', 'look_and_comment': 'pose with look_after',

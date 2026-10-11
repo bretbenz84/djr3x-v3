@@ -140,10 +140,13 @@ def poker_route(start, target) -> list[dict[int, int]]:
 
 
 # Visor (3). October 10: the servo now runs inverted, low pulses up and high pulses down.
-# These mirror the September calibration inside the same travel; the real endpoints and
-# the pulse where the visor starts to hide the camera still need console readings.
-VISOR_UP, VISOR_DOWN = 5120, 6976
-VISOR_SPEECH = (4880, 5520)      # Expressive range while speaking, clear of the camera.
+# Owner's console readings, October 11: neutral open 1433 us, surprise 1136 us (the widest it
+# opens, the channel's low limit). Closed 1744 us reached on the robot at shutdown.
+VISOR_OPEN, VISOR_SURPRISE, VISOR_DOWN = 5732, 4544, 6976
+# Speaking and idle keep the September offsets around the open neutral (then 6400, speaking
+# 6000-6640, idle 6050-6750, half-blink to 6000), mirrored for the inverted servo.
+VISOR_SPEECH = (5492, 6132)      # Widest and most closed speaking targets.
+VISOR_IDLE = (5382, 6082)
 
 # name -> (channel or head axis, value at 0 %, value at 100 %)
 JOINT_RANGES = {
@@ -318,7 +321,7 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         first, second = (4000, 8000) if first_look == 'left' else (8000, 4000)
         # Slower lifecycle glide: V2 also paced intermediate targets in software.
         # Direct V3 targets need lower Maestro speed/acceleration caps.
-        head = (Beat((*DRIVE_HEAD, (3, VISOR_UP), (4, 6720)), speed=12, acceleration=3),)
+        head = (Beat((*DRIVE_HEAD, (3, VISOR_OPEN), (4, 6720)), speed=12, acceleration=3),)
         neck = (Beat(((0, first),), speed=12, acceleration=3, dwell=.3),
                 Beat(((0, second),), speed=12, acceleration=3, dwell=.3),
                 Beat(((0, NECK_CENTER),), speed=12, acceleration=3, dwell=.2))
@@ -404,7 +407,7 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     # V2's speech floor permits visible expression instead of pinning the visor
     # at neutral. Keep it in the upper part of calibrated travel while speaking.
     visor = tuple(Beat(((3,target),),speed=45,acceleration=8,dwell=.15)
-                  for target in (5000,5520,4880,5320))
+                  for target in (5612,6132,5492,5932))
     # V2 neutral-expression elbow/wrist range, with independent pacing. These
     # are channels 4/5, not channel 7 (the microphone-bearing hero-arm axis).
     elbow = tuple(Beat(((4,target),),speed=35,acceleration=8,dwell=.35)
@@ -454,6 +457,9 @@ HEAD_EXPRESSIONS = {
     'perplexed': {'moves': ((-.08, .6, .7), (-.08, -.6, .7)), 'speed': 25, 'side': True},   # The dog's double cock, looking slightly down.
     'wiggle': {'moves': ((0., .35, .12), (0., -.35, .12), (0., .35, .12)), 'speed': 50, 'acceleration': 10},  # Quick playful side to side.
     'sympathetic': {'moves': ((-.15, .45, 1.2),), 'speed': 12, 'acceleration': 3, 'side': True},   # Slow cock, slightly down, held.
+    # The visor snaps wide open to its surprise position as the head lifts a little, holds,
+    # and both ease back (owner, October 11: surprise is 1136 us).
+    'surprised': {'moves': ((.15, 0., .8),), 'speed': 40, 'visor': VISOR_SURPRISE},
 }
 GESTURE_PRIMITIVES = (*HEAD_EXPRESSIONS, 'lift', 'arm_emphasis')
 
@@ -486,6 +492,7 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
     if intensity not in {'subtle','normal'} or hold_seconds not in (.5, 1.5):
         raise ValueError('InvalidExpression')
     clamp = lambda ch, value: max(LIMITS[ch][0], min(LIMITS[ch][1], round(value)))
+    extra = ()
     if kind == 'attention':
         targets = {'left':((0,NECK_CENTER-1040),), 'right':((0,NECK_CENTER+1040),),
                    'up':tuple(head_targets(HEAD_POSES['look_up'], current).items()),
@@ -507,6 +514,12 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
                               speed=spec['speed'],acceleration=spec.get('acceleration',6),dwell=dwell)
                          for dp,dt,dwell in spec['moves'])
             lane += (Beat(start,speed=spec['speed'],acceleration=spec.get('acceleration',6)),)
+            if 'visor' in spec:
+                # Its own lane: the visor snaps (unlimited acceleration) while the head moves
+                # at its own pace; subtle opens it half as far beyond where it is.
+                wide = round(current[3] + (spec['visor'] - current[3]) * scale)
+                extra = ((Beat(((3, wide),), speed=70, acceleration=0, dwell=spec['moves'][0][2]),
+                          Beat(((3, current[3]),), speed=20, acceleration=5)),)
         else:
             channels = {'lift':(1,160), 'arm_emphasis':(4,200)}
             if primitive not in channels:raise ValueError('UnknownExpression')
@@ -514,10 +527,12 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
             lane = tuple(Beat(((ch,clamp(ch,current[ch]+offset*scale)),),
                 speed=35,acceleration=6,dwell=.25 if offset else 0.) for offset in (amount,0))
     else:raise ValueError('UnknownExpression')
-    if any(ch in held for beat in lane for ch,_ in beat.targets):
+    lanes = (lane, *extra)
+    if any(ch in held for lane in lanes for beat in lane for ch,_ in beat.targets):
         raise ValueError('ExpressionConflictsWithHeldPose')
-    for beat in lane:validate_pose(dict(beat.targets))
-    return (lane,)
+    for lane in lanes:
+        for beat in lane:validate_pose(dict(beat.targets))
+    return lanes
 
 
 def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhrase | None = None) -> tuple[tuple[Beat, ...], ...]:
@@ -547,11 +562,11 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
             lane = (Beat(targets, speed=phrase.head_speed, acceleration=3, dwell=phrase.head_dwell,
                          reframes=head_reframes(current, targets)),)
         elif part == 'visor':
-            first = _elsewhere(rng, 4770, 5470, current[3], 150, 500)
+            first = _elsewhere(rng, *VISOR_IDLE, current[3], 150, 500)
             lane = (Beat(((3, first),), speed=rng.randint(5, 10), acceleration=2),)
             if rng.random() < .25:   # A slow half-blink: down to the speaking floor and open again.
                 lane = (Beat(((3, VISOR_SPEECH[1]),), speed=rng.randint(8, 14), acceleration=3, dwell=rng.uniform(.2, .6)),
-                        Beat(((3, rng.randint(4820, 5170)),), speed=rng.randint(6, 10), acceleration=2))
+                        Beat(((3, rng.randint(VISOR_OPEN - 300, VISOR_OPEN + 50)),), speed=rng.randint(6, 10), acceleration=2))
         elif part == 'elbow':
             lane = (Beat(((4, _elsewhere(rng, 6500, 7200, current[4], 150, 500)),),
                          speed=rng.randint(5, 11), acceleration=2),)
@@ -670,7 +685,7 @@ HEAD_POSES = {
 }
 NAMED_POSES = {
     'look_center': ((0,NECK_CENTER),),
-    'visor_down': ((3,VISOR_DOWN),), 'visor_up': ((3,VISOR_UP),),
+    'visor_down': ((3,VISOR_DOWN),), 'visor_up': ((3,VISOR_OPEN),),
     'throttle_offer': ((8,2176),(9,2601),(10,5938)),
     'throttle_high_five': ((8,2176),(9,9361),(10,6302)),
     'throttle_down': FULL_DOWN, 'throttle_rest': REST,
@@ -682,7 +697,7 @@ NAMED_POSES = {
 # One-shot gestures run and return to where they started; nothing is held afterwards. The
 # head expressions (not the plain one-cock 'tilt', which tilt_left/tilt_right cover as held
 # looks) are also steps people can ask for and Rex can plan.
-GESTURES = ('wave', 'nod', 'perplexed', 'wiggle', 'sympathetic')
+GESTURES = ('wave', 'nod', 'perplexed', 'wiggle', 'sympathetic', 'surprised')
 # Owner request October 3: the model chooses between following faces and looking where it
 # decides. look_at_people resumes following faces; any look_* step holds that direction.
 GAZE = ('look_at_people',)

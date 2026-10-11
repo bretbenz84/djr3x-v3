@@ -65,7 +65,7 @@ class PhysicalMotionTests(unittest.TestCase):
     def test_gestures_return_to_start_and_do_not_touch_microphone(self):
         adapter=PhysicalGesture(self.robot);adapter.start()
         from r3x.servo_poses import GESTURE_PRIMITIVES, head_pose
-        self.assertEqual(set(GESTURE_PRIMITIVES), {'nod','tilt','perplexed','wiggle','sympathetic','lift','arm_emphasis'})
+        self.assertEqual(set(GESTURE_PRIMITIVES), {'nod','tilt','perplexed','wiggle','sympathetic','surprised','lift','arm_emphasis'})
         for primitive in GESTURE_PRIMITIVES:
             for intensity in ('subtle','normal'):
                 before=self.port.pose.copy();self.port.packets.clear()
@@ -78,7 +78,8 @@ class PhysicalMotionTests(unittest.TestCase):
                     # Both head servos move together; a tilt cocks the head (both pulses the
                     # same way, here lower = to the right), a nod pitches it (against each other).
                     scale=1. if intensity=='normal' else .5
-                    pairs=[{ch:value for ch,value in sent[i:i+2]} for i in range(0,len(sent),2)]
+                    head=[(ch,value) for ch,value in sent if ch in (2,11)]
+                    pairs=[{ch:value for ch,value in head[i:i+2]} for i in range(0,len(head),2)]
                     self.assertTrue(all(set(p)=={2,11} for p in pairs))
                     poses=[head_pose(p) for p in pairs[:-1]]      # The last pair is the return.
                     first=pairs[0];pitch,tilt=poses[0]
@@ -94,6 +95,11 @@ class PhysicalMotionTests(unittest.TestCase):
                     elif primitive=='wiggle':      # Quick alternation, level.
                         self.assertEqual([round(t/abs(t)) for _,t in poses],[1,-1,1])
                         self.assertTrue(all(abs(p)<.02 for p,_ in poses))
+                    elif primitive=='surprised':   # The head lifts a little while the visor flies open and returns.
+                        self.assertAlmostEqual(pitch,.15*scale,delta=.03);self.assertAlmostEqual(tilt,0.,delta=.03)
+                        visor=[value for ch,value in sent if ch==3]
+                        self.assertEqual(visor[-1],before[3])
+                        self.assertEqual(visor[0],round(before[3]+(4544-before[3])*scale))
                     elif primitive=='sympathetic': # One slow cock, slightly down, held.
                         self.assertEqual(len(poses),1)
                         self.assertAlmostEqual(tilt,.45*scale,delta=.03);self.assertAlmostEqual(pitch,-.15*scale,delta=.03)

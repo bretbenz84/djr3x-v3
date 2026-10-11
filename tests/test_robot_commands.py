@@ -220,11 +220,28 @@ class PoseTests(unittest.TestCase):
         self.assertLess(sent.index((13, POKER_PARK[1][1])), sent.index((12, POKER_PARK[0][1])))   # Wrist first, then elbow up.
 
     def test_visor_runs_inverted(self):
-        from r3x.servo_poses import VISOR_DOWN, VISOR_UP
+        from r3x.servo_poses import VISOR_DOWN, VISOR_OPEN, VISOR_SURPRISE
         self.run_pose('visor_up');up = self.port.pose[3]
         self.run_pose('visor_down')
         self.assertLess(up, self.port.pose[3])                    # Low pulses raise the visor now.
-        self.assertEqual((up, self.port.pose[3]), (VISOR_UP, VISOR_DOWN))
+        self.assertEqual((up, self.port.pose[3]), (VISOR_OPEN, VISOR_DOWN))
+        self.assertEqual((VISOR_OPEN, VISOR_SURPRISE), (1433*4, 1136*4))   # Owner's readings, October 11.
+
+    def test_surprised_snaps_the_visor_wide_open_and_returns_it(self):
+        from r3x.servo_poses import HEAD_PAIR, VISOR_OPEN, VISOR_SURPRISE, head_pose
+        self.run_pose('visor_up')
+        self.assertEqual(self.run_pose('release_poses').status, 'pulses_reached')
+        before = dict(self.port.pose)
+        self.port.packets.clear()
+        self.assertEqual(self.run_pose('surprised').status, 'pulses_reached')
+        visor = [p[2]+128*p[3] for p in self.port.targets if p[1] == 3]
+        self.assertEqual(visor, [VISOR_SURPRISE, VISOR_OPEN])                # Wide open, then back.
+        snap = [p for p in self.port.packets if p[0] == 0x89 and p[1] == 3][0]
+        self.assertEqual(snap[2] + 128*snap[3], 0)                           # It snaps: unlimited acceleration.
+        sent = [(p[1], p[2]+128*p[3]) for p in self.port.targets if p[1] in HEAD_PAIR]
+        self.assertAlmostEqual(head_pose(dict(sent[:2]))[0], .15, delta=.03)   # The head lifts a little.
+        self.assertEqual(self.port.pose, before)
+        self.assertFalse(self.owner.held_channels)
 
     def test_talking_preserves_requested_visor_and_fully_lowered_arm(self):
         self.run_pose('visor_down');self.run_pose('throttle_down')
