@@ -40,6 +40,7 @@ class CoreState:
         self.observations = None
         self.scene_observer = None
         self.objects = None
+        self.places = None
         self.photo_memory = None
         self.wall_clock = time.time
         self.faces = ()
@@ -832,6 +833,8 @@ class CoreState:
             conn.execute('INSERT INTO memory_followups VALUES(?,?,?,?)',
                          (data['claim_id'],args['kind'],args['on_date'],args['audience']))
             return {**data,'followup_kind':args['kind'],'on_date':args['on_date'],'audience':args['audience']},True
+        if name in {'name_room','correct_room'}:
+            return self._room(conn,name,args),True
         if name == "remember_interest":
             self._source_allowed(args,name)
             if attribution.state!='supported' or not attribution.person_id:
@@ -1049,7 +1052,44 @@ class CoreState:
             return {"person_id":person["id"],"status":"renamed"},True
         raise ValueError("UnknownTool")
 
+    def _room(self, conn, name, args):
+        """Room names come from what people say; the recognizer only collects views for them."""
+        turn_id = self.current[0]
+        if self.places is None: raise ValueError('RoomRecognitionUnavailable')
+        self._source_allowed(args,name)
+        rooms = {r['id']:r['name'] for r in conn.execute('SELECT id,name FROM places').fetchall()}
+        def clean(value):
+            value = ' '.join(str(value or '').split())
+            if not 2 <= len(value) <= 60: raise ValueError('InvalidRoomName')
+            return value
+        if name == 'name_room':
+            room = clean(args['name'])
+            existing = next((k for k,v in rooms.items() if label(v)==label(room)),None)
+            if existing is None:
+                existing = uuid4().hex
+                conn.execute('INSERT INTO places VALUES(?,?,?,?,NULL)',(existing,room,self.wall_clock(),turn_id))
+            return {'room_id':existing,'name':rooms.get(existing,room),'created':existing not in rooms,'source_turn_id':turn_id,
+                    'meaning':'Named. Rex is now collecting views of the room for up to a minute (looking around helps); '
+                              'it is not learned until place.last_learning says learned. Do not say it is memorized.'}
+        if args['room_id'] not in rooms: raise ValueError('UnknownRoom')
+        room_id, action = args['room_id'], args['action']
+        if action == 'not_this_room':
+            return {'room_id':room_id,'action':action,'name':rooms[room_id],'source_turn_id':turn_id}
+        if action == 'rename':
+            new = clean(args['new_name'])
+            if any(label(v)==label(new) and k!=room_id for k,v in rooms.items()): raise ValueError('RoomNameInUse')
+            conn.execute('UPDATE places SET name=? WHERE id=?',(new,room_id))
+            return {'room_id':room_id,'action':action,'old_name':rooms[room_id],'name':new,'source_turn_id':turn_id}
+        conn.execute('DELETE FROM places WHERE id=?',(room_id,))   # Views and connections cascade.
+        return {'room_id':room_id,'action':action,'name':rooms[room_id],'source_turn_id':turn_id,
+                'meaning':'The room, every saved view of it and its connections are deleted.'}
+
     def _after(self,name,data):
+        if name == 'name_room' and self.places:
+            self.places.learn(data['room_id'],data['name'],data['created'])
+        if name == 'correct_room' and self.places:
+            if data['action'] == 'not_this_room': data['belief_dropped'] = self.places.reject(data['room_id'])
+            else: self.places.forgotten(data['room_id'])
         if name in {'forget_person','cancel_association','reset_face_identity','correct_claim','retract_claim'}:
             self.conversation_intent.clear(name)
         if name=='remain_silent' and 'feedback' in data:

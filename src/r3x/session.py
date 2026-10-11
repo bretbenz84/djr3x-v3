@@ -175,6 +175,7 @@ class Session:
                          **context.get('robot_pose_state', {})},
                 'drive': context.get('drive'),
                 'inspection_directions': context.get('inspection_directions', [])},
+            'place': context.get('place'),
             'room': {'image_attached': bool(images),
                      'objects': [t for t in targets if t.get('kind') == 'object'],
                      'visual_memory': [r for r in context.get('visual_memory', []) if r.get('audience') == 'general'][:8],
@@ -647,6 +648,8 @@ class Session:
                     'base_status':{'connected':False,'readings':None},
                     'origin':origin,'targets':[],'limits':dict(LIMITS[origin]),
                     'meaning':'Rex has a wheeled base, but its controller did not connect at startup this run.'}
+            if self.state and not self.state.frozen and getattr(self.state,'places',None) is not None:
+                context['place'] = self.state.places.context()
             scene_images = opportunity.scene_images if opportunity and any(c['kind']=='scene' for c in context.get('observations',[])) else ()
             if self.state and not self.state.frozen:
                 from . import visual_memory
@@ -766,7 +769,7 @@ class Session:
                 if agency_step['scope']=='general':
                     context['memory_opportunities'] = []
                     context['visual_memory'] = [r for r in context.get('visual_memory',[]) if r.get('audience')=='general']
-                if agency_step['goal_kind'] not in {'get_to_know','investigate'}:
+                if agency_step['goal_kind'] not in {'get_to_know','investigate','explore'}:
                     # Hosted probe, October 2: a catch-up beat with a camera frame attached opened
                     # with a remark about the frame instead of the planned question. Only beats
                     # that need to see get one; looks and inspections fetch their own.

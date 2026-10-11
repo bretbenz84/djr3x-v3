@@ -301,7 +301,8 @@ approach), going around a hallway corner, and a plain "Stop." halting within 0.2
   welcome of self-initiated motion.
 
 **Not implemented:** a map, localization, cliff sensing, obstacle memory, compass
-heading, room exploration and no-drive rooms. The V2 battery menu app keeps its port
+heading and no-drive rooms. Room recognition and an `explore` goal landed October 11
+([room recognition](ROOM_RECOGNITION.md)); they know which room, not where in it. The V2 battery menu app keeps its port
 only while V3 is off; V3 battery/base menus remain future work.
 
 ## First floor run and repairs — September 27

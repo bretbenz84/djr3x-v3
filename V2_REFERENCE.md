@@ -1123,3 +1123,31 @@ that person is recognized in view, and it is private evidence for the goal plann
 
 Checks: `tests/test_news.py` (14 synthetic checks) and a paid probe,
 `tools/check_observation_sources.py --search`. Live conversation use remains unaccepted.
+
+## Room recognition — October 11, 2026
+
+Owner request: room exploration and mapping using V2's room models. Source HEAD
+`95f2403e78c9ef786054fa13a31bb2ac534cc29d`; `perception/`, `memory/` and `data/places.db` were
+not modified (only firmware files are dirty). Read, not copied: `perception/place_recognition.py`
+(SHA-256 `38e5de0f…`), `perception/place_service.py` (`ef9bc867…`), `perception/place_embedder.py`
+(`58933f4a…`); `memory/room_model.py` (`483ab1b0…`) and `intelligence/exploration.py` informed the scope only.
+
+Preserved: MobileCLIP-S2 (`datacompdr`) image embeddings and V2's `mobileclip_s2_v1`
+namespace; top-3 room scoring; 0.80 confident with a 0.04 margin; 0.86 for a lone room; 0.68
+floor; 5-frame majority; motion freeze with the carried-robot flip (10) and lost belief (16);
+unfamiliar after 8; 8-view enrollment with 35° or 3 s separation and a 60 s timeout (≥3 views
+to keep); 0.88 look-alike check; refresh only for the clear top room within 0.70–0.78 when two
+or more rooms exist; 15 views per room; a human denial outranks the score.
+
+Adapted: ONNX export (`tools/export_place_model.py`, digest `bf9d116d…`) with numpy
+preprocessing matching open_clip at cosine 1.0000 on 14 saved frames; plain-Python matching;
+rooms, views and connections in the core store; naming and corrections through the state
+owner's `name_room`/`correct_room` tools, interpreted by the conversation model instead of V2's
+regex answer capture; an `explore` goal in the existing planner instead of V2's separate
+exploration mode; face width instead of body pose for occlusion; slower sampling while settled.
+Not ported: no-drive rooms and V2's per-object room novelty (not requested).
+
+Data: `tools/import_v2_places.py` copied V2's three rooms (dining room, workshop, living room;
+15 views each) from a read-only SQLite backup snapshot, SHA-256 `1808063d71eda96576103f12e6bff91417e7046ca99beef9c52bdde061d8126c`,
+with new IDs, `import_ref` and the mapping in `imports`. Details and limits:
+[room recognition](docs/ROOM_RECOGNITION.md).

@@ -53,6 +53,11 @@ class App:
         from .objects import Objects
         from .adapters.objects import ObjectDetector
         objects = Objects(camera,ObjectDetector(self.paths.root / 'models/objects/rfdetr-nano.onnx'),scene=scene) if camera and self.settings.object_memory_enabled else None
+        places = None
+        if camera and self.settings.place_recognition_enabled:
+            from .adapters.places import PlaceEncoder
+            from .places import Places
+            places = Places(camera, PlaceEncoder(self.paths.root / 'models/places/mobileclip-s2.onnx'), None)
         from .inspection import CurrentView
         inspection = CurrentView(scene, camera=camera) if scene else None
         from .adapters.flex import FlexControl
@@ -78,10 +83,10 @@ class App:
             from .adapters.breeze import VoiceCloner
             self.cloner = VoiceCloner(self.paths.root / 'models/breeze-tts-8bit', level=PCMLeveler)
         # A disconnected camera removes its dependents for this run, not the setting.
-        for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',))):
+        for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,locator,agency_planner,self.cloner) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,places,locator,agency_planner,self.cloner) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -120,6 +125,8 @@ class App:
                         missing.append(name)
             if self.settings.camera_enabled and self.settings.object_memory_enabled and not (self.paths.root / 'models/objects/rfdetr-nano.onnx').is_file():
                 missing.append('object_model_file')
+            if self.settings.camera_enabled and self.settings.place_recognition_enabled and not (self.paths.root / 'models/places/mobileclip-s2.onnx').is_file():
+                missing.append('place_model_file')
             for provider in self.owner.providers:
                 missing.extend(name for name, version in dependency_status(provider.capability).items()
                                if version is None)
@@ -201,11 +208,20 @@ class App:
         public = next((p for p in optional if p.capability.name=='public_observations'),None)
         scene = next((p for p in optional if p.capability.name=='scene_observations'),None)
         objects = next((p for p in optional if p.capability.name=='objects'),None)
-        for provider in (public,scene,objects):
+        places = next((p for p in optional if p.capability.name=='places'),None)
+        for provider in (public,scene,objects,places):
             if provider:provider.trace=trace
         if camera:
             camera.trace = trace
         memory = Memory(self.paths.root / "core.sqlite3")
+        if places:
+            places.store = memory   # Started before the providers; rooms live in the core store.
+            if self.drive:
+                from .drive import DriveBase
+                # No trustworthy wheel signal (None) turns the room-change freeze off, as in V2.
+                places.motion = lambda: self.drive.motion_risk() if self.drive.state == 'ready' else None
+                places.heading = lambda: DriveBase._heading(self.drive.link.snapshot()[0] or {})
+                self.drive.on_motion.append(places.note_motion)   # Between slower settled samples too.
         inspection = next((p for p in optional if p.capability.name=='current_view'),None)
         output = OutputOwner(tts, sink, trace,inspection=inspection)
         if self.leds:
@@ -267,6 +283,7 @@ class App:
                 camera = camera if 'camera' in active else None
                 scene = scene if 'scene_observations' in active else None
                 objects = objects if 'objects' in active else None
+                places = places if 'places' in active else None
                 output.inspection = inspection if 'current_view' in active else None
                 self.startup_audio.stop()   # Cut the filler; readiness never waits for it.
                 # The ready line gets the usual talking motion and speaking lights.
@@ -308,6 +325,7 @@ class App:
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene
+                state.places=places
                 if objects:
                     from .photo_memory import PhotoMemory
                     state.objects=objects

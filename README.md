@@ -57,6 +57,10 @@ it or reads its data.
   of that person butting into the conversation. "Do me" works once Rex has heard about
   six seconds of your clean speech; a stranger's voice lasts for the session only. Parody
   is never stored as a fact. Live acceptance pending ([details](docs/IMPERSONATION.md)).
+- **Rooms (October 11).** With `place_recognition_enabled`, V2's room model (run locally)
+  tells Rex which room he is in. In an unfamiliar room he asks what it is and learns it
+  when told, remembers which rooms he has moved between, and may set off to explore. V2's
+  three taught rooms are imported. Not yet run on the robot ([details](docs/ROOM_RECOGNITION.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080.
 - **Body (Pololu Maestro, 14 servos).**
@@ -151,6 +155,8 @@ python3.11 -m venv .venv
 .venv/bin/python tools/prepare_core_models.py      # pinned public CAM++ assets
 .venv/bin/python tools/prepare_face_models.py      # face models from the offline cache
 .venv/bin/python tools/prepare_voice_cloning.py    # Breeze TTS 2 8-bit for impressions (about 4.6 GB; --source DIR copies a local snapshot)
+# Room recognition: export V2's MobileCLIP-S2 with any Python that has torch, open_clip and onnx
+/Users/bbenziger/djr3x-v2/venv/bin/python -I tools/export_place_model.py --cache /Users/bbenziger/djr3x-v2/assets/models/mobileclip --out local/models/places/mobileclip-s2.onnx
 ```
 
 Credentials and the Rex voice live in ignored `local/secrets.toml`
@@ -179,6 +185,7 @@ models on its own.
 | [Drive base](docs/DRIVE_BASE_INTEGRATION.md) | Wheels, radar, safety gates, vision seek and floor-run repairs. |
 | [Servo integration](docs/SERVO_INTEGRATION.md) | Choreography, talking and idle motion, poses, microphone hold. |
 | [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |
+| [Room recognition](docs/ROOM_RECOGNITION.md) | Which room, asking and learning rooms, connections, exploring, the V2 import. |
 | [Voice impressions](docs/IMPERSONATION.md) | The `impersonate` tool, reference voices, the local cloning engine, checks and open acceptance. |
 | [Operator services](docs/OPERATOR_CUTOVER.md) | Wake supervisor, menu-bar apps, auto-update, rollback. |
 | [Live test script](docs/LIVE_TEST_SCRIPT.md) | Lines to say and results to check in hands-on conversation tests. |

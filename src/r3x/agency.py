@@ -17,7 +17,7 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS agency_plan(
     body TEXT NOT NULL);"""
 
 FORMAT = 2  # Saved goal format; earlier step scripts are context only and never executed.
-GOAL_KINDS = ('catch_up', 'get_to_know', 'investigate', 'entertain')
+GOAL_KINDS = ('catch_up', 'get_to_know', 'investigate', 'entertain', 'explore')
 STEP_KINDS = ('contribute', 'inspect', 'look', 'gesture', 'pose', 'drive')
 # A person goal survives camera dropouts and face-track renumbering this long. Live
 # October 1: one continuously present owner produced 175 track IDs in ten minutes.
@@ -109,6 +109,12 @@ GOALS (goal_kind)
   target, or seek a described thing then approach "sought"), look closely (a pose with look_after, or inspect),
   maybe reach out a hand (pose throttle_offer), then ask the humans about it personably: "What's the story
   with that painting?", "Who's in this photo?". With nobody around, give it a funny, specific opinion instead.
+- explore: Rex is in a room he does not know (place.status unfamiliar, or unsure with nothing to go on) or someone
+  invited him to look around. He wanders: two to four drive beats of short legs and turns to new spots (a slow
+  stroll, a swivel to take in a corner), each followed by a look or an inspect with one specific, funny opinion of
+  something there. When people are present and the room is still unknown, one beat asks them what room this is,
+  once, early; never guess its name and never re-ask after no answer. In a known room he never asks its name. With
+  drive unavailable, explore by looking and inspecting from where he is.
 - entertain: people are here, the conversation died and nothing specific is calling. Rex does a bit: a vain DJ
   opinion, mock outrage about something real, a ridiculous challenge, a little dance of poses, a slow dramatic
   lap of the room, a countdown to something mundane. One bit, landed, not a routine.

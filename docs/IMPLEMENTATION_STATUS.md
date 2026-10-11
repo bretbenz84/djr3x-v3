@@ -6,6 +6,17 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Room recognition and exploring — October 11
+
+Owner request, built on V2's room model. Rex recognizes which room he is in from the camera
+(V2's MobileCLIP-S2, run locally), asks what an unfamiliar room is called, learns it when told,
+and remembers which rooms he has moved between. A new `explore` goal has him drive around,
+look and comment in a new room. V2's three taught rooms (dining room, workshop, living room)
+were imported. On saved September frames they score just under the confident bar (likely the
+newer wide lens), so Rex will at first be unsure and ask. About 300 MB and 0.25 s per frame on
+the M2; no cost. 1,095 blocked-I/O checks pass. **Not yet run on the robot**; off until
+`place_recognition_enabled` is set ([details](ROOM_RECOGNITION.md)).
+
 ## Searched news and interest news — October 11
 
 Owner request, modeled on V2 with the BBC feed kept. Once a day a web search picks about
@@ -631,8 +642,9 @@ separate categories.
 | Live tracked-object attention after movement | Target/version contracts exist in simulation. Physical directional looks and settled captures are implemented; tracked room-object gaze and mechanically verified arrival remain pending. Current-camera descriptions do not supply those controllers. |
 | Optional vision extensions | Adaptive image detail, general inspection-request coalescing and supported cross-session visual association are future options, not missing requirements of the completed core. Exact-image description reuse already exists. |
 | Motion-aware proactive noticing (partial implementation) | Commanded head/base motion, settling and bounded returning-view suppression are implemented. Independent subject motion, robust object continuity and unknown/manual camera movement remain future work. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
+| Room navigation | Rooms are recognized, named and connected ([room recognition](ROOM_RECOGNITION.md)); positions, a floor plan and "go to the kitchen" do not exist. |
 | Compass heading | The drive base publishes raw QMC5883L magnetometer counts; V2's calibrated, current-gated compass fusion (`hardware/compass.py`, calibration file) is not ported. V3 uses gyro yaw only. |
-| Owner-requested companion features | Jeopardy, room exploration, and the September 18 “Do you ever think” long-lull thought experiments. Voice impressions landed October 6 ([details](IMPERSONATION.md)) and interest news October 11 ([details](OBSERVATION_SOURCES.md)); lull-time impression beats are not offered. Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); maps, localization and exploration are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
+| Owner-requested companion features | Jeopardy, room exploration, and the September 18 “Do you ever think” long-lull thought experiments. Voice impressions landed October 6 ([details](IMPERSONATION.md)) and interest news October 11 ([details](OBSERVATION_SOURCES.md)); lull-time impression beats are not offered. Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
 | Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search, offline conversational providers and a polished GUI remain separate future work. |
 
 Mouth-motion/active-speaker research is not an active implementation task. The user

@@ -81,6 +81,12 @@ weather_longitude = -121.4944
 # files under local/visual-memory/. This upload choice is separate from scenes.
 object_memory_enabled = false
 
+# Room recognition (V2's MobileCLIP-S2 place model, run locally with ONNX): Rex knows which
+# room he is in, asks what an unfamiliar room is called and remembers which rooms he has
+# moved between. One local embedding every 1.5 s; no image leaves the robot for this.
+# Requires --camera and local/models/places/mobileclip-s2.onnx (tools/export_place_model.py).
+place_recognition_enabled = false
+
 # Voice impressions ("do an impression of Jimmy Carter", "impersonate me", and rare
 # surprise cameos when a listed person comes up). The model writes the parody and chooses
 # the voice; the local Breeze TTS 2 engine clones it from assets/voices/famous clips or
