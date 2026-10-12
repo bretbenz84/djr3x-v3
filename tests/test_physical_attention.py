@@ -156,14 +156,14 @@ class PhysicalSessionTests(test_memory_core.MemoryFixture):
 
     def test_before_and_after_gestures_keep_receipts_separate_from_audio(self):
         self.setup_physical()
-        for timing in ('before_speech','after_speech'):
+        for timing in ('with_speech','after_speech'):
             call=test_performance.choice(timing);call.arguments['target']='unfocused';self.brain.text=call
             self.state.trace.rows.clear()
             result=self.turn()
             self.assertEqual(result.status,'completed')
             self.assertEqual((result.gestures[0]['status'],result.gestures[0]['medium']),('pulses_reached','controller'))
             events=[r['event'] for r in self.state.trace.rows]
-            if timing=='before_speech':self.assertLess(events.index('gesture_delivery'),events.index('playback_started'))
+            if timing=='with_speech':self.assertLess(events.index('speech_generated'),events.index('gesture_delivery'))
             else:self.assertLess(events.index('phrase_completed'),events.index('gesture_delivery'))
 
     def test_human_interrupts_silent_look_without_committing_or_rearming(self):

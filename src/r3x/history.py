@@ -22,8 +22,14 @@ class TurnHistory:
         self._trim()
 
     def _trim(self):
-        while len(self.turns)>1 and (len(self.turns)>self.max_turns or
-                                     self.size(list(self))>self.max_characters):
+        # October 11: evicting one exchange per turn once the budget was full changed
+        # the start of every request, so hosted prompt caching stopped matching about
+        # eight exchanges into a conversation. Evict down to two thirds of the budget
+        # at once; the request prefix then holds until the budget fills again.
+        if len(self.turns)<=self.max_turns and self.size(list(self))<=self.max_characters:
+            return
+        while len(self.turns)>1 and (len(self.turns)>self.max_turns*2//3 or
+                                     self.size(list(self))>self.max_characters*2//3):
             self.turns.popleft()
 
     def append(self, message):

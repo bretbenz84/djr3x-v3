@@ -218,7 +218,7 @@ class PhysicalPlanTests(MemoryFixture):
         gestures=PhysicalGesture(self.robot);gestures.start()
         self.session.output.gestures=gestures
         self.brain.text=ToolCall('g','respond_with_gesture',{'text':'What are you up to?',
-            'primitive':'tilt','target':'unfocused','intensity':'subtle','timing':'before_speech'})
+            'primitive':'tilt','target':'unfocused','intensity':'subtle','timing':'with_speech'})
         value=draft();value['steps']=[{**value['steps'][0],'kind':'gesture','instruction':'Ask a public friendly question with a tilt.'}]
         planner=Planner();planner.choose=lambda f,c:deepcopy(value)
         self.session.agency_planner=planner

@@ -279,7 +279,10 @@ attention hold and invalidates the simulated view; fresh evidence is required ag
 
 Timing is anchored to output, not estimated TTS duration or generated punctuation:
 
-- `before_speech`: attempt the gesture before synthesizing/playing this phrase.
+- `with_speech`: start the gesture when the phrase is handed to synthesis and let it run
+  while the line plays; talking motion takes the motion lock once the gesture ends.
+  (Until October 11 this was `before_speech`, which finished the gesture first and
+  delayed first audio by about 2.6 s.)
 - `after_speech`: attempt it only after the sink reports the whole phrase completed.
   A failed or interrupted phrase cancels its dependent gesture.
 

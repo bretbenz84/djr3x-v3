@@ -135,7 +135,7 @@ class ActionVisionIntegrationTests(MemoryFixture):
     def test_completed_pre_speech_gesture_survives_failed_speech_in_action_history(self):
         class FailedSink(SyntheticSink):
             def play(self,*args,**kwargs):raise ProviderFailure('SyntheticPlaybackFailure')
-        test_performance.PerformanceTests.setup_session(self,'before_speech',FailedSink())
+        test_performance.PerformanceTests.setup_session(self,'with_speech',FailedSink())
         result=self.turn()
         self.assertEqual(result.status,'failed')
         action=self.state.actions.recent[-1]

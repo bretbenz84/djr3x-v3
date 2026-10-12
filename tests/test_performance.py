@@ -40,11 +40,25 @@ class PerformanceTests(MemoryFixture):
         self.assertFalse(self.store.claims())
         self.assertEqual(self.state.attention.scene.context()['status'],'awaiting_post_movement_frame')
 
-    def test_before_gesture_precedes_playback(self):
-        self.setup_session('before_speech');result=self.turn()
-        events=[r['event'] for r in self.state.trace.rows]
+    def test_with_speech_gesture_runs_while_the_line_plays(self):
+        # The gesture adapter only finishes once audio has started. Gesturing
+        # first and speaking afterwards (the retired order) cannot complete it.
+        import threading
+        self.setup_session('with_speech');playing=threading.Event()
+        original=self.adapter.execute
+        def slow(gesture,cancel):
+            self.assertTrue(playing.wait(5));return original(gesture,cancel)
+        self.adapter.execute=slow
+        class Sink(SyntheticSink):
+            def play(self,chunks,cancel,on_start,visualize=True):
+                def mark(at):on_start(at);playing.set()
+                return super().play(chunks,cancel,mark)
+        self.output.sink=Sink();result=self.turn()
         self.assertEqual(result.status,'completed')
-        self.assertLess(events.index('gesture_delivery'),events.index('playback_started'))
+        self.assertEqual(result.completed_text,[choice().arguments['text']])
+        self.assertEqual(result.gestures[0]['status'],'simulated')
+        events=[r['event'] for r in self.state.trace.rows]
+        self.assertLess(events.index('playback_started'),events.index('gesture_delivery'))
 
     def test_gesture_failure_does_not_erase_successful_speech(self):
         self.setup_session();self.adapter.close()
@@ -67,7 +81,7 @@ class PerformanceTests(MemoryFixture):
     def test_completed_before_gesture_survives_later_speech_failure(self):
         class FailedSink(SyntheticSink):
             def play(self,*args,**kwargs):raise ProviderFailure('SyntheticPlaybackFailure')
-        self.setup_session('before_speech',FailedSink());result=self.turn()
+        self.setup_session('with_speech',FailedSink());result=self.turn()
         self.assertEqual(result.status,'failed')
         self.assertEqual(result.gestures[0]['status'],'simulated')
         self.assertFalse(result.completed_text)

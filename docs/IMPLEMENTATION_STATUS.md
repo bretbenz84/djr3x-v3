@@ -6,6 +6,28 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Reply latency — October 11
+
+Owner report: replies feel slow. In the last 12 robot sessions (October 5–11, 129 replies to
+human speech) the median wait from end of speech to first audio was **5.1 s** (p90 7.2 s) and
+97% exceeded the owner's 4 s bar. Typical stages: endpoint silence 1.27 s, ASR 0.54 s,
+hosted model 2.5 s to a usable reply (about 1.8 s for plain prose, 2.5–2.9 s when the words
+arrive inside a tool call), then 0.6 s of TTS and playback.
+
+Changed (simulated checks only; **not yet run on the robot**):
+
+- A gesture chosen to start with a line (`with_speech`, formerly `before_speech`) now runs
+  while the line is synthesized and played. Finishing it first had held speech back by about
+  2.6 s in 3 of 11 gesture replies (up to 8.3 s total). Talking motion takes over when it ends.
+- Full conversation history now evicts to two thirds in one block. Per-turn eviction had left
+  every reply after about the eighth exchange uncached ([prompt caching](PROMPT_CACHING.md)).
+  Cached and uncached replies took the same model time in the recorded sessions, so this is a
+  cost repair, not a measured speed-up.
+
+Removing the gesture stall lowers the recorded p90 to about 6.8 s but not the median. The
+remaining floor is about 1.8 s before the model is asked, the model's first words and 0.6 s of
+voice output. 1,104 blocked-I/O checks pass.
+
 ## Arms stay tucked beside obstacles — October 11
 
 Owner request. After a drive, the poker arm stays raised at its drive stance while either

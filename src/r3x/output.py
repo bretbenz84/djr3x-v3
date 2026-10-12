@@ -378,8 +378,6 @@ class OutputOwner:
                 performance = text if isinstance(text, Performance) else None
                 if performance:
                     text = performance.text
-                    if performance.timing == 'before_speech':
-                        self._gesture(performance, cancel, turn_id, delivery)
                 cloned = text if isinstance(text, ClonedPhrase) else None
                 if cloned:
                     text = cloned.text
@@ -396,6 +394,34 @@ class OutputOwner:
                 talking_started = False
                 light_token = None
                 light_attempted = False
+                playing, talking_lock = False, threading.Lock()
+                def start_talking():
+                    nonlocal talking_started
+                    if talking_started or not self.speech_motion or not self._motion_lock.acquire(blocking=False):
+                        return
+                    try:
+                        cancel.check()
+                        self.speech_motion.start(turn_id, cancel)
+                        talking_started = True
+                    except Exception as exc:
+                        self._motion_lock.release()
+                        self.trace.emit('talking_motion', turn_id=turn_id, status='failed',
+                                        reason=type(exc).__name__)
+                gesture_worker = None
+                if performance and performance.timing == 'with_speech':
+                    # October 11: finishing the gesture before asking for audio delayed
+                    # first audio by about 2.6 s. The gesture now runs while the line is
+                    # synthesized and played; talking motion takes over once it ends.
+                    def gesture_alongside(performance=performance):
+                        try:
+                            self._gesture(performance, cancel, turn_id, delivery)
+                        except Cancelled:
+                            return
+                        with talking_lock:
+                            if playing and not cancel.event.is_set():
+                                start_talking()
+                    gesture_worker = threading.Thread(target=gesture_alongside, name='r3x-gesture', daemon=True)
+                    gesture_worker.start()
                 if self.leds: self.leds.clear_pcm()
                 def chunks():
                     nonlocal first_pcm_at
@@ -416,7 +442,7 @@ class OutputOwner:
                         if close:
                             close()
                 def started(at):
-                    nonlocal talking_started, light_token, light_attempted
+                    nonlocal light_token, light_attempted, playing
                     delivery.first_audio_at = delivery.first_audio_at or at
                     delivery.status = "started"
                     self.trace.emit("playback_started", turn_id=turn_id, at_device=at,
@@ -427,18 +453,14 @@ class OutputOwner:
                             light_token = self._begin_lights(light,cancel)
                         except Exception as exc:
                             self._light_result(delivery,turn_id,light.request if light else None,'failed',str(exc) if isinstance(exc,ProviderFailure) else type(exc).__name__)
-                    if self.speech_motion and self._motion_lock.acquire(blocking=False):
-                        try:
-                            cancel.check()
-                            self.speech_motion.start(turn_id, cancel)
-                            talking_started = True
-                        except Exception as exc:
-                            self._motion_lock.release()
-                            self.trace.emit('talking_motion', turn_id=turn_id, status='failed',
-                                            reason=type(exc).__name__)
+                    with talking_lock:
+                        playing = True
+                        start_talking()
                 try:
                     receipt = self.sink.play(chunks(), cancel, started)
                 finally:
+                    with talking_lock:
+                        playing = False
                     if light_token is not None:
                         self._finish_lights(light_token,light,delivery,turn_id,
                             'cancelled' if cancel.event.is_set() else None)
@@ -459,6 +481,8 @@ class OutputOwner:
                     if first_pcm_at is not None:
                         self.echo_until = self.trace.clock() + .3
                     self.active.clear()
+                    if gesture_worker is not None:
+                        gesture_worker.join()
                 delivery.completed_text.append(plain_text(text))
                 delivery.completed_at = receipt.completed_at
                 delivery.underruns += receipt.underruns

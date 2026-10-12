@@ -29,6 +29,21 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(h.messages(),())
         self.assertEqual(TurnHistory().messages(),())
 
+    def test_full_budget_evicts_in_one_block_so_the_prefix_holds(self):
+        # Caching needs later requests to start with the same messages.
+        h=TurnHistory()
+        for i in range(60):
+            h.begin_turn()
+            h.extend([{'role':'user','content':str(i)+'x'*1000},{'role':'assistant','content':'heard'}])
+        prefixes=[]
+        for i in range(60,66):
+            prefixes.append(h.messages()[0])
+            h.begin_turn()
+            h.extend([{'role':'user','content':str(i)+'x'*1000},{'role':'assistant','content':'heard'}])
+        changes=sum(a!=b for a,b in zip(prefixes,prefixes[1:]))
+        self.assertLessEqual(changes,1)
+        self.assertLessEqual(h.size(h.messages()),h.max_characters)
+
     def test_oversized_current_turn_is_not_silently_clipped(self):
         h=TurnHistory()
         text='x'*(h.max_characters+1)

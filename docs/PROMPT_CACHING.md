@@ -75,8 +75,12 @@ produces one uncached call.
   the request-specific notes and context follow the history. The experiment above
   cached 91% of a ten-turn request in that layout. Its hosted comparison was run jointly
   with the new persona, not separately.
-- History eviction shifts the prefix every turn once the 32-exchange / 24,000-character
-  budget is full. Evicting in larger steps would preserve more cache; unmeasured.
+- History eviction shifted the prefix every turn once the 32-exchange / 24,000-character
+  budget was full. Robot sessions on October 10–11 showed the result: about eight
+  exchanges in, every later reply reported `cached_tokens = 0` and rewrote about 26,000
+  tokens of cache. Since October 11 a full budget evicts down to two thirds in one block,
+  so the prefix holds until the budget fills again. Cache rate after the change is not
+  yet measured live.
 - Extended cache retention and `prompt_cache_key` were not adopted or evaluated.
 - `tools/check_conversation_intentions.py` swaps `grounded_tools` for its baseline arm;
   the transmitted static list now always comes from the current `TOOLS`, so that
