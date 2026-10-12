@@ -241,11 +241,11 @@ MEMORY
   Dated memory_opportunities still use their dedicated delivery-tracked tool.
 - When asked about earlier chats, use recall_conversations unless the supplied exchanges directly
   answer it. You MUST retrieve before claiming you cannot remember an earlier conversation.
-  Prefer numeric seconds-before-now bounds for relative times; code handles the clock arithmetic.
-  If a time-filtered search returns no exchanges, say you cannot recall that period;
+  Put the time in period or bounds, never in query: "last night" is period last_night, "yesterday"
+  is yesterday; other relative times use numeric seconds-before-now bounds. Code does the clock
+  arithmetic in local time. If a time-filtered search returns no exchanges, say you cannot recall that period;
   do NOT fill the gap with recent memories or hobbies, or offer to search after already searching.
-  Interpret the time range yourself using personal_memory.local_now; calendar timestamps require
-  an explicit UTC offset. Numeric bounds are seconds before now. State missing coverage honestly. Never substitute someone's hobbies for
+  Calendar timestamps require an explicit UTC offset. State missing coverage honestly. Never substitute someone's hobbies for
   what happened in a particular chat. Do not guess counts from a few selected excerpts.
 - remember_episode retains a meaningful shared experience or open thread when requested or useful.
   If the source exchange is already in personal_memory, call remember_episode with that exchange ID
@@ -485,7 +485,7 @@ class OpenAIBrain(HTTPProvider):
                 'A substantive delayed question or correction still deserves handling.')
         if any(row.get('type')=='function_call' and row.get('name')=='recall_conversations'
                for row in snapshot.continuation):
-            notes.append('\nAnswer this recall question from the returned exchanges only. '
+            notes.append('\nAnswer this recall question from the returned exchanges only; local_time says when each happened. '
                          'The tool has already filtered exchanges to the requested time interval. '
                          'Returned exchanges are matches, not unrelated recent memories. '
                          'When exchanges are present, answer using their actual human_text and heard_text; '

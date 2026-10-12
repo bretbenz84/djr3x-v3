@@ -854,7 +854,7 @@ class CoreState:
             who = cm.subject(context or self.context())
             if not who: raise ValueError('PrivateRecallRequiresKnownAudience')
             if name == 'recall_conversations':
-                return cm.recall(self.store,who,capture.session_id,query=args['query'],
+                return cm.recall(self.store,who,capture.session_id,query=args['query'],period=args['period'],
                                  after=args['after'],before=args['before'],now=self.wall_clock()),False
             self._source_allowed(args,name)
             if name == 'remember_episode':

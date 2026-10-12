@@ -65,7 +65,7 @@ class ConversationMemoryTests(MemoryFixture):
             def reply(self,snapshot,cancel):
                 self.snapshots.append(snapshot)
                 if len(self.snapshots)==1:
-                    yield ToolCall('recall-old','recall_conversations',{'query':'telescope','after':None,'before':None})
+                    yield ToolCall('recall-old','recall_conversations',{'query':'telescope','period':None,'after':None,'before':None})
                 else:
                     yield 'We discussed the telescope mount.'
         brain=Recall()
@@ -129,7 +129,7 @@ class ConversationMemoryTests(MemoryFixture):
             def reply(self,snapshot,cancel):
                 self.snapshots.append(snapshot)
                 if len(self.snapshots)==1:
-                    yield ToolCall('earlier','recall_conversations',{'query':'switch firmware','after':3600,'before':0})
+                    yield ToolCall('earlier','recall_conversations',{'query':'switch firmware','period':None,'after':3600,'before':0})
                 else:
                     yield 'We discussed an office switch outage caused by an uptime bug.'
         brain=Recall()
@@ -221,8 +221,9 @@ class ConversationMemoryTests(MemoryFixture):
             self.turn(self.session(str(i)),'Project '+str(i))
         result=cm.recall(self.store,self.person,'new',after=cm.stamp(1800000000),before=cm.stamp(1800000000+15*3600))
         self.assertEqual(result['matching_interval_count'],15)
-        self.assertTrue(result['selection_truncated'])
-        self.assertEqual(len(result['exchanges']),12)
+        self.assertFalse(result['selection_truncated'])
+        # A requested period reads as a conversation, oldest first.
+        self.assertEqual([r['human_text'] for r in result['exchanges']],['Project '+str(i) for i in range(15)])
         self.assertEqual(cm.recall(self.store,self.person,'new',after=cm.stamp(self.clock+1))['exchanges'],[])
         with self.assertRaises(ValueError):cm.recall(self.store,self.person,'new',after='2026-09-30')
 
@@ -287,7 +288,7 @@ class ConversationMemoryTests(MemoryFixture):
             def reply(self,snapshot,cancel):
                 self.snapshots.append(snapshot)
                 if snapshot.continuation: yield 'You were going to take the bumper off.'
-                else: yield ToolCall('recall-plans','recall_conversations',{'query':'car bumper plan','after':None,'before':None})
+                else: yield ToolCall('recall-plans','recall_conversations',{'query':'car bumper plan','period':None,'after':None,'before':None})
         return Recall()
 
     def test_restarted_face_track_is_the_same_visit_for_recall(self):
@@ -397,8 +398,58 @@ class ConversationMemoryTests(MemoryFixture):
         self.setup_memory();self.turn(self.session('old'),'The motor needs testing.')
         self.clock+=7200
         self.begin('What did we discuss two hours ago?')
-        result=self.call('recall_conversations',{'query':None,'after':9000,'before':5400})
+        result=self.call('recall_conversations',{'query':None,'period':None,'after':9000,'before':5400})
         self.assertEqual(result.outcome,'ok',result)
         self.assertEqual(result.data['exchanges'][0]['human_text'],'The motor needs testing.')
-        reversed_result=self.call('recall_conversations',{'query':None,'after':5400,'before':9000})
+        reversed_result=self.call('recall_conversations',{'query':None,'period':None,'after':5400,'before':9000})
         self.assertEqual(reversed_result.data['exchanges'],result.data['exchanges'])
+
+    def test_last_night_is_found_on_the_first_lookup(self):
+        """October 11: "Do you remember what I told you last night?" searched the words
+        "last night", returned Rex's "tonight" questions and today's chat, missed the 7 PM
+        drugs remark, and the undated archive's caveat became the stated reason."""
+        self.setup_memory();self.begin('Earlier source-only words.')
+        local=lambda day,hour,minute=0:datetime(2026,10,day,hour,minute).timestamp()
+        rows=[('rex-tonight',local(10,19,2),'','Brett, what are you up to tonight?','reconsideration'),
+              ('drugs',local(10,19,3),"I think I'm gonna do some drugs.",'What do you mean by drugs?','human_turn')]
+        rows+=[(f'filler-{i}',local(10,19,4)+i,f'Rex, small talk number {i}.','Sure.','human_turn') for i in range(40)]
+        rows+=[('astronomy',local(11,14,55),'','Brett, is tonight an astronomy night or an indoors night?','reconsideration'),
+               ('indoors',local(11,14,56),'Indoors.','I will save the astronomy for a night with fewer walls.','human_turn')]
+        with self.store.transaction() as conn:
+            for key,at,human,heard,origin in rows:
+                conn.execute('INSERT INTO conversation_exchanges VALUES(?,?,?,?,?,?,?,?,?)',
+                             (key,'yesterday' if key!='indoors' else 'today',self.person,None,at,human,heard,'completed',origin))
+        self.clock=local(11,18,2)
+        self.begin('Do you remember what I told you last night?')
+        result=self.call('recall_conversations',{'query':None,'period':'last_night','after':None,'before':None})
+        self.assertEqual(result.outcome,'ok',result)
+        found=result.data['exchanges']
+        ids=[r['id'] for r in found]
+        self.assertIn('drugs',ids)
+        self.assertNotIn('indoors',ids)
+        self.assertNotIn('legacy_source_utterances',result.data)
+        self.assertEqual(len(found),42)
+        self.assertFalse(result.data['selection_truncated'])
+        self.assertEqual(ids,sorted(ids,key=lambda i:[r[1] for r in rows if r[0]==i][0]))
+        drugs=found[ids.index('drugs')]
+        self.assertEqual(drugs['local_time'],'Sat Oct 10, 7:03 PM (yesterday, evening)')
+        self.assertNotIn('direction',str(drugs['attribution']))
+        # Time words mistakenly left in query: whole words only, and the dated record stays primary.
+        loose=cm.recall(self.store,self.person,'new',query='last night',now=self.clock)
+        self.assertEqual({r['id'] for r in loose['exchanges'][:2]},{'indoors','astronomy'})
+        self.assertNotEqual(loose['exchanges'][2]['id'],'rex-tonight','"night" is not "tonight"')
+        self.assertNotIn('legacy_source_utterances',loose)
+        self.assertTrue(all('local_time' in r for r in loose['exchanges']))
+        self.assertEqual(cm.recall(self.store,self.person,'new',query='drugs',now=self.clock)['exchanges'][0]['id'],'drugs')
+        self.assertIn('legacy_source_utterances',cm.recall(self.store,self.person,'new',query='bicycle',now=self.clock))
+        conflict=self.call('recall_conversations',{'query':None,'period':'last_night','after':3600,'before':None})
+        self.assertEqual(conflict.outcome,'rejected')
+        self.assertEqual(conflict.reason,'RecallPeriodConflictsWithBounds')
+
+    def test_periods_follow_the_local_clock(self):
+        local=lambda day,hour:datetime(2026,10,day,hour).timestamp()
+        self.assertEqual(cm.period_window('last_night',local(11,18)),(local(10,17),local(11,5)))
+        self.assertEqual(cm.period_window('last_night',local(11,2)),(local(9,17),local(10,5)))
+        self.assertEqual(cm.period_window('yesterday',local(11,18)),(local(10,0),local(11,0)))
+        self.assertEqual(cm.period_window('this_morning',local(11,9)),(local(11,5),local(11,9)))
+        self.assertEqual(cm.period_window('earlier_today',local(11,18)),(local(11,0),local(11,18)))

@@ -1,6 +1,7 @@
 """Source-linked cross-session recall. Selection never interprets an utterance."""
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 import json
+import re
 
 SCHEMA = """
 INSERT OR IGNORE INTO meta VALUES('conversation_memory_schema','2');
@@ -77,6 +78,49 @@ def stamp(value):
     return datetime.fromtimestamp(value, timezone.utc).isoformat()
 
 
+def part_of_day(hour):
+    return 'night' if hour < 5 or hour >= 21 else 'morning' if hour < 12 else 'afternoon' if hour < 17 else 'evening'
+
+
+def local_time(value, now=None):
+    """Wall-clock label in the robot's local time. October 11: Rex was given UTC times only,
+    so a 7 PM chat stamped 02:03 the next day never read as "last night"."""
+    when = datetime.fromtimestamp(value)
+    label = when.strftime('%a %b %d, %I:%M %p').replace(' 0', ' ')
+    if now is None: return label
+    days = (datetime.fromtimestamp(now).date() - when.date()).days
+    day = 'today' if days == 0 else 'yesterday' if days == 1 else f'{days} days ago'
+    return f'{label} ({day}, {part_of_day(when.hour)})'
+
+
+# Everyday phrases the model names; code does the local clock arithmetic. October 11: asked
+# "Do you remember what I told you last night?", the model searched the words "last night"
+# with no time bounds and missed the chat from 7 PM the evening before.
+PERIODS = ('earlier_today', 'this_morning', 'last_night', 'yesterday')
+
+
+def period_window(period, now):
+    local = datetime.fromtimestamp(now)
+    today = local.date()
+    at = lambda day, hour: datetime.combine(day, time(hour)).timestamp()
+    if period == 'earlier_today': return at(today, 0), now
+    if period == 'this_morning': return at(today, 5), min(now, at(today, 12))
+    if period == 'yesterday': return at(today - timedelta(days=1), 0), at(today, 0)
+    if period == 'last_night':
+        # Before 5 AM the current night is still "tonight"; "last night" is the one before.
+        anchor = today if local.hour >= 5 else today - timedelta(days=1)
+        return at(anchor - timedelta(days=1), 17), at(anchor, 5)
+    raise ValueError('InvalidRecallPeriod')
+
+
+def compact_attribution(evidence):
+    """Who spoke and who was present, without per-utterance microphone geometry."""
+    speaker = evidence.get('speaker') or {}
+    return {'speaker': {k: speaker.get(k) for k in ('person_id', 'state', 'reason', 'display_name')} if speaker else {},
+            'audience_basis': evidence.get('audience_basis'),
+            'visible_people': [{'identity': f.get('identity')} for f in evidence.get('visible_people', [])]}
+
+
 def attach_evidence(store, rows):
     """Audience scope authorizes recall; it does not certify who spoke."""
     for row in rows:
@@ -89,14 +133,13 @@ def attach_evidence(store, rows):
         item = saved[0]
         row['audience_person_id'] = item['person_id']
         if item['evidence']:
-            row['attribution'] = json.loads(item['evidence'])
+            row['attribution'] = compact_attribution(json.loads(item['evidence']))
         else:
             # Version 1 only wrote supported human voices. Preserve actual source
             # evidence where available rather than inventing camera observations.
-            row['attribution'] = {
+            row['attribution'] = compact_attribution({
                 'speaker': json.loads(item['original_evidence'] or '{}').get('attribution', {}),
-                'audience_basis': 'legacy_supported_speaker' if item['source_turn'] else 'legacy_arrival',
-                'visible_people': []}
+                'audience_basis': 'legacy_supported_speaker' if item['source_turn'] else 'legacy_arrival'})
 
 
 def boundary(value, now=None):
@@ -111,34 +154,65 @@ def boundary(value, now=None):
     return date.timestamp()
 
 
-def recall(store, who, session, *, query='', after=None, before=None, limit=12, now=None):
+# A requested period returns that whole stretch of conversation, oldest first. October 11:
+# the latest twelve lines of a 43-exchange evening left out the one being asked about.
+WINDOW_LIMIT = 60
+
+
+def words(text):
+    return re.findall(r"[\w']+", text.casefold())
+
+
+def recall(store, who, session, *, query='', after=None, before=None, period=None, limit=12, now=None):
     if not who: raise ValueError('PrivateRecallRequiresKnownAudience')
-    low, high = boundary(after,now), boundary(before,now)
-    if type(after) in (int,float) and type(before) in (int,float):
-        low, high = sorted((low,high))  # Relative offsets describe an unordered age window.
+    if period is not None:
+        if after is not None or before is not None: raise ValueError('RecallPeriodConflictsWithBounds')
+        if now is None: raise ValueError('InvalidRecallPeriod')
+        low, high = period_window(period, now)
+    else:
+        low, high = boundary(after,now), boundary(before,now)
+        if type(after) in (int,float) and type(before) in (int,float):
+            low, high = sorted((low,high))  # Relative offsets describe an unordered age window.
     if low is not None and high is not None and low >= high: raise ValueError('InvalidRecallInterval')
+    windowed = low is not None or high is not None
     sql = 'SELECT * FROM conversation_exchanges WHERE person_id=? AND session_id<>?'
     args = [who, session]
     if low is not None: sql += ' AND created_at>=?'; args.append(low)
     if high is not None: sql += ' AND created_at<?'; args.append(high)
     count = store.rows('SELECT count(*) AS n FROM ('+sql+')', args)[0]['n']
     rows = store.rows(sql+' ORDER BY created_at DESC,id DESC LIMIT 200', args)
-    words = set((query or '').casefold().split())
+    wanted = set(words(query or ''))
     def relevance(row):
-        text = (row['human_text']+' '+row['heard_text']).casefold()
-        return sum(word in text for word in words), row['created_at']
-    if words: rows.sort(key=relevance, reverse=True)
-    selected = rows[:limit]
+        # Whole words only ("night" is not "tonight"); what the person said counts double.
+        said, heard = set(words(row['human_text'])), set(words(row['heard_text']))
+        return sum(2*(w in said) + (w in heard) for w in wanted)
+    if wanted:
+        rows.sort(key=lambda row: (relevance(row), bool(row['human_text']), row['created_at']), reverse=True)
+    elif windowed:
+        rows.sort(key=lambda row: (bool(row['human_text']), row['created_at']), reverse=True)
+    selected = rows[:WINDOW_LIMIT if windowed else limit]
+    matched = not wanted or any(relevance(row) for row in selected)
+    if windowed: selected.sort(key=lambda row: (row['created_at'], row['id']))
     attach_evidence(store, selected)
     for row in selected:
+        row['local_time'] = local_time(row['created_at'], now)
         row['at'] = stamp(row.pop('created_at'))
         row['text_truncated'] = len(row['human_text'])>600 or len(row['heard_text'])>600
         row['human_text'] = row['human_text'][:600]
         row['heard_text'] = row['heard_text'][:600]
-    legacy = []
-    if low is None and high is None:
+    result = {'exchanges':selected, 'matching_interval_count':count,
+              'selection_truncated':count>len(selected), 'searched_latest_limit':200,
+              'order':'oldest first: the requested period as a conversation' if windowed else
+                      'best word matches first' if wanted else 'newest first',
+              'scope':'conversations scoped to this audience; speaker attribution is separate; prior sessions; completed audio phrases only',
+              'coverage':'Dated archive of prior sessions; local_time is the robot\'s local clock. Absence of an excerpt is not proof nothing happened.'}
+    if windowed:
+        result['window'] = {'from': local_time(low, now) if low is not None else None,
+                            'until': local_time(high, now) if high is not None else None}
+    if not windowed and (not selected or not matched):
         # Existing turns used a monotonic clock. Never invent calendar dates or
-        # delivered replies for these pre-upgrade sources.
+        # delivered replies for these pre-upgrade sources. October 11: offered beside
+        # dated results, its "undated" note became Rex's reason to say he could not remember.
         legacy = store.rows("""SELECT id,session_id,text AS human_text FROM turns
             WHERE session_id<>? AND json_extract(evidence,'$.attribution.person_id')=?
             AND json_extract(evidence,'$.attribution.state')='supported'
@@ -148,18 +222,17 @@ def recall(store, who, session, *, query='', after=None, before=None, limit=12, 
         for row in legacy:
             row['text_truncated'] = len(row['human_text'])>600
             row['human_text'] = row['human_text'][:600]
-    return {'legacy_source_utterances':legacy, 'legacy_caveat':'Undated source-only archive: speaker attribution retained; audience and Rex delivery unavailable. Do not infer a shared episode or date.',
-            'exchanges':selected, 'matching_interval_count':count,
-            'selection_truncated':count>len(selected), 'searched_latest_limit':200,
-            'scope':'conversations scoped to this audience; speaker attribution is separate; prior sessions; completed audio phrases only',
-            'coverage':'New exchange archive only. Older source-only turns lack wall-clock/delivery evidence; absence is not proof nothing happened.'}
+        result['legacy_source_utterances'] = legacy
+        result['legacy_caveat'] = ('Supplementary words from before conversations were dated; they cannot be '
+            'placed at a particular time. The dated exchanges above are the main record.')
+    return result
 
 
 def context(store, original, session, now):
     who = subject(original)
     result = {'person_id':who, 'now':stamp(now), 'local_now':datetime.fromtimestamp(now).astimezone().isoformat(), 'recent_exchanges':[], 'interests_and_facts':[], 'episodes':[]}
     if not who: return result
-    result['recent_exchanges'] = recall(store,who,session,limit=4)['exchanges']
+    result['recent_exchanges'] = recall(store,who,session,limit=4,now=now)['exchanges']
     result['interests_and_facts'] = store.claims(who)[:6]
     result['current_session_exchanges'] = store.rows('SELECT id,human_text,heard_text FROM conversation_exchanges WHERE person_id=? AND session_id=? ORDER BY created_at DESC LIMIT 3',(who,session))
     result['episodes'] = store.rows('''SELECT e.id,e.summary,e.source_exchange,x.human_text,x.heard_text

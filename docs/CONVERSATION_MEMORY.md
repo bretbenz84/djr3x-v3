@@ -38,14 +38,19 @@ provide cross-session repetition evidence, not an automatic topic prohibition.
 
 The model can call:
 
-- `recall_conversations`: query words plus optional explicit-offset ISO8601 bounds or numeric
-  seconds-before-now bounds. Two numeric endpoints form an age window in either
-  order; code performs the clock arithmetic.
-  The model interprets language and dates; code applies person/session/time filters
-  and lexical ranking. Search considers the latest 200 matching exchanges and
-  returns at most 12, with interval count and truncation metadata. Human and heard
-  excerpts are capped at 600 characters and marked when truncated. Local and UTC
-  clocks are supplied; prior sessions are excluded from the current transcript.
+- `recall_conversations`: topic words plus an optional named period
+  (`earlier_today`, `this_morning`, `last_night` = 5 PM yesterday to 5 AM today,
+  `yesterday`), or explicit-offset ISO8601 bounds, or numeric seconds-before-now
+  bounds. Two numeric endpoints form an age window in either order; a period with
+  bounds is rejected. Code performs the local-clock arithmetic.
+  The model interprets language; code applies person/session/time filters and
+  whole-word ranking (the person's words count double). Search considers the latest
+  200 matching exchanges. A period or bounds returns up to 60 exchanges oldest first,
+  the person's words before Rex-only lines when trimming; otherwise at most 12.
+  Each row carries a local time label ("Sat Oct 10, 7:03 PM (yesterday, evening)")
+  and compact attribution (speaker person, state, reason; visible identities)
+  without microphone geometry. Human and heard excerpts are capped at 600
+  characters and marked when truncated; prior sessions only.
 - `remember_episode`: optionally save a short interpretation of one existing
   exchange. Original human words and heard speech remain attached. This is a
   fallible summary, not a verified personal fact or a claim that plans happened.
@@ -62,10 +67,12 @@ Already-started audio follows the existing explicit-stop policy.
 ## Historical coverage and limits
 
 Pre-upgrade source turns used a monotonic clock and did not persist assistant
-speech in the memory database. An unbounded recall request can therefore return
-up to eight trusted, supported-person original utterances, explicitly labeled
-undated and without delivery/audience evidence. Time-filtered recall does not
-invent dates for these sources. No old logs or V2 personal databases are imported.
+speech in the memory database. An unbounded recall whose dated results are empty
+or match none of the query words can return up to eight trusted, supported-person
+original utterances, labeled supplementary and undated, without delivery/audience
+evidence. October 11 showed why they are withheld otherwise: offered beside dated
+results, the undated caveat became Rex's reason to say he could not remember last
+night. Time-filtered recall does not invent dates for these sources. No old logs or V2 personal databases are imported.
 New time-aware exchange history accumulates from the next normal launch.
 
 Exact historical greeting counts, automatic whole-session summaries, shared group
@@ -179,3 +186,23 @@ owner, the camera sometimes held only the guest, who then inherited the owner's
 recognition and was called by his name. After two faces are seen together, or somebody
 else is recognized, nobody is carried for ten minutes (`COMPANY_SECONDS`): only direct
 recognition opens private memory. Alone with one person, the 90 second carry is unchanged.
+
+## October 11: "last night" found on the first lookup
+
+Live: "Do you remember what I told you last night?" made the model search the words
+"last night" with no time bounds. Substring matching ranked Rex's "tonight" questions
+and that afternoon's chat first; the 12-row cut omitted the 7 PM remark asked about,
+and Rex said the archive was undated. A topic-word follow-up ("drugs") found it.
+
+Repair: named periods computed on the local clock, whole-period results oldest first
+(up to 60), local time labels, whole-word ranking, compact attribution, and the undated
+archive offered only when dated results are empty or unmatched. The compaction also
+shrinks the recent-exchange context sent with ordinary replies.
+
+Verification: `tests/test_conversation_memory.py` replays the October 11 layout with
+synthetic rows and checks local-clock periods (full suite 1,103 tests, synthetic).
+A paced hosted check, real model on a synthetic temporary database, asked five
+"last night"/"yesterday" phrasings: the model chose the period each time and all five
+replies quoted the 7 PM remark (about 31,500 input tokens per turn, 3.3-5.7 s wall
+time including synthetic output). Not a live microphone or held-out accuracy test.
+Private receipts: `local/validation/recall-last-night/`.
