@@ -1623,6 +1623,12 @@ class Session:
                 heard = " ".join(delivery.completed_text)
                 if heard:
                     self.history.append({"role": "assistant", "phase":"final_answer", "content": heard})
+                    if opportunity:
+                        # Live October 11: after Rex offered an unprompted lap, a puzzled "What."
+                        # got "You asked me for an unnecessary lap". Mark whose idea the line was.
+                        self.history.append({"role": "developer", "content":
+                            "Rex said the line above on his own initiative. Nobody asked for it or suggested it; "
+                            "any request or offer in it is Rex's own, and the next human words are their first response."})
                 if delivery.status not in {"completed","suppressed"}:
                     self.history.append({"role": "developer", "content":
                         "The last reply was interrupted or failed. Only completed phrases above are known delivered; any partial phrase is unknown."})

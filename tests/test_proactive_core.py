@@ -63,6 +63,24 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.store.rows('SELECT * FROM recordings'),[])
         self.visible(170);self.runtime.proactive_tick();self.assertEqual(self.brain.calls,3)
 
+    def test_reply_after_unprompted_line_sees_it_was_rexs_own_idea(self):
+        # Live October 11: "What." after an unprompted lap offer got "You asked me for a lap".
+        self.setup_core(); self.turn()
+        self.brain.text = 'Am I permitted one extremely unnecessary lap of the room?'
+        self.visible(108); self.runtime.proactive_tick()
+        self.assertEqual(self.brain.calls,2)
+        self.brain.text = 'Sorry, that was my idea.'
+        self.trace.at=112; self.turn('What.')
+        messages = list(self.brain.snapshots[-1].messages)
+        line = next(i for i,m in enumerate(messages) if m.get('role')=='assistant' and 'lap' in m['content'])
+        self.assertEqual(messages[line+1]['role'],'developer')
+        self.assertIn('own initiative',messages[line+1]['content'])
+        self.assertIn('Nobody asked for it',messages[line+1]['content'])
+        # The answer to the human's earlier words carries no such note.
+        first = next(i for i,m in enumerate(messages) if m.get('role')=='assistant')
+        self.assertLess(first,line)
+        self.assertNotIn('own initiative',messages[first+1].get('content',''))
+
     def test_plan_steps_do_not_exhaust_old_rolling_budget(self):
         self.setup_core()
         for i in range(13):
