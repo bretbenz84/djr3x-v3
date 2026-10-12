@@ -34,6 +34,16 @@ Removing the gesture stall lowers the recorded p90 to about 6.8 s; the shorter e
 should take about 0.5 s off every reply, putting the expected median near 4.6 s. The rest is
 the model's first words (about 1.8–2.5 s), ASR and 0.6 s of voice output. 1,105 blocked-I/O checks pass.
 
+**Hosted probe (October 11, paid, synthetic content, 6 paced requests per arm, gpt-6-luna/low,
+plain-text answers; private receipts in `local/validation/latency-probe/`).** Median time to
+first streamed output: 0.83 s for a 56-token request, 0.95 s for persona plus synthetic
+history and context without tools (13,400 tokens), 1.81 s with the full static tool list
+added (26,250 tokens, uncached) and 1.35 s for the same request with 22,500 tokens cached.
+Sending the 42 tool definitions costs about 0.9 s uncached or 0.5 s cached on every reply;
+prompt size without tools costs little. One round had 4.9 s and 10.8 s outliers on the two
+small arms, so provider stalls contribute to the tail. Production requests are larger
+(30,000–44,000 tokens) than this synthetic one.
+
 ## Arms stay tucked beside obstacles — October 11
 
 Owner request. After a drive, the poker arm stays raised at its drive stance while either
