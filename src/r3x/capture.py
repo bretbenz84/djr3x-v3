@@ -16,7 +16,7 @@ class Frame:
 
 
 class Endpoint:
-    def __init__(self, session_id: str, silence: float = 1.2):
+    def __init__(self, session_id: str, silence: float = 0.7):
         self.session_id, self.silence = session_id, silence
         # 1 s at 512 frames / 16 kHz. Silero can lag a soft onset ("You can come
         # here" lost "You can"); 8/41 September 27 captures began mid-speech at 256 ms.

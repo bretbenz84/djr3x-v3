@@ -24,9 +24,15 @@ Changed (simulated checks only; **not yet run on the robot**):
   Cached and uncached replies took the same model time in the recorded sessions, so this is a
   cost repair, not a measured speed-up.
 
-Removing the gesture stall lowers the recorded p90 to about 6.8 s but not the median. The
-remaining floor is about 1.8 s before the model is asked, the model's first words and 0.6 s of
-voice output. 1,104 blocked-I/O checks pass.
+- Endpoint silence is now 0.7 s instead of 1.2 s, the owner's measured average thinking pause.
+  The 1.2 s was an untuned September 10 starting value. Speech that resumes before a reply is
+  audible still cancels it, and the model can still wait on an unfinished thought. Longer
+  pauses now split into separate captures (shorter clips for voice evidence); how often that
+  happens and whether Rex starts talking over resumed speech need a live run.
+
+Removing the gesture stall lowers the recorded p90 to about 6.8 s; the shorter endpoint
+should take about 0.5 s off every reply, putting the expected median near 4.6 s. The rest is
+the model's first words (about 1.8–2.5 s), ASR and 0.6 s of voice output. 1,105 blocked-I/O checks pass.
 
 ## Arms stay tucked beside obstacles — October 11
 

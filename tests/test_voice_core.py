@@ -353,12 +353,21 @@ class ListeningTests(unittest.TestCase):
         endpoint = Endpoint('session')
         completed = []
         for i in range(100):
-            speech = i < 10 or 35 <= i < 45  # 800 ms pause, then continuation.
+            speech = i < 10 or 30 <= i < 40  # 640 ms pause, then continuation.
             capture = endpoint.push(Frame(bytes(1024), i*.032, (i+1)*.032), speech)
             if capture: completed.append(capture)
         self.assertEqual(len(completed), 1)
         self.assertEqual(len(completed[0].voiced_intervals), 2)
-        self.assertGreaterEqual(completed[0].ended_at-completed[0].speech_ended_at, 1.2)
+        self.assertGreaterEqual(completed[0].ended_at-completed[0].speech_ended_at, endpoint.silence)
+
+    def test_pause_longer_than_endpoint_silence_ends_the_turn(self):
+        endpoint = Endpoint('session')
+        completed = []
+        for i in range(100):
+            speech = i < 10 or 40 <= i < 50  # 960 ms pause.
+            capture = endpoint.push(Frame(bytes(1024), i*.032, (i+1)*.032), speech)
+            if capture: completed.append(capture)
+        self.assertEqual(len(completed), 2)
 
     def test_resuming_during_model_yields_without_resetting_conversation(self):
         outer = self

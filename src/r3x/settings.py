@@ -22,7 +22,7 @@ class Settings:
     radar_port: str = ""  # V2 ESP32-S3 radar ring; requires drive_port.
     echo_isolated: bool = False
     vad_threshold: float = 0.5
-    end_silence_seconds: float = 1.2
+    end_silence_seconds: float = 0.7
     asr_trust_logprob: float = -0.35
     camera_enabled: bool = False
     camera_device_name: str = ""

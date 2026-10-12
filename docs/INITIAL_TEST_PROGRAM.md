@@ -193,7 +193,7 @@ Implemented ownership and limits:
   Qwen3-ASR-1.7B-8bit with token log probabilities, OpenAI `gpt-5.4-mini` through
   Responses, ElevenLabs `eleven_v3_conversational`, and one sounddevice output owner.
   Nothing loads at core import or `doctor`; no provider substitutes or hidden retries.
-- Capture has 256 ms preroll, 1.2-second default endpoint silence, and a 20-second
+- Capture has 256 ms preroll, 0.7-second default endpoint silence (1.2 s until October 11), and a 20-second
   cap. Gaps reset partial capture. Queues bound mic blocks to 128, pending captures to
   two, turns to three, and output phrases to four; overflow rejects newest and logs it.
 - Ordinary prose streams into bounded phrases, each sent through streamed PCM TTS.

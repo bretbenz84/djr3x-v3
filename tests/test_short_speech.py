@@ -27,7 +27,7 @@ class ShortSpeechTests(unittest.TestCase):
             self.assertIsNotNone(capture,count)
             self.assertEqual(capture.started_at,98)
             self.assertAlmostEqual(sum(b-a for a,b in capture.voiced_intervals),count*.032)
-            self.assertGreaterEqual(capture.ended_at-capture.speech_ended_at,1.2)
+            self.assertGreaterEqual(capture.ended_at-capture.speech_ended_at,.7)
             self.assertEqual(capture.pcm[:9*1024],b''.join(bytes([i])*1024 for i in range(9)))
         self.assertIsNone(short_capture(0))
 
