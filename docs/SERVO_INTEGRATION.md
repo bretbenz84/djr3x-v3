@@ -6,6 +6,23 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 11: the listening cue (head cock while he thinks)
+
+Owner: show that Rex heard you during the wait before his answer, with a head cock at the end
+of transcription. When a trusted transcript comes back (`VoiceRuntime._asr_loop`, once per
+capture), `RobotServos.heard` steps calm idle movement aside and the voice-reflex worker runs
+a `listening` request (`servo_poses.listening_lanes`): the two head servos cock to one side
+(tilt 0.35, a touch down) at speed 35, hold for 3 s and return to where the head was. The side
+is random, or away from a lean the head already has. Neck, lift and the array arm do not move.
+Untrusted transcripts (his own motors heard as "Oh."), stop and shutdown commands give no cue.
+It is skipped (`listening_cue_skipped`) while he is already talking or a person's held pose or
+the drive stance holds the head. Talking, a pose, a gesture or a drive stops it first, like the
+voice turn; talking sway then straightens the head as the reply plays. The cue arrives about
+2 s before first audio (ASR about 0.5 s after the end of speech, model and voice about 2.5 s
+more). No setting. 1,109 blocked-I/O checks pass (synthetic, simulated servo board); how it looks, how loud the
+head servos are, and whether it still fires during a reply that streams quickly are unseen on
+the robot.
+
 ## October 11: arms stay tucked beside obstacles
 
 Owner: the poker arm reaches about 2 ft out from the left side sensors and the throttle arm

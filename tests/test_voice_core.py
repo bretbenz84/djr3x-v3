@@ -482,6 +482,7 @@ class VoiceReflexRuntimeTests(unittest.TestCase):
             idle = SimpleNamespace(stop=lambda: None)
             owner = SimpleNamespace(release_microphone_hold=lambda: None)
             def note_speech(inner): pass
+            def heard(inner): return 'started'
             def before_frame(inner, **kw): pass
             def capture_held(inner, capture): return False
         perception = SimpleNamespace(direction=Direction(), camera=None,
@@ -508,7 +509,7 @@ class SelfNoiseRuntimeTests(unittest.TestCase):
                 i = len(frames)
                 labels.append(speech)
                 frames.append(Frame(bytes(1024), 200+i*.032, 200+(i+1)*.032, False, motion))
-        self.noted, self.yielded, self.idle_allowed = [], [], []
+        self.noted, self.yielded, self.idle_allowed, self.heard = [], [], [], []
         outer = self
         answers = list(transcripts)
         class Mic:
@@ -534,6 +535,7 @@ class SelfNoiseRuntimeTests(unittest.TestCase):
             idle = SimpleNamespace(stop=lambda: None)
             owner = SimpleNamespace(release_microphone_hold=lambda: None)
             def note_speech(inner): outer.noted.append(trace.at)
+            def heard(inner): outer.heard.append(trace.at); return 'started'
             def before_frame(inner, **kw): outer.idle_allowed.append((trace.at, kw['allow_idle']))
             def capture_held(inner, capture): return False
         original = session.note_speech
@@ -553,6 +555,7 @@ class SelfNoiseRuntimeTests(unittest.TestCase):
         distrusted = [r for r in self.trace_rows if r['event'] == 'transcript_distrusted']
         self.assertEqual(len(distrusted), 1)
         self.assertEqual(self.session.brain.calls, 0)    # No reply call for his own noise.
+        self.assertEqual(self.heard, [])                 # Nor a listening cue.
         self.assertTrue(any(r['event'] == 'untrusted_not_answered' for r in self.trace_rows))
 
     def test_speech_during_his_motion_is_confirmed_within_a_quarter_second_and_answered(self):
@@ -563,6 +566,7 @@ class SelfNoiseRuntimeTests(unittest.TestCase):
         self.assertFalse(any(allowed for at, allowed in self.idle_allowed if 200.4 < at < 200.9))
         self.assertEqual(self.session.brain.calls, 1)
         self.assertFalse(any(r['event'] == 'transcript_distrusted' for r in self.trace_rows))
+        self.assertEqual(len(self.heard), 1)             # His head cocks once, before the reply.
 
     def test_a_sound_in_stillness_and_a_clearly_heard_word_keep_their_usual_trust(self):
         # Not during his motion: confirmed at once, as before.

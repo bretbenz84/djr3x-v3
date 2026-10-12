@@ -9,13 +9,18 @@ The array rides on the hero arm. In session 5e97b13a it read Bret 6 degrees righ
 the camera saw his face 32-38 degrees left (the run before agreed within ~10). When a
 visible face lies near the voice's bearing, the head aims at that face instead: the
 camera is the precise sensor. This only aims the head; it attributes no speaker.
+
+The same worker gives the listening cue (owner, October 11): once a trusted transcript
+is back, the head cocks to one side while Rex thinks (servo_poses.listening_lanes).
+Anything that moves him deliberately (talking, a pose, a gesture, a drive) stops it first.
 """
 from dataclasses import asdict
+import random
 import threading
 
 from .contracts import Cancellation, ProviderFailure
 from .drive_space import NECK_CENTER, NECK_PULSES_PER_DEG, image_bearing
-from .servo_poses import LIMITS
+from .servo_poses import HEAD_PAIR, LIMITS, head_pose
 from .servos import ServoRequest
 
 FORWARD_DEG = 90.     # Front half only; a voice behind is left to the model and base.
@@ -29,8 +34,9 @@ def voice_neck(bearing: float) -> int:
 
 
 class VoiceReflex:
-    def __init__(self, owner):
+    def __init__(self, owner, *, rng=None):
         self.owner = owner
+        self.rng = rng or random.Random()
         self.trace = None
         self.faces = None          # () -> fresh face boxes in the current camera frame
         self.on_voice = lambda: None   # A voice in front returns the idle gaze to people.
@@ -78,6 +84,30 @@ class VoiceReflex:
                     self.trace.emit('voice_reflex', bearing_deg=round(bearing, 1), aim_deg=round(aim, 1),
                                     aimed_at='face' if aim != bearing else 'voice', neck=target, **asdict(result))
             self._thread = threading.Thread(target=run, name='r3x-voice-reflex', daemon=True)
+            self._thread.start()
+            return 'started'
+
+    def heard(self) -> str:
+        """Cock the head to show Rex heard what was said; started in the background."""
+        with self._lock:
+            if self.closed or self.owner.state != 'active':
+                return 'unavailable'
+            if set(HEAD_PAIR).intersection(self.owner.held_channels):
+                return 'head_held'   # A person's held pose, or the drive stance.
+            if self._thread is not None and self._thread.is_alive():
+                return 'already_turning'
+            _, tilt = head_pose(self.owner.commanded) if set(HEAD_PAIR).issubset(self.owner.commanded) else (0., 0.)
+            # Away from a lean the head already has, so the cock is always visible.
+            side = (-1 if tilt > 0 else 1) if abs(tilt) > .2 else self.rng.choice((-1, 1))
+            self._index += 1
+            request = ServoRequest(f'listening:{self._index}', self.owner.version, 'listening',
+                                   self.owner.clock()+10., side=side)
+            token = self._cancel = Cancellation()
+            def run():
+                result = self.owner.execute(request, token)
+                if self.trace:
+                    self.trace.emit('listening_cue', side=side, **asdict(result))
+            self._thread = threading.Thread(target=run, name='r3x-listening-cue', daemon=True)
             self._thread.start()
             return 'started'
 

@@ -14,7 +14,7 @@ from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
-                          talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
+                          talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS)
 
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
@@ -36,6 +36,7 @@ class ServoRequest:
     hold_seconds: float = .5
     idle: IdlePhrase | None = None  # Idle: which parts move in this phrase and where the gaze points
     hold_pose: bool = True        # Human poses persist; agency poses never acquire a hold.
+    side: int = 1                 # Listening cock: -1 Rex's left, 1 his right.
 
 
 @dataclass(frozen=True)
@@ -263,7 +264,7 @@ class ServoOwner:
             if (request.version != self.version or not request.request_id or
                     not math.isfinite(request.expires_at) or self.clock() >= request.expires_at):
                 return receipt('rejected', 'StaleServoRequest')
-            if request.kind in {'talking','idle','pose','reflex','base_park','base_release','attention','gesture'} and self.state != 'active':
+            if request.kind in {'talking','idle','pose','reflex','listening','base_park','base_release','attention','gesture'} and self.state != 'active':
                 return receipt('rejected', {'idle':'IdleRequiresCompletedStartup','talking':'TalkingRequiresCompletedStartup','pose':'PoseRequiresCompletedStartup'}.get(request.kind,'BaseMotionRequiresCompletedStartup'))
             if request.kind == 'startup' and self.state != 'ready':
                 return receipt('rejected', 'StartupAlreadyConsumed')
@@ -278,6 +279,7 @@ class ServoOwner:
                                       request.hold_seconds,self.held_channels) if request.kind in {'attention','gesture'} else
                      pose_lanes(request.pose,current,further=request.hold_pose) if request.kind == 'pose' else
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
+                     listening_lanes(current, request.side) if request.kind == 'listening' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))
             if self._arm_returning and (request.kind in {'base_park', 'park', 'shutdown'} or any(
@@ -407,7 +409,7 @@ class ServoOwner:
             if accepted:
                 try:
                     self._hold(touched)
-                    self.state = 'active' if request.kind in {'talking','idle','pose','reflex','base_park','base_release','attention','gesture'} else 'stopped'
+                    self.state = 'active' if request.kind in {'talking','idle','pose','reflex','listening','base_park','base_release','attention','gesture'} else 'stopped'
                 except Exception:
                     self.state = 'faulted'
                     return receipt('failed', 'ServoCancelHoldFailed')

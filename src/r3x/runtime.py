@@ -118,6 +118,7 @@ class VoiceRuntime:
             began = self.trace.clock()
             try:
                 perceived_turns = self.perception.analyze_many(capture,self.asr_cancel) if self.perception else (None,)
+                cued = False   # One listening cue per capture, however many turns it splits into.
                 for perceived in perceived_turns:
                     part = perceived.capture if perceived else capture
                     transcript = perceived.transcript if perceived else self.asr.transcribe(part, self.asr_cancel)
@@ -152,6 +153,15 @@ class VoiceRuntime:
                         else: self.cancel()
                         break
                     else:
+                        if self.robot and transcript.trusted and transcript.text.strip() and not cued:
+                            # Show he heard it while the reply is still being thought of.
+                            cued = True
+                            try:
+                                outcome = self.robot.heard()
+                            except Exception as exc:
+                                outcome = 'failed:' + type(exc).__name__
+                            if outcome != 'started':
+                                self.trace.emit('listening_cue_skipped', capture_id=part.capture_id, reason=outcome)
                         self.enqueue(self.turns, (part, transcript, revision, perceived), "turns")
             except Cancelled:
                 self.trace.emit("asr_cancelled", capture_id=capture.capture_id)

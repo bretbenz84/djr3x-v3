@@ -783,6 +783,27 @@ def reflex_lanes(target):
     return ((Beat(((0, target[0]),), speed=60, acceleration=15),),)
 
 
+# Owner, October 11: the moment Rex has understood what was said, his head cocks to one
+# side and stays there while he thinks, so people see he heard them before his answer
+# (about 2.5 s later) begins. Talking sway straightens the head when the reply starts.
+LISTEN_TILT = .35            # Fraction of side travel: more than idle's 0.15-0.3, less than the 0.6 'tilt' gesture.
+LISTEN_HOLD_SECONDS = 3.     # Roughly model plus voice time; a reply starting sooner takes over.
+
+
+def listening_lanes(current, side):
+    """The 'I heard you' cock: the two head servos only, quickly to one side and a touch
+    down, held, then back to where the head was. side is -1 (Rex's left) or 1 (his right)."""
+    if side not in (-1, 1): raise ValueError('ListeningSideRequired')
+    pitch0, _ = head_pose(current)
+    start = tuple((ch, current[ch]) for ch in HEAD_PAIR)
+    cocked = tuple(head_pulses(pitch0 - .05, side * LISTEN_TILT).items())
+    lane = (Beat(cocked, speed=35, acceleration=8, dwell=LISTEN_HOLD_SECONDS),
+            Beat(start, speed=20, acceleration=6))
+    for beat in lane:
+        validate_pose(dict(beat.targets))
+    return (lane,)
+
+
 def pose_lanes(name, current, further=True):
     if isinstance(name, dict):
         target = dict(name)

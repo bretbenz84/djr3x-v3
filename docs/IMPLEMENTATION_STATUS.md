@@ -6,6 +6,13 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Listening cue — October 11
+
+When a trusted transcript is back, Rex's head cocks to one side and holds about 3 s while the
+reply is prepared; the reply's talking motion straightens it. It shows he heard during the
+roughly 2.5 s before first audio; it does not shorten the wait. Synthetic checks only; not yet
+run on the robot ([servo integration](SERVO_INTEGRATION.md#october-11-the-listening-cue-head-cock-while-he-thinks)).
+
 ## Reply latency — October 11
 
 Owner report: replies feel slow. In the last 12 robot sessions (October 5–11, 129 replies to

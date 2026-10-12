@@ -193,6 +193,14 @@ class RobotServos:
     def note_speech(self):
         self.idle.stop()
 
+    def heard(self):
+        """A trusted transcript is back: cock the head while he thinks, unless he is
+        already talking. Calm idle movement steps aside so the cue is not refused busy."""
+        if self.talking._thread is not None:
+            return 'talking'
+        self.idle.stop()
+        return self.reflex.heard()
+
     def capture_held(self,capture):
         valid = not capture.motion_risk and self.owner.microphone_held_during(capture.started_at,capture.ended_at)
         self.owner.release_microphone_hold()

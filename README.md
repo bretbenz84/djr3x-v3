@@ -65,6 +65,8 @@ it or reads its data.
   wide ~90° lens at 1920×1080.
 - **Body (Pololu Maestro, 14 servos).**
   - Startup and park choreography, and talking motion driven by actual playback.
+  - The moment he has understood what was said, his head cocks to one side while he
+    thinks (October 11; not yet run on the robot).
   - The head turns toward whoever he is answering, and since October 10 can cock to a
     side (two facing servos pitch and tilt it) for curious or playful moments.
   - Idle life: slow, staggered movement of one to three parts at a time whenever he

@@ -291,3 +291,70 @@ class VoiceReflexTests(unittest.TestCase):
         self.assertEqual(self.robot.reflex.face(40.), 'started')
         receipt = self.robot.execute_pose('look_up', Cancellation(), 'up')
         self.assertEqual(receipt.status, 'pulses_reached')
+
+
+class ListeningCueTests(unittest.TestCase):
+    """Owner, October 11: once Rex has understood what was said, his head cocks while he thinks."""
+    def setUp(self):
+        self.clock, self.port = Clock(), PulsePort()
+        self.robot = RobotServos('fake', open_port=lambda:self.port, clock=self.clock, wait=self.clock.wait)
+        self.robot.owner.wait = self.clock.wait
+        self.robot.start()
+        self.addCleanup(self.robot.close)
+        self.rows = []
+        self.robot.reflex.trace = type('T', (), {'emit': lambda _, event, **kw: self.rows.append((event, kw))})()
+        self.poses = []
+        self.port.on_target = lambda: self.poses.append((self.clock(), dict(self.port.pose)))
+
+    def settle(self):
+        self.robot.reflex._thread.join(5)
+
+    def settled(self):
+        """The pose after each beat's targets (the fake board reports one channel at a time)."""
+        return list({at: pose for at, pose in self.poses}.items())
+
+    def test_head_cocks_to_one_side_holds_while_he_thinks_then_straightens(self):
+        from r3x.servo_poses import LISTEN_HOLD_SECONDS, LISTEN_TILT, head_pose
+        before = dict(self.port.pose)
+        self.assertEqual(self.robot.heard(), 'started'); self.settle()
+        (cocked_at, cocked), (back_at, back) = self.settled()
+        self.assertAlmostEqual(abs(head_pose(cocked)[1]), LISTEN_TILT, delta=.05)
+        self.assertGreaterEqual(back_at - cocked_at, LISTEN_HOLD_SECONDS)
+        for ch in (0, 1, 3, 4, 5, 7):                       # Only the two head servos move; never the array arm.
+            self.assertEqual(cocked[ch], before[ch])
+        self.assertEqual({ch: back[ch] for ch in (2, 11)}, {ch: before[ch] for ch in (2, 11)})
+        self.assertEqual(self.rows[-1][1]['status'], 'pulses_reached')
+        self.assertEqual(self.robot.owner.held_channels, set())   # Nobody's pose: nothing is held.
+
+    def test_cocks_away_from_a_lean_the_head_already_has(self):
+        from r3x.servo_poses import head_pose, head_pulses
+        self.robot.execute_pose(head_pulses(0., .4), Cancellation(), 'lean', hold_pose=False)
+        self.poses.clear()
+        self.assertEqual(self.robot.heard(), 'started'); self.settle()
+        self.assertLess(head_pose(self.settled()[0][1])[1], 0.)
+
+    def test_a_held_head_pose_and_his_own_talking_are_left_alone(self):
+        self.robot.execute_pose('look_up', Cancellation(), 'asked')     # A person asked: the head is held.
+        self.poses.clear()
+        self.assertEqual(self.robot.heard(), 'head_held')
+        self.robot.execute_pose('release_poses', Cancellation(), 'release')
+        self.robot.talking._thread = object()                           # Already answering.
+        try:
+            self.assertEqual(self.robot.heard(), 'talking')
+        finally:
+            self.robot.talking._thread = None
+        self.assertEqual([p for p in self.poses if p[1][2] != self.port.pose[2]], [])
+
+    def test_his_reply_starting_takes_the_head_over_mid_hold(self):
+        import threading, time
+        holding = threading.Event()
+        def slow_wait(seconds):
+            self.clock.wait(seconds)
+            holding.set()
+            time.sleep(.002)
+        self.robot.owner.wait = slow_wait
+        self.assertEqual(self.robot.heard(), 'started')
+        self.assertTrue(holding.wait(2))
+        self.robot.talking.start('reply', Cancellation())               # Stops the cue before talking moves.
+        self.robot.talking.stop()
+        self.assertEqual(self.rows[0][1]['status'], 'cancelled')
