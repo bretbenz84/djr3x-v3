@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 import sqlite3
@@ -101,6 +102,11 @@ def main() -> int:
     finally:
         if app is not None and args.command != "live":
             app.close()
+        if app is not None and getattr(app, 'workers_retained', False):
+            # A worker that never stopped would hold the exit (October 12 ended in a crash
+            # at exit). The hardware is parked and the trace closed (worker_stuck names it).
+            sys.stdout.flush(); sys.stderr.flush()
+            os._exit(1)
 
 
 if __name__ == "__main__":

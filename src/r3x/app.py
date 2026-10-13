@@ -395,6 +395,7 @@ class App:
                 self.owner.close_only({'drive_base','radar','robot_servos','robot_leds'})
                 trace.emit("shutdown_failed", reason="active_worker_resources_retained_until_process_exit",
                            hardware_released=[r.capability for r in self.owner.results if r.operation=='close'])
+                self.workers_retained = True   # The caller ends the process now; nothing waits for them.
             else:
                 self.close()
                 if runtime and runtime.session.state.photo_memory:runtime.session.state.photo_memory.close()

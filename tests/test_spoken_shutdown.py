@@ -67,3 +67,39 @@ class ShutdownTests(unittest.TestCase):
         self.assertEqual({ch:port.pose[ch] for ch,_ in PARK},dict(PARK))
         self.assertTrue(port.closed)
         self.assertEqual(brain.calls,0)
+
+    def test_shutdown_goes_ahead_while_a_worker_holds_the_conversation_lock(self):
+        # October 12 (566c9154): a deadlocked reply kept the conversation lock, and shutdown
+        # waited on it until a second signal. Now it leaves the stuck worker behind.
+        import time
+        from unittest.mock import patch
+        from r3x.contracts import ProviderFailure
+        runtime,brain=self.runtime('Shut down.')
+        held,release=threading.Event(),threading.Event()
+        def stuck():
+            with runtime.session._lock:
+                held.set(); release.wait()
+        holder=threading.Thread(target=stuck,name='r3x-stuck',daemon=True);holder.start()
+        self.addCleanup(release.set)
+        self.assertTrue(held.wait(1))
+        runtime.workers.append(holder)
+        class Mic:
+            cancelled=False
+            def read(self): time.sleep(.001)
+            def cancel(self): self.cancelled=True
+        runtime.mic=Mic()
+        raised=[]
+        def run():
+            try: runtime.run()
+            except BaseException as exc: raised.append(exc)
+        with patch('sys.stdin.isatty',return_value=False):
+            shutdown=threading.Thread(target=run,daemon=True);shutdown.start();shutdown.join(5)
+        self.assertFalse(shutdown.is_alive(),'shutdown waited on the stuck worker')
+        self.assertIsInstance(raised[0],ProviderFailure)
+        self.assertEqual(str(raised[0]),'RuntimeWorkersDidNotStop')
+        self.assertTrue(runtime.mic.cancelled)
+        self.assertTrue(runtime.asr_cancel.event.is_set())
+        rows=runtime.trace.rows
+        self.assertTrue(any(r['event']=='cancel_state_skipped' for r in rows))
+        self.assertIn('r3x-stuck',[r for r in rows if r['event']=='worker_stuck'][-1]['workers'])
+        self.assertEqual(brain.calls,0)

@@ -16,7 +16,10 @@ SIGTERM's stop reached shutdown but shutdown itself hung until SIGINT. The face 
 reads profiles outside the camera lock and discards that frame if a forget cleared faces
 meanwhile. The idle-arm change of that evening (8fcb11e) takes none of these locks and is
 not involved. A check through the production reply path reproduces the hang without the
-fix (synthetic; not yet run live). Shutdown still waits unboundedly on the conversation lock.
+fix (synthetic; not yet run live). Shutdown no longer waits on stuck work: it signals every
+worker to stop, waits at most 0.5 s for the conversation and control locks and 2 s for workers,
+parks the servos, stops the wheels and lights, then ends the process. A worker left behind is
+named in `worker_stuck`. Synthetic check only.
 
 ## Listening cue — October 11
 

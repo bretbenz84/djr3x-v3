@@ -31,6 +31,7 @@ SELF_NOISE_LOGPROB = -.1       # Trust floor for a suspected capture (the usual 
 PLANNING_GLANCE_SECONDS = .25
 # A goal is planned at most this long before its first beat is due.
 PLAN_LEAD_SECONDS = 20.
+SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish before leaving them.
 
 class VoiceRuntime:
     def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None):
@@ -62,11 +63,16 @@ class VoiceRuntime:
             self.robot.idle.stop()
             self.robot.reflex.stop()
             self.robot.owner.release_microphone_hold()
-        with self.control_lock:
+        # Shutdown goes ahead even if a stuck worker holds the control lock.
+        from .session import SHUTDOWN_LOCK_SECONDS
+        locked = self.control_lock.acquire(timeout=SHUTDOWN_LOCK_SECONDS if self.stop.is_set() else -1)
+        try:
             self.cancel_before = self.trace.clock()
             self.session.cancel('shutdown' if self.stop.is_set() else 'explicit_stop',
                                 quiet=quiet and not self.stop.is_set())
             self.asr_cancel.event.set()
+        finally:
+            if locked: self.control_lock.release()
         self.trace.emit("input_invalidated", captured_before=self.cancel_before)
 
     def enqueue(self, queue, item, kind):
@@ -573,7 +579,9 @@ class VoiceRuntime:
                 if path:self.trace.emit('input_diagnostic_saved',path=str(path))
             except Exception as exc:
                 self.trace.emit('recording_failed',kind='input_diagnostic',error_type=type(exc).__name__)
-        deadline = time.monotonic() + 18  # Network read bound plus cooperative cleanup.
+        # Cooperative workers stop within this; a stuck one is left behind and the process
+        # exits without it (the hardware still parks first).
+        deadline = time.monotonic() + SHUTDOWN_WORKER_SECONDS
         for worker in self.workers:
             worker.join(max(0, deadline - time.monotonic()))
         stuck = [w.name for w in self.workers if w.is_alive()]

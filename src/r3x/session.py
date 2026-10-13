@@ -22,6 +22,8 @@ STOP_WRAPPERS = frozenset({"oh","hey","no","whoa","rex","okay","ok","please","no
 # only pauses his initiative for two minutes. Review October 3: with goals always running,
 # "be quiet" bought two minutes before the next unprompted line.
 QUIET_COMMANDS = frozenset({"shut up","stop talking","be quiet","quiet","hush"})
+# Shutdown waits at most this long for the conversation lock, then goes ahead without it.
+SHUTDOWN_LOCK_SECONDS = .5
 
 
 def is_quiet_command(text: str) -> bool:
@@ -248,22 +250,32 @@ class Session:
                 model=self.agency_planner.capability.model, planning_seconds=self.trace.clock()-started)
 
     def cancel(self, reason='explicit_stop', *, quiet=False) -> None:
-        with self._lock:
-            self.proactive_hold_until = self.trace.clock()+120
-            self.revision += 1
-            self._planning_cancel.event.set()
-            if self._cancel:
-                self._cancel.event.set()
-            if self.state:
-                self.state.initiative.cancel_schedule(reason)
-                self.state.conversation_intent.suspend(reason)
-                self.state.cancel()
-                if quiet and not self.state.frozen:
-                    # Same switch the model uses for "stop starting conversations". Direct
-                    # questions still get answers; an invitation to talk again resumes him.
-                    self.state.initiative.quiet = True
-                    self.state.initiative.policy_source = None
-                    self.state.initiative.cancel_schedule('initiative_quiet')
+        # Stop signals need no lock. Shutdown never waits for a worker that holds the
+        # conversation lock (October 12: one stuck there kept Rex from shutting down).
+        self._planning_cancel.event.set()
+        if self._cancel:
+            self._cancel.event.set()
+        if not self._lock.acquire(timeout=SHUTDOWN_LOCK_SECONDS if reason == 'shutdown' else -1):
+            self.trace.emit('cancel_state_skipped', reason='conversation_lock_held')
+        else:
+            try:
+                self.proactive_hold_until = self.trace.clock()+120
+                self.revision += 1
+                self._planning_cancel.event.set()
+                if self._cancel:
+                    self._cancel.event.set()
+                if self.state:
+                    self.state.initiative.cancel_schedule(reason)
+                    self.state.conversation_intent.suspend(reason)
+                    self.state.cancel()
+                    if quiet and not self.state.frozen:
+                        # Same switch the model uses for "stop starting conversations". Direct
+                        # questions still get answers; an invitation to talk again resumes him.
+                        self.state.initiative.quiet = True
+                        self.state.initiative.policy_source = None
+                        self.state.initiative.cancel_schedule('initiative_quiet')
+            finally:
+                self._lock.release()
         self.output.cancel()
         self.trace.emit("cancel", revision=self.revision)
         if quiet and self.state and self.state.initiative.quiet:
