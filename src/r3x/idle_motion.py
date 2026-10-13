@@ -30,8 +30,10 @@ from .servos import ServoRequest
 
 # Seconds between one part's moves. An arm moves all of its joints together (owner,
 # October 12), so each arm is one part.
-PART_SECONDS = {'head': (1.2, 2.8), 'visor': (6., 14.), 'hero': (5., 12.), 'poker': (6., 15.),
-                'throttle': (9., 20.)}
+# Owner, October 12: idle read as frozen with a small move now and then; it should sit
+# between that and the lively talking motion, so the arms come round about twice as often.
+PART_SECONDS = {'head': (1.2, 2.8), 'visor': (4., 9.), 'hero': (2.5, 6.), 'poker': (3., 7.),
+                'throttle': (5., 11.)}
 # The hero arm's shoulder joins its move at most this often: it carries the microphone
 # array, and each swing invalidates the bearing and the voice-learning hold.
 SWING_SECONDS = (30., 60.)
@@ -134,7 +136,7 @@ class IdleMotion:
             return look(anchor[0] + rng.randint(-neck, neck), anchor.get(1, level[1]) + rng.randint(-lift, lift),
                         anchor_pitch + rng.uniform(-pitch_by, pitch_by), anchor_tilt + rng.uniform(-tilt_by, tilt_by))
         if self.mode(now) == 'direction':
-            return near(self._anchor), rng.randint(5, 8), 0.
+            return near(self._anchor), rng.randint(10, 14), 0.
         aim = None
         if self.face:
             try:
@@ -146,7 +148,7 @@ class IdleMotion:
             if self._glance_at is None:
                 self._glance_at = now + rng.uniform(7., 16.)
         if now < self._glance_until:
-            return (), rng.randint(5, 8), 0.          # Still looking away; drift there.
+            return (), rng.randint(10, 14), 0.          # Still looking away; drift there.
         if aim is not None and aim.get('at', now) > self.owner.head_moved_at + .1:
             if now >= self._glance_at and not calm:
                 # Break eye contact like V2's gaze engine: 12-24 degrees aside, level or a
@@ -157,7 +159,7 @@ class IdleMotion:
                 glance_pitch = pitch_from_degrees(degrees_from_pitch(pitch) - rng.uniform(0., 5.))
                 return look(neck, current[1], glance_pitch, tilt + rng.choice((-1, 1)) * rng.uniform(.1, .25)), rng.randint(12, 18), 0.
             error = aim['neck'] - current[0]
-            neck = current[0] + (FACE_GAIN * error if abs(error) > NECK_DEAD_DEG * NECK_PER_DEG else rng.randint(-40, 40))
+            neck = current[0] + (FACE_GAIN * error if abs(error) > NECK_DEAD_DEG * NECK_PER_DEG else rng.randint(-160, 160))
             off = aim['y'] - FACE_Y
             if abs(off) > Y_DEAD:
                 # A face low in the frame needs the head pitched lower. The travel is
@@ -172,10 +174,11 @@ class IdleMotion:
                 self._cock = rng.choice((-1, 1)) * rng.uniform(.15, .3)
                 self._cock_until = now + rng.uniform(3., 8.)
                 self._cock_at = self._cock_until + rng.uniform(10., 25.)
-            tilt = self._cock if now < self._cock_until else 0.
-            return look(neck, level[1] + rng.randint(-50, 50), pitch, tilt), 16 if far else 9, 0.
+            tilt = (self._cock if now < self._cock_until else 0.) + rng.uniform(-.05, .05)
+            pitch += rng.uniform(-.04, .04)   # A living nod and lean around the framing, never a fixed stare.
+            return look(neck, level[1] + rng.randint(-110, 110), pitch, tilt), 18 if far else 13, 0.
         if aim is not None or now - self._face_at <= FACE_LOST_SECONDS:
-            return (), rng.randint(5, 8), 0.          # Waiting for a fresh look at them.
+            return (), rng.randint(10, 14), 0.          # Waiting for a fresh look at them.
         # Nobody in view: look around the room now and then (V2's scan leaned downward,
         # where seated people are), drifting in place between looks.
         self._glance_at = None
@@ -185,8 +188,8 @@ class IdleMotion:
             vertical = rng.uniform(-.3, 1.)           # Negative looks up, positive down.
             neck = NECK_CENTER + rng.uniform(-LOOK_NECK_DEG, LOOK_NECK_DEG) * NECK_PER_DEG
             return (look(neck, level[1] - vertical * 200, -vertical * .65, rng.uniform(-.3, .3)),
-                    rng.randint(10, 16), rng.uniform(.4, 1.2))
-        return (), rng.randint(5, 8), 0.
+                    rng.randint(12, 18), rng.uniform(.4, 1.2))
+        return (), rng.randint(10, 14), 0.
 
     def _compose(self, now, calm):
         held = set(self.owner.held_channels)
@@ -211,7 +214,7 @@ class IdleMotion:
         wait, parts = 0., []
         for part in chosen:
             parts.append((part, round(wait, 2)))
-            wait += self.rng.uniform(.4, 1.3)
+            wait += self.rng.uniform(.2, .8)
             self._due[part] = now + self.rng.uniform(*PART_SECONDS[part])
         head, speed, dwell = self._head(now, calm) if 'head' in chosen else ((), 9, 0.)
         return IdlePhrase(tuple(parts), tuple((ch, round(value)) for ch, value in head), speed, dwell, swing)
@@ -277,7 +280,7 @@ class IdleMotion:
                 if self._thread.is_alive(): return
                 self._thread = None
                 # A breath between phrases; the microphone hold renews in this gap.
-                self._resume = now + self.rng.uniform(.3, .7)
+                self._resume = now + self.rng.uniform(.15, .35)
                 return
             if not self._allowed:
                 self._allowed = True

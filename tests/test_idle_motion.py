@@ -255,12 +255,13 @@ class IdleTests(unittest.TestCase):
         # A face low in the picture: both head servos pitch the head further down (left falls, right rises).
         self.assertLess(target[2],self.port.pose[2]);self.assertGreater(target[11],self.port.pose[11])
         self.assertLess(head_pose(target)[0],pitch)
-        self.assertAlmostEqual(self.owner.gaze_pitch,head_pose(target)[0],delta=.01)
+        # The framing pitch, with at most a small living nod around it (October 12).
+        self.assertAlmostEqual(self.owner.gaze_pitch,head_pose(target)[0],delta=.045)
         self.owner.commanded.update({0:4000,2:target[2],11:target[11]})
         face['y']=.40
         targets,_,_=self.idle._head(self.clock(),False)
-        self.assertLessEqual(abs(dict(targets)[0]-4000),40)     # Inside the dead zone: only a little life.
-        self.assertAlmostEqual(dict(targets)[2],target[2],delta=3)
+        self.assertLessEqual(abs(dict(targets)[0]-4000),160)    # Inside the dead zone: only a little life.
+        self.assertAlmostEqual(head_pose(dict(targets))[0],head_pose(target)[0],delta=.045)
         # Constant tracking was creepy in V2: within 16 seconds he looks aside, then comes back.
         looked=[]
         for _ in range(200):
@@ -303,8 +304,8 @@ class IdleTests(unittest.TestCase):
                 self.owner.commanded.update(dict(targets))
         cocked=[t for t in tilts if abs(t)>=.14]
         self.assertGreater(len(cocked),10)                      # Cocks happen...
-        self.assertTrue(all(abs(t)<=.31 for t in tilts))       # ...gently...
-        self.assertGreater(len([t for t in tilts if abs(t)<.05]),len(cocked))   # ...and mostly it is straight.
+        self.assertTrue(all(abs(t)<=.36 for t in tilts))       # ...gently (a cock plus a little living lean)...
+        self.assertGreater(len([t for t in tilts if abs(t)<.07]),len(cocked))   # ...and mostly it is straight.
         self.assertTrue(any(t>0 for t in cocked) and any(t<0 for t in cocked))  # Both sides.
 
     def test_a_chosen_direction_is_kept_until_people_are_chosen_a_voice_or_time(self):

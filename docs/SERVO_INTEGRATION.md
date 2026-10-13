@@ -6,6 +6,27 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 12 (later): livelier, more continuous idle
+
+Owner: idle looked frozen with a small move now and then; talking is vivacious; idle should sit
+in between. Idle now runs at board speeds up to 18 (was 5-12; talking uses 20-45):
+
+- *Cadence:* hero arm every 2.5-6 s (was 5-12), poker arm 3-7 s (6-15), throttle 5-11 s (9-20),
+  visor 4-9 s (6-14). Parts in one burst start 0.2-0.8 s apart (0.4-1.3), and the pause between
+  bursts is 0.15-0.35 s (0.3-0.7; the microphone hold still renews in it).
+- *Size and pace:* arm moves are about 40% larger and take 1.1-2.2 s (1.6-3.2); the throttle arm
+  2-3.2 s (3-4.6). The hero shoulder swing (microphone array) keeps its size, pace and 30-60 s rhythm.
+- *Head:* when it is not re-aiming, it wanders about ±3.5 degrees of neck, with a small nod and
+  lean, at speed 10-14 (was ±2 degrees at 5-9). While following a face it stays in the dead zone
+  with a little more life (±2 degrees of neck, a small nod and lean). When a burst also moves
+  an arm or the visor, the head keeps wandering until they finish instead of stopping to wait.
+  All of these stay inside the camera's "same view" limits, so they do not reset scene settling.
+
+Synthetic only: 1,113 blocked-I/O checks pass, but the simulated board arrives instantly, so
+how continuous it looks, how loud it is, and whether his own servo noise now stills him more
+often must be judged on the robot. In the October 12 live session idle ran only 2-8 bursts per
+30 s, many cut short by speech in the room; this change does not alter that gating.
+
 ## October 12: idle arms move as a whole
 
 Owner: in idle life the arm joints moved one at a time, while a real arm moves several joints

@@ -576,8 +576,8 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
     """Slow, measured idle movement for the parts one phrase names (owner, October 3:
     "always some motion going on, slow and measured", never every servo at once).
 
-    Each part goes somewhere new at its own pace rather than back and forth: speeds are a
-    third to a half of the September idle. Ranges stay inside what talking and V2 idle
+    Each part goes somewhere new at its own pace rather than back and forth, between the
+    old calm idle and talking (October 12: idle had read as frozen). Ranges stay inside what talking and V2 idle
     already use; the visor stays in its speaking range, above the camera. An arm moves as
     a whole: every joint a little, together. The hero arm carries the speaker array, so its
     shoulder swings rarely, less far, slowly, and returns to centre."""
@@ -590,18 +590,26 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
         if set(channels).intersection(held):
             continue
         if part == 'head':
+            def drift(start, speed):
+                # A small wander from where the head is, inside the camera's settled view.
+                pitch, tilt = head_pose(start)
+                moved = ((0, clamp(0, start[0] + rng.randint(-260, 260))),
+                         (1, clamp(1, start[1] + rng.randint(-110, 110))),
+                         *head_pulses(pitch + rng.uniform(-.05, .05), tilt + rng.uniform(-.08, .08)).items())
+                return Beat(moved, speed=speed, acceleration=3, reframes=head_reframes(start, moved))
             if phrase.head:
                 targets = tuple((ch, clamp(ch, value)) for ch, value in phrase.head)
+                lane = (Beat(targets, speed=phrase.head_speed, acceleration=3, dwell=phrase.head_dwell,
+                             reframes=head_reframes(current, targets)),)
             else:
-                pitch, tilt = head_pose(current)
-                targets = ((0, clamp(0, current[0] + rng.randint(-150, 150))),
-                           (1, clamp(1, current[1] + rng.randint(-60, 60))),
-                           *head_pulses(pitch + rng.uniform(-.03, .03), tilt + rng.uniform(-.06, .06)).items())
-            lane = (Beat(targets, speed=phrase.head_speed, acceleration=3, dwell=phrase.head_dwell,
-                         reframes=head_reframes(current, targets)),)
+                lane = (drift(current, phrase.head_speed),)
+            # Owner, October 12: the head stopped and waited while an arm finished, which read
+            # as frozen. With other parts in the phrase it keeps wandering gently until they do.
+            if len(phrase.parts) > 1:
+                lane += (drift({**current, **dict(lane[-1].targets)}, rng.randint(8, 12)),)
         elif part == 'visor':
-            first = _elsewhere(rng, *VISOR_IDLE, current[3], 150, 500)
-            lane = (Beat(((3, first),), speed=rng.randint(5, 10), acceleration=2),)
+            first = _elsewhere(rng, *VISOR_IDLE, current[3], 200, 600)
+            lane = (Beat(((3, first),), speed=rng.randint(8, 14), acceleration=3),)
             if rng.random() < .25:   # A slow half-blink: down to the speaking floor and open again.
                 lane = (Beat(((3, VISOR_SPEECH[1]),), speed=rng.randint(8, 14), acceleration=3, dwell=rng.uniform(.2, .6)),
                         Beat(((3, rng.randint(VISOR_OPEN - 300, VISOR_OPEN + 50)),), speed=rng.randint(6, 10), acceleration=2))
@@ -612,11 +620,11 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
             # the whole arm reaches out, pauses and comes back with the array at centre.
             ranges = {4: (6500, 7200), 5: (4600, 7400)}
             def bend(start, least):
-                return ((4, _elsewhere(rng, *ranges[4], start[4], least, 450)),
-                        (5, _elsewhere(rng, *ranges[5], start[5], 3 * least, 1200)))
+                return ((4, _elsewhere(rng, *ranges[4], start[4], least, 550)),
+                        (5, _elsewhere(rng, *ranges[5], start[5], 3 * least, 1700)))
             def beat(start, targets, seconds, exact=(), dwell=0.):
                 targets, seconds = _together(start, targets, seconds, ranges, exact)
-                return Beat(targets, speed=12, acceleration=2, dwell=dwell, seconds=seconds)
+                return Beat(targets, speed=18, acceleration=3, dwell=dwell, seconds=seconds)
             if phrase.swing:
                 side = (-1 if current[7] >= 5984 + 500 else 1 if current[7] <= 5984 - 500 else rng.choice((-1, 1)))
                 out = beat(current, ((7, clamp(7, 5984 + side * rng.randint(700, 1400))), *bend(current, 150)),
@@ -624,36 +632,36 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 reached = {**current, **dict(out.targets)}
                 lane = (out, beat(reached, ((7, 5984), *bend(reached, 100)), rng.uniform(2.2, 3.2), exact=(7,)))
             else:
-                first = beat(current, bend(current, 150), rng.uniform(1.6, 3.))
+                first = beat(current, bend(current, 200), rng.uniform(1.1, 2.))
                 lane = (first,)
                 if rng.random() < .3:    # Roll a little past, pause, ease back: both joints again.
                     reached = {**current, **dict(first.targets)}
                     ease = tuple((ch, clamp(ch, reached[ch] + (-1 if reached[ch] > current[ch] else 1) * rng.randint(*by)))
                                  for ch, by in ((4, (60, 150)), (5, (250, 500))))
-                    lane = (replace(first, dwell=rng.uniform(.3, .9)), beat(reached, ease, rng.uniform(1.2, 2.)))
+                    lane = (replace(first, dwell=rng.uniform(.3, .9)), beat(reached, ease, rng.uniform(.9, 1.5)))
         elif part == 'poker':
             # The swing, elbow and wrist move together. Inside the idle range the elbow is
             # never near its clearance ceiling, so one move is safe; anywhere else the elbow
             # and wrist keep their staged route, the first stage riding with the swing.
             ranges = {6: (4500, 7500), **POKER_IDLE}
-            target = {ch: _elsewhere(rng, *POKER_IDLE[ch], current[ch], 250, 800) for ch in POKER}
-            swing = (6, _elsewhere(rng, *ranges[6], current[6], 400, 1200))
-            seconds = rng.uniform(1.8, 3.2)
+            target = {ch: _elsewhere(rng, *POKER_IDLE[ch], current[ch], 350, 1100) for ch in POKER}
+            swing = (6, _elsewhere(rng, *ranges[6], current[6], 600, 1700))
+            seconds = rng.uniform(1.2, 2.2)
             if max(current[12], target[12]) <= poker_elbow_max(max(current[13], target[13])):
                 targets, seconds = _together(current, (swing, *target.items()), seconds, ranges)
                 if not poker_clear(dict(targets)) or max(current[12], dict(targets)[12]) > poker_elbow_max(
                         max(current[13], dict(targets)[13])):
                     targets = (swing, *target.items())   # Snapping would cross the ceiling: keep the chosen pose.
-                lane = (Beat(targets, speed=15, acceleration=3, seconds=seconds),)
+                lane = (Beat(targets, speed=18, acceleration=3, seconds=seconds),)
             else:
                 route = poker_lane(current, target, speed=rng.randint(7, 15), acceleration=3)
-                lane = (Beat((swing, *route[0].targets), speed=15, acceleration=3, seconds=seconds), *route[1:])
+                lane = (Beat((swing, *route[0].targets), speed=18, acceleration=3, seconds=seconds), *route[1:])
         elif part == 'throttle':
             target = rng.choice([p for p in THROTTLE_IDLE if any(abs(current[ch]-v) > 2 for ch, v in p)])
             route = (() if throttle_clear(current, dict(target)) else pose_lanes('throttle_rest', current)[0])
             previous = dict(route[-1].targets) if route else current
             if not throttle_clear(previous, dict(target)): raise ValueError('IdleRouteOutsideClearance')
-            lane = route + (Beat(target, throttle_duration=rng.uniform(3., 4.6), throttle_idle=True),)
+            lane = route + (Beat(target, throttle_duration=rng.uniform(2., 3.2), throttle_idle=True),)
         else:
             raise ValueError('UnknownIdlePart')
         if wait > 0:
