@@ -15,7 +15,7 @@ from uuid import uuid4
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, clearance, describe_bearing, face_range, image_bearing,
-                          move_allowance, radar_bodies, steer, wall_angle, wrap, FRONT_MARGIN, PERSON_MARGIN,
+                          move_allowance, radar_bodies, steer, wall_angle, wrap, FRONT_MARGIN, MIN_TURN, PERSON_MARGIN,
                           SCRAPE_M, WALL_HOLD_M)
 from .providers import Capability
 
@@ -81,6 +81,26 @@ CRAWL_SPEED = .12         # Top crawl speed; the firmware's stop zone at this sp
 CRAWL_MIN_SPEED = .06
 CRAWL_TICK_S = .15        # Setpoint refresh, inside the firmware's 300 ms drive deadman.
 CRAWL_STALL_S = 2.        # No wheel progress this long: something holds him.
+# October 12: sitting with his back to a pass-through bookshelf on short legs, "come here"
+# spun him 72 degrees on the spot. The rear sensors read past the shelf, the swing check
+# passed, the body caught the shelf and the wheels pushed for nine seconds until the
+# firmware aborted, and he gave up; straight ahead was open (owner: "it would have been
+# totally fine to drive forward and bank while driving"). A turn toward someone he is
+# going to approach now banks forward when anything is close behind, and any spin that
+# is refused or stalls banks before it backs up or gives up.
+TURN_STALL_S = 2.         # Owner, October 12: a spin making no headway this long is held by something.
+TURN_PROGRESS_DEG = 3.
+BANK_FROM_DEG = 30.       # Turns this large toward an approach bank when something is close behind.
+BANK_REAR_M = .8          # Anything this near behind (or no rear reading): bank, don't spin.
+BANK_ROOM_M = .3          # Open floor past the front stand-off needed to start a bank.
+BANK_SPEED = .15
+BANK_RADIUS_M = .3        # Wider than half the body, so no corner swings backward.
+BANK_LEAD_M = .1          # Nearly straight first, to roll off what is behind.
+BANK_LEAD_ANG = .1        # rad/s during the lead.
+BANK_MIN_ANG = .15        # rad/s floor while easing out of the turn.
+BANK_DONE_DEG = 4.
+BANK_MAX_M = .6           # Clear of what was behind by then: any rest of the turn is a checked spin.
+BANK_CORNER_M = .3        # A front return this near on the turning side stops the bank.
 HALLWAY_M = .5            # A side return within this on either side is tight space: crawl.
 STRAIGHTEN_MIN_DEG = 8.   # The turn away from a wall is the angle it converges by, within these.
 STRAIGHTEN_MAX_DEG = 30.
@@ -386,6 +406,7 @@ class DriveBase:
         self.sounds = None          # MotionSounds: whir while the wheels move, accents at the end
         self._origin = 'requested'
         self._pace = 1.
+        self._turn_moved = 0.   # Metres driven inside the current step's turns (banks, back-ups).
         self.trace = None
         self.reflex_allowed = lambda: True
         self._lock = threading.Lock()
@@ -804,12 +825,27 @@ class DriveBase:
             return None
         return self._move(leg, plan, cancel)
 
-    def _turn(self, degrees, plan, cancel, verify=True, escape=True):
+    def _turn(self, degrees, plan, cancel, verify=True, escape=True, bank=False):
+        """One turn. bank: the turn heads an approach, so with something close behind he
+        drives forward round the curve instead of spinning on the spot. escape: a spin that
+        is refused or stalls banks if the front is open, else backs up and spins once more."""
         telemetry = self._telemetry()
-        allowed, note = allowed_turn(degrees, telemetry, self._arms())
         row = {'action': 'turn', 'requested_deg': round(degrees, 1)}
+        if bank and escape and abs(degrees) >= BANK_FROM_DEG:
+            space = self.space()
+            if (space['rear_m'] is None or space['rear_m'] < BANK_REAR_M) and self._bank_room(space, degrees):
+                banked = self._banked(degrees, plan, cancel, row, 'something_close_behind')
+                if banked is not None:
+                    return banked
+        allowed, note = allowed_turn(degrees, telemetry, self._arms())
         if not allowed and escape and note and note.startswith('turn_path_blocked'):
+            if self._bank_room(self.space(), degrees):
+                banked = self._banked(degrees, plan, cancel, row, 'spin_refused')
+                if banked is not None:
+                    return banked
             moved = self._escape_for_turn(degrees, plan, cancel)
+            if moved is not None:
+                self._turn_moved += abs(moved.get('travelled_m', 0.))
             if moved is not None and moved['status'] == 'completed':
                 retry = self._turn(degrees, plan, cancel, verify, escape=False)
                 return {**retry, 'escape': moved, 'travelled_m': moved.get('travelled_m', 0.)}
@@ -822,15 +858,27 @@ class DriveBase:
             if not allowed:
                 return self._refused_turn(row, note)
         before, before_odom = self._heading(telemetry), self._odom_heading(telemetry)
+        space = self.space()
         rate = round(TURN_RATE * self._pace, 1)
         command = allowed
         if abs(allowed) >= TURN_COAST_FROM_DEG:
             command = math.copysign(abs(allowed) - rate * TURN_COAST_S, allowed)
+        progress = [before, self.clock()]
+        def stalled():
+            heading = self._heading(self.link.snapshot()[0] or {})
+            if heading is None or progress[0] is None:
+                return None
+            if abs(wrap(heading - progress[0])) >= TURN_PROGRESS_DEG:
+                progress[:] = [heading, self.clock()]
+            elif self.clock() - progress[1] > TURN_STALL_S:
+                return 'turn_stalled'
+            return None
         status, reason, _ = self._finite({'cmd': 'turn', 'deg': round(command, 1), 'rate': rate},
-                                         max(8., abs(allowed)/rate + 8.), cancel)
+                                         max(8., abs(allowed)/rate + 8.), cancel, guard=stalled)
         row.update(commanded_deg=round(allowed, 1), status=status, reason=note if status == 'completed' else reason)
         measured = odom = None
-        if status == 'completed' and verify and before is not None and abs(allowed) <= 170:
+        held = status in {'blocked', 'aborted'}
+        if (status == 'completed' and verify or held) and before is not None and abs(allowed) <= 170:
             self._sleep(.4, cancel)
             after = self._telemetry()
             measured = wrap(self._heading(after) - before) if self._heading(after) is not None else None
@@ -843,7 +891,162 @@ class DriveBase:
         row['odometry_deg'] = round(odom, 1) if odom is not None else None
         # Report the controller's closed-loop turn unless both sensors agree otherwise.
         agreed = measured is not None and odom is not None and abs(measured - odom) <= 5
-        row['turned_deg'] = abs(measured if agreed else allowed if status == 'completed' else 0.)
+        row['turned_deg'] = abs(measured if agreed or held and measured is not None
+                                else allowed if status == 'completed' else 0.)
+        if status != 'completed':
+            row['clearance_m'] = self._room_row(space)
+        self._step_trace(row, space)
+        if not (held and escape):
+            return row
+        # Stuck part-way: what is left of the turn, banked forward if the floor ahead is open.
+        rest = allowed - (measured if measured is not None else 0.)
+        if abs(rest) < MIN_TURN:
+            return row
+        stuck = {k: row[k] for k in ('status', 'reason', 'turned_deg', 'clearance_m')}
+        if self._bank_room(self.space(), rest):
+            banked = self._banked(rest, plan, cancel, {'action': 'turn', 'requested_deg': round(rest, 1)}, 'spin_stalled')
+            if banked is not None:
+                return {**banked, 'requested_deg': round(degrees, 1), 'stalled_spin': stuck,
+                        'turned_deg': round(row['turned_deg'] + banked.get('turned_deg', 0.), 1)}
+        moved = self._escape_for_turn(rest, plan, cancel)
+        if moved is None or moved['status'] != 'completed':
+            return row
+        self._turn_moved += abs(moved.get('travelled_m', 0.))
+        retry = self._turn(rest, plan, cancel, verify, escape=False)
+        return {**retry, 'requested_deg': round(degrees, 1), 'stalled_spin': stuck, 'escape': moved,
+                'travelled_m': moved.get('travelled_m', 0.),
+                'turned_deg': round(row['turned_deg'] + retry.get('turned_deg', 0.), 1)}
+
+    @staticmethod
+    def _bank_hold(space, sign, tof=None):
+        """Why a bank may not start or go on: the way ahead or the front corner on the turning
+        side closing, or the side it turns toward about to touch."""
+        centre = space.get('path_center_m')
+        if centre is None or 'front_depth_matrix_unavailable' in space['health']:
+            return 'front_clearance_unknown'
+        if centre - FRONT_MARGIN < .05:
+            return 'path_blocked'
+        key = 'left' if sign > 0 else 'right'
+        corners = [v for v in (space.get('front_radial_' + key + '_m'), space.get('front_band_' + key + '_m')) if v is not None]
+        if corners and min(corners) < BANK_CORNER_M:
+            return 'turn_side_blocked_' + key
+        near = (tof or {}).get('lf' if sign > 0 else 'rf')
+        if isinstance(near, (int, float)) and 0 <= near < SCRAPE_M * 1000:
+            return 'wall_too_close_' + key
+        return None
+
+    def _bank_room(self, space, degrees):
+        """Open floor ahead for a bank toward degrees: the way ahead well past the stand-off."""
+        sign = 1. if degrees > 0 else -1.
+        if self._bank_hold(space, sign, (self.link.snapshot()[0] or {}).get('tof_mm')):
+            return False
+        sides = [space.get('path_center_m'), space.get('path_left_m' if sign > 0 else 'path_right_m')]
+        return all(v is not None for v in sides) and min(sides) - FRONT_MARGIN >= BANK_ROOM_M
+
+    def _banked(self, degrees, plan, cancel, row, why):
+        """A bank, then any rest of the turn as a checked spin once clear of what was behind.
+        None when there is no heading to steer the bank by (the caller spins as before)."""
+        bank = self._bank(degrees, plan, cancel, {**row, 'banked': why})
+        if bank is None:
+            return None
+        self._turn_moved += bank.get('travelled_m', 0.)
+        if bank['status'] != 'completed' and bank['reason'] != 'bank_distance_limit':
+            return bank
+        rest = math.copysign(max(0., abs(degrees) - bank['turned_deg']), degrees)
+        if abs(rest) < MIN_TURN:
+            return {**bank, 'status': 'completed', 'reason': None}
+        spin = self._turn(rest, plan, cancel, escape=False)
+        return {**bank, 'status': spin['status'], 'reason': spin.get('reason'), 'finished_with_spin': spin,
+                'turned_deg': round(bank['turned_deg'] + spin.get('turned_deg', 0.), 1)}
+
+    def _bank(self, degrees, plan, cancel, row):
+        """Drive forward while turning: an arc instead of a spin on the spot.
+
+        Nearly straight for the first ten centimetres to roll off what is behind, then a
+        0.3 m radius curve, easing off as the heading closes in, steered by the IMU heading.
+        The front sensors and the turning side watch the floor it sweeps; it stops on a
+        return there, the firmware's block, no headway for TURN_STALL_S or BANK_MAX_M."""
+        start = self._telemetry()
+        if self._heading(start) is None:
+            return None
+        self._ensure_parked(cancel)
+        start = self._telemetry()
+        last = self._heading(start)
+        start_odom = dict(start.get('odom') or {})
+        sign = 1. if degrees > 0 else -1.
+        speed = min(BANK_SPEED, LIMITS[plan.origin]['speed_mps'] * self._pace)
+        full = speed / BANK_RADIUS_M
+        space = self.space()
+        row = {**row, 'commanded_deg': round(degrees, 1), 'clearance_m': self._room_row(space)}
+        def travelled_from(odom):
+            return math.hypot(float(odom.get('x', 0)) - float(start_odom.get('x', 0)),
+                              float(odom.get('y', 0)) - float(start_odom.get('y', 0)))
+        status, reason = 'completed', None
+        turned = travelled = 0.
+        mark, progressed_at = (0., 0.), self.clock()
+        if self.sounds:
+            self.sounds.start('turn', self._origin)
+        try:
+            seq = self.link.send({'cmd': 'drive', 'lin': round(speed, 3), 'ang': round(sign * BANK_LEAD_ANG, 3)})
+            ack = self._await_ack(seq, .5, self.wait)
+            if ack is not None and not ack.get('accepted'):
+                return {**row, 'status': 'refused', 'reason': 'controller_refused_' + str(ack.get('reason')),
+                        'turned_deg': 0., 'travelled_m': 0.}
+            while True:
+                self._check(cancel)
+                if self.link.failure:
+                    raise ProviderFailure(self.link.failure)
+                telemetry, _ = self.link.snapshot()
+                if not telemetry or not 0 <= self.clock() - telemetry['received_at'] <= .5:
+                    status, reason = 'blocked', 'drive_telemetry_stale'
+                    break
+                self._track(telemetry)
+                heading = self._heading(telemetry)
+                if heading is not None:
+                    turned += sign * wrap(heading - last)
+                    last = heading
+                travelled = travelled_from(telemetry.get('odom') or {})
+                remaining = abs(degrees) - turned
+                if remaining <= BANK_DONE_DEG:
+                    break
+                if travelled >= BANK_MAX_M:
+                    status, reason = 'blocked', 'bank_distance_limit'
+                    break
+                if turned - mark[0] >= TURN_PROGRESS_DEG or travelled - mark[1] >= .01:
+                    mark, progressed_at = (turned, travelled), self.clock()
+                elif self.clock() - progressed_at > TURN_STALL_S:
+                    status, reason = 'blocked', 'no_progress'
+                    break
+                if telemetry.get('blocked_dir') in ('front', 'both'):
+                    status, reason = 'blocked', 'blocked'
+                    break
+                space = self.space()
+                why = self._bank_hold(space, sign, telemetry.get('tof_mm'))
+                if why:
+                    status, reason = 'blocked', why
+                    row['stopped_by'], row['clearance_m'] = why, self._room_row(space)
+                    break
+                ang = BANK_LEAD_ANG if travelled < BANK_LEAD_M else min(full, max(BANK_MIN_ANG, 2. * math.radians(remaining)))
+                self.link.send({'cmd': 'drive', 'lin': round(speed, 3), 'ang': round(sign * ang, 3)})
+                self.wait(CRAWL_TICK_S)
+        finally:
+            try:
+                self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
+                self.link.send({'cmd': 'stop'})
+            except ProviderFailure:
+                pass
+            if self.sounds:
+                self.sounds.stop()
+        self._view_since = self.clock() + .3
+        self._sleep(.3, cancel)   # Let the base settle before heading and odometry are read.
+        self._track()
+        after = self.link.snapshot()[0] or {}
+        heading = self._heading(after) if after else None
+        if heading is not None:
+            turned += sign * wrap(heading - last)
+        travelled = max(travelled, travelled_from(after.get('odom') or {}))
+        row.update(status=status, reason=reason, measured_deg=round(sign * turned, 1),
+                   turned_deg=round(max(0., turned), 1), travelled_m=round(travelled, 2))
         self._step_trace(row)
         return row
 
@@ -861,13 +1064,15 @@ class DriveBase:
                 'front_radial_right_m', 'left_m', 'right_m', 'rear_m')
         return {k: (round(space[k], 2) if isinstance(space.get(k), float) else space.get(k)) for k in keys}
 
-    def _step_trace(self, row):
+    def _step_trace(self, row, space=None):
         """Every turn and move with where it left him: October 3, a trip turned 657 degrees
-        and the log held only the total."""
+        and the log held only the total. space: the clearance it started from, for the log
+        only (October 12: a turn caught a bookshelf and nothing said what the sensors saw)."""
         if self.trace:
             telemetry, _ = self.link.snapshot()
             heading = self._heading(telemetry) if telemetry else None
-            self.trace.emit('drive_step', **{k: v for k, v in row.items() if k != 'legs'},
+            extra = {'clearance_m': self._room_row(space)} if space is not None and 'clearance_m' not in row else {}
+            self.trace.emit('drive_step', **{k: v for k, v in row.items() if k != 'legs'}, **extra,
                             heading_deg=round(heading, 1) if heading is not None else None,
                             at_m=[round(v, 2) for v in self._at])
 
@@ -1229,7 +1434,7 @@ class DriveBase:
             return None, 0., 'target_not_currently_detected'
         turned = 0.
         if abs(predicted) > 10:
-            turn = self._turn(max(-180., min(180., predicted)), plan, cancel)
+            turn = self._turn(max(-180., min(180., predicted)), plan, cancel, bank=step.action == 'approach')
             turned = turn.get('turned_deg', 0.)
             if turn['status'] != 'completed':
                 return None, turned, 'turn_toward_target_' + turn['status']
@@ -1245,7 +1450,7 @@ class DriveBase:
             bearing = wrap(target['bearing_deg'])
             if abs(bearing) <= 10:
                 break
-            turn = self._turn(max(-180., min(180., bearing)), plan, cancel)
+            turn = self._turn(max(-180., min(180., bearing)), plan, cancel, bank=step.action == 'approach')
             turned += turn.get('turned_deg', 0.)
             if turn['status'] != 'completed':
                 return {**row, **{k: v for k, v in turn.items() if k != 'action'}, 'turned_deg': turned}
@@ -1306,7 +1511,7 @@ class DriveBase:
         if target is None:
             return {**row, 'status': 'lost', 'reason': 'target_not_redetected', 'travelled_m': round(travelled, 2), 'turned_deg': turned}
         if abs(target['bearing_deg']) > 12:
-            facing = self._turn(max(-180., min(180., target['bearing_deg'])), plan, cancel)
+            facing = self._turn(max(-180., min(180., target['bearing_deg'])), plan, cancel, bank=True)
             turned += facing.get('turned_deg', 0.)
             if facing['status'] != 'completed':
                 return {**row, **{k: v for k, v in facing.items() if k not in {'action'}}, 'travelled_m': 0., 'turned_deg': turned}
@@ -2124,6 +2329,7 @@ class DriveBase:
                 self._check(cancel)
                 current, step_odom = step, (self.link.snapshot()[0] or {}).get('odom') or {}
                 self._pace = PACE.get(step.pace, 1.)
+                self._turn_moved = 0.
                 ok, reason = self.availability()
                 if not ok:
                     receipt.steps.append({'action': step.action, 'status': 'refused', 'reason': reason})
@@ -2143,6 +2349,9 @@ class DriveBase:
                     row = self._seek(step, plan, cancel)
                 else:
                     row = self._find_person(step, plan, cancel)
+                if step.action != 'turn' and self._turn_moved:
+                    # Banks and back-ups inside this step's turns moved him too.
+                    row = {**row, 'travelled_m': round(row.get('travelled_m', 0.) + self._turn_moved, 2)}
                 receipt.steps.append(row)
                 if self.sounds and step.action == 'approach' and row['status'] == 'completed' and row.get('travelled_m'):
                     self.sounds.accent('arrived', plan.origin)

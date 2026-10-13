@@ -39,6 +39,7 @@ class FakeBase:
         self.turn_scale = 1.
         self.turn_coast = .11               # Seconds the base keeps turning after the firmware ends a turn.
         self.block_after = None
+        self.stuck_turns = None             # Seconds a caught spin pushes before the firmware aborts it.
         self.owner, self.state, self.charging, self.fault = 'auto', 'idle', False, None
         self.batt_mv = 12800
         self.tof = {'fl': 3000, 'fr': 3000, 'fl_radial': 3000, 'fr_radial': 3000, 'rl': 2000, 'rr': 2000,
@@ -112,7 +113,8 @@ class FakeBase:
     def _finish(self, result, fraction=1.):
         seq, kind, amount = self.pending[:3]
         if kind == 'turn':
-            self.theta += amount * fraction * self.turn_scale
+            if not self.stuck_turns:
+                self.theta += amount * (fraction - self.rolled) * self.turn_scale
             # The real base coasts about 0.11 s past the end of a turn (October logs: 12
             # commanded became 16, 90 became 94-100). Only a full, unstopped turn coasts.
             duration = self.pending[4]
@@ -192,6 +194,16 @@ class FakeBase:
         if not self.pending:
             return
         seq, kind, amount, started, duration = self.pending
+        if kind == 'turn' and self.stuck_turns:
+            # Caught on something: no headway, until the firmware gives up (October 12: 9 s).
+            if self.clock() - started >= self.stuck_turns:
+                self._finish('aborted', 0.)
+            return
+        if kind == 'turn':
+            # The IMU sees a spin as it happens, not only when it ends.
+            progress = self._progress()
+            self.theta += amount * (progress - self.rolled) * self.turn_scale
+            self.rolled = progress
         if kind == 'move':
             # Rolled as it goes, steered by the firmware's wall assist like the real base.
             progress = self._progress()
@@ -395,6 +407,7 @@ class DriveOwnerTests(unittest.TestCase):
     def test_blocked_turn_backs_up_to_earn_room_then_turns(self):
         self.start()
         self.fake.tof['lb'] = 100
+        self.world.objects.append(('wall', 'wall', .7, 0.))   # No open floor ahead to bank into.
         original = self.fake.handle
         def handle(command):
             if command['cmd'] == 'move':
@@ -406,6 +419,77 @@ class DriveOwnerTests(unittest.TestCase):
         self.assertEqual(receipt.status, 'completed')
         self.assertLess(receipt.steps[0]['escape']['commanded_m'], 0)
         self.assertEqual([c['cmd'] for c in self.fake.commands if c['cmd'] in {'move', 'turn'}], ['move', 'turn'])
+
+    def test_approach_banks_forward_off_a_bookshelf_behind_instead_of_spinning(self):
+        # October 12: back to a pass-through bookshelf, "come here" spun him into it. The rear
+        # sensors read the wall past the shelf; the floor ahead was open.
+        self.start()
+        self.fake.tof.update(rl=550, rr=550)
+        bearing = math.radians(40)
+        self.world.people.append(('face-1', 'person-1', 2.5*math.cos(bearing), 2.5*math.sin(bearing)))
+        settle()
+        targets = {'face-1': {'target_id': 'face-1', 'kind': 'face', 'person_id': 'person-1'}}
+        trace = []
+        self.drive.trace = type('Trace', (), {'emit': lambda _, event, **row: trace.append(row)})()
+        receipt = self.drive.execute(plan(DriveStep('approach', target='face-1'), targets=targets), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        wheels = [c for c in self.fake.commands if c['cmd'] in {'turn', 'move', 'drive'} and (c.get('lin') or c['cmd'] != 'drive')]
+        self.assertEqual(wheels[0]['cmd'], 'drive')            # Rolled forward first, no spin on the spot.
+        self.assertFalse(any(c['cmd'] == 'turn' for c in self.fake.commands))
+        self.assertFalse(any(c['cmd'] == 'drive' and c['lin'] < 0 for c in self.fake.commands))
+        bank = next(row for row in trace if row.get('banked'))
+        self.assertEqual(bank['banked'], 'something_close_behind')
+        self.assertEqual(bank['status'], 'completed')
+        self.assertGreater(bank['turned_deg'], 30.)
+        self.assertLess(bank['travelled_m'], .5)
+        self.assertEqual(bank['clearance_m']['rear_m'], .55)   # What the sensors saw is in the log.
+        self.assertGreaterEqual(receipt.travelled_m, bank['travelled_m'])
+        distance = math.hypot(2.5*math.cos(bearing) - self.fake.x, 2.5*math.sin(bearing) - self.fake.y)
+        self.assertLess(distance, 1.35)
+
+    def test_a_turn_with_open_space_behind_still_spins_on_the_spot(self):
+        self.start()
+        bearing = math.radians(40)
+        self.world.people.append(('face-1', 'person-1', 2.5*math.cos(bearing), 2.5*math.sin(bearing)))
+        settle()
+        targets = {'face-1': {'target_id': 'face-1', 'kind': 'face', 'person_id': 'person-1'}}
+        receipt = self.drive.execute(plan(DriveStep('approach', target='face-1'), targets=targets), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertEqual(next(c for c in self.fake.commands if c['cmd'] in {'turn', 'move', 'drive'})['cmd'], 'turn')
+
+    def test_a_spin_caught_on_something_stops_within_two_seconds_and_banks_the_rest(self):
+        self.start()
+        self.fake.stuck_turns = 9.   # The firmware would push this long before aborting.
+        sent = {}
+        original = self.fake.handle
+        def handle(command):
+            sent.setdefault(command['cmd'], self.clock())
+            if command['cmd'] == 'drive' and command['lin'] > 0:
+                self.fake.stuck_turns = None   # Rolling forward frees him.
+            original(command)
+        self.fake.handle = handle
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=90.)), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertLess(sent['stop'] - sent['turn'], 2.6)
+        step = receipt.steps[0]
+        self.assertEqual(step['stalled_spin']['reason'], 'turn_stalled')
+        self.assertEqual(step['banked'], 'spin_stalled')
+        self.assertAlmostEqual(self.fake.theta, 90., delta=8.)
+        self.assertGreater(receipt.travelled_m, 0.)
+
+    def test_a_caught_spin_with_no_room_ahead_backs_up_once_then_reports_it(self):
+        self.start()
+        self.fake.stuck_turns = 9.
+        self.world.objects.append(('wall', 'wall', .7, 0.))
+        settle()
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=90.)), Cancellation())
+        self.assertEqual(receipt.status, 'partial', receipt)   # Backed up, but the turn never came free.
+        step = receipt.steps[0]
+        self.assertEqual(step['status'], 'blocked')
+        self.assertEqual(step['reason'], 'turn_stalled')
+        self.assertLess(step['escape']['commanded_m'], 0)
+        self.assertEqual([c['cmd'] for c in self.fake.commands if c['cmd'] in {'move', 'turn', 'drive'}],
+                         ['turn', 'move', 'turn'])
 
     def test_imu_drift_without_odometry_agreement_is_not_corrected(self):
         self.start()

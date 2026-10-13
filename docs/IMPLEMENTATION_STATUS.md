@@ -822,3 +822,9 @@ four flags and hashes/version verified. 26 isolated native regressions pass;
 zone CLEAR, radial remains disabled, Bluepad32 ready. Battery menu restored.
 No drive/gamepad interaction test; floor-range low objects remain indistinguishable
 in those two rows. [Evidence](DRIVE_BASE_INTEGRATION.md#matrix-floor-calibration--october-10-2026).
+
+October 12 bookshelf turn repair: an approach turn with something close behind now banks
+forward instead of spinning. A spin making no headway for 2 s is stopped, and a refused or
+stalled spin banks before it backs up or gives up. Turn traces now carry clearance.
+1117 blocked-I/O checks pass, on a simulated base only; the live retry from the bookshelf
+spot is pending. [Evidence](DRIVE_BASE_INTEGRATION.md#october-12-evening-a-spin-into-the-bookshelf-behind-him).

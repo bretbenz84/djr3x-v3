@@ -1023,6 +1023,47 @@ scatter routinely, or whether those zones were a real edge, needs the next run's
 `clearance_m` rows.
 
 
+## October 12 evening: a spin into the bookshelf behind him
+
+Run `44a125be599946d2b7cd31b246292b57` (real hardware). Rex sat with his back to a
+pass-through bookshelf on short legs, about 25 cm in front of a wall. "Can you come here,
+please?" asked for a 72 degree left turn toward the owner. The swing check passed (the rear
+sensors most likely read past the shelf to the wall), the body caught the shelf, and the
+wheels pushed for about nine seconds until the firmware returned `aborted`. Nothing
+recovered from a stalled spin, so he reported "aborted before I turned or moved" and stopped.
+His own approach 30 s earlier had failed the same way. "Move forward three feet" then
+completed 0.91 m: the floor ahead had been open throughout. The turn trace held no
+clearance, so the rear readings at the time are not known.
+
+Owner direction: driving forward and banking would have been fine. Changes:
+
+- **Banked turns.** A turn toward someone he is approaching (30 degrees or more) drives
+  forward round a curve instead of spinning when anything is within 0.8 m behind, or there
+  is no rear reading, and the floor ahead is open (0.3 m past the front stand-off). He rolls
+  10 cm nearly straight, then follows a 0.3 m radius (wider than half the body, so no corner
+  swings backward) steered by the IMU heading, easing off near the end. The front sensors and
+  the turning side's front corner and side sensor can stop it. After 0.6 m, any remaining
+  turn is a spin with the usual swing check. A 72 degree bank covers about 0.45 m in
+  simulation. Plain "turn" requests and "face me" still spin unless the spin fails.
+- **Stall detection.** A spin whose IMU heading moves less than 3 degrees in 2 s is
+  stopped as `turn_stalled` (owner chose 2 s over 1.5 s). The firmware's own abort
+  took about nine seconds.
+- **Recovery.** A spin that is refused by the swing check, stalls or is aborted banks the
+  rest of the turn when the floor ahead is open. Otherwise he backs up within rear room and
+  spins once more, then reports what stopped him. Before this change a refused spin backed
+  up first, and a stalled one gave up.
+- **Logging.** Every spin's `drive_step` trace carries the clearance it started from, and
+  failed turns keep it in the receipt. Distance covered by banks and back-ups inside a step
+  counts toward that step's `travelled_m`.
+
+Checks: simulated base only. Covered: an approach with something close behind banks and
+never spins or reverses; one with open space behind still spins; a caught spin is stopped
+inside 2.6 s and banked to about 90 degrees; a caught spin with a wall ahead backs up,
+retries once and reports `turn_stalled`. The simulated base now turns gradually so the IMU
+sees a spin in progress. Not yet verified on the robot: the bank from the same bookshelf
+spot, whether a 0.15 m/s, 0.5 rad/s arc moves smoothly on that floor, whether the firmware's
+wall steering fights the bank, and whether 2 s ever cuts short a slow turn on carpet.
+
 ## Front-right radial firmware disable — October 10, 2026
 
 Owner-authorized firmware `0.2.7-fr-disabled` disables the faulty VL53L1X on
