@@ -66,13 +66,39 @@ class IdleTests(unittest.TestCase):
         sent=[]
         self.port.on_target=lambda:sent.append((self.clock(),self.commands()[-1][0]))
         began=self.clock()
-        self.assertEqual(self.execute('idle',IdlePhrase((('wrist',0.),('poker',1.),('elbow',2.2)))).status,'pulses_reached')
+        self.assertEqual(self.execute('idle',IdlePhrase((('hero',0.),('poker',1.),('visor',2.2)))).status,'pulses_reached')
         first={}
         for at,ch in sent:first.setdefault(ch,at-began)
-        self.assertEqual(set(first),{5,6,12,13,4})   # The poker part is the arm swing plus its elbow and wrist.
-        self.assertLess(first[5],.1)
+        self.assertEqual(set(first),{4,5,6,12,13,3})
+        self.assertLess(first[4],.1)
         self.assertGreaterEqual(first[6],1.)
-        self.assertGreaterEqual(first[4],2.2)
+        self.assertGreaterEqual(first[3],2.2)
+        # Within one arm every joint starts at the same moment.
+        self.assertEqual(first[4],first[5])
+        self.assertEqual(first[6],first[12]);self.assertEqual(first[6],first[13])
+
+    def test_an_arm_moves_all_its_joints_together(self):
+        # Owner, October 12: the arm joints moved one at a time; a real arm moves several
+        # joints at once. Each arm's joints now start together, move a little each, and are
+        # paced to arrive together.
+        self.execute('startup');self.clock.wait(.6)
+        for seed in range(12):
+            self.owner.rng=random.Random(seed)
+            for part,joints in (('hero',(4,5)),('poker',(6,12,13)),('throttle',(8,9,10))):
+                before={ch:self.port.pose[ch] for ch in joints}
+                self.port.packets.clear()
+                sent={}
+                self.port.on_target=lambda:[sent.setdefault(ch,self.clock()) for ch,_ in self.commands()]
+                self.assertEqual(self.execute('idle',IdlePhrase(((part,0.),))).status,'pulses_reached')
+                self.assertEqual(len({sent[ch] for ch in joints}),1,(part,sent))
+                self.assertTrue(all(abs(self.port.pose[ch]-before[ch])>2 for ch in joints),(part,seed))
+                if part!='throttle':
+                    profiles,aims={},{}
+                    for p in reversed(self.port.packets):   # The first beat: first speed and target per joint.
+                        if p[0]==0x87:profiles[p[1]]=p[2]+128*p[3]
+                    for ch,value in reversed(self.commands()):aims[ch]=value
+                    times=[abs(aims[ch]-before[ch])/(100*profiles[ch]) for ch in joints]
+                    self.assertLess(max(times)-min(times),.8,(part,seed,times))
 
     def test_small_head_moves_keep_the_camera_view_and_large_ones_reframe_it(self):
         self.execute('startup')
@@ -94,12 +120,12 @@ class IdleTests(unittest.TestCase):
         self.execute('startup');self.clock.wait(.6)
         self.owner.refresh_microphone_hold();self.clock.wait(1.5)
         hold=self.owner.microphone_hold
-        self.execute('idle',IdlePhrase((('head',0.),('wrist',.3),('throttle',.6))))
+        self.execute('idle',IdlePhrase((('head',0.),('hero',.3),('throttle',.6))))
         self.assertEqual(self.owner.microphone_hold,hold)
         self.assertTrue(self.owner.microphone_held_during(self.clock(),self.clock()))
         self.clock.wait(31.);self.owner.refresh_microphone_hold()      # Renewed without moving anything.
         self.assertTrue(self.owner.microphone_held_during(self.clock(),self.clock()+1))
-        self.execute('idle',IdlePhrase((('hero',0.),)))
+        self.execute('idle',IdlePhrase((('hero',0.),),swing=True))
         self.assertEqual(self.owner.microphone_hold,(0.,0.))
 
     def test_idle_invalidates_hold_and_reacquisition_waits_for_settling(self):
@@ -141,7 +167,7 @@ class IdleTests(unittest.TestCase):
         self.assertGreater(len(phrases),30)       # Was 15 moves in ten minutes of the October 3 run.
         gaps=[b[0]-a[0] for a,b in zip(phrases,phrases[1:])]
         self.assertLess(max(gaps),8.)             # Never "motionless for a while".
-        parts={0:'head',1:'head',2:'head',11:'head',3:'visor',4:'elbow',5:'wrist',6:'poker',12:'poker',13:'poker',7:'hero',8:'throttle',9:'throttle',10:'throttle'}
+        parts={0:'head',1:'head',2:'head',11:'head',3:'visor',4:'hero',5:'hero',6:'poker',12:'poker',13:'poker',7:'hero',8:'throttle',9:'throttle',10:'throttle'}
         for _,channels in phrases:
             self.assertLessEqual(len({parts[ch] for ch in channels}),3)   # Never every servo at once.
         moved=set().union(*(channels for _,channels in phrases))

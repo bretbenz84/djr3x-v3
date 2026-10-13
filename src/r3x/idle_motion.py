@@ -28,10 +28,13 @@ from .servo_poses import (DRIVE_HEAD, HEAD, HEAD_SMALL, IDLE_CHANNELS, LOOK_NECK
                           head_pulses, pitch_from_degrees)
 from .servos import ServoRequest
 
-# Seconds between one part's moves. The head moves most; the array arm least, because
-# each of its swings invalidates the microphone bearing and the voice-learning hold.
-PART_SECONDS = {'head': (1.2, 2.8), 'visor': (6., 14.), 'elbow': (5., 12.), 'wrist': (4., 10.),
-                'poker': (6., 15.), 'throttle': (9., 20.), 'hero': (30., 60.)}
+# Seconds between one part's moves. An arm moves all of its joints together (owner,
+# October 12), so each arm is one part.
+PART_SECONDS = {'head': (1.2, 2.8), 'visor': (6., 14.), 'hero': (5., 12.), 'poker': (6., 15.),
+                'throttle': (9., 20.)}
+# The hero arm's shoulder joins its move at most this often: it carries the microphone
+# array, and each swing invalidates the bearing and the voice-learning hold.
+SWING_SECONDS = (30., 60.)
 PHRASE_PARTS = 3
 DIRECTION_SECONDS = 30.      # A model-chosen look lasts this long unless changed sooner.
 POSE_REST_SECONDS = 8.       # Rex's own arm pose (a reach, a visor move) stays put this long.
@@ -57,6 +60,7 @@ class IdleMotion:
         self._resume = float('inf')
         self._index = 0
         self._due = {}
+        self._swing_at = None      # When the hero arm's next move may include the array shoulder.
         self._rest = {}            # part -> time until which Rex's own pose is left alone
         self.gaze = 'people'
         self._anchor = None        # Head pulses of a model-chosen look.
@@ -189,14 +193,19 @@ class IdleMotion:
         for part, span in PART_SECONDS.items():
             # First times are spread out so startup is not one synchronized move.
             self._due.setdefault(part, now + self.rng.uniform(0., span[1] if part != 'head' else .5))
+        if self._swing_at is None:
+            self._swing_at = now + self.rng.uniform(0., SWING_SECONDS[1])
         due = sorted((at, part) for part, at in self._due.items()
                      if at <= now and now >= self._rest.get(part, float('-inf'))
-                     and not held.intersection(IDLE_CHANNELS[part])
-                     and not (part == 'hero' and (calm or getattr(self.owner, 'hold_until_released', False))))
-        # The array stays put while Rex listens or works, and while a person has told him to keep his arms still.
+                     and not held.intersection(IDLE_CHANNELS[part]))
         if not due:
             return None
         chosen = [part for _, part in due[:PHRASE_PARTS]]
+        # The array stays put while Rex listens or works, and while a person has told him to keep his arms still.
+        swing = ('hero' in chosen and now >= self._swing_at and not calm
+                 and not getattr(self.owner, 'hold_until_released', False))
+        if swing:
+            self._swing_at = now + self.rng.uniform(*SWING_SECONDS)
         if 'head' in chosen:
             chosen.insert(0, chosen.pop(chosen.index('head')))   # The gaze answers first.
         wait, parts = 0., []
@@ -205,7 +214,7 @@ class IdleMotion:
             wait += self.rng.uniform(.4, 1.3)
             self._due[part] = now + self.rng.uniform(*PART_SECONDS[part])
         head, speed, dwell = self._head(now, calm) if 'head' in chosen else ((), 9, 0.)
-        return IdlePhrase(tuple(parts), tuple((ch, round(value)) for ch, value in head), speed, dwell)
+        return IdlePhrase(tuple(parts), tuple((ch, round(value)) for ch, value in head), speed, dwell, swing)
 
     # Scheduling -----------------------------------------------------------
     def _stop(self):
@@ -243,7 +252,7 @@ class IdleMotion:
             if self.closed: return
             now = self.owner.clock()
             self._wake_at, self._wake_until, self._resume, self._allowed = now + delay, now + delay + seconds, now + delay, True
-            for part in ('head', 'visor', 'elbow', 'wrist', 'poker'):
+            for part in ('head', 'visor', 'hero', 'poker'):
                 self._due[part] = now + delay
             self._rest.clear()
             self._scan_at = now + delay  # With nobody in view he looks around at once.

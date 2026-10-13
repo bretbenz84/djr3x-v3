@@ -716,8 +716,9 @@ class IdleHeadTests(unittest.TestCase):
         current = {ch: (low + high)//2 for ch, (low, high) in LIMITS.items()}
         current.update({8: 4200, 9: 7720, 10: 5120})
         driving = idle_lanes(current, random.Random(4), held=frozenset({0, 1, 2, 4, 6, 8, 9, 10}),
-                             phrase=IdlePhrase((('head', 0.), ('wrist', 0.), ('poker', 0.)), ((0, 4000),)))
-        self.assertEqual([{ch for ch, _ in lane[0].targets} for lane in driving], [{5}])
+                             phrase=IdlePhrase((('head', 0.), ('hero', 0.), ('poker', 0.)), ((0, 4000),)))
+        # The hero elbow is held for the drive, so its arm stays still as a whole: no lone wrist.
+        self.assertEqual(driving, ())
 
 
 class PlanValidationRepairTests(unittest.TestCase):

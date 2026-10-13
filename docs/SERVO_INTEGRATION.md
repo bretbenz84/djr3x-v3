@@ -6,6 +6,28 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 12: idle arms move as a whole
+
+Owner: in idle life the arm joints moved one at a time, while a real arm moves several joints
+at once; two arms moving together is fine, but an arm that moves should move all its joints a
+little. Idle life (`idle_motion.py`, `servo_poses.idle_lanes`) now treats each arm as one part:
+
+- *Hero arm* (every 5-12 s): elbow and wrist move together, every time. Its shoulder carries
+  the microphone array and each swing pauses voice learning, so it still joins only every
+  30-60 s (`SWING_SECONDS`, not while he listens or works, nor while a person holds his arms);
+  then the whole arm reaches out, pauses and comes back with the array at centre.
+- *Poker arm* (6-15 s): swing, elbow and wrist in one move. Inside its idle range the elbow
+  never nears its clearance ceiling, so the staged one-joint-at-a-time route is used only
+  when an arm starts outside that range.
+- *Throttle arm*: already moved its three joints together; unchanged.
+
+Within an arm all joints start at the same moment and are paced to arrive together (new
+`Beat.seconds`). Board speeds are whole numbers, so each joint's travel is adjusted slightly to
+a whole speed over the beat's time; over 400 random moves every joint moved at least 40 µs and
+all finished within 0.01 s of each other. Moves take 1.6-3.2 s at board speed 7 or less. A
+held elbow or wrist now keeps that whole arm still (no lone wrist wiggle). 1,110 blocked-I/O
+checks pass (synthetic, simulated servo board); how it looks and sounds on the robot is unseen.
+
 ## October 11: the listening cue (head cock while he thinks)
 
 Owner: show that Rex heard you during the wait before his answer, with a head cock at the end
