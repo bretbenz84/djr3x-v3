@@ -51,6 +51,24 @@ class RobotCameraTests(unittest.TestCase):
         self.assertEqual(resumed.kwargs['skipped_duplicates'],2)
         self.assertEqual(camera.failure,'CameraStreamEnded')
 
+    def test_forget_during_profile_read_discards_that_frame(self):
+        # Profiles are read outside the camera lock (October 12 freeze); a forget that
+        # clears faces meanwhile must not let the old profiles recognize anyone.
+        import time
+        from r3x.adapters.camera import Camera
+        from r3x.vision import Frame
+        camera = Camera('Fixture', Path('/fixture/models'))
+        camera.encoder = Mock(analyze=Mock(return_value=[([.2,.2,.3,.3], None)]))
+        camera.hub.take = Mock(side_effect=lambda *_: Frame('f','Fixture','s',time.monotonic(),2,2,bytes(12)))
+        def profiles():
+            camera.invalidate(); camera.stop.set()
+            return {'forgotten': [(1.,)]}
+        camera.profiles = profiles
+        camera.tracker.update = Mock()
+        camera._analyze()
+        camera.tracker.update.assert_not_called()
+        self.assertFalse(camera.ready.is_set())
+
     def test_invalid_modes_rejected_before_startup(self):
         for values in ({'camera_width':1921}, {'camera_height':0}, {'camera_width':True},
                        {'camera_framerate':float('nan')}, {'camera_framerate':0}):

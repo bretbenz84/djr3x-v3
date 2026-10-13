@@ -1,10 +1,22 @@
 # Current implementation status
 
-Updated October 11, 2026. This is the consolidated
+Updated October 12, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Mid-conversation freeze — October 12
+
+Session 566c9154 froze after "Talking.": Rex chose silence, and saving that choice checked
+the faces in view (the private-memory audience guard) inside the memory transaction while
+the face worker held the camera lock waiting to read face profiles from memory. Each waited
+for the other; the microphone loop and then shutdown waited on the conversation lock, so
+SIGTERM's stop reached shutdown but shutdown itself hung until SIGINT. The face worker now
+reads profiles outside the camera lock and discards that frame if a forget cleared faces
+meanwhile. The idle-arm change of that evening (8fcb11e) takes none of these locks and is
+not involved. A check through the production reply path reproduces the hang without the
+fix (synthetic; not yet run live). Shutdown still waits unboundedly on the conversation lock.
 
 ## Listening cue — October 11
 

@@ -114,8 +114,13 @@ class Camera:
                 began = time.monotonic()
                 if began-frame.at>.5: continue
                 detections = self.encoder.analyze(frame)
+                with self.lock: epoch = self.tracker.epoch
+                # Memory is read outside the camera lock. October 12: a reply holding the
+                # memory lock checked the faces in view while this worker held the camera
+                # lock waiting for memory, and Rex froze mid-conversation.
+                profiles = self.profiles()
                 with self.lock:
-                    profiles = self.profiles()
+                    if self.tracker.epoch != epoch: continue   # A forget cleared faces meanwhile.
                     rows = self.tracker.update([d[0] for d in detections],frame.at,[d[1] for d in detections],profiles)
                 self.ready.set()
                 if self.trace:

@@ -364,6 +364,51 @@ class ConversationMemoryTests(MemoryFixture):
         self.assertEqual(seen([face(100,self.person)]),self.person)
         self.assertEqual(unrecognized()[0],self.person)                             # Long alone again: the carry returns.
 
+    def test_face_analysis_never_freezes_a_reply_holding_private_memory(self):
+        # October 12 (566c9154): with the owner recognized and his memory in reach, Rex chose
+        # silence; saving that checked the faces in view inside the memory transaction while
+        # the face worker held the camera lock waiting for memory. Both waited forever, then
+        # the microphone loop and shutdown waited on the conversation lock.
+        import threading, time
+        from pathlib import Path
+        from unittest.mock import Mock
+        from r3x.adapters.camera import Camera
+        from r3x.vision import Frame
+        self.setup_memory(); self.turn(self.session('old'),'A private plan.')
+        now = self.state.trace.at
+        current = [face(now,self.person)]
+        camera = Camera('fixture',Path('/unused'))
+        camera.encoder = Mock(analyze=Mock(return_value=[]))
+        camera.tracker.history.append((now,tuple(current)))
+        camera.hub.take = Mock(side_effect=lambda *_: Frame(uuid4().hex,'fixture','new',time.monotonic(),2,2,bytes(12)))
+        reading = threading.Event()
+        def profiles():
+            reading.set()                      # Inside the worker, about to read memory.
+            try: return self.store.face_profiles('fixture')
+            finally: camera.stop.set()         # One frame is enough.
+        camera.profiles = profiles
+        analyzer = threading.Thread(target=camera._analyze,daemon=True)
+        def latest(at):
+            if self.store.lock._is_owned() and not analyzer.is_alive() and not camera.stop.is_set():
+                analyzer.start()               # The worker's next frame lands mid-transaction.
+                reading.wait(2)
+            return camera.latest(at)
+        silent = Brain(ToolCall('quiet','remain_silent',dict(reason='no_response_needed',
+            invitation_update=None,intent_update=None,next_opportunity=None)))
+        session = self.session('new',silent)
+        cap = Capture(uuid4().hex,'new',bytes(96000),96,99,100,voiced_intervals=((0.,3.),))
+        turn = threading.Thread(target=lambda: session.process_turn(cap,Transcript('Talking.',0,True),0,
+            observation(),tuple(current),latest_faces=latest),daemon=True)
+        turn.start(); turn.join(5); analyzer.join(5)
+        self.assertTrue(analyzer.ident, 'the face worker never ran inside the memory transaction')
+        if turn.is_alive():
+            self.store = Mock()   # The frozen reply keeps the memory lock; closing would hang too.
+            self.fail('reply froze: memory and camera locks taken in opposite orders')
+        self.assertFalse(analyzer.is_alive())
+        self.assertTrue(silent.snapshots[0].context['personal_memory'].get('recent_exchanges'))
+        self.assertTrue([r for r in self.state.trace.rows if r.get('event')=='tool_result'
+                         and r.get('name')=='remain_silent' and r.get('outcome')=='ok'])
+
     def test_withheld_reply_always_states_its_reason(self):
         self.setup_memory(); self.turn(self.session('old'),'A private project.')
         current=[face(100,self.person)]
