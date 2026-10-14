@@ -60,8 +60,9 @@ def plan_schema():
         'evidence_ids': refs,
         'steps': {'type': 'array', 'minItems': 1, 'maxItems': MAX_STEPS, 'items': obj({
             'kind': {'type': 'string', 'enum': list(STEP_KINDS)},
-            'instruction': text, 'evidence_ids': refs,
-            'delay_seconds': {'type': 'integer', 'minimum': 3, 'maximum': 45}})}})
+            'instruction': {'type': 'string', 'minLength': 1, 'maxLength': 240}, 'evidence_ids': refs,
+            'delay_seconds': {'type': 'integer', 'minimum': 3, 'maximum': 45},
+            'follows_previous': {'type': 'boolean'}})}})
 
 
 PLANNER_INSTRUCTIONS = """You are Rex's private planner. Choose ONE goal Rex will pursue on his own initiative and
@@ -141,8 +142,9 @@ WHAT MAKES IT GOOD
   hypotheticals and imagination are welcome; invented facts about people, ownership, past visits, things not
   seen or actions not taken are not. Rex's own earlier lines are not evidence: never build a beat on a thing he
   could not name or a remark the person said they did not understand.
-- Responsive. Read recent dialogue first: the conversation steers the goal. Build on what they just said, honor
-  rejections and topic closures, and never re-ask a question that was answered or left unanswered.
+- Responsive. Read recent dialogue first: the conversation steers the goal. The first beat builds on the LAST
+  thing the person said; never steer back to a topic they have moved on from, even one just saved as a memory or
+  fact. Honor rejections and topic closures, and never re-ask a question that was answered or left unanswered.
 - Varied. Read recent_goals. Do not repeat a goal kind, subject or premise that just ran or was rejected, do
   not return to a topic Rex's last two lines already covered, and do not stretch one joke across several
   beats: each beat brings something new.
@@ -158,11 +160,21 @@ BEATS (steps)
   approach an offered drive target, or, only when drive.vision_seek is true, seek a described thing and
   approach "sought"). Without a target or vision seek, a plain turn or move still counts: turn toward the
   thing, roll a little that way, and look.
-- Write each instruction as an intention for the performer ("Roll over to the painting on the left wall and
-  look at it closely"), not a polished line to recite. Put remembered facts the beat needs in its instruction
+- Write each instruction as a short direction, never the words: what the beat is for and its angle, in
+  under 25 words. The performer writes the line at the moment it runs, after whatever people have said by
+  then. No "say that ..." followed by a finished sentence, no quoted lines, no ready-made jokes or wording.
+  Bad: "Say that a successful nebula photo has earned at least one smug look at the screen before anyone is
+  allowed to call it merely cool." Good: "Admire how his nebula photo turned out, with a vain little tease."
+  Bad: "Say that the route correction was annoyingly effective and navigation is on probation." Good: "Make a
+  self-deprecating joke about needing his help to navigate." Moves can be concrete ("Roll over to the painting
+  on the left wall and look at it closely"). Put remembered facts the beat needs in its instruction
   (audience scope only). Say so when the beat is silent.
-- At most one question per beat, and never two question beats in a row: a question is followed by an opinion,
-  a tease, a story or an action. A later beat must still work whether or not they answered.
+- follows_previous is true when the beat only makes sense after the previous beat landed: it answers,
+  continues or pays off that beat's question, topic or setup. A beat that opens its own topic is false. If
+  the previous beat is never heard, a follow-up is dropped, so put anything a later beat relies on early.
+- At most ONE question beat per plan. Rex's replies already ask questions; a plan of questions turns a chat
+  into an interview. The other beats are opinions, teases, short stories, reactions and actions. A later beat
+  must still work whether or not they answered.
 - delay_seconds is breathing room after the beat finishes: usually 3-8, up to 15 after a question, 3-5 after
   a silent move. Keep things moving; long pauses read as a robot that switched off.
 
@@ -485,8 +497,11 @@ class AgencyPlan:
             if not isinstance(refs, list) or len(refs) > 8 or any(not isinstance(x, str) or x not in evidence for x in refs):
                 raise ValueError('AgencyEvidenceNotOffered')
         for step in steps:
-            if set(step) != {'kind', 'instruction', 'evidence_ids', 'delay_seconds'} or step['kind'] not in capabilities:
+            if not {'kind', 'instruction', 'evidence_ids', 'delay_seconds'} <= set(step) <= {
+                    'kind', 'instruction', 'evidence_ids', 'delay_seconds', 'follows_previous'} or step['kind'] not in capabilities:
                 raise ValueError('AgencyCapabilityUnavailable')
+            if type(step.get('follows_previous', False)) is not bool:
+                raise ValueError('InvalidAgencyStepLink')
             if not isinstance(step['instruction'], str) or not 0 < len(step['instruction']) <= 600:
                 raise ValueError('InvalidAgencyStepText')
             if type(step['delay_seconds']) is not int or not 3 <= step['delay_seconds'] <= 45:
@@ -546,13 +561,50 @@ class AgencyPlan:
     def step(self, now):
         if not self.applicable(now): return None
         record = self.record
+        if record.get('attempts') and self.speech_at > record.get('interrupted_at', float('inf')):
+            # October 13: the camping question, cut off by a request for an impression, came back
+            # after the impressions, and its follow-up after that. A beat a person talked over is
+            # retried only when no real turn came in between (a noise, a cough).
+            self._skip_current('overtaken_by_conversation', now)
+            if not self.applicable(now): return None
         return {'plan_id': record['id'], 'revision': self.revision, 'index': record['cursor'],
                 'scope': record['scope'], 'origin': record.get('origin', 'planner'),
                 'goal_kind': record['goal_kind'], 'subject': record['subject'],
                 'narrative': record['narrative'], 'objective': record['objective'],
                 'beats_left': len(record['steps']) - record['cursor'], 'attempt': record.get('attempts', 0) + 1,
                 'unanswered_lines': self.unanswered,
+                # October 13: beats planned before the latest exchange were recited regardless.
+                'people_spoke_since_planned': self.speech_at > record.get('created_at', float('-inf')),
                 **deepcopy(record['steps'][record['cursor']])}
+
+    def _drop_orphans(self):
+        """Skip the follow-ups of a beat that never landed (October 13: the camping question was
+        cut off twice, then "a proper forest trip is a strong argument..." ran out of nowhere)."""
+        record, orphans = self.record, []
+        while record['cursor'] < len(record['steps']) and record['steps'][record['cursor']].get('follows_previous'):
+            orphans.append({'step': record['cursor'], 'kind': record['steps'][record['cursor']]['kind'],
+                            'status': 'skipped', 'revision_reason': 'previous_beat_did_not_land',
+                            'delivery_status': 'not_attempted', 'heard_text': '', 'executor': {}, 'gestures': []})
+            record['cursor'] += 1
+        record['outcomes'].extend(orphans)
+        return orphans
+
+    def _skip_current(self, reason, now):
+        record = self.record
+        row = {'step': record['cursor'], 'kind': record['steps'][record['cursor']]['kind'], 'status': 'skipped',
+               'revision_reason': reason, 'delivery_status': 'not_attempted', 'heard_text': '', 'executor': {},
+               'gestures': []}
+        record['outcomes'].append(row)
+        record['cursor'] += 1
+        record['attempts'] = 0
+        record.pop('interrupted_at', None)
+        rows = [row, *self._drop_orphans()]
+        self.save()
+        for item in rows:
+            self._emit('agency_step_finished', plan_id=record['id'], **item, due_at=self.due_at,
+                       unanswered=self.unanswered)
+        if record['cursor'] >= len(record['steps']):
+            self._emit('agency_goal_beats_used', plan_id=record['id'], goal_kind=record['goal_kind'])
 
     def failed(self, reason, now):
         self.failures = min(4, self.failures + 1)
@@ -601,6 +653,9 @@ class AgencyPlan:
         else:
             record['cursor'] += 1
             record['attempts'] = 0
+        if status == 'interrupted':
+            record['interrupted_at'] = now
+        orphans = self._drop_orphans() if status == 'skipped' else []
         if heard: self.unanswered += 1
         upcoming = record['steps'][record['cursor']] if record['cursor'] < len(record['steps']) else None
         if status == 'interrupted':
@@ -614,5 +669,8 @@ class AgencyPlan:
         self.save()
         self._emit('agency_step_finished', plan_id=record['id'], **row, due_at=self.due_at,
                    unanswered=self.unanswered)
+        for orphan in orphans:
+            self._emit('agency_step_finished', plan_id=record['id'], **orphan, due_at=self.due_at,
+                       unanswered=self.unanswered)
         if record['cursor'] >= len(record['steps']):
             self._emit('agency_goal_beats_used', plan_id=record['id'], goal_kind=record['goal_kind'])

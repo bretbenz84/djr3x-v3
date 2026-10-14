@@ -844,3 +844,16 @@ codes. `neck_up`/`neck_down` drive the head-lift pole to its measured limits. Re
 clean speech now grows a saved voice ([rules](CORE_OPERATIONS.md)); Bret's had stayed at
 three enrollment clips. 1128 blocked-I/O checks pass, synthetic only; no hosted model,
 saved audio or hardware was run. Prompt-rule effects and live navigation remain unverified.
+
+October 13 planned-beat repair (owner: "probably the worst feature so far"). Live, beats were recited from
+the plan almost word for word and often ran after the conversation had moved on. The planner now writes
+short directions (under 25 words, no ready-made lines) with at most one question beat per plan and marks
+`follows_previous` follow-ups. Code: a follow-up is dropped when its setup never landed; a beat talked over by
+a real turn is dropped rather than retried; a beat may not stack a question on Rex's own unanswered one (one
+rewrite, else the beat is let go); a beat may be let go with `remain_silent`. When people spoke after a beat
+was planned, the beat model sees their latest words beside the beat and decides whether it still fits.
+Paid probe `tools/check_agency_beats.py` (fictional Sam, real reply model and planner, synthetic audio, fake
+clock) replays the October 13 conversation shape. Before (2 runs, 14 beats): 5 beats mostly recited, about 5
+off-topic. After (final arm, 3 runs, 21 beats): 11 spoken, none mostly recited, 0–1 off-topic, 10 let go, no
+repeated phrases. About $2 of hosted calls across all arms, estimated from returned usage. Text only; live
+timing, interruptions and the owner's judgment are untested.

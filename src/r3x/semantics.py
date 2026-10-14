@@ -212,6 +212,9 @@ def grounded_tools(context):
         names = {'contribute': {'respond_with_intent','use_memory_opportunity','use_observation','use_visual_memory'},
                  'inspect': {'inspect_view'}, 'look': {'shift_attention'}, 'gesture': {'respond_with_gesture'},
                  'pose': {'set_robot_pose','set_robot_joints'}, 'drive': {'drive_base'}}[context['agency_step']['kind']]
+        # A beat the conversation has overtaken can be let go (October 13: stale beats were
+        # recited regardless, repeating what was just said). The goal goes on.
+        names = names | {'remain_silent'}
         # Only a goal about a person can lose its premise (they left or refused). Live October 3
         # the performer revised impersonal look beats for no real reason, three times in ten
         # minutes; each discarded the goal and fell back to a repeated remark.

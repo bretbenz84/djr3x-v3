@@ -136,6 +136,21 @@ class Session:
                 return ' '.join(run)
         return None
 
+    def _asks_over_open_question(self, call):
+        """A beat's line asks a question while Rex's own last line, a question, is unanswered.
+        Punctuation of Rex's own output, not a reading of anything a person said."""
+        args = call.arguments if isinstance(call.arguments, dict) else {}
+        text = ' '.join(v for v in (args.get('say_before'), args.get('text')) if isinstance(v, str))
+        if '?' not in text:
+            return False
+        from .output import plain_text
+        for message in reversed(self.history_messages()):
+            if message.get('role') == 'user':
+                return False
+            if message.get('role') == 'assistant' and isinstance(message.get('content'), str):
+                return plain_text(message['content']).rstrip().endswith('?')
+        return False
+
     def _subject_person(self, context):
         """Who Rex's next goal is about: an arrival, the private-memory person, or one known face."""
         pending = self.state.agency.pending_subject or {}
@@ -886,6 +901,19 @@ class Session:
             calls = generate(snapshot)
             repeated = (self._repeats_recent_line(calls[0])
                         if agency_step and len(calls) == 1 and not generated.strip() else None)
+            if (not repeated and agency_step and len(calls) == 1 and not generated.strip()
+                    and self._asks_over_open_question(calls[0])):
+                # Owner ruling, September 18: after his own unanswered question Rex cracks a joke
+                # rather than asking again. October 13 probe: a beat stacked a second question.
+                self.trace.emit('agency_question_stacked', turn_id=turn_id, name=calls[0].name)
+                from dataclasses import replace as replace_snapshot
+                self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='agency_question_retry',
+                    reasoning_effort=getattr(self.brain,'reasoning_effort',None))
+                calls = generate(replace_snapshot(snapshot, messages=(*snapshot.messages, {'role':'developer','content':
+                    'Your last question has not been answered yet. Do not ask another one: make a short, light remark '
+                    'or joke that fits the moment, or let this beat go with remain_silent.'})))
+                if len(calls) == 1 and self._asks_over_open_question(calls[0]):
+                    raise ProviderFailure('AgencyBeatStackedQuestion')
             if repeated:
                 # Hosted probe, October 2: a beat about a no-smiling challenge was delivered as a
                 # word-for-word repeat of the previous line. One bounded retry, then the beat fails.

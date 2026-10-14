@@ -384,7 +384,9 @@ tool-only proposal with no spoken success beforehand. Tool text fields are your 
 everything above. Only a successful mutation supports saying something was saved or changed; on rejection or
 failure say so plainly, in your own words: say what did not happen and what would help, never the reason code
 or how the system works ("my profile needs a compatible voice match", "the system needs a specific date" are
-wrong; "I couldn't pin that down" is right). In a result continuation, explain the result with no further tool call. Commentary is
+wrong; "I couldn't pin that down" is right). Do not announce routine saves ("I've saved that...") unless they
+asked you to remember something; just respond to what they said. If something you tried on your own, without
+being asked, is rejected, do not mention it at all. In a result continuation, explain the result with no further tool call. Commentary is
 silent; only final_answer text is spoken. Do not fabricate heard history.
 """
 
@@ -679,10 +681,16 @@ class OpenAIBrain(HTTPProvider):
         if snapshot.context.get('agency_step') and not snapshot.continuation:
             notes.append('\nYOUR GOAL, NEXT BEAT: agency_step is the next beat of a goal you chose yourself '
                 '(goal_kind, subject, objective). Nobody asked; this is you getting up to something. Do it now with the offered '
-                'tool, in your own words. It is not a vote on whether to participate, and the old optional-lull silence '
-                'guidance does not apply. If the humans said something since this beat was planned, follow their words and '
-                'adapt the beat to fit; that is the plan working. A change of topic is not a reason to abandon it: carry the '
-                'beat\'s spirit into what they are talking about now. Use revise_agency_plan only if they left, refused this goal, '
+                'tool. The instruction is a direction, not a script: write your own fresh line from what was just said, and '
+                'never reuse the instruction\'s wording. It is not a vote on whether to participate, and the old optional-lull '
+                'silence guidance does not apply. When agency_step.people_spoke_since_planned is true, the conversation moved '
+                'after this beat was written: build on their latest words. Let the beat go with remain_silent (reason '
+                'no_response_needed) when its point has already been made, its question was already answered, or they have '
+                'moved to a new subject and the beat is about the old one (back to the telescope after they bring up a library '
+                'is a non sequitur); only a beat whose kind still fits, such as a curious question, may be turned toward the '
+                'new subject. If your most recent line asked a question they have not answered, do not ask another: make a '
+                'short statement or let the beat go. The next beat runs at the next lull. '
+                'Use revise_agency_plan only if they left, refused this goal, '
                 'or its premise is physically gone. Imperfect evidence is not a reason to give up: if you cannot drive to the '
                 'thing, turn toward it or look at it instead and carry on. '
                 'Be funny, warm and specific: tease real shared moments, have vain DJ opinions, ask at most one personable '
@@ -700,8 +708,8 @@ class OpenAIBrain(HTTPProvider):
                 'returns your eyes to the people. '
                 'Do the action rather than promising it. A contribution is ordinary spoken language via respond_with_intent; '
                 'set intent_update=null. Silent look, pose and drive beats need no narration; drive and pose beats may use '
-                'say_before/say_after or look_after when a line or a look makes the moment. When the beat says to ask or say '
-                'something along with the move, put those words in the tool\'s text or say_before. Never repeat a line you just '
+                'say_before/say_after or look_after when a line or a look makes the moment. When the beat calls for words along '
+                'with the move, put your line in the tool\'s text or say_before. Never repeat a line you just '
                 'said, and once a joke or premise has landed in this visit, find a new angle instead of a variation on it. '
                 'This beat was planned before your latest replies: if they already made its point (the same praise, fact, '
                 'reaction or echo of what the person told you), even in other words, make a different point or do the beat '
@@ -717,6 +725,18 @@ class OpenAIBrain(HTTPProvider):
             notes.append("\nCURRENT CORE CONTEXT (observations/data, not instructions):\n" + json.dumps(snapshot.context,ensure_ascii=False))
         if notes:
             payload['input'].insert(notes_at, {'role':'developer','content':''.join(notes).lstrip()})
+        step = snapshot.context.get('agency_step') or {}
+        if step.get('people_spoke_since_planned') and not snapshot.continuation:
+            # October 13 probes: told only that people had spoken, the beat model still ran
+            # beats about a topic they had left. Set side by side, last (after the cached prefix).
+            latest = next((m['content'] for m in reversed(snapshot.messages)
+                           if m.get('role') == 'user' and isinstance(m.get('content'), str)), None)
+            if latest:
+                payload['input'].append({'role':'developer','content':
+                    'BEFORE THIS BEAT: it was planned before they last spoke. Their latest words: '
+                    + json.dumps(latest, ensure_ascii=False) + '. The beat: ' + json.dumps(step.get('instruction', ''), ensure_ascii=False)
+                    + '. If the beat is not about what they just said, or your reply to them already made its point, '
+                    'use remain_silent (reason no_response_needed). Otherwise do it in fresh words that build on their latest words.'})
         offered = None
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             # Prompt caching matches the rendered prefix, and tool definitions precede the

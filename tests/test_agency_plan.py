@@ -171,13 +171,13 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertNotIn('revise_agency_plan',names)
         self.assertEqual(len(self.executor.snapshots),2)
 
-    def test_planned_execution_tools_do_not_offer_generic_silence_or_wheels(self):
+    def test_planned_execution_offers_its_action_or_letting_the_beat_go_but_no_wheels(self):
         self.setup_owner();self.tick(100)
         context=self.executor.snapshots[0].context
         names={x['name'] for x in grounded_tools(context)}
-        # Only a goal about a person can lose its premise; an impersonal beat is simply done.
-        self.assertEqual(names,{'respond_with_intent'} if context['agency_step']['scope']=='general'
-                         else {'respond_with_intent','revise_agency_plan'})
+        # Only a goal about a person can lose its premise; any beat the talk overtook can be let go.
+        self.assertEqual(names,{'respond_with_intent','remain_silent'} if context['agency_step']['scope']=='general'
+                         else {'respond_with_intent','remain_silent','revise_agency_plan'})
 
     def test_conversation_bursts_and_feeds_do_not_exhaust_a_rolling_attempt_budget(self):
         self.setup_owner()
@@ -551,6 +551,75 @@ class GoalTests(memory_tests.MemoryFixture):
         self.assertEqual(self.tick(self.trace.at+20).status,'completed')
         self.assertEqual(len(self.planner.requests),1)  # One goal throughout.
 
+    def linked_plan(self):
+        return {**draft(),'steps':[
+            {'kind':'contribute','instruction':'Ask whether he has camping plans.','evidence_ids':[],'delay_seconds':5,'follows_previous':False},
+            {'kind':'contribute','instruction':'React to his camping plans with a vain opinion.','evidence_ids':[],'delay_seconds':5,'follows_previous':True},
+            {'kind':'contribute','instruction':'Tease the waltz idea.','evidence_ids':[],'delay_seconds':5,'follows_previous':False}]}
+
+    def test_a_follow_up_is_dropped_when_its_setup_never_landed(self):
+        # October 13: the camping question was cut off twice, then "a proper forest trip is a
+        # strong argument for ignoring indoor responsibilities" ran anyway, out of nowhere.
+        self.setup_owner();self.planner.choose=lambda f,c:self.linked_plan()
+        def interrupted(snapshot,cancel):
+            self.session.note_speech(self.trace.at,sustained=True)
+            cancel.check()
+            yield 'Never heard.'
+        self.executor.choose=interrupted
+        self.tick(100);self.tick(self.trace.at+20)
+        record=self.state.agency.record
+        self.assertEqual([(o['step'],o['status']) for o in record['outcomes']],[(0,'interrupted'),(0,'skipped'),(1,'skipped')])
+        self.assertEqual(record['outcomes'][-1]['revision_reason'],'previous_beat_did_not_land')
+        self.executor.choose=None
+        self.tick(self.trace.at+20)
+        self.assertEqual(self.executor.snapshots[-1].context['agency_step']['index'],2)
+
+    def test_a_beat_the_talk_overtook_can_be_let_go_and_the_goal_goes_on(self):
+        self.setup_owner();self.planner.choose=lambda f,c:self.linked_plan()
+        self.tick(100)   # The camping question is heard.
+        now=self.trace.at+1
+        self.session.process_turn(Capture(uuid4().hex,'session',bytes(96000),now-3,now,now),
+            Transcript('Not really, I already told you I am staying home.',-.01,True),0,memory_tests.observation())
+        self.executor.choose=lambda s,c:iter([ToolCall('s','remain_silent',{'reason':'no_response_needed','invitation_update':None,'intent_update':None,'next_opportunity':None})])
+        result=self.tick(self.trace.at+20)
+        self.assertEqual(result.status,'suppressed')
+        step=self.executor.snapshots[-1].context['agency_step']
+        self.assertEqual(step['index'],1)
+        self.assertTrue(step['people_spoke_since_planned'])
+        record=self.state.agency.record
+        self.assertEqual((record['outcomes'][-1]['step'],record['outcomes'][-1]['status']),(1,'skipped'))
+        self.assertEqual(record['cursor'],2)          # The next beat stays; the goal is not discarded.
+        self.assertEqual(len(self.planner.requests),1)
+
+    def test_a_beat_talked_over_by_a_real_turn_is_dropped_not_retried(self):
+        # October 13: the camping question, cut off by an impression request, came back after it.
+        self.setup_owner();self.planner.choose=lambda f,c:self.linked_plan()
+        def interrupted(snapshot,cancel):
+            self.session.note_speech(self.trace.at,sustained=True)
+            cancel.check()
+            yield 'Never heard.'
+        self.executor.choose=interrupted
+        self.tick(100)
+        self.executor.choose=None
+        now=self.trace.at+1
+        self.session.process_turn(Capture(uuid4().hex,'session',bytes(96000),now-3,now,now),
+            Transcript('Can you do an impression of me?',-.01,True),0,memory_tests.observation())
+        self.tick(self.trace.at+20)
+        record=self.state.agency.record
+        self.assertEqual([(o['step'],o['status'],o['revision_reason']) for o in record['outcomes']][:3],
+            [(0,'interrupted',None),(0,'skipped','overtaken_by_conversation'),(1,'skipped','previous_beat_did_not_land')])
+        self.assertEqual(self.executor.snapshots[-1].context['agency_step']['index'],2)
+
+    def test_a_beat_does_not_stack_a_question_on_rex_s_unanswered_one(self):
+        self.setup_owner()
+        self.executor.choose=lambda s,c:iter([ToolCall('a','respond_with_intent',{'text':'What are you shooting next?','intent_update':None})])
+        self.tick(100)
+        replies=iter(['And what mount do you use?','Clearly the telescope is the real star here.'])
+        self.executor.choose=lambda s,c:iter([ToolCall('b','respond_with_intent',{'text':next(replies),'intent_update':None})])
+        result=self.tick(self.trace.at+9)
+        self.assertEqual(result.completed_text,['Clearly the telescope is the real star here.'])
+        self.assertIn('not been answered',self.executor.snapshots[-1].messages[-1]['content'])
+
     def test_word_for_word_repeat_gets_one_retry_then_fails_the_beat(self):
         # Hosted probe October 2: a challenge beat was delivered as the previous line, verbatim.
         self.setup_owner()
@@ -898,4 +967,4 @@ class PlannerAdapterTests(memory_tests.unittest.TestCase):
         payload=brain.client.calls[0][1]['json']
         self.assertEqual(payload['model'],'gpt-6-luna')
         self.assertEqual(payload['tool_choice']['mode'],'required')
-        self.assertEqual({t['name'] for t in payload['tool_choice']['tools']},{'respond_with_intent','revise_agency_plan'})
+        self.assertEqual({t['name'] for t in payload['tool_choice']['tools']},{'respond_with_intent','remain_silent','revise_agency_plan'})
