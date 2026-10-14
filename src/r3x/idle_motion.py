@@ -32,7 +32,9 @@ from .servos import ServoRequest
 # October 12), so each arm is one part.
 # Owner, October 12: idle read as frozen with a small move now and then; it should sit
 # between that and the lively talking motion, so the arms come round about twice as often.
-PART_SECONDS = {'head': (1.2, 2.8), 'visor': (4., 9.), 'hero': (2.5, 6.), 'poker': (3., 7.),
+# Owner, October 13: the poker arm sways steadily like a cat's tail, so it is due in every
+# phrase (half a sway each, servo_poses.poker_tail) and takes one of its three parts.
+PART_SECONDS = {'head': (1.2, 2.8), 'visor': (4., 9.), 'hero': (2.5, 6.), 'poker': (0., 0.),
                 'throttle': (5., 11.)}
 # The hero arm's shoulder joins its move at most this often: it carries the microphone
 # array, and each swing invalidates the bearing and the voice-learning hold.
