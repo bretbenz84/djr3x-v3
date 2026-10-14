@@ -8,11 +8,11 @@ Documentation does not authorize new hardware operation or feature expansion.
 
 ## Poker arm tail sway — October 13
 
-Owner request: the poker arm's idle moves steadily, like a cat's tail. In every idle phrase it
-sways half way across its awake pose (1.7-2.3 s, side to side). The wrist bends against the
-elbow and trails it, arriving 0.5-0.8 s later, and keeps swaying while slower parts finish.
-The head's face-following now re-aims about every 2.5-3 s. 1,134 blocked-I/O checks pass
-(simulated servo board only). **Not yet run on the robot**
+Owner request: the poker arm's idle moves like a cat's tail. It sways back and forth across its
+awake pose for 10-25 s (1.7-2.3 s per half sway), settles back to that pose, then rests still for
+15-40 s before the next bout (constant swaying was too much). The wrist bends against the elbow
+and trails it, arriving 0.5-0.8 s later. While it sways, the head's face-following re-aims about
+every 2.5-3 s. 1,135 blocked-I/O checks pass (simulated servo board only). **Not yet run on the robot**
 ([details](SERVO_INTEGRATION.md#october-13-the-poker-arm-sways-like-a-cats-tail)).
 
 ## Mid-conversation freeze — October 12

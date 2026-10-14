@@ -6,6 +6,15 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 13 (later): sway, then rest
+
+Owner, after seeing it: it moved too much, too constantly. The tail now alternates: a bout of
+steady back and forth for 10-25 s (`TAIL_SWAY_SECONDS`, about 4-10 half sways), a last move
+easing back to the awake pose itself (the wrist still trailing), then 15-40 s of stillness
+(`TAIL_REST_SECONDS`) before the next bout. During a bout everything below still applies, and
+face-following re-aims at its old pace whenever the tail rests. 1,135 blocked-I/O checks
+pass (simulated servo board only). Not yet run on the robot.
+
 ## October 13: the poker arm sways like a cat's tail
 
 Owner: the poker arm's idle should be steadier, almost like a cat's tail waving: not fast,

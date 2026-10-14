@@ -32,13 +32,17 @@ from .servos import ServoRequest
 # October 12), so each arm is one part.
 # Owner, October 12: idle read as frozen with a small move now and then; it should sit
 # between that and the lively talking motion, so the arms come round about twice as often.
-# Owner, October 13: the poker arm sways steadily like a cat's tail, so it is due in every
+# Owner, October 13: the poker arm sways like a cat's tail. During a bout it is due in every
 # phrase (half a sway each, servo_poses.poker_tail) and takes one of its three parts.
 PART_SECONDS = {'head': (1.2, 2.8), 'visor': (4., 9.), 'hero': (2.5, 6.), 'poker': (0., 0.),
                 'throttle': (5., 11.)}
 # The hero arm's shoulder joins its move at most this often: it carries the microphone
 # array, and each swing invalidates the bearing and the voice-learning hold.
 SWING_SECONDS = (30., 60.)
+# Owner, October 13 (later): constant swaying was too much. The tail sways back and forth
+# for a bout, settles back to its awake pose, rests still, then sways again.
+TAIL_SWAY_SECONDS = (10., 25.)
+TAIL_REST_SECONDS = (15., 40.)
 PHRASE_PARTS = 3
 DIRECTION_SECONDS = 30.      # A model-chosen look lasts this long unless changed sooner.
 POSE_REST_SECONDS = 8.       # Rex's own arm pose (a reach, a visor move) stays put this long.
@@ -65,6 +69,7 @@ class IdleMotion:
         self._index = 0
         self._due = {}
         self._swing_at = None      # When the hero arm's next move may include the array shoulder.
+        self._tail_until = None    # When the poker arm's bout of swaying ends; None while it rests.
         self._rest = {}            # part -> time until which Rex's own pose is left alone
         self.gaze = 'people'
         self._anchor = None        # Head pulses of a model-chosen look.
@@ -218,8 +223,15 @@ class IdleMotion:
             parts.append((part, round(wait, 2)))
             wait += self.rng.uniform(.2, .8)
             self._due[part] = now + self.rng.uniform(*PART_SECONDS[part])
+        settle = False
+        if 'poker' in chosen:
+            if self._tail_until is None:
+                self._tail_until = now + self.rng.uniform(*TAIL_SWAY_SECONDS)   # A bout begins.
+            elif now >= self._tail_until:
+                settle, self._tail_until = True, None
+                self._due['poker'] = now + self.rng.uniform(*TAIL_REST_SECONDS)
         head, speed, dwell = self._head(now, calm) if 'head' in chosen else ((), 9, 0.)
-        return IdlePhrase(tuple(parts), tuple((ch, round(value)) for ch, value in head), speed, dwell, swing)
+        return IdlePhrase(tuple(parts), tuple((ch, round(value)) for ch, value in head), speed, dwell, swing, settle)
 
     # Scheduling -----------------------------------------------------------
     def _stop(self):

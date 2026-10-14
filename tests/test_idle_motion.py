@@ -256,12 +256,36 @@ class IdleTests(unittest.TestCase):
         self.assertGreater(len(lanes[0]),1)
         self.assertTrue(all(poker_clear(dict(beat.targets)) for beat in lanes[0][1:]))
 
-    def test_the_tail_keeps_swaying_in_every_phrase_and_while_slower_parts_finish(self):
-        from r3x.servo_poses import idle_lanes
+    def test_the_tail_sways_for_a_while_settles_and_rests_then_sways_again(self):
+        # Owner, October 13 (later): constant swaying was too much. Bouts of steady back and
+        # forth, each ending back at the awake pose, alternate with stretches of stillness.
+        from r3x.servo_poses import POKER_TAIL
         self.execute('startup');self.clock.wait(.6);self.port.packets.clear()
-        phrases=self.run_scheduler(60.)
-        self.assertGreater(len(phrases),15)
-        self.assertTrue(all({6,12,13}<=channels for _,channels in phrases))
+        swayed=[]   # (time, poker pose after the phrase) for each phrase that moved the poker arm
+        end=self.clock()+240.
+        while self.clock()<end:
+            before=len(self.port.packets)
+            self.idle.tick(True)
+            if self.idle._thread is not None:
+                self.idle._thread.join(2)
+                if {6,12,13}&{ch for ch,_ in self.commands_since(before)}:
+                    swayed.append((self.clock(),{ch:self.port.pose[ch] for ch in (6,12,13)}))
+            self.clock.wait(.1)
+        bouts=[[swayed[0]]]
+        for row in swayed[1:]:
+            (bouts[-1].append(row) if row[0]-bouts[-1][-1][0]<5. else bouts.append([row]))
+        self.assertGreaterEqual(len(bouts),3)
+        for bout,after in zip(bouts,bouts[1:]):
+            self.assertGreaterEqual(after[0][0]-bout[-1][0],15.)                       # Rests still...
+            self.assertGreaterEqual(bout[-1][0]-bout[0][0],9.)                          # ...after a bout of swaying...
+            self.assertGreaterEqual(len(bout),5)
+            self.assertEqual(bout[-1][1],{ch:POKER_TAIL[ch][0] for ch in (6,12,13)})   # ...that ended at the awake pose.
+            poses=[pose for _,pose in bout]
+            self.assertTrue(all(a!=b for a,b in zip(poses,poses[1:])))                  # Moving throughout the bout.
+
+    def test_the_tail_keeps_swaying_while_slower_parts_finish(self):
+        from r3x.servo_poses import idle_lanes
+        self.execute('startup');self.clock.wait(.6)
         # The hero arm's reach outlasts half a sway: the tail goes on swaying instead of waiting.
         for seed in range(6):
             lanes=idle_lanes(dict(self.port.pose),random.Random(seed),
