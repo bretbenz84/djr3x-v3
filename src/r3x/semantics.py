@@ -139,6 +139,13 @@ TOOLS += (schema('respond_with_intent',
     'Use when a visitor first supplies their conversational direction or explicitly changes the topic: replace a generic welcome agenda with that concrete direction while answering naturally. Otherwise stream ordinary prose. Not biography or a questionnaire. '
     'No extra generation. Memory-based proactive speech must use use_memory_opportunity instead.',
     {'text': TEXT, 'intent_update': update_schema()}),)
+TOOLS += (schema('note_bit',
+    'Record how one of your own jokes or teases landed, when this turn makes it clear: landed (they laughed, '
+    'played along or fired back), flopped (a groan, a flat "okay", visibly no fun) or asked_to_stop (they want '
+    'that kind of joke to end). A landed bit about someone can become a running gag with them; a flopped one '
+    'is left alone. premise is what the bit was about in a few words. text is your spoken reply this turn, or '
+    'null. Not for ordinary replies; only when the reaction is clear.',
+    {'premise':TEXT,'reaction':{'type':'string','enum':['landed','flopped','asked_to_stop']},'text':NULL_TEXT}),)
 TOOLS += (schema('wait_for',
     'Not now: hold this beat of your own goal for a better moment instead of doing it now, the way a person waits '
     'for the right moment. when=answered: once someone replies to your last line; quiet: after `seconds` of nobody '

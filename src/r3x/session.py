@@ -98,6 +98,8 @@ class Session:
         self.last_trusted_speech_at = float("-inf")
         self.resolved_audio_at = float("-inf")
         self.motion_committed = False  # Wheels were handed a plan in the current turn.
+        self.joke_room = None    # jokes.JokeRoom: optional material written beside the conversation.
+        self.human_turns = 0     # Trusted human turns this session, for material freshness.
         self.preparing_plan = False
         self.agency_scope = None
         self._memory_subject = None  # Person whose private memory the current output uses.
@@ -153,6 +155,21 @@ class Session:
             if message.get('role') == 'assistant' and isinstance(message.get('content'), str):
                 return plain_text(message['content']).rstrip().endswith('?')
         return False
+
+    def _joke_followup(self, heard, context, opportunity, transcript, turn_id):
+        """Record a writer's-room bit that was used; after a human turn, ask for fresh material."""
+        from . import jokes
+        person = (context.get('personal_memory') or {}).get('person_id')
+        item = self.joke_room.used(heard)
+        if item:
+            self.state.bit_told(self.session_id, person, item['premise'], heard)
+            self.trace.emit('joke_recorded', turn_id=turn_id, premise=item['premise'], reaction='told')
+        if opportunity is None and transcript is not None and transcript.trusted:
+            facts = jokes.summary(self.history_messages(), context.get('right_now'),
+                                  [], context.get('humor'))
+            if self.joke_room.ask(facts, jokes.audience_key(person), self.human_turns):
+                self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='joke_material',
+                                model=getattr(getattr(self.joke_room.writer, 'capability', None), 'model', None))
 
     def _right_now(self):
         """Rex's sense of the moment, from the picture of the present (October 14, step 1)."""
@@ -549,6 +566,7 @@ class Session:
         agency_step = None
         agency_revision_reason = None
         agency_deferred = False
+        context = {}
         action_outcome = None
         impression = None
         shutdown_requested = False
@@ -624,6 +642,7 @@ class Session:
                 return delivery
             if not opportunity and transcript.trusted:
                 self.last_trusted_speech_at = max(self.last_trusted_speech_at, speech_end)
+                self.human_turns += 1
                 if self.state:
                     with self._lock:
                         # Presence for Rex's own goal: a person talking is a person here.
@@ -778,6 +797,16 @@ class Session:
                 from . import conversation_memory
                 context["personal_memory"] = conversation_memory.context(
                     self.state.store, context, self.session_id, self.state.wall_clock())
+                # His own material with this audience, and anything the writer's room has for the
+                # moment (October 14 plan, step 4). Running gags follow the private audience only.
+                from . import jokes
+                humor_person = context["personal_memory"].get('person_id')
+                humor_audience = jokes.audience_key(humor_person)
+                humor = jokes.context(self.state.store, humor_person, humor_audience, self.state.wall_clock())
+                if humor: context['humor'] = humor
+                material = self.joke_room.offer(humor_audience, self.human_turns) if self.joke_room else None
+                if material and not (opportunity and opportunity.kind in {'visual_arrival', 'unseen_presence'}):
+                    context['joke_material'] = material
             if self.state and not self.state.frozen:
                 with self._lock:
                     self.state.intent_context(context, human=not opportunity)
@@ -1871,8 +1900,10 @@ class Session:
                                           'finished_at':self.trace.clock()}
                 if self.state and delivery.completed_text:
                     # What was actually heard, for the conversation clock in the picture of the present.
-                    self.state.present.rex_said(' '.join(delivery.completed_text), self.trace.clock(),
-                                                own_initiative=opportunity is not None)
+                    heard = ' '.join(delivery.completed_text)
+                    self.state.present.rex_said(heard, self.trace.clock(), own_initiative=opportunity is not None)
+                    if self.joke_room is not None:
+                        self._joke_followup(heard, context, opportunity, transcript, turn_id)
             if self.state and (schedule_proposal is not None or invitation_proposal is not None):
                 with self._lock:
                     valid = (schedule_accepted and schedule_action_ok and not self.closed and not cancel.event.is_set()

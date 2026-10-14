@@ -118,3 +118,7 @@ radar_port = ""
 # Stronger model for private, persisted narrative/activity plans at lulls.
 # Replies and plan-step execution continue to use GPT-6 Luna. No silent fallback.
 agency_planner_model = "gpt-5.6-terra"
+
+# Writer's room: after a reply the planner model may write two or three optional joke angles
+# that the next reply can use. Never delays a reply; at most every 45 s and 30 calls an hour.
+joke_writer_enabled = true

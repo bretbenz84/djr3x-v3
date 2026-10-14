@@ -31,6 +31,7 @@ class Settings:
     camera_framerate: float = 30.0
     record_evaluation: bool = False
     agency_planner_model: str = "gpt-5.6-terra"
+    joke_writer_enabled: bool = True  # Side joke material from the planner model between turns (paid, capped at 30 calls an hour).
     proactive_lull_seconds: float = 5.0
     scene_observations_enabled: bool = True
     object_memory_enabled: bool = False
@@ -66,7 +67,7 @@ class Settings:
                 raise ValueError('Hardware port must be an explicit macOS /dev/cu. device')
         if self.input_device_index is not None and (type(self.input_device_index) is not int or self.input_device_index < 0):
             raise ValueError("input_device_index must be a nonnegative integer")
-        for name in ("echo_isolated","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","news_search_enabled","direction_enabled","object_memory_enabled","place_recognition_enabled","impersonation_enabled"):
+        for name in ("echo_isolated","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","news_search_enabled","direction_enabled","object_memory_enabled","place_recognition_enabled","impersonation_enabled","joke_writer_enabled"):
             if type(getattr(self,name)) is not bool:
                 raise ValueError(f"{name} must be boolean")
         from .observations import https_url

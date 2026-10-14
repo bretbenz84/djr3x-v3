@@ -25,7 +25,7 @@ class App:
     def configure_live(self):
         from .adapters.asr import QwenASR
         from .adapters.audio import AudioSink, Microphone, SileroVAD
-        from .adapters.hosted import ElevenLabsTTS, OpenAIBrain, OpenAIAgencyPlanner
+        from .adapters.hosted import ElevenLabsTTS, OpenAIBrain, OpenAIAgencyPlanner, OpenAIJokeWriter
         from .adapters.voice import CAMPlus
         from .adapters.camera import Camera
         secrets = Secrets.load(self.paths.root)
@@ -33,6 +33,8 @@ class App:
         vad = SileroVAD(self.settings.vad_threshold)
         brain = OpenAIBrain(secrets.openai_api_key)
         agency_planner = OpenAIAgencyPlanner(secrets.openai_api_key,self.settings.agency_planner_model)
+        joke_writer = (OpenAIJokeWriter(secrets.openai_api_key,self.settings.agency_planner_model)
+                       if self.settings.joke_writer_enabled else None)
         tts = ElevenLabsTTS(secrets.elevenlabs_api_key, secrets.elevenlabs_voice_id)
         from .speech_level import PCMLeveler
         tts.level = PCMLeveler   # V2 per-phrase loudness leveling (numpy/scipy load on first speech).
@@ -86,7 +88,7 @@ class App:
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,places,locator,agency_planner,self.cloner) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -357,6 +359,11 @@ class App:
                 if agency and 'agency_planner' in active:
                     agency.trace = trace
                     session.agency_planner = agency
+                writer = next((p for p in optional if p.capability.name=='joke_writer'),None)
+                if writer and 'joke_writer' in active:
+                    from .jokes import JokeRoom
+                    writer.trace = trace
+                    session.joke_room = JokeRoom(writer, trace, trace.clock)
                 if self.cloner and 'voice_cloner' in active:
                     from .impersonation import ReferenceStore
                     self.cloner.trace = trace

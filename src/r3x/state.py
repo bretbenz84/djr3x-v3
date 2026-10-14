@@ -408,6 +408,15 @@ class CoreState:
                     "speaker_boundary_proposed":capture.parent_capture_id is not None},
                 "enrollment":[e.progress() for e in self.enrollments.values()]})
 
+    def bit_told(self, session_id, person_id, premise, line):
+        """A writer's-room bit Rex actually said, kept so it is not told again."""
+        from . import jokes
+        if self.frozen or self.store.connection is None:
+            return
+        with self.store.transaction() as conn:
+            jokes.record(conn, session_id, person_id, jokes.audience_key(person_id), premise, line, 'told',
+                         self.wall_clock())
+
     def note_audience(self, context):
         """The private audience for the memory gate, kept by the picture of the present."""
         return self.present.note_audience(context, self.trace.clock())
@@ -800,6 +809,14 @@ class CoreState:
             return {'text':args['text'],'source_turn_id':turn_id,
                     'records':[{'observation_id':key,'status':'retracted'} for key in args['observation_ids']],
                     'replacement_saved':False},True
+        if name == 'note_bit':
+            # How Rex's own joke landed: a judgement about his material, never a fact about anyone.
+            from . import jokes
+            person = ((context or {}).get('personal_memory') or {}).get('person_id')
+            line = (self.present.last_rex or {}).get('text', '')   # The line they reacted to.
+            jokes.record(conn, capture.session_id, person, jokes.audience_key(person), args['premise'],
+                         line, args['reaction'], self.wall_clock())
+            return {'text':args['text'],'premise':args['premise'],'reaction':args['reaction']},True
         if name == 'impersonate':
             return self._impersonate(conn,args,context), False
         if name == 'shut_down':

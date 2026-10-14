@@ -19,7 +19,7 @@ result below is synthetic, saved-log or hosted-model evidence until he tests it 
 | 1 | One shared picture of the present | Done October 14 (synthetic) |
 | 2 | Rex sets his own wake-ups | Done October 14 (synthetic, paid probes) |
 | 3 | Short-term memory of space for driving | Done October 14 (simulated base) |
-| 4 | Make him funny again | Pending |
+| 4 | Make him funny again | Done October 14 (synthetic, paid probe) |
 | 5 | Faster replies | Pending |
 
 ## Step 0: baseline (October 14)
@@ -151,3 +151,37 @@ memory fades; a 0.5 m first camera leg round a counter is continued by remembere
 same side to the door with one hosted look instead of two; a 0.3 s phantom mid-roll pauses the
 run with no detour. Real sensor noise, wheel drift over a minute and how often live false
 blocks are actually doubtful are unmeasured until a floor run.
+
+## Step 4: make him funny again (October 14)
+
+- **Persona.** Teasing and roasting are how Rex shows affection, with everyone here, guests
+  included (lighter at first with someone new), when the conversation offers it, never in
+  serious moments. Seven short V2 lines are style examples (see V2_REFERENCE.md); a "roast me"
+  gets real bite about what they said, did, chose or own. Bodies, intelligence, identity and
+  family remain off limits; dropping a bit after a request is unchanged.
+- **Joke record.** `jokes.joke_record` keeps bits Rex told from writer material and, through the
+  new `note_bit` tool (spoken reply in its text, used only when a reaction is clear), how they
+  landed: landed, flopped or asked to stop. `humor` in the context offers running gags (landed
+  bits with this person, in their private audience only, 60 days), bits that flopped (30 days)
+  and bits told lately (two days). Forgetting a person deletes their records.
+- **Writer's room.** After a reply to a person, `jokes.JokeRoom` may send a small summary (the
+  last eight exchanges, who is here, the moment from step 1, his own material) to the planner
+  model, which returns up to three joke angles. A later reply sees them as optional
+  `joke_material` for two turns or two minutes; the reply never waits for the writer. At most
+  one call every 45 s and 30 an hour, only after human turns; `joke_writer_enabled` turns it
+  off. Estimated at under half a cent per call (Terra list rates; not measured live).
+
+Evidence: synthetic checks in `tests/test_jokes.py` (pacing, freshness, audience, use detection,
+a failed writer staying silent, a used bit recorded and a landed one returning as a running gag
+the next day, a reply not waiting for a busy writer, forgetting). Paid probe
+`tools/check_humor.py` (fictional Sam and guest Jordan, one run, labels by Terra without the arm):
+
+| Scenario | Persona before step 4 | After (persona and writer's room) |
+| --- | --- | --- |
+| Dubious kitchen-painting plan | 2 of 6 lines tease; funny 1.6 of 5 | 4 of 6; funny 2.0 |
+| Guest's karaoke disaster | 3 of 6; funny 2.0 | 5 of 6; funny 2.8 |
+| Grief | no jokes | no jokes |
+
+A typical new line: "That's not karaoke, that's a six-minute hostile takeover of the microphone."
+Both arms were judged to repeat a premise once or twice per scenario. One run per arm is a
+small sample; the owner's ear is the real test.

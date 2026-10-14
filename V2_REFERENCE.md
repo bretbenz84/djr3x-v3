@@ -1151,3 +1151,21 @@ Data: `tools/import_v2_places.py` copied V2's three rooms (dining room, workshop
 15 views each) from a read-only SQLite backup snapshot, SHA-256 `1808063d71eda96576103f12e6bff91417e7046ca99beef9c52bdde061d8126c`,
 with new IDs, `import_ref` and the mapping in `imports`. Details and limits:
 [room recognition](docs/ROOM_RECOGNITION.md).
+
+## Humor style examples — October 14, 2026
+
+Step 4 of the [improvement plan](docs/IMPROVEMENT_PLAN.md) (owner: V2 "joked more, roasted
+people more", from hard-coded lines that repeated). Source HEAD
+`95f2403e78c9ef786054fa13a31bb2ac534cc29d`; only firmware files and one firmware test are dirty,
+no humor file. Read, not copied as code: `config.py` (`COMEDY_LINE_BANKS`, quip pools, the
+September 6 persona and the older roast-first persona at `665e8dd^:config.py`),
+`features/games.py` trivia quips, `intelligence/comedy_modes.py`, `intelligence/social_frame.py`.
+
+Preserved: seven short lines as style examples in the persona's TEASING paragraph (unanswered
+question, trivia right and wrong, a dubious idea, being laughed at, the dinner tease, a pilot
+self-own), and V2's lesson that roasting was the default lens of its most fun period. Adapted:
+no comedy-mode chooser, roast-level governor or line banks; the conversation model decides when
+to tease, a joke record replaces V2's bit ledger and callback cooldowns, and a writer's room
+supplies fresh material instead of pools. Not ported: the vision "roast me" prompt that roasted
+appearance and build, and greeting-based speech styles (identity-based). No V2 personal data or
+eval corpora (they name the owner and his health) were read into V3.
