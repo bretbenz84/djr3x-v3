@@ -21,15 +21,21 @@ GOAL_KINDS = ('catch_up', 'get_to_know', 'investigate', 'entertain', 'explore')
 STEP_KINDS = ('contribute', 'inspect', 'look', 'gesture', 'pose', 'drive')
 # Who is present, and for how long a person goal survives camera dropouts and face-track
 # renumbering, is decided by the shared picture of the present (present.py).
-# Easing off: each spoken beat that nobody answers lengthens the wait before the next
-# SPOKEN beat (0, 10, 20, 40, 80 extra seconds, then two minutes). Any human speech or a new
-# arrival resets it. Without this he spoke every 15-25 seconds for as long as a face was in view.
-# Owner, October 3 (run 30ec1b04): the first schedule (15 s doubling to five minutes) left
-# him sitting "not doing anything for what feels like forever". Ignored, he now talks less
-# but keeps doing: silent moves (pose, look, drive) are not eased, and the planner is told
-# to plan mostly silent activity (engagement.unanswered_lines).
-EASE_STEP_SECONDS = 10.
-EASE_MAX_SECONDS = 120.
+# When each beat runs is a wake-up the planner (or the performer, deferring once) chooses
+# for that beat, watched by the picture of the present (October 14 plan, step 2). This
+# replaces fixed breathing-room delays and the 0/10/20/40/80/120-second easing ladder:
+#   quiet       after `seconds` of nobody talking
+#   answered    once someone speaks after the previous beat, then a short pause
+#   unanswered  if nobody has spoken `seconds` after the previous beat (dropped if they did)
+#   pet_in_view when an animal is in view
+# A beat whose moment never comes is let go without a model call ('moment_passed').
+WAKE_KINDS = ('quiet', 'answered', 'unanswered', 'pet_in_view')
+WAKE_MIN_SECONDS, WAKE_MAX_SECONDS = 3, 180
+GIVE_UP_SECONDS = 240.     # An 'answered' or 'pet_in_view' wake that never fires is let go.
+# One floor stays in code: ignored, he talks less (owner, October 3: but never sits doing
+# nothing; silent moves are not held). With 2-3 of his lines unanswered a spoken beat needs
+# 30 s of quiet, with 4 or more 60 s.
+IGNORED_QUIET_SECONDS = ((4, 60.), (2, 30.))
 SILENT_KINDS = ('pose', 'look', 'drive')   # Beats that can be done without a word.
 # An unheard beat that yielded to a sound is tried again this soon (the lull still applies).
 RETRY_SECONDS = 4.
@@ -52,8 +58,19 @@ def plan_schema():
         'steps': {'type': 'array', 'minItems': 1, 'maxItems': MAX_STEPS, 'items': obj({
             'kind': {'type': 'string', 'enum': list(STEP_KINDS)},
             'instruction': {'type': 'string', 'minLength': 1, 'maxLength': 240}, 'evidence_ids': refs,
-            'delay_seconds': {'type': 'integer', 'minimum': 3, 'maximum': 45},
+            'wake': wake_schema(),
             'follows_previous': {'type': 'boolean'}})}})
+
+
+def wake_schema():
+    return {'type': 'object', 'additionalProperties': False, 'required': ['when', 'seconds'], 'properties': {
+        'when': {'type': 'string', 'enum': list(WAKE_KINDS)},
+        'seconds': {'type': 'integer', 'minimum': WAKE_MIN_SECONDS, 'maximum': WAKE_MAX_SECONDS}}}
+
+
+def valid_wake(wake):
+    return (isinstance(wake, dict) and set(wake) == {'when', 'seconds'} and wake['when'] in WAKE_KINDS and
+            type(wake['seconds']) is int and WAKE_MIN_SECONDS <= wake['seconds'] <= WAKE_MAX_SECONDS)
 
 
 PLANNER_INSTRUCTIONS = """You are Rex's private planner. Choose ONE goal Rex will pursue on his own initiative and
@@ -174,8 +191,13 @@ BEATS (steps)
 - At most ONE question beat per plan. Rex's replies already ask questions; a plan of questions turns a chat
   into an interview. The other beats are opinions, teases, short stories, reactions and actions. A later beat
   must still work whether or not they answered.
-- delay_seconds is breathing room after the beat finishes: usually 3-8, up to 15 after a question, 3-5 after
-  a silent move. Keep things moving; long pauses read as a robot that switched off.
+- wake says when the beat runs, the way a person would choose the moment. when=quiet: after `seconds` of
+  nobody talking (usually 3-8, longer to let a story breathe; 3-5 after a silent move). when=answered: once
+  someone has replied to the previous beat (use it for a follow-up to a question; it is let go if nobody ever
+  answers). when=unanswered: only if nobody has spoken `seconds` after the previous beat (a light rescue after
+  a question that fell flat, usually 15-30; dropped if they answered). when=pet_in_view: when an animal shows
+  up. Keep things moving; long pauses read as a robot that switched off, and a beat whose moment never comes
+  is simply let go.
 
 CAPABILITIES AND LIMITS
 - Use only kinds in capabilities. The pose contract lists named commands; already_at positions are not
@@ -273,15 +295,16 @@ class AgencyPlan:
         self.pending_subject = None  # Who arrived; the next goal is about them.
         self.speech_at = float('-inf')  # Latest trusted human speech, for talked-over beats.
         self.goals = deque(maxlen=6)  # Finished goals for variety; never executed again.
+        self.waiting = None  # Why the current beat is not running yet, for the trace.
 
     @property
     def unanswered(self):
         """Rex's own heard lines since a human last spoke (kept by the present)."""
         return self.present.unanswered
 
-    def ease_seconds(self):
-        if self.unanswered <= 1: return 0.
-        return min(EASE_MAX_SECONDS, EASE_STEP_SECONDS * 2 ** (self.unanswered - 2))
+    def ignored_quiet(self):
+        """Quiet a spoken beat needs while his own lines go unanswered."""
+        return next((seconds for count, seconds in IGNORED_QUIET_SECONDS if self.unanswered >= count), 0.)
 
     def engagement(self):
         """For the planner: how Rex's recent lines landed."""
@@ -465,15 +488,15 @@ class AgencyPlan:
             if not isinstance(refs, list) or len(refs) > 8 or any(not isinstance(x, str) or x not in evidence for x in refs):
                 raise ValueError('AgencyEvidenceNotOffered')
         for step in steps:
-            if not {'kind', 'instruction', 'evidence_ids', 'delay_seconds'} <= set(step) <= {
-                    'kind', 'instruction', 'evidence_ids', 'delay_seconds', 'follows_previous'} or step['kind'] not in capabilities:
+            if not {'kind', 'instruction', 'evidence_ids', 'wake'} <= set(step) <= {
+                    'kind', 'instruction', 'evidence_ids', 'wake', 'follows_previous'} or step['kind'] not in capabilities:
                 raise ValueError('AgencyCapabilityUnavailable')
             if type(step.get('follows_previous', False)) is not bool:
                 raise ValueError('InvalidAgencyStepLink')
             if not isinstance(step['instruction'], str) or not 0 < len(step['instruction']) <= 600:
                 raise ValueError('InvalidAgencyStepText')
-            if type(step['delay_seconds']) is not int or not 3 <= step['delay_seconds'] <= 45:
-                raise ValueError('InvalidAgencyDelay')
+            if not valid_wake(step['wake']):
+                raise ValueError('InvalidAgencyWake')
         value = deepcopy(value)
         scoped_refs = sorted({x for row in [value, *steps] for x in row['evidence_ids']
                               if evidence_scope(evidence[x]) != 'general'})
@@ -495,7 +518,7 @@ class AgencyPlan:
                        'cursor': 0, 'attempts': 0, 'outcomes': [],
                        'previous_outcomes': (previous.get('previous_outcomes', []) + previous.get('outcomes', []))[-8:],
                        'previous_goals': list(self.goals), 'needs_revalidation': False, 'origin': origin,
-                       'created_at': now}
+                       'created_at': now, 'beat_since': now}
         self.ending = None
         self.pending_subject = None
         self.revision += 1
@@ -523,7 +546,8 @@ class AgencyPlan:
             'scope': 'audience' if private else 'general',
             'narrative': 'I can keep things lively without forcing an abandoned idea.',
             'objective': 'Do one natural, fun thing that fits the moment.', 'evidence_ids': [],
-            'steps': [{'kind': 'contribute', 'instruction': instruction, 'evidence_ids': [], 'delay_seconds': 8}]},
+            'steps': [{'kind': 'contribute', 'instruction': instruction, 'evidence_ids': [],
+                       'wake': {'when': 'quiet', 'seconds': 8}}]},
             audience, {}, capabilities, revision, now, origin='recovery', subject_person=subject_person)
 
     def step(self, now):
@@ -543,7 +567,75 @@ class AgencyPlan:
                 'unanswered_lines': self.unanswered,
                 # October 13: beats planned before the latest exchange were recited regardless.
                 'people_spoke_since_planned': self.speech_at > record.get('created_at', float('-inf')),
-                **deepcopy(record['steps'][record['cursor']])}
+                **deepcopy(record['steps'][record['cursor']]),
+                'wake': deepcopy(record.get('wake_override') or record['steps'][record['cursor']]['wake']),
+                'deferred': bool(record.get('wake_override'))}
+
+    def _next_beat(self, now):
+        """The next beat's wake-up is measured from now."""
+        self.record['beat_since'] = now
+        self.record.pop('wake_override', None)
+
+    def _wake(self, now, quiet_seconds):
+        """('ready'|'waiting'|'passed', why) for the current beat's wake-up."""
+        record = self.record
+        step = record['steps'][record['cursor']]
+        wake = record.get('wake_override') or step['wake']
+        since = record.get('beat_since', record.get('created_at', now))
+        human = self.present.last_human['at'] if self.present.last_human else float('-inf')
+        answered = human > since
+        when, seconds = wake['when'], wake['seconds']
+        if when == 'quiet':
+            return ('ready', None) if quiet_seconds >= seconds else ('waiting', 'quiet')
+        if when == 'answered':
+            if answered:
+                return ('ready', None) if quiet_seconds >= min(seconds, 5) else ('waiting', 'answer_settling')
+            return ('passed', None) if now - since > GIVE_UP_SECONDS else ('waiting', 'answer')
+        if when == 'unanswered':
+            if answered: return ('passed', None)
+            return ('ready', None) if now - since >= seconds else ('waiting', 'no_answer_yet')
+        seen = self.present.pets.seen_ago(now)
+        from .present import PET_GAP_SECONDS
+        if seen is not None and seen <= PET_GAP_SECONDS and self.present.pets.last_seen >= since:
+            return ('ready', None)
+        return ('passed', None) if now - since > GIVE_UP_SECONDS else ('waiting', 'pet')
+
+    def ready(self, now, quiet_seconds, floor):
+        """Whether the current beat's moment has come. A beat whose moment passed is let go here,
+        before any model call is spent on it. People first: never inside `floor` seconds of quiet."""
+        while self.applicable(now):
+            verdict, why = self._wake(now, quiet_seconds)
+            if verdict != 'passed': break
+            self._skip_current('moment_passed', now)
+        else:
+            self.waiting = None
+            return False
+        step = self.record['steps'][self.record['cursor']]
+        if not self.due(now):
+            why = 'retry_wait'
+        elif quiet_seconds < floor:
+            why = 'lull'
+        elif step['kind'] not in SILENT_KINDS and quiet_seconds < self.ignored_quiet():
+            why = 'ignored_talks_less'
+        elif verdict == 'ready':
+            why = None
+        if why != self.waiting:
+            self.waiting = why
+            if why: self._emit('agency_beat_waiting', plan_id=self.record['id'], step=self.record['cursor'], reason=why)
+        return why is None
+
+    def defer(self, step, wake, now):
+        """The performer chose a better moment for this beat (once per beat)."""
+        record = self.record
+        if not step or not record or step['plan_id'] != record['id'] or step['index'] != record['cursor']:
+            raise ValueError('StaleAgencyStep')
+        if record.get('wake_override'): raise ValueError('BeatAlreadyDeferred')
+        wake = {'when': wake.get('when'), 'seconds': wake.get('seconds')}
+        if not valid_wake(wake): raise ValueError('InvalidAgencyWake')
+        record['wake_override'] = wake
+        record['beat_since'] = now
+        self.save()
+        self._emit('agency_beat_deferred', plan_id=record['id'], step=record['cursor'], wake=wake)
 
     def _drop_orphans(self):
         """Skip the follow-ups of a beat that never landed (October 13: the camping question was
@@ -566,6 +658,7 @@ class AgencyPlan:
         record['cursor'] += 1
         record['attempts'] = 0
         record.pop('interrupted_at', None)
+        self._next_beat(now)
         rows = [row, *self._drop_orphans()]
         self.save()
         for item in rows:
@@ -621,19 +714,14 @@ class AgencyPlan:
         else:
             record['cursor'] += 1
             record['attempts'] = 0
+            self._next_beat(now)
         if status == 'interrupted':
             record['interrupted_at'] = now
         orphans = self._drop_orphans() if status == 'skipped' else []
         if heard: self.present.beat_heard()
-        upcoming = record['steps'][record['cursor']] if record['cursor'] < len(record['steps']) else None
-        if status == 'interrupted':
-            # Live October 3: a noise cancelled an unheard beat and its full 15-second
-            # breathing room was then waited before the retry.
-            self.due_at = now + RETRY_SECONDS
-        else:
-            # Easing off slows his talking, not his doing: a move that needs no words is not delayed.
-            ease = 0. if upcoming and upcoming['kind'] in SILENT_KINDS else self.ease_seconds()
-            self.due_at = now + max(3, step['delay_seconds']) + ease
+        # Live October 3: a noise cancelled an unheard beat and its full breathing room was then
+        # waited before the retry. Otherwise the next beat's own wake-up decides when it runs.
+        self.due_at = now + RETRY_SECONDS if status == 'interrupted' else now
         self.save()
         self._emit('agency_step_finished', plan_id=record['id'], **row, due_at=self.due_at,
                    unanswered=self.unanswered)

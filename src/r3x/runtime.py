@@ -29,8 +29,6 @@ SELF_NOISE_LOGPROB = -.1       # Trust floor for a suspected capture (the usual 
 # How long the idle tick waits for a just-started goal plan before returning to listening.
 # Hosted planning takes seconds and finishes in the background; this bounds the pause.
 PLANNING_GLANCE_SECONDS = .25
-# A goal is planned at most this long before its first beat is due.
-PLAN_LEAD_SECONDS = 20.
 SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish before leaving them.
 
 class VoiceRuntime:
@@ -277,20 +275,19 @@ class VoiceRuntime:
                         self.initiative_gate('planning_goal')
                         return
                     from .agency import PLAN_MIN_INTERVAL_SECONDS
-                    if now < agency.due_at - PLAN_LEAD_SECONDS:
-                        # Easing off after unanswered beats: plan shortly before it is needed,
-                        # so the goal is fresh and no planner call is spent on a long rest.
-                        self.initiative_gate('resting')
-                        return
                     if (now >= agency.planner_retry_at and not _after_planning and
                             now-agency.plan_started >= PLAN_MIN_INTERVAL_SECONDS):
                         planning_only = True  # Prepared in the background; executed at a lull.
                     elif quiet_seconds < self.lull_seconds or not agency.due(now):
                         self.initiative_gate('planner_retry_wait')
                         return
-                elif quiet_seconds < self.lull_seconds or not agency.due(now):
-                    self.initiative_gate('goal_waiting_for_lull')
-                    return
+                else:
+                    with self.session._lock:
+                        ready = agency.ready(now, quiet_seconds, self.lull_seconds)
+                    if not ready:
+                        # The beat's own wake-up has not come (or its moment passed and it was let go).
+                        self.initiative_gate('goal_waiting:' + str(agency.waiting))
+                        return
             from .proactive import Opportunity
             from uuid import uuid4
             source = self.session.state.conversation_source

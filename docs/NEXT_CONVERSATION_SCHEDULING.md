@@ -15,5 +15,7 @@ permits a later explicit lapse; it never establishes rejection or an answer. Oth
 uses of this field cannot schedule or suppress general plan work. The dedicated
 invitation record owns review time; there is no second generic timer.
 
-Plan step pacing is documented in the current design. Paid model and live robot
+Plan step pacing is documented in the current design. Since October 14 each planned beat
+carries its own wake-up (quiet, answered, unanswered, pet_in_view) and the beat performer may
+hold a beat once with `wait_for`; see [the improvement plan](IMPROVEMENT_PLAN.md#step-2-rex-sets-his-own-wake-ups-october-14). Paid model and live robot
 acceptance remain separate from blocked-I/O contract checks.

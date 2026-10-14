@@ -548,6 +548,7 @@ class Session:
         schedule_action_ok = True
         agency_step = None
         agency_revision_reason = None
+        agency_deferred = False
         action_outcome = None
         impression = None
         shutdown_requested = False
@@ -1098,6 +1099,13 @@ class Session:
                             visual_selected = context['scene_description']['request_id']
                             result = ToolResult(visual_selected,'ok','VisualDescriptionSaved',revision)
                             self.trace.emit('visual_description_saved',turn_id=turn_id,observation_id=visual_selected,model=model)
+                        elif call.name == 'wait_for':
+                            # Not now: the beat waits for the moment the performer chose.
+                            from .contracts import ToolResult
+                            with self._lock:
+                                self.state.agency.defer(agency_step, call.arguments, self.trace.clock())
+                            agency_deferred = True
+                            result = ToolResult(call.call_id,'ok','BeatDeferred',self.state.store.revision)
                         elif call.name == 'inspect_view':
                             inspection_request = self.state.propose_inspection(call,context,cancel)
                             from .contracts import ToolResult
@@ -1575,6 +1583,9 @@ class Session:
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {}), **({"next_opportunity":None} if "next_opportunity" in call.arguments else {})})},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                     self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
+                elif result.outcome=='ok' and call.name=='wait_for':
+                    delivery.status, delivery.medium = 'suppressed', 'none'
+                    self.trace.emit('reply_suppressed', turn_id=turn_id, reason='beat_waiting:'+str(call.arguments.get('when')))
                 elif result.outcome=='ok' and call.name=='shut_down':
                     # October 13: "I need you to shut down" lowered the visor and he claimed he
                     # could not power off; only the exact words "shut down" reached the fast path.
@@ -1879,7 +1890,7 @@ class Session:
                     changed = self.state.initiative.invitations.finish(invitation_proposal,delivery,self.trace.clock(),valid=invitation_valid)
                     if changed and invitation_proposal.action!='open' and schedule_proposal is None:
                         self.state.initiative.cancel_schedule('invitation_closed')
-            if agency_step and self.state:
+            if agency_step and self.state and not agency_deferred:
                 with self._lock:
                     self.state.agency.finish(agency_step,delivery,action_outcome,self.trace.clock(),agency_revision_reason)
             if opportunity_attempted:

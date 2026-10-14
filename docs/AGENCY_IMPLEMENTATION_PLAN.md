@@ -58,14 +58,16 @@ look, inspect and drive.
    and one current low-detail camera frame (the latest settled frame, even when that view
    was already offered or is unchanged). A reply never waits for planning and human
    speech never cancels it; an explicit stop does.
-4. With a live goal, one beat runs at each eligible lull (five seconds of quiet by default,
-   plus the beat's own 3-45 second delay). Luna performs it with fresh context and the
-   offered tool, adapting it to whatever was just said.
-5. **Easing off.** Each spoken beat nobody answers adds to the wait before the next
-   spoken beat (0, 10, 20, 40, 80 seconds, then two minutes). A beat that needs no words
-   (pose, look, drive) is not delayed, and it is performed silently once two lines have
-   gone unanswered. Any human speech or a new arrival restores the lively pace. A new goal
-   is planned at most 20 seconds before it is due.
+4. With a live goal, each beat runs when its own wake-up comes (October 14, step 2 of the
+   [improvement plan](IMPROVEMENT_PLAN.md)): after some seconds of quiet, once someone
+   answers the previous beat, only if nobody answers it, or when an animal is in view; never
+   inside the five-second lull floor. A beat whose moment never comes is let go without a
+   model call. Luna performs it with fresh context and the offered tool, adapting it to
+   whatever was just said, and after people have spoken may hold it once (`wait_for`).
+5. **Talking less when ignored.** With two or three of his lines unanswered a spoken beat
+   needs 30 s of quiet, with four or more 60 s. Silent beats (pose, look, drive) are not held
+   and are performed silently once two lines have gone unanswered. Any human speech or a new
+   arrival restores the lively pace. (Replaces the October 3 easing ladder.)
 
 **What steers it.** Human turns no longer end the goal. The reply model sees the goal
 (`agency_plan`: objective and next beat) and may move it along when it fits. A goal about

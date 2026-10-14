@@ -17,7 +17,7 @@ result below is synthetic, saved-log or hosted-model evidence until he tests it 
 | --- | --- | --- |
 | 0 | Baseline numbers from session logs | Done October 14 |
 | 1 | One shared picture of the present | Done October 14 (synthetic) |
-| 2 | Rex sets his own wake-ups | Pending |
+| 2 | Rex sets his own wake-ups | Done October 14 (synthetic, paid probes) |
 | 3 | Short-term memory of space for driving | Pending |
 | 4 | Make him funny again | Pending |
 | 5 | Faster replies | Pending |
@@ -84,3 +84,35 @@ Evidence: synthetic only. All existing presence, privacy and pet checks pass unc
 substance; nine new checks in `tests/test_present.py` cover the same-visit rule, a real
 return after an absence, the question-left-hanging wording, unanswered-line reset, pets,
 forgetting, and `right_now` reaching beats and the planner.
+
+## Step 2: Rex sets his own wake-ups (October 14)
+
+Each planned beat now carries a wake-up instead of a fixed delay: `quiet` (after some seconds
+of nobody talking), `answered` (once someone replies to the previous beat), `unanswered` (only
+if nobody has spoken for some seconds after it; let go if they did), or `pet_in_view`. The
+planner chooses them; the picture of the present watches them. A beat whose moment never comes
+(`answered` or `pet_in_view` after 240 s, `unanswered` once answered) is skipped as
+`moment_passed` before any model call is spent on it. When people have spoken since a beat was
+planned, the performer may also hold it once with the new `wait_for` tool, naming the moment.
+
+Kept fixed in code: people first, quiet and floor rules, the five-second lull floor, the
+8-second minimum between planner calls, and one rule for being ignored: with two or three of
+his lines unanswered a spoken beat needs 30 s of quiet, with four or more 60 s (silent moves are
+never held). Retired: `delay_seconds`, the 0/10/20/40/80/120-second easing ladder
+(`EASE_STEP_SECONDS`, `EASE_MAX_SECONDS`, `ease_seconds`) and the 20-second plan lead
+(`PLAN_LEAD_SECONDS`), which only existed to rest during that ladder.
+
+Evidence:
+
+- Synthetic: 1157 blocked-I/O checks pass, five new in `tests/test_wake.py` (a follow-up waits
+  for an answer and then runs at once; an answer never given lets the follow-up go with no model
+  call; a rescue line runs only when the question fell flat; a dog beat waits for the dog; the
+  performer holds a beat once and it runs when the chosen moment comes).
+- Paid, fictional Sam (`tools/check_agency_beats.py`, labels `step2-wake` and
+  `step2-wake-quiet`, private receipts under `local/validation/`): the planner used all three
+  conversational wake kinds (13 beats: 7 quiet, 4 unanswered, 2 answered); 8 of 8 attempted beats
+  were spoken, one mostly recited, no repeated phrases; three beats were let go as
+  `moment_passed` without a call. The quiet-room-then-dog run spoke 6 lines in five quiet
+  minutes, used interest news and general news, and greeted the dog as Max.
+- Not measured: wall-clock pacing with real people, and how often the live performer uses
+  `wait_for`.

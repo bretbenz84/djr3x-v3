@@ -20,9 +20,9 @@ def draft():
             'scope':'general','narrative':'I wonder what a waltz for three-legged droids would sound like.',
             'objective':'Develop a playful musical idea without interrogating anyone.',
             'evidence_ids':[], 'steps':[
-                {'kind':'contribute','instruction':'Offer the waltz idea.','evidence_ids':[], 'delay_seconds':5},
+                {'kind':'contribute','instruction':'Offer the waltz idea.','evidence_ids':[], 'wake':{'when':'quiet','seconds':5}},
                 {'kind':'contribute','instruction':'Develop the rhythm idea without repeating the invitation.',
-                 'evidence_ids':[], 'delay_seconds':5}]}
+                 'evidence_ids':[], 'wake':{'when':'quiet','seconds':5}}]}
 
 
 class Planner:
@@ -181,6 +181,9 @@ class PlanTests(memory_tests.MemoryFixture):
                          else {'respond_with_intent','revise_agency_plan'})
         spoke={**context,'agency_step':{**context['agency_step'],'people_spoke_since_planned':True}}
         self.assertIn('remain_silent',{x['name'] for x in grounded_tools(spoke)})
+        self.assertIn('wait_for',{x['name'] for x in grounded_tools(spoke)})       # Or hold it for later, once.
+        held={**spoke,'agency_step':{**spoke['agency_step'],'deferred':True}}
+        self.assertNotIn('wait_for',{x['name'] for x in grounded_tools(held)})
         moving={**spoke,'agency_step':{**spoke['agency_step'],'kind':'drive'}}
         self.assertNotIn('remain_silent',{x['name'] for x in grounded_tools(moving)})   # Silent moves always run.
 
@@ -558,9 +561,9 @@ class GoalTests(memory_tests.MemoryFixture):
 
     def linked_plan(self):
         return {**draft(),'steps':[
-            {'kind':'contribute','instruction':'Ask whether he has camping plans.','evidence_ids':[],'delay_seconds':5,'follows_previous':False},
-            {'kind':'contribute','instruction':'React to his camping plans with a vain opinion.','evidence_ids':[],'delay_seconds':5,'follows_previous':True},
-            {'kind':'contribute','instruction':'Tease the waltz idea.','evidence_ids':[],'delay_seconds':5,'follows_previous':False}]}
+            {'kind':'contribute','instruction':'Ask whether he has camping plans.','evidence_ids':[],'wake':{'when':'quiet','seconds':5},'follows_previous':False},
+            {'kind':'contribute','instruction':'React to his camping plans with a vain opinion.','evidence_ids':[],'wake':{'when':'quiet','seconds':5},'follows_previous':True},
+            {'kind':'contribute','instruction':'Tease the waltz idea.','evidence_ids':[],'wake':{'when':'quiet','seconds':5},'follows_previous':False}]}
 
     def test_a_follow_up_is_dropped_when_its_setup_never_landed(self):
         # October 13: the camping question was cut off twice, then "a proper forest trip is a
@@ -696,37 +699,38 @@ class GoalTests(memory_tests.MemoryFixture):
 
     def test_ignored_rex_talks_less_but_keeps_doing(self):
         # Owner, October 3: with nobody answering he sat "not doing anything for what feels
-        # like forever". Easing off now delays spoken beats only; a silent move is not delayed,
+        # like forever". Ignored, a spoken beat needs a longer quiet; a silent move does not,
         # the performer is told to keep it wordless, and the planner hears how his lines landed.
         from r3x.agency import SILENT_KINDS
         from r3x.output import Delivery
         self.setup_owner()
         agency=self.state.agency
-        steps=[{'kind':'contribute','instruction':'Tease.','evidence_ids':[],'delay_seconds':4},
-               {'kind':'pose','instruction':'Look left, silently.','evidence_ids':[],'delay_seconds':4},
-               {'kind':'contribute','instruction':'Opine.','evidence_ids':[],'delay_seconds':4}]
+        steps=[{'kind':'contribute','instruction':'Tease.','evidence_ids':[],'wake':{'when':'quiet','seconds':4}},
+               {'kind':'pose','instruction':'Look left, silently.','evidence_ids':[],'wake':{'when':'quiet','seconds':4}},
+               {'kind':'contribute','instruction':'Opine.','evidence_ids':[],'wake':{'when':'quiet','seconds':4}}]
         agency.install({**draft(),'steps':steps},'[]',{},['contribute','pose'],agency.revision,100)
         agency.present.unanswered=3
         self.assertEqual(agency.engagement()['unanswered_lines'],3)
         heard=Delivery(status='completed',medium='audio');heard.completed_text=['A line.']
         agency.finish(agency.step(100),heard,None,100)
         self.assertIn('pose',SILENT_KINDS)
-        self.assertEqual(agency.due_at,104)                    # The move comes after its breathing room only.
+        self.assertTrue(agency.ready(104,4,4))                  # The move needs only its own wake-up.
         self.assertEqual(agency.step(104)['unanswered_lines'],4)
         moved=Delivery(status='suppressed',medium='none')
         agency.finish(agency.step(104),moved,{'kind':'set_robot_pose','executor':{'status':'pulses_reached','changed_channels':[0]}},104)
-        self.assertEqual(agency.unanswered,4)                  # A silent move is not another unanswered line.
-        self.assertEqual(agency.due_at,104+4+agency.ease_seconds())   # Talking again waits.
-        self.assertEqual(agency.ease_seconds(),40.)
-        agency.present.unanswered=20
-        self.assertEqual(agency.ease_seconds(),120.)           # Two minutes at most; it was five.
+        self.assertEqual(agency.unanswered,4)                   # A silent move is not another unanswered line.
+        self.assertFalse(agency.ready(140,36,4))                # Talking again waits for a long quiet...
+        self.assertEqual(agency.waiting,'ignored_talks_less')
+        self.assertTrue(agency.ready(170,66,4))                 # ...a minute of it, not two or five.
+        agency.present.unanswered=2
+        self.assertTrue(agency.ready(140,36,4))
 
     def test_an_unheard_beat_cut_off_by_a_sound_is_retried_within_seconds(self):
         # Live October 3: a noise cancelled a beat and its 15-second breathing room was then waited.
         from r3x.output import Delivery
         self.setup_owner()
         agency=self.state.agency
-        steps=[{'kind':'contribute','instruction':'Ask.','evidence_ids':[],'delay_seconds':15}]
+        steps=[{'kind':'contribute','instruction':'Ask.','evidence_ids':[],'wake':{'when':'quiet','seconds':15}}]
         agency.install({**draft(),'steps':steps},'[]',{},['contribute'],agency.revision,100)
         agency.finish(agency.step(100),Delivery(status='interrupted',medium='none'),None,100)
         self.assertEqual(agency.record['outcomes'][-1]['status'],'interrupted')
@@ -754,7 +758,7 @@ class GoalTests(memory_tests.MemoryFixture):
                 self.tick(self.trace.at+5)
             gaps.append(self.trace.at-start)
         self.assertLess(gaps[0],20)
-        self.assertGreater(gaps[-1],100)
+        self.assertGreaterEqual(gaps[-1],60)
         self.assertEqual(gaps,sorted(gaps))
         agency.human_spoke(None,self.trace.at)
         self.assertEqual(agency.unanswered,0)

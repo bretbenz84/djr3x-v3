@@ -139,6 +139,13 @@ TOOLS += (schema('respond_with_intent',
     'Use when a visitor first supplies their conversational direction or explicitly changes the topic: replace a generic welcome agenda with that concrete direction while answering naturally. Otherwise stream ordinary prose. Not biography or a questionnaire. '
     'No extra generation. Memory-based proactive speech must use use_memory_opportunity instead.',
     {'text': TEXT, 'intent_update': update_schema()}),)
+TOOLS += (schema('wait_for',
+    'Not now: hold this beat of your own goal for a better moment instead of doing it now, the way a person waits '
+    'for the right moment. when=answered: once someone replies to your last line; quiet: after `seconds` of nobody '
+    'talking; unanswered: only if nobody speaks for `seconds` (let go if they do); pet_in_view: when an animal is '
+    'in view. Once per beat; a beat whose moment never comes is let go without a word. Nothing is said now.',
+    {'when':{'type':'string','enum':['quiet','answered','unanswered','pet_in_view']},
+     'seconds':{'type':'integer','minimum':3,'maximum':180},'reason':TEXT}),)
 TOOLS += (schema('revise_agency_plan',
     'End your current goal because this beat no longer fits: its person left or refused it, its premise or evidence is gone, or its capability is unavailable. A fresh goal is planned and this lull gets one improvised beat. State the concrete reason for the next plan.',
     {'reason':TEXT}),)
@@ -220,6 +227,10 @@ def grounded_tools(context):
         # was planned: the live run after that let 13 of 22 beats go and sat in silence.
         if context['agency_step']['kind'] in {'contribute', 'gesture'} and context['agency_step'].get('people_spoke_since_planned'):
             names = names | {'remain_silent'}
+            # Or hold it for a better moment, once (October 14 plan, step 2). Only after people
+            # spoke, like letting go: a beat nobody has talked over still has its planned moment.
+            if not context['agency_step'].get('deferred'):
+                names = names | {'wait_for'}
         # Only a goal about a person can lose its premise (they left or refused). Live October 3
         # the performer revised impersonal look beats for no real reason, three times in ten
         # minutes; each discarded the goal and fell back to a repeated remark.
@@ -227,7 +238,7 @@ def grounded_tools(context):
                           and context['agency_step'].get('scope')=='audience' else set())
         definitions = copy.deepcopy([d for d in TOOLS if d['name'] in names | revision_tools])
     else:
-        definitions = [d for d in definitions if d['name'] != 'revise_agency_plan']
+        definitions = [d for d in definitions if d['name'] not in {'revise_agency_plan', 'wait_for'}]
     people = [p["id"] for p in context.get("people",[])]
     claims = [c["id"] for c in context.get("claims",[])]
     faces = [f["track_id"] for f in context.get("faces",[])]
