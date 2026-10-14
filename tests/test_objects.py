@@ -48,3 +48,23 @@ class ObjectTests(unittest.TestCase):
         clock[0]+=1.5;update();clock[0]+=1.5;update()
         with self.assertRaisesRegex(ValueError,'ObjectTargetExpired'):observer.inspect(old)
         with self.assertRaisesRegex(ValueError,'ObjectTargetExpired'):observer.inspect('never-offered')
+
+    def test_a_pet_between_flickering_detections_is_still_there_for_ten_seconds(self):
+        # October 13: Max, held in Bret's arms, was detected about every other second. "This is
+        # Max" fell between detections and the teaching look failed with ObjectTargetExpired.
+        clock=[100.];detections=[{'label':'dog','score':.7,'box':[.4,.4,.2,.2]}]
+        detector=SimpleNamespace(capability=Capability('test','fake','test',None,()),detect=lambda f:detections)
+        observer=Objects(SimpleNamespace(session_id='session'),detector,clock=lambda:clock[0])
+        def update(name):observer.observe(Frame(name,'fake','session',clock[0],2,2,bytes(12)))
+        update('a');clock[0]+=1.5;update('with-dog')
+        dog=observer.snapshot()[0]['target_id']
+        detections.clear();clock[0]+=1.5;update('without-dog')
+        rows=observer.snapshot()
+        self.assertEqual([(r['target_id'],r.get('recently_seen')) for r in rows],[(dog,True)])
+        from unittest.mock import patch
+        with patch('r3x.objects.crop_image',lambda frame,box=None:frame.frame_id):
+            image,target,overview=observer.inspect(dog)
+        self.assertEqual((image,overview,target['target_id']),('with-dog','with-dog',dog))   # Its own frame.
+        clock[0]+=9.;update('later')
+        self.assertEqual(observer.snapshot(),())
+        with self.assertRaisesRegex(ValueError,'ObjectTargetExpired'):observer.inspect(dog)

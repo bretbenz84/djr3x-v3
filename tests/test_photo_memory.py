@@ -332,3 +332,25 @@ class PhotoTests(MemoryFixture):
                     cancel.event.set();cancel.check()
         s,r=self.session(Brain(),'This is Max.')
         self.assertEqual(r.status,'interrupted');self.assertFalse(self.album.catalog());self.assertFalse(r.completed_text);s.close()
+
+    def test_a_look_that_tries_to_save_without_a_name_just_answers(self):
+        # October 13: "Yeah, but you know which dog" got a save attempt, then "Please say the pet
+        # or object's name with that description so I can save it".
+        key=self.teach()
+        calls=[]
+        class Brain:
+            def reply(brain,snapshot,cancel):
+                calls.append(snapshot)
+                if len(calls)==1:
+                    yield ToolCall('look','inspect_visual_memory',{'intent':'look','target_id':'object-1','entity_ids':[key],'question':'Which dog is it?'})
+                elif len(calls)==2:
+                    yield ToolCall('save-unnamed','remember_object',{'evidence_id':snapshot.context['photo_inspection']['evidence_id'],
+                        'entity_id':key,'name':'Max','kind':'pet','notes':'Held against his chest.',
+                        'source_turn_id':snapshot.context['source_turn_id'],'text':'Saved Max.'})
+                else:
+                    assert not snapshot.tools_enabled
+                    yield "That's Max."
+        session,receipt=self.session(Brain(),'Yeah, but you know which dog.')
+        self.assertEqual(receipt.completed_text,["That's Max."])
+        self.assertEqual(self.album.catalog()[0]['reference_count'],1)   # Nothing saved.
+        session.close()

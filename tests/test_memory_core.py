@@ -253,3 +253,28 @@ class VoiceGrowthTests(MemoryFixture):
         for vector in ((.9, .3, .3), (.9, -.3, .3), (.9, .3, -.3), (.9, -.3, -.3), (.8, 0., .6)):
             self.say(vector)
         self.assertEqual(len(self.recordings(person)), 6)  # Three new clips this run, no more.
+
+
+class InterestBackfillTests(MemoryFixture):
+    """October 13: Bret's likes were plain facts, so no news about them was ever searched."""
+    def test_an_accepted_self_report_can_be_marked_as_an_interest_and_nothing_else_can(self):
+        import io, json
+        from contextlib import redirect_stdout
+        from r3x.management import main
+        from r3x.settings import ScratchPaths
+        person = self.enroll()
+        source = self.begin('I like astrophotography, telescopes, and astronomy.')
+        result = self.call('record_claim', {'subject_id': person, 'predicate': 'likes',
+            'value': 'astrophotography, telescopes, and astronomy', 'kind': 'self_report', 'source_turn_id': source})
+        claim = result.data['claim_id']
+        self.store.close()
+        paths = ScratchPaths(self.path.parent)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            main(['mark-interest', claim, 'astrophotography and telescopes'], paths)
+        self.assertEqual(json.loads(out.getvalue())['topic'], 'astrophotography and telescopes')
+        with self.assertRaisesRegex(ValueError, 'UnknownClaimId'):
+            main(['mark-interest', 'missing', 'anything'], paths)
+        self.store = Memory(self.path); self.store.start()
+        from r3x.news import interest_topics
+        self.assertEqual(interest_topics(self.store, [{'identity': person}]), {'astrophotography and telescopes': [person]})

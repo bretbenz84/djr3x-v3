@@ -37,6 +37,11 @@ def main(argv,paths):
     reembed = commands.add_parser("reembed")
     reembed.add_argument("person_id")
     reembed.add_argument("--out",type=Path,required=True)
+    interest = commands.add_parser("mark-interest",
+        help="Mark an accepted self-reported fact as an interest, so news about it can be offered")
+    interest.add_argument("claim_id")
+    interest.add_argument("topic", help="Short web-search phrase, e.g. 'astrophotography and telescopes'")
+    commands.add_parser("interests")
     for name in ("apply-import","apply-reembed"):
         commands.add_parser(name).add_argument("preview",type=Path)
     args = parser.parse_args(argv)
@@ -90,6 +95,24 @@ def main(argv,paths):
                     memory.forget(conn,args.person_id)
                     memory.advance(conn)
                 result = {"forgotten":args.person_id,"scope":"active memory, accepted originals, derived profiles, and registered recording/export/preview files"}
+            elif args.action=="interests":
+                result = memory.rows("SELECT c.id AS claim_id,c.subject_id,c.predicate,c.value,i.topic FROM claims c "
+                                     "LEFT JOIN interests i ON i.claim_id=c.id WHERE c.status='accepted' AND c.kind='self_report'")
+            elif args.action=="mark-interest":
+                # October 13: Bret's liking astronomy and camping were saved as plain facts, so no
+                # news about them was ever searched. Only his own accepted self-reports qualify.
+                from .news import normalize_topic
+                topic = normalize_topic(args.topic)
+                if not 2 <= len(topic) <= 80: raise ValueError("InvalidInterestTopic")
+                rows = memory.rows("SELECT subject_id,said_by,kind,status FROM claims WHERE id=?", (args.claim_id,))
+                if not rows: raise ValueError("UnknownClaimId")
+                claim = rows[0]
+                if claim["status"]!="accepted" or claim["kind"]!="self_report" or claim["said_by"]!=claim["subject_id"]:
+                    raise ValueError("InterestNeedsAcceptedSelfReport")
+                with memory.transaction() as conn:
+                    conn.execute("INSERT OR REPLACE INTO interests VALUES(?,?)", (args.claim_id, topic))
+                    revision = memory.advance(conn)
+                result = {"claim_id":args.claim_id,"topic":topic,"revision":revision}
             elif args.action=="delete-recording":
                 result = profiles.delete_recording(memory,args.recording_id)
             elif args.action=="reset-voice":

@@ -171,13 +171,18 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertNotIn('revise_agency_plan',names)
         self.assertEqual(len(self.executor.snapshots),2)
 
-    def test_planned_execution_offers_its_action_or_letting_the_beat_go_but_no_wheels(self):
+    def test_planned_execution_offers_its_action_and_letting_go_only_once_people_spoke(self):
         self.setup_owner();self.tick(100)
         context=self.executor.snapshots[0].context
         names={x['name'] for x in grounded_tools(context)}
-        # Only a goal about a person can lose its premise; any beat the talk overtook can be let go.
-        self.assertEqual(names,{'respond_with_intent','remain_silent'} if context['agency_step']['scope']=='general'
-                         else {'respond_with_intent','remain_silent','revise_agency_plan'})
+        # Only a goal about a person can lose its premise. Nobody has spoken since it was planned,
+        # so the beat is not optional (October 13: 13 of 22 beats let go, long silences).
+        self.assertEqual(names,{'respond_with_intent'} if context['agency_step']['scope']=='general'
+                         else {'respond_with_intent','revise_agency_plan'})
+        spoke={**context,'agency_step':{**context['agency_step'],'people_spoke_since_planned':True}}
+        self.assertIn('remain_silent',{x['name'] for x in grounded_tools(spoke)})
+        moving={**spoke,'agency_step':{**spoke['agency_step'],'kind':'drive'}}
+        self.assertNotIn('remain_silent',{x['name'] for x in grounded_tools(moving)})   # Silent moves always run.
 
     def test_conversation_bursts_and_feeds_do_not_exhaust_a_rolling_attempt_budget(self):
         self.setup_owner()
@@ -967,4 +972,4 @@ class PlannerAdapterTests(memory_tests.unittest.TestCase):
         payload=brain.client.calls[0][1]['json']
         self.assertEqual(payload['model'],'gpt-6-luna')
         self.assertEqual(payload['tool_choice']['mode'],'required')
-        self.assertEqual({t['name'] for t in payload['tool_choice']['tools']},{'respond_with_intent','remain_silent','revise_agency_plan'})
+        self.assertEqual({t['name'] for t in payload['tool_choice']['tools']},{'respond_with_intent','revise_agency_plan'})

@@ -139,7 +139,12 @@ a limitation: this learns voice-to-claimed-person associations, not legal identi
 .venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl
 .venv/bin/python -m r3x profiles list
 .venv/bin/python -m r3x profiles recordings PERSON_ID
+.venv/bin/python -m r3x profiles interests
+.venv/bin/python -m r3x profiles mark-interest CLAIM_ID "news search phrase"
 ```
+
+`mark-interest` turns an accepted self-reported fact (for example "likes astrophotography")
+into an interest, so news about it can be searched and offered while that person is present.
 
 Profiles use stable IDs; labels and explicit aliases are lookup data. The core
 keeps at most 100 active participant records, 12 current acoustic tracks with five recent

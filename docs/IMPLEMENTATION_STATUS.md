@@ -866,3 +866,20 @@ clock) replays the October 13 conversation shape. Before (2 runs, 14 beats): 5 b
 off-topic. After (final arm, 3 runs, 21 beats): 11 spoken, none mostly recited, 0–1 off-topic, 10 let go, no
 repeated phrases. About $2 of hosted calls across all arms, estimated from returned usage. Text only; live
 timing, interruptions and the owner's judgment are untested.
+
+October 13 (late) live-reaction repair, from session `8f94717a` (Max held for minutes, never noticed;
+long silences; no interests or news). Animals: a dog or cat settled in view for 2.5 s (cat/dog label
+flicker and short dropouts count as one sighting) starts a `pet_arrival` moment after people and before
+goals, at most every 5 minutes: one look against saved pets, then a greeting by name or a playful "is that
+Max?". A pet stays targetable for 10 s between flickering detections, so teaching "This is Max" no longer
+fails as ObjectTargetExpired. A look that tries to save without a name now answers in words. The planner
+sees saved pets and the detector caveat. Silences: silent moves always run and a spoken beat may be let go
+only after people spoke since it was planned (13 of 22 beats had been dropped); talking to a pet holds Rex
+quiet 20 s, not 120 s; after 45 s without speech the planner opens something new, most personal first
+(news about their interests, their interests, general news). Bret's astronomy and camping facts had never
+been marked as interests, so no interest news was ever searched; the new `r3x profiles mark-interest`
+command marked both (revisions 64–65), and stated likes now prefer `remember_interest`. Paid probe
+`tools/check_agency_beats.py --scenario quiet_then_dog` (fictional Sam, drawn dog picture, fake news):
+2 final runs, 5–6 lines in five quiet minutes each, interest news and general news both used, the dog
+greeted with Max's name both times, never called a cat. Conversation scenario: 0 recited, 0 off-topic.
+Synthetic pictures cannot show whether Max is recognized from a real camera frame.

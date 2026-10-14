@@ -46,8 +46,9 @@ class VoiceRuntime:
         self.cancel_before = float("-inf")
         self.control_lock = threading.Lock()
         self.asr_busy = threading.Event()
-        from .proactive import Arrivals
+        from .proactive import Arrivals, PetArrivals
         self.arrivals = Arrivals()
+        self.pets = PetArrivals()
         self.camera = getattr(perception,'camera',None)
         self.started_at = self.trace.clock()
         self.audio_seen_at = float('-inf')
@@ -222,6 +223,8 @@ class VoiceRuntime:
         now = self.trace.clock()
         with self.control_lock:
             self.arrivals.observe(self.camera.latest(now) if self.camera else (), now)
+            objects = getattr(self.session.state, 'objects', None)
+            self.pets.observe(objects.snapshot() if objects else (), now)
             initiative = self.session.state.initiative
             agency = self.session.state.agency
             agency.observe_faces(self.arrivals.faces, now)
@@ -261,6 +264,9 @@ class VoiceRuntime:
                 # the same visit, not an arrival to greet again.
                 self.trace.emit('arrival_skipped', person_id=event.person_id, reason='spoke_recently')
                 event = None
+            if event is None and agency.someone_around(now, self.started_at):
+                # Then an animal coming into view: Max in someone's arms is worth a remark.
+                event = self.pets.take(self.session.session_id, now, self.session._latest_speech, audience)
             if event is None:
                 if not agency.someone_around(now, self.started_at):
                     self.initiative_gate('nobody_around')
@@ -313,7 +319,7 @@ class VoiceRuntime:
             if scene and not planning_only:
                 self.scene_observer.attempted(scene[0])
             revision = self.session.revision
-            self.initiative_gate('preparing_goal' if planning_only else 'greeting' if event.kind=='visual_arrival' else 'pursuing_goal')
+            self.initiative_gate('preparing_goal' if planning_only else 'greeting' if event.kind in {'visual_arrival','pet_arrival'} else 'pursuing_goal')
         self.trace.emit('agency_preparation_opportunity' if planning_only else 'proactive_opportunity',event_id=event.event_id,kind=event.kind,
                         face_track_id=event.target_track,person_id=event.person_id)
         # Faces in view when the beat began: a newcomer is one more face, not a new track ID.

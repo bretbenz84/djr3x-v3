@@ -1,5 +1,6 @@
 """One sequential conversational owner shared by live input and scenarios."""
 from queue import Queue
+import json
 import re
 import threading
 import time
@@ -25,6 +26,8 @@ STOP_WRAPPERS = frozenset({"oh","hey","no","whoa","rex","okay","ok","please","no
 QUIET_COMMANDS = frozenset({"shut up","stop talking","be quiet","quiet","hush"})
 # Shutdown waits at most this long for the conversation lock, then goes ahead without it.
 SHUTDOWN_LOCK_SECONDS = .5
+LULL_FRESH_TOPIC_SECONDS = 45.   # Nobody has spoken this long: Rex's next goal opens something new.
+ANIMAL_ASIDE_HOLD_SECONDS = 20.   # Quiet after someone talks to a pet, before Rex may chime in.
 REPEAT_LINES = 6    # Rex's recent heard lines a planned beat must not repeat.
 REPEAT_RUN = 5      # Words in a row that count as repeating one of them.
 
@@ -213,11 +216,33 @@ class Session:
             'room': {'image_attached': bool(images),
                      'objects': [t for t in targets if t.get('kind') == 'object'],
                      'visual_memory': [r for r in context.get('visual_memory', []) if r.get('audience') == 'general'][:8],
+                     # October 13: Max in Bret's arms was planned as "the cat": the detector says both.
+                     'saved_pets': [{'name': e.get('name'), 'notes': e.get('notes')}
+                                    for e in (context.get('photo_memory') or {}).get('entities', []) if e.get('kind') == 'pet'],
+                     'pet_note': 'The detector often calls a dog a cat and back. An animal in view may be a saved pet; '
+                                 'a look (inspect) against saved photos says which.',
                      'meaning': 'Detector labels are coarse and miss photos, paintings and small things; the image shows more. '
                                 'Seek a described thing to drive to something without a target.'},
             'current_goal': agency.context(now),
             'recent_goals': agency.goal_history(now),
             'engagement': agency.engagement(),
+            # October 13: in long silences the planner kept riffing on the last line said;
+            # interests and news never came up.
+            # In a lull, what to open with, most personal first (October 13 probe: with a story
+            # about Sam's own interest offered, the planner chose a library-hours headline).
+            'for_a_lull': {'news_about_their_interests': [
+                               {'evidence_id': c.get('cue_id'), 'interest': c.get('topic'),
+                                'headline': (json.loads(c['text']).get('headline') if str(c.get('text', '')).startswith('{') else None)}
+                               for c in context.get('observations', []) if c.get('kind') == 'interest_news'],
+                           'their_interests': [r.get('value') for r in memory.get('interests_and_facts', [])
+                                               if memory.get('person_id') == subject_person][:6],
+                           'pets_in_view': [t.get('label') for t in targets if t.get('kind') == 'object'
+                                            and t.get('label') in {'dog', 'cat'}]},
+            'quiet': {'seconds_since_anyone_spoke': round(now - self.last_trusted_speech_at)
+                          if self.last_trusted_speech_at > float('-inf') else None,
+                      'lull': now - self.last_trusted_speech_at >= LULL_FRESH_TOPIC_SECONDS,
+                      'meaning': 'lull true: the conversation has died down; open something new rather than '
+                                 'continuing the last thing said.'},
             'boundaries': context.get('participation', {}),
             'actual_actions': context.get('action_continuity', {}),
             'pending_question': context.get('pending_question'),
@@ -614,6 +639,7 @@ class Session:
                             "source_turn_id":opportunity.source_turn_id,
                             "faces":context['faces']}
                 if opportunity.kind=='visual_arrival': evidence['arrival']=context['visual_arrival']
+                if opportunity.kind=='pet_arrival': evidence['pet']=context['pet_arrival']
                 if not planning_only: self.history.append({'role':'developer','content':
                     ('Startup greeting: a stable person is visible and no human has spoken in this run. '
                      'Say a brief hello now; choose natural wording and optionally invite an unknown person to share their name. '
@@ -626,6 +652,12 @@ class Session:
                     'by name with a "how are you" when you know them, or a hello and a name question when you do not. '
                     'This is a greeting, not a reply to the earlier conversation. '
                      if opportunity.kind=='visual_arrival' else
+                    'An animal just came into view (see pet). React the way a friend would when the dog walks in. '
+                    'When saved pets are offered, first take a look with inspect_visual_memory (intent look, that '
+                    'target, the saved pets) to see which one it is; then greet it by name and ask the person '
+                    'something about it ("Oh look, it\'s Max! How\'s he behaving tonight?"). Not a saved pet: remark on '
+                    'it warmly. The detector\'s cat/dog label is unreliable; never name the species from it alone. '
+                     if opportunity.kind=='pet_arrival' else
                     'Proactive opportunity; nobody spoke. The previous exchange was already processed. '
                     'There is no new human reply; do not answer the earlier utterance again. '
                     'Continue the next grounded step of the private agency plan; do not repeat the previous answer. ')+'Observation: '+json.dumps(evidence)})
@@ -768,7 +800,7 @@ class Session:
             from .conversation_intent import audience as intent_audience
             request_audience = intent_audience(context)
             if (self.state and self.agency_planner and opportunity
-                    and opportunity.kind not in {'visual_arrival', 'unseen_presence'}):
+                    and opportunity.kind not in {'visual_arrival', 'pet_arrival', 'unseen_presence'}):
                 # Arrivals are greeted directly (people first); the runtime then hands the
                 # person to a new goal. Every other opportunity advances Rex's own goal.
                 from .agency import audience_key, capabilities_for
@@ -1513,7 +1545,10 @@ class Session:
                     from dataclasses import asdict
                     import json
                     delivery.status, delivery.medium = "suppressed", "none"
-                    if call.name=='remain_silent' and result.data['reason']!='no_response_needed':
+                    if call.name=='remain_silent' and result.data['reason']=='talking_to_animal':
+                        # October 13: "Max, why are you crying?" held Rex silent for two minutes.
+                        self.proactive_hold_until = self.trace.clock()+ANIMAL_ASIDE_HOLD_SECONDS
+                    elif call.name=='remain_silent' and result.data['reason']!='no_response_needed':
                         self.proactive_hold_until = self.trace.clock()+120
                         self.state.initiative.cancel_schedule('quiet_or_human_floor')
                     self.history.extend((
@@ -1620,8 +1655,8 @@ class Session:
                     if result.outcome!='ok' and call.name=='respond_with_intent':
                         from dataclasses import replace
                         followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
-                            'The optional conversation note was rejected. Its draft text was NOT spoken. '
-                            'Answer the human normally now in plain prose. Do not repeat a promise of future '
+                            'The optional conversation note was rejected. Its draft text was NOT spoken. Do not mention '
+                            'the note, notes or the rejection. Answer the human normally now in plain prose. Do not repeat a promise of future '
                             'work, claim a save or action succeeded, or use unsupported facts from the rejected note.'}))
                     self.trace.emit("model_request",turn_id=turn_id,primary_calls=0,purpose="tool_result_continuation",
                                     reasoning_effort=getattr(self.brain,"reasoning_effort",None))

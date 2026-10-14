@@ -440,7 +440,7 @@ class CoreState:
         faces = [public_face(f) for f in event.faces if f.get('face_epoch',0)>=self.min_face_epoch]
         people = self.store.people()
         person_ids = {p['id'] for p in people}
-        if event.kind not in {'visual_arrival','conversation_lull','ambient','unseen_presence','reconsideration'}: raise ValueError('UnknownOpportunity')
+        if event.kind not in {'visual_arrival','pet_arrival','conversation_lull','ambient','unseen_presence','reconsideration'}: raise ValueError('UnknownOpportunity')
         if event.person_id and event.person_id not in person_ids: raise ValueError('VisualPersonNoLongerAvailable')
         if event.kind=='visual_arrival' and not any(f['track_id']==event.target_track for f in faces):
             raise ValueError('VisualTargetStale')
@@ -471,6 +471,14 @@ class CoreState:
                                      'returning_this_session':event.returning,
                                      'startup_greeting':self.conversation_source is None and not event.returning
                                          and not any(r['heard_complete_phrases'] for r in self.initiative.outcomes)}} if event.kind=='visual_arrival' else {}),
+                **({'pet_arrival':{'target_id':event.target_track,
+                                   'detector_label':(event.pet or {}).get('label'),
+                                   'saved_pets':[{'entity_id':e.get('entity_id'),'name':e.get('name')}
+                                                 for e in (self.photo_memory.catalog() if self.photo_memory else ())
+                                                 if e.get('kind')=='pet'],
+                                   'meaning':'An animal came into view. The detector confuses dogs and cats; '
+                                             'only a look against saved photos can say which pet it is.'}}
+                   if event.kind=='pet_arrival' else {}),
                 'speaker':{'person_id':None,'state':'unresolved','reason':'no_speech_observed'},
                 'faces':faces,'people':people,'claims':[],
                 'pending_question':self.pending,'frozen_evaluation':self.frozen})

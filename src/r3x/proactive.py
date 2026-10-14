@@ -25,6 +25,7 @@ class Opportunity:
     scene_id: str | None = None
     scene_images: tuple = ()
     audience_key: tuple = ()
+    pet: dict | None = None   # pet_arrival: the detection that arrived.
 
 
 # Nullable additions keep ordinary streamed prose unchanged. These are resource
@@ -174,6 +175,50 @@ class Initiative:
         self.feedback.clear()
         self.lull_source = None
         self.lull_attempts = 0
+
+
+class PetArrivals:
+    """An animal coming into view is something to react to, like a person walking in.
+
+    Owner, October 13: Max sat in his arms for minutes and Rex never noticed; only faces
+    could start an arrival. The detector calls one animal "dog" and "cat" in turn and drops
+    it every other second, so any pet label counts and short gaps do not end the visit.
+    """
+    stable_seconds = 2.5     # In view this long before it counts.
+    gap_seconds = 4.         # Detection dropouts shorter than this are the same sighting.
+    absent_seconds = 120.    # Gone this long, a reappearance is a new arrival.
+    cooldown = 300.          # At most one pet arrival this often.
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.since = self.last_seen = None
+        self.fresh = False
+        self.last_attempt = float('-inf')
+        self.target = None
+
+    def observe(self, rows, now):
+        from .objects import PET_LABELS
+        with self.lock:
+            pets = [r for r in rows if r.get('label') in PET_LABELS and not r.get('recently_seen')]
+            if not pets:
+                return
+            at = max(r.get('at', now) for r in pets)
+            if self.last_seen is None or at - self.last_seen > self.gap_seconds:
+                if self.last_seen is None or at - self.last_seen >= self.absent_seconds:
+                    self.fresh = True
+                self.since = at
+            self.last_seen = max(self.last_seen or at, at)
+            self.target = dict(max(pets, key=lambda r: r['box'][2]*r['box'][3]))
+
+    def take(self, session_id, now, speech_marker, faces=()):
+        with self.lock:
+            if (not self.fresh or self.since is None or now - self.last_seen > self.gap_seconds
+                    or self.last_seen - self.since < self.stable_seconds or now - self.last_attempt < self.cooldown):
+                return None
+            self.fresh, self.last_attempt = False, now
+            return Opportunity(uuid4().hex, session_id, now, self.target['target_id'], None, tuple(faces),
+                               speech_marker, False, 'pet_arrival',
+                               pet={k: self.target.get(k) for k in ('target_id', 'label', 'box', 'at')})
 
 
 class Arrivals:

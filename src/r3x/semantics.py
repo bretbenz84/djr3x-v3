@@ -82,7 +82,7 @@ TOOLS = (
            {"text":TEXT,"face_track_id":TEXT}),
     schema("reset_face_identity", "On an explicit correction that a visible face has been assigned the wrong person, remove that person's saved face references so a new introduction can rebuild them. Does not rename the person or change voice profiles. Never infer a correction from a low score.",
            {"person_id":TEXT,"face_track_id":TEXT}),
-    schema("record_claim", "Propose a lasting personal fact about an explicit subject. A property's meaning must stand independently of this conversation: who was just mentioned/addressed is conversational context, not biography. Names/introductions use introduce_person. Questions, jokes and their asides, insults, passing remarks, and generated fiction are not facts to save. Use the current source_turn_id; unresolved speakers remain candidate claims.",
+    schema("record_claim", "Propose a lasting personal fact about an explicit subject. A property's meaning must stand independently of this conversation: who was just mentioned/addressed is conversational context, not biography. Names/introductions use introduce_person. Something the speaker says they enjoy, love, follow or count among their favorites (a show, a team, a hobby) uses remember_interest instead, so news about it can come up later. Questions, jokes and their asides, insults, passing remarks, and generated fiction are not facts to save. Use the current source_turn_id; unresolved speakers remain candidate claims.",
            {"subject_id":TEXT,"subject_reference":{"type":["string","null"],"description":"For third_party, the explicit person name/alias in this utterance; must resolve uniquely. For self_report, null."},
             "predicate":TEXT,"value":TEXT,"kind":{"type":"string","enum":["self_report","third_party"]},"source_turn_id":TEXT}),
     schema("correct_claim", "Correct a specific prior claim using the current utterance; preserves its source/history. Only its supported source speaker or subject can correct it.",
@@ -123,8 +123,8 @@ TOOLS = (
            {"target":TEXT,"script":{"type":"string","minLength":1},"intro":NULL_TEXT,"outro":NULL_TEXT,
             "requested":{"type":"boolean","description":"true only when a human asked for this impression in this or the immediately preceding turn; false for a spontaneous cameo."},
             "source_turn_id":TEXT}),
-    schema("remain_silent", "End this turn without speech for an unfinished thought/thinking pause, clear external conversation/device announcements, or an uninvited fragment. Use unfinished_thought when a clause is still waiting for its action/object/destination or the speaker asks for time to think; do not ask them to finish. Explicit requests to stop unsolicited conversation use set_initiative(quiet) when available; addressee corrections require silence, never an acknowledgment. Listening acknowledgments and incidental coughs normally use no_response_needed; interpret meaning in context, not by word matching. Short answers authorizing an action still require the action. Complete introductions and ordinary questions normally deserve speech. Unknown speaker identity does not justify silence. No follow-up model call; no acoustic synthetic-voice claim.",
-           {"reason":{"type":"string","enum":["other_addressee","device_speech","background_conversation","no_response_needed","unfinished_thought"]}}),
+    schema("remain_silent", "End this turn without speech for an unfinished thought/thinking pause, clear external conversation/device announcements, or an uninvited fragment. Use unfinished_thought when a clause is still waiting for its action/object/destination or the speaker asks for time to think; do not ask them to finish. Use talking_to_animal when they are speaking to a pet (\"Max, why are you crying?\"): a brief aside, after which you may chime in again; other_addressee is for talking to another person. Explicit requests to stop unsolicited conversation use set_initiative(quiet) when available; addressee corrections require silence, never an acknowledgment. Listening acknowledgments and incidental coughs normally use no_response_needed; interpret meaning in context, not by word matching. Short answers authorizing an action still require the action. Complete introductions and ordinary questions normally deserve speech. Unknown speaker identity does not justify silence. No follow-up model call; no acoustic synthetic-voice claim.",
+           {"reason":{"type":"string","enum":["other_addressee","talking_to_animal","device_speech","background_conversation","no_response_needed","unfinished_thought"]}}),
 )
 
 
@@ -183,6 +183,9 @@ def grounded_tools(context):
         definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
     elif context.get('trigger') in {'conversation_lull','ambient','reconsideration'}:
         definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
+    elif context.get('trigger')=='pet_arrival':
+        definitions = [d for d in definitions if d['name'] in {'inspect_visual_memory','respond_with_intent',
+                                                               'respond_with_gesture','remain_silent'}]
     elif context.get('trigger')=='unseen_presence':
         definitions = [d for d in definitions if d['name'] in {'drive_base','remain_silent'}]
     if context.get('inspection_description_allowed'):
@@ -212,9 +215,11 @@ def grounded_tools(context):
         names = {'contribute': {'respond_with_intent','use_memory_opportunity','use_observation','use_visual_memory'},
                  'inspect': {'inspect_view'}, 'look': {'shift_attention'}, 'gesture': {'respond_with_gesture'},
                  'pose': {'set_robot_pose','set_robot_joints'}, 'drive': {'drive_base'}}[context['agency_step']['kind']]
-        # A beat the conversation has overtaken can be let go (October 13: stale beats were
-        # recited regardless, repeating what was just said). The goal goes on.
-        names = names | {'remain_silent'}
+        # A spoken beat the conversation has overtaken can be let go (October 13: stale beats
+        # were recited regardless). Not a silent move, and not when nobody has spoken since it
+        # was planned: the live run after that let 13 of 22 beats go and sat in silence.
+        if context['agency_step']['kind'] in {'contribute', 'gesture'} and context['agency_step'].get('people_spoke_since_planned'):
+            names = names | {'remain_silent'}
         # Only a goal about a person can lose its premise (they left or refused). Live October 3
         # the performer revised impersonal look beats for no real reason, three times in ten
         # minutes; each discarded the goal and fell back to a repeated remark.

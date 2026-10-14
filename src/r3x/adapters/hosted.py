@@ -684,12 +684,12 @@ class OpenAIBrain(HTTPProvider):
                 'tool. The instruction is a direction, not a script: write your own fresh line from what was just said, and '
                 'never reuse the instruction\'s wording. It is not a vote on whether to participate, and the old optional-lull '
                 'silence guidance does not apply. When agency_step.people_spoke_since_planned is true, the conversation moved '
-                'after this beat was written: build on their latest words. Let the beat go with remain_silent (reason '
-                'no_response_needed) when its point has already been made, its question was already answered, or they have '
-                'moved to a new subject and the beat is about the old one (back to the telescope after they bring up a library '
-                'is a non sequitur); only a beat whose kind still fits, such as a curious question, may be turned toward the '
-                'new subject. If your most recent line asked a question they have not answered, do not ask another: make a '
-                'short statement or let the beat go. The next beat runs at the next lull. '
+                'after this beat was written: build on their latest words. When its point has already been made, its question '
+                'was already answered, or they moved to a new subject and the beat is about the old one (back to the telescope '
+                'after they bring up a library is a non sequitur), do not recite it: say one short thing that does fit (their '
+                'latest words, one of their interests, a news item, or something you can see). Use remain_silent only when they '
+                'are busy (talking to someone else, reading, saying goodnight). If your most recent line asked a question they '
+                'have not answered, do not ask another: make a short statement. '
                 'Use revise_agency_plan only if they left, refused this goal, '
                 'or its premise is physically gone. Imperfect evidence is not a reason to give up: if you cannot drive to the '
                 'thing, turn toward it or look at it instead and carry on. '
@@ -736,8 +736,9 @@ class OpenAIBrain(HTTPProvider):
                 payload['input'].append({'role':'developer','content':
                     'BEFORE THIS BEAT: it was planned before they last spoke. Their latest words: '
                     + json.dumps(latest, ensure_ascii=False) + '. The beat: ' + json.dumps(step.get('instruction', ''), ensure_ascii=False)
-                    + '. If the beat is not about what they just said, or your reply to them already made its point, '
-                    'use remain_silent (reason no_response_needed). Otherwise do it in fresh words that build on their latest words.'})
+                    + '. If the beat still fits, do it in fresh words that build on their latest words. If it is not about what '
+                    'they just said, or your reply already made its point, say one short thing that does fit instead (their '
+                    'words, an interest of theirs, a news item, something you see), or use remain_silent only if they are busy.'})
         offered = None
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             # Prompt caching matches the rendered prefix, and tool definitions precede the

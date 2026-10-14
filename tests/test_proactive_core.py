@@ -54,7 +54,7 @@ class InitiativeCoreTests(MemoryFixture):
         snapshot = self.brain.snapshots[-1]
         self.assertEqual(snapshot.context['trigger'],'reconsideration')
         self.assertEqual(snapshot.speaker,'unresolved')
-        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)},{'respond_with_intent','remain_silent'} | ({'revise_agency_plan'} if snapshot.context['agency_step']['scope']=='audience' else set()))
+        self.assertEqual({t['name'] for t in grounded_tools(snapshot.context)},{'respond_with_intent'} | ({'revise_agency_plan'} if snapshot.context['agency_step']['scope']=='audience' else set()))
         users = [m['content'] for m in snapshot.messages if m.get('role')=='user']
         self.assertEqual(users,['Rex, we finally fixed the camera.'])
         self.assertEqual(self.store.rows('SELECT * FROM turns'),sources)

@@ -81,6 +81,20 @@ def run(session,call,snapshot,generate,cancel):
         messages=(*messages,{'role':'developer','content':
             'The close look could not be taken. Do not mention the attempt or why it failed unless they '
             'asked you to look at or identify something; just answer what they said.'})
+    if data.get('outcome')=='ok' and snapshot.context.get('trigger')=='pet_arrival':
+        # October 13 probe: the first reaction to the dog walking in was a report on image clarity.
+        messages=(*messages,{'role':'developer','content':
+            'This look is at an animal that just came into view. Greet it the way a friend would when the dog walks '
+            'in, then ask the person something about it. If it clearly is a saved pet, use its name ("Oh look, it\'s '
+            'Max! How\'s he behaving tonight?"); if you are not sure, ask playfully ("Is that Max? Hey there, buddy!"). '
+            'Never talk about image quality or how confident the match is.'})
+    elif data.get('outcome')=='ok' and data.get('intent')=='look':
+        # October 13: shown Max's saved photo while Bret held him, Rex said "a small dark-colored
+        # dog", then tried to save a photo to answer "you know which dog" and asked for the name.
+        messages=(*messages,{'role':'developer','content':
+            'Compare the current view with the saved references. When one saved pet or object clearly matches, '
+            'say its name plainly ("That\'s Max"); hedge only when it genuinely could be more than one, and then '
+            'say which you lean toward. Answer their question in words; save a photo only when they name it to teach you.'})
     if data.get('intent')=='teach':
         # Teaching starts from the human's words and current pixels. Old model prose,
         # appearance notes and historical photos must not describe a different object.
@@ -105,6 +119,16 @@ def run(session,call,snapshot,generate,cancel):
         if len(calls)!=1 or calls[0].name not in allowed or not images:raise ProviderFailure('PhotoToolContinuationLimit')
         reply=apply(calls[0],ctx)
         if isinstance(reply,tuple):
+            if reply[1].get('reason')=='PhotoSubjectNeedsExplicitName' and data.get('intent')=='look':
+                # October 13: asked "you know which dog?", Rex tried to save a photo and then asked
+                # Bret for the name. Nothing was being taught: answer the question.
+                session.trace.emit('model_request',turn_id=snapshot.turn_id,primary_calls=0,purpose='photo_look_answer',
+                                   image_count=len(images),reasoning_effort=getattr(session.brain,'reasoning_effort',None))
+                if generate(replace(followup,tools_enabled=False,messages=(*followup.messages,{'role':'developer','content':
+                        'Nothing was saved and nothing needs saving. Answer their question in words from the images, '
+                        'naming the saved pet or object that matches.'}))):
+                    raise ProviderFailure('PhotoToolContinuationLimit')
+                return None
             if reply[1].get('reason')=='PhotoSubjectNeedsExplicitName':return 'Please say the pet or object’s name with that description so I can save it to the right one.'
             if reply[1].get('reason')=='PhotoTeachingNeedsSinglePetCrop':return 'I haven’t saved that yet. With both dogs in view, please give me the name and a clear position or coat marking so I can isolate the right one.'
             return 'I couldn’t save that picture. Please show me again.'

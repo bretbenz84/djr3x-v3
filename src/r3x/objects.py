@@ -38,11 +38,18 @@ def describe_positions(rows):
     return rows
 
 
+PET_LABELS=frozenset({'dog','cat'})   # The detector often calls one animal both, frame to frame.
+# October 13: Max held in Bret's arms was detected about every other second; "This is Max" came
+# between detections and the teaching look failed. A pet seen this recently is still there.
+PET_RECALL_SECONDS=10.
+
+
 class Objects:
     def __init__(self,camera,detector,trace=None,scene=None,clock=time.monotonic):
         self.camera,self.detector,self.trace,self.scene,self.clock=camera,detector,trace,scene,clock
         self.stop=Event();self.lock=RLock();self.worker=None;self.frame=None;self.rows=[];self.failure=None
         self.labels={}   # Recent target id -> label, to re-find a thing whose track restarted.
+        self.last_pet=None   # (frame, row) of the latest pet detection, for flickering detections.
         self.capability=Capability('objects',detector.capability.provider,'stable object cues and crops',detector.capability.model,
             detector.capability.dependencies,('one shared frame; one inference pass/1.5 seconds; latest work only',))
 
@@ -65,6 +72,8 @@ class Objects:
             appeared=any(r['samples']==2 for r in rows)
             self.rows,self.frame=describe_positions(rows),frame
             for r in rows:self.labels[r['target_id']]=r['label']
+            pets=[r for r in rows if r['label'] in PET_LABELS]
+            if pets:self.last_pet=(frame,dict(max(pets,key=lambda r:r['box'][2]*r['box'][3])))
             while len(self.labels)>64:self.labels.pop(next(iter(self.labels)))
         if appeared and self.scene:
             with self.scene.lock:self.scene.scene_id='objects:'+uuid4().hex
@@ -73,7 +82,17 @@ class Objects:
     def snapshot(self, min_samples=2):
         with self.lock:
             if self.stop.is_set() or self.failure or not self.frame or not 0<=self.clock()-self.frame.at<=4:return ()
-            return tuple(dict(r) for r in self.rows if r['samples']>=min_samples)
+            rows=[dict(r) for r in self.rows if r['samples']>=min_samples]
+            recalled=self._recalled_pet()
+            if recalled and not any(r['label'] in PET_LABELS for r in self.rows):
+                rows.append({**recalled[1],'recently_seen':True,
+                             'seen_seconds_ago':round(self.clock()-recalled[1]['at'],1)})
+            return tuple(rows)
+
+    def _recalled_pet(self):
+        if not self.last_pet:return None
+        frame,row=self.last_pet
+        return self.last_pet if 0<=self.clock()-row['at']<=PET_RECALL_SECONDS else None
 
     def inspect(self,target_id=None):
         with self.lock:
@@ -81,7 +100,14 @@ class Objects:
                 raise ValueError('FreshObjectViewUnavailable')
             frame=self.frame
             target=next((r for r in self.rows if r['target_id']==target_id and r['samples']>=2),None) if target_id else None
-            if target_id and target is None:
+            recalled=self._recalled_pet()
+            if (target_id and target is None and recalled and
+                    (recalled[1]['target_id']==target_id or self.labels.get(target_id) in PET_LABELS)
+                    and not any(r['label'] in PET_LABELS and r['samples']>=2 for r in self.rows)):
+                # The pet between flickering detections: its own last frame, not today's box on
+                # a frame the head has since moved.
+                frame,target=recalled
+            elif target_id and target is None:
                 # Track ids restart whenever the head or base moves. October 3: a look at the
                 # dog failed a few seconds after it was offered and was voiced as his "saved
                 # photo" having expired. The one thing of the same kind still in view is it.
