@@ -3,7 +3,7 @@ import json
 import time
 from urllib.parse import quote
 
-from ..contracts import Cancellation, Cancelled, ProviderFailure, Snapshot, ToolCall
+from ..contracts import Cancellation, Cancelled, ProviderFailure, Snapshot, ToolCall, ToolText
 from ..providers import Capability
 
 
@@ -780,6 +780,7 @@ class OpenAIBrain(HTTPProvider):
         complete = False
         calls = []
         phases, buffered, preambles = {}, [], []
+        spoken = {}   # output_index -> (call_id, tool name, TextField) for streamed reply text.
         buffered_chars = 0
         try:
             with self.client.stream("POST", "https://api.openai.com/v1/responses",
@@ -799,6 +800,22 @@ class OpenAIBrain(HTTPProvider):
                     kind = event.get("type")
                     if kind=="response.output_item.added" and event.get("item",{}).get("type")=="message":
                         phases[event.get("output_index",0)] = event["item"].get("phase")
+                    elif (kind=="response.output_item.added" and snapshot.stream_tool_text
+                          and event.get("item",{}).get("type")=="function_call"):
+                        from ..tool_text import STREAMED_TOOLS, TextField
+                        item = event["item"]
+                        if item.get("name") in STREAMED_TOOLS and (offered is None or item["name"] in {d["name"] for d in offered}):
+                            spoken[event.get("output_index",0)] = (item.get("call_id"), item["name"], TextField())
+                    elif kind=="response.function_call_arguments.delta" and event.get("output_index",0) in spoken:
+                        call_id, name, field = spoken[event.get("output_index",0)]
+                        words = field.feed(event.get("delta",""))
+                        finished = field.state == 'done'
+                        if words or finished:
+                            paused = time.monotonic()
+                            yield ToolText(call_id, name, words, finished)
+                            deadline += time.monotonic() - paused
+                        if finished:
+                            del spoken[event.get("output_index",0)]
                     elif kind in {"response.output_text.delta", "response.refusal.delta"}:
                         phase = phases.get(event.get("output_index",0))
                         if phase=="commentary":

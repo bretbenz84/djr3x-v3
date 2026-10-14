@@ -6,7 +6,7 @@ import threading
 import time
 from uuid import uuid4
 
-from .contracts import ASR, Brain, Cancellation, Cancelled, Capture, ProviderFailure, Snapshot, Transcript, ToolCall
+from .contracts import ASR, Brain, Cancellation, Cancelled, Capture, ProviderFailure, Snapshot, Transcript, ToolCall, ToolText
 from .speakers import VoiceObservation
 from .history import TurnHistory
 from .output import Delivery, OutputOwner, Phrases, put_phrase
@@ -909,9 +909,14 @@ class Session:
                     audience_person=memory_subject,
                     recognized=[f.get('identity') for f in context.get('faces', [])] +
                                [speaker.get('person_id') if speaker.get('state') == 'supported' else None])
+            # Replies to people speak a reply tool's words as they stream (October 14 plan, step 5);
+            # Rex's own beats are checked for repeats before speaking, so they never stream.
+            stream_tool_text = bool(not opportunity and self.state is not None and not self.state.initiative.silent
+                                    and context.get('photo_inspection', {}).get('intent') != 'teach')
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
-                                context, self.state is not None, images=scene_images)
+                                context, self.state is not None, images=scene_images,
+                                stream_tool_text=stream_tool_text)
             phrases = Queue(maxsize=4)
             worker = threading.Thread(target=self.output.run, args=(phrases, cancel, turn_id, delivery),
                                       name="r3x-output", daemon=True)
@@ -929,6 +934,7 @@ class Session:
                             history_characters=self.history.size(snapshot.messages),
                             reasoning_effort=getattr(self.brain,"reasoning_effort",None))
             went_silent, withheld = [False], [False]
+            streamed = {}   # call_id -> reply-tool text already queued for speech while it streamed.
             def generate(request):
                 nonlocal first_token_at, first_output_at, generated
                 calls = []
@@ -940,6 +946,21 @@ class Session:
                             # Prose or a finished tool call, whichever comes first. 170 of 205
                             # recent replies went through a tool and had no model timing at all.
                             first_output_at = self.trace.clock()
+                        if isinstance(delta, ToolText):
+                            if request.stream_tool_text and not request.continuation:
+                                if first_token_at is None:
+                                    first_token_at = self.trace.clock()
+                                    self.trace.emit("model_first_text", turn_id=turn_id, streamed_from=delta.name)
+                                streamed[delta.call_id] = streamed.get(delta.call_id, '') + delta.text
+                                for phrase in splitter.add(delta.text):
+                                    put_phrase(phrases, phrase, cancel)
+                                if delta.done:
+                                    # The whole line is in: speak its last phrase now, not when the
+                                    # rest of the call and the response have finished.
+                                    tail = splitter.finish()
+                                    if tail:
+                                        put_phrase(phrases, tail, cancel)
+                            continue
                         if isinstance(delta, ToolCall):
                             # General intent replies follow ordinary prose once audible.
                             # Questions and memory-bearing tools retain audience guards.
@@ -1576,7 +1597,8 @@ class Session:
                                 raise ProviderFailure('GestureEvidenceStale')
                             self.state.attention.clear()
                             self.state.attention.scene.invalidate(self.trace.clock())
-                    put_phrase(phrases, Performance(call.arguments['text'],gesture,
+                    # Words already streamed ahead: the gesture follows them on its own.
+                    put_phrase(phrases, Performance('' if call.call_id in streamed else call.arguments['text'],gesture,
                         call.arguments['timing'],valid_gesture,delivered_gesture),cancel)
                 elif result.outcome=='ok' and call.name=='shift_attention':
                     # Output owns execution; never hold the state lock over an adapter call.
@@ -1662,10 +1684,16 @@ class Session:
                         and self.state.calendar_today().isoformat()==selected_day)
                     put_phrase(phrases,result.data['text'],cancel)
                 elif result.outcome=="ok" and call.name in {"conversation_feedback","respond_with_intent"}:
-                    put_phrase(phrases,result.data['text'],cancel)
+                    if call.call_id not in streamed:   # Streamed words are already queued.
+                        put_phrase(phrases,result.data['text'],cancel)
                 elif result.outcome=="ok" and call.name in {"ask_question","ask_face_question"}:
                     question = result.data
                     put_phrase(phrases,question["question"],cancel)
+                elif call.call_id in streamed:
+                    # Its words were already heard as they streamed; a second answer would repeat
+                    # them. The rejected part (a gesture, an intention note) is simply not done.
+                    self.trace.emit('streamed_reply_tool_rejected', turn_id=turn_id, name=call.name,
+                                    reason=result.reason)
                 else:
                     from dataclasses import asdict
                     import json

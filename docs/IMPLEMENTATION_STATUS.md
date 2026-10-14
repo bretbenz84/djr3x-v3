@@ -13,7 +13,13 @@ present, model-set wake-ups, short-term memory of space, humor, and faster repli
 feature freeze until steps 1–3 land. Progress and evidence: [improvement plan](IMPROVEMENT_PLAN.md).
 Step 0 adds `tools/baseline_report.py` and the October 5–13 baseline (median reply wait
 4.99 s; 32 new face track IDs per minute; 6 of 8 arrival greetings re-greeted someone seen
-under two minutes earlier).
+under two minutes earlier). Steps 1–5 landed the same day, all **not yet run on the robot**:
+one picture of the present with time in words (`present.py`), beats that wake on conditions
+Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for driving
+(`local_map.py`: doubtful readings rechecked, remembered ways round), teasing everyone when it
+fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
+as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
+1178 blocked-I/O checks pass.
 
 ## Poker arm tail sway — October 13
 

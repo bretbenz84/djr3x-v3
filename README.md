@@ -9,7 +9,9 @@ hardware integrations are implemented and in daily live use on the robot: voice,
 camera, servos, LEDs, wheels and radar. Live acceptance is still open for group
 identity (two people alternating), the new persistent agency plans and the newest drive changes.
 [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) is the checklist of
-what is finished, what is only simulated and what remains.
+what is finished, what is only simulated and what remains. The October 14
+[improvement plan](docs/IMPROVEMENT_PLAN.md) is implemented in software and awaits its
+first robot run.
 
 V2 (`/Users/bbenziger/djr3x-v2`) is a separately maintained reference. V3 never imports
 it or reads its data.

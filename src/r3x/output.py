@@ -386,6 +386,13 @@ class OutputOwner:
                     text = text.text
                 text = speech_text(text)
                 if not text:
+                    if performance:
+                        # Its words were already streamed ahead as plain phrases (October 14,
+                        # step 5): the gesture follows them on its own.
+                        try:
+                            self._gesture(performance, cancel, turn_id, delivery)
+                        except ProviderFailure as exc:
+                            self.trace.emit('gesture_failed', turn_id=turn_id, reason=str(exc))
                     continue
                 self.trace.emit("speech_generated", turn_id=turn_id, text=text,
                                 **({'voice': cloned.voice} if cloned else {}))

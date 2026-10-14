@@ -20,7 +20,7 @@ result below is synthetic, saved-log or hosted-model evidence until he tests it 
 | 2 | Rex sets his own wake-ups | Done October 14 (synthetic, paid probes) |
 | 3 | Short-term memory of space for driving | Done October 14 (simulated base) |
 | 4 | Make him funny again | Done October 14 (synthetic, paid probe) |
-| 5 | Faster replies | Pending |
+| 5 | Faster replies | Done October 14 (synthetic, paid probes) |
 
 ## Step 0: baseline (October 14)
 
@@ -185,3 +185,36 @@ the next day, a reply not waiting for a busy writer, forgetting). Paid probe
 A typical new line: "That's not karaoke, that's a six-minute hostile takeover of the microphone."
 Both arms were judged to repeat a premise once or twice per scenario. One run per arm is a
 small sample; the owner's ear is the real test.
+
+## Step 5: faster replies (October 14)
+
+Most replies to people (170 of 205 in the baseline) come inside a reply tool, and a tool call is
+handed over only when the whole response is finished. `tool_text.TextField` now decodes the
+spoken `text` argument of `respond_with_intent` and `respond_with_gesture` as it streams (strict
+arguments arrive in schema order and `text` is first), and the session phrases and queues it
+exactly like prose; when the text closes, its last phrase is spoken at once. Only replies to
+people stream: Rex's own beats are checked for repeats and stacked questions before speaking, and
+nothing streams while he is told to stay silent or while a photo is being taught. The finished
+call still carries the same text for validation and history; a gesture follows its streamed words
+on its own; a streamed reply whose tool is then rejected is not answered a second time.
+
+Tool definitions were measured rather than trimmed: sending only the allowed tools was not faster
+than the cache-friendly static list (median first output 2.75 s against 2.12 s, 6 paced requests
+each), so the static list stays. Removing the dead `next_opportunity` field from five tools would
+save about 2,000 of 74,000 definition characters and was left alone.
+
+Evidence: 1178 blocked-I/O checks pass, seven new in `tests/test_tool_text.py` (decoding across
+chunk and escape boundaries, no streaming when text is not first, the adapter streaming ahead of the
+finished call, speech audible before the call completes and said once, a one-sentence reply spoken
+when its text closes, a rejected streamed reply not answered twice). Paid probe
+`tools/check_reply_latency.py` (synthetic production-sized request, 23,300 input tokens, 22,100
+cached, gpt-6-luna/low, 6 paced requests with a reply tool required): first speakable phrase at a
+median of 2.09 s with streaming against 3.00 s when the response finished, about 0.9 s sooner.
+That is model time only; ASR, endpointing, TTS and playback are unchanged, so the expected live
+median moves from about 4.6 s toward 3.7-4 s for tool replies. Live reply timing is unmeasured.
+
+## Where the plan stands
+
+All six steps are implemented in software. None of it has run on the robot: the owner chose to
+test the whole plan himself. `tools/baseline_report.py --since 2026-10-15` compares his next runs
+with the October 5-13 baseline above.

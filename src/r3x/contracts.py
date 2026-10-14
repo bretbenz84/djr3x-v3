@@ -72,6 +72,7 @@ class Snapshot:
     tools_enabled: bool = False
     continuation: tuple[dict, ...] = ()
     images: tuple = field(default=(), repr=False)
+    stream_tool_text: bool = False   # Speak reply-tool text as it streams (human-turn replies only).
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,16 @@ class ToolCall:
     name: str
     arguments: dict
     preamble: tuple[dict, ...] = ()  # Original, unspoken provider commentary with phase.
+
+
+@dataclass(frozen=True)
+class ToolText:
+    """Words streaming out of a reply tool's spoken text argument before the call is complete
+    (October 14 plan, step 5). The finished ToolCall still follows with the same text."""
+    call_id: str
+    name: str
+    text: str
+    done: bool = False   # The text argument is complete: its last phrase can be spoken now.
 
 
 @dataclass(frozen=True)
