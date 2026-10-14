@@ -479,6 +479,7 @@ class Session:
         speech_end = None if opportunity else capture.speech_ended_at
         model_at = None
         first_token_at = None
+        first_output_at = None
         model_error = None
         question = None
         memory_selected = None
@@ -884,12 +885,16 @@ class Session:
                             reasoning_effort=getattr(self.brain,"reasoning_effort",None))
             went_silent, withheld = [False], [False]
             def generate(request):
-                nonlocal first_token_at, generated
+                nonlocal first_token_at, first_output_at, generated
                 calls = []
                 stream = self.brain.reply(request, cancel)
                 try:
                     for delta in stream:
                         cancel.check()
+                        if first_output_at is None:
+                            # Prose or a finished tool call, whichever comes first. 170 of 205
+                            # recent replies went through a tool and had no model timing at all.
+                            first_output_at = self.trace.clock()
                         if isinstance(delta, ToolCall):
                             # General intent replies follow ordinary prose once audible.
                             # Questions and memory-bearing tools retain audience guards.
@@ -1827,6 +1832,7 @@ class Session:
                 "endpoint": None if opportunity else source_end - speech_end,
                 "context": model_at - began if model_at is not None else None,
                 "model_first_text": first_token_at - model_at if first_token_at is not None else None,
+                "model_first_output": first_output_at - model_at if first_output_at is not None else None,
                 "end_of_speech_to_first_audio": audio_at - speech_end if audio_at is not None and not opportunity else None,
                 "opportunity_to_first_audio": audio_at - source_end if audio_at is not None and opportunity else None,
                 "total": self.trace.clock() - began,

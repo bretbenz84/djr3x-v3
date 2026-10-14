@@ -184,6 +184,7 @@ models on its own.
 | Document | What it answers |
 | --- | --- |
 | [Implementation status](docs/IMPLEMENTATION_STATUS.md) | What is finished, simulated only, or still open. |
+| [Improvement plan](docs/IMPROVEMENT_PLAN.md) | The October 14 plan: steps, owner rulings, baseline and per-step evidence. |
 | [Drive base](docs/DRIVE_BASE_INTEGRATION.md) | Wheels, radar, safety gates, vision seek and floor-run repairs. |
 | [Servo integration](docs/SERVO_INTEGRATION.md) | Choreography, talking and idle motion, poses, microphone hold. |
 | [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |

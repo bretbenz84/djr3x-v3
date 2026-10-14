@@ -1,10 +1,19 @@
 # Current implementation status
 
-Updated October 12, 2026. This is the consolidated
+Updated October 14, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## October 14 improvement plan
+
+The owner approved a six-step plan after an architecture review: one shared picture of the
+present, model-set wake-ups, short-term memory of space, humor, and faster replies, with a
+feature freeze until steps 1–3 land. Progress and evidence: [improvement plan](IMPROVEMENT_PLAN.md).
+Step 0 adds `tools/baseline_report.py` and the October 5–13 baseline (median reply wait
+4.99 s; 32 new face track IDs per minute; 6 of 8 arrival greetings re-greeted someone seen
+under two minutes earlier).
 
 ## Poker arm tail sway — October 13
 
