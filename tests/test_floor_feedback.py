@@ -1466,6 +1466,42 @@ class CameraRouteTests(SeekTests):
         bearing = world.relative(3., 0.)[1]
         self.assertLess(abs(bearing), 20., receipt)                # And ended facing the person.
 
+    def test_a_route_turn_refused_beside_furniture_backs_up_then_takes_the_way(self):
+        # October 13: "go right around the couch" was refused for a return 0.55 m off the
+        # front corner and the approach stopped 1.7 m short; told to back up a little and
+        # turn, he made it. The route turn now earns room the same way.
+        clock, fake, drive, world = self.start([])
+        world.people.append(('face-1', None, 3., 0.))
+        world.objects.append(('table', 'table', 1.6, 0.))
+        settle()
+        drive.router = Router(Router.toward(-40., 1.2, 'open floor right of the table'))
+        head = drive._head
+        def tipping(pose, cancel, request_id):
+            if request_id == 'drive-route-look' and 'rf' not in blocked:
+                blocked.add('rf')
+                fake.tof['rf'] = 120   # Stopped at the table, the couch arm by his front-right corner.
+            return head(pose, cancel, request_id)
+        blocked = set()
+        drive._head = tipping
+        original = fake.handle
+        def handle(command):
+            if command['cmd'] == 'move' and command['dist'] < 0:
+                fake.tof['rf'] = 600   # Backing away clears the corner.
+            original(command)
+        fake.handle = handle
+        trace = []
+        drive.trace = type('Trace', (), {'emit': lambda _, event, **row: trace.append((event, row))})()
+        plan = DrivePlan('p', (DriveStep('approach', target='face-1'),), 'requested', 'come here',
+                         {'face-1': {'target_id': 'face-1', 'kind': 'face'}}, clock()+120)
+        receipt = drive.execute(plan, Cancellation())
+        step = receipt.steps[0]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertIn('backed up', step['detours'][0]['escape'])
+        self.assertIn('too close to spin', step['detours'][0]['escape'])
+        self.assertLess(math.hypot(3. - fake.x, fake.y), 1.5)
+        refused = [row for event, row in trace if event == 'drive_step' and row['status'] == 'refused']
+        self.assertTrue(all('clearance_m' in row for row in refused))   # Readable afterwards.
+
     def test_route_looks_count_against_the_plans_look_allowance(self):
         from r3x.drive import PLAN_VISION_CALLS
         clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])

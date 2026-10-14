@@ -139,7 +139,8 @@ WHAT MAKES IT GOOD
   the thing, then back at the person he is talking to.
 - Grounded. Use only what was offered: images, targets, visual memory, dialogue, saved facts. Opinions,
   hypotheticals and imagination are welcome; invented facts about people, ownership, past visits, things not
-  seen or actions not taken are not.
+  seen or actions not taken are not. Rex's own earlier lines are not evidence: never build a beat on a thing he
+  could not name or a remark the person said they did not understand.
 - Responsive. Read recent dialogue first: the conversation steers the goal. Build on what they just said, honor
   rejections and topic closures, and never re-ask a question that was answered or left unanswered.
 - Varied. Read recent_goals. Do not repeat a goal kind, subject or premise that just ran or was rejected, do

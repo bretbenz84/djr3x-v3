@@ -210,3 +210,46 @@ class MemoryTests(MemoryFixture):
         self.assertEqual(self.state.pending["text"],"What should I call you?")
         self.call("settle_question",{"status":"superseded"})
         self.assertIsNone(self.state.pending)
+
+
+class VoiceGrowthTests(MemoryFixture):
+    """Owner, October 13: voice evidence should build over time. Bret's saved voice had stayed
+    at its three enrollment clips; clean recognized speech now adds to it, within bounds."""
+    def recordings(self, person):
+        return self.store.rows('SELECT metadata FROM recordings WHERE person_id=?', (person,))
+
+    def say(self, vector, seconds=3., motion=False):
+        self.at += 10
+        capture = Capture(uuid4().hex, "session", uuid4().bytes*int(2000*seconds), self.at, self.at+seconds,
+                          self.at+seconds, voiced_intervals=((0., seconds),), motion_risk=motion)
+        self.state.begin(uuid4().hex, capture, Transcript('Tell me about the telescope.', -.01, True),
+                         observation(vector, seconds))
+
+    def test_clean_recognized_speech_adds_to_the_saved_voice(self):
+        person = self.enroll()
+        self.assertEqual(len(self.recordings(person)), 3)
+        self.say((.95, .31, 0.))   # Clearly Bret, a little different from what is saved.
+        rows = self.recordings(person)
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(sum('recognized_clean_match' in r['metadata'] for r in rows), 1)
+        grown = [r for r in self.state.trace.rows if r['event'] == 'voice_profile_grown']
+        self.assertEqual(grown[-1]['recordings'], 4)
+
+    def test_speech_while_moving_short_or_ambiguous_never_grows_it(self):
+        person = self.enroll()
+        jeff = self.enroll('Jeff', B)
+        self.say((.95, .31, 0.), motion=True)              # Servo noise in the clip.
+        self.say((.95, .31, 0.), seconds=1.5)              # Too little speech.
+        self.say((.7, .65, 0.))                            # Too near Jeff's voice as well.
+        self.assertEqual(len(self.recordings(person)), 3)
+        self.assertEqual(len(self.recordings(jeff)), 3)
+        reasons = [r['reason'] for r in self.state.trace.rows if r['event'] == 'voice_profile_unchanged']
+        self.assertIn('too_short_to_grow_profile', reasons)
+
+    def test_growth_is_bounded_per_run_and_skips_what_is_already_saved(self):
+        person = self.enroll()
+        self.say(A)                                        # Identical to a saved clip.
+        self.assertEqual(len(self.recordings(person)), 3)
+        for vector in ((.9, .3, .3), (.9, -.3, .3), (.9, .3, -.3), (.9, -.3, -.3), (.8, 0., .6)):
+            self.say(vector)
+        self.assertEqual(len(self.recordings(person)), 6)  # Three new clips this run, no more.

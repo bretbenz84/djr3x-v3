@@ -146,8 +146,13 @@ keeps at most 100 active participant records, 12 current acoustic tracks with fi
 references each, up to 12 retained enrollment candidates, 32 complete exchanges within
 a 24,000-character history budget, and 32 claims in a context/recall result.
 Claims beyond the retrieval window remain stored. No semantic embedding model or
-automatic summarizer runs. Accepted profiles stop growing after the initial chain;
-there is no passive second writer refreshing voiceprints.
+automatic summarizer runs. After the initial chain, a saved voice grows through the same
+writer (October 13, owner: evidence should build over time): a recognized clip of at least
+two voiced seconds, scoring .55 or more with a .10 lead over every other saved voice, with
+no robot motion, echo, overlap, split or doubtful transcript, and not a near-duplicate
+(cosine .97) of a saved clip. At most three clips per person per run, within the existing
+20-recording cap; each keeps its audio and provenance (`acceptance: recognized_clean_match`).
+The log records `voice_profile_grown` or `voice_profile_unchanged` with the reason.
 
 Reports distinguish ASR, speaker analysis, context, model requests, first generated
 PCM, playback queue, actual first audio, and total turn time when those measurements

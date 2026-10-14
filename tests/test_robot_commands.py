@@ -116,6 +116,17 @@ class PoseTests(unittest.TestCase):
         own = self.owner.execute(ServoRequest('own', self.owner.version, 'pose', self.clock()+60, pose='look_left', hold_pose=False), Cancellation())
         self.assertEqual((own.status, own.changed_channels, self.port.pose[0]), ('pulses_reached', (), NECK_LEFT))
 
+    def test_raising_the_neck_extends_the_pole_to_its_measured_top_and_keeps_the_head_angle(self):
+        # October 13: "raise your neck" and "your highest neck pose" tipped the head up instead.
+        from r3x.servo_poses import LIMITS
+        self.run_pose('look_level')
+        head = (self.port.pose[2], self.port.pose[11])
+        self.assertEqual(self.run_pose('neck_up').status, 'pulses_reached')
+        self.assertEqual(self.port.pose[1], LIMITS[1][1])
+        self.assertEqual((self.port.pose[2], self.port.pose[11]), head)
+        self.assertEqual(self.run_pose('neck_down').status, 'pulses_reached')
+        self.assertEqual(self.port.pose[1], LIMITS[1][0])
+
     def test_side_tilts_cock_the_head_and_keep_the_pitch_and_neck(self):
         # October 10: two facing head servos; moved the same way they cock the head to a side.
         from r3x.servo_poses import HEAD_LEVEL, LOOK_PITCH, LOOK_TILT, NECK_CENTER, head_pose

@@ -813,8 +813,11 @@ class DriveBase:
         theta = (telemetry.get('odom') or {}).get('theta')
         return math.degrees(float(theta)) if isinstance(theta, (int, float)) else None
 
-    def _escape_for_turn(self, degrees, plan, cancel):
-        """V2 swing escape, generalized: earn room by backing up (or pulling forward), then retry once."""
+    def _escape_for_turn(self, degrees, plan, cancel, why):
+        """V2 swing escape, generalized: earn room by backing up (or pulling forward), then retry once.
+
+        why goes into the receipt: October 13 the owner asked "why did you back up?" and the
+        model, told only that a move happened, called it "a little safety repositioning"."""
         space = self.space()
         rear, front = space['rear_m'], space.get('path_m')
         if rear is not None and rear - .35 >= .2:
@@ -822,8 +825,14 @@ class DriveBase:
         elif front is not None and front - FRONT_MARGIN >= .3:
             leg = min(.4, front - FRONT_MARGIN)
         else:
+            # October 13: a refused "face the person" turn left no trace of why no room was
+            # earned first; the log now keeps what the sensors saw.
+            self._step_trace({'action': 'turn_escape', 'status': 'unavailable', 'reason': 'no_room_behind_or_ahead',
+                              'requested_deg': round(degrees, 1)}, space)
             return None
-        return self._move(leg, plan, cancel)
+        moved = self._move(leg, plan, cancel)
+        side = 'backed up' if leg < 0 else 'pulled forward'
+        return {**moved, 'why': f"{side} {abs(moved.get('travelled_m', 0.)):.1f} m to make room to turn: {why}"}
 
     def _turn(self, degrees, plan, cancel, verify=True, escape=True, bank=False):
         """One turn. bank: the turn heads an approach, so with something close behind he
@@ -843,7 +852,8 @@ class DriveBase:
                 banked = self._banked(degrees, plan, cancel, row, 'spin_refused')
                 if banked is not None:
                     return banked
-            moved = self._escape_for_turn(degrees, plan, cancel)
+            moved = self._escape_for_turn(degrees, plan, cancel, 'something was too close to spin on the spot ('
+                                          + note.removeprefix('turn_path_blocked: ') + ')')
             if moved is not None:
                 self._turn_moved += abs(moved.get('travelled_m', 0.))
             if moved is not None and moved['status'] == 'completed':
@@ -908,7 +918,7 @@ class DriveBase:
             if banked is not None:
                 return {**banked, 'requested_deg': round(degrees, 1), 'stalled_spin': stuck,
                         'turned_deg': round(row['turned_deg'] + banked.get('turned_deg', 0.), 1)}
-        moved = self._escape_for_turn(rest, plan, cancel)
+        moved = self._escape_for_turn(rest, plan, cancel, 'the spin caught on something part-way round')
         if moved is None or moved['status'] != 'completed':
             return row
         self._turn_moved += abs(moved.get('travelled_m', 0.))
@@ -1053,6 +1063,12 @@ class DriveBase:
     def _refused_turn(self, row, note):
         """October 5: refused turns left no trace, so a hallway run could not be read."""
         row = {**row, 'status': 'refused', 'reason': note}
+        self._step_trace(row, self.space())   # October 13: refused turns kept no clearance to read.
+        return row
+
+    def _refused_move(self, row, note, space):
+        """October 13: an escape back-up refused before it started left no drive_step at all."""
+        row = {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0., 'clearance_m': self._room_row(space)}
         self._step_trace(row)
         return row
 
@@ -1288,16 +1304,16 @@ class DriveBase:
         if meters > 0 and self._tight(space, need):
             held = self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm'))
             if held:
-                return {**row, 'status': 'refused', 'reason': held, 'travelled_m': 0., 'clearance_m': self._room_row(space)}
+                return self._refused_move(row, held, space)
             return self._crawl(meters, plan, cancel, speed, row)
         allowed, note = move_allowance(meters, space)
         if not allowed:
-            return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0., 'clearance_m': self._room_row(space)}
+            return self._refused_move(row, note, space)
         self._ensure_parked(cancel)
         space = self.space()
         allowed, note = move_allowance(meters, space)   # Clearance after the park settles.
         if not allowed:
-            return {**row, 'status': 'refused', 'reason': note, 'travelled_m': 0., 'clearance_m': self._room_row(space)}
+            return self._refused_move(row, note, space)
         start = self._telemetry().get('odom') or {}
         status, reason, done = self._finite({'cmd': 'move', 'dist': round(allowed, 2), 'speed': round(speed, 3)},
                                             max(8., abs(allowed)/speed + 10.), cancel)
@@ -1549,7 +1565,7 @@ class DriveBase:
                 break
             turned += detour['turned_deg']
             travelled += detour['travelled_m']
-            detours.append({k: detour[k] for k in ('side', 'travelled_m', 'status', 'by', 'note') if k in detour})
+            detours.append({k: detour[k] for k in ('side', 'travelled_m', 'status', 'by', 'note', 'escape') if k in detour})
             if detour['by'] == 'sensors' and detour['status'] != 'completed':
                 break
             back, _ = self._bearing_to(last.get('position'))
@@ -1709,7 +1725,9 @@ class DriveBase:
         """Turn toward the open side (30°, 55°, then 85° while it is still in the path) and roll past."""
         turned = 0.
         for degrees in (DETOUR_DEG, DETOUR_MORE_DEG, DETOUR_DEG):
-            turn = self._turn(side * degrees, plan, cancel, escape=False)
+            # October 13: a turn toward open floor refused for a return 0.55 m off the front
+            # corner ended the approach; told to back up and turn, he made it. Earn room first.
+            turn = self._turn(side * degrees, plan, cancel)
             turned += turn.get('turned_deg', 0.)
             if turn['status'] != 'completed':
                 return {'side': 'left' if side > 0 else 'right', 'status': 'blocked', 'travelled_m': 0., 'turned_deg': turned}
@@ -1793,8 +1811,12 @@ class DriveBase:
         row = {'side': 'left' if bearing > 0 else 'right', 'by': 'camera', 'note': str(choice.get('note') or '')[:120],
                'travelled_m': 0., 'turned_deg': 0.}
         if abs(bearing) > 8:
-            turn = self._turn(bearing, plan, cancel, escape=False)
+            # Banks forward or backs up to earn room when the spin is refused (October 13: "go
+            # right around the couch" was refused at 0.55 m and the approach gave up 1.7 m short).
+            turn = self._turn(bearing, plan, cancel)
             row['turned_deg'] = turn.get('turned_deg', 0.)
+            if turn.get('escape'):
+                row['escape'] = turn['escape'].get('why')   # Its distance is counted with the step's turns.
             if turn['status'] != 'completed':
                 tried.append(said + ': could not turn that way (' + str(turn.get('reason')) + ')')
                 if way is not None:
@@ -1803,7 +1825,7 @@ class DriveBase:
         # No straightening here: the look chose this direction, and turning away from the
         # wall beside it only undid the turn (three 12 degree turns back, then no move).
         move = self._move(min(distance, budget_m), plan, cancel, straighten=False)
-        row['travelled_m'] = move.get('travelled_m', 0.)
+        row['travelled_m'] += move.get('travelled_m', 0.)
         row['turned_deg'] += move.get('turned_deg', 0.)
         if row['travelled_m'] < .25 and way is not None:
             self._dead_ends.append((self._at[0] - row['travelled_m']*math.cos(math.radians(way)),
@@ -2175,7 +2197,7 @@ class DriveBase:
             shifted = 1 if detour['side'] == 'left' else -1
             turned += detour['turned_deg']
             travelled += detour['travelled_m']
-            detours.append({k: detour[k] for k in ('side', 'travelled_m', 'status', 'by', 'note') if k in detour})
+            detours.append({k: detour[k] for k in ('side', 'travelled_m', 'status', 'by', 'note', 'escape') if k in detour})
             if detour.get('by') == 'camera' and self._sought.get('position') is None:
                 # A sighting gives a direction, not a place: after moving aside the thing may
                 # sit well off the old heading until enough sightings fix where it is.

@@ -568,6 +568,27 @@ class GoalTests(memory_tests.MemoryFixture):
         self.assertEqual(result.completed_text,[])
         self.assertEqual(result.error,'AgencyBeatRepeatedRecentLine')
 
+    def test_a_beat_reusing_a_phrase_rex_just_said_is_redone_with_a_new_point(self):
+        # October 13: "earned one smug look at the screen" was a planned line twice, minutes apart.
+        self.setup_owner()
+        first='A nebula photo has earned at least one smug look at the screen.'
+        self.executor.choose=lambda s,c:iter([ToolCall('a','respond_with_intent',{'text':first,'intent_update':None})])
+        self.tick(100)
+        replies=iter(['That telescope is absurd. You have earned one smug look at the screen.',
+                      'Next clear night, I want a full report on the Pelican.'])
+        self.executor.choose=lambda s,c:iter([ToolCall('b','respond_with_intent',{'text':next(replies),'intent_update':None})])
+        result=self.tick(self.trace.at+9)
+        self.assertEqual(result.completed_text,['Next clear night, I want a full report on the Pelican.'])
+        self.assertIn('"one smug look at the"',self.executor.snapshots[-1].messages[-1]['content'])
+
+    def test_a_beat_sharing_only_small_words_with_a_recent_line_is_spoken(self):
+        self.setup_owner()
+        self.executor.choose=lambda s,c:iter([ToolCall('a','respond_with_intent',{'text':'I think it is one of the best.','intent_update':None})])
+        self.tick(100)
+        line='Honestly I think it is one way to spend a night.'
+        self.executor.choose=lambda s,c:iter([ToolCall('b','respond_with_intent',{'text':line,'intent_update':None})])
+        self.assertEqual(self.tick(self.trace.at+9).completed_text,[line])
+
     def test_catch_up_beats_get_no_camera_frame_but_curiosity_beats_do(self):
         from r3x.scene import SceneImage
         self.setup_owner()

@@ -292,7 +292,8 @@ class InitiativeCoreTests(MemoryFixture):
         self.trace.at=140
         result=self.turn('Okay.')
         self.assertEqual((result.status,result.completed_text),('suppressed',[]))          # Withheld.
-        self.assertEqual({d['name'] for d in grounded_tools(chatty.snapshots[-1].context)},{'set_initiative','remain_silent'})
+        # Silenced, he can still be released, stay silent, or be told to shut down.
+        self.assertEqual({d['name'] for d in grounded_tools(chatty.snapshots[-1].context)},{'set_initiative','remain_silent','shut_down'})
         self.assertTrue(chatty.snapshots[-1].context['participation']['silent_until_released'])
         self.assertTrue(self.state.initiative.silent)
         class Released(Brain):
@@ -430,8 +431,8 @@ class InitiativeCoreTests(MemoryFixture):
                     update.update(target_ids=[],memory_ids=[])
                 yield ToolCall(uuid4().hex,'remain_silent' if silent else 'respond_with_intent',
                     dict(reason='no_response_needed',intent_update=update) if silent else
-                    # Each beat says something new; a word-for-word repeat is rejected by design.
-                    dict(text='Here is fresh camera idea '+uuid4().hex[:6]+'.',intent_update=update))
+                    # Each beat says something new; a repeated phrase is rejected by design.
+                    dict(text='Camera idea '+uuid4().hex[:6]+', then '+uuid4().hex[:6]+'.',intent_update=update))
         self.session.brain=Planned()
         return self.session.brain
 

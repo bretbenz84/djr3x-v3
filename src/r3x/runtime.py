@@ -57,6 +57,15 @@ class VoiceRuntime:
         self.drive = drive
         self._initiative_gate = None
         self.speech_confirmed = False   # The forming capture has lasted like speech, or began in stillness.
+        session.on_shutdown = self.conversation_shutdown
+
+    def conversation_shutdown(self, turn_id):
+        """The same exit as the spoken "shut down" fast path, chosen by the conversation owner."""
+        if self.stop.is_set():
+            return
+        self.trace.emit('shutdown_requested', source='conversation', turn_id=turn_id)
+        self.stop.set()
+        self.cancel()
 
     def cancel(self, quiet=False):
         if self.robot:

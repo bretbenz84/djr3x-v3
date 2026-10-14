@@ -233,3 +233,36 @@ class IntroductionAvailabilityTests(MemoryFixture):
         result = self.call('rename_person',{'person_id':person,'name':'Jordon','aliases':[]})
         self.assertEqual(result.outcome,'rejected')
         self.assertEqual(self.store.person(person)['name'],'Jordan Avery')
+
+
+class ConversationShutdownTests(MemoryFixture):
+    """October 13: "But next, I need you to shut down" lowered the visor and Rex then said he
+    could not power himself off. Any wording the conversation owner reads as a request exits."""
+    def test_a_shutdown_request_in_any_wording_says_goodbye_then_exits(self):
+        self.begin('But next, I need you to shut down.', C)
+        brain = Brain(lambda s:ToolCall('c','shut_down',{'text':'Powering down. Goodnight.'}))
+        session = Session('session',brain,TextOutput(self.state.trace),self.state.trace,self.state)
+        order = []
+        session.on_shutdown = lambda turn_id: order.append(('exit', turn_id, session._processing.locked()))
+        receipt = session.process_turn(self.state.current[1],Transcript('But next, I need you to shut down.',0,True),0,observation(C))
+        self.assertEqual(receipt.completed_text,['Powering down. Goodnight.'])
+        self.assertEqual(len(order),1)
+        self.assertFalse(order[0][2])   # The turn had finished before the exit began.
+        session.close()
+
+    def test_a_rejected_shutdown_does_not_exit(self):
+        self.begin('shut down', C)
+        brain = Brain(lambda s:ToolCall('c','shut_down',{'text':None}))
+        session = Session('session',brain,TextOutput(self.state.trace),self.state.trace,self.state)
+        exits = []
+        session.on_shutdown = exits.append
+        session.process_turn(self.state.current[1],Transcript('shut down',0,False),0,observation(C))
+        self.assertEqual(exits,[])   # An unclear transcript never powers him off.
+        session.close()
+
+    def test_shutdown_is_never_offered_on_his_own_initiative(self):
+        from r3x.semantics import grounded_tools
+        names = lambda context: {d['name'] for d in grounded_tools({'source_turn_id':'t', **context})}
+        self.assertIn('shut_down', names({}))
+        self.assertNotIn('shut_down', names({'trigger':'conversation_lull'}))
+        self.assertNotIn('shut_down', names({'trigger':'reconsideration','agency_step':{'kind':'contribute','scope':'general'}}))

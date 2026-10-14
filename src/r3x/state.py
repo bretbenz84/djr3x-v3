@@ -4,13 +4,21 @@ import hashlib
 import json
 import time
 from collections import deque
-from .speakers import Track, cosine
+from .speakers import Track, cosine, unit
 from uuid import uuid4
 
 from .contracts import ToolResult
 from .enrollment import Enrollment
 from .memory import label
 from .semantics import validate
+
+
+# Saved-voice growth from recognized speech (owner, October 13: evidence builds over time).
+VOICE_GROWTH_SECONDS = 2.     # V2's per-sample enrollment minimum.
+VOICE_GROWTH_SCORE = .55      # The strong track-update level, above the .50 naming level.
+VOICE_GROWTH_MARGIN = .10     # Lead over the next saved voice.
+VOICE_GROWTH_PER_SESSION = 3
+VOICE_GROWTH_DUPLICATE = .97  # Closer than this to a saved clip adds nothing new.
 
 
 class CoreState:
@@ -27,6 +35,7 @@ class CoreState:
         self.company_at = float('-inf')  # When more than one person was last in evidence.
         self.frozen = frozen
         self.require_microphone_hold = require_microphone_hold
+        self.voice_grown = {}   # person_id -> clips added to their saved voice this run.
         from datetime import date
         self.calendar_today = date.today
         self.memory_cursor = 0
@@ -804,6 +813,9 @@ class CoreState:
                     'replacement_saved':False},True
         if name == 'impersonate':
             return self._impersonate(conn,args,context), False
+        if name == 'shut_down':
+            self._source_allowed(args,name)   # Only a clearly heard, non-echo request from this turn.
+            return {'text':args['text']}, False
         if name == "remain_silent":
             data = {"reason":args["reason"]}
             if not self.frozen and args['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:
@@ -1283,7 +1295,10 @@ class CoreState:
             return
         turn, capture, transcript, observation, attribution = self.current
         self.evidence = {k:v for k,v in self.evidence.items() if k in self.tracker.tracks}
-        if not attribution.learning_eligible or attribution.person_id:
+        if attribution.person_id:
+            self.grow_voice()
+            return
+        if not attribution.learning_eligible:
             if not attribution.person_id:
                 self.trace.emit('voice_learning_deferred',capture_id=capture.capture_id,
                     reason=attribution.reason,
@@ -1298,6 +1313,60 @@ class CoreState:
         else:
             self.trace.emit('voice_learning_deferred',capture_id=capture.capture_id,
                             reason=proposal.last_reason)
+
+    def grow_voice(self):
+        """Add a clearly recognized, clean clip to that person's saved voice.
+
+        Owner, October 13: voice evidence should build over time. Profiles stopped at the
+        enrollment chain (Bret's held three clips, about seven voiced seconds), so every later
+        night was matched against the same short samples. Growth goes through the enrollment
+        writer with the enrollment exclusions (no motion, echo, overlap, split or doubtful
+        transcript), a clear lead over everyone else, at most VOICE_GROWTH_PER_SESSION clips per
+        person per run and the store's 20-recording cap. Near-duplicates add nothing."""
+        turn_id,capture,transcript,observation,attribution = self.current
+        person_id = attribution.person_id
+        why = None
+        ranked = attribution.candidates
+        if attribution.reason != 'acoustic_match' or not attribution.learning_eligible or observation.motion:
+            why = 'not_a_clean_still_match'
+        elif observation.voiced_seconds < VOICE_GROWTH_SECONDS:
+            why = 'too_short_to_grow_profile'
+        elif not ranked or ranked[0][0] != person_id or ranked[0][1] < VOICE_GROWTH_SCORE:
+            why = 'match_not_strong_enough'
+        elif len(ranked) > 1 and ranked[0][1] - ranked[1][1] < VOICE_GROWTH_MARGIN:
+            why = 'another_voice_too_close'
+        elif capture.robot_microphone_hold is False or (self.require_microphone_hold and capture.robot_microphone_hold is not True):
+            why = 'microphone_not_settled'
+        elif self.voice_grown.get(person_id, 0) >= VOICE_GROWTH_PER_SESSION:
+            why = 'enough_new_clips_this_run'
+        else:
+            try:
+                self._source_allowed({}, 'grow_voice')
+            except ValueError:
+                why = 'untrusted_source'
+        vector = unit(observation.embedding) if why is None else None
+        if why is None and vector is None:
+            why = 'no_embedding'
+        if why is None:
+            known = self.store.profiles(self.tracker.namespace).get(person_id, [])
+            if any(cosine(vector, unit(ref) or ()) >= VOICE_GROWTH_DUPLICATE for ref in known):
+                why = 'already_represented'
+        if why is not None:
+            self.trace.emit('voice_profile_unchanged', person_id=person_id, reason=why)
+            return
+        with self.store.transaction() as conn:
+            before = conn.execute('SELECT count(*) FROM recordings WHERE person_id=?', (person_id,)).fetchone()[0]
+            self.store.save_voice(conn, person_id, [(capture, transcript, observation, turn_id)],
+                                  observation.namespace, acceptance='recognized_clean_match')
+            after = conn.execute('SELECT count(*) FROM recordings WHERE person_id=?', (person_id,)).fetchone()[0]
+            revision = self.store.advance(conn) if after > before else self.store.revision
+        if after > before:
+            self.voice_grown[person_id] = self.voice_grown.get(person_id, 0) + 1
+            self.trace.emit('voice_profile_grown', person_id=person_id, recordings=after,
+                            score=round(ranked[0][1], 3), voiced_seconds=round(observation.voiced_seconds, 2),
+                            revision=revision)
+        else:
+            self.trace.emit('voice_profile_unchanged', person_id=person_id, reason='profile_full_or_duplicate')
 
     def advance_enrollment(self):
         if self.frozen:

@@ -828,3 +828,19 @@ forward instead of spinning. A spin making no headway for 2 s is stopped, and a 
 stalled spin banks before it backs up or gives up. Turn traces now carry clearance.
 1117 blocked-I/O checks pass, on a simulated base only; the live retry from the bookshelf
 spot is pending. [Evidence](DRIVE_BASE_INTEGRATION.md#october-12-evening-a-spin-into-the-bookshelf-behind-him).
+
+October 13 live-run repairs (session `332b0133`, Bret alone, about 17 minutes). Navigation:
+camera-chosen route turns and sensor detours now bank or back up to earn room when a spin is
+refused (the "go right around the couch" turn was refused at 0.55 m and the approach gave up
+1.7 m short); a back-up's receipt says why; refused moves and turns are logged with clearance.
+"Face me" is a wheel turn, never a head pose. Conversation: a planned beat sharing a five-word
+phrase with one of Rex's last six lines gets one rewrite (exact repeats were the only check);
+beats must not remake a point a reply already made, narrate the plan, or revive Rex's own
+confused remarks (the "command-post" line came from the 18:35 session's memory). A new
+`shut_down` action takes the normal exit for any wording of the request, on human turns only.
+Impression scripts may not be empty; a line Rex asked for is performed, not taken as an
+introduction; loose plan dates save as callbacks; rejections are explained without reason
+codes. `neck_up`/`neck_down` drive the head-lift pole to its measured limits. Recognized
+clean speech now grows a saved voice ([rules](CORE_OPERATIONS.md)); Bret's had stayed at
+three enrollment clips. 1128 blocked-I/O checks pass, synthetic only; no hosted model,
+saved audio or hardware was run. Prompt-rule effects and live navigation remain unverified.

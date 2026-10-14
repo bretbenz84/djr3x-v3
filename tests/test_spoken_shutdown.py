@@ -31,6 +31,14 @@ class ShutdownTests(unittest.TestCase):
             self.assertEqual(runtime.session.revision,1)
             self.assertTrue(any(r['event']=='shutdown_requested' for r in runtime.trace.rows))
 
+    def test_a_shutdown_the_conversation_chose_takes_the_same_exit(self):
+        runtime,_=self.runtime('unused')
+        runtime.session.on_shutdown('turn-1')   # What the session calls after the goodbye.
+        self.assertTrue(runtime.stop.is_set())
+        self.assertEqual(runtime.session.revision,1)
+        row=next(r for r in runtime.trace.rows if r['event']=='shutdown_requested')
+        self.assertEqual((row['source'],row['turn_id']),('conversation','turn-1'))
+
     def test_untrusted_and_discussion_remain_conversation(self):
         for text,trusted in (('shut down',False),('Do not shut down.',True),('What happens when you shut down?',True)):
             runtime,_=self.runtime(text,trusted)

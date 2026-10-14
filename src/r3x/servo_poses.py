@@ -760,6 +760,9 @@ HEAD_POSES = {
 }
 NAMED_POSES = {
     'look_center': ((0,NECK_CENTER),),
+    # The owner calls the head-lift pole the neck. October 13: "raise your neck" and "highest
+    # neck pose" got look_up, a head tip on a pole raised only to 4200 of its 7744.
+    'neck_up': ((1,LIMITS[1][1]),), 'neck_down': ((1,LIMITS[1][0]),),
     'visor_down': ((3,VISOR_DOWN),), 'visor_up': ((3,VISOR_OPEN),),
     'throttle_offer': ((8,2176),(9,2601),(10,5938)),
     'throttle_high_five': ((8,2176),(9,9361),(10,6302)),

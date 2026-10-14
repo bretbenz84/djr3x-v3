@@ -241,7 +241,7 @@ class Memory:
             count += 1
         return saved
 
-    def save_voice(self, conn, person_id, samples, namespace):
+    def save_voice(self, conn, person_id, samples, namespace, acceptance='compatible_anchor_and_cluster'):
         count = conn.execute("SELECT count(*) FROM recordings WHERE person_id=?",(person_id,)).fetchone()[0]
         for sample in samples:
             capture, transcript, observation, turn_id = sample
@@ -256,7 +256,7 @@ class Memory:
                         "transcript":transcript.text,"voiced_seconds":observation.voiced_seconds,
                         "started_at":capture.started_at,"ended_at":capture.ended_at,"device":capture.device,
                         "avg_logprob":transcript.avg_logprob,"namespace":namespace,
-                        "acceptance":"compatible_anchor_and_cluster"}
+                        "acceptance":acceptance}
             conn.execute("INSERT INTO recordings VALUES(?,?,?,?,?,?)",(recording_id,person_id,digest,
                          capture.pcm,capture.sample_rate,json.dumps(metadata)))
             conn.execute("INSERT INTO embeddings VALUES(?,?,?)",(recording_id,namespace,json.dumps(observation.embedding)))

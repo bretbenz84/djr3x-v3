@@ -1,5 +1,6 @@
 """One sequential conversational owner shared by live input and scenarios."""
 from queue import Queue
+import re
 import threading
 import time
 from uuid import uuid4
@@ -24,6 +25,8 @@ STOP_WRAPPERS = frozenset({"oh","hey","no","whoa","rex","okay","ok","please","no
 QUIET_COMMANDS = frozenset({"shut up","stop talking","be quiet","quiet","hush"})
 # Shutdown waits at most this long for the conversation lock, then goes ahead without it.
 SHUTDOWN_LOCK_SECONDS = .5
+REPEAT_LINES = 6    # Rex's recent heard lines a planned beat must not repeat.
+REPEAT_RUN = 5      # Words in a row that count as repeating one of them.
 
 
 def is_quiet_command(text: str) -> bool:
@@ -65,6 +68,7 @@ class Session:
     def __init__(self, session_id: str, brain: Brain | None, output: OutputOwner, trace, state=None):
         self.session_id, self.brain, self.output, self.trace = session_id, brain, output, trace
         self.agency_planner = None
+        self.on_shutdown = None   # The runtime's exit, for a shut_down the conversation owner chose.
         self.revision = 0
         self.history = TurnHistory()
         self._lock = threading.RLock()
@@ -108,16 +112,29 @@ class Session:
             thread.join(timeout)
 
     def _repeats_recent_line(self, call):
-        """Exact repetition of one of Rex's last heard lines; wording, not meaning."""
-        text = call.arguments.get('text') if isinstance(call.arguments, dict) else None
-        if not isinstance(text, str) or not text.strip():
-            return False
+        """The part of a beat's line that repeats one of Rex's recent heard lines, or None.
+
+        Wording, not meaning: the line itself, or a shared run of REPEAT_RUN words with some
+        substance (October 13: "earned one smug look at the screen" twice in three minutes).
+        Rex's own output is compared; nothing here interprets what a person said."""
+        args = call.arguments if isinstance(call.arguments, dict) else {}
+        text = ' '.join(v for v in (args.get('say_before'), args.get('text')) if isinstance(v, str) and v.strip())
+        if not text:
+            return None
         from .output import plain_text
-        def norm(value):
-            return ' '.join(plain_text(value).lower().split())  # Delivery tags are not words.
-        said = [norm(m['content']) for m in self.history_messages()
-                if m.get('role') == 'assistant' and isinstance(m.get('content'), str)][-4:]
-        return norm(text) in said
+        def words(value):
+            return re.findall(r"[a-z0-9']+", plain_text(value).lower().replace('\u2019', "'"))
+        said = [words(m['content']) for m in self.history_messages()
+                if m.get('role') == 'assistant' and isinstance(m.get('content'), str)][-REPEAT_LINES:]
+        line = words(text)
+        if line in said:
+            return ' '.join(line)
+        runs = {tuple(w[i:i+REPEAT_RUN]) for w in said for i in range(len(w) - REPEAT_RUN + 1)}
+        for i in range(len(line) - REPEAT_RUN + 1):
+            run = tuple(line[i:i+REPEAT_RUN])
+            if run in runs and sum(len(w) >= 4 for w in run) >= 2:
+                return ' '.join(run)
+        return None
 
     def _subject_person(self, context):
         """Who Rex's next goal is about: an arrival, the private-memory person, or one known face."""
@@ -479,6 +496,7 @@ class Session:
         agency_revision_reason = None
         action_outcome = None
         impression = None
+        shutdown_requested = False
         try:
             with self._lock:
                 if self.closed or source_session != self.session_id or submitted_revision != self.revision:
@@ -866,15 +884,18 @@ class Session:
                     if close:
                         close()
             calls = generate(snapshot)
-            if agency_step and len(calls) == 1 and not generated.strip() and self._repeats_recent_line(calls[0]):
+            repeated = (self._repeats_recent_line(calls[0])
+                        if agency_step and len(calls) == 1 and not generated.strip() else None)
+            if repeated:
                 # Hosted probe, October 2: a beat about a no-smiling challenge was delivered as a
                 # word-for-word repeat of the previous line. One bounded retry, then the beat fails.
-                self.trace.emit('agency_repeat_rejected', turn_id=turn_id, name=calls[0].name)
+                self.trace.emit('agency_repeat_rejected', turn_id=turn_id, name=calls[0].name, repeated=repeated)
                 from dataclasses import replace as replace_snapshot
                 self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='agency_repeat_retry',
                     reasoning_effort=getattr(self.brain,'reasoning_effort',None))
                 calls = generate(replace_snapshot(snapshot, messages=(*snapshot.messages, {'role':'developer','content':
-                    'You just said exactly that. Do this beat instead, in new words: '+agency_step['instruction']})))
+                    f'You already said "{repeated}". Make a different point in new words, or do the beat silently: '
+                    + agency_step['instruction']})))
                 if len(calls) == 1 and self._repeats_recent_line(calls[0]):
                     raise ProviderFailure('AgencyBeatRepeatedRecentLine')
             if len(calls)==1 and calls[0].name=='revise_agency_plan' and not generated.strip():
@@ -1471,6 +1492,14 @@ class Session:
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {}), **({"next_opportunity":None} if "next_opportunity" in call.arguments else {})})},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                     self.trace.emit("reply_suppressed",turn_id=turn_id,reason=result.data["reason"])
+                elif result.outcome=='ok' and call.name=='shut_down':
+                    # October 13: "I need you to shut down" lowered the visor and he claimed he
+                    # could not power off; only the exact words "shut down" reached the fast path.
+                    shutdown_requested = True
+                    if result.data['text']:
+                        put_phrase(phrases,result.data['text'],cancel)
+                    else:
+                        delivery.status, delivery.medium = 'suppressed', 'none'
                 elif result.outcome=='ok' and call.name=='impersonate':
                     impression = self._perform_impression(result.data,phrases,delivery,cancel,worker,turn_id)
                 elif result.outcome=='ok' and call.name=='use_visual_memory':
@@ -1769,4 +1798,6 @@ class Session:
                 outcome = self.state.initiative.finished(opportunity,delivery,self.trace.clock())
                 self.trace.emit('proactive_outcome',**outcome)
             self._processing.release()
+        if shutdown_requested and self.on_shutdown and not self.closed:
+            self.on_shutdown(turn_id)   # After the goodbye played (or was cut short).
         return delivery

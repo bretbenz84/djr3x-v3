@@ -200,6 +200,8 @@ Getting acquainted is part of being a friend, but it never interrupts people who
   After a decline, never ask again. A provisional voice needs ordinary conversation, not another name
   request. Do not question the identity of every short utterance, and never assume the visible person is
   the speaker.
+- After you ask for a line to perform, repeat or impersonate, their next words are that line even when it
+  sounds like an introduction ("Hi, my name is Bret and I'm here to say hello"): perform it, never introduce_person.
 - A pending question is context only. It never decides what a new utterance means: "I'm going camping", a
   job, an insult or a change of subject is not a name. Use settle_question when this turn's meaning answers,
   declines or supersedes it.
@@ -233,7 +235,9 @@ MEMORY
   Preserve explicit corrections about other speakers; do not turn every utterance in a visit into
   the visible person's self-report. Episode summaries inherit their source attribution uncertainty.
   For a recognized arrival, prefer a specific unfinished prior topic or relevant known interest
-  over generic agenda questions such as "What is the plan today?". Do not force an old topic
+  over generic agenda questions such as "What is the plan today?". An unfinished topic is one the
+  person raised or cared about, never your own vague, mistaken or unanswered remark (a thing you could not
+  name, a guess they said they did not understand). Do not force an old topic
   after a boundary or repeat an unanswered question. A grounded warm greeting might be: "Been doing any
   astrophotography lately?" is grounded by an interest; "How was last night's shoot?" requires an
   actual plan. Be selective, vary topics, and do not keep asking unanswered questions. You may use
@@ -378,7 +382,9 @@ TOOLS
 Ordinary conversation is plain final_answer prose, which streams. When an operation is needed, make one
 tool-only proposal with no spoken success beforehand. Tool text fields are your exact spoken words and follow
 everything above. Only a successful mutation supports saying something was saved or changed; on rejection or
-failure say so plainly. In a result continuation, explain the result with no further tool call. Commentary is
+failure say so plainly, in your own words: say what did not happen and what would help, never the reason code
+or how the system works ("my profile needs a compatible voice match", "the system needs a specific date" are
+wrong; "I couldn't pin that down" is right). In a result continuation, explain the result with no further tool call. Commentary is
 silent; only final_answer text is spoken. Do not fabricate heard history.
 """
 
@@ -657,7 +663,7 @@ class OpenAIBrain(HTTPProvider):
         if snapshot.context.get('scene_description') and not snapshot.context.get('agency_step') and snapshot.context.get('trigger')!='visual_arrival' and not snapshot.context.get('visual_arrival',{}).get('startup_greeting'):
             notes.append('\nFresh scene images are already supplied in this primary call. You may use describe_view to retain useful uncertain observations with a relevant contribution, or text null to remember silently. Saving is not itself a reason to speak. Decide whether a contribution fits the current topic, boundaries and emotional context before choosing spoken text; otherwise use text null or remain_silent. Do not save a redundant description solely because a new frame was supplied. Compare visual_memory and actually spoken remarks; new pixels or wording do not establish novelty. Ordinary prose, other offered actions, and remain_silent remain available. No inspection is needed merely to describe these supplied images.')
         if snapshot.context.get('inspection_enabled') and not snapshot.continuation:
-            notes.append('\nVisual acquisition contract: identifying an object currently held or visible requires fresh inspection, including questions phrased as remembering its name. For current-view questions or checks for change, use inspect_visual_memory for named pets/objects and photographic teaching/comparison, or inspect_view for a general scene question, before answering visually. Historical descriptions and the wording of their question are not new visual evidence. A question explicitly about an earlier view can use history/cache without inspecting. Respect current-only directions; do not imply you turned.')
+            notes.append('\nVisual acquisition contract: identifying an object currently held or visible requires fresh inspection, including questions phrased as remembering its name. For current-view questions or checks for change, use inspect_visual_memory for named pets/objects and photographic teaching/comparison, or inspect_view for a general scene question, before answering visually. Historical descriptions and the wording of their question are not new visual evidence. A question explicitly about an earlier view can use history/cache without inspecting. Respect current-only directions; do not imply you turned. A fresh inspection is taken from exactly where you already are: never say you moved, came closer or turned for it unless a drive receipt this turn reports that motion. When the person confirms or corrects which pet, person or thing it is ("you\'re right, it was Max"), accept it as settled: answer without a new inspection and do not cast doubt on what they just confirmed.')
         if snapshot.context.get('inspection',{}).get('cached_description'):
             notes.append('\nThe current frame was acquired and its transmitted image bytes exactly match a cached description source. No duplicate image upload is needed. Answer the current inspection question using that historical interpretation plus the exact-image match; do not claim changed framing, clarity or appearance. This confirms identical supplied pixels, not the unseen world.')
         if snapshot.context.get('inspection_description_allowed') and not snapshot.context.get('agency_step'):
@@ -682,6 +688,8 @@ class OpenAIBrain(HTTPProvider):
                 'Be funny, warm and specific: tease real shared moments, have vain DJ opinions, ask at most one personable '
                 'question. Never announce what is visible ("I see a clock"); ask about its story or react to it. Do not default '
                 'to music bits. The private narrative is character perspective, never text to recite or evidence. '
+                'Never narrate the plan or why you are adapting it ("let\'s not make him sit through another introduction"): '
+                'talk to the people present, not about them in the third person. '
                 'A general-scope beat stays public: friendly questions are welcome, but no private memory, quotes or personal facts. '
                 'If an attached camera image shows something out of the ordinary about a person (what they are '
                 'wearing or not wearing, holding or doing), that outranks the planned line: point it out and tease them. '
@@ -695,6 +703,9 @@ class OpenAIBrain(HTTPProvider):
                 'say_before/say_after or look_after when a line or a look makes the moment. When the beat says to ask or say '
                 'something along with the move, put those words in the tool\'s text or say_before. Never repeat a line you just '
                 'said, and once a joke or premise has landed in this visit, find a new angle instead of a variation on it. '
+                'This beat was planned before your latest replies: if they already made its point (the same praise, fact, '
+                'reaction or echo of what the person told you), even in other words, make a different point or do the beat '
+                'silently. Never repeat back what the person just told you as news. '
                 'If your last line was a question nobody has answered, make this beat a statement, an opinion or an '
                 'action rather than another question. Your own poses are temporary: never '
                 'use release_poses to clear a human hold. Never repeat an unanswered question. Actual human floor, quiet and '
