@@ -223,6 +223,57 @@ class IdleTests(unittest.TestCase):
         self.idle.wake(delay=4.);self.idle.wake()  # The picture was taken early: wandering resumes now.
         self.assertIsNotNone(self.idle._thread)
 
+    def test_poker_arm_sways_like_a_cats_tail_with_the_wrist_trailing_the_other_way(self):
+        # Owner, October 13: the poker arm's idle should be steady, unhurried movement like a
+        # cat's tail, the wrist following the elbow in the opposite direction, trailing it.
+        from r3x.servo_poses import POKER_IDLE, POKER_UP, POKER_TAIL, idle_lanes, poker_clear
+        self.execute('startup');self.clock.wait(.6)
+        self.assertEqual({ch:self.port.pose[ch] for ch in (12,13)},dict(POKER_UP))
+        sides=[]
+        for seed in range(10):
+            self.owner.rng=random.Random(seed)
+            before={ch:self.port.pose[ch] for ch in (6,12,13)}
+            self.port.packets.clear()
+            self.assertEqual(self.execute('idle',IdlePhrase((('poker',0.),))).status,'pulses_reached')
+            after={ch:self.port.pose[ch] for ch in (6,12,13)}
+            elbow,wrist,swing=(after[ch]-before[ch] for ch in (12,13,6))
+            self.assertGreater(abs(elbow),300);self.assertGreater(abs(wrist),400)
+            self.assertLess(elbow*wrist,0)                 # The wrist bends against the elbow...
+            self.assertGreater(elbow*swing,0)              # ...while the swing goes with it.
+            sides.append(after[12]>POKER_TAIL[12][0])
+            self.assertTrue(poker_clear(after))
+            self.assertTrue(all(POKER_IDLE[ch][0]<=after[ch]<=POKER_IDLE[ch][1] for ch in (12,13)))
+            speed={p[1]:p[2]+128*p[3] for p in self.port.packets if p[0]==0x87}
+            accel={p[1]:p[2]+128*p[3] for p in self.port.packets if p[0]==0x89}
+            self.assertLess(accel[13],accel[12])           # It picks up speed later...
+            took={ch:abs(after[ch]-before[ch])/(100*speed[ch]) for ch in (6,12,13)}
+            self.assertGreater(took[13],took[12])          # ...and arrives after the elbow.
+            self.assertTrue(1.4<=took[12]<=2.4 and max(speed.values())<=8,(took,speed))   # Not fast.
+        self.assertEqual(sides,[i%2==1 for i in range(10)])   # Side to side, every time.
+        # Started with the wrist curled in and the elbow low, rising straight into the sway
+        # could meet the arm: it takes the staged route back to the awake pose first.
+        lanes=idle_lanes({**self.port.pose,12:5500,13:9944},random.Random(3),phrase=IdlePhrase((('poker',0.),)))
+        self.assertGreater(len(lanes[0]),1)
+        self.assertTrue(all(poker_clear(dict(beat.targets)) for beat in lanes[0][1:]))
+
+    def test_the_tail_keeps_swaying_in_every_phrase_and_while_slower_parts_finish(self):
+        from r3x.servo_poses import idle_lanes
+        self.execute('startup');self.clock.wait(.6);self.port.packets.clear()
+        phrases=self.run_scheduler(60.)
+        self.assertGreater(len(phrases),15)
+        self.assertTrue(all({6,12,13}<=channels for _,channels in phrases))
+        # The hero arm's reach outlasts half a sway: the tail goes on swaying instead of waiting.
+        for seed in range(6):
+            lanes=idle_lanes(dict(self.port.pose),random.Random(seed),
+                             phrase=IdlePhrase((('hero',0.),('poker',.3)),swing=True))
+            elbow=[dict(beat.targets)[12] for beat in lanes[1]]
+            self.assertGreaterEqual(len(elbow),2,seed)
+            self.assertTrue(all((a-6000)*(b-6000)<0 for a,b in zip(elbow,elbow[1:])),elbow)
+        # A held poker arm (a person's pose, or tucked beside an obstacle) does not sway.
+        self.owner.held_channels.update({6,12,13})
+        self.assertEqual(idle_lanes(dict(self.port.pose),random.Random(1),self.owner.held_channels,
+                                    IdlePhrase((('poker',0.),))),())
+
     def test_waking_never_competes_with_talking_motion(self):
         self.execute('startup');self.port.packets.clear()
         self.idle.busy=lambda:True

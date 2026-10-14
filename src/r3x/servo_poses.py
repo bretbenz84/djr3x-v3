@@ -734,7 +734,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
         longest = max((_lane_seconds(lane, current) for i, lane in enumerate(lanes) if i != tail), default=0.)
         lane = lanes[tail]
         for _ in range(4):
-            if _lane_seconds(lane, current) + 1.5 > longest:
+            if _lane_seconds(lane, current) + 1. > longest:
                 break
             reached = {**current, **{ch: value for beat in lane for ch, value in beat.targets}}
             more = poker_tail(rng, reached)

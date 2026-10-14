@@ -6,6 +6,33 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 13: the poker arm sways like a cat's tail
+
+Owner: the poker arm's idle should be steadier, almost like a cat's tail waving: not fast,
+just more constant, with the wrist following the elbow in the opposite direction, trailing
+it. It used to jump to a random spot every 3-7 s. Now (`servo_poses.poker_tail`):
+
+- *Every phrase:* the arm is due in every idle phrase (it takes one of the three parts) and
+  each move is half a sway, across to the other side of its awake pose (swing 6000, elbow
+  6000, wrist 3768). Side to side every time, never back to the same side.
+- *The shape:* the swing goes with the elbow (±300-600 and ±350-550); the wrist bends the
+  other way (±500-800). All three stay inside the old idle range, under the elbow's
+  clearance ceiling.
+- *The trail:* the elbow and wrist still start in the same command, because the clearance
+  check needs them together. The wrist eases in at a third of the elbow's acceleration and
+  arrives 0.5-0.8 s after it, so the hand picks up speed late and follows through. Each half
+  sway takes 1.7-2.3 s at board speed 8 or less (new per-joint `Beat.profiles`).
+- *No stopping:* when another part in the same phrase takes longer (the hero arm's reach, up
+  to about 8 s), the tail adds more half sways until it is about done. A held or tucked poker
+  arm does not sway. An arm that starts where rising into the sway could meet the wrist takes
+  the staged route back to the awake pose first.
+
+Phrases now last as long as a half sway (about 2.2-3.1 s), so the head's face-following
+re-aims about every 2.5-3 s rather than every 1.2-2.8 s; it keeps drifting in between. 1,134
+blocked-I/O checks pass (simulated servo board, which arrives instantly). How it looks, the
+real acceleration curve, the pause at each end of a sway, its noise and servo heat under
+constant motion are unseen until a run on the robot.
+
 ## October 12 (later): livelier, more continuous idle
 
 Owner: idle looked frozen with a small move now and then; talking is vivacious; idle should sit
