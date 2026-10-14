@@ -38,10 +38,10 @@ def describe_positions(rows):
     return rows
 
 
-PET_LABELS=frozenset({'dog','cat'})   # The detector often calls one animal both, frame to frame.
 # October 13: Max held in Bret's arms was detected about every other second; "This is Max" came
-# between detections and the teaching look failed. A pet seen this recently is still there.
-PET_RECALL_SECONDS=10.
+# between detections and the teaching look failed. How long a pet seen is still there, and which
+# labels mean a pet, are rules of the picture of the present.
+from .present import PET_LABELS, PET_RECALL_SECONDS
 
 
 class Objects:

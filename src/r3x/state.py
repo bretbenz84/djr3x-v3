@@ -31,8 +31,6 @@ class CoreState:
         self.current = None
         self.conversation_source = None  # Last trusted input, separate from archived noise.
         self.forgotten = False
-        self.audience_seen = None  # (person_id, at): last evidenced private audience this run.
-        self.company_at = float('-inf')  # When more than one person was last in evidence.
         self.frozen = frozen
         self.require_microphone_hold = require_microphone_hold
         self.voice_grown = {}   # person_id -> clips added to their saved voice this run.
@@ -59,8 +57,10 @@ class CoreState:
         self.min_face_epoch = 0
         from .proactive import Initiative
         self.initiative = Initiative(trace)
+        from .present import Present
+        self.present = Present()   # Who is here, things around, the conversation clock.
         from .agency import AgencyPlan
-        self.agency = AgencyPlan(store, trace)
+        self.agency = AgencyPlan(store, trace, self.present)
         self.initiative.agency = self.agency
         from .conversation_intent import ConversationIntent
         self.conversation_intent = ConversationIntent(trace, self.initiative.cancel_schedule)
@@ -409,27 +409,8 @@ class CoreState:
                 "enrollment":[e.progress() for e in self.enrollments.values()]})
 
     def note_audience(self, context):
-        """Remember the private audience while evidence supports it, and offer it back to
-        the memory gate for a short while after (conversation_memory.subject).
-
-        A contradiction (several faces, somebody else recognized) ends the carry at once;
-        a fresh recognition is then needed."""
-        from . import conversation_memory as cm
-        now = self.trace.clock()
-        who = cm.evidenced_subject(context)
-        faces = context.get('current_view', {}).get('faces', context.get('faces', []))
-        if len(faces) > 1 or (self.audience_seen and cm.contradicted(context, self.audience_seen[0])):
-            # Somebody else is here: nobody is carried until recognized directly, and an
-            # unrecognized face cannot inherit the visit for a while (COMPANY_SECONDS).
-            self.audience_seen, self.company_at = None, now
-        if who:
-            self.audience_seen = (who, now)
-        context.pop('recent_audience', None)
-        if self.audience_seen and now - self.company_at >= cm.COMPANY_SECONDS:
-            context['recent_audience'] = {'person_id':self.audience_seen[0],
-                'seconds_ago':round(now-self.audience_seen[1],1),
-                'meaning':'Last person recognized as the private audience. Keeps their memories usable through brief camera gaps; not proof they are visible now or that they spoke.'}
-        return context
+        """The private audience for the memory gate, kept by the picture of the present."""
+        return self.present.note_audience(context, self.trace.clock())
 
     def opportunity_context(self, event, *, advance_memory_cursor=True):
         """No acoustic observation/source turn is fabricated for an opportunity."""
@@ -1227,7 +1208,7 @@ class CoreState:
             self.last_inspection = None
             self.attention.scene.invalidate(self.trace.clock())
             self.forgotten = True
-            self.audience_seen = None
+            self.present.forget(data["person_id"])
             from .speakers import VoiceObservation,Attribution
             self.current = (turn_id,replace(capture,pcm=b""),transcript,
                             VoiceObservation(observation.namespace),Attribution(reason="person_forgotten"))

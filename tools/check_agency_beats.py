@@ -290,7 +290,7 @@ def run_quiet_then_dog(index, key, folder):
                 trace.at += 1
                 dog_rows[:] = [{'target_id': 'object-dog', 'label': 'cat' if int(trace.at) % 2 else 'dog', 'score': .6,
                                 'box': [.3, .3, .3, .3], 'at': trace.at, 'samples': 2}]
-                runtime.pets.observe(dog_rows, trace.at)
+                runtime.session.state.present.saw_things(dog_rows, trace.at)
             tick()
             trace.at += 30; tick()
             session.close()

@@ -6,7 +6,7 @@ import unittest
 from r3x.contracts import ToolCall
 from r3x.output import TextOutput
 from r3x.photo_memory import PhotoMemory
-from r3x.proactive import PetArrivals
+from r3x.present import Pets
 from r3x.runtime import VoiceRuntime
 from r3x.semantics import grounded_tools
 from r3x.session import Session
@@ -22,7 +22,7 @@ def dog(at, label='dog', target='object-dog'):
 class PetArrivalRules(unittest.TestCase):
     def test_a_flickering_cat_dog_detection_is_one_settled_arrival(self):
         # October 13: Max in Bret's arms was "cat", "dog" or nothing from one second to the next.
-        pets = PetArrivals()
+        pets = Pets()
         for at, label in ((100, 'cat'), (101, 'dog'), (103, None), (104, 'cat')):
             pets.observe([dog(at, label)] if label else [], at)
         event = pets.take('session', 104, 0.)
@@ -30,7 +30,7 @@ class PetArrivalRules(unittest.TestCase):
         self.assertIsNone(pets.take('session', 105, 0.))           # Once per visit.
 
     def test_a_glimpse_is_not_an_arrival_and_a_return_after_a_while_is(self):
-        pets = PetArrivals()
+        pets = Pets()
         pets.observe([dog(100)], 100)
         self.assertIsNone(pets.take('session', 101, 0.))           # Not settled yet.
         for at in (101, 102, 103):
@@ -44,7 +44,7 @@ class PetArrivalRules(unittest.TestCase):
         self.assertIsNotNone(pets.take('session', 704, 0.))
 
     def test_a_remembered_pet_between_detections_does_not_start_an_arrival(self):
-        pets = PetArrivals()
+        pets = Pets()
         for at in (100, 101, 103):
             pets.observe([{**dog(at), 'recently_seen': True}], at)
         self.assertIsNone(pets.take('session', 103, 0.))
@@ -82,7 +82,7 @@ class PetArrivalTurn(MemoryFixture):
         for at in (197, 198, 199, 200):
             runtime.arrivals.observe([face(at, track='bret')], at)
             rows[:] = [dog(at, 'cat' if at % 2 else 'dog')]
-            runtime.pets.observe(rows, at)
+            runtime.session.state.present.saw_things(rows, at)
         runtime.arrivals.seen['bret']['used'] = True   # Bret was already greeted.
         trace.at = runtime.audio_seen_at = 200
         result = runtime.proactive_tick()

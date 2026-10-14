@@ -3,6 +3,10 @@ from datetime import datetime, time, timedelta, timezone
 import json
 import re
 
+# How long a recognized person remains the private audience while the camera cannot confirm
+# them, and the company rule, live with the picture of the present.
+from .present import PRIVATE_CARRY_SECONDS
+
 SCHEMA = """
 INSERT OR IGNORE INTO meta VALUES('conversation_memory_schema','2');
 CREATE TABLE IF NOT EXISTS conversation_exchanges(
@@ -19,17 +23,6 @@ CREATE TABLE IF NOT EXISTS conversation_exchange_evidence(
  evidence TEXT NOT NULL);
 UPDATE meta SET value='2' WHERE key='conversation_memory_schema';
 """
-
-
-# How long a recognized person remains the private audience while the camera cannot confirm
-# them. October 3: Rex greeted the owner by name, then refused to recall that morning's talk
-# because the face track had restarted, unrecognized, a second earlier (his own head and
-# wheel movement restarts tracks; recognition then takes about a second in view).
-VISIT_GRACE_SECONDS = 90.
-# With company the carry is off: October 3, a guest sitting beside the owner was alone in
-# view for a moment, was treated as the owner and answered "Nice to meet you too, Brett".
-# After two faces are seen together, only direct recognition counts for this long.
-COMPANY_SECONDS = 600.
 
 
 def evidenced_subject(context):
@@ -60,13 +53,13 @@ def subject(context):
     recognized moments ago while nothing contradicts the same visit.
 
     The carried person needs an empty view or a single not-yet-recognized face, no supported
-    voice of somebody else, and a recognition within VISIT_GRACE_SECONDS. Carrying
+    voice of somebody else, and a recognition within PRIVATE_CARRY_SECONDS. Carrying
     authorizes memory use only; it never attributes an utterance or enrolls anything."""
     who = evidenced_subject(context)
     if who: return who
     recent = context.get('recent_audience') or {}
     carried, age = recent.get('person_id'), recent.get('seconds_ago')
-    if not carried or type(age) not in (int, float) or not 0 <= age <= VISIT_GRACE_SECONDS: return None
+    if not carried or type(age) not in (int, float) or not 0 <= age <= PRIVATE_CARRY_SECONDS: return None
     faces = context.get('current_view', {}).get('faces', context.get('faces', []))
     if len(faces) > 1 or any(f.get('identity') for f in faces): return None
     speaker = context.get('speaker', {})

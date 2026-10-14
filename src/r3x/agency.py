@@ -19,14 +19,8 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS agency_plan(
 FORMAT = 2  # Saved goal format; earlier step scripts are context only and never executed.
 GOAL_KINDS = ('catch_up', 'get_to_know', 'investigate', 'entertain', 'explore')
 STEP_KINDS = ('contribute', 'inspect', 'look', 'gesture', 'pose', 'drive')
-# A person goal survives camera dropouts and face-track renumbering this long. Live
-# October 1: one continuously present owner produced 175 track IDs in ten minutes.
-PRESENCE_GRACE_SECONDS = 45.
-# An unrecognized face or voice continues a known person's visit this long after they were
-# last positively recognized. Live sessions showed recognition gaps of up to 50 seconds while
-# the owner stayed put; beyond this window an unrecognized person is treated as someone else,
-# so a stranger does not inherit private material.
-IDENTITY_INHERIT_SECONDS = 180.
+# Who is present, and for how long a person goal survives camera dropouts and face-track
+# renumbering, is decided by the shared picture of the present (present.py).
 # Easing off: each spoken beat that nobody answers lengthens the wait before the next
 # SPOKEN beat (0, 10, 20, 40, 80 extra seconds, then two minutes). Any human speech or a new
 # arrival resets it. Without this he spoke every 15-25 seconds for as long as a face was in view.
@@ -39,9 +33,6 @@ EASE_MAX_SECONDS = 120.
 SILENT_KINDS = ('pose', 'look', 'drive')   # Beats that can be done without a word.
 # An unheard beat that yielded to a sound is tried again this soon (the lull still applies).
 RETRY_SECONDS = 4.
-# With nobody seen or heard this long, Rex starts no new goals: an empty room is not an
-# audience, and each goal costs a planner call.
-ALONE_PAUSE_SECONDS = 300.
 # Floor between planner calls, whatever goes wrong; each goal costs a stronger-model call.
 PLAN_MIN_INTERVAL_SECONDS = 8.
 # An interrupted beat is retried at the next lull, then skipped; the goal continues.
@@ -142,6 +133,8 @@ WHAT MAKES IT GOOD
   hypotheticals and imagination are welcome; invented facts about people, ownership, past visits, things not
   seen or actions not taken are not. Rex's own earlier lines are not evidence: never build a beat on a thing he
   could not name or a remark the person said they did not understand.
+- Timely. right_now is Rex's sense of the moment: who is still around, whether a line went unanswered, how
+  long the quiet has lasted, all in words. Plan for the moment it describes, not the last thing in the transcript.
 - Responsive. Read recent dialogue first: the conversation steers the goal. While people are talking
   (quiet.lull false), the first beat builds on the LAST thing the person said; never steer back to a topic they
   have moved on from, even one just saved as a memory or fact. Honor rejections and topic closures, and never
@@ -265,8 +258,8 @@ def evidence_catalog(context):
 
 
 class AgencyPlan:
-    def __init__(self, store, trace):
-        self.store, self.trace = store, trace
+    def __init__(self, store, trace, present):
+        self.store, self.trace, self.present = store, trace, present
         self.record = None
         self.revision = 0
         self.loaded = False
@@ -278,12 +271,13 @@ class AgencyPlan:
         # Why the current goal no longer runs; None while a goal is live.
         self.ending = 'startup'
         self.pending_subject = None  # Who arrived; the next goal is about them.
-        self.person_seen = {}        # person_id -> last face or supported speech time
-        self.person_spoke = {}       # person_id -> last supported speech time
-        self.face_at = float('-inf')
-        self.speech_at = float('-inf')
+        self.speech_at = float('-inf')  # Latest trusted human speech, for talked-over beats.
         self.goals = deque(maxlen=6)  # Finished goals for variety; never executed again.
-        self.unanswered = 0  # Spoken beats since a human last spoke.
+
+    @property
+    def unanswered(self):
+        """Rex's own heard lines since a human last spoke (kept by the present)."""
+        return self.present.unanswered
 
     def ease_seconds(self):
         if self.unanswered <= 1: return 0.
@@ -332,50 +326,18 @@ class AgencyPlan:
                 db.execute('INSERT OR REPLACE INTO agency_plan VALUES(1,?,?)', (FORMAT, json.dumps(self.record)))
 
     # Presence ------------------------------------------------------------
-    def observe_faces(self, faces, now):
-        for face in faces or ():
-            at = face.get('at', now)
-            if at is None or at > now + 1: continue
-            if (face.get('face_width_px') or 48) < 48: continue  # A tiny far face is not company.
-            self.face_at = max(self.face_at, at)
-            if face.get('identity'):
-                self.person_seen[face['identity']] = max(self.person_seen.get(face['identity'], float('-inf')), at)
-
-    def observe_speech(self, person_id, now):
+    def human_spoke(self, person_id, now):
+        """Trusted human speech: presence for the picture, and a lively pace again."""
         self.speech_at = max(self.speech_at, now)
-        if self.unanswered:
+        if self.present.unanswered:
             # Someone answered: back to a lively pace (the lull still applies).
-            self.unanswered = 0
             self.due_at = min(self.due_at, now)
-        if person_id:
-            self.person_seen[person_id] = max(self.person_seen.get(person_id, float('-inf')), now)
-            self.person_spoke[person_id] = max(self.person_spoke.get(person_id, float('-inf')), now)
-
-    def spoke_recently(self, person_id, now, window=60.):
-        """Someone who has been talking to Rex never left, whatever the camera said."""
-        return bool(person_id) and now - self.person_spoke.get(person_id, float('-inf')) <= window
-
-    def someone_around(self, now, since=float('-inf')):
-        return now - max(self.face_at, self.speech_at, since) <= ALONE_PAUSE_SECONDS
-
-    def present(self, person, now):
-        if not person:
-            return now - max(self.face_at, self.speech_at) <= PRESENCE_GRACE_SECONDS
-        recognized = self.person_seen.get(person, float('-inf'))
-        if now - recognized <= PRESENCE_GRACE_SECONDS:
-            return True
-        # Their face and voice can both go unrecognized while they stay (live October 1).
-        # An unrecognized face or trusted speech, with nobody else recognized, continues their
-        # visit, but only for a bounded time after the last positive recognition.
-        # A snapshot: the background planner reads this while the conversation thread writes it.
-        others = any(p != person and now - t <= PRESENCE_GRACE_SECONDS for p, t in list(self.person_seen.items()))
-        return (now - recognized <= IDENTITY_INHERIT_SECONDS and not others and
-                now - max(self.face_at, self.speech_at) <= PRESENCE_GRACE_SECONDS)
+        self.present.heard(person_id, now)
 
     def subject_present(self, now):
         record = self.record
         if not record or record.get('scope') != 'audience': return True
-        return self.present(record.get('subject_person'), now)
+        return self.present.here(record.get('subject_person'), now)
 
     # Lifecycle -----------------------------------------------------------
     def ending_reason(self, now):
@@ -428,7 +390,7 @@ class AgencyPlan:
         self.ending = reason
         if subject is not None: self.pending_subject = dict(subject)
         if reason == 'person_arrived':
-            self.unanswered = 0  # New company gets a lively Rex.
+            self.present.unanswered = 0  # New company gets a lively Rex.
             self.due_at = float('-inf')
         self.revision += 1
         self._emit('agency_goal_ending', reason=reason, subject=subject)
@@ -478,7 +440,7 @@ class AgencyPlan:
         rows = []
         for goal in self.goals:
             person = goal.get('subject_person')
-            if goal.get('scope') == 'audience' and person and now - self.person_seen.get(person, float('-inf')) > PRESENCE_GRACE_SECONDS:
+            if goal.get('scope') == 'audience' and person and not self.present.here(person, now):
                 rows.append({'goal_kind': goal['goal_kind'], 'scope': 'audience', 'ended': goal['ended'],
                              'note': 'About a person who is not here now; details withheld.'})
             else:
@@ -519,7 +481,7 @@ class AgencyPlan:
             value['scope'] = 'audience'
             self._emit('agency_scope_narrowed', evidence_ids=scoped_refs, audience=audience)
         if origin == 'planner' and value['scope'] == 'audience':
-            if not self.present(subject_person, now):
+            if not self.present.here(subject_person, now):
                 # A goal for someone who is not here could never run; replanning it every
                 # tick would only spend planner calls.
                 raise ValueError('AgencyAudienceNotPresent')
@@ -556,7 +518,7 @@ class AgencyPlan:
             'With nobody to talk to, keep it short and self-contained.')
         # Private only when its audience is actually here; after Rex drives off and loses sight
         # of everyone (hosted probe, October 2) the improvised beat stays general.
-        private = audience != '[]' and self.present(subject_person, now)
+        private = audience != '[]' and self.present.here(subject_person, now)
         self.install({'goal_kind': 'entertain', 'subject': 'the current moment',
             'scope': 'audience' if private else 'general',
             'narrative': 'I can keep things lively without forcing an abandoned idea.',
@@ -662,7 +624,7 @@ class AgencyPlan:
         if status == 'interrupted':
             record['interrupted_at'] = now
         orphans = self._drop_orphans() if status == 'skipped' else []
-        if heard: self.unanswered += 1
+        if heard: self.present.beat_heard()
         upcoming = record['steps'][record['cursor']] if record['cursor'] < len(record['steps']) else None
         if status == 'interrupted':
             # Live October 3: a noise cancelled an unheard beat and its full 15-second

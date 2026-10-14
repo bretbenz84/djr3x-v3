@@ -16,7 +16,7 @@ result below is synthetic, saved-log or hosted-model evidence until he tests it 
 | Step | What | Status |
 | --- | --- | --- |
 | 0 | Baseline numbers from session logs | Done October 14 |
-| 1 | One shared picture of the present | Pending |
+| 1 | One shared picture of the present | Done October 14 (synthetic) |
 | 2 | Rex sets his own wake-ups | Pending |
 | 3 | Short-term memory of space for driving | Pending |
 | 4 | Make him funny again | Pending |
@@ -45,3 +45,42 @@ The private JSON is kept in `local/validation/plan-baseline/`.
 
 No robot run was made for this step (owner's instruction): the recent untested changes
 were not run first, so the baseline predates the October 11–13 changes for many sessions.
+
+## Step 1: one picture of the present (October 14)
+
+`src/r3x/present.py` is the single owner of presence and the conversation clock. It runs no
+model and touches no device; the runtime, the reply path and the planner feed it faces,
+detected things, trusted speech and Rex's heard lines, and read it back.
+
+- **People.** Recognition by face or supported voice. A person is *here* for 45 s after
+  their last recognition, and stays for up to 180 s while unrecognized faces or speech
+  continue and nobody else is recognized. A visit only breaks after 180 s without
+  recognition, so a renumbered face, looking away or Rex's own turning is not leaving.
+  A known face is greeted as arriving only when their visit began in the last 60 s:
+  someone heard or seen two minutes ago is not greeted again (the October 5–13 baseline had
+  6 of 8 such re-greetings). This replaces the goal's own presence tracking, the 60-second
+  "spoke recently" arrival check and the goal's separate 45/180-second constants.
+- **Private audience.** The memory gate's 90-second carry and ten-minute company rule moved
+  here unchanged (`PRIVATE_CARRY_SECONDS`, `COMPANY_SECONDS`); privacy stays stricter than
+  presence on purpose. Forgetting a person removes them from the picture.
+- **Things.** Pet sightings (the cat/dog flicker, short dropouts, settle, return and
+  cooldown rules of the October 13 pet arrival) and the last few object labels with when and
+  where they were seen. The 10-second pet recall rule is now a constant of this module.
+- **Conversation clock.** Who spoke last and when, Rex's last heard line and whether anyone
+  answered, how long the quiet has lasted, and his unanswered own lines (moved from the goal).
+- **Time in words.** `right_now` goes into every reply, beat and planner request: people
+  here and since when, any pet or thing seen lately, and the clock in words ("his question
+  went unanswered and that moment has passed: do not repeat it or ask again", "a lull",
+  "a long quiet stretch: the last topic has gone cold"). The persona and planner are told to
+  trust these timing words over raw timestamps.
+
+Retired: `AgencyPlan` presence tracking and `PRESENCE_GRACE_SECONDS`/`IDENTITY_INHERIT_SECONDS`/
+`ALONE_PAUSE_SECONDS`, `spoke_recently`, `CoreState.audience_seen`/`company_at`,
+`conversation_memory.VISIT_GRACE_SECONDS`/`COMPANY_SECONDS`, `proactive.PetArrivals`.
+Still separate on purpose: the camera's own track bookkeeping (`faces.py`), the arrival
+greeter's settle and cooldown rules, and the drive's remembered voice heading (step 3).
+
+Evidence: synthetic only. All existing presence, privacy and pet checks pass unchanged in
+substance; nine new checks in `tests/test_present.py` cover the same-visit rule, a real
+return after an absence, the question-left-hanging wording, unanswered-line reset, pets,
+forgetting, and `right_now` reaching beats and the planner.

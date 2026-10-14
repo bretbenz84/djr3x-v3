@@ -164,7 +164,7 @@ again.
 
 The state owner now remembers the last private audience that evidence supported
 (`note_audience`), and `conversation_memory.subject` carries that person for up to 90
-seconds (`VISIT_GRACE_SECONDS`) while nothing contradicts the same visit: the view is
+seconds (`PRIVATE_CARRY_SECONDS` in `present.py`) while nothing contradicts the same visit: the view is
 empty or holds one not-yet-recognized face, and no supported voice belongs to somebody
 else. Two faces at once, or a face or voice recognized as another person, end the carry
 at once; a fresh recognition is then required. Exchanges archived this way record
@@ -184,7 +184,7 @@ recognized person). No hosted model or camera was used; real-room behaviour is u
 Later the same day (run `be8c8d55`) the accepted limit showed up: with a guest beside the
 owner, the camera sometimes held only the guest, who then inherited the owner's
 recognition and was called by his name. After two faces are seen together, or somebody
-else is recognized, nobody is carried for ten minutes (`COMPANY_SECONDS`): only direct
+else is recognized, nobody is carried for ten minutes (`COMPANY_SECONDS` in `present.py`): only direct
 recognition opens private memory. Alone with one person, the 90 second carry is unchanged.
 
 ## October 11: "last night" found on the first lookup

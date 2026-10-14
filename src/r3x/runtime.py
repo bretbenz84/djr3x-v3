@@ -46,9 +46,8 @@ class VoiceRuntime:
         self.cancel_before = float("-inf")
         self.control_lock = threading.Lock()
         self.asr_busy = threading.Event()
-        from .proactive import Arrivals, PetArrivals
+        from .proactive import Arrivals
         self.arrivals = Arrivals()
-        self.pets = PetArrivals()
         self.camera = getattr(perception,'camera',None)
         self.started_at = self.trace.clock()
         self.audio_seen_at = float('-inf')
@@ -223,11 +222,12 @@ class VoiceRuntime:
         now = self.trace.clock()
         with self.control_lock:
             self.arrivals.observe(self.camera.latest(now) if self.camera else (), now)
+            present = self.session.state.present
             objects = getattr(self.session.state, 'objects', None)
-            self.pets.observe(objects.snapshot() if objects else (), now)
+            present.saw_things(objects.snapshot() if objects else (), now)
             initiative = self.session.state.initiative
             agency = self.session.state.agency
-            agency.observe_faces(self.arrivals.faces, now)
+            present.saw_faces(self.arrivals.faces, now)
             quiet_seconds = min(now-self.started_at, now-self.session.last_trusted_speech_at,
                                 now-self.session.last_interaction_at)
             audience, audience_key = self.arrivals.audience_snapshot(now)
@@ -259,16 +259,17 @@ class VoiceRuntime:
             planning_only = False
             # People first: a settled new arrival is greeted before any goal work.
             event = self.arrivals.take(self.session.session_id, now, self.session._latest_speech)
-            if event is not None and agency.spoke_recently(event.person_id, now):
-                # Their face was unrecognized for a while, but they have been talking to Rex:
-                # the same visit, not an arrival to greet again.
-                self.trace.emit('arrival_skipped', person_id=event.person_id, reason='spoke_recently')
+            if event is not None and event.person_id and not present.arriving(event.person_id, now):
+                # Seen or heard within the last few minutes: their face was out of view or
+                # unrecognized for a while, but this is the same visit, not an arrival to greet
+                # again (October 5-13: 6 of 8 greetings went to someone seen under two minutes before).
+                self.trace.emit('arrival_skipped', person_id=event.person_id, reason='same_visit')
                 event = None
-            if event is None and agency.someone_around(now, self.started_at):
+            if event is None and present.someone_around(now, self.started_at):
                 # Then an animal coming into view: Max in someone's arms is worth a remark.
-                event = self.pets.take(self.session.session_id, now, self.session._latest_speech, audience)
+                event = present.pet_arrival(self.session.session_id, now, self.session._latest_speech, audience)
             if event is None:
-                if not agency.someone_around(now, self.started_at):
+                if not present.someone_around(now, self.started_at):
                     self.initiative_gate('nobody_around')
                     return
                 if agency.needs_plan(now):
@@ -339,7 +340,7 @@ class VoiceRuntime:
             # the main loop last polled. Validate the latest evidence, not that
             # older polling snapshot. This reads cache only; no device work.
             self.arrivals.observe(self.camera.latest(now) if self.camera else (),now)
-            agency.observe_faces(self.arrivals.faces, now)
+            present.saw_faces(self.arrivals.faces, now)
             intention = self.session.state.conversation_intent.record
             from .conversation_intent import audience
             # A committed silent move (wheels or a pose) finishes like audible speech: its own

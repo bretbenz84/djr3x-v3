@@ -83,7 +83,7 @@ class CompanionTests(MemoryFixture):
         self.assertIsNone(self.tick(3))
         self.assertEqual(len(self.planner.requests),1)
         # A tiny far face is not company: a goal about "the person here" cannot be saved for it.
-        self.assertFalse(self.state.agency.present(None,3))
+        self.assertFalse(self.state.agency.present.here(None,3))
 
     def test_failed_planner_still_does_something_people_notice(self):
         # Owner, live October 1: "So why aren't you talking or moving?" Recovery speaks.
@@ -189,7 +189,7 @@ class PhysicalPlanTests(MemoryFixture):
                     def audio_seen_at(inner,value):pass
                 runtime=HealthyRuntime(None,None,None,self.session,trace)
                 runtime.started_at=self.clock()-10
-                self.state.agency.observe_speech(None,self.clock())
+                self.state.agency.human_spoke(None,self.clock())
                 self.brain.text=ToolCall('pose','set_robot_pose',{'poses':['look_left','look_right'],'look_after':None,'say_before':None,'text':None})
                 value=draft();value['steps']=[{**value['steps'][0],'kind':'pose','instruction':'Look left then right.'}]
                 planner=Planner();planner.choose=lambda f,c:deepcopy(value)

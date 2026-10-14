@@ -154,6 +154,18 @@ class Session:
                 return plain_text(message['content']).rstrip().endswith('?')
         return False
 
+    def _right_now(self):
+        """Rex's sense of the moment, from the picture of the present (October 14, step 1)."""
+        names = {p['id']: p['name'] for p in self.state.store.people()}
+        rex = {}
+        drive = getattr(self.output, 'drive', None)
+        if drive is not None and getattr(drive, 'moving', None) is not None:
+            rex['driving_now'] = drive.moving.is_set()
+        robot = getattr(self.output, 'robot', None)
+        if robot is not None and getattr(robot.owner, 'hold_until_released', False):
+            rex['holding_arms_until_told'] = True
+        return self.state.present.describe(self.trace.clock(), names, rex=rex or None)
+
     def _subject_person(self, context):
         """Who Rex's next goal is about: an arrival, the private-memory person, or one known face."""
         pending = self.state.agency.pending_subject or {}
@@ -247,6 +259,7 @@ class Session:
             'actual_actions': context.get('action_continuity', {}),
             'pending_question': context.get('pending_question'),
             'invitations': context.get('invitations'),
+            'right_now': context.get('right_now'),
             'dialogue_use': 'Private continuity and feedback, not proof an earlier speaker is present. '
                             'Do not disclose prior personal facts to a changed audience.'}
         return {'turn_id': turn_id, 'facts': facts, 'evidence': evidence, 'capabilities': capabilities,
@@ -614,9 +627,9 @@ class Session:
                     with self._lock:
                         # Presence for Rex's own goal: a person talking is a person here.
                         speaker = context.get('speaker') or {}
-                        self.state.agency.observe_speech(
+                        self.state.agency.human_spoke(
                             speaker.get('person_id') if speaker.get('state') == 'supported' else None, speech_end)
-                        self.state.agency.observe_faces(context.get('faces', []), self.trace.clock())
+                        self.state.present.saw_faces(context.get('faces', []), self.trace.clock())
             if not opportunity and not transcript.trusted and not self._owed_reply:
                 # Preserve the source in the trace/store, not as a conversational turn.
                 # Rejected audio cannot displace real dialogue or postpone the next lull.
@@ -759,6 +772,8 @@ class Session:
                 context['action_continuity'] = self.state.actions.context(visual_memory.audience(context))
             refresh_current_view(context)
             if self.state:
+                context['right_now'] = self._right_now()
+            if self.state:
                 from . import conversation_memory
                 context["personal_memory"] = conversation_memory.context(
                     self.state.store, context, self.session_id, self.state.wall_clock())
@@ -814,7 +829,7 @@ class Session:
                 capabilities = capabilities_for(context)
                 now = self.trace.clock()
                 with self._lock:
-                    agency.observe_faces(context.get('faces', []), now)
+                    self.state.present.saw_faces(context.get('faces', []), now)
                     job = None
                     from .agency import PLAN_MIN_INTERVAL_SECONDS
                     if (agency.needs_plan(now) and not self.planning_active() and now >= agency.planner_retry_at
@@ -1843,6 +1858,10 @@ class Session:
             if delivery.medium == 'audio' and delivery.first_audio_at is not None:
                 self.last_spoken_reply = {'turn_id':turn_id,'started_at':delivery.first_audio_at,
                                           'finished_at':self.trace.clock()}
+                if self.state and delivery.completed_text:
+                    # What was actually heard, for the conversation clock in the picture of the present.
+                    self.state.present.rex_said(' '.join(delivery.completed_text), self.trace.clock(),
+                                                own_initiative=opportunity is not None)
             if self.state and (schedule_proposal is not None or invitation_proposal is not None):
                 with self._lock:
                     valid = (schedule_accepted and schedule_action_ok and not self.closed and not cancel.event.is_set()

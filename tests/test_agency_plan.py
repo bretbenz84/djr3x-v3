@@ -103,7 +103,7 @@ class PlanTests(memory_tests.MemoryFixture):
 
     def test_restart_requires_planner_revalidation_and_audience_scope(self):
         self.setup_owner();self.tick(100)
-        restored=AgencyPlan(self.store,self.trace)
+        restored=AgencyPlan(self.store,self.trace,self.state.present)
         self.assertTrue(restored.needs_plan('[]'))
         self.assertIsNone(restored.step('[]'))
         self.assertTrue(restored.context('[]')['needs_revalidation'])
@@ -187,7 +187,7 @@ class PlanTests(memory_tests.MemoryFixture):
     def test_conversation_bursts_and_feeds_do_not_exhaust_a_rolling_attempt_budget(self):
         self.setup_owner()
         for i in range(16):
-            self.state.agency.observe_speech(None,self.trace.at)  # Someone is around.
+            self.state.agency.human_spoke(None,self.trace.at)  # Someone is around.
             self.tick(max(100,self.trace.at+9))
         self.assertEqual(len(self.executor.snapshots),16)
         self.assertEqual(len(self.planner.requests),8)
@@ -197,7 +197,7 @@ class PlanTests(memory_tests.MemoryFixture):
         self.assertIsNone(self.tick(400))
         self.assertEqual(self.planner.requests,[])
         self.assertEqual(self.trace.rows[-1]['reason'],'nobody_around')
-        self.state.agency.observe_faces([{'track_id':'t','identity':None,'at':401}],401)
+        self.state.present.saw_faces([{'track_id':'t','identity':None,'at':401}],401)
         self.assertEqual(self.tick(410).status,'completed')
         self.assertEqual(len(self.planner.requests),1)
 
@@ -346,14 +346,14 @@ class PlanTests(memory_tests.MemoryFixture):
         with self.assertRaisesRegex(ValueError,'AgencyAudienceNotPresent'):
             # A goal for someone who is not here could never run.
             agency.install(plan,'["person:one"]',{},['contribute'],agency.revision,100,subject_person='one')
-        agency.observe_faces([{'track_id':'a','identity':'one','at':100}],100)
+        agency.present.saw_faces([{'track_id':'a','identity':'one','at':100}],100)
         agency.install(plan,'["person:one"]',{},['contribute'],agency.revision,100,subject_person='one')
         self.assertIsNotNone(agency.step(100))
         # A renumbered track for the same person is the same visit.
-        agency.observe_faces([{'track_id':'b','identity':'one','at':130}],130)
+        agency.present.saw_faces([{'track_id':'b','identity':'one','at':130}],130)
         self.assertIsNotNone(agency.step(150))
         # Someone else in view while the subject is gone past the grace period: withheld.
-        agency.observe_faces([{'track_id':'c','identity':'two','at':200}],200)
+        agency.present.saw_faces([{'track_id':'c','identity':'two','at':200}],200)
         self.assertIsNone(agency.context(200))
         self.assertIsNone(agency.step(200))
         self.assertEqual(agency.ending_reason(200),'subject_left')
@@ -361,7 +361,7 @@ class PlanTests(memory_tests.MemoryFixture):
     def test_personal_evidence_cannot_be_saved_as_general_plan(self):
         self.setup_owner()
         plan=draft();plan['evidence_ids']=['private']
-        self.state.agency.observe_speech('one',100)
+        self.state.agency.human_spoke('one',100)
         self.state.agency.install(plan,'["person:one"]',{'private':{'kind':'memory_opportunities'}},
             ['contribute'],self.state.agency.revision,100,subject_person='one')
         self.assertEqual(self.state.agency.record['scope'],'audience')
@@ -636,7 +636,7 @@ class GoalTests(memory_tests.MemoryFixture):
         result=self.tick(self.trace.at+9)
         self.assertEqual(result.completed_text,['Ten-second no-smiling challenge. Starting now.'])
         self.assertIn('new words',self.executor.snapshots[-1].messages[-1]['content'])
-        self.state.agency.observe_speech(None,self.trace.at)
+        self.state.agency.human_spoke(None,self.trace.at)
         self.executor.choose=lambda s,c:iter([ToolCall('c','respond_with_intent',{'text':'Ten-second no-smiling challenge. Starting now.','intent_update':None})])
         result=self.tick(self.trace.at+9)
         self.assertEqual(result.completed_text,[])
@@ -706,7 +706,7 @@ class GoalTests(memory_tests.MemoryFixture):
                {'kind':'pose','instruction':'Look left, silently.','evidence_ids':[],'delay_seconds':4},
                {'kind':'contribute','instruction':'Opine.','evidence_ids':[],'delay_seconds':4}]
         agency.install({**draft(),'steps':steps},'[]',{},['contribute','pose'],agency.revision,100)
-        agency.unanswered=3
+        agency.present.unanswered=3
         self.assertEqual(agency.engagement()['unanswered_lines'],3)
         heard=Delivery(status='completed',medium='audio');heard.completed_text=['A line.']
         agency.finish(agency.step(100),heard,None,100)
@@ -718,7 +718,7 @@ class GoalTests(memory_tests.MemoryFixture):
         self.assertEqual(agency.unanswered,4)                  # A silent move is not another unanswered line.
         self.assertEqual(agency.due_at,104+4+agency.ease_seconds())   # Talking again waits.
         self.assertEqual(agency.ease_seconds(),40.)
-        agency.unanswered=20
+        agency.present.unanswered=20
         self.assertEqual(agency.ease_seconds(),120.)           # Two minutes at most; it was five.
 
     def test_an_unheard_beat_cut_off_by_a_sound_is_retried_within_seconds(self):
@@ -747,31 +747,31 @@ class GoalTests(memory_tests.MemoryFixture):
         gaps=[]
         self.tick(100)
         for _ in range(6):
-            agency.observe_faces([{'track_id':'t','identity':None,'at':self.trace.at}],self.trace.at)
+            agency.present.saw_faces([{'track_id':'t','identity':None,'at':self.trace.at}],self.trace.at)
             before=len(self.executor.snapshots); start=self.trace.at
             while len(self.executor.snapshots)==before:
-                agency.observe_faces([{'track_id':'t','identity':None,'at':self.trace.at}],self.trace.at)
+                agency.present.saw_faces([{'track_id':'t','identity':None,'at':self.trace.at}],self.trace.at)
                 self.tick(self.trace.at+5)
             gaps.append(self.trace.at-start)
         self.assertLess(gaps[0],20)
         self.assertGreater(gaps[-1],100)
         self.assertEqual(gaps,sorted(gaps))
-        agency.observe_speech(None,self.trace.at)
+        agency.human_spoke(None,self.trace.at)
         self.assertEqual(agency.unanswered,0)
         self.assertLessEqual(agency.due_at,self.trace.at)
 
     def test_unrecognized_presence_continues_a_visit_only_for_a_bounded_time(self):
         agency=self.state.agency;agency.load()
-        agency.observe_faces([{'track_id':'a','identity':'one','at':100}],100)
+        agency.present.saw_faces([{'track_id':'a','identity':'one','at':100}],100)
         # Live sessions: recognition gaps of up to 50 seconds while the owner stayed put.
-        agency.observe_faces([{'track_id':'b','identity':None,'at':160}],160)
-        self.assertTrue(agency.present('one',160))
+        agency.present.saw_faces([{'track_id':'b','identity':None,'at':160}],160)
+        self.assertTrue(agency.present.here('one',160))
         # Still an unrecognized face four minutes later: no longer assumed to be that person.
-        agency.observe_faces([{'track_id':'c','identity':None,'at':340}],340)
-        self.assertFalse(agency.present('one',340))
+        agency.present.saw_faces([{'track_id':'c','identity':None,'at':340}],340)
+        self.assertFalse(agency.present.here('one',340))
         # Someone else recognized ends it at once.
-        agency.observe_faces([{'track_id':'d','identity':'two','at':150}],150)
-        self.assertFalse(agency.present('one',160))
+        agency.present.saw_faces([{'track_id':'d','identity':'two','at':150}],150)
+        self.assertFalse(agency.present.here('one',160))
 
     def test_yielding_the_floor_pauses_the_goal_without_discarding_it(self):
         # Review October 3: every time people talked to each other the goal was thrown away.
@@ -787,7 +787,7 @@ class GoalTests(memory_tests.MemoryFixture):
 
     def test_goal_about_one_person_is_not_shown_on_someone_elses_turn(self):
         agency=self.state.agency;agency.load()
-        agency.observe_faces([{'track_id':'a','identity':'one','at':100}],100)
+        agency.present.saw_faces([{'track_id':'a','identity':'one','at':100}],100)
         plan=draft();plan['scope']='audience'
         agency.install(plan,'["person:one"]',{},['contribute'],agency.revision,100,subject_person='one')
         self.assertIsNotNone(agency.summary(101,audience_person='one',recognized=['one']))
@@ -810,19 +810,19 @@ class GoalTests(memory_tests.MemoryFixture):
         self.setup_owner();self.tick(100)
         self.session.cancel()  # A plain "stop".
         self.assertFalse(self.state.initiative.quiet)
-        self.state.agency.observe_speech(None,self.trace.at)
+        self.state.agency.human_spoke(None,self.trace.at)
         self.assertIsNone(self.tick(self.trace.at+60))            # Paused for two minutes...
         self.assertIsNotNone(self.tick(self.trace.at+70))         # ...then he resumes.
         calls=len(self.executor.snapshots)
         self.session.cancel(quiet=True)  # "Be quiet."
         self.assertTrue(self.state.initiative.quiet)
         for wait in (130,600,3000):
-            self.state.agency.observe_speech(None,self.trace.at)
+            self.state.agency.human_spoke(None,self.trace.at)
             self.assertIsNone(self.tick(self.trace.at+wait))
         self.assertEqual(len(self.executor.snapshots),calls)
         self.assertTrue(any(r['event']=='initiative_quiet' for r in self.trace.rows))
         self.state.initiative.quiet=False  # What set_initiative(available) does on "you can talk again."
-        self.state.agency.observe_speech(None,self.trace.at)
+        self.state.agency.human_spoke(None,self.trace.at)
         self.assertIsNotNone(self.tick(self.trace.at+20))
 
     def test_planner_gets_the_current_frame_even_when_the_view_was_already_offered(self):

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from r3x import conversation_memory as cm
+from r3x.present import COMPANY_SECONDS, PRIVATE_CARRY_SECONDS
 from r3x.contracts import Capture, Transcript, ToolCall, Cancellation
 from r3x.output import OutputOwner
 from r3x.scenario import SyntheticSink, SyntheticTTS
@@ -332,7 +333,7 @@ class ConversationMemoryTests(MemoryFixture):
             return cm.subject(self.state.context(self.state.faces))
         self.assertEqual(seen([face(100,self.person)]),self.person)
         self.assertEqual(stranger(),self.person)                 # A fresh, not yet recognized track.
-        self.state.trace.at += cm.VISIT_GRACE_SECONDS + 1
+        self.state.trace.at += PRIVATE_CARRY_SECONDS + 1
         self.assertIsNone(stranger())                            # Too long unconfirmed.
         self.assertEqual(seen([face(100,self.person)]),self.person)
         self.assertIsNone(seen([face(100,self.person),face(100,None,'visitor')]))
@@ -340,7 +341,7 @@ class ConversationMemoryTests(MemoryFixture):
         self.assertEqual(seen([face(100,self.person)]),self.person)
         self.assertEqual(seen([face(100,other)]),other)          # Somebody else, recognized.
         self.state.faces=[]
-        self.assertEqual(self.state.audience_seen[0],other)
+        self.assertEqual(self.state.present.audience_seen[0],other)
 
     def test_with_company_an_unrecognized_face_never_inherits_the_visit(self):
         # October 3 (be8c8d55): a guest sat beside the owner; alone in view for a moment, the
@@ -360,7 +361,7 @@ class ConversationMemoryTests(MemoryFixture):
         self.assertIsNone(seen([face(100,self.person),face(100,None,'guest')]))     # Both in view.
         self.assertEqual(seen([face(100,self.person)]),self.person)                 # The owner alone: recognized.
         self.assertEqual(unrecognized(),(None,[]))                                  # The guest alone: nobody's memory.
-        self.state.trace.at += cm.COMPANY_SECONDS + 1
+        self.state.trace.at += COMPANY_SECONDS + 1
         self.assertEqual(seen([face(100,self.person)]),self.person)
         self.assertEqual(unrecognized()[0],self.person)                             # Long alone again: the carry returns.
 
