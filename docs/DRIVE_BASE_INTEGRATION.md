@@ -1122,3 +1122,14 @@ No driving/gamepad interaction test was performed. Battery menu LaunchAgent
 restored and serial ownership checked. Capture/build options remain ignored under
 `local/firmware/`. Binary SHA-256:
 `7c1e485b8b2c6e0ea0fbf5f2fa804d34d6710e2cf1065a7b98899c9ca02252ca`.
+
+## October 14: short-term memory of the floor around him
+
+Step 3 of the [improvement plan](IMPROVEMENT_PLAN.md#step-3-short-term-memory-of-space-october-14).
+`local_map.LocalMap` remembers for about a minute where the range sensors saw returns and open
+floor. A return on the path where open floor was just seen, with nothing there before, is
+rechecked for 0.6 s (`RECHECK_S`) before a move is refused or a continuous roll is ended
+(`drive_reading_rechecked` traces: holding, cleared or persisted). After one camera-chosen
+leg around an obstacle, up to four further 0.8 m legs on the same side come from remembered
+open floor (`drive_memory_leg`) before another hosted look. Firmware unchanged. Simulated base
+only; no floor run.

@@ -678,6 +678,28 @@ class ContinuousSoughtTests(SeekTests):
         self.assertEqual(fake.commands[-1]['cmd'], 'stop')
         self.assertGreater(receipt.travelled_m, .5)
 
+    def test_a_moment_of_phantom_return_mid_run_pauses_the_roll_instead_of_ending_it(self):
+        # October 14 plan, step 3: one implausible reading no longer turns a continuous run
+        # into stop, hosted floor look, detour.
+        clock, fake, drive, world = self.start([('door', 'door', 4., 0.)])
+        rows = []
+        drive.trace = type('T', (), {'emit': lambda _, event, **f: rows.append({'event': event, **f})})()
+        drive._sought = {'description': 'door'}
+        window = []
+        real_front = fake.front
+        def front():
+            if not window and fake.x > 1.:
+                window.append(clock.now)                   # A phantom appears, a metre into the run...
+            if window and clock.now < window[0] + .3:      # ...and is gone 0.3 s later.
+                return .25
+            return real_front()
+        fake.front = front
+        receipt = drive.execute(DrivePlan('p', (DriveStep('approach', target='sought'),), 'requested', 'x', {}, clock()+90),
+                                Cancellation())
+        step = receipt.steps[0]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertNotIn('detours', step)                      # No way-round leg for a phantom.
+        self.assertEqual([r['outcome'] for r in rows if r['event'] == 'drive_reading_rechecked'], ['holding', 'cleared'])
 
 class BaseStatusTests(unittest.TestCase):
     def test_battery_and_sensors_reach_the_model_and_unknowns_stay_unknown(self):
@@ -1512,6 +1534,26 @@ class CameraRouteTests(SeekTests):
         self.assertEqual(drive._vision_calls, len(self.calls) + len(drive.router.facts))
         self.assertLessEqual(drive._vision_calls, PLAN_VISION_CALLS)
 
+    # October 14 plan, step 3: after one camera-chosen leg, the floor the sensors saw open while
+    # turning gives the next leg around the same thing, without another hosted look.
+    def test_the_next_leg_round_the_counter_comes_from_floor_already_seen_open(self):
+        clock, fake, drive, world = self.start([('door', 'door', 4.5, 0.)])
+        fake.sensors = self.counter(world)
+        fake.tof.update(lf=1500, lb=1500, rf=1500, rb=1500)       # Open floor beside him this time.
+        settle()
+        drive.router = Router(Router.toward(42., .5, 'open floor left of the counter'))   # A short first leg.
+        rows = []
+        drive.trace = type('T', (), {'emit': lambda _, event, **f: rows.append({'event': event, **f})})()
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
+                                DriveStep('approach', target='sought'))
+        step = receipt.steps[-1]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertIn('memory', [d['by'] for d in step['detours']], receipt)
+        self.assertEqual({d['side'] for d in step['detours']}, {'left'})   # Round one side, no zig-zag.
+        self.assertEqual(len(drive.router.facts), 1)              # One paid look for the whole way round.
+        self.assertGreater(fake.x, 3., receipt)
+        self.assertTrue(any(r['event'] == 'drive_memory_leg' for r in rows))
+
 
 class OwnPositionTests(SeekTests):
     """He keeps his own position and heading as he moves, so he can turn back to a target."""
@@ -1741,3 +1783,4 @@ class WithinReachTests(unittest.TestCase):
         receipt = drive.execute(plan, Cancellation())
         self.assertEqual(receipt.steps[0]['status'], 'completed', receipt)   # 6.5 m at the slow pace: over 40 s.
         self.assertGreater(receipt.finished_at - receipt.started_at, 25.)
+

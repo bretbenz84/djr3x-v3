@@ -18,7 +18,7 @@ result below is synthetic, saved-log or hosted-model evidence until he tests it 
 | 0 | Baseline numbers from session logs | Done October 14 |
 | 1 | One shared picture of the present | Done October 14 (synthetic) |
 | 2 | Rex sets his own wake-ups | Done October 14 (synthetic, paid probes) |
-| 3 | Short-term memory of space for driving | Pending |
+| 3 | Short-term memory of space for driving | Done October 14 (simulated base) |
 | 4 | Make him funny again | Pending |
 | 5 | Faster replies | Pending |
 
@@ -116,3 +116,38 @@ Evidence:
   minutes, used interest news and general news, and greeted the dog as Max.
 - Not measured: wall-clock pacing with real people, and how often the live performer uses
   `wait_for`.
+
+## Step 3: short-term memory of space (October 14)
+
+`src/r3x/local_map.py` keeps, for about a minute, where the ring and depth sensors saw returns
+and where they saw open floor (10 cm cells within 2 m, in the frame of his tracked position and
+IMU heading). Every sensor read the drive makes feeds it, at most ten times a second, moving or
+still. It is not a floor plan: wheel travel drifts and the sensors are sparse rays, so old
+cells are forgotten.
+
+- **Rechecking a doubtful reading.** A return on his straight path where open floor was seen
+  by at least two frames in the last 3 s, with nothing returned there in the 10 s before, is
+  rechecked: he holds still for 0.6 s and reads again. A forward move whose path stays blocked
+  is refused as before; one that clears goes ahead. A continuous roll toward a sought thing
+  pauses the same way instead of ending in a stop, a hosted floor look and a detour. The
+  firmware's own stop zone and every host clearance margin are unchanged; something already
+  there before is never second-guessed.
+- **The way round, planned once.** After the camera's floor look has chosen a side around
+  an obstacle, the next legs around the same thing come from floor the sensors already saw
+  open on that side (most of the centreline seen open, no remembered return across the body),
+  up to four 0.8 m legs, before another hosted look is paid for. Each still passes the usual
+  turn swing check, move clearance and firmware guards.
+- **The model is told** that Rex remembers what his range sensors saw for about a minute,
+  with no floor plan.
+
+Not changed: the October 3 face-approach hold (front within 0.2 m holds up to 5 s), voice
+heading memory (120 s room heading), the sought thing's remembered heading and fixed position,
+the firmware and its configuration.
+
+Evidence: simulated base only (`tests/test_local_map.py`, plus a counter-route and a cruise
+check in `tests/test_floor_feedback.py`). A brief phantom return is rechecked and the move goes
+ahead; an obstacle that stays stops him; an obstacle present from the start is not rechecked;
+memory fades; a 0.5 m first camera leg round a counter is continued by remembered floor on the
+same side to the door with one hosted look instead of two; a 0.3 s phantom mid-roll pauses the
+run with no detour. Real sensor noise, wheel drift over a minute and how often live false
+blocks are actually doubtful are unmeasured until a floor run.

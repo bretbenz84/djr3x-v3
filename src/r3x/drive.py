@@ -17,6 +17,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, clearance, describe_bearing, face_range, image_bearing,
                           move_allowance, radar_bodies, steer, wall_angle, wrap, FRONT_MARGIN, MIN_TURN, PERSON_MARGIN,
                           SCRAPE_M, WALL_HOLD_M)
+from .local_map import LocalMap
 from .providers import Capability
 
 # Owner-approved limits: 0.25 m/s and 1.5 m legs (first test); requested plans may cover 10 m
@@ -135,6 +136,14 @@ NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box i
 GROWN_NEAR = 2.
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
 FILLS_VIEW = .6
+# October 14 plan, step 3: a close reading where the sensors saw open floor a moment ago, with
+# nothing there before, is rechecked for this long instead of ending the trip or the leg; one
+# that persists stops him as before. The firmware's own stop zone is untouched.
+RECHECK_S = .6
+# After a camera-chosen leg, further legs around the same obstacle may come from floor the
+# sensors already saw open (local_map.LocalMap.open_way) instead of a new hosted look.
+MEMORY_LEGS = 4
+MEMORY_LEG_M = .8
 TURN_RATE = 45.          # V2 overshoot grows with rate; autonomous V2 turns used 40.
 # The base coasts after the firmware ends a turn. Thirty-odd logged turns (October 1-3)
 # ended 2-10 degrees past the command, more at the faster rate: about 0.11 s of coasting.
@@ -436,6 +445,7 @@ class DriveBase:
         self._voice_key = None
         self._assist_gain = None      # The firmware's wall-steering gain, as acknowledged at connect.
         self._assist_on = True
+        self.local_map = LocalMap(clock)   # What the range sensors saw around him in the last minute.
 
     # Lifecycle -----------------------------------------------------------
     def start(self):
@@ -509,7 +519,39 @@ class DriveBase:
 
     def space(self, now=None):
         telemetry, matrix = self.link.snapshot()
-        return clearance(telemetry, matrix, self.clock() if now is None else now)
+        now = self.clock() if now is None else now
+        self._remember(telemetry, matrix, now)
+        return clearance(telemetry, matrix, now)
+
+    def _remember(self, telemetry, matrix, now):
+        """Fold this sensor frame into the short-term memory of the floor around him."""
+        if telemetry:
+            self.local_map.observe(telemetry, matrix, tuple(self._at), self._heading(telemetry), now)
+
+    def _doubtful(self, space, now):
+        """The closest return on his straight path contradicts what was just seen there."""
+        sides = {'left': 14., 'center': 0., 'right': -14.}
+        rooms = {side: space.get(f'path_{side}_m') for side in sides}
+        rooms = {side: room for side, room in rooms.items() if room is not None}
+        if not rooms:
+            return False
+        side = min(rooms, key=rooms.get)
+        telemetry, _ = self.link.snapshot()
+        heading = self._heading(telemetry) if telemetry else None
+        return self.local_map.doubtful(tuple(self._at), heading, sides[side], rooms[side], now)
+
+    def _path_blocked(self, space, need):
+        """A forward move would be refused for something in the path itself."""
+        if self._tight(space, need):
+            return self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm')) == 'path_blocked'
+        return move_allowance(need, space)[1] == 'path_blocked'
+
+    def _recheck(self, where, cancel):
+        """Hold still briefly and read again; the caller decides on the fresh reading."""
+        if self.trace:
+            self.trace.emit('drive_reading_rechecked', where=where, outcome='holding', seconds=RECHECK_S)
+        self._sleep(RECHECK_S, cancel)
+        return self.space()
 
     def availability(self, now=None):
         now = self.clock() if now is None else now
@@ -644,7 +686,8 @@ class DriveBase:
                 'meaning': ('Robot-relative bearings, positive = left. Face/object bearings come from the head camera '
                             '(approximate, re-measured with the neck centered when a step runs). Radar bodies are moving '
                             'bodies seen by the base radar ring: where to look, not who. speaker is where the last located '
-                            'voice came from, kept relative to where the base faces now as it turns (heard_seconds_ago is its age). Clearance is what base sensors report now; there is no map. '
+                            'voice came from, kept relative to where the base faces now as it turns (heard_seconds_ago is its age). Clearance is what base sensors report now; '
+                            'Rex remembers what the range sensors saw around him for about a minute (no floor plan or house map). '
                             'path.direct_approach blocked_early means a straight approach will stop at an obstacle first.')}
 
     def _note_voice(self, direction, facing, faces, now):
@@ -782,6 +825,7 @@ class DriveBase:
         telemetry = telemetry or self.link.snapshot()[0]
         if not telemetry:
             return
+        self._remember(telemetry, self.link.snapshot()[1], self.clock())
         odom = telemetry.get('odom') or {}
         xy = (float(odom.get('x', 0)), float(odom.get('y', 0)))
         mark, self._odom_mark = self._odom_mark, xy
@@ -1301,6 +1345,12 @@ class DriveBase:
             row['turned_deg'] = abs(round(straightened, 1))
         speed = speed or LIMITS[plan.origin]['speed_mps'] * self._pace
         space = self.space()
+        if meters > 0 and self._path_blocked(space, need) and self._doubtful(space, self.clock()):
+            # Open floor was seen there a moment ago and nothing before: look again first.
+            space = self._recheck('move', cancel)
+            if self.trace:
+                self.trace.emit('drive_reading_rechecked', where='move',
+                                outcome='persisted' if self._path_blocked(space, need) else 'cleared')
         if meters > 0 and self._tight(space, need):
             held = self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm'))
             if held:
@@ -1834,9 +1884,50 @@ class DriveBase:
                      + (' (' + str(move['reason']) + ')' if move.get('reason') else ''))
         return {**row, 'status': move['status']}
 
+    def _memory_leg(self, goal_bearing, plan, cancel, budget_m, tried, side):
+        """A leg around the same obstacle over floor the sensors already saw open, nearest the
+        target's direction, without a new hosted look. None when memory shows no such way."""
+        if budget_m < .3:
+            return None
+        telemetry, _ = self.link.snapshot()
+        heading = self._heading(telemetry) if telemetry else None
+        self._track(telemetry)
+        now = self.clock()
+        bearing = self.local_map.open_way(tuple(self._at), heading, goal_bearing, MEMORY_LEG_M, now, side=side)
+        if bearing is None:
+            return None
+        way = wrap(heading + bearing)
+        if any(math.hypot(self._at[0] - x, self._at[1] - y) < .3 and abs(wrap(way - failed)) < 20.
+               for x, y, failed in self._dead_ends):
+            return None
+        said = f"{abs(bearing):.0f} degrees {'left' if bearing > 0 else 'right'} over floor already seen open"
+        if self.trace:
+            self.trace.emit('drive_memory_leg', goal_bearing_deg=goal_bearing, bearing_deg=round(bearing, 1),
+                            memory=self.local_map.summary(now))
+        row = {'side': 'left' if bearing > 0 else 'right', 'by': 'memory', 'travelled_m': 0., 'turned_deg': 0.}
+        if abs(bearing) > 8:
+            turn = self._turn(bearing, plan, cancel)
+            row['turned_deg'] = turn.get('turned_deg', 0.)
+            if turn['status'] != 'completed':
+                tried.append(said + ': could not turn that way')
+                self._dead_ends.append((*self._at, way))
+                return {**row, 'status': 'blocked'}
+        move = self._move(min(MEMORY_LEG_M, budget_m), plan, cancel, straighten=False)
+        row['travelled_m'] += move.get('travelled_m', 0.)
+        if row['travelled_m'] < .2:
+            self._dead_ends.append((*self._at, way))
+        tried.append(said + f": rolled {row['travelled_m']:.1f} m, {move['status']}")
+        return {**row, 'status': move['status']}
+
     def _go_around(self, goal, bearing, space, stand_off, plan, cancel, budget_m, detours, tried, in_view=True):
         """The next leg around an obstacle: chosen by the camera when it can be, otherwise
         from the range sensors alone. None when neither shows a way or the tries are spent."""
+        if (any(d.get('by') == 'camera' for d in detours)
+                and sum(d.get('by') == 'memory' for d in detours) < MEMORY_LEGS):
+            side = 1 if next(d for d in reversed(detours) if d.get('by') in {'camera', 'memory'})['side'] == 'left' else -1
+            leg = self._memory_leg(bearing, plan, cancel, budget_m, tried, side)
+            if leg is not None:
+                return leg
         if sum(d.get('by') == 'camera' for d in detours) < ROUTE_LEGS:
             leg = self._route_leg(goal, bearing, plan, cancel, budget_m, tried, in_view)
             if leg is not None:
@@ -2099,6 +2190,7 @@ class DriveBase:
         pool = ThreadPoolExecutor(1, thread_name_prefix='r3x-cruise-locate')
         future, latest, misses, outcome, travelled = None, None, 0, None, 0.
         looked_at = float('-inf')
+        recheck_until = None
         if self.sounds:
             self.sounds.start('move', plan.origin)
         try:
@@ -2138,8 +2230,24 @@ class DriveBase:
                 brake = speed_now*speed_now/(2*CONFIG['accel_lin']) + speed_now*.3
                 firmware_blocked = telemetry.get('state') == 'blocked' and telemetry.get('blocked_dir') in ('front', 'both')
                 if firmware_blocked or room <= max(.03, brake):
+                    if recheck_until is None and self._doubtful(space, now):
+                        # A return where open floor was just seen: stop rolling and read again
+                        # before giving up the run (October 14 plan: no dead stop on one reading).
+                        recheck_until = now + RECHECK_S
+                        if self.trace:
+                            self.trace.emit('drive_reading_rechecked', where='cruise', outcome='holding', seconds=RECHECK_S)
+                    if recheck_until is not None and now < recheck_until:
+                        self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
+                        self.wait(.15)
+                        continue
+                    if recheck_until is not None and self.trace:
+                        self.trace.emit('drive_reading_rechecked', where='cruise', outcome='persisted')
                     outcome = ('blocked', 'front_stand_off')
                     break
+                if recheck_until is not None:
+                    if self.trace:
+                        self.trace.emit('drive_reading_rechecked', where='cruise', outcome='cleared')
+                    recheck_until = None
                 expected = self._expected_sought()
                 if expected is not None and abs(expected) > 40:
                     outcome = ('off_course', 'target_outside_steering_range')
