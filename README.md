@@ -113,6 +113,9 @@ cd /Users/bbenziger/djr3x-v3
   in [settings.example.toml](settings.example.toml).
 - Say "shut down" to exit; Enter or `stop` + Enter in the terminal cancels the current
   reply; `quit` or Ctrl-C exits.
+- `--gui` opens V2's dashboard: camera, actuators with manual override, scene, logs, the
+  3D droid, the transcript and the Motivator joystick console. It needs `requirements-gui.txt`;
+  the supervisor's wake launch stays headless ([dashboard](docs/GUI.md)).
 - The terminal shows the conversation. Detailed JSON diagnostics go to the session file
   printed at startup, under `local/sessions/`.
 - `--record-evaluation` also keeps endpointed WAVs for human labeling.
@@ -192,6 +195,7 @@ models on its own.
 | [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |
 | [Room recognition](docs/ROOM_RECOGNITION.md) | Which room, asking and learning rooms, connections, exploring, the V2 import. |
 | [Voice impressions](docs/IMPERSONATION.md) | The `impersonate` tool, reference voices, the local cloning engine, checks and open acceptance. |
+| [Dashboard](docs/GUI.md) | `live --gui`: V2's PySide6 window in V3, manual servo override and joystick driving through the owners. |
 | [Operator services](docs/OPERATOR_CUTOVER.md) | Wake supervisor, menu-bar apps, auto-update, rollback. |
 | [Live test script](docs/LIVE_TEST_SCRIPT.md) | Lines to say and results to check in hands-on conversation tests. |
 | [DESIGN.md](DESIGN.md) | Who decides what, turn flow, identity and memory design. |

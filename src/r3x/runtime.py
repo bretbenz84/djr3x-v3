@@ -59,9 +59,13 @@ class VoiceRuntime:
 
     def conversation_shutdown(self, turn_id):
         """The same exit as the spoken "shut down" fast path, chosen by the conversation owner."""
+        self.request_shutdown('conversation', turn_id=turn_id)
+
+    def request_shutdown(self, source, **detail):
+        """Normal exit from any thread (conversation, the dashboard's Shut Down button)."""
         if self.stop.is_set():
             return
-        self.trace.emit('shutdown_requested', source='conversation', turn_id=turn_id)
+        self.trace.emit('shutdown_requested', source=source, **detail)
         self.stop.set()
         self.cancel()
 

@@ -163,7 +163,9 @@ class App:
     def close(self) -> None:
         self.owner.close()
 
-    def live(self):
+    def live(self, feed=None):
+        """Run Rex until shutdown. feed: the optional dashboard's trace display (it wraps the
+        terminal console); it is handed the composed owners just before listening starts."""
         from uuid import uuid4
         from .output import OutputOwner
         from .runtime import VoiceRuntime
@@ -198,8 +200,12 @@ class App:
         session_id = uuid4().hex
         try:
             log_path = self.paths.root / "sessions" / (session_id + ".jsonl")
-            trace = Trace(session_id, log_path, display=LiveConsole())
+            trace = Trace(session_id, log_path, display=feed if feed is not None else LiveConsole())
             trace.emit("starting", log_path=str(log_path))
+            if feed is not None:
+                from .gui.feed import LiveParts   # Early: the avatar mirrors the wake choreography.
+                feed.attach(LiveParts(settings=self.settings, owner=self.owner, robot=self.robot, leds=self.leds,
+                                      log_path=str(log_path)))
         except BaseException:
             self.hardware_handoff.close()
             lease.close()
@@ -263,9 +269,12 @@ class App:
             self.robot.owner.on_camera_motion = camera_motion
         success = False
         import signal
+        import threading
         def terminate(*_):
             raise KeyboardInterrupt()
-        previous_sigterm = signal.signal(signal.SIGTERM,terminate)
+        # With the dashboard, Qt owns the main thread and routes SIGTERM to a shutdown request.
+        main_thread = threading.current_thread() is threading.main_thread()
+        previous_sigterm = signal.signal(signal.SIGTERM,terminate) if main_thread else None
         try:
             memory.start()
             if camera:
@@ -390,6 +399,12 @@ class App:
                 if output.drive:
                     output.drive.on_motion.append(lambda plan: runtime.arrivals.note_base_motion(
                         trace.clock(), allow_new=bool(plan and plan.allow_new_arrivals)))
+                if feed is not None:
+                    from .gui.feed import LiveParts
+                    feed.attach(LiveParts(runtime=runtime, settings=self.settings, owner=self.owner, memory=memory,
+                        camera=camera, objects=objects, places=places, robot=output.robot, leds=output.leds,
+                        drive=output.drive, radar=self.radar,
+                        sink=sink, log_path=str(log_path)))
                 runtime.run()
                 success = True
         finally:
@@ -416,5 +431,6 @@ class App:
             trace.close()
             if self.owner.state == 'closed':
                 lease.close()
-            signal.signal(signal.SIGTERM,previous_sigterm)
+            if main_thread:
+                signal.signal(signal.SIGTERM,previous_sigterm)
         return success and self.owner.state == "closed"

@@ -67,8 +67,43 @@ class RobotServos:
         self.talking.cancel()
         self.owner.cancel()
 
+    def begin_operator(self):
+        """Dashboard manual override: Rex's own servo motion (idle, talking, reflexes, the
+        microphone recentre, gestures and poses) yields until end_operator. The flag is set
+        first, so nothing new starts while the running workers are stopped; a request already
+        on the wire finishes (operator poses meanwhile get ServoBusy)."""
+        if self.owner.state != 'active':
+            raise ProviderFailure('ServoUnavailableOrParked')
+        if self._arm_return is not None and self._arm_return.is_alive():
+            raise ProviderFailure('ArmReturnStillActive')
+        self.owner.operator = True
+        try:
+            self.idle.stop()
+            self.reflex.stop()
+            self.talking.stop()
+        finally:
+            if self.trace:
+                self.trace.emit('operator_servos', status='started')
+
+    def operator_pose(self, pose, cancel, request_id):
+        """One manual pose: calibrated limits, pair routes and clearance checks still apply."""
+        return self.owner.execute(ServoRequest(request_id, self.owner.version, 'operator',
+                                               self.owner.clock() + 15., pose=dict(pose)), cancel)
+
+    def end_operator(self):
+        if not self.owner.operator:
+            return
+        self.owner.operator = False
+        if self.trace:
+            self.trace.emit('operator_servos', status='ended', commanded=dict(self.owner.commanded))
+        self.idle.look_at_people()
+        self.idle.wake()
+
     def before_frame(self, *, allow_idle=False, capturing=False, calm=False):
         self.idle.trace = self.reflex.trace = self.trace
+        if self.owner.operator:
+            self.idle.tick(False)
+            return
         self.idle.tick(allow_idle and self.talking._thread is None, calm)
         if (not capturing and self.talking._thread is None and self.idle._thread is None and
                 not (self.reflex._thread and self.reflex._thread.is_alive())):

@@ -1,0 +1,6 @@
+# Optional dashboard (`python -m r3x live --gui`), separate from the conversation core.
+# Same PySide6 release as V2's GUI (October 14, 2026); Qt Quick 3D comes from the Addons wheel.
+PySide6==6.11.1
+PySide6_Addons==6.11.1
+PySide6_Essentials==6.11.1
+shiboken6==6.11.1

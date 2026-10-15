@@ -38,6 +38,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=("dev-mac",), default=None)
     parser.add_argument("--config", type=Path, help="Explicit TOML settings file")
     parser.add_argument("--camera",action="store_true",help="Explicitly enable the configured camera for live mode")
+    parser.add_argument("--gui",action="store_true",help="Open the dashboard window for live mode (needs PySide6)")
     parser.add_argument("--record-evaluation",action="store_true",help="Explicitly retain live captures for later human labeling")
     parser.add_argument("--brain",action="store_true",help="Enable paid hosted language inference during saved-audio replay")
     parser.add_argument("--oracle-segments",action="store_true",help="Use human timing labels for encoder diagnostics, not production accuracy")
@@ -57,6 +58,8 @@ def main() -> int:
                 raise ValueError("CameraAndRecordingFlagsRequireLive")
             settings = replace(settings,camera_enabled=args.camera or settings.camera_enabled,
                                record_evaluation=args.record_evaluation or settings.record_evaluation)
+        if args.gui and args.command!="live":
+            raise ValueError("GuiFlagRequiresLive")
         if (args.brain or args.oracle_segments) and args.command!="replay":
             raise ValueError("ReplayFlagsRequireReplay")
         if args.command=="replay":
@@ -82,7 +85,11 @@ def main() -> int:
             print(json.dumps(app.doctor(), indent=2))
             return 1 if app.readiness() else 0
         if args.command == "live":
-            success = app.live()
+            if args.gui:
+                from .gui.app import run as run_dashboard
+                success = run_dashboard(app)
+            else:
+                success = app.live()
             if not success:
                 print(json.dumps(app.doctor(), indent=2))
             return 0 if success else 1

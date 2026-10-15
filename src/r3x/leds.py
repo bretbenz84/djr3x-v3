@@ -69,6 +69,7 @@ class LEDs:
         self.mouth = 'neutral'            # Emotion of the running mouth animation.
         self.speak_sent, self.speak_sends = float('-inf'), 0
         self.trace = None
+        self.on_command = []              # Observers (zone, command) of each command written; the dashboard mirror.
 
     def _send(self, zone, command):
         device = self.devices.get(zone)
@@ -89,6 +90,11 @@ class LEDs:
                 try: peer.write(b'SPEAK_STOP\nACTIVE\n')
                 except Exception: pass
             raise ProviderFailure('LEDWriteFailed') from None
+        for hook in self.on_command:
+            try:
+                hook(zone, command)
+            except Exception:
+                pass   # A display observer never affects the lights.
 
     def _both(self, command):
         for zone in self.devices:

@@ -172,6 +172,11 @@ CONFIG = {'max_lin': .25, 'max_ang': round(math.radians(60), 3), 'accel_lin': .3
 # A freshly unplugged pack can retain 13.61 V for minutes; 13.6 V reintroduced
 # the old surface-charge lockout even after firmware had released its latch.
 CHARGER_MV = 14000
+# Dashboard joystick (V2 Motivator console): the owner-approved planned-move speed, a gentle
+# spin, and the swing check one 10 Hz setpoint ahead of a spin.
+MANUAL_SPEED = LIMITS['requested']['speed_mps']
+MANUAL_TURN = math.radians(60.)
+MANUAL_TURN_CHECK_DEG = 15.
 CAMERA_KINDS = {'face', 'nearest_person', 'object'}
 
 
@@ -446,6 +451,7 @@ class DriveBase:
         self._assist_gain = None      # The firmware's wall-steering gain, as acknowledged at connect.
         self._assist_on = True
         self.local_map = LocalMap(clock)   # What the range sensors saw around him in the last minute.
+        self._manual = None           # Dashboard teleop holding the plan lock: {'parked', 'moving'}.
 
     # Lifecycle -----------------------------------------------------------
     def start(self):
@@ -500,6 +506,8 @@ class DriveBase:
     def close(self):
         self._closing.set()
         self.cancel()
+        if self._manual is not None:
+            self.end_manual()   # The joystick's hold on the plan lock ends with the base.
         self._assist(True)
         if not self._lock.acquire(timeout=5.):
             raise ProviderFailure('DrivePlanStillActive')
@@ -512,6 +520,111 @@ class DriveBase:
             self.state = 'closed'
         finally:
             self._lock.release()
+
+    # Dashboard teleop ----------------------------------------------------
+    def begin_manual(self):
+        """The dashboard joystick takes the wheels: a running plan halts, and the plan lock is
+        held until end_manual, so Rex's own and requested drives are refused (DriveBusy) and
+        the back-off reflex waits. Returns (ok, reason)."""
+        if self._manual is not None:
+            return True, None
+        self._halt.set()
+        if not self._lock.acquire(timeout=5.):
+            return False, 'DrivePlanStillActive'
+        self._halt.clear()
+        ok, reason = self.availability()
+        if not ok:
+            self._lock.release()
+            return False, reason
+        self._manual = {'parked': False, 'moving': False}
+        if self.trace:
+            self.trace.emit('operator_drive', status='started')
+        return True, None
+
+    def manual(self, lin, ang, cancel):
+        """One joystick setpoint (send about 10 times a second; the firmware's 300 ms deadman
+        stops the wheels if they stop coming). Clamped to the planned-move speed; forward is
+        held at the front path check, spins at the arm-swing check, reverse at the firmware's
+        rear block. The arms park before the first non-reverse motion. Returns what was sent."""
+        manual = self._manual
+        if manual is None:
+            return {'status': 'refused', 'reason': 'manual_not_active'}
+        lin = max(-MANUAL_SPEED, min(MANUAL_SPEED, float(lin) if math.isfinite(lin) else 0.))
+        ang = max(-MANUAL_TURN, min(MANUAL_TURN, float(ang) if math.isfinite(ang) else 0.))
+        held = []
+        if self._halt.is_set():
+            # A stop (spoken, Stop button, shutdown) holds the wheels until the stick is released.
+            if lin or ang:
+                self._manual_stop()
+                return {'status': 'refused', 'reason': 'stop_requested', 'lin': 0., 'ang': 0.}
+            self._halt.clear()
+        if lin or ang:
+            ok, reason = self.availability()
+            if not ok:
+                self._manual_stop()
+                return {'status': 'refused', 'reason': reason, 'lin': 0., 'ang': 0.}
+            if (lin > 0 or ang) and not manual['parked'] and self.servos is not None:
+                park = self.servos.prepare_base_motion(cancel)
+                if park.status != 'pulses_reached':
+                    return {'status': 'refused', 'reason': 'ArmParkFailed:' + str(park.reason or park.status),
+                            'lin': 0., 'ang': 0.}
+                manual['parked'] = True
+            telemetry = self.link.snapshot()[0] or {}
+            blocked = telemetry.get('blocked_dir')
+            if lin > 0:
+                why = self._crawl_hold(self.space(), telemetry.get('tof_mm'))
+                if why in {'path_blocked', 'front_clearance_unknown'} or blocked in ('front', 'both'):
+                    held.append(why or 'blocked_front')
+                    lin = 0.
+            elif lin < 0 and blocked in ('back', 'both'):
+                held.append('blocked_back')
+                lin = 0.
+            if ang:
+                arms = ARMS_TUCKED if manual['parked'] else ARMS
+                if not allowed_turn(math.copysign(MANUAL_TURN_CHECK_DEG, ang), telemetry, arms)[0]:
+                    held.append('turn_path_blocked')
+                    ang = 0.
+        moving = bool(lin or ang)
+        if moving != manual['moving']:
+            manual['moving'] = moving
+            if moving:
+                self.moving.set()
+            else:
+                self.moving.clear()
+                self.motion_until = self.clock() + .5
+            self._notify(None)
+        self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
+        return {'status': 'sent', 'lin': lin, 'ang': ang, 'held': held}
+
+    def _manual_stop(self):
+        try:
+            self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
+            self.link.send({'cmd': 'stop'})
+        except ProviderFailure:
+            pass
+        if self._manual and self._manual['moving']:
+            self._manual['moving'] = False
+            self.moving.clear()
+            self.motion_until = self.clock() + .5
+            self._notify(None)
+
+    def end_manual(self):
+        manual = self._manual
+        if manual is None:
+            return
+        try:
+            self._manual_stop()
+            if manual['parked'] and self.servos is not None:
+                self.servos.finish_base_motion(keep_parked=arms_blocked(self.space()))
+        finally:
+            self._manual = None
+            self._lock.release()
+            if self.trace:
+                self.trace.emit('operator_drive', status='ended')
+
+    @property
+    def manual_active(self):
+        return self._manual is not None
 
     # Evidence ------------------------------------------------------------
     def motion_risk(self):
@@ -2594,7 +2707,8 @@ class DriveBase:
         """One back-off evaluation. Idle only; plans and the gamepad take priority."""
         now = self.clock() if now is None else now
         telemetry, _ = self.link.snapshot()
-        if not telemetry or not self.reflex_allowed() or self.moving.is_set() or not self.availability(now)[0]:
+        if (not telemetry or not self.reflex_allowed() or self.moving.is_set() or self._manual is not None
+                or not self.availability(now)[0]):
             self.flinch.ticks = 0
             return None
         tof = telemetry.get('tof_mm') or {}

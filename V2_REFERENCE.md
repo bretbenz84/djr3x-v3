@@ -1169,3 +1169,49 @@ to tease, a joke record replaces V2's bit ledger and callback cooldowns, and a w
 supplies fresh material instead of pools. Not ported: the vision "roast me" prompt that roasted
 appearance and build, and greeting-based speech styles (identity-based). No V2 personal data or
 eval corpora (they name the owner and his health) were read into V3.
+
+## Dashboard (PySide6 GUI) — October 14, 2026
+
+Owner request: port V2's Python GUI (not a web GUI), with manual servo and drive control;
+Memory Banks and typed input left for later. Source: V2 `488780557ad70925e3b3c23fb542f544ed51a5b7`.
+`git status --short gui` was empty, so the working tree matched HEAD for `gui/`. SHA-256 of
+the files adapted:
+
+| File | SHA-256 |
+| --- | --- |
+| `gui/dashboard.py` | `01eac032d11754b30a426f75d5d3ee34563b6ac2a87bbb97e8345c31d5d82caf` |
+| `gui/vision_panel.py` | `10533e02f99c55b12e3a64e3ba68cb70b000a87e3287f01198ddebe7720d4b2a` |
+| `gui/conversation_panel.py` | `ee9b0a4d5252994144568fc752cb771f5b926aa4fb5744cfcb895ee7dbad1b0b` |
+| `gui/log_panel.py` | `ea6171291c07b20e49dc764b938e172e5eb3aace7daa7067688e9bf084d78c17` |
+| `gui/rex_avatar.py` | `1b48105699b1ea66d7dcff47052757a1fde16c7561561798c9ad3b594e332ee6` |
+| `gui/rex_avatar_3d.py` | `60aa19e8c130da7138cbfe33d6330bd355f7fe3f9659f36eb38daad156326f1f` |
+| `gui/avatar_rig.py` | `47a426a9f1c01cb75d436556411c0e730d27300b68d738de4893adc7116cda05` |
+| `gui/mouth_leds.py` | `02e2c1c775bd6344e16147f69b23850b375602078f0d48f9d80e8424b0974ec0` |
+| `gui/theme.py` | `f0c6408a355e250357c8cae2119222a9eb0d25868af9c53f622ff19bde49cbb3` (copied unchanged) |
+| `gui/assets/rex/geometry.npz` | `8f551a982fa15b652a765906bc37251f45bf8e01d35694bdd9a681da38ea6cbc` (with rig.json, materials.json, Avatar.qml and both SVGs, unchanged) |
+
+What was preserved:
+
+- The layout, theme, camera panel and status chips.
+- The read-along transcript and the colour-coded log console.
+- The Qt Quick 3D rig, lighting, mouth diffuser, eye blink and chest palettes.
+- The Motivator widgets, with arcade mixing and the ramp.
+- The pattern of polling snapshots at 20 Hz on the Qt thread with Rex on a worker thread.
+
+Adaptation:
+
+- No `config`, singleton bridge or global pause flags. A Qt-free `DashboardFeed` is the
+  trace display, reads owner snapshots, and sends buttons through the owners.
+- The rig is driven by V3 calibrated pulses: the two-servo head pitch and tilt, and the
+  inverted visor. V2's rig pitch sign was found reversed on rendered poses and corrected.
+- Manual servo writes became the servo owner's `operator` mode. The joystick became
+  `DriveBase` teleop under the plan lock, with arm park, path and swing checks.
+
+Not ported:
+
+- `state_bridge.py`, `memory_banks.py`, `jeopardy_panel.py` and `live_face_tracker.py`.
+- The 2D painter avatar.
+- `studio.hdr`, which V2's code no longer reads.
+- Pause/Sleep, the pose skeleton and occlusion zones.
+
+Checks and remaining live validation are in [dashboard](docs/GUI.md#evidence).

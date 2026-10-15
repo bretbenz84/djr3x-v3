@@ -21,6 +21,14 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Dashboard — October 14
+
+`live --gui` opens V2's PySide6 dashboard, adapted to V3. It observes the trace and the
+owners' snapshots, and its manual servo override and joystick act through the servo and
+drive owners (operator mode, teleop holding the plan lock). Synthetic contract checks and a
+native render with synthetic data only; **not yet run with Rex live or on the robot's M2**.
+Details: [dashboard](GUI.md).
+
 ## Second live run — October 14 (evening)
 
 Session `1662b007`: Toby greeted as Max from a cut-off look; asked what he was looking at after his own
@@ -760,7 +768,7 @@ separate categories.
 | Room navigation | Rooms are recognized, named and connected ([room recognition](ROOM_RECOGNITION.md)); positions, a floor plan and "go to the kitchen" do not exist. |
 | Compass heading | The drive base publishes raw QMC5883L magnetometer counts; V2's calibrated, current-gated compass fusion (`hardware/compass.py`, calibration file) is not ported. V3 uses gyro yaw only. |
 | Owner-requested companion features | Jeopardy, room exploration, and the September 18 “Do you ever think” long-lull thought experiments. Voice impressions landed October 6 ([details](IMPERSONATION.md)) and interest news October 11 ([details](OBSERVATION_SOURCES.md)); lull-time impression beats are not offered. Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
-| Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search, offline conversational providers and a polished GUI remain separate future work. |
+| Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search and offline conversational providers remain separate future work. The dashboard's Memory Banks editor and typed input were not ported ([dashboard](GUI.md)). |
 
 Mouth-motion/active-speaker research is not an active implementation task. The user
 declined that experiment; no mouth-motion model or enrollment dependency was added.

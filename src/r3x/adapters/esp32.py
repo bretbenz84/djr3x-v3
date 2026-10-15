@@ -186,10 +186,13 @@ class RadarLink(NDJSONLink):
     def __init__(self, open_port, *, clock=time.monotonic):
         super().__init__(open_port, clock=clock, name='radar')
         self.frames = deque(maxlen=60)
+        self.telemetry = None   # Latest raw frame (sensor health) for the dashboard scope.
 
     def dispatch(self, message, received_at):
         if message['type'] != 'telemetry':
             return
+        with self._state:
+            self.telemetry = {**message, 'rx_monotonic': received_at}
         targets = []
         for row in ((message.get('radar') or {}).get('targets') or [])[:12]:
             try:

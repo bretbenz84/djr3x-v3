@@ -95,6 +95,9 @@ class ServoOwner:
         self.microphone_still_since = float('-inf')  # When the array arm last stopped moving.
         self.head_moved_at = float('-inf')     # When the head last finished a view-changing move.
         self.energized_channels: tuple[int, ...] = ()  # Channels that were off at start.
+        # Dashboard manual override: only operator poses (and park/shutdown) run while set.
+        self.operator = False
+        self.on_packet = []   # Observers of every packet written to the Maestro (dashboard display).
 
     def start(self) -> None:
         with self._lock:
@@ -103,6 +106,7 @@ class ServoOwner:
             self.state = 'starting'
             try:
                 self._bus = Maestro(self.open_port())
+                self._bus.observers = self.on_packet
                 readback = self._energize_unpowered(self._bus.positions(LIMITS))
                 self.commanded = dict(readback)
                 self.state = 'ready'
@@ -197,7 +201,7 @@ class ServoOwner:
         channel 7 itself invalidate the hold; learning waits for recentering and a new
         settled hold.
         """
-        if self.clock() < self.microphone_hold[1] or not self._lock.acquire(blocking=False):
+        if self.operator or self.clock() < self.microphone_hold[1] or not self._lock.acquire(blocking=False):
             return
         try:
             if self.state != 'active' or not self._bus or 7 in self.held_channels:
@@ -261,10 +265,12 @@ class ServoOwner:
         try:
             if self.state not in {'ready', 'active', 'stopped'} or self._bus is None:
                 return receipt('rejected', 'ServoUnavailableOrParked')
+            if self.operator != (request.kind == 'operator') and request.kind not in {'park', 'shutdown'}:
+                return receipt('rejected', 'OperatorOverride' if self.operator else 'OperatorOverrideOff')
             if (request.version != self.version or not request.request_id or
                     not math.isfinite(request.expires_at) or self.clock() >= request.expires_at):
                 return receipt('rejected', 'StaleServoRequest')
-            if request.kind in {'talking','idle','pose','reflex','listening','base_park','base_release','attention','gesture'} and self.state != 'active':
+            if request.kind in {'talking','idle','pose','reflex','listening','base_park','base_release','attention','gesture','operator'} and self.state != 'active':
                 return receipt('rejected', {'idle':'IdleRequiresCompletedStartup','talking':'TalkingRequiresCompletedStartup','pose':'PoseRequiresCompletedStartup'}.get(request.kind,'BaseMotionRequiresCompletedStartup'))
             if request.kind == 'startup' and self.state != 'ready':
                 return receipt('rejected', 'StartupAlreadyConsumed')
@@ -278,6 +284,7 @@ class ServoOwner:
                      expressive_lanes(current,request.kind,request.target,request.primitive,request.intensity,
                                       request.hold_seconds,self.held_channels) if request.kind in {'attention','gesture'} else
                      pose_lanes(request.pose,current,further=request.hold_pose) if request.kind == 'pose' else
+                     pose_lanes(dict(request.pose),current) if request.kind == 'operator' else
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
                      listening_lanes(current, request.side) if request.kind == 'listening' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
@@ -409,7 +416,7 @@ class ServoOwner:
             if accepted:
                 try:
                     self._hold(touched)
-                    self.state = 'active' if request.kind in {'talking','idle','pose','reflex','listening','base_park','base_release','attention','gesture'} else 'stopped'
+                    self.state = 'active' if request.kind in {'talking','idle','pose','reflex','listening','base_park','base_release','attention','gesture','operator'} else 'stopped'
                 except Exception:
                     self.state = 'faulted'
                     return receipt('failed', 'ServoCancelHoldFailed')
@@ -480,6 +487,8 @@ class ServoOwner:
         try:
             if self.state not in {'active', 'moving'} or self._bus is None:
                 return receipt('rejected', 'ServoUnavailableOrParked')
+            if self.operator:
+                return receipt('rejected', 'OperatorOverride')   # The arms stay put; a later clear check retries.
             current = self._bus.positions(sorted(ARM_RETURN))
             keep = frozenset(keep)
             lanes = base_lanes('base_release', current, keep)

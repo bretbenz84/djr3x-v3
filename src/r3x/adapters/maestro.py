@@ -28,12 +28,18 @@ class Maestro:
         # The throttle arm's return from its drive park runs beside other motion, so each
         # wire exchange (a query and its reply, or one command batch) is taken whole.
         self._wire = threading.RLock()
+        self.observers = []   # Callables(packet) after each complete write (the dashboard's ramp mirror).
 
     def _write(self, packet: bytes) -> None:
         if self.closed:
             raise ProviderFailure('MaestroClosed')
         if self.port.write(packet) != len(packet):
             raise ProviderFailure('MaestroShortWrite')
+        for observer in self.observers:
+            try:
+                observer(packet)
+            except Exception:
+                pass   # A display observer never affects the servos.
 
     def _value(self, command: int, channel: int, value: int) -> None:
         self._write(bytes((command, channel, value & 127, value >> 7)))
