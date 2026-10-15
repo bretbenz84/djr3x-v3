@@ -118,3 +118,24 @@ class PresentInConversation(memory_tests.MemoryFixture):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PresentRepairs(unittest.TestCase):
+    """October 14 live run (e1f8b2c6)."""
+    def test_someone_he_already_spoke_with_is_not_arriving_even_in_their_first_minute(self):
+        present = Present()
+        present.saw_faces([face(100, 'bret', 'a')], 100)
+        present.rex_said("Brett, what's tonight's operation?", 105)
+        self.assertFalse(present.arriving('bret', 130))
+        self.assertTrue(Present().arriving('bret', 130))
+
+    def test_the_clock_and_his_earlier_lines_are_in_the_picture(self):
+        from datetime import datetime
+        present = Present()
+        for at, line in ((100, 'I misspoke about the clock.'), (120, 'That clock correction was fair.'), (140, 'Nice vape.')):
+            present.rex_said(line, at)
+        picture = present.describe(150, wall=datetime(2026, 10, 14, 18, 24))
+        self.assertEqual(picture['local_time'], 'Wednesday evening, 6:24 PM, October 14')
+        earlier = picture['conversation']['his_earlier_lines']
+        self.assertEqual([l['text'] for l in earlier['lines']], ['I misspoke about the clock.', 'That clock correction was fair.'])
+        self.assertIn('never bring back a mistake', earlier['meaning'])

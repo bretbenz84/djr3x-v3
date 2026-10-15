@@ -21,6 +21,17 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## First live run of the improvement plan — October 14 (evening)
+
+Session `e1f8b2c6`, 11 minutes on the robot: mostly successful by the owner's account (Max
+recognized, reoriented to him after he moved), not funny enough. Seven repairs the same evening,
+synthetic and paid-probe evidence only: a line on arrival after his own silent approach; a
+requested back-up no longer cancelled by the private-memory guard while moving; someone already
+talked with is not greeted as arriving; local time and his earlier lines in the picture of the
+present (one clock slip had been owned four times); a writer's room aimed at the next turn and a
+persona that answers admissions; a spoken lead-in while looking or checking; 4–6-beat plans.
+Details: [improvement plan](IMPROVEMENT_PLAN.md#first-live-run-and-repairs-october-14-evening).
+
 ## Poker arm tail sway — October 13
 
 Owner request: the poker arm's idle moves like a cat's tail. It sways back and forth across its

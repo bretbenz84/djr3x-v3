@@ -165,8 +165,11 @@ class Session:
             self.state.bit_told(self.session_id, person, item['premise'], heard)
             self.trace.emit('joke_recorded', turn_id=turn_id, premise=item['premise'], reaction='told')
         if opportunity is None and transcript is not None and transcript.trusted:
+            memory = context.get('personal_memory') or {}
+            known = [f"{r.get('predicate')}: {r.get('value')}" for r in memory.get('interests_and_facts', [])
+                     if person and memory.get('person_id') == person]
             facts = jokes.summary(self.history_messages(), context.get('right_now'),
-                                  [], context.get('humor'))
+                                  [], context.get('humor'), known)
             if self.joke_room.ask(facts, jokes.audience_key(person), self.human_turns):
                 self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='joke_material',
                                 model=getattr(getattr(self.joke_room.writer, 'capability', None), 'model', None))
@@ -181,7 +184,9 @@ class Session:
         robot = getattr(self.output, 'robot', None)
         if robot is not None and getattr(robot.owner, 'hold_until_released', False):
             rex['holding_arms_until_told'] = True
-        return self.state.present.describe(self.trace.clock(), names, rex=rex or None)
+        from datetime import datetime
+        wall = datetime.fromtimestamp(self.state.wall_clock())   # Local time: he has a clock.
+        return self.state.present.describe(self.trace.clock(), names, rex=rex or None, wall=wall)
 
     def _subject_person(self, context):
         """Who Rex's next goal is about: an arrival, the private-memory person, or one known face."""
@@ -567,6 +572,7 @@ class Session:
         agency_revision_reason = None
         agency_deferred = False
         context = {}
+        driving = [False]   # A drive plan is running: the private-memory guard waits for speech.
         action_outcome = None
         impression = None
         shutdown_requested = False
@@ -793,6 +799,8 @@ class Session:
             refresh_current_view(context)
             if self.state:
                 context['right_now'] = self._right_now()
+                # Kept in the session log so a run can be read back the way Rex saw it.
+                self.trace.emit('right_now', turn_id=turn_id, picture=context['right_now'])
             if self.state:
                 from . import conversation_memory
                 context["personal_memory"] = conversation_memory.context(
@@ -831,6 +839,11 @@ class Session:
                 def memory_audience_valid():
                     if previous_memory_guard and not previous_memory_guard(): return False
                     if not memory_accessed[0]: return True
+                    if driving[0]:
+                        # October 14 (e1f8b2c6): "back up five feet" was cancelled halfway because
+                        # backing up changed who the camera saw. The guard protects private words,
+                        # not a move: it applies again before anything is said after the move.
+                        return True
                     # Live October 1: two direct requests lost their replies, without a logged
                     # reason, because the owner's face flickered unrecognized for a moment.
                     # Private memory now waits only for a real audience change: someone else,
@@ -1066,6 +1079,14 @@ class Session:
             elif not calls and not generated.strip():
                 raise ProviderFailure('EmptyModelResponse')
             if calls and len(calls)==1 and self.state and not generated.strip():
+                from .semantics import LEAD_IN_TOOLS
+                lead_in = calls[0].arguments.get('say_first') if calls[0].name in LEAD_IN_TOOLS else None
+                if isinstance(lead_in, str) and lead_in.strip():
+                    # A few words now, while the look or lookup runs (October 14: 6-10 s of silence).
+                    if calls[0].call_id not in streamed:
+                        put_phrase(phrases, lead_in, cancel)
+                    self.history.append({'role': 'developer', 'content': 'Already said aloud while checking: '
+                        + json.dumps(lead_in, ensure_ascii=False) + '. The answer follows it; do not repeat it.'})
                 from .photo_memory import PHOTO_TOOLS
                 if calls[0].name in PHOTO_TOOLS:
                     from .photo_flow import run as photo_run
@@ -1343,7 +1364,7 @@ class Session:
                         spoke = True
                         delivery.status, delivery.medium = 'requested', 'audio'
                         put_phrase(phrases,text,cancel)
-                    def drive_followup(call, output, images=(), inspection=None, replan=False, wordless=False):
+                    def drive_followup(call, output, images=(), inspection=None, replan=False, wordless=False, arrived=False):
                         # One bounded continuation: explain a refusal/incomplete motion,
                         # or answer look_after from a frame captured after motion.
                         continuation = (*call.preamble,
@@ -1361,7 +1382,15 @@ class Session:
                             messages = (*messages, {'role':'developer','content':
                                 'Answer the look question in one short sentence about what matters for the request. '
                                 'Describe the scene in detail only if the person asked what you see.'})
-                        if wordless:
+                        if arrived:
+                            # October 14 (e1f8b2c6): he rolled up to the owner without a word and was
+                            # asked "you're just gonna walk up on me like that, but not say anything?".
+                            messages = (*messages, {'role':'developer','content':
+                                'You just rolled up to them on your own and are now beside them. Say something to '
+                                'them in one short line, the way a friend who just walked over would: a hello by name '
+                                'if you know it, a tease about what they are doing, or a question that fits the '
+                                'moment. Do not explain or narrate the move.'})
+                        elif wordless:
                             # October 3: "do you have access to your compass?" was answered by a
                             # silent 17 degree turn; the person waited for words that never came.
                             messages = (*messages, {'role':'developer','content':
@@ -1392,11 +1421,15 @@ class Session:
                             # Once queued, re-identified faces from the moving camera no longer
                             # invalidate a self-initiated plan; explicit stop still halts it.
                             self.motion_committed = True
-                            put_phrase(phrases,drive_action,cancel)
-                            while not drive_action.done.wait(.05):
-                                cancel.check()
-                                if not worker.is_alive():
-                                    raise ProviderFailure('OutputWorkerStopped')
+                            driving[0] = True   # Before the output worker can start it.
+                            try:
+                                put_phrase(phrases,drive_action,cancel)
+                                while not drive_action.done.wait(.05):
+                                    cancel.check()
+                                    if not worker.is_alive():
+                                        raise ProviderFailure('OutputWorkerStopped')
+                            finally:
+                                driving[0] = False
                             receipt = asdict(drive_action.receipt)
                             drive_noted = True
                             self.trace.emit('drive_result',turn_id=turn_id,**receipt)
@@ -1453,6 +1486,13 @@ class Session:
                                 speak(args['say_after'])
                             elif not opportunity and not spoke and not generated.strip():
                                 if drive_followup(call,{'drive':receipt},wordless=True)[1]:
+                                    raise ProviderFailure('ToolContinuationLimit')
+                            elif opportunity and not spoke and not generated.strip() and any(
+                                    s.get('action') == 'approach' and s.get('status') == 'completed' and
+                                    str(s.get('target') or '').startswith(('face-', 'nearest_person'))
+                                    for s in receipt.get('steps', [])):
+                                # A silent approach is fine; arriving beside someone in silence is not.
+                                if drive_followup(call,{'drive':receipt},arrived=True)[1]:
                                     raise ProviderFailure('ToolContinuationLimit')
                         elif not opportunity:
                             # Refused, rejected or incomplete: the model explains from the receipt.
@@ -1689,7 +1729,7 @@ class Session:
                 elif result.outcome=="ok" and call.name in {"ask_question","ask_face_question"}:
                     question = result.data
                     put_phrase(phrases,question["question"],cancel)
-                elif call.call_id in streamed:
+                elif call.call_id in streamed and call.name in {'respond_with_intent', 'respond_with_gesture'}:
                     # Its words were already heard as they streamed; a second answer would repeat
                     # them. The rejected part (a gesture, an intention note) is simply not done.
                     self.trace.emit('streamed_reply_tool_rejected', turn_id=turn_id, name=call.name,

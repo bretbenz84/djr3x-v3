@@ -11,15 +11,20 @@ still carries the same text for validation and history.
 import json
 import re
 
-STREAMED_TOOLS = frozenset({'respond_with_intent', 'respond_with_gesture'})
-_OPENING = re.compile(r'\s*\{\s*"text"\s*:\s*"')
+# Tool -> the spoken field that comes first in its arguments. Reply tools stream their words; tools
+# that need a look or a lookup stream their short lead-in (October 14, e1f8b2c6).
+STREAMED_FIELDS = {'respond_with_intent': 'text', 'respond_with_gesture': 'text', 'inspect_view': 'say_first',
+                   'inspect_visual_memory': 'say_first', 'recall_conversations': 'say_first'}
+STREAMED_TOOLS = frozenset(STREAMED_FIELDS)
 _ESCAPES = {'"': '"', '\\': '\\', '/': '/', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t'}
 
 
 class TextField:
-    """Incrementally decodes the leading "text" string of a JSON object being streamed."""
+    """Incrementally decodes the leading string field of a JSON object being streamed."""
 
-    def __init__(self):
+    def __init__(self, field='text'):
+        self.field = field
+        self.opening = re.compile(r'\s*\{\s*"' + re.escape(field) + r'"\s*:\s*"')
         self.buffer = ''
         self.state = 'seek'     # seek -> text -> done, or off when text is not the first field
         self.at = 0
@@ -30,10 +35,12 @@ class TextField:
             return ''
         self.buffer += chunk
         if self.state == 'seek':
-            match = _OPENING.match(self.buffer)
+            match = self.opening.match(self.buffer)
             if not match:
                 stripped = self.buffer.lstrip()
-                if len(stripped) > 12 or (stripped and not '{"text":"'.startswith(stripped.replace(' ', '')[:9])):
+                expected = '{"' + self.field + '":"'
+                if (len(stripped) > len(expected) + 3 or
+                        (stripped and not expected.startswith(stripped.replace(' ', '')[:len(expected)]))):
                     self.state = 'off'
                 return ''
             self.state, self.at = 'text', match.end()

@@ -16,6 +16,8 @@ has passed") so every reply, beat and plan sees the moment the way a person woul
 Recognition here is evidence of presence only. Nothing in this module names a speaker,
 enrolls a voice or face, or interprets what anyone said.
 """
+from collections import deque
+from datetime import datetime
 import threading
 from uuid import uuid4
 
@@ -46,6 +48,12 @@ PET_SETTLE_SECONDS = 2.5    # In view this long before its arrival counts.
 PET_ABSENT_SECONDS = 120.   # Gone this long, a reappearance is a new arrival.
 PET_COOLDOWN_SECONDS = 300. # At most one pet arrival this often.
 THINGS_KEPT = 8             # Recently seen object labels kept for the picture.
+# October 14 live run (e1f8b2c6): with only his last line in the picture, Rex owned one clock
+# mistake four times in five minutes. His last few heard lines are kept as "already said".
+RECENT_LINES = 6
+# Someone recognized in view (or by voice) when Rex spoke was spoken with: the same run showed
+# a greeting prepared for the owner 74 s in, after they had already talked.
+ENGAGED_SECONDS = 10.
 
 
 def ago(seconds):
@@ -69,6 +77,17 @@ def quiet_meaning(seconds):
     if seconds < 45: return 'a lull'
     if seconds < 180: return 'a long quiet stretch: the last topic has gone cold'
     return 'nobody has talked for minutes'
+
+
+def local_time(moment):
+    """The wall clock the way a person keeps it in mind: 'Wednesday evening, 6:24 PM, October 14'."""
+    if moment is None:
+        return None
+    hour = moment.hour
+    part = ('night' if hour < 5 else 'early morning' if hour < 9 else 'morning' if hour < 12 else
+            'afternoon' if hour < 17 else 'evening' if hour < 21 else 'night')
+    clock = moment.strftime('%I:%M %p').lstrip('0')
+    return f"{moment.strftime('%A')} {part}, {clock}, {moment.strftime('%B')} {moment.day}"
 
 
 def line_meaning(line, answered, seconds):
@@ -135,6 +154,8 @@ class Present:
         self.things = {}         # label -> {'at', 'position'} for recently seen objects.
         self.last_human = None   # {'person_id', 'at'}
         self.last_rex = None     # {'text', 'at', 'question', 'own_initiative'}
+        self.recent_rex = deque(maxlen=RECENT_LINES)   # His last heard lines, oldest first.
+        self.engaged = {}        # person_id -> last time Rex spoke with them in view or heard them
         self.unanswered = 0      # Rex's own heard lines since a human last spoke.
 
     # People ------------------------------------------------------------------
@@ -166,6 +187,7 @@ class Present:
             if person_id:
                 self._recognize(person_id, at)
                 self.spoke[person_id] = max(self.spoke.get(person_id, at), at)
+                self.engaged[person_id] = max(self.engaged.get(person_id, at), at)
 
     def here(self, person, now):
         """Is this person still here? None asks whether anyone is."""
@@ -183,11 +205,14 @@ class Present:
                     now - max(self.face_at, self.speech_at) <= HERE_SECONDS)
 
     def arriving(self, person, now):
-        """A known person counts as arriving only when their visit just began. Someone seen or
-        heard within STAYS_SECONDS never left, whatever the camera's track numbers say."""
+        """A known person counts as arriving only when their visit just began and Rex has not
+        already spoken with them in it. Someone seen or heard within STAYS_SECONDS never left,
+        whatever the camera's track numbers say."""
         with self.lock:
             since = self.visit_since.get(person)
-            return since is None or now - since <= ARRIVAL_SECONDS
+            if since is None:
+                return True
+            return now - since <= ARRIVAL_SECONDS and self.engaged.get(person, float('-inf')) < since
 
     def someone_around(self, now, since=float('-inf')):
         with self.lock:
@@ -199,7 +224,7 @@ class Present:
 
     def forget(self, person_id):
         with self.lock:
-            for table in (self.recognized, self.visit_since, self.spoke):
+            for table in (self.recognized, self.visit_since, self.spoke, self.engaged):
                 table.pop(person_id, None)
             self.audience_seen = None   # A fresh recognition is needed after any forget.
             if self.last_human and self.last_human.get('person_id') == person_id:
@@ -254,14 +279,19 @@ class Present:
         with self.lock:
             self.last_rex = {'text': text[:300], 'at': at, 'question': text.endswith('?'),
                              'own_initiative': own_initiative}
+            self.recent_rex.append({'text': text[:200], 'at': at})
+            for person, seen in self.recognized.items():
+                if at - seen <= ENGAGED_SECONDS:
+                    self.engaged[person] = max(self.engaged.get(person, at), at)
 
     def beat_heard(self):
         with self.lock:
             self.unanswered += 1
 
     # The picture -----------------------------------------------------------------
-    def describe(self, now, names=None, *, rex=None):
-        """Rex's sense of the moment in words. Names are display data for recognized people."""
+    def describe(self, now, names=None, *, rex=None, wall=None):
+        """Rex's sense of the moment in words. Names are display data for recognized people;
+        wall is the local wall-clock datetime."""
         names = names or {}
         with self.lock:
             people = []
@@ -295,7 +325,14 @@ class Present:
             if self.unanswered:
                 conversation['unanswered_lines'] = (f'{self.unanswered} of his own lines in a row went unanswered: '
                                                     'people are busy or not in the mood to chat')
-            picture = {'people_here': people,
+            earlier = list(self.recent_rex)[:-1] if self.last_rex else list(self.recent_rex)
+            if earlier:
+                conversation['his_earlier_lines'] = {
+                    'lines': [{'said': ago(now - line['at']), 'text': line['text']} for line in earlier],
+                    'meaning': 'Points, jokes and apologies he already made: never make them again, and never '
+                               'bring back a mistake he already owned unless they do.'}
+            picture = {'local_time': local_time(wall),
+                       'people_here': people,
                        'unrecognized_face_in_view': unknown,
                        'pet': (None if pet_ago is None or pet_ago > 600 else
                                {'seen': ago(pet_ago), 'in_view': pet_ago <= PET_GAP_SECONDS}),

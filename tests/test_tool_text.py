@@ -118,3 +118,32 @@ class SpeakingWhileStreaming(MemoryFixture):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class LeadInTests(MemoryFixture):
+    """October 14 (e1f8b2c6): a look or a memory lookup left 6-10 s of silence before the answer."""
+    def test_a_lookup_says_a_few_words_first_then_answers_without_repeating_them(self):
+        class Brain:
+            def __init__(self): self.snapshots = []
+            def reply(self, snapshot, cancel):
+                self.snapshots.append(snapshot)
+                if snapshot.continuation:
+                    yield 'Last time we talked about your porch light.'
+                    return
+                yield ToolText('r', 'recall_conversations', 'Hang on, checking ')
+                yield ToolText('r', 'recall_conversations', 'my memory.', True)
+                yield ToolCall('r', 'recall_conversations', {'say_first': 'Hang on, checking my memory.', 'query': None,
+                                                             'period': None, 'after': None, 'before': None})
+        brain = Brain()
+        session = Session('s', brain, OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace),
+                          self.state.trace, self.state)
+        self.enroll('Sam')
+        cap = Capture('cap', 's', bytes(96000), 96, 99, 100, voiced_intervals=((0., 3.),))
+        result = session.process_turn(cap, Transcript('What did we talk about last time?', 0, True), 0, observation(), ())
+        self.assertEqual(result.completed_text, ['Hang on, checking my memory.', 'Last time we talked about your porch light.'])
+        notes = [m['content'] for m in brain.snapshots[-1].messages if m.get('role') == 'developer']
+        self.assertTrue(any('Already said aloud while checking' in n for n in notes))
+
+    def test_older_tool_arguments_without_a_lead_in_still_validate(self):
+        from r3x.semantics import validate
+        validate('inspect_view', {'direction': 'current', 'question': 'What is that?', 'next_opportunity': None})

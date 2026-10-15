@@ -1,4 +1,5 @@
 """Humor bookkeeping and the writer's room; scripted models and temporary stores only."""
+import json
 import threading
 import time
 import unittest
@@ -140,3 +141,16 @@ class HumorInConversation(MemoryFixture):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WriterSummary(unittest.TestCase):
+    def test_the_writer_gets_the_hour_what_is_around_and_what_is_known_about_them(self):
+        # October 14 (e1f8b2c6): from the conversation alone it wrote "Brett checking in".
+        picture = {'local_time': 'Wednesday evening, 6:24 PM, October 14', 'pet': {'seen': 'just now', 'in_view': True},
+                   'things_seen': [{'thing': 'pet', 'seen': 'just now', 'where': 'left'}], 'people_here': [{'name': 'Bret'}]}
+        facts = json.loads(jokes.summary([{'role': 'user', 'content': 'Hi.'}], picture, [], {},
+                                         ['likes: astrophotography']))
+        self.assertEqual(facts['local_time'], picture['local_time'])
+        self.assertEqual(facts['known_about_them'], ['likes: astrophotography'])
+        self.assertTrue(facts['around_them']['pet']['in_view'])
+        self.assertIn('never compliments', jokes.WRITER_INSTRUCTIONS)

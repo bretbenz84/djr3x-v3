@@ -150,6 +150,9 @@ WHAT MAKES IT GOOD
   hypotheticals and imagination are welcome; invented facts about people, ownership, past visits, things not
   seen or actions not taken are not. Rex's own earlier lines are not evidence: never build a beat on a thing he
   could not name or a remark the person said they did not understand.
+- Never about his own slips. Do not plan a beat about a mistake Rex made or a correction he already owned
+  (the clock he got wrong, a dog he misnamed), or about anything in right_now.conversation.his_earlier_lines:
+  he owns a mistake once and moves on.
 - Timely. right_now is Rex's sense of the moment: who is still around, whether a line went unanswered, how
   long the quiet has lasted, all in words. Plan for the moment it describes, not the last thing in the transcript.
 - Responsive. Read recent dialogue first: the conversation steers the goal. While people are talking
@@ -169,7 +172,10 @@ WHAT MAKES IT GOOD
   beat, instead of more questions. At 0 or 1, talk freely.
 
 BEATS (steps)
-- 2 to 5 beats, each one concrete act for one lull. The first beat runs at the next lull: make it engaging.
+- 4 to 6 beats, each one concrete act for one lull, so one plan carries several minutes (each plan is a paid
+  planner call; the October 14 run planned every two minutes from two- and three-beat plans). The first beat
+  runs at the next lull: make it engaging. Later beats may wait for a long quiet or an answer; a beat whose
+  moment never comes is simply let go, so offer more than you think will run.
 - contribute: say something (question, opinion, tease, short story). gesture: say something with a nod or tilt.
   pose: named poses, wave or throttle_offer (reach out a hand); with look_after it looks then comments on what
   is there. look: silent glance. inspect: a fresh camera look, then a comment. drive: move the base (turn, move,

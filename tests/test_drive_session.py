@@ -435,3 +435,51 @@ class DriveContractTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ArrivalLineTests(MemoryFixture):
+    """October 14 (e1f8b2c6): he rolled up to the owner in silence ("you're just gonna walk up on
+    me like that, but not say anything?"); a silent approach is fine, arriving in silence is not."""
+    setup_drive, turn, rows = DriveSessionTests.setup_drive, DriveSessionTests.turn, DriveSessionTests.rows
+
+    def test_arriving_beside_someone_on_his_own_gets_a_line(self):
+        self.setup_drive(drive_call(step('approach', target='face-1'), purpose='roll closer to Bret'),
+                         followup='There you are. Comfortable chair?')
+        self.world.people.append(('face-1', None, 2.2, 0.))
+        settle()
+        now = self.clock()
+        self.begin('Hello again.')
+        self.session._latest_speech = 50.
+        event = Opportunity(uuid4().hex, 'session', now, None, None, (face(now),), 50., False, 'reconsideration')
+        delivery = self.session.process_opportunity(event, self.session.revision, lambda: True)
+        self.assertEqual(self.rows('drive_result')[-1]['status'], 'completed')
+        self.assertEqual(delivery.completed_text, ['There you are. Comfortable chair?'])
+        notes = [m['content'] for m in self.brain.snapshots[-1].messages if m.get('role') == 'developer']
+        self.assertIn('rolled up to them on your own', notes[-1])
+
+    def test_a_requested_move_is_not_cancelled_by_who_the_camera_sees_while_moving(self):
+        # The same run: "back up five feet" was cancelled halfway by the private-memory guard
+        # when backing up changed the view. The guard still protects words after the move.
+        from tests.test_memory_core import observation
+        self.setup_drive(drive_call(step('move', meters=-.8), purpose='back up'),
+                         followup='Backed up.')
+        person = self.enroll('Bret')
+        backup, self.brain.call = self.brain.call, 'Nice work.'
+        self.session.process_turn(Capture(uuid4().hex, 'session', uuid4().bytes * 1000, 90, 93, 93,
+                                          voiced_intervals=((0., 3.),)), Transcript('I fixed the porch light.', -.01, True),
+                                  self.session.revision, observation())
+        self.brain.call = backup
+        def latest(now):
+            faces = [face(now, person, 'bret')]
+            if self.fake.x < -.2:      # Backing up brings someone else into view.
+                faces.append(face(now, None, 'other'))
+            return faces
+        delivery = self.session.process_turn(Capture(uuid4().hex, 'session', uuid4().bytes * 1000, 96, 99, 99,
+                                                     voiced_intervals=((0., 3.),)),
+                                             Transcript("You're too close. Back up a bit.", -.01, True),
+                                             self.session.revision, observation(), (face(self.clock(), person, 'bret'),),
+                                             latest_faces=latest)
+        self.assertTrue(self.brain.snapshots[1].context['personal_memory'].get('recent_exchanges')
+                        or self.brain.snapshots[1].context['personal_memory'].get('current_session_exchanges'))
+        self.assertEqual(self.rows('drive_result')[-1]['status'], 'completed')
+        self.assertAlmostEqual(self.fake.x, -.8, places=1)

@@ -157,6 +157,16 @@ TOOLS += (schema('revise_agency_plan',
     'End your current goal because this beat no longer fits: its person left or refused it, its premise or evidence is gone, or its capability is unavailable. A fresh goal is planned and this lull gets one improvised beat. State the concrete reason for the next plan.',
     {'reason':TEXT}),)
 
+# October 14 (e1f8b2c6): replies that needed a look or a memory lookup took 6-10 s of silence
+# while a second model call ran. These tools carry a short lead-in, said at once (it streams as
+# the call is written), then the answer follows from the result.
+LEAD_IN_TOOLS = frozenset({'inspect_view', 'inspect_visual_memory', 'recall_conversations'})
+LEAD_IN = {'type': ['string', 'null'], 'description': 'A few words said aloud right away while you look or check '
+           '("Let me look.", "Hang on, checking my memory."), never the answer itself; null for none.'}
+for _definition in TOOLS:
+    if _definition['name'] in LEAD_IN_TOOLS:
+        _definition['parameters']['properties'] = {'say_first': dict(LEAD_IN), **_definition['parameters']['properties']}
+        _definition['parameters']['required'] = list(_definition['parameters']['properties'])
 for _definition in TOOLS:
     if _definition['name'] in INVITATION_TOOLS:
         _definition['parameters']['properties']['invitation_update'] = invitation_schema()
@@ -416,7 +426,7 @@ def validate(name, args):
     if definition is None or not isinstance(args, dict):
         raise ValueError("UnknownTool")
     properties = definition["parameters"]["properties"]
-    if args.keys() - properties.keys() or properties.keys() - args.keys() - {'intent_update','next_opportunity','description_scope','invitation_update'}:
+    if args.keys() - properties.keys() or properties.keys() - args.keys() - {'intent_update','next_opportunity','description_scope','invitation_update','say_first'}:
         raise ValueError("ToolFieldsMismatch")
     for key, spec in properties.items():
         if key == 'invitation_update':
@@ -428,7 +438,7 @@ def validate(name, args):
         if key == 'intent_update':
             validate_update(args.get(key))
             continue
-        value = args.get(key) if key=='description_scope' else args[key]
+        value = args.get(key) if key in {'description_scope','say_first'} else args[key]
         if value is None and isinstance(spec["type"], list) and "null" in spec["type"]:
             continue
         if name=='recall_conversations' and key in {'after','before'} and type(value) in (int,float):

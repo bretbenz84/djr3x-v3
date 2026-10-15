@@ -218,3 +218,48 @@ median moves from about 4.6 s toward 3.7-4 s for tool replies. Live reply timing
 All six steps are implemented in software. None of it has run on the robot: the owner chose to
 test the whole plan himself. `tools/baseline_report.py --since 2026-10-15` compares his next runs
 with the October 5-13 baseline above.
+
+## First live run and repairs (October 14, evening)
+
+Session `e1f8b2c6` (11 minutes, real hardware, the owner with Max and Toby). Owner: mostly a
+successful run, not funny enough; Max was recognized; when he moved chairs Rex reoriented to him.
+From the log, against the baseline: median reply wait 4.89 s (4.99 before), single-call replies
+3.4–5 s, replies needing a second model call (a look, a lookup, a photo save) 6–10 s, one 15 s
+provider stall; 19 new face tracks a minute; three planned lines dropped once stale, 16 waits
+for their moment, no stacked or repeated questions; voice recognized the owner on 8 of 44 turns
+and the face in 56% of frames with a face, yet he stayed present throughout; estimated model cost
+about $2 an hour (planner about $1.15, joke writer about $0.30; Terra priced at list input rate).
+
+Repaired the same evening (synthetic checks and paid probes; **not yet run on the robot**):
+
+1. **Arriving in silence.** A silent approach stays allowed (owner), but when his own approach
+   ends beside someone and nothing was said, a follow-up line is spoken on arrival.
+2. **"Back up five feet" cancelled halfway.** Backing up brought another face into view and the
+   private-memory guard cancelled the whole turn, wheels included. The guard now waits while a
+   move runs and applies again before anything is said after it.
+3. **A greeting prepared for someone already talked with** (74 s in). Someone recognized in view
+   when Rex spoke, or heard by voice, is not "arriving" even in the first minute of their visit.
+4. **The clock.** The picture of the present now carries the local time in words ("Wednesday
+   evening, 6:24 PM, October 14") and his earlier heard lines as things already said; he owned
+   one clock slip four times. The persona keeps a concession to a few words, then a comeback, and
+   never revisits an owned mistake; the planner may not plan beats about his own slips. The
+   picture is written to the session log (`right_now`) so runs can be read the way he saw them.
+5. **Humor.** The writer's material was used none of the eleven times: it reacted to the line
+   just said, which is stale by the reply that sees it. The writer now aims at what will still be
+   true next turn (the ongoing plan, what they hold or have around them, the hour, known
+   interests), writes roasts rather than observations, and never builds on Rex's own mistakes;
+   the reply model is told to prefer a fitting piece over a safer line; an admission ("I haven't
+   actually measured anything") is a gift to answer, not an acknowledgment. Paid probe
+   (`check_humor.py`, one run): 11 of 12 lines teased against 6 of 12 with the pre-step-4 persona,
+   judged funnier (2.2 and 3.2 against 2.0 and 2.3 of 5), still no jokes in the grief scenario.
+   Whether material is used cannot be measured from wording; the probe found no verbatim use.
+6. **Silence while looking or checking.** `inspect_view`, `inspect_visual_memory` and
+   `recall_conversations` take an optional `say_first` lead-in ("Let me look."), streamed and
+   spoken at once; the answer that follows is told not to repeat it.
+7. **Cost.** The planner is asked for 4–6 beats instead of 2–5 (a beat whose moment never comes is
+   let go). Paid probe: two planner calls for the conversation that took three, 6 of 7 beats
+   spoken, none recited. With the false arrival gone, live runs should replan about half as often.
+
+1185 blocked-I/O checks pass, including new checks for the arrival line, the uncancelled
+back-up (both fail without the repair), the engaged-person rule, the clock and earlier lines,
+the lead-in, and the writer's summary.
