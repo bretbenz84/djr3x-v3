@@ -36,6 +36,15 @@ requiring a special follow-up registration or inventing a past event. Dated
 follow-ups keep their existing dedicated delivery tracking. Completed exchanges
 provide cross-session repetition evidence, not an automatic topic prohibition.
 
+`earlier_greetings` (October 14) lists the last three heard arrival greetings to the person,
+across runs, with how long ago in words. Two restarts that evening both opened with "Hey,
+Brett! Good to see you. How's your night going?"; the prompt had prescribed name plus
+how-are-you, and the startup path lacked the visible-detail guidance. V2 kept "oh hey,
+you're back!" alive by reading a persisted last-greeted time after a reboot; here code
+supplies the same fact and the model chooses the words: a return is greeted as one, and
+an earlier greeting's wording is not reused. Synthetic checks only; variety is **not yet
+observed live**.
+
 The model can call:
 
 - `recall_conversations`: topic words plus an optional named period

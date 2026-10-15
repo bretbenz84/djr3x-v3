@@ -87,6 +87,21 @@ class ConversationMemoryTests(MemoryFixture):
         self.assertEqual(brain.snapshots[0].context['personal_memory']['interests_and_facts'][0]['value'],'astronomy')
         self.assertEqual(self.store.rows('SELECT * FROM memory_followups'),[])
 
+    def test_restart_greeting_sees_the_last_runs_heard_greeting(self):
+        self.setup_memory()
+        first=self.session('first',Brain('Hey Alex, good to see you.'))
+        self.assertEqual(first.process_opportunity(replace(event(self.person),session_id='first'),0,lambda:True).status,'completed')
+        self.clock += 20*60
+        brain=Brain('Back already?')
+        again=self.session('again',brain).process_opportunity(replace(event(self.person),session_id='again'),0,lambda:True)
+        self.assertEqual(again.status,'completed')
+        earlier=brain.snapshots[0].context['personal_memory']['earlier_greetings']
+        self.assertEqual([(g['said'],g['ago']) for g in earlier],[('Hey Alex, good to see you.','about 20 minutes ago')])
+        # An unheard greeting is not something he said.
+        self.assertEqual([g['said'] for g in cm.greetings(self.store,self.person,self.clock)],['Back already?','Hey Alex, good to see you.'])
+        self.assertEqual([cm.gap(s) for s in (60,3600,5*3600,3*86400)],
+                         ['a minute or two ago','about an hour ago','about 5 hours ago','about 3 days ago'])
+
     def test_unknown_or_changed_group_cannot_read_private_exchanges(self):
         self.setup_memory();self.turn(self.session('old'),'A private unfinished project.')
         base=self.state.context()

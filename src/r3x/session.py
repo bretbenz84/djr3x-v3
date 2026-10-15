@@ -735,14 +735,17 @@ class Session:
                 if opportunity.kind=='pet_arrival': evidence['pet']=context['pet_arrival']
                 if not planning_only: self.history.append({'role':'developer','content':
                     ('Startup greeting: a stable person is visible and no human has spoken in this run. '
-                     'Say a brief hello now; choose natural wording and optionally invite an unknown person to share their name. '
+                     'Say a brief hello now in your own words, by name when you know them, or optionally invite an unknown '
+                     'person to share their name. A restart is not a first meeting: personal_memory.earlier_greetings says '
+                     'when you last greeted them and what you said; greet a return like a return and never reuse that wording. '
                      if context.get('visual_arrival',{}).get('startup_greeting') else
                     'Proactive opportunity; nobody spoke and no face is visible, but the base radar reports a moving body '
                     'outside the camera view (see drive.targets). Nobody has been identified. You may turn to look with '
                     'drive_base (face or find_person), optionally saying something, or use remain_silent. '
                      if opportunity.kind=='unseen_presence' else
                     'Someone just came into view (see arrival). Greet them now, briefly and warmly, in your own words: '
-                    'by name with a "how are you" when you know them, or a hello and a name question when you do not. '
+                    'by name in a way that fits this visit when you know them (personal_memory.earlier_greetings: greet '
+                    'a return like a return and never reuse that wording), or a hello and a name question when you do not. '
                     'This is a greeting, not a reply to the earlier conversation. '
                      if opportunity.kind=='visual_arrival' else
                     'An animal just came into view (see pet). React the way a friend would when the dog walks in. '
@@ -879,7 +882,7 @@ class Session:
                 context.update(photo_context(self.state))
             memory_subject = context.get('personal_memory',{}).get('person_id')
             memory_accessed = [any(context.get('personal_memory',{}).get(key) for key in
-                                   ('recent_exchanges','interests_and_facts','episodes','current_session_exchanges'))]
+                                   ('recent_exchanges','earlier_greetings','interests_and_facts','episodes','current_session_exchanges'))]
             self._audience_bound_output = bool(memory_subject and memory_accessed[0])
             self._memory_subject = memory_subject
             if memory_subject and latest_faces:

@@ -21,6 +21,13 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Greeting variety — October 14
+
+Every launch greeted the owner with the same formula. The model now sees its last heard
+arrival greetings across runs (`personal_memory.earlier_greetings`) and greets a return
+like a return, as V2's "you're back" did; the startup path shares the arrival guidance.
+1215 blocked-I/O checks pass (synthetic only); **not yet run live**. Details: [conversation memory](CONVERSATION_MEMORY.md).
+
 ## Dashboard — October 14
 
 `live --gui` opens V2's PySide6 dashboard, adapted to V3. It observes the trace and the

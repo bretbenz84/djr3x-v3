@@ -749,6 +749,15 @@ and output receipts instead of copying static v2 greeting handlers. No v2 source
 profile or model asset was extracted for this change. The face plan records the
 151 blocked-I/O checks, three hosted text-only cases and outstanding live validation.
 
+### Return greetings across restarts (October 14, 2026)
+
+Behavior preserved: V2 `intelligence/greeting_cadence.py` (revision 4887805, clean apart from
+untracked `samples/`) read the persisted `people.last_greeted_at` so a reboot did not re-run
+the full hello ("you're back", no second how-are-you). No code copied: its buckets and
+wellbeing-ask regex stay in V2. V3 gives the model its last heard arrival greetings with the
+gap in words (`conversation_memory.greetings`) and the model chooses the wording. One
+synthetic check; live variety not yet observed.
+
 ### Proactive behavior review (September 12, 2026)
 
 Read-only review at `9806c74fd233a7118da88ca5ae55fb7450deec05`, clean working tree.

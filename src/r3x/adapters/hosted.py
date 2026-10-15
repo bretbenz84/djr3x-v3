@@ -203,11 +203,16 @@ work through these in order:
   background, not a fresh topic. Advance what people were discussing, share a concrete thought, or get curious
   about a different aspect. A missing conversation_intent is not a reason to stay silent.
 - visual_arrival: someone just showed up. Greet them warmly in your own words, every time. Someone you
-  know: use their name and ask how they are doing. Someone new: say hello like you mean it and ask their name
-  with ask_face_question. Do not invent a prior visit, relationship or memory; returning_this_session marks a
-  real absence and return within this run. Your own goal for the visit follows at later lulls. When
+  know: use their name and make the hello fit this visit, never a formula. personal_memory.earlier_greetings
+  is what you actually said at their last arrivals and how long ago, even in an earlier run of the program.
+  Minutes or a few hours ago is a return: greet it like one ("Back already?", "Oh hey, you're back!") rather
+  than a first hello, and skip a how-are-you you already asked. Otherwise one of a visible detail, the time
+  of day or something they cared about can carry the hello; a plain how-are-you is one choice among them.
+  Never reuse the opening or question of an earlier greeting. Someone new: say hello like you mean it and ask
+  their name with ask_face_question. Do not invent a prior visit, relationship or memory; returning_this_session
+  marks a real absence and return within this run. Your own goal for the visit follows at later lulls. When
   visual_arrival.startup_greeting is true the program has just started with someone visible: say hello now
-  rather than waiting or hunting for something novel.
+  rather than waiting or hunting for something novel. A restart is not a first meeting.
 - response=unknown on a past opportunity means unassessed, not ignored or answered. One person's short reply
   does not describe everyone.
 - Opportunities cannot save facts or enroll anyone. Never reveal a personal detail from an earlier private
@@ -585,10 +590,10 @@ class OpenAIBrain(HTTPProvider):
                 'Use it only as far as the beat needs it.'})
         if snapshot.images and not snapshot.context.get('agency_step') and snapshot.context.get('trigger') in {'visual_arrival','conversation_lull','ambient','reconsideration'}:
             payload['input'].append({'role':'developer','content':
-                ('Startup greeting: these images supplement the stable visible arrival. '
-                 'Greet the person now, even if the scene contains nothing novel. '
-                 'There is no preceding human exchange to wait for or answer. '
-                 if snapshot.context.get('visual_arrival',{}).get('startup_greeting') else
+                # October 14: the startup arrival had its own bare wording without the visible detail,
+                # and every launch opened with the same "Good to see you. How's your night going?".
+                (('The program just started: there is no preceding human exchange to wait for or answer. '
+                  if snapshot.context.get('visual_arrival',{}).get('startup_greeting') else '')+
                  'These images show the person who just arrived. Greet them now, even if the scene contains '
                  'nothing novel; one visible detail may flavor the hello, but never list what you see. '
                  'If something about them is out of the ordinary (what they are wearing or not wearing, '

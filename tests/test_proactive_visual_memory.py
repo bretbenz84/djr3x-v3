@@ -204,7 +204,8 @@ class ProactiveVisualMemoryTests(MemoryFixture):
         self.assertEqual(len(brain.client.calls),1)
         payload=brain.client.calls[0][1]['json']
         self.assertEqual({t['name'] for t in payload['tool_choice']['tools']},{'ask_face_question','respond_with_intent'})
-        self.assertIn('Greet the person now',payload['input'][-1]['content'])
+        self.assertIn('The program just started',payload['input'][-1]['content'])
+        self.assertIn('Greet them now',payload['input'][-1]['content'])
         self.assertFalse(self.store.rows('SELECT * FROM visual_observations'))
         self.assertFalse(self.store.rows('SELECT * FROM turns'))
 

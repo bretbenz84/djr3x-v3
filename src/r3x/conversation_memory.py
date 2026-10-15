@@ -221,11 +221,36 @@ def recall(store, who, session, *, query='', after=None, before=None, period=Non
     return result
 
 
+def gap(seconds):
+    """How long ago, in words, at the scale of visits rather than moments."""
+    minutes = max(seconds, 0) / 60
+    if minutes < 3: return 'a minute or two ago'
+    if minutes < 55: return f'about {5*round(minutes/5) or 5} minutes ago'
+    if minutes < 90: return 'about an hour ago'
+    if minutes < 36*60: return f'about {round(minutes/60)} hours ago'
+    return f'about {round(minutes/1440)} days ago'
+
+
+def greetings(store, who, now, limit=3):
+    """Rex's last heard arrival greetings to this person, across runs, newest first.
+
+    October 14: restarted twice in one evening, Rex opened both runs with "Hey, Brett! Good
+    to see you. How's your night going?". V2 kept "oh hey, you're back!" alive by reading the
+    persisted last greeting after a reboot; here the model reads the same fact and chooses
+    the words."""
+    rows = store.rows("""SELECT heard_text, created_at FROM conversation_exchanges
+        WHERE person_id=? AND origin='visual_arrival' AND heard_text<>''
+        ORDER BY created_at DESC LIMIT ?""", (who, limit))
+    return [{'said': row['heard_text'][:300], 'ago': gap(now - row['created_at']),
+             'local_time': local_time(row['created_at'], now)} for row in rows]
+
+
 def context(store, original, session, now):
     who = subject(original)
     result = {'person_id':who, 'now':stamp(now), 'local_now':datetime.fromtimestamp(now).astimezone().isoformat(), 'recent_exchanges':[], 'interests_and_facts':[], 'episodes':[]}
     if not who: return result
     result['recent_exchanges'] = recall(store,who,session,limit=4,now=now)['exchanges']
+    result['earlier_greetings'] = greetings(store, who, now)
     result['interests_and_facts'] = store.claims(who)[:6]
     result['current_session_exchanges'] = store.rows('SELECT id,human_text,heard_text FROM conversation_exchanges WHERE person_id=? AND session_id=? ORDER BY created_at DESC LIMIT 3',(who,session))
     result['episodes'] = store.rows('''SELECT e.id,e.summary,e.source_exchange,x.human_text,x.heard_text
