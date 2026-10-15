@@ -174,10 +174,63 @@ class Session:
                 self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='joke_material',
                                 model=getattr(getattr(self.joke_room.writer, 'capability', None), 'model', None))
 
-    def _right_now(self):
+    def _looking(self, faces, names):
+        """Where Rex's head points, why, and what sits in the middle of his view and where the people
+        are in it. October 14 (1662b007): his own plan tipped his head up; asked "what are you looking
+        at?" he took a new look and recited the view, though the owner was at the edge of his sight.
+        The wide lens means a turned head still sees people: they are at the side of his view."""
+        robot = getattr(self.output, 'robot', None)
+        if robot is None or not hasattr(robot.owner, 'neck_degrees'):
+            return None
+        from .servo_poses import HEAD_PAIR, degrees_from_pitch, head_pose
+        from .present import ago
+        owner, now = robot.owner, self.trace.clock()
+        side = owner.neck_degrees()
+        commanded = owner.commanded
+        pitch = degrees_from_pitch(head_pose(commanded)[0]) if set(HEAD_PAIR) <= set(commanded) else 0.
+        across = ('straight ahead' if abs(side) < 8 else
+                  f"{'a little ' if abs(side) < 25 else ''}to his {'left' if side > 0 else 'right'}")
+        vertical = 'up' if pitch > 8 else 'down' if pitch < -8 else ''
+        toward = ' and '.join(part for part in (vertical, across if across != 'straight ahead' or not vertical else '') if part)
+        kind, since = getattr(robot.idle, 'activity', ('following_people', float('-inf')))
+        look = self.state.present.last_look
+        chosen = look and now - look['at'] <= 45 and kind in {'holding_chosen_direction'}
+        def where(x):
+            return ('at the left edge of his view' if x < .15 else 'on the left of his view' if x < .38 else
+                    'in the middle of his view' if x < .62 else 'on the right of his view' if x < .85 else
+                    'at the right edge of his view')
+        boxed = sorted((f for f in faces if f.get('box')), key=lambda f: abs(f['box'][0] + f['box'][2] / 2 - .5))
+        people = [f"{names.get(f.get('identity')) or 'someone'} {where(f['box'][0] + f['box'][2] / 2)}" for f in boxed]
+        nearest = (names.get(boxed[0].get('identity')) or 'the person he is with') if boxed else 'the person he is with'
+        why = (look['why'] if chosen and look['why'] else
+               'a look he chose' if kind == 'holding_chosen_direction' else
+               'nothing in particular: his eyes wandered off them for a moment' if kind == 'glancing_away' else
+               'just looking around the room; nobody is in view' if kind == 'looking_around_the_room' else
+               f'looking at {nearest}')
+        middle = []
+        objects = getattr(self.state, 'objects', None)
+        for row in (objects.snapshot(min_samples=1) if objects else ()):
+            pos = row.get('image_position') or {}
+            if abs(pos.get('center_x', 0) - .5) < .2 and abs(pos.get('center_y', 0) - .5) < .3:
+                middle.append(row['label'])
+        looking = {'toward': toward or 'straight ahead', 'since': ago(now - since) if since > float('-inf') else None,
+                   'why': why, 'people_in_his_view': people or None,
+                   'in_the_middle_of_his_view': sorted(set(middle)) or None,
+                   'meaning': 'For your own awareness: with wide eyes, people stay in sight when your head turns. '
+                              'Do not tell them where they sit in your sight unless they ask.'}
+        if kind != 'following_people' and not chosen:
+            looking['if_asked'] = ('Answer the way a person would, lightly: what caught your eye ("Oh, that clock '
+                                   'caught my eye") or "just stretching my neck". Never internal words such as idle '
+                                   'glance, view, edge or middle, and never claim a reason you were given none of.')
+        return looking
+
+    def _right_now(self, faces=()):
         """Rex's sense of the moment, from the picture of the present (October 14, step 1)."""
         names = {p['id']: p['name'] for p in self.state.store.people()}
         rex = {}
+        looking = self._looking(faces, names)
+        if looking:
+            rex['looking'] = looking
         drive = getattr(self.output, 'drive', None)
         if drive is not None and getattr(drive, 'moving', None) is not None:
             rex['driving_now'] = drive.moving.is_set()
@@ -697,6 +750,9 @@ class Session:
                     'target, the saved pets) to see which one it is; then greet it by name and ask the person '
                     'something about it ("Oh look, it\'s Max! How\'s he behaving tonight?"). Not a saved pet: remark on '
                     'it warmly. The detector\'s cat/dog label is unreliable; never name the species from it alone. '
+                    'Name a saved pet only when the look clearly matches; when it shows only part of the animal, the '
+                    'animal is at the edge of your view, or two saved pets could fit, ask which one it is instead '
+                    '("Is that Max or Toby down there?"). October 14: a cut-off look at Toby was greeted as Max. '
                      if opportunity.kind=='pet_arrival' else
                     'Proactive opportunity; nobody spoke. The previous exchange was already processed. '
                     'There is no new human reply; do not answer the earlier utterance again. '
@@ -798,7 +854,8 @@ class Session:
                 context['action_continuity'] = self.state.actions.context(visual_memory.audience(context))
             refresh_current_view(context)
             if self.state:
-                context['right_now'] = self._right_now()
+                context['right_now'] = self._right_now(
+                    context.get('current_view', {}).get('faces', context.get('faces', [])))
                 # Kept in the session log so a run can be read back the way Rex saw it.
                 self.trace.emit('right_now', turn_id=turn_id, picture=context['right_now'])
             if self.state:
@@ -1551,6 +1608,12 @@ class Session:
                             self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps({'pose':step,**asdict(receipt)})})
                             moved, last_at = receipt.status == 'pulses_reached', receipt.at
                             changed_channels.update(receipt.changed_channels)
+                            if moved and isinstance(step, str) and step.startswith(('look_', 'tilt_')):
+                                # Why his head is where it is, for when someone asks.
+                                self.state.present.rex_looked(step.replace('_', ' '),
+                                    (agency_step or {}).get('instruction') or
+                                    ('asked to: ' + transcript.text if transcript is not None else None),
+                                    self.trace.clock())
                         cancel.check()
                         if not moved:
                             break
@@ -1651,6 +1714,8 @@ class Session:
                         if self.state.store.revision != result.revision:
                             raise ProviderFailure('StaleStateRevision')
                         self.state.attention.complete(attention_intent, receipt)
+                        self.state.present.rex_looked(call.arguments.get('target'),
+                            call.arguments.get('reason') or call.arguments.get('purpose'), self.trace.clock())
                     from dataclasses import asdict
                     self.state.actions.observed(asdict(receipt))
                     self.trace.emit('attention_result', turn_id=turn_id, **asdict(receipt),

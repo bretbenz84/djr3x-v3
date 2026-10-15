@@ -263,3 +263,40 @@ Repaired the same evening (synthetic checks and paid probes; **not yet run on th
 1185 blocked-I/O checks pass, including new checks for the arrival line, the uncancelled
 back-up (both fail without the repair), the engaged-person rule, the clock and earlier lines,
 the lead-in, and the writer's summary.
+
+## Second live run: what he was looking at, and the dog (October 14, evening)
+
+Session `1662b007` (5 minutes). Owner: he got the dog wrong; he looked up and to the right, and asked
+what he was looking at he read a description "of what was in the frame"; he called the owner "a man
+sitting by the couch" though face recognition knew him. From the log: a planned silent look beat
+tipped his head up ("look upward while letting the astronomy detour go"); asked, the reply model had
+no sense of where its head pointed or why, took a fresh whole-view photo look (14.3 s to first audio)
+and recited it, ending "I don't see a pet in this frame". The owner sat at the left edge of the wide view
+throughout. The pet arrival's look used a cut-off crop of Toby at the bottom edge of the view and
+greeted him as Max; after "No, this is Toby" the view was not saved to Toby.
+
+Repaired (synthetic checks and a paid probe; **not yet run on the robot**):
+
+- **Where he is looking, and why.** The picture of the present now carries `rex.looking`: which way the
+  head points (from the commanded neck and head pulses), since when, why (the reason of the look he
+  chose, recorded when a look or a look pose completes, or what the idle head is doing: following a
+  face, an idle glance, looking around an empty room), who is where in his view, and what the object
+  detector sees in the middle of it. After an idle glance he is told to answer as a person would (what
+  caught his eye, or stretching his neck), never with internal words. The idle head motion now reports
+  its activity.
+- **His eyes, not a camera.** The persona says the camera is his eyes: "I see", never frame, image,
+  picture, shot or camera; asked what he is looking at, he answers from `rex.looking` without a new look
+  or an inventory, and does not narrate where people sit in his sight unless asked.
+- **Recognized faces are people.** A person he sees whose face is recognized is that person: "you" for
+  the one he is talking with, names for others, never "a man". Naming from appearance alone stays
+  forbidden.
+- **Pets.** A saved pet is named only when the look clearly matches; a cut-off or edge view, or two pets
+  that could fit, gets a question ("Is that Max or Toby?"). A correction is teaching: the view is saved
+  to the right pet.
+
+Evidence: 1189 blocked-I/O checks pass (new: gaze awareness for an idle glance and a chosen look, the
+persona's vision and recognized-face wording). Paid probe `tools/check_looking.py` (fictional Sam,
+stand-in head, real reply model), answers to "What are you looking at?": idle glance: "Oh, that clock
+caught my eye. It's been keeping better time than my flight record ever did."; following Sam: "I'm
+looking straight ahead at you, Sam"; chosen look: "The clock, mostly" (the planner's reason was not
+speakable). No camera words in any answer. Dog recognition from saved photos remains weak.

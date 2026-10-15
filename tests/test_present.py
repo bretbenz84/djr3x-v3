@@ -139,3 +139,45 @@ class PresentRepairs(unittest.TestCase):
         earlier = picture['conversation']['his_earlier_lines']
         self.assertEqual([l['text'] for l in earlier['lines']], ['I misspoke about the clock.', 'That clock correction was fair.'])
         self.assertIn('never bring back a mistake', earlier['meaning'])
+
+
+class LookingAwareness(memory_tests.MemoryFixture):
+    """October 14 (1662b007): his own beat tipped his head up; asked "what are you looking at?" he
+    took a new look and recited the view, though the owner sat at the edge of his sight."""
+    def session_with_head(self, activity, neck=-30., objects=()):
+        from r3x.servo_poses import DRIVE_HEAD, NECK_CENTER
+        session = Session('s', Executor(), OutputOwner(SyntheticTTS(), timing_tests.ClockSink(self.state.trace),
+                          self.state.trace), self.state.trace, self.state)
+        owner = SimpleNamespace(state='probe-head', neck_degrees=lambda: neck,
+                                commanded={0: NECK_CENTER, **dict(DRIVE_HEAD)})
+        session.output.robot = SimpleNamespace(owner=owner, idle=SimpleNamespace(activity=(activity, self.state.trace.at - 4)))
+        self.state.objects = SimpleNamespace(snapshot=lambda min_samples=2: tuple(objects))
+        return session
+
+    def test_an_idle_glance_knows_who_is_at_the_edge_and_what_is_in_the_middle(self):
+        bret = self.enroll('Bret')
+        clock = {'label': 'clock', 'image_position': {'center_x': .55, 'center_y': .4}}
+        session = self.session_with_head('glancing_away', objects=[clock])
+        looking = session._right_now([{'identity': bret, 'box': [.05, .6, .06, .1]}])['rex']['looking']
+        self.assertEqual(looking['toward'], 'to his right')
+        self.assertIn('eyes wandered', looking['why'])
+        self.assertEqual(looking['people_in_his_view'], ['Bret at the left edge of his view'])
+        self.assertEqual(looking['in_the_middle_of_his_view'], ['clock'])
+        self.assertIn('stretching my neck', looking['if_asked'])
+
+    def test_a_look_he_chose_carries_its_reason(self):
+        session = self.session_with_head('holding_chosen_direction', neck=0.)
+        self.state.present.rex_looked('up', 'Briefly look upward while letting the astronomy detour go.', self.state.trace.at)
+        looking = session._right_now(())['rex']['looking']
+        self.assertEqual(looking['why'], 'Briefly look upward while letting the astronomy detour go.')
+        self.assertNotIn('if_asked', looking)
+
+    def test_he_speaks_of_his_eyes_not_a_camera_frame(self):
+        from r3x.adapters.hosted import PERSONA
+        self.assertIn('The camera is your eyes', PERSONA)
+        self.assertIn('Never say frame, image, picture', PERSONA)
+
+    def test_a_recognized_face_he_sees_is_named_not_a_stranger(self):
+        from r3x.adapters.hosted import PERSONA
+        self.assertIn('a person you see whose face is\n  recognized', PERSONA)
+        self.assertIn('never "a man" or "someone"', PERSONA)

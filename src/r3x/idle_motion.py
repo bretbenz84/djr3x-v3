@@ -83,6 +83,9 @@ class IdleMotion:
         self._cock_at = float('-inf')      # ...and next begun then.
         self._wake_until = float('-inf')   # After a drive: alive even while he listens or works.
         self._wake_at = float('-inf')
+        # What the head is doing and since when, for Rex's own sense of where he is looking
+        # (October 14, 1662b007: asked "what are you looking at?" he could only describe the view).
+        self.activity = ('following_people', float('-inf'))
         self._counts = {}          # Phrase outcomes since the last summary row.
         self._report_at = float('-inf')
         self.closed = False
@@ -93,6 +96,10 @@ class IdleMotion:
         if self.gaze == 'direction' and now >= self._anchor_until:
             self.look_at_people()
         return self.gaze
+
+    def _doing(self, kind, now):
+        if self.activity[0] != kind:
+            self.activity = (kind, now)
 
     def look_at_people(self):
         self.gaze, self._anchor = 'people', None
@@ -143,6 +150,7 @@ class IdleMotion:
             return look(anchor[0] + rng.randint(-neck, neck), anchor.get(1, level[1]) + rng.randint(-lift, lift),
                         anchor_pitch + rng.uniform(-pitch_by, pitch_by), anchor_tilt + rng.uniform(-tilt_by, tilt_by))
         if self.mode(now) == 'direction':
+            self._doing('holding_chosen_direction', now)
             return near(self._anchor), rng.randint(10, 14), 0.
         aim = None
         if self.face:
@@ -162,9 +170,11 @@ class IdleMotion:
                 # little down, never up, with a slight cock of the head, then back.
                 self._glance_until = now + rng.uniform(1.4, 2.8)
                 self._glance_at = self._glance_until + rng.uniform(7., 16.)
+                self._doing('glancing_away', now)
                 neck = aim['neck'] + rng.choice((-1, 1)) * rng.uniform(12., 24.) * NECK_PER_DEG
                 glance_pitch = pitch_from_degrees(degrees_from_pitch(pitch) - rng.uniform(0., 5.))
                 return look(neck, current[1], glance_pitch, tilt + rng.choice((-1, 1)) * rng.uniform(.1, .25)), rng.randint(12, 18), 0.
+            self._doing('following_people', now)
             error = aim['neck'] - current[0]
             neck = current[0] + (FACE_GAIN * error if abs(error) > NECK_DEAD_DEG * NECK_PER_DEG else rng.randint(-160, 160))
             off = aim['y'] - FACE_Y
@@ -192,6 +202,7 @@ class IdleMotion:
         if now >= self._scan_at and not calm:
             self._scan_at = now + rng.uniform(6., 13.)
             self.owner.gaze_pitch = None
+            self._doing('looking_around_the_room', now)
             vertical = rng.uniform(-.3, 1.)           # Negative looks up, positive down.
             neck = NECK_CENTER + rng.uniform(-LOOK_NECK_DEG, LOOK_NECK_DEG) * NECK_PER_DEG
             return (look(neck, level[1] - vertical * 200, -vertical * .65, rng.uniform(-.3, .3)),

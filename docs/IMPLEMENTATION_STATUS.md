@@ -21,6 +21,15 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Second live run — October 14 (evening)
+
+Session `1662b007`: Toby greeted as Max from a cut-off look; asked what he was looking at after his own
+planned look up, he recited a fresh view ("a man sitting by the couch ... in this frame") though face
+recognition knew the owner. Repaired, synthetic and paid-probe evidence only: the picture of the present
+now says where his head points, why, who is where in his wide view and what is in the middle of it; the
+persona treats the camera as his eyes and recognized faces as people; uncertain pet looks ask, and
+corrections are saved. Details: [improvement plan](IMPROVEMENT_PLAN.md#second-live-run-what-he-was-looking-at-and-the-dog-october-14-evening).
+
 ## First live run of the improvement plan — October 14 (evening)
 
 Session `e1f8b2c6`, 11 minutes on the robot: mostly successful by the owner's account (Max

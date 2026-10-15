@@ -156,6 +156,7 @@ class Present:
         self.last_rex = None     # {'text', 'at', 'question', 'own_initiative'}
         self.recent_rex = deque(maxlen=RECENT_LINES)   # His last heard lines, oldest first.
         self.engaged = {}        # person_id -> last time Rex spoke with them in view or heard them
+        self.last_look = None    # {'where', 'why', 'at'}: the last look Rex chose, and why.
         self.unanswered = 0      # Rex's own heard lines since a human last spoke.
 
     # People ------------------------------------------------------------------
@@ -283,6 +284,11 @@ class Present:
             for person, seen in self.recognized.items():
                 if at - seen <= ENGAGED_SECONDS:
                     self.engaged[person] = max(self.engaged.get(person, at), at)
+
+    def rex_looked(self, where, why, at):
+        """Rex chose to look somewhere (his own beat or a request), and why."""
+        with self.lock:
+            self.last_look = {'where': where, 'why': (why or '').strip()[:200], 'at': at}
 
     def beat_heard(self):
         with self.lock:
