@@ -31,6 +31,12 @@ implemented. Update status and evidence when implementation actually lands.
   answer starts a hypothesis; repeated compatible audio supports enrollment.
 - Mouth motion is excluded from ALL speaker-attribution and enrollment paths,
   including vetoes, fallbacks, derived confidence, and learning permission.
+- Presence may complete a near-threshold voice (owner ruling, October 14). Only the
+  state owner does it, and only with one recognized face in view, nobody else around
+  for ten minutes, no other voice this visit, no in-clip disagreement, and that person
+  as the voice's clear best match above a floor. The result is the separate state
+  `inferred`. It never feeds voice or face learning, enrollment or identity
+  administration, and a visible face alone never names a speaker.
 - Personal facts retain source turns, speaker attribution, subject, and status.
   An uncertain speaker does not silently become the mentioned person.
 - Ordinary replies retain one primary model generation. Do not add a mandatory

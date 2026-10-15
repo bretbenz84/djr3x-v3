@@ -216,7 +216,8 @@ models on its own.
     actually happened.
 - **Evidence, not guesses.** No regex turns speech into names, facts or answers. The
   model cannot promote weak acoustic evidence to identity. Mouth motion is never used
-  for attribution.
+  for attribution. A close voice while one recognized person is alone in view is
+  `inferred` as them, never used for learning.
 - **Honest receipts.** Rex never claims a save, a move, an arrival or speech before its
   executor reports success.
 - **Small and replaceable.** No model or device loads at import. Every capability

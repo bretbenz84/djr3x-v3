@@ -14,7 +14,8 @@ turns the clock into what it means ("just now", "still waiting for an answer", "
 has passed") so every reply, beat and plan sees the moment the way a person would.
 
 Recognition here is evidence of presence only. Nothing in this module names a speaker,
-enrolls a voice or face, or interprets what anyone said.
+enrolls a voice or face, or interprets what anyone said; alone_with() is one input to the
+state owner's speaker deduction (state.CoreState.infer_speaker).
 """
 from collections import deque
 from datetime import datetime
@@ -204,6 +205,17 @@ class Present:
             others = any(p != person and now - t <= HERE_SECONDS for p, t in self.recognized.items())
             return (now - recognized <= STAYS_SECONDS and not others and
                     now - max(self.face_at, self.speech_at) <= HERE_SECONDS)
+
+    def alone_with(self, person, now):
+        """Only this person has been in evidence lately: recognized within HERE_SECONDS, and no
+        second face or other recognized person for COMPANY_SECONDS. Evidence for the state
+        owner's speaker deduction; this module still names nobody as a speaker."""
+        with self.lock:
+            if now - self.recognized.get(person, float('-inf')) > HERE_SECONDS:
+                return False
+            if now - self.company_at < COMPANY_SECONDS:
+                return False
+            return not any(p != person and now - t <= COMPANY_SECONDS for p, t in self.recognized.items())
 
     def arriving(self, person, now):
         """A known person counts as arriving only when their visit just began and Rex has not

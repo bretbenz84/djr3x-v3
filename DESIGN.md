@@ -44,6 +44,8 @@ several permanent alternatives.
    deterministic responsibilities.
 4. A name mention, visible face, likely speaker, and intended addressee are separate
    objects. Agreement can support an association; none is interchangeable with another.
+   The state owner may infer the speaker when a near-threshold voice and a sole recognized
+   face agree with no competing voice or company (state `inferred`, never learning).
 5. One owner changes each kind of state. Providers publish observations or results;
    they do not independently speak, enroll people, or write personal facts.
 6. Uncertainty permits ordinary conversation without granting learning permission.

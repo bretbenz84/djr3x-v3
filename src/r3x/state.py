@@ -19,6 +19,14 @@ VOICE_GROWTH_SCORE = .55      # The strong track-update level, above the .50 nam
 VOICE_GROWTH_MARGIN = .10     # Lead over the next saved voice.
 VOICE_GROWTH_PER_SESSION = 3
 VOICE_GROWTH_DUPLICATE = .97  # Closer than this to a saved clip adds nothing new.
+# Owner ruling, October 14: with one face in view, recognized, nobody else around and no other
+# voice this visit, a voice this close to that person's profile is that person speaking. Live
+# traces: Bret alone was attributed on 23 of 81 turns; misses scored a median .50.
+INFER_VOICE_FLOOR = .40
+# In-clip disagreement or another enrolled voice nearby is never settled by presence.
+INFER_BLOCKING_REASONS = frozenset({'missing_or_wrong_namespace', 'echo_mixed_or_conflicting',
+    'window_disagreement', 'short_or_untrusted', 'ambiguous_profiles', 'window_identity_conflict',
+    'window_track_conflict', 'track_profile_conflict', 'motion_low_confidence'})
 
 
 class CoreState:
@@ -366,6 +374,8 @@ class CoreState:
             self.conversation_source = turn_id
         self.faces = tuple(f for f in faces if f.get("face_epoch",0)>=self.min_face_epoch)
         faces = self.faces
+        attribution = self.infer_speaker(attribution, capture, transcript, observation, faces)
+        self.current = (turn_id,capture,transcript,observation,attribution)
         self.face_associations = {k:v for k,v in self.face_associations.items() if any(f["track_id"]==k for f in faces)}
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
         self.store.source(turn_id,capture,transcript,attribution,observation,track.person_id if track else None)
@@ -373,6 +383,34 @@ class CoreState:
         self.learn_observation()
         self.learn_faces()
         return attribution
+
+    def infer_speaker(self, attribution, capture, transcript, observation, faces):
+        """Layer presence over a near-threshold voice (owner, October 14). Mouth motion is not
+        evidence. The result is state "inferred" with inferred_person_id; person_id stays the
+        acoustic match, so voice and face learning, enrollment and identity administration,
+        which all key on person_id or learning_eligible, never see it."""
+        if attribution.person_id or attribution.reason in INFER_BLOCKING_REASONS:
+            return attribution
+        if (not transcript.trusted or capture.echo_risk or capture.truncated or capture.overlap is True
+                or observation.motion or observation.mixed or observation.direction_conflict):
+            return attribution
+        if len(faces) != 1 or (faces[0].get('face_width_px') or 48) < 48 or not faces[0].get('identity'):
+            return attribution
+        who = faces[0]['identity']
+        person = self.store.person(who)
+        ranked = attribution.candidates
+        if not person or person['status'] != 'supported' or not ranked or ranked[0][0] != who:
+            return attribution
+        if ranked[0][1] < INFER_VOICE_FLOOR or (len(ranked) > 1 and ranked[0][1]-ranked[1][1] < self.tracker.policy.margin):
+            return attribution
+        from .present import COMPANY_SECONDS
+        now = self.trace.clock()
+        if not self.present.alone_with(who, now):
+            return attribution
+        if self.tracker.other_voices(who, self.store.profiles(self.tracker.namespace), now - COMPANY_SECONDS):
+            return attribution
+        return replace(attribution, state='inferred', reason='alone_with_recognized_face',
+                       inferred_person_id=who, learning_eligible=False)
 
     def identity_targets(self, name):
         """Same acoustic authorization for offered actions and execution."""
@@ -390,13 +428,14 @@ class CoreState:
     def context(self, faces=()):
         turn_id,capture,transcript,observation,attribution = self.current
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
-        speaker_person = self.store.person(attribution.person_id) if attribution.person_id else None
+        speaker_person = self.store.person(attribution.speaker_id) if attribution.speaker_id else None
         from .face_attribution import public_face
         return self.note_audience({"source_turn_id":turn_id,"state_revision":self.store.revision,
                 "current_utterance":transcript.text,"calendar_date":self.calendar_today().isoformat(),
                 "participation":self.initiative.context(self.trace.clock()),
                 "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
-                "speaker":{**asdict(attribution),"display_name":speaker_person["name"] if speaker_person else None,
+                "speaker":{**asdict(attribution),"speaker_id":attribution.speaker_id,
+                           "display_name":speaker_person["name"] if speaker_person else None,
                            "direction":observation.direction},
                 "provisional_person_id":track.person_id if track else None,
                 "people":self.store.people(),"claims":self.store.claims(include_candidates=True),
@@ -840,11 +879,11 @@ class CoreState:
                     "reason":"explicit_initiative_request"},False
         if name == "remember_followup":
             self._source_allowed(args,name)
-            if attribution.state!='supported' or not attribution.person_id:
+            if attribution.state not in ('supported','inferred') or not attribution.speaker_id:
                 raise ValueError('FollowupNeedsSupportedSelfIdentity')
             from .memory_opportunities import validate_date
             validate_date(args['kind'],args['on_date'])
-            data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.person_id,
+            data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.speaker_id,
                 subject_reference=None,predicate=args['predicate'],value=args['value'],
                 kind='self_report',source_turn_id=turn_id))
             if data['status']!='accepted':raise ValueError('FollowupNeedsAcceptedClaim')
@@ -855,12 +894,12 @@ class CoreState:
             return self._room(conn,name,args),True
         if name == "remember_interest":
             self._source_allowed(args,name)
-            if attribution.state!='supported' or not attribution.person_id:
+            if attribution.state not in ('supported','inferred') or not attribution.speaker_id:
                 raise ValueError('InterestNeedsSupportedSelfIdentity')
             from .news import normalize_topic
             topic=normalize_topic(args['topic'])
             if not 2<=len(topic)<=80:raise ValueError('InvalidInterestTopic')
-            data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.person_id,
+            data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.speaker_id,
                 subject_reference=None,predicate=args['predicate'],value=args['value'],
                 kind='self_report',source_turn_id=turn_id))
             if data['status']!='accepted':raise ValueError('InterestNeedsAcceptedClaim')
@@ -1009,35 +1048,37 @@ class CoreState:
                     raise ValueError("ThirdPartySubjectNeedsUniqueExplicitReference")
             elif args["subject_reference"] is not None:
                 raise ValueError("SelfReportDoesNotTakeNameReference")
-            if args["kind"]=="self_report" and attribution.person_id is None:
+            speaker = attribution.speaker_id
+            if args["kind"]=="self_report" and speaker is None:
                 track = self.tracker.tracks.get(attribution.track_id)
                 if not track or track.person_id!=args["subject_id"]:
                     raise ValueError("UnresolvedSelfReportSubject")
-            if args["kind"] == "self_report" and attribution.person_id not in (None,args["subject_id"]):
+            if args["kind"] == "self_report" and speaker not in (None,args["subject_id"]):
                 raise ValueError("SelfReportSubjectMismatch")
-            supported = attribution.state == "supported" and attribution.person_id is not None
+            # The turn's stored evidence keeps whether this was acoustic or inferred.
+            supported = attribution.state in ("supported","inferred") and speaker is not None
             status = "accepted" if supported else "candidate"
             if conn.execute("SELECT 1 FROM claims WHERE subject_id=? AND predicate=? AND status='accepted' AND value<>?",
                             (args["subject_id"],args["predicate"],args["value"])).fetchone():
                 status = "candidate"  # A conflicting new claim never silently replaces the current one.
             claim_id = uuid4().hex
             conn.execute("INSERT INTO claims VALUES(?,?,?,?,?,?,?,?,?,?,?)",(claim_id,args["subject_id"],args["predicate"],args["value"],
-                         attribution.person_id,attribution.track_id,turn_id,args["kind"],status,None,self.store.revision+1))
-            return {"claim_id":claim_id,"status":status,"subject_id":args["subject_id"],"said_by":attribution.person_id,
+                         speaker,attribution.track_id,turn_id,args["kind"],status,None,self.store.revision+1))
+            return {"claim_id":claim_id,"status":status,"subject_id":args["subject_id"],"said_by":speaker,
                     "subject_name":self.store.person(args["subject_id"])["name"],"predicate":args["predicate"],"value":args["value"]},True
         if name in {"correct_claim","retract_claim"}:
             claim = conn.execute("SELECT * FROM claims WHERE id=?",(args["claim_id"],)).fetchone()
             if not claim or claim["status"] not in {"accepted","candidate"}:
                 raise ValueError("UnknownOrRetiredClaim")
-            if not attribution.person_id or attribution.person_id not in (claim["said_by"],claim["subject_id"]):
+            if not attribution.speaker_id or attribution.speaker_id not in (claim["said_by"],claim["subject_id"]):
                 raise ValueError("CorrectionNeedsSupportedSourceOrSubject")
             conn.execute("UPDATE claims SET status=? WHERE id=?",("superseded" if name=="correct_claim" else "retracted",claim["id"]))
             if name == "retract_claim":
                 return {"claim_id":claim["id"],"status":"retracted"},True
             claim_id = uuid4().hex
-            kind = "self_report" if attribution.person_id==claim["subject_id"] else "third_party"
+            kind = "self_report" if attribution.speaker_id==claim["subject_id"] else "third_party"
             conn.execute("INSERT INTO claims VALUES(?,?,?,?,?,?,?,?,?,?,?)",(claim_id,claim["subject_id"],claim["predicate"],args["value"],
-                         attribution.person_id,attribution.track_id,turn_id,kind,"accepted",claim["id"],self.store.revision+1))
+                         attribution.speaker_id,attribution.track_id,turn_id,kind,"accepted",claim["id"],self.store.revision+1))
             return {"claim_id":claim_id,"status":"accepted","supersedes":claim["id"],"subject_id":claim["subject_id"],
                     "subject_name":self.store.person(claim["subject_id"])["name"],"predicate":claim["predicate"],"value":args["value"]},True
         if name == "cancel_association":

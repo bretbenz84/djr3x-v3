@@ -21,6 +21,21 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Who is talking: presence layered over voice — October 14
+
+With only Bret in view, live runs tagged 23 of 81 of his turns as him. Two acoustic repairs:
+phonetic windows need .35 rather than the full .50 (profile growth still needs every window),
+and two tracks of one voice no longer make each other ambiguous. Then, by owner ruling, the
+state owner infers the speaker (`inferred`) when one recognized face is alone in view, nobody
+else has been around for ten minutes, no other voice was heard this visit, and the voice's
+clear best match is that person at .40 or more. Inferred speech can save claims, plans and
+interests; it never feeds voice or face learning, enrollment, rename or forget.
+Evidence: real CAM++ on saved audio from all runs (speech intervals rebuilt by an energy
+detector, current 3-clip profile): with one recognized face, 17 of 72 turns before, 39 after
+the acoustic repairs, 45 with inference; 0 inferences on the 140 other turns. Synthetic
+contract checks for each gate; 1224 blocked-I/O checks pass. **Not yet run live**, and the wrong-person rate is unmeasured:
+no recording has another person speaking off camera while Bret is in view.
+
 ## Greeting variety — October 14
 
 Every launch greeted the owner with the same formula. The model now sees its last heard

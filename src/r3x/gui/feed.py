@@ -121,8 +121,9 @@ class DashboardFeed:
                 line = self.turn_lines.get(row.get('turn_id'))
                 if line:
                     name, state = row.get('display_name'), row.get('state', 'unresolved')
-                    line['speaker'] = (name if state == 'supported' else name + '?') if name else 'Unknown speaker'
-                    line['note'] = 'voice: ' + state.replace('_', ' ')
+                    line['speaker'] = (name if state in ('supported', 'inferred') else name + '?') if name else 'Unknown speaker'
+                    line['note'] = ('voice close, alone in view' if state == 'inferred' else
+                                    'voice: ' + state.replace('_', ' '))
                     self.revision += 1
             elif event == 'model_request' and row.get('primary_calls'):
                 self.activity = 'thinking'
