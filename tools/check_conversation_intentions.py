@@ -6,7 +6,7 @@ Read dialogues in evidence.json; structural outcomes are not social-quality scor
 """
 import argparse
 from dataclasses import asdict, replace
-from datetime import date
+from datetime import date, datetime, time as dtime
 import json
 from pathlib import Path
 import statistics
@@ -137,7 +137,7 @@ def seed(state,sid,now,memory):
         capture=Capture(uuid4().hex,sid,uuid4().bytes*6000,at-4,at-1,at,voiced_intervals=((0,3),))
         state.begin(uuid4().hex,capture,Transcript('I am sailing on September 20. Remember it, but only discuss it with me alone.',-.01,True),voice())
         result=state.execute(ToolCall(uuid4().hex,'remember_followup',dict(predicate='sailing_plan',
-            value='Sailing on September 20',kind='plan',on_date='2026-09-20',audience='subject_only',
+            value='Sailing on September 20',kind='plan',on_date='2026-09-20',due_in_minutes=None,due_by=None,audience='subject_only',
             source_turn_id=state.current[0])),state.store.revision,Cancellation())
         if result.outcome!='ok':raise RuntimeError(result.reason)
     state.current=None
@@ -191,6 +191,7 @@ def main():
                 brain=BaselineBrain(provider,old_schema) if arm=='baseline' else provider
                 store=Memory(':memory:');store.start();state=CoreState(store,SpeakerTracker('synthetic:3'),trace)
                 state.calendar_today=lambda:date(2026,9,18)
+                state.wall_clock=lambda:datetime.combine(date(2026,9,18),dtime(12)).timestamp()  # Same day as the calendar.
                 person=seed(state,sid,now,memory) if known else None
                 output=TextOutput(trace)
                 if args.synthetic_delivery:

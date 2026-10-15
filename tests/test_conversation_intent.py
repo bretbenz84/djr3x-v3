@@ -298,11 +298,12 @@ class ConversationIntentTests(MemoryFixture):
         self.assertEqual(result.reason,'UntrustedSource')
 
     def test_memory_greeting_uses_existing_validation_and_delivery_deduplication(self):
-        from datetime import date
+        from datetime import date, datetime, time
         person=self.enroll('Avery');self.state.calendar_today=lambda:date(2026,9,18)
+        self.state.wall_clock=lambda:datetime.combine(date(2026,9,18),time(12)).timestamp()
         self.begin('I am sailing on September 20. Keep this between us.')
         saved=self.call('remember_followup',dict(predicate='trip',value='Sailing on September 20',kind='plan',
-            on_date='2026-09-20',audience='subject_only',source_turn_id=self.state.current[0]))
+            on_date='2026-09-20',due_in_minutes=None,due_by=None,audience='subject_only',source_turn_id=self.state.current[0]))
         self.assertEqual(saved.outcome,'ok')
         self.state.current=None
         def choose(c):

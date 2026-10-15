@@ -74,6 +74,51 @@ class ArrivalTests(unittest.TestCase):
                 retry=a.take('s',49,0)
                 self.assertEqual(retry is not None,started is None)
 
+    def test_hello_cut_off_by_thrown_away_noise_is_retried_at_once_and_only_once(self):
+        # Live October 14: motor noise heard as "Oh." stopped the startup hello 0.1 s in; the
+        # 45 s cooldown then let a pet remark take the moment and the hello never came.
+        from r3x.output import Delivery
+        a=Arrivals();self.visible(a,0,4,'known')
+        first=a.take('s',4,0,human_turns=3)
+        a.finished(first,Delivery(status='interrupted'),cut_off_turns=3)
+        self.visible(a,4.5,6,'known')
+        retry=a.take('s',6,0,human_turns=3)
+        self.assertEqual(retry.person_id,'known')
+        a.finished(retry,Delivery(status='interrupted'),cut_off_turns=3)
+        self.visible(a,6.5,8,'known')
+        self.assertIsNone(a.take('s',8,0,human_turns=3))   # Once per visit; then normal pacing.
+        self.visible(a,8.5,52,'known')
+        self.assertIsNotNone(a.take('s',52,0,human_turns=3))
+
+    def test_real_speech_after_a_cut_off_hello_cancels_the_quick_retry(self):
+        from r3x.output import Delivery
+        a=Arrivals();self.visible(a,0,4,'known')
+        first=a.take('s',4,0,human_turns=3)
+        a.finished(first,Delivery(status='interrupted'),cut_off_turns=3)
+        self.visible(a,4.5,6,'known')
+        self.assertIsNone(a.take('s',6,0,human_turns=4))
+        self.assertIsNone(a.take('s',7,0,human_turns=3))   # Cancelled for good, not paused.
+
+    def test_quick_retry_expires_when_the_person_does_not_come_back(self):
+        from r3x.output import Delivery
+        a=Arrivals();self.visible(a,0,4,'known')
+        first=a.take('s',4,0,human_turns=0)
+        a.finished(first,Delivery(status='interrupted'),cut_off_turns=0)
+        a.observe([],5);self.assertIsNone(a.take('s',5,0,human_turns=0))
+        self.visible(a,36,40,track='visitor')
+        self.assertIsNone(a.take('s',40,0,human_turns=0))   # Back to the usual 45 s pacing.
+        self.visible(a,40.5,50,track='visitor')
+        self.assertEqual(a.take('s',50,0,human_turns=0).target_track,'visitor')
+
+    def test_quick_retry_goes_to_the_cut_off_person_only(self):
+        from r3x.output import Delivery
+        a=Arrivals()
+        for i in range(9):a.observe([face(i/2,'known','a'),face(i/2,'other','b')],i/2)
+        first=a.take('s',4,0,human_turns=0)
+        a.finished(first,Delivery(status='interrupted'),cut_off_turns=0)
+        for i in range(9,13):a.observe([face(i/2,'known','a'),face(i/2,'other','b')],i/2)
+        self.assertEqual(a.take('s',6,0,human_turns=0).person_id,first.person_id)
+
     def test_stale_tiny_and_duplicate_identity_faces_do_not_trigger(self):
         a=Arrivals();self.visible(a,0,4,'known')
         self.assertIsNone(a.take('s',10,0))

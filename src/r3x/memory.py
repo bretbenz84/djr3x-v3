@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS claims(
 CREATE INDEX IF NOT EXISTS claims_subject ON claims(subject_id,status);
 CREATE TABLE IF NOT EXISTS memory_followups(
  claim_id TEXT PRIMARY KEY REFERENCES claims(id) ON DELETE CASCADE,
- kind TEXT NOT NULL,on_date TEXT,audience TEXT NOT NULL);
+ kind TEXT NOT NULL,on_date TEXT,audience TEXT NOT NULL,said_at REAL,due_at REAL);
 CREATE TABLE IF NOT EXISTS interests(
  claim_id TEXT PRIMARY KEY REFERENCES claims(id) ON DELETE CASCADE,topic TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS memory_followup_delivery(
@@ -104,6 +104,12 @@ class Memory:
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.connection.execute("PRAGMA secure_delete=ON")
         self.connection.executescript(SCHEMA)
+        # October 14: a follow-up keeps wall-clock times for when it was said and when its time
+        # comes. Turn times are the session's monotonic clock and mean nothing after a restart.
+        columns = {r[1] for r in self.connection.execute('PRAGMA table_info(memory_followups)')}
+        for column in ('said_at', 'due_at'):
+            if column not in columns:
+                self.connection.execute(f'ALTER TABLE memory_followups ADD COLUMN {column} REAL')
         from .conversation_memory import SCHEMA as conversation_schema
         self.connection.executescript(conversation_schema)
         from .agency import SCHEMA as agency_schema
