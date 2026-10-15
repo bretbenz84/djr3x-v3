@@ -14,16 +14,24 @@ from tests.test_proactive import face
 from tests.test_voice_core import Brain
 
 
+def noon(day):
+    from datetime import datetime, time
+    return datetime.combine(day,time(12)).timestamp()
+
+
 class MemoryOpportunityTests(MemoryFixture):
     def setup_person(self):
         self.person=self.enroll()
         self.state.calendar_today=lambda:date(2026,9,12)
+        self.state.wall_clock=lambda:noon(date(2026,9,12))
         self.faces=(dict(face(100),identity=self.person),)
 
-    def remember(self,kind='plan',on_date='2026-09-14',audience='subject_only',predicate='trip'):
-        self.begin('I am taking a trip on September 14. Ask me about it later.')
+    def remember(self,kind='plan',on_date='2026-09-14',audience='subject_only',predicate='trip',
+                 due_in_minutes=None,due_by=None,text='I am taking a trip on September 14. Ask me about it later.'):
+        self.begin(text)
         return self.call('remember_followup',dict(predicate=predicate,value='Trip on September 14',kind=kind,
-            on_date=on_date,audience=audience,source_turn_id=self.state.current[0]))
+            on_date=on_date,due_in_minutes=due_in_minutes,due_by=due_by,audience=audience,
+            source_turn_id=self.state.current[0]))
 
     def event(self,faces=None):
         return Opportunity(uuid4().hex,'session',100,None,None,faces or self.faces,float('-inf'),False,
@@ -49,7 +57,7 @@ class MemoryOpportunityTests(MemoryFixture):
     def test_unknown_speaker_cannot_schedule_named_persons_followup(self):
         self.setup_person();self.begin('Bret has a birthday soon.',B)
         result=self.call('remember_followup',dict(predicate='birthday',value='September 12',kind='birthday',
-            on_date='09-12',audience='group',source_turn_id=self.state.current[0]))
+            on_date='09-12',due_in_minutes=None,due_by=None,audience='group',source_turn_id=self.state.current[0]))
         self.assertEqual(result.reason,'FollowupNeedsSupportedSelfIdentity')
         self.assertFalse(self.store.rows('SELECT * FROM memory_followups'))
 
@@ -57,9 +65,9 @@ class MemoryOpportunityTests(MemoryFixture):
         self.setup_person();self.remember('birthday','09-12')
         self.assertTrue(self.offered())
         restarted=CoreState(self.store,SpeakerTracker(NS),self.state.trace)
-        self.assertTrue(candidates(restarted.store,self.faces,date(2027,9,12)))
-        self.assertFalse(candidates(restarted.store,self.faces,date(2026,9,13)))
-        self.assertFalse(candidates(restarted.store,self.faces,date(2027,9,11)))
+        self.assertTrue(candidates(restarted.store,self.faces,date(2027,9,12),now=noon(date(2027,9,12))))
+        self.assertFalse(candidates(restarted.store,self.faces,date(2026,9,13),now=noon(date(2026,9,13))))
+        self.assertFalse(candidates(restarted.store,self.faces,date(2027,9,11),now=noon(date(2027,9,11))))
 
     def test_invalid_date_or_conflicting_claim_rolls_back_atomically(self):
         self.setup_person()
@@ -91,7 +99,7 @@ class MemoryOpportunityTests(MemoryFixture):
             self.assertEqual(session.process_opportunity(self.event(),0,lambda:True).status,'completed')
             self.assertEqual(brain.calls,2)
             self.assertEqual(len(self.store.rows('SELECT * FROM memory_followup_delivery')),1)
-            self.assertFalse(candidates(self.store,self.faces,date(2026,9,13)))
+            self.assertFalse(candidates(self.store,self.faces,date(2026,9,13),now=noon(date(2026,9,13))))
             self.assertEqual(len(self.store.claims()),1)
         finally:session.close()
 
@@ -115,14 +123,14 @@ class MemoryOpportunityTests(MemoryFixture):
     def test_plan_window_celebration_day_and_leap_birthday(self):
         self.setup_person();self.remember('plan','2026-09-20')
         self.assertFalse(self.offered())
-        self.assertTrue(candidates(self.store,self.faces,date(2026,9,13)))
-        self.assertFalse(candidates(self.store,self.faces,date(2026,9,28)))
+        self.assertTrue(candidates(self.store,self.faces,date(2026,9,13),now=noon(date(2026,9,13))))
+        self.assertFalse(candidates(self.store,self.faces,date(2026,9,28),now=noon(date(2026,9,28))))
         self.remember('birthday','02-29',predicate='birthday')
-        self.assertTrue(any(r['kind']=='birthday' for r in candidates(self.store,self.faces,date(2028,2,29))))
-        self.assertFalse(candidates(self.store,self.faces,date(2027,3,1)))
+        self.assertTrue(any(r['kind']=='birthday' for r in candidates(self.store,self.faces,date(2028,2,29),now=noon(date(2028,2,29)))))
+        self.assertFalse(candidates(self.store,self.faces,date(2027,3,1),now=noon(date(2027,3,1))))
         self.remember('celebration','2026-09-12',predicate='milestone')
         self.assertTrue(any(r['kind']=='celebration' for r in self.offered()))
-        self.assertFalse(any(r['kind']=='celebration' for r in candidates(self.store,self.faces,date(2027,9,12))))
+        self.assertFalse(any(r['kind']=='celebration' for r in candidates(self.store,self.faces,date(2027,9,12),now=noon(date(2027,9,12)))))
 
     def test_existing_database_gains_additive_tables_without_losing_claims(self):
         from r3x.memory import Memory
@@ -133,6 +141,90 @@ class MemoryOpportunityTests(MemoryFixture):
         self.assertEqual(len(self.store.claims()),1)
         self.assertEqual(self.store.person(self.person)['status'],'supported')
         self.assertFalse(self.store.rows('SELECT * FROM memory_followups'))
+
+    def arrival(self,state):
+        return state.opportunity_context(Opportunity(uuid4().hex,'session',100,'face',self.person,self.faces,
+                                                     float('-inf'),False))['memory_opportunities']
+
+    def test_wine_run_in_five_minutes_is_asked_about_once_after_restart(self):
+        # Live October 14: "in five minutes" was saved without a time; after a restart five minutes
+        # later Rex planned to tease the "imminent wine mission" instead of asking how it went.
+        self.setup_person();said=noon(date(2026,9,12))
+        result=self.remember('callback',None,predicate='wine run',due_in_minutes=5,
+                             text='In five minutes I am going to the store to get wine.')
+        self.assertEqual(result.outcome,'ok');self.assertEqual(result.data['due'],'Saturday 12:05 p.m.')
+        row=self.offered()[0]
+        self.assertEqual((row['moment'],row['occasion']),('ahead','before_due'))
+        self.assertEqual(row['due'],'not yet: due in about 5 minutes (Saturday 12:05 p.m.)')
+        self.assertEqual(row['said'],'under a minute ago (Saturday 12:00 p.m.)')
+        restarted=CoreState(self.store,SpeakerTracker(NS),self.state.trace)
+        restarted.calendar_today=self.state.calendar_today;restarted.wall_clock=lambda:said+8*60
+        row=self.arrival(restarted)[0]
+        self.assertEqual((row['moment'],row['occasion']),('passed','after_due'))
+        self.assertEqual(row['due'],'its planned time was about 3 minutes ago (Saturday 12:05 p.m.); '
+                                    'whether it happened is unknown')
+        self.assertEqual(row['said'],'about 8 minutes ago (Saturday 12:00 p.m.)')
+        class Ask(Brain):
+            def reply(self,snapshot,cancel):
+                yield ToolCall(uuid4().hex,'use_memory_opportunity',dict(
+                    claim_id=snapshot.context['memory_opportunities'][0]['claim_id'],text='Did the wine run happen?'))
+        session=Session('session',Ask(),OutputOwner(SyntheticTTS(),SyntheticSink(),restarted.trace),restarted.trace,restarted)
+        try:
+            event=Opportunity(uuid4().hex,'session',100,'face',self.person,self.faces,float('-inf'),False)
+            self.assertEqual(session.process_opportunity(event,0,lambda:True).completed_text,['Did the wine run happen?'])
+        finally:session.close()
+        self.assertEqual([r['occasion'] for r in self.store.rows('SELECT * FROM memory_followup_delivery')],['after_due'])
+        self.assertFalse(self.arrival(restarted))
+        restarted.wall_clock=lambda:said+8*86400;self.assertFalse(self.arrival(restarted))
+
+    def test_this_weekend_is_due_at_the_end_of_sunday(self):
+        self.setup_person()   # Saturday, September 12, 2026.
+        self.assertEqual(self.remember('callback',None,due_by='2026-09-13',text='I am camping this weekend.').data['due'],
+                         'Sunday 11:59 p.m.')
+        self.assertEqual(self.offered()[0]['moment'],'ahead')
+        self.state.wall_clock=lambda:noon(date(2026,9,14))
+        self.assertEqual(self.offered()[0]['due'],'its planned time was about 12 hours ago (Sunday 11:59 p.m.); '
+                                                  'whether it happened is unknown')
+
+    def test_dated_plan_counts_as_due_at_the_end_of_its_day(self):
+        self.setup_person();self.remember()   # Trip on September 14, no explicit time.
+        self.assertEqual(self.offered()[0]['moment'],'ahead')
+        self.state.wall_clock=lambda:noon(date(2026,9,15));self.state.calendar_today=lambda:date(2026,9,15)
+        self.assertEqual(self.offered()[0]['moment'],'passed')
+        self.remember('callback',None,predicate='someday',text='Maybe I will repaint the den someday.')
+        self.assertEqual({r['predicate']:r['moment'] for r in self.offered()}['someday'],'no_time_given')
+
+    def test_due_time_needs_one_clear_future_time_and_rejects_atomically(self):
+        self.setup_person()
+        for kind,on_date,minutes,by,reason in [
+                ('callback',None,5,'2026-09-13','FollowupDueTwice'),
+                ('birthday','09-12',None,'2026-09-13','FollowupDueNotForOccasions'),
+                ('callback',None,None,'2026-09-11','FollowupDueInPast'),
+                ('callback',None,None,'Sunday','InvalidFollowupDue'),
+                ('callback',None,None,'2026-09-13T25:00','InvalidFollowupDue'),
+                ('callback',None,0,None,'InvalidFollowupDueMinutes')]:
+            with self.subTest(reason=reason):
+                self.assertEqual(self.remember(kind,on_date,due_in_minutes=minutes,due_by=by).reason,reason)
+        self.assertFalse(self.store.claims())
+        self.assertFalse(self.store.rows('SELECT * FROM memory_followups'))
+        self.assertEqual(self.remember('callback',None,due_by='2026-09-12T15:30').data['due'],'Saturday 3:30 p.m.')
+
+    def test_passed_followup_leads_every_rotation(self):
+        self.setup_person()
+        for i in range(8):self.remember('callback',None,predicate='interest'+str(i))
+        self.remember('callback',None,predicate='wine run',due_in_minutes=5)
+        self.state.wall_clock=lambda:noon(date(2026,9,12))+600
+        for _ in range(3):
+            rows=self.offered();self.assertEqual(rows[0]['predicate'],'wine run');self.assertEqual(len(rows),6)
+
+    def test_existing_followups_gain_said_and_due_columns(self):
+        from r3x.memory import Memory
+        self.setup_person();self.remember('callback',None)
+        for column in ('said_at','due_at'):
+            self.store.connection.execute(f'ALTER TABLE memory_followups DROP COLUMN {column}')
+        self.store.close();self.store=Memory(self.path);self.store.start();self.state.store=self.store
+        row=self.offered()[0]
+        self.assertEqual((row['said'],row['moment']),('unknown: saved before Rex kept the time','no_time_given'))
 
     def test_midnight_during_tts_cancels_before_audio_and_does_not_consume_birthday(self):
         self.setup_person();self.remember('birthday','09-12')

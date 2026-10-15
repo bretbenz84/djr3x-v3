@@ -488,7 +488,7 @@ class CoreState:
                    'text':'Two ordered snapshots when available. Interpret only visible evidence; no verified identity, emotion or mouth-motion evidence.'}
             if self.observation_available(scene):cues.append(scene)
         from .memory_opportunities import candidates
-        offered = candidates(self.store,faces,self.calendar_today(),self.memory_cursor)
+        offered = candidates(self.store,faces,self.calendar_today(),self.memory_cursor,now=self.wall_clock())
         if advance_memory_cursor: self.memory_cursor += len(offered)
         return self.note_audience({'observations':cues,'calendar_date':self.calendar_today().isoformat(),'memory_opportunities':offered,'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
                 'participation':self.initiative.context(self.trace.clock()),
@@ -515,7 +515,8 @@ class CoreState:
     def intent_context(self, context, *, human=False):
         from .conversation_intent import faces_for
         from .memory_opportunities import candidates
-        memories = candidates(self.store, faces_for(context), self.calendar_today(), limit=128, include_delivered=True)
+        memories = candidates(self.store, faces_for(context), self.calendar_today(), limit=128, include_delivered=True,
+                              now=self.wall_clock())
         self.conversation_intent.refresh(context, [r['claim_id'] for r in memories], human=human)
         # Ordinary turns may maintain existing references but don't gain a new memory scheduler.
         if not context.get('trigger'):
@@ -549,7 +550,8 @@ class CoreState:
                 if prior[1].revision != self.store.revision:raise ValueError('StaleStateRevision')
                 return prior[1]
             if context.get('state_revision') != self.store.revision:raise ValueError('StaleStateRevision')
-            memories = candidates(self.store, faces_for(context), self.calendar_today(), limit=128, include_delivered=True)
+            memories = candidates(self.store, faces_for(context), self.calendar_today(), limit=128, include_delivered=True,
+                                  now=self.wall_clock())
             try:
                 row = intents.prepare(value, context, [r['claim_id'] for r in memories])
             except ValueError as exc:
@@ -608,7 +610,7 @@ class CoreState:
             elif call.name=='use_memory_opportunity':
                 from .memory_opportunities import candidates
                 offered={r['claim_id'] for r in context.get('memory_opportunities',[])}
-                current=candidates(self.store,context['faces'],self.calendar_today(),limit=128)
+                current=candidates(self.store,context['faces'],self.calendar_today(),limit=128,now=self.wall_clock())
                 candidate=next((r for r in current if r['claim_id']==call.arguments['claim_id'] and r['claim_id'] in offered),None)
                 if not candidate:raise ValueError('MemoryOpportunityUnavailable')
                 data={'text':call.arguments['text'],'claim_id':candidate['claim_id'],'occasion':candidate['occasion']}
@@ -881,15 +883,19 @@ class CoreState:
             self._source_allowed(args,name)
             if attribution.state not in ('supported','inferred') or not attribution.speaker_id:
                 raise ValueError('FollowupNeedsSupportedSelfIdentity')
-            from .memory_opportunities import validate_date
+            from .memory_opportunities import validate_date, resolve_due
             validate_date(args['kind'],args['on_date'])
+            said_at=self.wall_clock()
+            due_at=resolve_due(args['kind'],args['on_date'],args['due_in_minutes'],args['due_by'],said_at,self.calendar_today())
             data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.speaker_id,
                 subject_reference=None,predicate=args['predicate'],value=args['value'],
                 kind='self_report',source_turn_id=turn_id))
             if data['status']!='accepted':raise ValueError('FollowupNeedsAcceptedClaim')
-            conn.execute('INSERT INTO memory_followups VALUES(?,?,?,?)',
-                         (data['claim_id'],args['kind'],args['on_date'],args['audience']))
-            return {**data,'followup_kind':args['kind'],'on_date':args['on_date'],'audience':args['audience']},True
+            conn.execute('INSERT INTO memory_followups(claim_id,kind,on_date,audience,said_at,due_at) VALUES(?,?,?,?,?,?)',
+                         (data['claim_id'],args['kind'],args['on_date'],args['audience'],said_at,due_at))
+            from .memory_opportunities import clock
+            return {**data,'followup_kind':args['kind'],'on_date':args['on_date'],'audience':args['audience'],
+                    'due':clock(due_at) if due_at is not None else None},True
         if name in {'name_room','correct_room'}:
             return self._room(conn,name,args),True
         if name == "remember_interest":

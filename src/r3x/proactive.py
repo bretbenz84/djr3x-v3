@@ -182,6 +182,7 @@ class Arrivals:
     absent_seconds = 30.
     global_cooldown = 45.
     person_cooldown = 300.
+    retry_seconds = 30.   # How long a hello cut off by thrown-away noise waits for its quick retry.
 
     def __init__(self):
         self.lock = threading.RLock()
@@ -257,7 +258,7 @@ class Arrivals:
                              'used':reframed,'returning':False,'track':face['track_id']}
                     self.seen[key] = entry
                 elif face['at']-entry['last']>=self.absent_seconds:
-                    entry.update(first=face['at'],used=False,returning=True,track=face['track_id'])
+                    entry.update(first=face['at'],used=False,returning=True,retried=False,track=face['track_id'])
                 elif entry['track']!=face['track_id'] or face['at']-entry['last']>1.5:
                     # Only supported, spatially continuous replacements retain
                     # presence stability. Neither case reopens a used visit.
@@ -271,9 +272,19 @@ class Arrivals:
                     self.unknown_target = None
             self.seen = dict(sorted(self.seen.items(),key=lambda p:p[1]['last'],reverse=True)[:128])
 
-    def take(self, session_id, now, speech_marker):
+    def take(self, session_id, now, speech_marker, human_turns=None):
+        """human_turns counts trusted human turns so far; None makes no quick retry."""
         with self.lock:
-            if now-self.last_attempt<self.global_cooldown: return None
+            # A hello cut off by a sound later thrown away (October 14: Rex's own motor noise,
+            # heard as "Oh.") is retried at once, ahead of the cooldown and anything else, while
+            # nobody has really spoken since. Once per visit.
+            for entry in self.seen.values():
+                cut_off = entry.get('cut_off')
+                # Someone really spoke (the conversation took over), or they did not come back.
+                if cut_off and (cut_off[0] != human_turns or now-cut_off[1] > self.retry_seconds):
+                    entry['cut_off'] = None
+            retry = any(e.get('cut_off') for e in self.seen.values())
+            if not retry and now-self.last_attempt<self.global_cooldown: return None
             if not self.audience(now): return None
             candidates = []
             for face in self.faces:
@@ -286,10 +297,11 @@ class Arrivals:
                 key = person or face['track_id'];entry=self.seen[key]
                 if entry['used'] or entry['last']-entry['first']<self.stable_seconds: continue
                 if now-entry['attempt']<self.person_cooldown: continue
+                if retry and not entry.get('cut_off'): continue
                 candidates.append((bool(person),box[2]*box[3],face,key,entry))
             if not candidates: return None
             _,_,target,key,entry = max(candidates,key=lambda r:r[:2])
-            entry['used'],entry['attempt'] = True,now
+            entry['used'],entry['attempt'],entry['cut_off'] = True,now,None
             self.last_attempt = now
             if not target.get('identity'):
                 self.unknown_attempted = True
@@ -316,20 +328,27 @@ class Arrivals:
                 return not known or event.person_id in known
             return any(0 <= now-entry['last'] <= grace for entry in self.seen.values())
 
-    def finished(self, event, delivery):
+    def finished(self, event, delivery, cut_off_turns=None):
         """An interrupted unheard arrival is eligible again after normal pacing.
 
         Keep the global cooldown and attempt budget. Silence, failures, and
         even partially spoken phrases do not trigger automatic re-offering.
+        cut_off_turns: a queued sound stopped it before any speech, when this many
+        trusted human turns had been heard. While that count stands (the sound was
+        thrown away), the hello is retried at once.
         """
         if (event.kind!='visual_arrival' or delivery.status!='interrupted' or
                 delivery.completed_text or delivery.first_audio_at is not None):
             return
         with self.lock:
             entry = self.seen.get(event.person_id or event.target_track)
-            if not entry or entry['track']!=event.target_track or entry['attempt']!=event.at:
+            # A known person is keyed by identity; their renumbered track is the same visit.
+            if (not entry or (entry['track']!=event.target_track and not event.person_id)
+                    or entry['attempt']!=event.at):
                 return
             entry['used'] = False
+            if cut_off_turns is not None and not entry.get('retried'):
+                entry['cut_off'], entry['retried'] = (cut_off_turns, event.at), True
             # The global cooldown still limits a retry; the per-person cooldown
             # applies to greetings that had a chance to reach the person.
             entry['attempt'] = float('-inf')

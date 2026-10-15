@@ -29,6 +29,8 @@ SELF_NOISE_LOGPROB = -.1       # Trust floor for a suspected capture (the usual 
 # How long the idle tick waits for a just-started goal plan before returning to listening.
 # Hosted planning takes seconds and finishes in the background; this bounds the pause.
 PLANNING_GLANCE_SECONDS = .25
+# Sounds that stop a hello before anyone is known to have spoken; a thrown-away one earns a retry.
+NOISE_CUTOFFS = frozenset({'human_speech','capture_queued','turn_queued','recognition_busy'})
 SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish before leaving them.
 
 class VoiceRuntime:
@@ -238,7 +240,8 @@ class VoiceRuntime:
                 if intentions.record:
                     from .memory_opportunities import candidates
                     memories = candidates(self.session.state.store, self.arrivals.faces,
-                        self.session.state.calendar_today(), limit=128, include_delivered=True)
+                        self.session.state.calendar_today(), limit=128, include_delivered=True,
+                        now=self.session.state.wall_clock())
                     intentions.refresh({'faces': self.arrivals.faces,
                         'participation': initiative.context(now)}, [r['claim_id'] for r in memories])
             gate = ('shutdown' if self.stop.is_set() or self.session.closed else
@@ -260,7 +263,8 @@ class VoiceRuntime:
                 return
             planning_only = False
             # People first: a settled new arrival is greeted before any goal work.
-            event = self.arrivals.take(self.session.session_id, now, self.session._latest_speech)
+            event = self.arrivals.take(self.session.session_id, now, self.session._latest_speech,
+                                      self.session.human_turns)
             if event is not None and event.person_id and not present.arriving(event.person_id, now):
                 # Seen or heard within the last few minutes: their face was out of view or
                 # unrecognized for a while, but this is the same visit, not an arrival to greet
@@ -391,6 +395,7 @@ class VoiceRuntime:
             return reason is None
         invalidated = threading.Event()
         invalidation_reason = None
+        human_turns = self.session.human_turns
         result = self.session.process_opportunity(event,revision,valid,planning_only=planning_only)
         if planning_only:
             # Planning normally takes seconds and continues in the background. A goal that is
@@ -399,7 +404,7 @@ class VoiceRuntime:
             if not self.session.planning_active():
                 return self.proactive_tick(_after_planning=True) or result
             return result
-        self.arrivals.finished(event,result)
+        self.arrivals.finished(event,result,cut_off_turns=human_turns if invalidation_reason in NOISE_CUTOFFS else None)
         if event.kind == 'visual_arrival' and result.status not in {'rejected'}:
             with self.session._lock:
                 current = agency.record if agency.applicable(self.trace.clock()) else None

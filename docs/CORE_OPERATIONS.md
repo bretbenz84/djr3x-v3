@@ -597,11 +597,24 @@ or callback to remember. `remember_followup` saves the accepted self-report and
 its date/sharing metadata together. Sharing is private to the subject unless they
 explicitly permit group use. An unknown visible bystander withholds private cues.
 
+When the plan has a clear time, the save also gives when its moment comes: minutes
+from now ("in five minutes") or a local date or date and time ("this weekend" is
+Sunday's date; a date alone means 11:59 p.m. that day). A fuzzy time is due at the end
+of its window ("tomorrow morning" noon tomorrow, "this week" end of Sunday) so Rex never
+asks how it went too early; "someday" has no time. Code turns either into a
+wall-clock time, and a dated plan without one is due at the end of its day. The
+follow-up also keeps the wall-clock time it was said.
+
 On a later arrival or lull, eligible follow-ups are options for the same conversation
-model, not guaranteed reminders. Plans are considered within seven days either side
-of their date; celebrations on their saved date; birthdays on their month/day each
-year; callbacks can be considered daily. Rex must not assume a past plan happened.
-Completed audio prevents repetition for that occurrence/day across restart.
+model, not guaranteed reminders. Each one Rex is offered carries `said` and, from the
+clock on every turn, `moment`: `ahead` (with how long until), `passed` (its planned
+time was so long ago; whether it happened is unknown), `no_time_given` or
+`occasion_today`. A passed follow-up comes first and Rex asks how it went or whether
+it happened; he never assumes it did. A follow-up with a time is offered once in the
+week before it and once in the week after; celebrations on their saved date;
+birthdays on their month/day each year; callbacks without a time can be considered
+daily. Completed audio prevents repetition for that occurrence across restart.
+Follow-ups saved before October 15 have no said or due time.
 
 Generic old claims are not automatically scheduled. Correcting/retracting the claim
 retires the old cue; a fresh follow-up save is needed to establish a replacement's

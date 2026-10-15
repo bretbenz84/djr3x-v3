@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 14, 2026. This is the consolidated
+Updated October 15, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,20 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## Wine-run follow-up repair — October 15
+
+Sessions `34d84a03` and `ddb68ec9`: told "in five minutes I'm going to the store to get wine",
+then restarted five minutes later, Rex never asked. His startup hello, the one place the
+follow-up was offered, was cut off 0.1 s in by his own motor noise heard as "Oh.". The 45 s
+pause before another hello let a pet remark take the moment. His plan then called the trip
+"imminent", because follow-ups carried no time. Repaired, synthetic evidence only: saving a
+follow-up takes a due time (minutes from now or a local date/time, resolved by code) and keeps
+when it was said; each turn the clock marks it `ahead` or `passed`, and the prompts say passed
+means ask how it went, never assume it happened. Passed follow-ups lead the offered list and the
+planner's first spoken beat. A hello cut off by a sound that is then thrown away (no trusted
+turn) is retried at once, once per visit; fuzzy times are due at the end of their window
+("tomorrow morning" noon). 1201 blocked-I/O checks pass. Not yet run on the robot or with the hosted model.
 
 ## Who is talking: presence layered over voice — October 14
 

@@ -95,8 +95,8 @@ class InferredSpeakerTests(MemoryFixture):
         speaker = self.state.context()['speaker']
         self.assertEqual((speaker['speaker_id'], speaker['display_name']), (self.person, 'Bret'))
         saved = self.call('remember_followup', dict(predicate='trip', value='Camping on October 18', kind='plan',
-                                                    on_date='2026-10-18', audience='subject_only',
-                                                    source_turn_id=self.state.current[0]))
+                                                    on_date='2026-10-18', due_in_minutes=None, due_by=None,
+                                                    audience='subject_only', source_turn_id=self.state.current[0]))
         self.assertEqual(saved.outcome, 'ok')
         claim = self.store.rows('SELECT said_by,subject_id,status FROM claims WHERE predicate="trip"')[0]
         self.assertEqual(dict(claim), {'said_by': self.person, 'subject_id': self.person, 'status': 'accepted'})

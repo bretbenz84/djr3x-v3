@@ -499,6 +499,42 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
         self.assertFalse(any(r['event']=='proactive_invalidated' for r in trace.rows))
 
+    def cut_off_greeting(self):
+        self.setup_core();self.visible(108)
+        runtime,trace=self.runtime,self.trace
+        from r3x.proactive import Arrivals
+        runtime.arrivals=Arrivals()
+        for at in (104,105,106,107,108):runtime.arrivals.observe([face(at,track='visitor')],at)
+        class Hello(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1;self.snapshots.append(snapshot)
+                if self.calls==1:
+                    runtime.captures.put('motor noise')   # A sound queued before any audio.
+                cancel.check()
+                yield 'Hello there.'
+        brain=Hello();self.session.brain=brain
+        runtime.proactive_tick()
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
+        self.assertEqual([r['reason'] for r in trace.rows if r['event']=='proactive_invalidated'],['capture_queued'])
+        runtime.captures.get_nowait()   # Recognition threw it away: no trusted turn.
+        for at in (109,110,111):runtime.arrivals.observe([face(at,track='visitor')],at)
+        trace.at=111;runtime.audio_seen_at=111
+        return brain
+
+    def test_greeting_cut_off_by_discarded_noise_is_retried_before_the_cooldown(self):
+        brain=self.cut_off_greeting()
+        self.runtime.proactive_tick()
+        self.assertEqual(brain.calls,2)
+        self.assertEqual(brain.snapshots[-1].context['trigger'],'visual_arrival')
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
+
+    def test_greeting_cut_off_by_real_speech_is_not_retried(self):
+        brain=self.cut_off_greeting()
+        self.session.human_turns+=1   # The sound was a trusted turn; the conversation has it.
+        self.runtime.proactive_tick()
+        arrivals=[r for r in self.trace.rows if r['event']=='proactive_opportunity' and r['kind']=='visual_arrival']
+        self.assertEqual(len(arrivals),1)
+
     def test_general_proactive_intent_finishes_after_face_track_churn(self):
         self.setup_core();self.turn();self.visible(108)
         self.plan_brain()

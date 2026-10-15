@@ -1,6 +1,6 @@
 """Explicit hosted synthetic memory probes; no personal database or devices."""
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime, time as dtime
 import json
 from pathlib import Path
 import time
@@ -52,6 +52,7 @@ def main():
         ):
             store=Memory(':memory:');store.start();state=CoreState(store,SpeakerTracker('synthetic:3'),trace)
             state.calendar_today=lambda:date(2026,9,12)
+            state.wall_clock=lambda:datetime.combine(date(2026,9,12),dtime(12)).timestamp()  # Same day as the calendar.
             sid=uuid4().hex;person=seed(state,sid)
             session=Session(sid,brain,TextOutput(trace),trace,state)
             try:

@@ -146,6 +146,7 @@ class AudienceRecoveryTests(MemoryFixture):
                 self.person=person
                 from datetime import date
                 self.state.calendar_today=lambda:date(2026,9,12)
+                self.state.wall_clock=lambda:test_memory_opportunities.noon(date(2026,9,12))
                 result=test_memory_opportunities.MemoryOpportunityTests.remember(self,predicate='test_plan_'+str(during_audio))
                 self.assertEqual(result.outcome,'ok')
                 runtime=self.runtime
