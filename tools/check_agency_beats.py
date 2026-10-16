@@ -299,6 +299,120 @@ def run_quiet_then_dog(index, key, folder):
     return summarize_quiet(trace.rows)
 
 
+# October 15 (2f85db5c): two spoken bits about Bret's counter work in one plan. He said "I'm just
+# doing the dishes", Rex answered "Then I'll let you get on with it", and 40 s later the second
+# bit ran anyway ("I hereby rename dish duty..."); Bret: "I have no idea what you're doing."
+CHORE_PLAN = {'goal_kind': 'entertain', 'subject': 'Sam', 'scope': 'audience',
+    'narrative': 'Sam is deep in some serious counter work, and somebody has to supervise.',
+    'objective': 'Land a brief mock-official bit about Sam\'s focused counter work.', 'evidence_ids': [],
+    'steps': [
+        {'kind': 'contribute', 'instruction': 'Tease Sam\'s intense counter work as a suspiciously serious late-night '
+         'operation, with mock official gravity.', 'evidence_ids': [], 'wake': {'when': 'quiet', 'seconds': 5},
+         'follows_previous': False},
+        {'kind': 'contribute', 'instruction': 'Offer a vain ruling that every important kitchen operation deserves a '
+         'better title than whatever Sam calls it.', 'evidence_ids': [], 'wake': {'when': 'quiet', 'seconds': 18},
+         'follows_previous': False}]}
+
+
+# Later goals are about something else, as the real planner's were that night.
+RADIO_PLAN = {**CHORE_PLAN, 'subject': 'old radios', 'objective': 'Bring up one of Sam\'s interests.',
+    'narrative': 'Sam likes old radios; I have opinions about vacuum tubes.',
+    'steps': [{'kind': 'contribute', 'instruction': 'Share a vain opinion about old radios, one of Sam\'s interests.',
+               'evidence_ids': [], 'wake': {'when': 'quiet', 'seconds': 8}, 'follows_previous': False}]}
+
+
+class ChorePlanner:
+    capability = SimpleNamespace(model='fixed-october-15-plan')
+    reasoning_effort = 'none'
+    trace = None
+    def __init__(self): self.calls = 0
+    def start(self): pass
+    def plan(self, facts, cancel, images=()):
+        self.calls += 1
+        return json.loads(json.dumps(CHORE_PLAN if self.calls == 1 else RADIO_PLAN))
+
+
+def run_busy_with_chore(index, key, folder):
+    """The October 15 dishes moment with fictional Sam: does the second bit run after Rex said
+    he would let them get on with it?"""
+    path = folder / f'chore-{index}.jsonl'
+    trace = Trace(path)
+    with TemporaryDirectory() as tmp:
+        store = Memory(Path(tmp).resolve() / 'core.sqlite3'); store.start()
+        try:
+            state = CoreState(store, SpeakerTracker(NS), trace)
+            brain = Paced(key); brain.trace = trace
+            session = Session(uuid4().hex, brain, OutputOwner(SyntheticTTS(), ClockSink(trace), trace), trace, state)
+            session.agency_planner = ChorePlanner()
+            runtime = VoiceRuntime(SimpleNamespace(), SimpleNamespace(), None, session, trace)
+            runtime.started_at = 0
+            brain.start()
+            def capture(seconds=3.):
+                trace.at += 2
+                return Capture(uuid4().hex, session.session_id, uuid4().bytes * int(2000 * seconds), trace.at - seconds,
+                               trace.at, trace.at, voiced_intervals=((0., seconds),))
+            def observation(): return VoiceObservation(NS, VOICE, ((0., 2., VOICE),), 3., 1.)
+            for text in ('My name is Sam.', 'I like old radios.', 'I work at a design studio.'):
+                state.begin(uuid4().hex, capture(), Transcript(text, -.01, True), observation())
+                if text.startswith('My name'):
+                    state.execute(ToolCall(uuid4().hex, 'introduce_person', {'name': 'Sam', 'aliases': [],
+                        'subject': 'self', 'person_id': None, 'face_track_id': None}), store.revision, Cancellation())
+                state.advance_enrollment()
+            state.current = None
+            sam = next(p['id'] for p in store.rows('SELECT id FROM people'))
+            def faces(now):
+                return [{'track_id': 'face-sam', 'identity': sam, 'face_epoch': 0, 'at': now - .2,
+                         'box': [.45, .3, .1, .12], 'face_width_px': 192, 'learning_quality': False,
+                         'needs_closer_look': False, 'position': 'center', 'evidence': 'face_match'}]
+            runtime.camera = SimpleNamespace(latest=faces)
+            seen_until = [trace.at]
+            def human(text):
+                trace.at += 3; session.note_speech(trace.at)
+                session.process_turn(capture(), Transcript(text, -.01, True), session.revision, observation(),
+                                     faces=faces(trace.at), latest_faces=faces)
+                for entry in runtime.arrivals.seen.values(): entry['used'] = True
+            def tick(seconds):
+                trace.at += seconds
+                while seen_until[0] < trace.at:
+                    seen_until[0] = min(trace.at, seen_until[0] + 1.)
+                    runtime.arrivals.observe(faces(seen_until[0]), seen_until[0])
+                runtime.audio_seen_at = trace.at
+                result = runtime.proactive_tick()
+                if result is not None and result.status == 'prepared':
+                    session.join_planning(120); trace.at += 1; runtime.audio_seen_at = trace.at
+                    runtime.proactive_tick()
+            human("Hi Rex, it's Sam.")
+            human('Not much, just cleaning up after dinner.')
+            tick(10)                                   # The plan, then its first bit.
+            trace.emit('probe_first_bit_done')
+            human("I'm just doing the dishes.")
+            trace.emit('probe_busy_said')
+            for _ in range(3):                         # Quiet: the second bit's 18 s and more.
+                tick(15)
+            session.close()
+        finally:
+            store.close()
+    rows, lines, phase = trace.rows, [], 'before'
+    started = {}
+    for row in rows:
+        if row['event'] == 'probe_busy_said': phase = 'after'
+        elif row['event'] == 'agency_step_started': started[row['turn_id']] = row
+        elif row['event'] == 'turn' and row.get('trusted'): lines.append((phase, 'Sam', row['original_text']))
+        elif row['event'] == 'delivery' and not str(row.get('turn_id', '')).startswith('startup'):
+            step = started.pop(row.get('turn_id'), None)
+            who = f"Rex beat {step['index']} ({step['subject']})" if step else 'Rex reply'
+            text = row.get('completed_text')
+            text = ' '.join(text) if isinstance(text, list) else text
+            lines.append((phase, who, text or f"({row['status']})"))
+    second = [t for ph, who, t in lines if who == 'Rex beat 1 (Sam)']
+    spoken = [t for t in second if t and not t.startswith('(')]
+    return {'timeline': lines, 'metrics': {
+        'second_bit_attempted': bool(second),
+        'second_bit_spoken': bool(spoken),
+        'second_bit_about_the_chore': any(w in ' '.join(spoken).lower() for w in
+                                          ('dish', 'kitchen', 'counter', 'sink', 'plate', 'operation', 'title'))}}
+
+
 def summarize_quiet(rows):
     lines, dog_at = [], None
     for row in rows:
@@ -382,7 +496,7 @@ def main():
     parser.add_argument('--live', action='store_true', help='Authorize paid model calls with fictional inputs.')
     parser.add_argument('--runs', type=int, default=2)
     parser.add_argument('--label', default='candidate')
-    parser.add_argument('--scenario', choices=('conversation', 'quiet_then_dog'), default='conversation')
+    parser.add_argument('--scenario', choices=('conversation', 'quiet_then_dog', 'busy_with_chore'), default='conversation')
     args = parser.parse_args()
     if not args.live:
         parser.error('--live is required; this probe makes paid model calls')
@@ -393,7 +507,8 @@ def main():
     folder.mkdir(parents=True)
     results = []
     for index in range(args.runs):
-        result = (run_quiet_then_dog if args.scenario == 'quiet_then_dog' else run_once)(index, key, folder)
+        result = {'quiet_then_dog': run_quiet_then_dog, 'busy_with_chore': run_busy_with_chore,
+                  'conversation': run_once}[args.scenario](index, key, folder)
         results.append(result)
         print(json.dumps({'run': index, **result['metrics']}), flush=True)
     (folder / 'results.json').write_text(json.dumps(results, indent=2))

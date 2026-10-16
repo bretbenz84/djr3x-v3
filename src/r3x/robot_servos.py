@@ -210,6 +210,7 @@ class RobotServos:
         Nothing starts while an earlier return is still on its way."""
         kept = self.owner.kept_arms
         if (not kept or kept <= still_blocked or self.owner.hold_until_released   # "Hold your arms" stays.
+                or self.owner.state not in {'active', 'moving'}
                 or (self._arm_return is not None and self._arm_return.is_alive())):
             return False
         self._start_arm_return(kept & frozenset(still_blocked))

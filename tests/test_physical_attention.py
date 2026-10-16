@@ -125,7 +125,8 @@ class PhysicalMotionTests(unittest.TestCase):
         with self.assertRaisesRegex(ProviderFailure,'ServoRequestExpired'):
             self.adapter.execute(self.intent(),Cancellation())
         self.assertEqual(events,[True,False]);self.assertFalse(self.robot.owner.camera_moving)
-        self.assertEqual(self.robot.owner.state,'faulted')
+        # October 15: a stalled look is held where it stopped; later moves are not all refused.
+        self.assertEqual(self.robot.owner.state,'active')
 
 
 class PhysicalSessionTests(test_memory_core.MemoryFixture):

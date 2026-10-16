@@ -102,6 +102,28 @@ more). No setting. 1,109 blocked-I/O checks pass (synthetic, simulated servo boa
 head servos are, and whether it still fires during a reply that streams quickly are unseen on
 the robot.
 
+## October 15: one stuck joint no longer freezes every servo
+
+Run `24279950`: after a 45° turn the throttle stayed tucked beside an obstacle. Seven seconds
+later its space cleared and the late walk-out also sent the hero elbow (channel 4) to its awake
+6720, while an idle phrase already moving that elbow left it at 6845. The walk-out waited its
+25 s, timed out (`ServoArrivalTimeout:ch4@6845->6720`) and marked the owner faulted, so every
+later servo request was refused (`ServoUnavailableOrParked`) until restart: no talking motion
+or head turns, a refused "come here" drive (`ArmParkFailed`), and no park at shutdown. The
+link was fine throughout. Two changes:
+
+- A kept arm coming out later moves only its own channels, which are still held, so nothing
+  else is commanding them; the hero elbow and arms already out stay with idle and talking.
+  While it walks, only those channels are refused (`ServoBusy`), not every arm channel, so
+  talking motion carries on.
+- A joint that does not arrive during his awake motion (talking, idle, poses, looks,
+  gestures, drive park and release, the walk-out) is held where it stopped and the owner stays
+  active. A failed hold or a broken link still faults, as do startup and shutdown timeouts.
+  A slow or stopped microphone-arm recentre now skips that hold instead of faulting.
+
+Synthetic checks (simulated servo board) reproduce the October 15 collision and the stuck
+elbow; not yet run on the robot.
+
 ## October 11: arms stay tucked beside obstacles
 
 Owner: the poker arm reaches about 2 ft out from the left side sensors and the throttle arm

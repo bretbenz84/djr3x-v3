@@ -73,8 +73,17 @@ Measured on this robot (Apple M2, 16 GB), model only:
 | Matching against 45 views | about 1 ms |
 | Network calls, cost | none |
 
+Re-measured October 15 in a fresh process on the same M2 (synthetic 1280×720 frame): about
+470 MB resident after loading (model plus runtime), 0.26 s of one core per frame, so about
+17% of one core at the 1.5 s pace and about 4% at the 6 s settled pace.
+
 Not yet measured: CPU contention with ASR, faces and objects during a live conversation,
 and the effect on reply latency.
+
+**October 15: it had never run.** The camera's frame hub accepted at most three consumers
+(faces, scene, objects), so `places` was refused with `VisualConsumerCapacity` at every start
+since October 11, with the setting on; in session `2f85db5c` Rex answered "Do you know what
+room this is?" with "I can't tell". The hub now takes four (`vision.CONSUMERS`).
 
 ## Imported V2 rooms
 

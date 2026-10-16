@@ -21,6 +21,32 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## October 15 runs: servo freeze, rooms, the dishes bit
+
+Two live runs that night. In `24279950` every servo stopped two minutes in and stayed stopped
+until restart; `2f85db5c` (16 minutes) went well. Three repairs:
+
+- **Servo freeze.** A kept throttle arm coming out after a drive also sent the hero elbow home
+  while idle motion was moving it; the walk-out timed out after 25 s and one timeout faulted the
+  whole servo owner. The walk-out now moves only the kept arm, and a joint that does not arrive
+  during awake motion is held where it stopped while everything else carries on
+  ([details](SERVO_INTEGRATION.md#october-15-one-stuck-joint-no-longer-freezes-every-servo)).
+- **Room recognition never started.** The camera hub took three consumers and places was the
+  fourth, refused at every start since October 11; Rex could not say which room he was in. The
+  hub takes four. About 470 MB and 17% of one core at the 1.5 s pace, measured in a fresh
+  process; live contention unmeasured ([details](ROOM_RECOGNITION.md)).
+- **The dishes bit came back.** One plan held two bits about Bret's counter work. He said "I'm
+  just doing the dishes", Rex said "Then I'll let you get on with it", and the second bit ran
+  40 s later. A beat planned before the person last spoke now sees Rex's own answer beside
+  theirs, with: keep your word if you said you'd leave them to it, and a second bit on something
+  already joked about is spent. Paid probe with fictional Sam (`check_agency_beats.py
+  --scenario busy_with_chore`): the second bit was spoken in 4 of 4 runs before, 0 of 6 after;
+  the ordinary conversation probe still spoke 5 of 6 beats in each of 2 runs (6 of 7 on October 14).
+
+Synthetic checks and the paid text probe only; none of the three has run on the robot.
+1244 blocked-I/O checks: all pass except `test_boot`'s import sweep, which also fails before
+these changes because PySide6 (the dashboard) is not installed in `.venv`.
+
 ## Rex's personal history — October 15
 
 Session `34d84a03`: asked about his old trips to Endor, Rex called his past "fictional backstory,
@@ -183,7 +209,8 @@ look and comment in a new room. V2's three taught rooms (dining room, workshop, 
 were imported. On saved September frames they score just under the confident bar (likely the
 newer wide lens), so Rex will at first be unsure and ask. About 300 MB and 0.25 s per frame on
 the M2; no cost. 1,095 blocked-I/O checks pass. **Not yet run on the robot**; off until
-`place_recognition_enabled` is set ([details](ROOM_RECOGNITION.md)).
+`place_recognition_enabled` is set ([details](ROOM_RECOGNITION.md)). October 15: with it set,
+it had still never started (the camera hub took only three consumers); fixed, see below.
 
 ## Searched news and interest news — October 11
 
@@ -810,7 +837,7 @@ separate categories.
 | Live tracked-object attention after movement | Target/version contracts exist in simulation. Physical directional looks and settled captures are implemented; tracked room-object gaze and mechanically verified arrival remain pending. Current-camera descriptions do not supply those controllers. |
 | Optional vision extensions | Adaptive image detail, general inspection-request coalescing and supported cross-session visual association are future options, not missing requirements of the completed core. Exact-image description reuse already exists. |
 | Motion-aware proactive noticing (partial implementation) | Commanded head/base motion, settling and bounded returning-view suppression are implemented. Independent subject motion, robust object continuity and unknown/manual camera movement remain future work. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
-| Room navigation | Rooms are recognized, named and connected ([room recognition](ROOM_RECOGNITION.md)); positions, a floor plan and "go to the kitchen" do not exist. |
+| Room navigation | Rooms can be recognized, named and connected in software ([room recognition](ROOM_RECOGNITION.md)); it first starts live after the October 15 camera-hub fix and is unproven on the robot. Positions, a floor plan and "go to the kitchen" do not exist. |
 | Compass heading | The drive base publishes raw QMC5883L magnetometer counts; V2's calibrated, current-gated compass fusion (`hardware/compass.py`, calibration file) is not ported. V3 uses gyro yaw only. |
 | Owner-requested companion features | Jeopardy, room exploration, and the September 18 “Do you ever think” long-lull thought experiments. Voice impressions landed October 6 ([details](IMPERSONATION.md)) and interest news October 11 ([details](OBSERVATION_SOURCES.md)); lull-time impression beats are not offered. Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
 | Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search and offline conversational providers remain separate future work. The dashboard's Memory Banks editor and typed input were not ported ([dashboard](GUI.md)). |

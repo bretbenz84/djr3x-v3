@@ -110,6 +110,22 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(offered[1],{"remain_silent"})
         self.assertTrue(all(p["tool_choice"]["mode"]=="auto" and p["tool_choice"]["type"]=="allowed_tools" for p in payloads))
 
+    def test_a_talked_over_beat_is_weighed_against_his_own_answer(self):
+        # October 15 (2f85db5c): "I'm just doing the dishes." "Then I'll let you get on with it."
+        # Forty seconds later the plan's second dish bit ran anyway.
+        history=({"role":"user","content":"I'm just doing the dishes."},
+                 {"role":"assistant","content":"Then I'll let you get on with it."})
+        step={"kind":"contribute","instruction":"Offer a vain ruling about the kitchen operation.","scope":"audience",
+              "origin":"planner","people_spoke_since_planned":True,"deferred":False,"plan_id":"p","index":2}
+        brain=OpenAIBrain("fixture")
+        brain.client=Client(Response([{"type":"response.output_text.delta","delta":"Hi."},{"type":"response.completed"}]))
+        list(brain.reply(Snapshot("s","t",0,history,context={"source_turn_id":"t","agency_step":step},
+                                  tools_enabled=True),Cancellation()))
+        note=brain.client.calls[0][1]["json"]["input"][-1]["content"]
+        self.assertIn('Their latest words: "I\'m just doing the dishes."',note)
+        self.assertIn('Your answer to them: "Then I\'ll let you get on with it."',note)
+        self.assertIn("keep your word",note)
+
     def test_instructions_stay_static_and_request_context_follows_history(self):
         from r3x.adapters.hosted import PERSONA
         history=({"role":"user","content":"earlier words"},{"role":"assistant","content":"earlier reply"})

@@ -486,6 +486,71 @@ class ArmReturnTests(unittest.TestCase):
         self.assertEqual(self.owner.kept_arms, frozenset())
         self.assertIn(0, self.owner.held_channels)
 
+    def test_a_kept_arm_coming_out_later_leaves_the_arms_idle_is_moving(self):
+        # October 15 (24279950): the throttle came out 7 s after a drive and the walk also
+        # sent the hero elbow home while an idle phrase held it at 6845. The return waited
+        # 25 s for 6720, timed out, and every servo move was refused until restart.
+        self.parked()
+        self.owner.begin_arm_return()
+        self.assertEqual(self.owner.return_arm(keep={'throttle'}).status, 'pulses_reached')
+        moved = self.owner.execute(self.request('pose', pose={4: 6845}, hold_pose=False), Cancellation())
+        self.assertEqual(moved.status, 'pulses_reached')               # Idle life moves the elbow.
+        poker = {ch: self.port.pose[ch] for ch in (6, *POKER)}
+        self.owner.begin_arm_return()
+        talk = self.owner.execute(self.request('talking'), Cancellation())
+        self.assertEqual(talk.status, 'pulses_reached')                # Not ServoBusy while the throttle walks.
+        elbow = self.port.pose[4]
+        receipt = self.owner.return_arm()
+        self.assertEqual(receipt.status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
+        self.assertEqual(self.port.pose[4], elbow)                     # The elbow is left where talking put it,
+        self.assertEqual({ch: self.port.pose[ch] for ch in (6, *POKER)}, poker)   # and the poker arm too.
+        self.assertEqual(self.owner.kept_arms, frozenset())
+        self.assertFalse(self.owner.held_channels & set(ARM_RETURN))
+
+    def test_an_arm_that_never_arrives_is_held_and_the_rest_carries_on(self):
+        self.parked()
+        original_write = self.port.write
+        def stuck_elbow(packet):
+            if packet[0] == 0x84 and packet[1] == 4:
+                packet = bytes((0x84, 4, 6845 & 127, 6845 >> 7))   # The elbow stops short of 6720.
+            return original_write(packet)
+        self.port.write = stuck_elbow
+        self.owner.begin_arm_return()
+        receipt = self.owner.return_arm()
+        self.assertEqual((receipt.status, receipt.reason), ('failed', 'ServoArrivalTimeout:ch4@6845->6720'))
+        self.assertEqual(self.owner.state, 'active')
+        self.assertFalse(self.owner._arm_returning)
+        self.assertFalse(self.owner.held_channels & set(ARM_RETURN))   # His arms are his again.
+        self.port.write = original_write
+        self.assertEqual(self.execute('talking').status, 'pulses_reached')
+        self.assertEqual(self.execute('base_park').status, 'pulses_reached')   # The next drive can park.
+
+    def test_a_stalled_awake_move_holds_without_refusing_later_moves(self):
+        self.owner.start()
+        self.execute()
+        self.port.stall = True
+        result = self.owner.execute(self.request('pose', pose='look_left', hold_pose=False), Cancellation())
+        self.assertEqual(result.status, 'failed')
+        self.assertTrue(result.reason.startswith('ServoArrivalTimeout:ch'), result.reason)
+        self.assertEqual(self.owner.state, 'active')
+        self.port.stall = False
+        self.assertEqual(self.owner.execute(self.request('pose', pose='look_right', hold_pose=False),
+                                            Cancellation()).status, 'pulses_reached')
+
+    def test_a_stalled_microphone_recentre_does_not_refuse_later_moves(self):
+        self.owner.start()
+        self.execute()
+        self.assertEqual(self.owner.execute(self.request('pose', pose={7: 7000}, hold_pose=False),
+                                            Cancellation()).status, 'pulses_reached')
+        self.clock.wait(2.)
+        self.port.stall = True                         # The array arm never gets back to centre.
+        self.owner.refresh_microphone_hold()
+        self.assertEqual(self.owner.state, 'active')
+        self.assertEqual(self.owner.microphone_hold, (0., 0.))
+        self.port.stall = False
+        self.assertEqual(self.execute('talking').status, 'pulses_reached')
+
     def test_the_next_drive_takes_a_kept_arm(self):
         self.parked()
         self.owner.begin_arm_return()

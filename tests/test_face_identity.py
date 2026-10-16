@@ -203,10 +203,10 @@ class FaceTrackingTests(unittest.TestCase):
 
     def test_latest_shared_frames_skip_stale_work_and_close_releases(self):
         hub=FrameHub()
-        for name in ('faces','pose','objects'):hub.register(name)
+        for name in ('faces','scene','objects','places'):hub.register(name)   # Every live consumer fits.
         with self.assertRaises(ValueError):hub.register('extra')
         for i in range(30):hub.publish(Frame(str(i),'cam','session',i,2,2,b'x'*12))
-        first=hub.take('faces');second=hub.take('pose')
+        first=hub.take('faces');second=hub.take('scene')
         self.assertIs(first,second)
         self.assertEqual(first.frame_id,'29')
         self.assertIsNone(hub.take('faces','29',timeout=0))

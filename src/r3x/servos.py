@@ -20,6 +20,9 @@ from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes,
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
 ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})   # The arms the drive stance moved: walked back after the wheels stop.
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
+# Requests that only run once he is awake (after startup, before park).
+AWAKE_KINDS = frozenset({'talking', 'idle', 'pose', 'reflex', 'listening', 'base_park', 'base_release',
+                         'attention', 'gesture', 'operator'})
 
 
 @dataclass(frozen=True)
@@ -74,10 +77,14 @@ class ServoOwner:
         self.hold_until_released = False   # "Leave your hand there until I say": no 90-second yield.
         self._base_held = False
         self._arm_returning = False        # The throttle arm is walking back to rest after a drive.
+        # The channels that return is moving: every drive-stance arm right after a drive, only
+        # the kept arm's own channels when it comes out later. Nothing else may command them.
+        self._returning_channels: frozenset[int] = frozenset()
         # Arms left at their drive stance after a drive because something was within their
         # reach (October 11). Their channels stay held until the drive owner sees the space
         # clear and returns them, or the next drive or shutdown takes them.
         self.kept_arms: frozenset[str] = frozenset()
+        self._after_drive = False
         self._arm_cancel = threading.Event()
         self._arm_wait = wait or self._arm_cancel.wait
         self._talking_head_origin: dict[int, int] | None = None
@@ -224,8 +231,11 @@ class ServoOwner:
             deadline = self.clock() + 5.
             while abs(self._bus.positions((7,))[7]-center)>2:
                 if self._cancel.is_set() or self.clock() >= deadline:
+                    # No microphone lease this time; the array arm is held where it stopped. A
+                    # slow or stopped recentre is not a broken link: later moves still run.
                     self._hold({7})
-                    raise ProviderFailure('MicrophoneCenterNotCompleted')
+                    self.release_microphone_hold()
+                    return
                 self.wait(.025)
             now = self.clock()
             self.motion_until = now + 1.5
@@ -270,7 +280,7 @@ class ServoOwner:
             if (request.version != self.version or not request.request_id or
                     not math.isfinite(request.expires_at) or self.clock() >= request.expires_at):
                 return receipt('rejected', 'StaleServoRequest')
-            if request.kind in {'talking','idle','pose','reflex','listening','base_park','base_release','attention','gesture','operator'} and self.state != 'active':
+            if request.kind in AWAKE_KINDS and self.state != 'active':
                 return receipt('rejected', {'idle':'IdleRequiresCompletedStartup','talking':'TalkingRequiresCompletedStartup','pose':'PoseRequiresCompletedStartup'}.get(request.kind,'BaseMotionRequiresCompletedStartup'))
             if request.kind == 'startup' and self.state != 'ready':
                 return receipt('rejected', 'StartupAlreadyConsumed')
@@ -290,7 +300,7 @@ class ServoOwner:
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))
             if self._arm_returning and (request.kind in {'base_park', 'park', 'shutdown'} or any(
-                    ch in ARM_RETURN for lane in lanes for beat in lane for ch, _ in beat.targets)):
+                    ch in self._returning_channels for lane in lanes for beat in lane for ch, _ in beat.targets)):
                 # The arms are still returning from their drive stance; callers that need
                 # them (the next drive, shutdown, an arm pose) wait for the return first.
                 return receipt('rejected', 'ServoBusy')
@@ -405,7 +415,7 @@ class ServoOwner:
                 self.hold_until_released = False
                 self.held_channels.update(self.kept_channels)
                 if self._arm_returning:
-                    self.held_channels.update(ARM_RETURN)
+                    self.held_channels.update(self._returning_channels)
             if request.kind == 'base_release':
                 self.held_channels.difference_update(BASE_HELD)
                 self._base_held = False
@@ -416,7 +426,7 @@ class ServoOwner:
             if accepted:
                 try:
                     self._hold(touched)
-                    self.state = 'active' if request.kind in {'talking','idle','pose','reflex','listening','base_park','base_release','attention','gesture','operator'} else 'stopped'
+                    self.state = 'active' if request.kind in AWAKE_KINDS else 'stopped'
                 except Exception:
                     self.state = 'faulted'
                     return receipt('failed', 'ServoCancelHoldFailed')
@@ -433,6 +443,11 @@ class ServoOwner:
             if reason.split(':')[0] in {'ServoArrivalTimeout', 'ServoRequestExpired', 'ThrottleRouteChanged'}:
                 try:
                     self._hold(touched)
+                    if request.kind in AWAKE_KINDS:
+                        # October 15 (24279950): one hero-elbow timeout refused every servo move
+                        # until restart. The hold just went over the wire, so the link works: the
+                        # joint stays where it stopped and the rest of him carries on.
+                        self.state = 'active'
                 except Exception:
                     reason += ':HoldFailed'
             return receipt('failed', reason)
@@ -461,9 +476,17 @@ class ServoOwner:
         (October 10: the poker arm had been let go here and never came back)."""
         self._arm_cancel.clear()
         self._arm_returning = True
+        self._after_drive = self._base_held
         if self._base_held:   # Not when a kept arm comes out later: a person's held look stays.
             self.held_channels.difference_update(BASE_HELD - ARM_RETURN)
             self._base_held = False
+            self._returning_channels = ARM_RETURN
+        else:
+            # A kept arm comes out on its own. October 15 (24279950): this walk also sent the
+            # hero elbow home while an idle phrase was moving it; the two fought over the joint
+            # for 25 s. Only the kept arm's channels move now, and they are still held, so
+            # nothing else is commanding them.
+            self._returning_channels = frozenset(self.kept_channels)
 
     def return_arm(self, keep=frozenset()) -> ServoReceipt:
         """Walk the arms the drive stance moved back to their awake poses beside other motion.
@@ -491,7 +514,9 @@ class ServoOwner:
                 return receipt('rejected', 'OperatorOverride')   # The arms stay put; a later clear check retries.
             current = self._bus.positions(sorted(ARM_RETURN))
             keep = frozenset(keep)
-            lanes = base_lanes('base_release', current, keep)
+            # Later, the arms already out (and the hero elbow) belong to idle and talking again.
+            lanes = (base_lanes('base_release', current, keep) if self._after_drive else
+                     base_lanes('base_release', current, frozenset(REACHING_ARMS) - (self.kept_arms - keep), hero=False))
             indices = [0] * len(lanes)
             active = {}   # lane -> arrival deadline
             while any(index < len(lane) for index, lane in zip(indices, lanes)):
@@ -527,7 +552,7 @@ class ServoOwner:
             return receipt('pulses_reached')
         except Cancelled:
             try:
-                self._hold(set(ARM_RETURN))
+                self._hold(set(self._returning_channels))
             except Exception:
                 self.state = 'faulted'
                 return receipt('failed', 'ServoCancelHoldFailed')
@@ -535,13 +560,17 @@ class ServoOwner:
         except ValueError as exc:
             return receipt('rejected', str(exc))
         except Exception as exc:
-            self.state = 'faulted'
             reason = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
             if reason.split(':')[0] in {'ServoArrivalTimeout', 'ThrottleRouteChanged'}:
                 try:
-                    self._hold(set(ARM_RETURN))
+                    self._hold(set(self._returning_channels))
+                    # The link works (the hold went out): the arm stays where it stopped and is
+                    # Rex's again, instead of every later servo move being refused.
+                    done = True
+                    return receipt('failed', reason)
                 except Exception:
                     reason += ':HoldFailed'
+            self.state = 'faulted'
             return receipt('failed', reason)
         finally:
             if done:
@@ -550,6 +579,7 @@ class ServoOwner:
                 self.held_channels.update(self.kept_channels)
             self.motion_until = max(self.motion_until, self.clock() + .5)
             self._arm_returning = False
+            self._returning_channels = frozenset()
 
     def _hold(self, channels: set[int]) -> None:
         if channels and self._bus:

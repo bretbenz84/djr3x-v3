@@ -748,7 +748,8 @@ class OpenAIBrain(HTTPProvider):
                 'was already answered, or they moved to a new subject and the beat is about the old one (back to the telescope '
                 'after they bring up a library is a non sequitur), do not recite it: say one short thing that does fit (their '
                 'latest words, one of their interests, a news item, or something you can see). Use remain_silent only when they '
-                'are busy (talking to someone else, reading, saying goodnight). When wait_for is offered and the beat '
+                'are busy (talking to someone else, reading, saying goodnight, a chore they told you about) or you told '
+                'them you would leave them to it. When wait_for is offered and the beat '
                 'still fits but not this second (they are mid-story, a question of yours is still open, it is about the '
                 'dog who just left), hold it once for the moment you choose instead. If your most recent line asked a question they '
                 'have not answered, do not ask another: make a short statement. '
@@ -792,15 +793,27 @@ class OpenAIBrain(HTTPProvider):
         if step.get('people_spoke_since_planned') and not snapshot.continuation:
             # October 13 probes: told only that people had spoken, the beat model still ran
             # beats about a topic they had left. Set side by side, last (after the cached prefix).
-            latest = next((m['content'] for m in reversed(snapshot.messages)
-                           if m.get('role') == 'user' and isinstance(m.get('content'), str)), None)
-            if latest:
+            at = next((i for i in range(len(snapshot.messages) - 1, -1, -1)
+                       if snapshot.messages[i].get('role') == 'user' and isinstance(snapshot.messages[i].get('content'), str)), None)
+            if at is not None:
+                latest = snapshot.messages[at]['content']
+                # October 15 (2f85db5c): "I'm just doing the dishes." "Then I'll let you get on with
+                # it." Forty seconds later the plan's second dish bit ran anyway. His own answer sits
+                # beside theirs so the beat is weighed against what he just told them.
+                answer = ' '.join(m['content'] for m in snapshot.messages[at + 1:]
+                                  if m.get('role') == 'assistant' and isinstance(m.get('content'), str))
                 payload['input'].append({'role':'developer','content':
                     'BEFORE THIS BEAT: it was planned before they last spoke. Their latest words: '
-                    + json.dumps(latest, ensure_ascii=False) + '. The beat: ' + json.dumps(step.get('instruction', ''), ensure_ascii=False)
-                    + '. If the beat still fits, do it in fresh words that build on their latest words. If it is not about what '
-                    'they just said, or your reply already made its point, say one short thing that does fit instead (their '
-                    'words, an interest of theirs, a news item, something you see), or use remain_silent only if they are busy.'})
+                    + json.dumps(latest, ensure_ascii=False)
+                    + ('. Your answer to them: ' + json.dumps(answer, ensure_ascii=False) if answer else '')
+                    + '. The beat: ' + json.dumps(step.get('instruction', ''), ensure_ascii=False)
+                    + '. If your answer told them you would leave them to it, stop, or drop the subject, keep your word: '
+                    'remain_silent. A beat that is another bit on something you already joked about (the same activity, '
+                    'object or tease, even from a new angle) is spent: say one short thing about something else, or '
+                    'remain_silent if they are busy. If the beat still fits, do it in fresh words that build on their latest '
+                    'words. If it is not about what they just said, or your reply already made its point, say one short thing '
+                    'that does fit instead (their words, an interest of theirs, a news item, something you see), or use '
+                    'remain_silent only if they are busy.'})
         offered = None
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             # Prompt caching matches the rendered prefix, and tool definitions precede the

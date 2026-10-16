@@ -749,13 +749,14 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
     return tuple(lanes)
 
 
-def base_lanes(kind: str, current: dict[int, int], keep=frozenset()) -> tuple[tuple[Beat, ...], ...]:
+def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True) -> tuple[tuple[Beat, ...], ...]:
     """Throttle park, centered neck, raised hero elbow/poker arm and the poker elbow/wrist
     drive pose before base motion; afterwards the throttle's return to rest beside the
     hero elbow, poker arm, elbow and wrist going back to their awake poses.
 
     keep names the REACHING_ARMS that stay at their drive stance on release (an obstacle
-    within reach); the hero elbow always returns.
+    within reach); the hero elbow returns unless hero is False (a kept arm coming out later,
+    when the elbow is idle motion's again).
 
     V2 parks the throttle arm before every non-reverse base command. The neck is
     centered so head-camera bearings are base-relative. Return uses the validated
@@ -807,7 +808,7 @@ def base_lanes(kind: str, current: dict[int, int], keep=frozenset()) -> tuple[tu
         # wrist to the awake 45-degree pose by the staged clearance route.
         kept = {ch for arm in keep for ch in REACHING_ARMS[arm]}
         arms = tuple((ch, value) for ch, value in AWAKE_ARMS
-                     if ch in current and ch not in kept and abs(current[ch] - value) > 2)
+                     if ch in current and ch not in kept and (hero or ch != 4) and abs(current[ch] - value) > 2)
         if arms:
             lanes += ((Beat(arms, speed=20, acceleration=5),),)
         if ('poker' not in keep and set(POKER).issubset(current)

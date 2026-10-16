@@ -14,12 +14,17 @@ class Frame:
     pixels: bytes
 
 
+# Faces, scene, objects and places. October 15: the limit was three, so room recognition
+# was refused at every start from the day it landed (October 11) and never ran live.
+CONSUMERS = 4
+
+
 class FrameHub:
-    """One pending frame plus one in-flight frame per registered consumer (max 3).
+    """One pending frame plus one in-flight frame per registered consumer (max CONSUMERS).
 
     Immutable byte storage is shared, not copied per subscriber. Consumers replace
-    pending work and may hold only their current frame. At 1080p four shared frames are
-    23.7 MiB. No historical full-resolution queue.
+    pending work and may hold only their current frame. At 1080p five shared frames are
+    29.7 MiB. No historical full-resolution queue.
     """
     def __init__(self):
         self.condition = threading.Condition()
@@ -29,7 +34,7 @@ class FrameHub:
 
     def register(self,name):
         with self.condition:
-            if name in self.consumers or len(self.consumers)>=3: raise ValueError('VisualConsumerCapacity')
+            if name in self.consumers or len(self.consumers)>=CONSUMERS: raise ValueError('VisualConsumerCapacity')
             self.consumers.add(name)
 
     def publish(self,frame):
