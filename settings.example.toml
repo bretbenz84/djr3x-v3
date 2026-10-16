@@ -25,9 +25,9 @@ direction_enabled = false
 # Silero speech probability threshold, valid .01-.99; needs room calibration.
 vad_threshold = 0.5
 # Endpoint silence, valid .2-2 seconds. Mic preroll is fixed at 256 ms.
-# 0.7 s covers an average thinking pause (owner measurement, October 11); speech that
+# 0.35 s (owner choice, October 16; 0.7 s covered an average thinking pause). Speech that
 # resumes before the reply is audible cancels it, and the model can wait on unfinished thoughts.
-end_silence_seconds = 0.7
+end_silence_seconds = 0.35
 # Qwen quality flag only, valid -5..0. This is not speaker identity confidence.
 asr_trust_logprob = -0.35
 

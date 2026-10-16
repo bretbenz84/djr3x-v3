@@ -210,8 +210,9 @@ Changed (simulated checks only; **not yet run on the robot**):
   Cached and uncached replies took the same model time in the recorded sessions, so this is a
   cost repair, not a measured speed-up.
 
-- Endpoint silence is now 0.7 s instead of 1.2 s, the owner's measured average thinking pause.
-  The 1.2 s was an untuned September 10 starting value. Speech that resumes before a reply is
+- Endpoint silence is now 0.35 s (owner choice, October 16), after 0.7 s (October 11, the
+  owner's measured average thinking pause) and an untuned 1.2 s September 10 start. It takes
+  about 0.35 s off every reply wait. Speech that resumes before a reply is
   audible still cancels it, and the model can still wait on an unfinished thought. Longer
   pauses now split into separate captures (shorter clips for voice evidence); how often that
   happens and whether Rex starts talking over resumed speech need a live run.
