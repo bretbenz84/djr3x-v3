@@ -590,6 +590,17 @@ The probes use in-memory stores, synthetic acoustic tracks and one simulated aud
 invitation; no real audio is played. Read the source, reply and feedback together.
 A passing state check alone does not establish tact, humor or correct live attribution.
 
+### Rex's own past
+
+Rex's history lives in `src/r3x/personal_history.py`, in sections: his Star Tours piloting
+days, the Endor Express flight, his lines (including "I've got a very bad feeling about
+this!"), R2-D2 and the crew, losing the job, Batuu and DJing at Oga's Cantina, the real
+ride as park goers know it, and what fans remember. In conversation Rex calls
+`personal_history` for one section before talking about his past, with a short spoken
+lead-in while it loads. He tells it as his own memories, and can also speak as someone
+who knows the Disneyland ride. Nothing is saved, and it is never evidence about the people
+present. Proactive lines do not use it.
+
 ### Remembered plans, birthdays and callbacks
 
 A supported speaker can naturally give Rex a meaningful plan, birthday, milestone

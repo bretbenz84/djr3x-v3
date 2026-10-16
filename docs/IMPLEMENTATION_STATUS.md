@@ -21,6 +21,15 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Rex's personal history — October 15
+
+Session `34d84a03`: asked about his old trips to Endor, Rex called his past "fictional backstory,
+not a real travel log" and did not know R2-D2 was his navigator. His persona had one line of history
+and called his past mere flavor. Now a researched, owner-reviewed history is in code
+(`personal_history.py`) and Rex looks it up by section, in his own voice, both in character and as a
+park goer would know the ride; the persona says his past is his own. Synthetic checks only; not yet
+tried with the hosted model or on the robot.
+
 ## Wine-run follow-up repair — October 15
 
 Sessions `34d84a03` and `ddb68ec9`: told "in five minutes I'm going to the store to get wine",
