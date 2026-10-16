@@ -21,10 +21,10 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
-## October 15 runs: servo freeze, rooms, the dishes bit
+## October 15 runs: servo freeze, rooms, the dishes bit, stale plans
 
 Two live runs that night. In `24279950` every servo stopped two minutes in and stayed stopped
-until restart; `2f85db5c` (16 minutes) went well. Three repairs:
+until restart; `2f85db5c` (16 minutes) went well. Four repairs:
 
 - **Servo freeze.** A kept throttle arm coming out after a drive also sent the hero elbow home
   while idle motion was moving it; the walk-out timed out after 25 s and one timeout faulted the
@@ -43,7 +43,17 @@ until restart; `2f85db5c` (16 minutes) went well. Three repairs:
   --scenario busy_with_chore`): the second bit was spoken in 4 of 4 runs before, 0 of 6 after;
   the ordinary conversation probe still spoke 5 of 6 beats in each of 2 runs (6 of 7 on October 14).
 
-Synthetic checks and the paid text probe only; none of the three has run on the robot.
+- **Last night's wine run treated as current.** "In five minutes, I'm going to go to the store to
+  get wine" (October 14) was still a current fact on October 15: the joke writer pitched a
+  "late-night wine run" in 6 of 13 batches. Saved facts had no wall-clock time, and a same-words
+  "correction" during the room question had moved its source to that turn and dropped its
+  follow-up. Facts now keep when they were told (`claims.said_at`; older ones fall back to their
+  recorded exchange, else "unknown"), and the reply model, planner and joke writer see `told` and,
+  for a plan with a time, `planned_time`, with one rule: a plan tied to a moment is over once that
+  moment has gone by. A correction that changes nothing is refused (`CorrectionUnchanged`). The
+  existing wine fact keeps the rewrite's time (Thursday 11:06 p.m.), not Wednesday's.
+
+Synthetic checks and the paid text probe only; none of these has run on the robot.
 1244 blocked-I/O checks: all pass except `test_boot`'s import sweep, which also fails before
 these changes because PySide6 (the dashboard) is not installed in `.venv`.
 

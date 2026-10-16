@@ -13,6 +13,9 @@ def label(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
+CLAIM_INSERT = ("INSERT INTO claims(id,subject_id,predicate,value,said_by,source_track,source_turn,kind,status,"
+                "supersedes,revision,said_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 INSERT OR IGNORE INTO meta VALUES('schema','1');
@@ -28,7 +31,7 @@ CREATE TABLE IF NOT EXISTS claims(
  id TEXT PRIMARY KEY, subject_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
  predicate TEXT NOT NULL,value TEXT NOT NULL,said_by TEXT REFERENCES people(id) ON DELETE CASCADE,
  source_track TEXT,source_turn TEXT NOT NULL REFERENCES turns(id),kind TEXT NOT NULL,
- status TEXT NOT NULL,supersedes TEXT,revision INTEGER NOT NULL);
+ status TEXT NOT NULL,supersedes TEXT,revision INTEGER NOT NULL,said_at REAL);
 CREATE INDEX IF NOT EXISTS claims_subject ON claims(subject_id,status);
 CREATE TABLE IF NOT EXISTS memory_followups(
  claim_id TEXT PRIMARY KEY REFERENCES claims(id) ON DELETE CASCADE,
@@ -110,6 +113,10 @@ class Memory:
         for column in ('said_at', 'due_at'):
             if column not in columns:
                 self.connection.execute(f'ALTER TABLE memory_followups ADD COLUMN {column} REAL')
+        # October 15: every fact keeps when it was told, so "in five minutes, I'm going to the
+        # store" is not offered as current a day later. Older facts fall back to their exchange.
+        if 'said_at' not in {r[1] for r in self.connection.execute('PRAGMA table_info(claims)')}:
+            self.connection.execute('ALTER TABLE claims ADD COLUMN said_at REAL')
         from .conversation_memory import SCHEMA as conversation_schema
         self.connection.executescript(conversation_schema)
         from .agency import SCHEMA as agency_schema
@@ -208,7 +215,10 @@ class Memory:
 
     def claims(self, person_id=None, include_candidates=False):
         states = ("accepted", "candidate") if include_candidates else ("accepted",)
-        sql = "SELECT c.*,t.text AS source_text FROM claims c JOIN turns t ON t.id=c.source_turn WHERE c.status IN (" + ",".join("?" for _ in states) + ")"
+        sql = ("SELECT c.*,t.text AS source_text,COALESCE(c.said_at,x.created_at) AS told_at,"
+               "f.kind AS followup_kind,f.due_at FROM claims c JOIN turns t ON t.id=c.source_turn "
+               "LEFT JOIN conversation_exchanges x ON x.id=c.source_turn LEFT JOIN memory_followups f ON f.claim_id=c.id "
+               "WHERE c.status IN (" + ",".join("?" for _ in states) + ")")
         params = list(states)
         if person_id:
             sql += " AND c.subject_id=?"

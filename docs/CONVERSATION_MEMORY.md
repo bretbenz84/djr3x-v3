@@ -33,7 +33,8 @@ Automatic context contains up to four prior exchanges, six accepted facts, three
 current-session exchanges and four episode interpretations with source excerpts.
 The prompt allows a relevant hobby or unfinished topic as a greeting, without
 requiring a special follow-up registration or inventing a past event. Dated
-follow-ups keep their existing dedicated delivery tracking. Completed exchanges
+follow-ups keep their existing dedicated delivery tracking. Saved facts carry when they were told
+(`told`, wall clock) and, for a plan with a time, `planned_time` (October 15). Completed exchanges
 provide cross-session repetition evidence, not an automatic topic prohibition.
 
 `earlier_greetings` (October 14) lists the last three heard arrival greetings to the person,

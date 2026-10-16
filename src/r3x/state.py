@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from .contracts import ToolResult
 from .enrollment import Enrollment
-from .memory import label
+from .memory import CLAIM_INSERT, label
 from .semantics import validate
 
 
@@ -1071,8 +1071,8 @@ class CoreState:
                             (args["subject_id"],args["predicate"],args["value"])).fetchone():
                 status = "candidate"  # A conflicting new claim never silently replaces the current one.
             claim_id = uuid4().hex
-            conn.execute("INSERT INTO claims VALUES(?,?,?,?,?,?,?,?,?,?,?)",(claim_id,args["subject_id"],args["predicate"],args["value"],
-                         speaker,attribution.track_id,turn_id,args["kind"],status,None,self.store.revision+1))
+            conn.execute(CLAIM_INSERT,(claim_id,args["subject_id"],args["predicate"],args["value"],
+                         speaker,attribution.track_id,turn_id,args["kind"],status,None,self.store.revision+1,self.wall_clock()))
             return {"claim_id":claim_id,"status":status,"subject_id":args["subject_id"],"said_by":speaker,
                     "subject_name":self.store.person(args["subject_id"])["name"],"predicate":args["predicate"],"value":args["value"]},True
         if name in {"correct_claim","retract_claim"}:
@@ -1081,13 +1081,18 @@ class CoreState:
                 raise ValueError("UnknownOrRetiredClaim")
             if not attribution.speaker_id or attribution.speaker_id not in (claim["said_by"],claim["subject_id"]):
                 raise ValueError("CorrectionNeedsSupportedSourceOrSubject")
+            if name == "correct_claim" and args["value"] == claim["value"]:
+                # October 15 (2f85db5c): asked which room this was, the reply "corrected" the wine
+                # plan to its own words; the fact then claimed the room question as its source.
+                raise ValueError("CorrectionUnchanged")
             conn.execute("UPDATE claims SET status=? WHERE id=?",("superseded" if name=="correct_claim" else "retracted",claim["id"]))
             if name == "retract_claim":
                 return {"claim_id":claim["id"],"status":"retracted"},True
             claim_id = uuid4().hex
             kind = "self_report" if attribution.speaker_id==claim["subject_id"] else "third_party"
-            conn.execute("INSERT INTO claims VALUES(?,?,?,?,?,?,?,?,?,?,?)",(claim_id,claim["subject_id"],claim["predicate"],args["value"],
-                         attribution.speaker_id,attribution.track_id,turn_id,kind,"accepted",claim["id"],self.store.revision+1))
+            conn.execute(CLAIM_INSERT,(claim_id,claim["subject_id"],claim["predicate"],args["value"],
+                         attribution.speaker_id,attribution.track_id,turn_id,kind,"accepted",claim["id"],self.store.revision+1,
+                         self.wall_clock()))
             return {"claim_id":claim_id,"status":"accepted","supersedes":claim["id"],"subject_id":claim["subject_id"],
                     "subject_name":self.store.person(claim["subject_id"])["name"],"predicate":claim["predicate"],"value":args["value"]},True
         if name == "cancel_association":

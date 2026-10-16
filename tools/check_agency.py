@@ -21,7 +21,7 @@ import zlib
 
 from r3x.adapters.hosted import OpenAIBrain, OpenAIAgencyPlanner
 from r3x.contracts import Capture, Transcript, ProviderFailure
-from r3x.memory import Memory
+from r3x.memory import CLAIM_INSERT, Memory
 from r3x.output import OutputOwner
 from r3x.physical_attention import PhysicalAttention, PhysicalGesture
 from r3x.robot_servos import RobotServos
@@ -134,8 +134,8 @@ def run_case(name, folder, key):
                         conn.execute('INSERT INTO turns VALUES(?,?,?,?,?,?)',('fixture-turn','fixture','fixture',
                             'My beagle Biscuit steals socks, and I am training for a half marathon.','{}',0.))
                         for i,(predicate,value) in enumerate(FRIEND_FACTS):
-                            conn.execute('INSERT INTO claims VALUES(?,?,?,?,?,?,?,?,?,?,?)',('fixture-claim-'+str(i),
-                                friend,predicate,value,friend,None,'fixture-turn','self_report','accepted',None,1))
+                            conn.execute(CLAIM_INSERT,('fixture-claim-'+str(i),
+                                friend,predicate,value,friend,None,'fixture-turn','self_report','accepted',None,1,None))
                 # Arrival cases stand close enough to count as an arrival to greet (face area gate).
                 world.people=[('sam' if friend else 'visitor',friend,1.1 if name in {'known_friend','new_visitor'} else 2.,0.)]
                 if name=='curious_room':world.objects=[('object:plant','potted plant',2.6,1.2)]

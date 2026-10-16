@@ -166,8 +166,9 @@ class Session:
             self.trace.emit('joke_recorded', turn_id=turn_id, premise=item['premise'], reaction='told')
         if opportunity is None and transcript is not None and transcript.trusted:
             memory = context.get('personal_memory') or {}
-            known = [f"{r.get('predicate')}: {r.get('value')}" for r in memory.get('interests_and_facts', [])
-                     if person and memory.get('person_id') == person]
+            known = [f"{r.get('predicate')}: {r.get('value')} (told {r.get('told')}"
+                     + (f"; {r['planned_time']})" if r.get('planned_time') else ')')
+                     for r in memory.get('interests_and_facts', []) if person and memory.get('person_id') == person]
             facts = jokes.summary(self.history_messages(), context.get('right_now'),
                                   [], context.get('humor'), known)
             if self.joke_room.ask(facts, jokes.audience_key(person), self.human_turns):
@@ -272,7 +273,7 @@ class Session:
             same = memory.get('person_id') == subject_person
             subject = {'person_id': subject_person, 'display_name': people.get(subject_person, {}).get('name'),
                 'visible_now': any(f.get('identity') == subject_person for f in faces),
-                'known_facts': [{'id': r.get('id'), 'predicate': r.get('predicate'), 'value': r.get('value')}
+                'known_facts': [{k: r[k] for k in ('id', 'predicate', 'value', 'told', 'planned_time') if k in r}
                                 for r in memory.get('interests_and_facts', [])] if same else [],
                 'recent_exchanges': memory.get('recent_exchanges', []) if same else [],
                 'episodes': [{'id': r.get('id'), 'summary': r.get('summary')} for r in memory.get('episodes', [])] if same else [],

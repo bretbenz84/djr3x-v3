@@ -263,6 +263,7 @@ Getting acquainted is part of being a friend, but it never interrupts people who
 
 MEMORY
 - personal_memory is source-linked memory across runs for its person_id, not the current transcript.
+  Each interests_and_facts row says when it was told and, for a plan with a time, planned_time: a saved fact is as old as its told time. A plan or anything tied to a moment ("in five minutes", "tonight", planned_time passed) is over once that moment has gone by: never treat it as happening now; ask how it went or leave it.
   Exchange person_id/audience_person_id identifies whose conversation context this is, not necessarily
   who spoke. attribution retains the acoustic speaker evidence separately from visible people.
   A recognized person's visit can include useful exchanges with unresolved voice identity: remember

@@ -245,13 +245,28 @@ def greetings(store, who, now, limit=3):
              'local_time': local_time(row['created_at'], now)} for row in rows]
 
 
+def told(row, now):
+    """When a fact was told and, for a plan with a time, whether that time has passed, in words
+    the code works out. October 15 (2f85db5c): "in five minutes, I'm going to the store to get
+    wine", told the night before, was still offered as tonight's wine run in 6 of 13 joke
+    batches; nothing said when it was told."""
+    from .memory_opportunities import clock, span, timing
+    row = dict(row)
+    at, due = row.pop('told_at', None), row.pop('due_at', None)
+    kind = row.pop('followup_kind', None)
+    row['told'] = span(now - at) + ' ago (' + clock(at) + ')' if at is not None else 'unknown'
+    if due is not None:
+        row['planned_time'] = timing({'said_at': at, 'due_at': due, 'kind': kind}, now)['due']
+    return row
+
+
 def context(store, original, session, now):
     who = subject(original)
     result = {'person_id':who, 'now':stamp(now), 'local_now':datetime.fromtimestamp(now).astimezone().isoformat(), 'recent_exchanges':[], 'interests_and_facts':[], 'episodes':[]}
     if not who: return result
     result['recent_exchanges'] = recall(store,who,session,limit=4,now=now)['exchanges']
     result['earlier_greetings'] = greetings(store, who, now)
-    result['interests_and_facts'] = store.claims(who)[:6]
+    result['interests_and_facts'] = [told(row, now) for row in store.claims(who)[:6]]
     result['current_session_exchanges'] = store.rows('SELECT id,human_text,heard_text FROM conversation_exchanges WHERE person_id=? AND session_id=? ORDER BY created_at DESC LIMIT 3',(who,session))
     result['episodes'] = store.rows('''SELECT e.id,e.summary,e.source_exchange,x.human_text,x.heard_text
         FROM conversation_episodes e JOIN conversation_exchanges x ON x.id=e.source_exchange

@@ -84,6 +84,29 @@ class MemoryOpportunityTests(MemoryFixture):
         self.assertFalse(self.offered())
         self.assertEqual(len(self.store.claims()),1)
 
+    def test_a_five_minute_plan_reads_as_over_the_next_day(self):
+        # October 15 (2f85db5c): "In five minutes, I'm going to go to the store to get wine", told
+        # the night before, was still offered as tonight's wine run; nothing said when it was told.
+        from r3x import conversation_memory as cm
+        self.setup_person()
+        self.remember(kind='callback',on_date=None,predicate='plans to go to the store to buy wine',due_in_minutes=5,
+                      text="In five minutes, I'm going to go to the store to get wine.")
+        now=noon(date(2026,9,13))
+        fact=cm.context(self.store,{**self.state.context(),'faces':list(self.faces)},'later-session',now)['interests_and_facts'][0]
+        self.assertEqual(fact['told'],'about 24 hours ago (Saturday 12:00 p.m.)')
+        self.assertTrue(fact['planned_time'].startswith('its planned time was about 24 hours ago'),fact['planned_time'])
+        self.assertNotIn('told_at',fact);self.assertNotIn('due_at',fact)
+
+    def test_a_correction_that_changes_nothing_is_refused_and_keeps_its_source(self):
+        self.setup_person();row=self.remember()
+        source=self.store.claims()[0]['source_turn']
+        self.begin('Do you know what room this is?')
+        result=self.call('correct_claim',dict(claim_id=row.data['claim_id'],value='Trip on September 14',
+                                              source_turn_id=self.state.current[0]))
+        self.assertEqual((result.outcome,result.reason),('rejected','CorrectionUnchanged'))
+        self.assertEqual(self.store.claims()[0]['source_turn'],source)
+        self.assertTrue(self.offered())
+
     def test_delivery_persists_across_restart_but_text_output_is_not_heard(self):
         self.setup_person();self.remember()
         class Choice(Brain):
