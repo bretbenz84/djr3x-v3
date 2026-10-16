@@ -124,5 +124,66 @@ class InferredSpeakerTests(MemoryFixture):
         self.assertNotEqual(self.speak("I'm going camping.").state, 'inferred')
 
 
+MOTION_MASKED = vec(.30, .954, 0)   # .30 to A: Bret's own voice under servo noise.
+TOO_FAR = vec(.15, .989, 0)         # .15 to A: how other voices and the television scored.
+
+
+class CarriedSpeakerTests(MemoryFixture):
+    """Owner, October 16: once Rex is sure it is Bret, it stays Bret for the conversation."""
+    def setUp(self):
+        super().setUp()
+        self.person = self.enroll('Bret')
+
+    def speak(self, text, vector=A, faces=(), seconds=2., motion=False):
+        self.at += 10
+        from uuid import uuid4
+        from r3x.contracts import Capture, Transcript
+        capture = Capture(uuid4().hex, 'session', uuid4().bytes*int(2000*seconds), self.at, self.at+seconds,
+                          self.at+seconds, voiced_intervals=((0., seconds),), motion_risk=motion)
+        self.state.trace.at = self.at + seconds
+        self.state.begin(uuid4().hex, capture, Transcript(text, -.01, True), clip(vector, seconds), list(faces))
+        return self.state.current[4]
+
+    def sure(self):
+        for text in ('Can you turn around and face me?', 'Do you know what room this is?'):
+            self.assertEqual(self.speak(text).state, 'supported')
+
+    def test_after_two_clear_matches_his_masked_voice_stays_his_without_a_face(self):
+        self.sure()
+        recordings = self.store.rows('SELECT count(*) AS n FROM recordings')[0]['n']
+        attribution = self.speak("You're in the living room.", MOTION_MASKED, motion=True)
+        self.assertEqual((attribution.state, attribution.reason), ('inferred', 'same_voice_this_conversation'))
+        self.assertEqual((attribution.person_id, attribution.inferred_person_id), (None, self.person))
+        self.assertFalse(attribution.learning_eligible)
+        self.assertEqual(self.state.context()['speaker']['speaker_id'], self.person)
+        self.assertEqual(self.speak("I'm just doing the dishes.", MOTION_MASKED, motion=True).inferred_person_id,
+                         self.person)                                   # And on through the conversation.
+        self.assertEqual(self.store.rows('SELECT count(*) AS n FROM recordings')[0]['n'], recordings)
+        self.assertEqual(self.state.identity_targets('forget_person'), [])
+
+    def test_one_match_is_not_sure_enough(self):
+        self.assertEqual(self.speak('Hello Rex.').state, 'supported')
+        self.assertEqual(self.speak("You're in the living room.", MOTION_MASKED, motion=True).state, 'unresolved')
+
+    def test_a_voice_that_scores_like_someone_else_is_not_his(self):
+        self.sure()
+        self.assertEqual(self.speak('Hey Rex, who are you?', TOO_FAR, motion=True).state, 'unresolved')
+
+    def test_another_voice_in_the_conversation_ends_the_carry(self):
+        self.sure()
+        self.assertNotEqual(self.speak('It was me talking.', C, seconds=3.).state, 'inferred')
+        self.assertEqual(self.speak("You're in the living room.", MOTION_MASKED, motion=True).state, 'unresolved')
+
+    def test_someone_else_recognized_ends_the_carry(self):
+        self.sure()
+        self.assertEqual(self.speak('Look over here.', MOTION_MASKED, faces=[face('jeremy')], motion=True).state,
+                         'unresolved')
+
+    def test_five_quiet_minutes_end_the_conversation(self):
+        self.sure()
+        self.at += 400
+        self.assertEqual(self.speak("You're in the living room.", MOTION_MASKED, motion=True).state, 'unresolved')
+
+
 if __name__ == '__main__':
     unittest.main()

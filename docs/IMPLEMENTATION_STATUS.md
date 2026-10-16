@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 15, 2026. This is the consolidated
+Updated October 16, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,28 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## Who is talking: a sure voice carries through the conversation — October 16
+
+Session `2f85db5c`: alone with Rex, 15 of Bret's 43 trusted turns were attributed to him; 15
+more went unresolved because Rex was moving while he spoke (scores .15–.60), and the presence
+rule needs his face recognized and no motion. Owner ruling: once Rex is sure it is Bret, it is
+Bret for the rest of the conversation, even too far for a face match; other voices score
+differently and must not be tied to him. After two acoustic matches in a conversation (five
+quiet minutes end it), a later trusted clip is `inferred` as him when he is its best match at .25
+or more with a clear lead, its own trouble is weakness rather than conflict (motion, a short or
+unlabeled clip; never echo, overlap, in-clip disagreement or closeness to two voices), nobody
+else is recognized in view or within ten minutes, and no other voice was heard in ten minutes.
+Same exclusions as presence: no learning, enrollment, rename or forget. The .25 floor: clean
+clips of other voices and the TV scored .19 or less against his profile in every saved run.
+Replaying logged scores (no audio was saved): `2f85db5c` 15 → 30 of 43; the last 14 runs 67 →
+117 of 300, with the other-voice check approximated from the logs; 3 clips of a run where
+another person was talking would have been credited to Bret without that check. Synthetic
+contract checks; wrong-person rate with a second person talking off camera still unmeasured.
+
+The October 14 wine fact, rewritten word for word during the room question, was restored to
+its original claim and time (told October 14 at 11:45 p.m., due 11:50 p.m.); the copy is
+retracted. Backup: `local/core.before-wine-repair-20261016.sqlite3`.
 
 ## October 15 runs: servo freeze, rooms, the dishes bit, stale plans
 
@@ -51,7 +73,7 @@ until restart; `2f85db5c` (16 minutes) went well. Four repairs:
   recorded exchange, else "unknown"), and the reply model, planner and joke writer see `told` and,
   for a plan with a time, `planned_time`, with one rule: a plan tied to a moment is over once that
   moment has gone by. A correction that changes nothing is refused (`CorrectionUnchanged`). The
-  existing wine fact keeps the rewrite's time (Thursday 11:06 p.m.), not Wednesday's.
+  existing wine fact was restored to its original time on October 16 (see above).
 
 Synthetic checks and the paid text probe only; none of these has run on the robot.
 1244 blocked-I/O checks: all pass except `test_boot`'s import sweep, which also fails before

@@ -217,6 +217,11 @@ class Present:
                 return False
             return not any(p != person and now - t <= COMPANY_SECONDS for p, t in self.recognized.items())
 
+    def recognized_other(self, person, now, seconds):
+        """Somebody other than this person was recognized within `seconds`."""
+        with self.lock:
+            return any(p != person and now - t <= seconds for p, t in self.recognized.items())
+
     def arriving(self, person, now):
         """A known person counts as arriving only when their visit just began and Rex has not
         already spoken with them in it. Someone seen or heard within STAYS_SECONDS never left,

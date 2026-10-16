@@ -27,6 +27,19 @@ INFER_VOICE_FLOOR = .40
 INFER_BLOCKING_REASONS = frozenset({'missing_or_wrong_namespace', 'echo_mixed_or_conflicting',
     'window_disagreement', 'short_or_untrusted', 'ambiguous_profiles', 'window_identity_conflict',
     'window_track_conflict', 'track_profile_conflict', 'motion_low_confidence'})
+# Owner ruling, October 16: once Rex is sure it is Bret (a few clear voice matches), it stays Bret
+# for the rest of the conversation, through motion noise and with his face too far to recognize;
+# other voices score differently and are never tied to his. October 15 (2f85db5c): alone with
+# Rex, 15 of his sentences went unattributed during Rex's own motion, scoring .15-.60.
+CARRY_CONFIRMATIONS = 2       # Clear acoustic matches in this conversation before the carry starts.
+CARRY_GAP_SECONDS = 300.      # Nobody speaking this long ends the conversation (the track expiry).
+# Clean clips of other voices and the television scored .19 or less against Bret's profile in
+# every saved run; his own motion-masked clips scored .25 or more on 14 of 15 lost turns.
+CARRY_VOICE_FLOOR = .25
+# Unresolved for want of acoustic strength, not because the clip conflicts with itself or him.
+# ambiguous_continuity is left out: the clip is close to two different voices of this visit.
+CARRY_REASONS = frozenset({'motion_low_confidence', 'session_track', 'tentative_continuity', 'short_continuity',
+                           'too_short_for_new_track', 'short_or_untrusted'})
 
 
 class CoreState:
@@ -67,6 +80,8 @@ class CoreState:
         self.initiative = Initiative(trace)
         from .present import Present
         self.present = Present()   # Who is here, things around, the conversation clock.
+        # Whose voice this conversation has clearly matched: {'person', 'confirmed', 'last_at'}.
+        self.voice_conversation = None
         from .agency import AgencyPlan
         self.agency = AgencyPlan(store, trace, self.present)
         self.initiative.agency = self.agency
@@ -375,6 +390,7 @@ class CoreState:
         self.faces = tuple(f for f in faces if f.get("face_epoch",0)>=self.min_face_epoch)
         faces = self.faces
         attribution = self.infer_speaker(attribution, capture, transcript, observation, faces)
+        attribution = self.carry_speaker(attribution, capture, transcript, observation, faces)
         self.current = (turn_id,capture,transcript,observation,attribution)
         self.face_associations = {k:v for k,v in self.face_associations.items() if any(f["track_id"]==k for f in faces)}
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
@@ -410,6 +426,47 @@ class CoreState:
         if self.tracker.other_voices(who, self.store.profiles(self.tracker.namespace), now - COMPANY_SECONDS):
             return attribution
         return replace(attribution, state='inferred', reason='alone_with_recognized_face',
+                       inferred_person_id=who, learning_eligible=False)
+
+    def carry_speaker(self, attribution, capture, transcript, observation, faces):
+        """Keep a clearly matched voice through the conversation (owner, October 16). After
+        CARRY_CONFIRMATIONS acoustic matches, a later clip that still sounds most like that person
+        (CARRY_VOICE_FLOOR) is theirs, through motion noise and with no face, unless someone else
+        was heard or recognized lately. Like presence, the result is state "inferred": never
+        acoustic identity, voice or face learning, enrollment or identity administration."""
+        now = self.trace.clock()
+        conversation = self.voice_conversation
+        if conversation and now - conversation['last_at'] > CARRY_GAP_SECONDS:
+            conversation = self.voice_conversation = None
+        if attribution.person_id and attribution.state == 'supported':
+            if conversation and conversation['person'] == attribution.person_id:
+                conversation.update(confirmed=conversation['confirmed'] + 1, last_at=now)
+            else:
+                self.voice_conversation = {'person': attribution.person_id, 'confirmed': 1, 'last_at': now}
+            return attribution
+        if conversation and attribution.speaker_id == conversation['person']:
+            conversation['last_at'] = now          # Presence named him: the conversation goes on.
+            return attribution
+        if (not conversation or conversation['confirmed'] < CARRY_CONFIRMATIONS or attribution.speaker_id
+                or attribution.reason not in CARRY_REASONS):
+            return attribution
+        if (not transcript.trusted or capture.echo_risk or capture.truncated or capture.overlap is True
+                or observation.mixed or observation.direction_conflict):
+            return attribution
+        who, ranked = conversation['person'], attribution.candidates
+        if not ranked or ranked[0][0] != who or ranked[0][1] < CARRY_VOICE_FLOOR or (
+                len(ranked) > 1 and ranked[0][1] - ranked[1][1] < self.tracker.policy.margin):
+            return attribution
+        if any(f.get('identity') not in (None, who) for f in faces):
+            return attribution                       # Somebody else is in view.
+        from .present import COMPANY_SECONDS
+        if self.present.recognized_other(who, now, COMPANY_SECONDS):
+            return attribution
+        profiles = self.store.profiles(self.tracker.namespace)
+        if [t for t in self.tracker.other_voices(who, profiles, now - COMPANY_SECONDS) if t != attribution.track_id]:
+            return attribution                       # Another voice this conversation.
+        conversation['last_at'] = now
+        return replace(attribution, state='inferred', reason='same_voice_this_conversation',
                        inferred_person_id=who, learning_eligible=False)
 
     def identity_targets(self, name):

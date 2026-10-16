@@ -37,6 +37,12 @@ implemented. Update status and evidence when implementation actually lands.
   as the voice's clear best match above a floor. The result is the separate state
   `inferred`. It never feeds voice or face learning, enrollment or identity
   administration, and a visible face alone never names a speaker.
+- A voice clearly matched twice stays matched for the conversation (owner ruling,
+  October 16): the state owner carries it through motion noise and a face too far
+  to recognize while the clip still sounds most like that person above a floor, no
+  other voice or recognized person came up in ten minutes, and nobody has been
+  silent for five. Also `inferred`, with the same exclusions; other voices are never
+  tied to that person.
 - Personal facts retain source turns, speaker attribution, subject, and status.
   An uncertain speaker does not silently become the mentioned person.
 - Ordinary replies retain one primary model generation. Do not add a mandatory
