@@ -937,7 +937,7 @@ class ElevenLabsTTS(HTTPProvider):
         self._active = None
         self.level = None   # (sample_rate, text) -> PCM leveler; live composition supplies V2's.
         self.capability = Capability("tts", "ElevenLabs", "Rex speech synthesis",
-                                     "eleven_v3_conversational", ("httpx",), ("network",))
+                                     "eleven_v4_turbo", ("httpx",), ("network",))
 
     def synthesize(self, text: str, cancel: Cancellation):
         if self.client is None:
@@ -946,10 +946,10 @@ class ElevenLabsTTS(HTTPProvider):
         url = "https://api.elevenlabs.io/v1/text-to-speech/" + quote(self.voice_id, safe="") + "/stream"
         payload = {"text": text, "model_id": self.capability.model,
                    "voice_settings": {"stability": 0.5}, "seed": 1440639067}
-        # V2's chosen v3 policy: no previous_text, fixed natural stability/seed.
+        # V2's chosen v3 policy, kept for v4 Turbo (October 16): no previous_text, fixed natural stability/seed.
         deadline = time.monotonic() + 30
         received = 0
-        # V2 leveling: v3 Conversational loudness varies wildly per sentence.
+        # V2 leveling: per-sentence loudness varies (measured on v3 Conversational).
         leveler = self.level(self.sample_rate, text) if self.level else None
         try:
             with self.client.stream("POST", url, params={"output_format": "pcm_22050"},

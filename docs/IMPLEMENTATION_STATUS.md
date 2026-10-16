@@ -21,6 +21,15 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Rex's voice model: ElevenLabs v4 Turbo — October 16
+
+Owner decision: `eleven_v4_turbo` replaces `eleven_v3_conversational` at the same API price
+($0.04 per 1,000 characters). Request, voice, stability, seed, tags and leveling are unchanged;
+cached startup lines are keyed by model and re-synthesize on their own. `tools/check_tts_latency.py`
+(hosted, synthetic text, this Mac, no playback, 15 takes each) measured first audio at median
+0.19 s versus 0.235 s (p90 0.22 versus 0.26 s): about 44 ms, roughly 1% of the 5 s reply wait.
+Voice character, tag delivery and loudness on the robot are **not yet checked by ear or live**.
+
 ## Who is talking: a sure voice carries through the conversation — October 16
 
 Session `2f85db5c`: alone with Rex, 15 of Bret's 43 trusted turns were attributed to him; 15
