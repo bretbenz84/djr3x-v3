@@ -213,6 +213,11 @@ median of 2.09 s with streaming against 3.00 s when the response finished, about
 That is model time only; ASR, endpointing, TTS and playback are unchanged, so the expected live
 median moves from about 4.6 s toward 3.7-4 s for tool replies. Live reply timing is unmeasured.
 
+October 16 follow-up (owner request, after the October 13 log analysis): move acknowledgments
+stream like reply words, every look or lookup starts with a lead-in, saves and quiet requests
+answer in one call, and the endpoint is 0.35 s. Details and evidence:
+[implementation status](IMPLEMENTATION_STATUS.md), October 16 reply speed.
+
 ## Where the plan stands
 
 All six steps are implemented in software. None of it has run on the robot: the owner chose to

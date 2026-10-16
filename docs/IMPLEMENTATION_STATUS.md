@@ -21,6 +21,43 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Reply speed: where the wait goes, and four repairs — October 16
+
+Saved-log analysis (17 robot sessions, October 5–15; real hardware, no waveforms). A typical
+reply on October 13 (session `332b0133`, 36 replies, median 4.93 s, p90 8.65 s, 32 over 4 s):
+endpoint silence 0.77 s, speech recognition 0.57 s, context 0.01 s, model to first words
+2.3–3.2 s, first voice audio 0.39 s, playback start about 0.15 s. Prompt size and cache hits did
+not change model time (167 single-call replies: 2.28 s uncached against 2.58 s cached); output
+length did. The run was not a regression: medians fell from 5.0–5.7 s (October 5–11, 1.2 s
+endpoint) to 4.4–5.0 s (0.7 s endpoint) to 4.36 s on October 15 (streamed replies, 16 of 28 over
+4 s). October 13 was slow because 18 replies were moves (median 4.3 s, words waited for the whole
+call), 9 needed a second model call (median 6.2 s; looks with photos 8.5–10.6 s), and one call
+stalled for 10.5 s (3 of 167 calls over 8 s).
+
+Repairs (synthetic checks; **not yet run on the robot**):
+
+1. **Endpoint 0.35 s** (owner choice): about 0.35–0.4 s off every reply. Pauses longer than
+   0.35 s now split speech into separate captures; a split before Rex is audible cancels the
+   first reply, at the cost of an extra model call and a shorter clip for voice evidence.
+2. **Moves speak while the plan is written.** `drive_base` and `set_robot_pose` put
+   `say_before` first and stream it like reply words. It is heard before the plan is checked; a
+   refused plan is then explained without repeating it. A pose still waits for it to finish.
+3. **Every look or lookup starts with a few words.** `say_first` is no longer optional: the
+   model left it out on all 4 looks and the 1 recall of October 14–15 (6–10 s of silence).
+4. **Saves answer in one call.** `remember_followup`, `remember_interest`, `record_claim`,
+   `correct_claim`, `retract_claim`, `settle_question`, `set_initiative`, `name_room`,
+   `correct_room` and `note_bit` carry the spoken reply, said only after the executor succeeds
+   (a candidate claim, a refusal or a null line still goes back to the model). This saves about
+   1–1.5 s and one model call each. While told to stay silent, the save stands and the words are
+   withheld. Identity tools (introductions, renames, corrections of who is who) are unchanged.
+
+Estimated from the logs, not measured: the shorter endpoint alone takes October 13 from 32 to
+23 of 36 replies over 4 s and October 15 from 16 to 14 of 28. 1260 of 1262 blocked-I/O checks
+pass, ten new in `tests/test_reply_speed.py`; the two others are the GUI import (PySide6 not
+installed) and an intermittent dashboard servo timing check that also fails without these changes.
+Live reply timing, whether a mandatory lead-in sounds repetitive, and how often 0.35 s splits
+a sentence need a robot run.
+
 ## Rex's voice model: ElevenLabs v4 Turbo — October 16
 
 Owner decision: `eleven_v4_turbo` replaces `eleven_v3_conversational` at the same API price
@@ -212,7 +249,7 @@ Changed (simulated checks only; **not yet run on the robot**):
 
 - Endpoint silence is now 0.35 s (owner choice, October 16), after 0.7 s (October 11, the
   owner's measured average thinking pause) and an untuned 1.2 s September 10 start. It takes
-  about 0.35 s off every reply wait. Speech that resumes before a reply is
+  about 0.35 s off every reply wait (see the October 16 reply-speed section). Speech that resumes before a reply is
   audible still cancels it, and the model can still wait on an unfinished thought. Longer
   pauses now split into separate captures (shorter clips for voice evidence); how often that
   happens and whether Rex starts talking over resumed speech need a live run.

@@ -30,11 +30,12 @@ from r3x.adapters.hosted import PERSONA
 from r3x.output import Phrases
 from r3x.semantics import TOOLS
 from r3x.settings import Secrets
-from r3x.tool_text import STREAMED_TOOLS, TextField
+from r3x.tool_text import TextField
 
 MODEL, PACE = 'gpt-6-luna', 4.
 NO_REASONING = ('gpt-4',)   # Non-reasoning families reject the reasoning parameter.
 HUMAN_TOOLS = sorted(d['name'] for d in TOOLS if d['name'] not in {'wait_for', 'revise_agency_plan', 'describe_view'})
+REPLY_TOOLS = ('respond_with_gesture', 'respond_with_intent')   # The route most live replies take; their text streams.
 QUESTION = ("I just repainted the kitchen in eight different shades of beige and then spilled one on the dog. "
             "Be honest, Rex: how bad is it?")
 
@@ -75,7 +76,7 @@ def payload(arm, model=MODEL, tier=None):
         return {**base, 'tools': [d for d in tools if d['name'] in HUMAN_TOOLS], 'tool_choice': 'auto'}
     if arm == 'tool':
         return {**base, 'tools': tools, 'tool_choice': {'type': 'allowed_tools', 'mode': 'required',
-                'tools': [{'type': 'function', 'name': name} for name in sorted(STREAMED_TOOLS)]}}
+                'tools': [{'type': 'function', 'name': name} for name in sorted(REPLY_TOOLS)]}}
     return {**base, 'tools': tools, 'tool_choice': {'type': 'allowed_tools', 'mode': 'auto',
             'tools': [{'type': 'function', 'name': name} for name in HUMAN_TOOLS]}}
 
@@ -98,7 +99,7 @@ def run(client, key, arm, config=MODEL):
             now = time.monotonic() - started
             if kind == 'response.output_item.added' and event['item'].get('type') == 'function_call':
                 route = event['item'].get('name')
-                field = TextField() if route in STREAMED_TOOLS else None
+                field = TextField() if route in REPLY_TOOLS else None
             if kind in {'response.output_text.delta', 'response.function_call_arguments.delta'} and first is None:
                 first = now
             if kind == 'response.output_text.delta':

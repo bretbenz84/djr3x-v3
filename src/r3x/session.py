@@ -1009,6 +1009,7 @@ class Session:
                             reasoning_effort=getattr(self.brain,"reasoning_effort",None))
             went_silent, withheld = [False], [False]
             streamed = {}   # call_id -> reply-tool text already queued for speech while it streamed.
+            streamed_phrases = {}   # call_id -> how many phrases of that text were queued.
             def generate(request):
                 nonlocal first_token_at, first_output_at, generated
                 calls = []
@@ -1026,14 +1027,15 @@ class Session:
                                     first_token_at = self.trace.clock()
                                     self.trace.emit("model_first_text", turn_id=turn_id, streamed_from=delta.name)
                                 streamed[delta.call_id] = streamed.get(delta.call_id, '') + delta.text
-                                for phrase in splitter.add(delta.text):
-                                    put_phrase(phrases, phrase, cancel)
+                                ready = splitter.add(delta.text)
                                 if delta.done:
                                     # The whole line is in: speak its last phrase now, not when the
                                     # rest of the call and the response have finished.
                                     tail = splitter.finish()
-                                    if tail:
-                                        put_phrase(phrases, tail, cancel)
+                                    ready = [*ready, tail] if tail else ready
+                                for phrase in ready:
+                                    streamed_phrases[delta.call_id] = streamed_phrases.get(delta.call_id, 0) + 1
+                                    put_phrase(phrases, phrase, cancel)
                             continue
                         if isinstance(delta, ToolCall):
                             # General intent replies follow ordinary prose once audible.
@@ -1162,7 +1164,7 @@ class Session:
                 call = calls[0]
                 if call.name == 'revise_agency_plan':
                     raise ProviderFailure('AgencyRevisionRecoveryLimit')
-                from .semantics import SCHEDULE_TOOLS
+                from .semantics import SCHEDULE_TOOLS, SPOKEN_RESULT_TOOLS
                 if call.name in SCHEDULE_TOOLS and call.arguments.get('next_opportunity') is not None:
                     from dataclasses import replace
                     try:
@@ -1471,11 +1473,15 @@ class Session:
                         return followup, generate(followup)
                     def run_drive(call, drive_plan, result, depth):
                         # depth 1 is the single follow-up plan chosen after looking.
-                        nonlocal drive_action, drive_noted, visual_selected, visual_proposed_text
+                        nonlocal drive_action, drive_noted, visual_selected, visual_proposed_text, spoke
                         args = call.arguments
                         receipt = None
+                        if call.call_id in streamed:
+                            # The acknowledgment was queued as it streamed, before the plan was checked.
+                            spoke = True
+                            delivery.status, delivery.medium = 'requested', 'audio'
                         if result.outcome=='ok':
-                            if args['say_before']:
+                            if args['say_before'] and call.call_id not in streamed:
                                 speak(args['say_before'])
                             drive_action = DriveAction(drive_plan)
                             drive_noted = False
@@ -1585,10 +1591,14 @@ class Session:
                     if call.arguments.get('say_before'):
                         # Live September 28: "On it." arrived after a long sequence. Speak the
                         # acknowledgment first, then move once it has played (talking motion
-                        # and the requested steps share one servo owner).
+                        # and the requested steps share one servo owner). A streamed one is
+                        # already queued: its phrases are the only words before the moves.
                         heard = len(delivery.completed_text)
                         delivery.status, delivery.medium = 'requested', 'audio'
-                        put_phrase(phrases,call.arguments['say_before'],cancel)
+                        if call.call_id in streamed:
+                            heard = streamed_phrases.get(call.call_id, 0) - 1
+                        else:
+                            put_phrase(phrases,call.arguments['say_before'],cancel)
                         while len(delivery.completed_text) <= heard:
                             cancel.check()
                             if not worker.is_alive() or delivery.error:
@@ -1798,6 +1808,29 @@ class Session:
                 elif result.outcome=="ok" and call.name in {"ask_question","ask_face_question"}:
                     question = result.data
                     put_phrase(phrases,question["question"],cancel)
+                elif (result.outcome=='ok' and call.name in SPOKEN_RESULT_TOOLS and isinstance(call.arguments.get('text'),str)
+                      and call.arguments['text'].strip() and result.data.get('status')!='candidate'):
+                    # The reply came with the tool and the executor succeeded: no second model call
+                    # (October 16: about 1-1.5 s). A claim kept only as a candidate still goes back.
+                    from dataclasses import asdict
+                    import json
+                    if call.name=='set_initiative':
+                        went_silent[0] = result.data['mode']=='silent'
+                        if result.data['mode'] in ('quiet','silent'):
+                            self.proactive_hold_until = self.trace.clock()+120
+                            self.state.initiative.cancel_schedule('quiet_or_human_floor')
+                        else:
+                            self.proactive_hold_until = float('-inf')
+                    self.history.extend((
+                        {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {}), **({"next_opportunity":None} if "next_opportunity" in call.arguments else {})})},
+                        {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
+                    if self.state.initiative.silent and call.name!='set_initiative':
+                        # Told not to speak until released: the save stands, the words are withheld.
+                        withheld[0] = True
+                        self.trace.emit('silent_reply_withheld', turn_id=turn_id)
+                        delivery.status, delivery.medium = 'suppressed', 'none'
+                    else:
+                        put_phrase(phrases,call.arguments['text'],cancel)
                 elif call.call_id in streamed and call.name in {'respond_with_intent', 'respond_with_gesture'}:
                     # Its words were already heard as they streamed; a second answer would repeat
                     # them. The rejected part (a gesture, an intention note) is simply not done.
@@ -1849,6 +1882,11 @@ class Session:
                              'they invite you to. Tell them so in one short sentence, in character.') +
                             ' If their words were not really a request to stop talking, say you may have misread '
                             'them and that they only need to say you can talk again.'}))
+                    if call.call_id in streamed:
+                        from dataclasses import replace
+                        followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
+                            'Already said aloud before this result: '+json.dumps(streamed[call.call_id],ensure_ascii=False)+
+                            '. Do not repeat it.'}))
                     if result.outcome!='ok' and call.name=='respond_with_intent':
                         from dataclasses import replace
                         followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
