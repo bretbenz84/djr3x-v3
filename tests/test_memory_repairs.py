@@ -125,3 +125,38 @@ class SearchTests(MemoryFixture):
         self.assertIn('Voyager', result.data['conversations']['exchanges'][0]['human_text'])
         plain = self.call('recall', {'subject_id': self.person})
         self.assertNotIn('conversations', plain.data)
+
+
+class InterestTests(MemoryFixture):
+    """October 17 backfill: every interest after the first was refused as contradicting it."""
+    def interest(self, said, topic, predicate='interest'):
+        self.begin(said)
+        return self.call('remember_interest', dict(predicate=predicate, value=said, topic=topic,
+                                                   source_turn_id=self.state.current[0]))
+
+    def test_two_interests_with_the_same_label_are_both_saved_and_offered_for_news(self):
+        from r3x.news import interest_topics
+        person = self.enroll()
+        first = self.interest('I love Star Trek Voyager.', 'Star Trek Voyager')
+        second = self.interest('I really follow the Kings.', 'Sacramento Kings')
+        self.assertEqual((first.outcome, second.outcome), ('ok', 'ok'), second)
+        self.assertEqual(set(interest_topics(self.store, [{'identity': person}])),
+                         {'star trek voyager', 'sacramento kings'})
+
+    def test_saying_the_same_interest_again_is_not_an_error(self):
+        self.enroll()
+        first = self.interest('I love Star Trek Voyager.', 'Star Trek Voyager')
+        again = self.interest('Voyager is still my favorite.', 'star trek voyager', predicate='likes')
+        self.assertEqual(again.outcome, 'ok', again)
+        self.assertTrue(again.data['already_saved'])
+        self.assertEqual(again.data['claim_id'], first.data['claim_id'])
+
+    def test_a_single_valued_fact_still_conflicts(self):
+        person = self.enroll()
+        self.begin('I live in Sacramento.')
+        self.call('record_claim', dict(subject_id=person, subject_reference=None, predicate='lives in',
+                                       value='Sacramento', kind='self_report', source_turn_id=self.state.current[0]))
+        self.begin('I live in Denver.')
+        moved = self.call('record_claim', dict(subject_id=person, subject_reference=None, predicate='lives in',
+                                               value='Denver', kind='self_report', source_turn_id=self.state.current[0]))
+        self.assertEqual(moved.data['status'], 'candidate')

@@ -96,9 +96,16 @@ words, the date and the speaker evidence; they were written with `record_claim` 
 source turn and time; backup taken first). Live facts went from 8 to 24: favorites, hobbies and
 projects, a pet, home, and two upcoming plans as follow-ups. Four came from lines where Rex had not
 settled who spoke; the owner confirmed them in review, and their original speaker evidence is
-unchanged. Not saved by choice: sensitive topics and facts about other people. Found, not fixed:
-every interest saved with predicate "interest" collides with the first one, so a second live interest
-is demoted and rejected. The review files and ledger stay in ignored `local/memory-backfill-20261017/`.
+unchanged. Not saved by choice: sensitive topics and facts about other people. The review files and
+ledger stay in ignored `local/memory-backfill-20261017/`.
+
+Found in the backfill and repaired October 17: interests were saved under the model's label
+("interest", "likes"), and a second interest with the same label read as contradicting the first, so
+it was demoted and refused. Each interest now gets a label of its own (`interest: <topic>`), and an
+interest said again is reported as already saved instead of an error; single-valued facts ("lives
+in") still conflict. Existing saved interests keep their old labels. Three new checks in
+`tests/test_memory_repairs.py`; 1299 of 1301 pass (GUI import: PySide6 not installed; the intermittent
+operator-servo dashboard check).
 
 ## Driving repairs from the October 16, 7:33 PM run
 

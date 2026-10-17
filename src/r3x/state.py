@@ -1014,8 +1014,19 @@ class CoreState:
             from .news import normalize_topic
             topic=normalize_topic(args['topic'])
             if not 2<=len(topic)<=80:raise ValueError('InvalidInterestTopic')
+            saved=conn.execute("SELECT c.id,c.value FROM interests i JOIN claims c ON c.id=i.claim_id "
+                               "WHERE c.subject_id=? AND c.status='accepted' AND i.topic=?",
+                               (attribution.speaker_id,topic)).fetchone()
+            if saved:
+                # Said again: already one of their interests, not a contradiction.
+                return {'claim_id':saved[0],'status':'accepted','subject_id':attribution.speaker_id,'value':saved[1],
+                        'interest_topic':topic,'already_saved':True,
+                        'meaning':'Already saved as their interest; nothing new was written.'},False
+            # October 17: interests were saved under the model's label ("interest", "likes"), and a
+            # second one with the same label read as contradicting the first, so it was refused. A
+            # person has many interests: each gets a label of its own.
             data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.speaker_id,
-                subject_reference=None,predicate=args['predicate'],value=args['value'],
+                subject_reference=None,predicate='interest: '+topic,value=args['value'],
                 kind='self_report',source_turn_id=turn_id))
             if data['status']!='accepted':raise ValueError('InterestNeedsAcceptedClaim')
             conn.execute('INSERT INTO interests VALUES(?,?)',(data['claim_id'],topic))
