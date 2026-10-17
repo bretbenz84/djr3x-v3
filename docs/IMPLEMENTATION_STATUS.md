@@ -77,10 +77,10 @@ the same night (synthetic checks; **not yet run on the robot**):
 - **After a look that took no picture he described things** (a clear path, a telescope). Failed
   looks now carry an instruction to say so and describe nothing.
 
-The log shows no backward move; during a self-initiated 45° turn at 1:54 the wheels turned about
-133° while the body turned 43°, the bookshelf behind went from 0.5 to 0.3 m, and the owner saw him
-back into it: his rear likely scraped it while spinning. Not repaired; the turn swing check needs
-a look. 1266 of 1267 checks pass (GUI import: PySide6 not installed).
+During a self-initiated 45° turn at 1:54 the wheels turned about 133° while the body turned 43°.
+The owner reports no contact with the bookshelf behind him and a wheel that has been slipping
+lately, which matches; he will test the wheel. No code change. 1266 of 1267 checks pass (GUI
+import: PySide6 not installed).
 
 ## Rex's voice model: ElevenLabs v4 Turbo — October 16
 
