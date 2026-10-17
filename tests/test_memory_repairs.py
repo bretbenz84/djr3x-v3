@@ -108,8 +108,8 @@ class SearchTests(MemoryFixture):
         self.assertIn('Voyager', found['exchanges'][0]['human_text'])
 
     def test_a_near_spelling_still_matches(self):
-        self.say('I talked about Jerry Thomas yesterday.', 1_000.)
-        self.assertIn('Jerry', self.search('Jeremy Thomas')['exchanges'][0]['human_text'])
+        self.say('I talked about Sammy Rivera yesterday.', 1_000.)
+        self.assertIn('Sammy', self.search('Sam Rivera')['exchanges'][0]['human_text'])
 
     def test_no_match_says_so_instead_of_returning_unrelated_chats(self):
         self.say('Can you shut down, please?', 1_000., 'Good night.')

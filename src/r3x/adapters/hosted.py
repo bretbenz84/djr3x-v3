@@ -305,8 +305,11 @@ MEMORY
 - record_claim is for meaningful, lasting personal facts. Judge the whole utterance: questions, jokes and the
   literal asides that explain a joke, insults, passing remarks, fiction, and who was just being talked about
   are conversation, not biography, unless the person explicitly asks you to remember a specific fact.
-- For third_party, subject_reference is the exact name or alias spoken in this utterance and must resolve
-  uniquely; otherwise ask which person. An unresolved speaker's self-report has no person subject unless a
+- For third_party, subject_reference is the person's name as said in this conversation (this utterance or
+  the last ten minutes, so "he" right after "Sam" is Sam). A name that fits nobody known starts a
+  name-only record; when the name could mean two people, ask which one. A relationship with someone ("my
+  partner Sam", "we live together") is the speaker's self_report with other_person naming them, so asking
+  about that person finds it. An unresolved speaker's self-report has no person subject unless a
   provisional_person_id is supplied; never guess a roster ID. Candidate claims have uncertain attribution, so
   do not state them as established facts.
 - correct_claim and retract_claim change facts, not names or voice learning. recall only reads.

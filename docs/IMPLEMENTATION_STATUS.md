@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 16, 2026. This is the consolidated
+Updated October 17, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -26,7 +26,7 @@ as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid
 The October 14 plan "in five minutes I'm going to the store to get wine" was asked about in three
 runs (October 15, twice on October 16) although the owner answered and finally said "Stop asking me
 about it"; and in session `3af18a12` Rex said he had never been told the owner's favorite show
-(Voyager, said September 30 and October 11) and muddled "Jeremy". Causes, from the logs and the
+(Voyager, said September 30 and October 11) and muddled a name. Causes, from the logs and the
 database (8 saved facts, 660 conversation exchanges with the owner):
 
 - A follow-up was recorded as asked only through `use_memory_opportunity`; planner beats asked
@@ -45,7 +45,7 @@ Repairs (synthetic checks, temporary databases; **not yet run on the robot**):
 3. `topic_avoid` feedback is saved per person (`topic_boundaries`) and carried into later runs
    until retracted; forgetting the person removes it.
 4. Search with words reads every earlier conversation with the person, by word forms ("stars",
-   "star") and near spellings ("Jerry"/"Jeremy", half weight), and says plainly when nothing
+   "star") and near spellings (a name misheard by a letter or two, half weight), and says plainly when nothing
    matched. A time window ("last night") is still returned whole.
 5. `recall` takes an optional `query`: earlier conversations about that subject come back with the
    saved facts (private memory, same audience rules as `recall_conversations`). Every saved fact
@@ -56,6 +56,49 @@ database, so it would be offered once more. 1289 of 1290 checks pass (GUI import
 installed), nine new in `tests/test_memory_repairs.py`; one older search check now expects only
 matching conversations. Backfilling facts from old conversations and memory for other people are
 left for later (owner).
+
+## Memory for other people — October 17
+
+On October 16 the owner told Rex several things about his partner. They were saved only as the
+owner's own facts and one was lost; asked whether he knew the partner, Rex searched only the owner's
+chats. The partner had a name-only record from an earlier visit, but names matched only exactly and a
+fact about someone else needed their name in that same sentence. Follow-up generations have no tools,
+so the link has to be made in the saving call itself. (Examples below use a made-up "Sam Rivera".)
+
+- A fact may name one other person (`other_person`, stored as `claims.mentions_id`): "Sam is my
+  partner" stays the speaker's fact and is linked to Sam. Something about only Sam is `third_party`
+  about him, said by the speaker, never Sam's own words.
+- The state owner links a name someone said, capitalized, in this utterance or this conversation's
+  last ten minutes ("he" right after "Sam"), to the one known person it fits ("Sam Rivera" fits "Sam"
+  and is kept as another name for him). A name fitting two people, or sharing a word without fitting
+  ("Sammy Rivera"), is refused so Rex asks. A name fitting nobody makes a name-only record: no voice,
+  face or enrollment; only that person's own introduction starts learning them.
+- `recall` with a name returns each person it may mean: the sentence they were first named in,
+  whether voice and face are learned, and facts about or linked to them with who said each.
+- Forgetting a person removes facts linked to them and blanks the sentences those came from. A
+  recognized speaker may forget someone known only from what that speaker told Rex (no voice, face,
+  voice collection, own conversations, or facts from anyone else); otherwise as before.
+- Unchanged: ordinary chat lines that merely mention a forgotten name stay in the teller's own
+  conversation history; facts about others are not audience-restricted (same as every saved fact).
+
+Checks: eight new in `tests/test_other_people_memory.py`, synthetic voices, made-up names and
+temporary databases. **Not yet run on the robot or against the hosted model.** The live database was
+repaired once (backup first): the partner's record gained his full name, the partner facts were
+linked to him, and one lost remark was saved as the owner's statement about him.
+
+## Owner facts backfilled from old conversations — October 17
+
+A one-time review of every stored line (660 dated exchanges plus about 1,570 older undated turns,
+read from a SQLite backup copy; no hosted model calls) proposed 16 lasting facts the owner had told
+Rex but that were never saved. The owner approved all 16 from a preview showing each fact, the exact
+words, the date and the speaker evidence; they were written with `record_claim` /
+`remember_interest` / `remember_followup` rules (self-reports by the owner, each tied to its original
+source turn and time; backup taken first). Live facts went from 8 to 24: favorites, hobbies and
+projects, a pet, home, and two upcoming plans as follow-ups. Four came from lines where Rex had not
+settled who spoke; the owner confirmed them in review, and their original speaker evidence is
+unchanged. Not saved by choice: sensitive topics and facts about other people. Found, not fixed:
+every interest saved with predicate "interest" collides with the first one, so a second live interest
+is demoted and rejected. The review files and ledger stay in ignored `local/memory-backfill-20261017/`.
 
 ## Driving repairs from the October 16, 7:33 PM run
 

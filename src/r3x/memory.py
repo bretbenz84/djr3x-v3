@@ -13,8 +13,14 @@ def label(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
+def name_words(text: str) -> list[str]:
+    """Words for comparing a spoken name with stored names; a possessive 's is not part of the name."""
+    words = "".join(c if c.isalnum() or c in "'’" else " " for c in unicodedata.normalize("NFKC", text)).split()
+    return [w[:-2] if len(w) > 2 and w[-2:] in {"'s", "’s"} else w.strip("'’") for w in words if w.strip("'’")]
+
+
 CLAIM_INSERT = ("INSERT INTO claims(id,subject_id,predicate,value,said_by,source_track,source_turn,kind,status,"
-                "supersedes,revision,said_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+                "supersedes,revision,said_at,mentions_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -120,6 +126,11 @@ class Memory:
         # store" is not offered as current a day later. Older facts fall back to their exchange.
         if 'said_at' not in {r[1] for r in self.connection.execute('PRAGMA table_info(claims)')}:
             self.connection.execute('ALTER TABLE claims ADD COLUMN said_at REAL')
+        # October 17: "Sam Rivera is my partner" is the speaker's fact, and it is also about Sam.
+        # The link lets "do you know Sam?" find it and forgetting Sam remove it.
+        if 'mentions_id' not in {r[1] for r in self.connection.execute('PRAGMA table_info(claims)')}:
+            self.connection.execute('ALTER TABLE claims ADD COLUMN mentions_id TEXT REFERENCES people(id) ON DELETE CASCADE')
+        self.connection.execute('CREATE INDEX IF NOT EXISTS claims_mentions ON claims(mentions_id)')
         from .conversation_memory import SCHEMA as conversation_schema
         self.connection.executescript(conversation_schema)
         from .agency import SCHEMA as agency_schema
@@ -203,6 +214,48 @@ class Memory:
         target = label(reference)
         return [p for p in self.people() if target in {label(p["name"]), *(label(a) for a in p["aliases"])}]
 
+    def name_matches(self, reference):
+        """Known people a spoken name may refer to: (exact, compatible, overlapping).
+
+        Compatible means one name's words contain the other's ("Sam Rivera" and "Sam").
+        Overlapping shares a word without either containing the other ("Sammy Rivera" and
+        "Sam Rivera"): possibly the same person, so it is asked about, never merged.
+        """
+        words = {w.casefold() for w in name_words(reference)}
+        exact, compatible, overlapping = self.resolve(reference) if words else [], [], []
+        for person in self.people() if words else []:
+            names = [{w.casefold() for w in name_words(n)} for n in (person["name"], *person["aliases"])]
+            if any(n and (n <= words or words <= n) for n in names):
+                compatible.append(person)
+            elif any(n & words for n in names):
+                overlapping.append(person)
+        return exact, compatible, overlapping
+
+    def mention_only(self, told_by):
+        """People known only as a name and what this speaker said about them: no voice, face,
+        voice collection, own conversations, or facts from anyone else."""
+        return [r["id"] for r in self.rows(
+            "SELECT p.id FROM people p WHERE p.status<>'retracted' AND p.id<>? "
+            "AND NOT EXISTS(SELECT 1 FROM recordings WHERE person_id=p.id) "
+            "AND NOT EXISTS(SELECT 1 FROM legacy_embeddings WHERE person_id=p.id) "
+            "AND NOT EXISTS(SELECT 1 FROM voice_candidates WHERE person_id=p.id) "
+            "AND NOT EXISTS(SELECT 1 FROM face_references WHERE person_id=p.id) "
+            "AND NOT EXISTS(SELECT 1 FROM conversation_exchanges WHERE person_id=p.id) "
+            "AND NOT EXISTS(SELECT 1 FROM claims WHERE (subject_id=p.id OR mentions_id=p.id) "
+            "AND said_by IS NOT ?) ORDER BY p.name LIMIT 100", (told_by, told_by))]
+
+    def acquaintance(self, person_id):
+        """What Rex has to go on for one person, for "do you know X?"."""
+        person = self.person(person_id)
+        count = lambda sql: self.rows(sql, (person_id,))[0]["n"]
+        first = self.rows("SELECT text FROM turns WHERE id=?", (person["source_turn"],)) if person["source_turn"] else []
+        return {"person_id": person_id, "name": person["name"], "aliases": person["aliases"],
+                "first_named_in": first[0]["text"] if first else None,
+                "voice_learned": count("SELECT count(*) AS n FROM recordings WHERE person_id=?") > 0,
+                "face_learned": count("SELECT count(*) AS n FROM face_references WHERE person_id=?") > 0,
+                "own_conversations": count("SELECT count(*) AS n FROM conversation_exchanges WHERE person_id=?"),
+                "facts": self.claims(person_id)}
+
     def add_person(self, conn, name, aliases, source_turn, status="provisional", import_ref=None):
         if (not isinstance(name,str) or not 0<len(name.strip())<=120 or any(ord(c)<32 for c in name) or
             not isinstance(aliases,list) or len(aliases)>8 or
@@ -225,8 +278,8 @@ class Memory:
                "WHERE c.status IN (" + ",".join("?" for _ in states) + ")")
         params = list(states)
         if person_id:
-            sql += " AND c.subject_id=?"
-            params.append(person_id)
+            sql += " AND (c.subject_id=? OR c.mentions_id=?)"
+            params += [person_id, person_id]
         return self.rows(sql+" ORDER BY c.revision DESC LIMIT 32", params)
 
     def profiles(self, namespace):
@@ -290,7 +343,8 @@ class Memory:
     def forget(self, conn, person_id):
         conn.execute('DELETE FROM agency_plan')  # Derived narrative must not retain forgotten personal data.
         # Claims from or about this person cannot survive as unattributed facts.
-        affected = {row[0] for row in conn.execute("SELECT source_turn FROM claims WHERE subject_id=? OR said_by=?",(person_id,person_id))}
+        affected = {row[0] for row in conn.execute("SELECT source_turn FROM claims WHERE subject_id=? OR said_by=? OR mentions_id=?",
+                                                   (person_id,person_id,person_id))}
         affected.update(row[0] for row in conn.execute(
             'SELECT source_turn FROM conversation_exchanges WHERE person_id=? AND source_turn IS NOT NULL', (person_id,)))
         for row in conn.execute("SELECT evidence FROM voice_candidates WHERE person_id=?", (person_id,)):

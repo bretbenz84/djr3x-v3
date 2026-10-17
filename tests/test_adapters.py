@@ -84,7 +84,7 @@ class AdapterTests(unittest.TestCase):
         context={"people":[{"id":"person"}],"claims":[{"id":"claim"}],"source_turn_id":"turn","faces":[],"enrollment":[]}
         tools={tool["name"]:tool["parameters"]["properties"] for tool in grounded_tools(context)}
         self.assertEqual(tools["record_claim"]["source_turn_id"]["enum"],["turn"])
-        self.assertEqual(tools["record_claim"]["subject_id"]["enum"],["person"])
+        self.assertEqual(tools["record_claim"]["subject_id"]["enum"],["person",None])  # null: a third_party person not known yet (October 17).
         self.assertNotIn("enum",tools["record_claim"]["value"])
         self.assertNotIn("enum",tools["record_claim"]["predicate"])
         self.assertEqual(tools["introduce_person"]["face_track_id"]["enum"],[None])

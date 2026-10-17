@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from .contracts import ToolResult
 from .enrollment import Enrollment
-from .memory import CLAIM_INSERT, label
+from .memory import CLAIM_INSERT, label, name_words
 from .semantics import validate
 
 
@@ -36,6 +36,12 @@ CARRY_GAP_SECONDS = 300.      # Nobody speaking this long ends the conversation 
 # Clean clips of other voices and the television scored .19 or less against Bret's profile in
 # every saved run; his own motion-masked clips scored .25 or more on 14 of 15 lost turns.
 CARRY_VOICE_FLOOR = .25
+# A person spoken about is linked by a name someone said this recently in the conversation, so
+# "he plays the cello" right after "Sam Rivera is my partner" is about Sam (October 16).
+MENTION_SECONDS = 600.
+# Words that refer to someone without naming them; a person record is never made from them.
+NOT_NAMES = frozenset({'he', 'she', 'him', 'her', 'his', 'hers', 'they', 'them', 'their', 'i', 'me', 'my', 'you',
+                       'your', 'we', 'us', 'our', 'it', 'someone', 'somebody', 'everyone', 'nobody'})
 # Unresolved for want of acoustic strength, not because the clip conflicts with itself or him.
 # ambiguous_continuity is left out: the clip is close to two different voices of this visit.
 CARRY_REASONS = frozenset({'motion_low_confidence', 'session_track', 'tentative_continuity', 'short_continuity',
@@ -486,6 +492,10 @@ class CoreState:
         provisional = self.enrollments.get(attribution.track_id)
         if name == "rename_person" and provisional:
             targets.append(provisional.person_id)
+        if name == "forget_person" and attribution.person_id:
+            # Someone Rex knows only from what this speaker told him can be forgotten at their word.
+            enrolling = {e.person_id for e in self.enrollments.values()}
+            targets += [p for p in self.store.mention_only(attribution.person_id) if p not in enrolling]
         return list(dict.fromkeys(targets))
 
     def context(self, faces=()):
@@ -988,7 +998,7 @@ class CoreState:
             due_at=resolve_due(args['kind'],args['on_date'],args['due_in_minutes'],args['due_by'],said_at,self.calendar_today())
             data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.speaker_id,
                 subject_reference=None,predicate=args['predicate'],value=args['value'],
-                kind='self_report',source_turn_id=turn_id))
+                kind='self_report',source_turn_id=turn_id,other_person=args.get('other_person')))
             if data['status']!='accepted':raise ValueError('FollowupNeedsAcceptedClaim')
             conn.execute('INSERT INTO memory_followups(claim_id,kind,on_date,audience,said_at,due_at) VALUES(?,?,?,?,?,?)',
                          (data['claim_id'],args['kind'],args['on_date'],args['audience'],said_at,due_at))
@@ -1033,6 +1043,9 @@ class CoreState:
                 self._person(args["subject_id"])
             data = {"claims":self.store.claims(args["subject_id"])}
             if args.get("query"):
+                # "Do you know Sam?": everyone the name could mean, with how Rex knows them.
+                _, compatible, _ = self.store.name_matches(args["query"])
+                data["people"] = [self.store.acquaintance(p["id"]) for p in compatible[:3]]
                 # Facts are only what was saved; the conversations hold the rest (October 16).
                 from . import conversation_memory as cm
                 who = cm.subject(context or self.context())
@@ -1159,32 +1172,41 @@ class CoreState:
                     "status":"hypothesis","face_track_id":face['track_id'] if face else None,
                     "face_status":status,"face_samples_saved":saved,"face_target_allowed":allowed},True
         if name == "record_claim":
-            self._person(args["subject_id"])
+            other = args.get("other_person")
             if args["kind"]=="third_party":
-                reference = args["subject_reference"]
-                matches = self.store.resolve(reference) if reference else []
-                if not reference or label(reference) not in label(transcript.text) or len(matches)!=1 or matches[0]["id"]!=args["subject_id"]:
-                    raise ValueError("ThirdPartySubjectNeedsUniqueExplicitReference")
+                subject, subject_created = self._mentioned(conn,args["subject_reference"],args["subject_id"])
             elif args["subject_reference"] is not None:
                 raise ValueError("SelfReportDoesNotTakeNameReference")
+            else:
+                subject, subject_created = self._person(args["subject_id"])["id"], False
+            mentioned, mentioned_created = self._mentioned(conn,other,None) if other else (None, False)
+            if mentioned == subject:
+                raise ValueError("OtherPersonIsTheSubject")
             speaker = attribution.speaker_id
             if args["kind"]=="self_report" and speaker is None:
                 track = self.tracker.tracks.get(attribution.track_id)
-                if not track or track.person_id!=args["subject_id"]:
+                if not track or track.person_id!=subject:
                     raise ValueError("UnresolvedSelfReportSubject")
-            if args["kind"] == "self_report" and speaker not in (None,args["subject_id"]):
+            if args["kind"] == "self_report" and speaker not in (None,subject):
                 raise ValueError("SelfReportSubjectMismatch")
             # The turn's stored evidence keeps whether this was acoustic or inferred.
             supported = attribution.state in ("supported","inferred") and speaker is not None
             status = "accepted" if supported else "candidate"
             if conn.execute("SELECT 1 FROM claims WHERE subject_id=? AND predicate=? AND status='accepted' AND value<>?",
-                            (args["subject_id"],args["predicate"],args["value"])).fetchone():
+                            (subject,args["predicate"],args["value"])).fetchone():
                 status = "candidate"  # A conflicting new claim never silently replaces the current one.
             claim_id = uuid4().hex
-            conn.execute(CLAIM_INSERT,(claim_id,args["subject_id"],args["predicate"],args["value"],
-                         speaker,attribution.track_id,turn_id,args["kind"],status,None,self.store.revision+1,self.wall_clock()))
-            return {"claim_id":claim_id,"status":status,"subject_id":args["subject_id"],"said_by":speaker,
-                    "subject_name":self.store.person(args["subject_id"])["name"],"predicate":args["predicate"],"value":args["value"]},True
+            conn.execute(CLAIM_INSERT,(claim_id,subject,args["predicate"],args["value"],
+                         speaker,attribution.track_id,turn_id,args["kind"],status,None,self.store.revision+1,self.wall_clock(),
+                         mentioned))
+            data = {"claim_id":claim_id,"status":status,"subject_id":subject,"said_by":speaker,
+                    "subject_name":self._label(conn,subject),"predicate":args["predicate"],"value":args["value"]}
+            if subject_created:
+                data["subject_record"] = "new name-only record: no voice or face learned"
+            if mentioned:
+                data["other_person"] = {"person_id":mentioned,"name":self._label(conn,mentioned),
+                    "record":"new name-only record: no voice or face learned" if mentioned_created else "existing"}
+            return data,True
         if name in {"correct_claim","retract_claim"}:
             claim = conn.execute("SELECT * FROM claims WHERE id=?",(args["claim_id"],)).fetchone()
             if not claim or claim["status"] not in {"accepted","candidate"}:
@@ -1202,7 +1224,7 @@ class CoreState:
             kind = "self_report" if attribution.speaker_id==claim["subject_id"] else "third_party"
             conn.execute(CLAIM_INSERT,(claim_id,claim["subject_id"],claim["predicate"],args["value"],
                          attribution.speaker_id,attribution.track_id,turn_id,kind,"accepted",claim["id"],self.store.revision+1,
-                         self.wall_clock()))
+                         self.wall_clock(),claim["mentions_id"]))
             return {"claim_id":claim_id,"status":"accepted","supersedes":claim["id"],"subject_id":claim["subject_id"],
                     "subject_name":self.store.person(claim["subject_id"])["name"],"predicate":claim["predicate"],"value":args["value"]},True
         if name == "cancel_association":
@@ -1234,6 +1256,67 @@ class CoreState:
             conn.execute("UPDATE people SET name=?,aliases=? WHERE id=?",(args["name"],json.dumps(args["aliases"]),person["id"]))
             return {"person_id":person["id"],"status":"renamed"},True
         raise ValueError("UnknownTool")
+
+    @staticmethod
+    def _label(conn, person_id):
+        return conn.execute("SELECT name FROM people WHERE id=?",(person_id,)).fetchone()[0]
+
+    def _named_recently(self, reference):
+        """Whether someone said this name, as a name, in this conversation within MENTION_SECONDS."""
+        words = name_words(reference)
+        if not words or len(words)>4 or {w.casefold() for w in words} & NOT_NAMES:
+            return False
+        turn_id,capture,transcript,observation,attribution = self.current
+        heard = [transcript.text] + [r["text"] for r in self.store.rows(
+            "SELECT text,evidence FROM turns WHERE session_id=? AND id<>? AND created_at BETWEEN ? AND ? ORDER BY created_at DESC LIMIT 40",
+            (capture.session_id,turn_id,capture.ended_at-MENTION_SECONDS,capture.ended_at))
+            if json.loads(r["evidence"]).get("trusted") and not json.loads(r["evidence"]).get("echo_risk")]
+        wanted = [w.casefold() for w in words]
+        for text in heard:
+            said = name_words(text)
+            for i in range(len(said)-len(wanted)+1):
+                window = said[i:i+len(wanted)]
+                # A name is written as one: "my partner" or "the boss" are not names.
+                if [w.casefold() for w in window]==wanted and all(w[:1].isupper() for w in window):
+                    return True
+        return False
+
+    def _mentioned(self, conn, reference, proposed_id):
+        """The person a spoken name refers to: (person_id, created).
+
+        A name said in the conversation links to the one known person it fits, or makes a
+        name-only record when it fits nobody. That record has no voice or face; only that
+        person's own introduction can start learning them. Never the current speaker.
+        """
+        if not isinstance(reference,str) or not reference.strip() or not self._named_recently(reference):
+            raise ValueError("MentionNeedsANameSaidInThisConversation")
+        name_text = " ".join(reference.split())
+        # "Sam" with both a Sam and a Sam Rivera known is a question, even though one fits exactly.
+        exact, candidates, overlapping = self.store.name_matches(name_text)
+        if proposed_id is not None:
+            self._person(proposed_id)
+            if [p["id"] for p in candidates]!=[proposed_id]:
+                raise ValueError("NameDoesNotFitThatPerson")
+        if len(candidates)>1:
+            raise ValueError("AmbiguousName")
+        created = False
+        if candidates:
+            person_id = candidates[0]["id"]
+            person = candidates[0]
+            longer = len(name_words(name_text)) > max(len(name_words(n)) for n in (person["name"],*person["aliases"]))
+            if not exact and longer and len(person["aliases"])<8:
+                # "Sam Rivera" for a record named "Sam": keep the fuller name too.
+                conn.execute("UPDATE people SET aliases=? WHERE id=?",(json.dumps([*person["aliases"],name_text]),person_id))
+        elif overlapping:
+            raise ValueError("PossiblySameAsAKnownPerson")
+        else:
+            if self.photo_memory is not None and any(e['kind']=='pet' and label(e['name'])==label(name_text)
+                                                     for e in self.photo_memory.catalog()):
+                raise ValueError("NameBelongsToSavedPet")
+            person_id, created = self.store.add_person(conn,name_text,[],self.current[0]), True
+        if person_id in (self.current[4].speaker_id, self.current[4].person_id):
+            raise ValueError("MentionedPersonIsTheSpeaker")
+        return person_id, created
 
     def _room(self, conn, name, args):
         """Room names come from what people say; the recognizer only collects views for them."""

@@ -282,7 +282,9 @@ Start with a few logical records in a v3 SQLite database; schema names are propo
 | Event/result | Proposed operation, validation result, write/result ID, question delivery/settlement, playback outcome, correction history |
 
 An accepted self-report means the identified person said it, not that its truth was
-externally verified. A third-party claim stays attributed to its source. Unknown
+externally verified. A third-party claim stays attributed to its source. A claim may also link
+one other person it concerns ("Sam is my partner" is the speaker's fact linked to Sam); a name said in
+the conversation links to the one known person it fits or makes a name-only record, never an enrollment. Unknown
 speaker claims can remain pending with their explicit subject; they do not become
 someone's established self-report. Pronouns or ambiguous names require context or
 clarification before a subject-specific write.

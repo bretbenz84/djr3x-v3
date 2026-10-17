@@ -135,7 +135,7 @@ def run_case(name, folder, key):
                             'My beagle Biscuit steals socks, and I am training for a half marathon.','{}',0.))
                         for i,(predicate,value) in enumerate(FRIEND_FACTS):
                             conn.execute(CLAIM_INSERT,('fixture-claim-'+str(i),
-                                friend,predicate,value,friend,None,'fixture-turn','self_report','accepted',None,1,None))
+                                friend,predicate,value,friend,None,'fixture-turn','self_report','accepted',None,1,None,None))
                 # Arrival cases stand close enough to count as an arrival to greet (face area gate).
                 world.people=[('sam' if friend else 'visitor',friend,1.1 if name in {'known_friend','new_visitor'} else 2.,0.)]
                 if name=='curious_room':world.objects=[('object:plant','potted plant',2.6,1.2)]

@@ -172,7 +172,7 @@ def _form(word):
 
 
 def _close(a, b):
-    """Near spellings of one word: speech recognition wrote "Jerry" for "Jeremy"."""
+    """Near spellings of one word: speech recognition misheard a name by a letter or two."""
     if len(a) < 4 or len(b) < 4 or a[0] != b[0] or abs(len(a) - len(b)) > 2:
         return False
     from difflib import SequenceMatcher
