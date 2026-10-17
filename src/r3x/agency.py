@@ -7,6 +7,7 @@ stronger planner writes it once, in the background. Conversation steers it inste
 cancelling it. It ends only when its beats are used up, its person has actually left, a
 human redirects it, or a person arriving replaces it.
 """
+from .field_guide import GUIDE
 from collections import deque
 from copy import deepcopy
 import json
@@ -46,7 +47,10 @@ RETRY_SECONDS = 4.
 PLAN_MIN_INTERVAL_SECONDS = 8.
 # An interrupted beat is retried at the next lull, then skipped; the goal continues.
 MAX_STEP_ATTEMPTS = 2
-MAX_STEPS = 6
+# Owner, October 17: plans should last longer. Since October 15, 4-6-beat plans were used up in
+# about two and a half minutes each (beats run roughly every 30 s; dropped and skipped beats count),
+# so the planner, the costly call, ran every 2.6 minutes. More beats per plan cost only output tokens.
+MAX_STEPS = 10
 
 
 def plan_schema():
@@ -189,10 +193,11 @@ WHAT MAKES IT GOOD
   being ignored in the same silence, and never sulking or asking for a reply.
 
 BEATS (steps)
-- 4 to 6 beats, each one concrete act for one lull, so one plan carries several minutes (each plan is a paid
-  planner call; the October 14 run planned every two minutes from two- and three-beat plans). The first beat
+- 6 to 10 beats, each one concrete act for one lull, so one plan carries five minutes or more (each plan is a
+  paid planner call; four-to-six-beat plans were used up in about two and a half minutes). The first beat
   runs at the next lull: make it engaging. Later beats may wait for a long quiet or an answer; a beat whose
-  moment never comes is simply let go, so offer more than you think will run.
+  moment never comes is simply let go, so offer more than you think will run, and keep the later ones
+  self-contained (they must still make sense if the earlier ones were let go).
 - contribute: say something (question, opinion, tease, short story). gesture: say something with a nod or tilt.
   pose: named poses, wave or throttle_offer (reach out a hand); with look_after it looks then comments on what
   is there. look: silent glance. inspect: a fresh camera look, then a comment. drive: move the base (turn, move,
@@ -480,8 +485,7 @@ class AgencyPlan:
                 **({'objective': record['objective']} if record['scope'] == 'audience' else {}),
                 'scope': record['scope'],
                 'beats_left': len(record['steps']) - record['cursor'],
-                'meaning': 'The goal Rex chose for himself. Answer the human first; let the reply move the goal '
-                           'along only when it fits naturally. Never recite it or force it.'}
+                'meaning': GUIDE['agency_plan']}
 
     def goal_history(self, now):
         """Recent finished goals; private ones only while their person is present."""

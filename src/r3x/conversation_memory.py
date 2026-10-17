@@ -262,6 +262,24 @@ def recall(store, who, session, *, query='', after=None, before=None, period=Non
     return result
 
 
+# October 17 (reply context diet): an earlier exchange reached every reply as its whole database
+# row (session, person, source turn, audience basis, raw time), about 700 characters each.
+EXCHANGE_TEXT = 400
+
+
+def public_exchange(row):
+    """An earlier exchange as the reply model needs it: the words, when, who spoke."""
+    speaker = (row.get('attribution') or {}).get('speaker') or {}
+    human, heard = row.get('human_text') or '', row.get('heard_text') or ''
+    out = {'id': row['id'], 'local_time': row.get('local_time'), 'origin': row.get('origin'),
+           'human_text': human[:EXCHANGE_TEXT], 'heard_text': heard[:EXCHANGE_TEXT]}
+    if speaker:
+        out['speaker'] = {k: speaker.get(k) for k in ('person_id', 'display_name', 'state')}
+    if row.get('text_truncated') or len(human) > EXCHANGE_TEXT or len(heard) > EXCHANGE_TEXT:
+        out['text_truncated'] = True
+    return out
+
+
 def gap(seconds):
     """How long ago, in words, at the scale of visits rather than moments."""
     minutes = max(seconds, 0) / 60
@@ -312,17 +330,17 @@ def context(store, original, session, now):
     who = subject(original)
     result = {'person_id':who, 'now':stamp(now), 'local_now':datetime.fromtimestamp(now).astimezone().isoformat(), 'recent_exchanges':[], 'interests_and_facts':[], 'episodes':[]}
     if not who: return result
-    result['recent_exchanges'] = recall(store,who,session,limit=4,now=now)['exchanges']
+    result['recent_exchanges'] = [public_exchange(row) for row in recall(store,who,session,limit=4,now=now)['exchanges']]
     result['earlier_greetings'] = greetings(store, who, now)
     # October 16: only the newest 6 of 8 saved facts reached each reply.
     result['interests_and_facts'] = [told(row, now) for row in store.claims(who)]
-    result['current_session_exchanges'] = store.rows('SELECT id,human_text,heard_text FROM conversation_exchanges WHERE person_id=? AND session_id=? ORDER BY created_at DESC LIMIT 3',(who,session))
+    # Ids only: their words are already in the history. The key still marks private memory in use.
+    result['current_session_exchanges'] = store.rows('SELECT id FROM conversation_exchanges WHERE person_id=? AND session_id=? ORDER BY created_at DESC LIMIT 3',(who,session))
     result['episodes'] = store.rows('''SELECT e.id,e.summary,e.source_exchange,x.human_text,x.heard_text
         FROM conversation_episodes e JOIN conversation_exchanges x ON x.id=e.source_exchange
         WHERE e.person_id=? ORDER BY e.created_at DESC LIMIT 4''',(who,))
-    attach_evidence(store, result['current_session_exchanges'])
     attach_evidence(store, result['episodes'])
-    for row in result['current_session_exchanges'] + result['episodes']:
+    for row in result['episodes']:
         row['text_truncated'] = len(row['human_text'])>600 or len(row['heard_text'])>600
         row['human_text'],row['heard_text'] = row['human_text'][:600],row['heard_text'][:600]
     result['coverage'] = 'Prior sessions are partial excerpts, not a complete day or exact greeting count.'

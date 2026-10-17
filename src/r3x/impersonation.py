@@ -16,6 +16,7 @@ machinery replaced by V3's owners:
 - Generated parody is performance, never biography: it is recorded as an impression
   with its subject, never as a claim.
 """
+from .field_guide import GUIDE
 from dataclasses import dataclass
 from collections import deque
 import hashlib
@@ -310,7 +311,4 @@ def context(state, now: float) -> dict:
             'famous': sorted(famous_voices()),
             'spontaneous_allowed': allowed, 'spontaneous_blocked_reason': reason,
             'recent': state.impressions.recent(),
-            'meaning': 'Voices Rex can perform through the local cloning engine. self is the current speaker and '
-                       'is usable only when ready is true (otherwise Rex needs to hear more of them in ordinary '
-                       'conversation first). people are known voices on file; famous are target ids. Parody is '
-                       'never a fact about anyone.'}
+            'meaning': GUIDE['impersonation']}

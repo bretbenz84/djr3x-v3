@@ -44,7 +44,10 @@ class ConversationMemoryTests(MemoryFixture):
         self.assertEqual(memory['person_id'],self.person)
         self.assertEqual(memory['recent_exchanges'][0]['human_text'],'I finished the telescope mount.')
         self.assertEqual(memory['recent_exchanges'][0]['heard_text'],'That telescope project sounds fun.')
-        self.assertEqual(memory['recent_exchanges'][0]['session_id'],'yesterday')
+        # October 17 diet: the row carries the words, when and who; the session is in the store.
+        stored = self.store.rows('SELECT session_id FROM conversation_exchanges WHERE id=?', (memory['recent_exchanges'][0]['id'],))
+        self.assertEqual(stored[0]['session_id'],'yesterday')
+        self.assertNotIn('session_id', memory['recent_exchanges'][0])
 
     def test_interruption_does_not_remember_generated_speech_as_delivered(self):
         from r3x.contracts import Cancelled
@@ -156,7 +159,7 @@ class ConversationMemoryTests(MemoryFixture):
             self.assertIn(text,evidence)
         prior=brain.snapshots[0].context['personal_memory']['recent_exchanges']
         story=next(row for row in prior if 'office switch' in row['human_text'])
-        self.assertIsNone(story['attribution']['speaker']['person_id'])
+        self.assertIsNone(story['speaker']['person_id'])
         self.assertEqual(self.store.claims(self.person),[])
         self.assertTrue(any(row['event']=='conversation_memory_record' and row['status']=='recorded'
                             for row in self.state.trace.rows))

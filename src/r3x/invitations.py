@@ -1,4 +1,5 @@
 """Session social invitations; elapsed time permits review, never infers an answer."""
+from .field_guide import GUIDE
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
@@ -73,7 +74,7 @@ class Invitations:
                 'revision':self.revision,'pending':deepcopy(pending),
                 'review_due':bool(pending and now>=pending['review_at']),
                 'recent':[deepcopy(r) for r in self.recent if self.visible(r,context)],
-                'meaning':'Only completed audible invitations are waiting. Review time does not mean rejection, disinterest or an answer. Close explicitly and retain that it was asked. General scope is impersonal only; private content stays audience scoped. Opening a new invitation explicitly supersedes the previous one.'}
+                'meaning':GUIDE['invitations']}
 
     def prepare(self,value,context,text,schedule,now):
         validate_update(value)

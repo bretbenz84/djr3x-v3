@@ -7,6 +7,7 @@ import time
 from uuid import uuid4
 
 from .contracts import ASR, Brain, Cancellation, Cancelled, Capture, ProviderFailure, Snapshot, Transcript, ToolCall, ToolText
+from .field_guide import GUIDE
 from .speakers import VoiceObservation
 from .history import TurnHistory
 from .output import Delivery, OutputOwner, Phrases, put_phrase
@@ -44,6 +45,20 @@ REPEAT_RUN = 5      # Words in a row that count as repeating one of them.
 # described a telescope that was not there.
 LOOK_FAILED = ('The look failed: no picture was taken. Say plainly that you could not look just now. Do not '
                'describe, guess or confirm anything about what is there, and do not say a path is clear or blocked.')
+
+
+def context_sizes(context, top=12):
+    """Characters each part of the request context would take, largest first, for the trace.
+    October 17: the reply context was about a third of each call's tokens and nothing said
+    which parts; the diet is judged by this."""
+    sizes = {}
+    for key, value in context.items():
+        try:
+            sizes[key] = len(json.dumps(value, ensure_ascii=False, default=str))
+        except (TypeError, ValueError):
+            sizes[key] = -1
+    return {'total': sum(v for v in sizes.values() if v > 0),
+            **dict(sorted(((k, v) for k, v in sizes.items() if v >= 0), key=lambda kv: -kv[1])[:top])}
 
 
 def is_quiet_command(text: str) -> bool:
@@ -248,8 +263,7 @@ class Session:
         looking = {'toward': toward or 'straight ahead', 'since': ago(now - since) if since > float('-inf') else None,
                    'why': why, 'people_in_his_view': people or None,
                    'in_the_middle_of_his_view': sorted(set(middle)) or None,
-                   'meaning': 'For your own awareness: with wide eyes, people stay in sight when your head turns. '
-                              'Do not tell them where they sit in your sight unless they ask.'}
+                   'meaning': GUIDE['right_now.rex.looking']}
         if kind != 'following_people' and not chosen:
             looking['if_asked'] = ('Answer the way a person would, lightly: what caught your eye ("Oh, that clock '
                                    'caught my eye") or "just stretching my neck". Never internal words such as idle '
@@ -649,8 +663,7 @@ class Session:
                     face['identity'] = None
                     face['evidence'] = 'face_unresolved'
                 visible.append(face)
-            context['current_view'] = {'sampled_at':now,'faces':visible,
-                'meaning':'Latest fresh face evidence for who is visible now. Empty means no fresh detected face, not proof the room is empty. Separate from speech-time faces; never authorizes speaker attribution or enrollment.'}
+            context['current_view'] = {'sampled_at':now,'faces':visible, 'meaning':GUIDE['current_view']}
             self.trace.emit('reply_visual_context',turn_id=turn_id,**context['current_view'])
             self.state.note_audience(context)   # The same visit survives a restarted face track.
 
@@ -891,7 +904,7 @@ class Session:
                 context['drive'] = {'available':False,'unavailable_reason':self.output.drive_unavailable,
                     'base_status':{'connected':False,'readings':None},
                     'origin':origin,'targets':[],'limits':dict(LIMITS[origin]),
-                    'meaning':'Rex has a wheeled base, but its controller did not connect at startup this run.'}
+                    'meaning':GUIDE['drive (unavailable)']}
             if self.state and not self.state.frozen and getattr(self.state,'places',None) is not None:
                 context['place'] = self.state.places.context()
             scene_images = opportunity.scene_images if opportunity and any(c['kind']=='scene' for c in context.get('observations',[])) else ()
@@ -1071,6 +1084,7 @@ class Session:
                             context_messages=len(snapshot.messages),
                             history_turns=len(self.history.turns),
                             history_characters=self.history.size(snapshot.messages),
+                            context_chars=context_sizes(context),
                             reasoning_effort=getattr(self.brain,"reasoning_effort",None))
             went_silent, withheld = [False], [False]
             def generate(request):

@@ -22,6 +22,8 @@ from datetime import datetime
 import threading
 from uuid import uuid4
 
+from .field_guide import GUIDE
+
 # A person recognized (face or supported voice) this recently is here.
 HERE_SECONDS = 45.
 # An unrecognized face or voice continues a known person's visit this long after their last
@@ -285,8 +287,7 @@ class Present:
             if self.audience_seen and now - self.company_at >= COMPANY_SECONDS:
                 context['recent_audience'] = {'person_id': self.audience_seen[0],
                     'seconds_ago': round(now - self.audience_seen[1], 1),
-                    'meaning': 'Last person recognized as the private audience. Keeps their memories usable through '
-                               'brief camera gaps; not proof they are visible now or that they spoke.'}
+                    'meaning': GUIDE['recent_audience']}
             return context
 
     # Things ------------------------------------------------------------------
@@ -376,8 +377,7 @@ class Present:
             if earlier:
                 conversation['his_earlier_lines'] = {
                     'lines': [{'said': ago(now - line['at']), 'text': line['text']} for line in earlier],
-                    'meaning': 'Points, jokes and apologies he already made: never make them again, and never '
-                               'bring back a mistake he already owned unless they do.'}
+                    'meaning': GUIDE['right_now.conversation.his_earlier_lines']}
             picture = {'local_time': local_time(wall),
                        'people_here': people,
                        'unrecognized_face_in_view': unknown,
@@ -385,10 +385,7 @@ class Present:
                                {'seen': ago(pet_ago), 'in_view': pet_ago <= PET_GAP_SECONDS}),
                        'things_seen': things,
                        'conversation': conversation,
-                       'meaning': 'Rex\'s sense of the moment, kept by code. Times are in words because they '
-                                  'matter as feelings: whether a moment has passed, whether someone is still '
-                                  'around, whether a question is still hanging. "Here" means still around, not '
-                                  'necessarily in view; it never says who is speaking.'}
+                       'meaning': GUIDE['right_now']}
             if rex:
                 picture['rex'] = rex
             return picture

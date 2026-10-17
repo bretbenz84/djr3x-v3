@@ -1,4 +1,5 @@
 """One validator/executor for meaning proposals and all persistent transitions."""
+from .field_guide import GUIDE
 from dataclasses import asdict, replace
 import hashlib
 import json
@@ -46,6 +47,24 @@ NOT_NAMES = frozenset({'he', 'she', 'him', 'her', 'his', 'hers', 'they', 'them',
 # ambiguous_continuity is left out: the clip is close to two different voices of this visit.
 CARRY_REASONS = frozenset({'motion_low_confidence', 'session_track', 'tentative_continuity', 'short_continuity',
                            'too_short_for_new_track', 'short_or_untrusted'})
+
+
+# October 17 (reply context diet): every reply carried each claim's full database row (source
+# track, turn, revision, raw timestamps), about 570 characters each. The model needs the fact, who
+# said it, its status and when it was told; the store keeps the rest for the tools.
+CLAIM_FIELDS = ('id', 'subject_id', 'said_by', 'predicate', 'value', 'kind', 'status', 'mentions_id',
+                'told', 'planned_time', 'followup')
+PERSON_FIELDS = ('id', 'name', 'aliases', 'status')
+
+
+def public_claim(row, now):
+    from .conversation_memory import told
+    row = told(row, now)
+    return {k: row[k] for k in CLAIM_FIELDS if row.get(k) is not None}
+
+
+def public_person(row):
+    return {k: row[k] for k in PERSON_FIELDS if k in row}
 
 
 class CoreState:
@@ -524,7 +543,8 @@ class CoreState:
                            "display_name":speaker_person["name"] if speaker_person else None,
                            "direction":observation.direction},
                 "provisional_person_id":track.person_id if track else None,
-                "people":self.store.people(),"claims":self.store.claims(include_candidates=True),
+                "people":[public_person(p) for p in self.store.people()],
+                "claims":[public_claim(row, self.wall_clock()) for row in self.store.claims(include_candidates=True)],
                 "pending_question":self.pending,"faces":[{**public_face(f),"person_hypothesis":self.face_associations.get(f["track_id"])} for f in self.faces],
                 "face_enrollment":[{"face_track_id":k,"person_id":v["person_id"]} for k,v in self.face_learning.items()],
                 "frozen_evaluation":self.frozen,
@@ -591,8 +611,7 @@ class CoreState:
                                    'saved_pets':[{'entity_id':e.get('entity_id'),'name':e.get('name')}
                                                  for e in (self.photo_memory.catalog() if self.photo_memory else ())
                                                  if e.get('kind')=='pet'],
-                                   'meaning':'An animal came into view. The detector confuses dogs and cats; '
-                                             'only a look against saved photos can say which pet it is.'}}
+                                   'meaning':GUIDE['pet_arrival']}}
                    if event.kind=='pet_arrival' else {}),
                 'speaker':{'person_id':None,'state':'unresolved','reason':'no_speech_observed'},
                 'faces':faces,'people':people,'claims':[],

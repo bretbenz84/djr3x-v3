@@ -1,4 +1,5 @@
 """Bounded model-authored visual observations, never accepted biography or raw images."""
+from .field_guide import GUIDE
 import json
 
 
@@ -18,7 +19,7 @@ def context(store, session_id, audience_key):
             row['source']['corrections'] = [{k:v for k,v in c.items() if k!='source_text'} for c in row['source'].get('corrections',[])]
         if 'corrections' in row['source']:
             row['source']['corrections'] = [{k:v for k,v in c.items() if k not in {'previous_description','previous_uncertainty'}} for c in row['source']['corrections']]
-        row['meaning'] = 'Historical model interpretation, not current vision or verified personal fact. Do not infer a change from a new frame or rewording.'
+        row['meaning'] = GUIDE['visual_memory (each row)']
     return rows
 
 
@@ -82,7 +83,7 @@ def novelty(records, images=()):
     """Evidence for model judgment, not a semantic novelty score or speaking trigger."""
     from hashlib import sha256
     digests={sha256(i.data_url.encode()).hexdigest() for i in images}
-    return {'meaning':'Observed is not mentioned; mentioned is not heard. Identical pixels are not novelty, different pixels are not proof of meaningful change. Unheard detail is not automatically interesting. Choose a new conversational angle or silence, not merely new wording.',
+    return {'meaning':GUIDE['visual_novelty'],
             'observations':[{'observation_id':r['id'],'interpretation_revision':r['source'].get('interpretation_revision',0),
                 'image_relation':'identical_supplied_image' if r['source'].get('image_digest') in digests else 'not_established',
                 'heard_remarks':r['spoken'], 'has_heard_remark':bool(r.get('heard_remark_count',len(r['spoken'])))} for r in records]}

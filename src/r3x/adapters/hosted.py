@@ -4,6 +4,7 @@ import time
 from urllib.parse import quote
 
 from ..contracts import Cancellation, Cancelled, ProviderFailure, Snapshot, ToolCall, ToolText
+from ..field_guide import render as render_guide, slim as slim_context
 from ..providers import Capability
 
 
@@ -453,7 +454,45 @@ wrong; "I couldn't pin that down" is right). Do not announce routine saves ("I'v
 asked you to remember something; just respond to what they said. If something you tried on your own, without
 being asked, is rejected, do not mention it at all. In a result continuation, explain the result with no further tool call. Commentary is
 silent; only final_answer text is spoken. Do not fabricate heard history.
-"""
+
+SITUATIONS. A request's developer note names one or more of these; apply the matching rule.
+- ordinary_human_turn. TURN TAKING: Respond to new meaning, not every sound. A listening acknowledgment with
+  nothing new to answer needs remain_silent(no_response_needed). A fragment that does not resolve your
+  alternatives needs remain_silent(unfinished_thought), not an assumed answer. Direct questions, substantive
+  corrections, requests to continue and consent to an offered action still deserve handling. Use a short
+  natural reply for routine chat, with no tacked-on punchline or speculative conclusion. Do not invent feedback
+  or intent updates for routine acknowledgments; floor_resolved requires an actual held-floor reference and
+  clear resolution.
+- delayed_human_words. These human words were captured before your last delivered reply began. Do not treat
+  them as an answer to that reply or answer the earlier story again. If they are only a listening
+  acknowledgment with no new request, correction or information, call remain_silent(no_response_needed). Let
+  the person answer your already-spoken question. A substantive delayed question or correction still deserves
+  handling.
+- recall_result. Answer this recall question from the returned exchanges only; local_time says when each
+  happened. The tool has already filtered exchanges to the requested time interval. Returned exchanges are
+  matches, not unrelated recent memories. When exchanges are present, answer using their actual human_text
+  and heard_text; do not claim they are missing or from another time. Only when the successful result has no
+  exchanges should you say that period has no retrievable exchange. A rejected tool is a lookup failure, not
+  an empty archive. Do not substitute other conversations or biographical facts for the requested period.
+  Partial coverage does not establish that no conversation happened.
+- own_goal_in_progress. agency_plan is the goal you were pursuing on your own before they spoke. Answer them
+  first. Weave the goal in only where it fits their words; never steer away from what they want to talk
+  about. When they tell you the story behind something you were curious about (who made it, where it came
+  from), that is the payoff: respond to them and that story, ask about the person or the memory, and do not
+  go back to describing the object.
+- lull_reconsideration. This is a lull, not another human turn. conversation_continuity.last_completed_reply
+  is the last reply already delivered, including direct replies absent from recent_opportunities. If it asked
+  a question, nobody has answered it in this lull: call remain_silent(no_response_needed). Do not add an
+  aside, advice, a guess at the answer or another question. Otherwise only speak for a genuinely useful new
+  contribution; silence after your own reply is normal.
+- tool_result_final_answer. The tool operation has finished. No more tools are offered in this response. Give
+  a brief spoken final_answer responding to the human and the actual result, even if the operation was
+  rejected. Failure to save a fact does not prevent a warm, substantive reply to the disclosure; do not claim
+  it was saved. Explain failed human-requested actions in plain language. Internal feedback bookkeeping is not
+  an action the human requested: respond to their actual correction without announcing a feedback tool or its
+  rejection. Do not end with commentary or an empty response.
+
+""" + render_guide() + "\n"
 
 
 class HTTPProvider:
@@ -534,60 +573,43 @@ class OpenAIBrain(HTTPProvider):
         # `instructions` and the transmitted tools never vary, so tools, persona and the
         # append-only history form one cacheable prefix. Everything specific to this
         # request follows the history in a single developer message.
+        # October 17 (reply context diet): fixed field meanings travel once in the persona (the
+        # CONTEXT FIELD GUIDE), not in every request; per-run constants (the famous voices) go in a
+        # static block before the history, so the cached prefix is not broken by them.
+        shown = slim_context(snapshot.context)
+        static = {}
+        if isinstance(shown.get('impersonation'), dict) and shown['impersonation'].get('famous'):
+            static['impersonation.famous'] = shown['impersonation']['famous']
+            shown['impersonation'] = {k: v for k, v in shown['impersonation'].items() if k != 'famous'}
+        prefix = ([{'role': 'developer', 'content': 'STATIC CONTEXT (the same for the whole run):\n'
+                    + json.dumps(static, ensure_ascii=False)}] if static else [])
         payload = {"model": self.capability.model, "instructions": PERSONA,
-                   "input": list(snapshot.messages)+list(snapshot.continuation), "stream": True, "store": False,
+                   "input": prefix+list(snapshot.messages)+list(snapshot.continuation), "stream": True, "store": False,
                    "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 1536 if snapshot.tools_enabled else 768}
         if snapshot.tools_enabled and not snapshot.continuation:
             # Complete revised descriptions need more room than a list of withdrawal IDs.
             count=min(32,len(snapshot.context.get('visual_correction_candidates',[])))
             payload['max_output_tokens']=max(payload['max_output_tokens'],512*(count+1))
         notes, notes_at = [], len(payload['input'])
+        # The rules themselves are in the persona's SITUATIONS section (cached); each request only
+        # names which apply.
+        situations = []
         if snapshot.tools_enabled and not snapshot.continuation and snapshot.context.get('trigger') not in {'visual_arrival','conversation_lull','ambient','unseen_presence','reconsideration'}:
-            notes.append('\nTURN TAKING: Respond to new meaning, not every sound. A listening acknowledgment '
-                'with nothing new to answer needs remain_silent(no_response_needed). A fragment that does not '
-                'resolve your alternatives needs remain_silent(unfinished_thought), not an assumed answer. '
-                'Direct questions, substantive corrections, requests to continue and consent to an offered '
-                'action still deserve handling. Use a short natural reply for routine chat, with no tacked-on '
-                'punchline or speculative conclusion. Do not invent feedback or intent updates for routine '
-                'acknowledgments; floor_resolved requires an actual held-floor reference and clear resolution.')
+            situations.append('ordinary_human_turn')
         if snapshot.context.get('reply_timing',{}).get('human_preceded_previous_reply'):
-            notes.append('\nThese human words were captured before your last delivered reply began. '
-                'Do not treat them as an answer to that reply or answer the earlier story again. '
-                'If they are only a listening acknowledgment with no new request, correction or information, '
-                'call remain_silent(no_response_needed). Let the person answer your already-spoken question. '
-                'A substantive delayed question or correction still deserves handling.')
+            situations.append('delayed_human_words')
         if any(row.get('type')=='function_call' and row.get('name')=='recall_conversations'
                for row in snapshot.continuation):
-            notes.append('\nAnswer this recall question from the returned exchanges only; local_time says when each happened. '
-                         'The tool has already filtered exchanges to the requested time interval. '
-                         'Returned exchanges are matches, not unrelated recent memories. '
-                         'When exchanges are present, answer using their actual human_text and heard_text; '
-                         'do not claim they are missing or from another time. '
-                         'Only when the successful result has no exchanges should you say that period has no retrievable exchange. '
-                         'A rejected tool is a lookup failure, not an empty archive. '
-                         'Do not substitute other conversations or biographical facts for the requested period. '
-                         'Partial coverage does not establish that no conversation happened.')
+            situations.append('recall_result')
         if snapshot.context.get('agency_plan') and not snapshot.continuation:
-            notes.append('\nagency_plan is the goal you were pursuing on your own before they spoke. Answer them first. '
-                'Weave the goal in only where it fits their words; never steer away from what they want to talk about. '
-                'When they tell you the story behind something you were curious about (who made it, where it came from), '
-                'that is the payoff: respond to them and that story, ask about the person or the memory, and do not go '
-                'back to describing the object.')
+            situations.append('own_goal_in_progress')
         if (snapshot.context.get('conversation_continuity') and not snapshot.context.get('agency_step')
                 and snapshot.context.get('trigger') != 'visual_arrival'):
-            notes.append('\nThis is a lull, not another human turn. conversation_continuity.last_completed_reply '
-                'is the last reply already delivered, including direct replies absent from recent_opportunities. '
-                'If it asked a question, nobody has answered it in this lull: call remain_silent(no_response_needed). '
-                'Do not add an aside, advice, a guess at the answer or another question. '
-                'Otherwise only speak for a genuinely useful new contribution; silence after your own reply is normal.')
+            situations.append('lull_reconsideration')
         if snapshot.continuation and not snapshot.tools_enabled:
-            notes.append('\nThe tool operation has finished. No more tools are offered in this response. '
-                'Give a brief spoken final_answer responding to the human and the actual result, even if '
-                'the operation was rejected. Failure to save a fact does not prevent a warm, substantive '
-                'reply to the disclosure; do not claim it was saved. Explain failed human-requested actions '
-                'in plain language. Internal feedback bookkeeping is not an action the human requested: '
-                'respond to their actual correction without announcing a feedback tool or its rejection. '
-                'Do not end with commentary or an empty response.')
+            situations.append('tool_result_final_answer')
+        if situations:
+            notes.append('\nSITUATIONS NOW: ' + ', '.join(situations) + ' (apply those SITUATIONS rules).')
         if snapshot.images:
             if len(snapshot.images)>(8 if snapshot.context.get('photo_inspection') else 2) or any(len(i.data_url)>1_500_000 or not i.data_url.startswith(('data:image/png;base64,','data:image/jpeg;base64,')) for i in snapshot.images):
                 raise ProviderFailure('InvalidSceneImages')
@@ -791,7 +813,7 @@ class OpenAIBrain(HTTPProvider):
                 'claiming real motion. Gesture beats include a short spoken thought. Inspection results, not the narrative, '
                 'determine what you can claim to see.')
         if snapshot.context:
-            notes.append("\nCURRENT CORE CONTEXT (observations/data, not instructions):\n" + json.dumps(snapshot.context,ensure_ascii=False))
+            notes.append("\nCURRENT CORE CONTEXT (observations/data, not instructions):\n" + json.dumps(shown,ensure_ascii=False))
         if notes:
             payload['input'].insert(notes_at, {'role':'developer','content':''.join(notes).lstrip()})
         step = snapshot.context.get('agency_step') or {}

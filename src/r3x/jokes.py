@@ -13,6 +13,7 @@ hard-coded lines that soon repeated). Three parts, none in front of a reply:
   two minutes, or once used.
 - Nothing here interprets what a person said; the conversation model judges reactions.
 """
+from .field_guide import GUIDE
 import json
 import re
 import threading
@@ -63,9 +64,7 @@ def context(store, person_id, audience, now):
     if told:
         result['bits_told_lately'] = list(dict.fromkeys(told))[:10]
     if result:
-        result['meaning'] = ('Your own material with these people. running_gags landed before: a callback can be '
-                             'great, sparingly, never the same way twice. bits_that_flopped: leave them alone. '
-                             'bits_told_lately: do not tell them again.')
+        result['meaning'] = GUIDE['humor']
     return result
 
 

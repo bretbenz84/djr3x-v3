@@ -1,4 +1,5 @@
 """Session-only conversational action continuity; no autonomous task execution."""
+from .field_guide import GUIDE
 from collections import deque
 from copy import deepcopy
 
@@ -41,7 +42,7 @@ class Actions:
     def context(self, audience: str) -> dict:
         return {'active':deepcopy(self.active) if self.active and self.active['audience']==audience else None,
                 'recent':deepcopy([r for r in self.recent if r['audience']==audience]),
-                'meaning':'Purpose and actual executor/speech outcomes are separate. Interrupted work is abandoned, never queued for automatic resumption. Follow the current user topic; only choose a fresh action if still relevant. A completed move or capture does not mean its answer was heard.'}
+                'meaning':GUIDE['action_continuity']}
 
     def clear(self) -> None:
         self.active=None;self.recent.clear()

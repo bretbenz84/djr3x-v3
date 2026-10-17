@@ -21,6 +21,42 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Reply context diet and longer plans — October 17
+
+Where the money went in the five runs since October 15 (token records, 52 minutes, about
+$1.79 an hour, Terra's cached tokens priced at the full rate): the goal planner $0.85 (20
+calls), the joke writer $0.35 (44 calls), replies to the owner $0.37 (122 calls at about 44,000
+input tokens, half of it cached), Rex's own beats $0.11, result continuations $0.09. The
+beats that are talked over or skipped are not the cost. Owner: keep the writer's room; put
+the reply context on a diet; make plans last longer.
+
+**Diet** (synthetic checks; token effect **unmeasured live**):
+
+- About 6,200 characters of fixed field explanations ("meaning" strings) and about 3,000
+  characters of situational rules rode in every request after the history, where nothing is
+  cached. They now travel once in the persona instructions (`field_guide.py`, CONTEXT FIELD
+  GUIDE and SITUATIONS); the request names the situations that apply and the adapter strips
+  any registered meaning from the JSON. The builders still attach them, so replay reports and
+  fixtures are unchanged, and an unregistered text still travels.
+- The 53 famous voice ids sit in a static block before the history, where the cache prefix
+  holds, instead of in the changing context.
+- Claim rows carry the fact, who said it, status and when it was told (about 250 characters
+  each instead of 570 with source track, turn, revision and raw times); people rows carry
+  id, name, aliases and status; prior-session exchanges carry the words (400 characters at
+  most), when and who spoke instead of the whole database row; the current session's
+  exchanges are ids only (their words are already in the history); past opportunities are
+  the last ten with 240 characters of spoken text instead of sixteen with 1,200.
+- Every `model_request` now logs `context_chars` (characters per context part, largest
+  first), so the next run shows what the context costs and what is still large.
+
+**Plans last longer.** A plan may carry up to ten beats and the planner is asked for six to
+ten (`MAX_STEPS`); four-to-six-beat plans were used up in about two and a half minutes each,
+so the planner ran every 2.6 minutes. More beats cost output tokens only. Not changed: the
+writer's room, its caps, the restart revalidation call.
+
+1315 of 1316 blocked-I/O checks pass (GUI import: PySide6 not installed); seven new in
+`tests/test_context_diet.py`.
+
 ## Ignored means move on — October 17
 
 Owner ruling, replacing the October 3 easing: when two of Rex's spoken lines in a row go

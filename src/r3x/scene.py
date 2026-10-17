@@ -1,4 +1,5 @@
 """Two small camera snapshots for the existing brain; no face/speaker interpretation."""
+from .field_guide import GUIDE
 from collections import deque
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -79,7 +80,7 @@ class SceneObserver:
                     'settled_after':None if self.settled_after==float('-inf') else self.settled_after,
                     'relation':self.relation,'view_id':self.scene_id,
                     'previously_considered':self.scene_id in self.attempts,
-                    'meaning':'Similar images indicate a revisited view, not object identity. Newly visible is not newly present. Commanded motion is known; uncommanded movement remains unknown. Reappearance alone is not a reason to repeat a question or remark; inspect for current evidence when a human reference or unresolved interest justifies it.'}
+                    'meaning':GUIDE['camera_continuity']}
 
     @staticmethod
     def similar(first, second):

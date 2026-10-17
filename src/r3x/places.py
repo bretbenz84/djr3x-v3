@@ -13,6 +13,7 @@ model asks what room this is and names it through the state owner's `name_room` 
 calls `learn()`. V2 left doorways, positions, maps and navigation out of scope; so does this,
 apart from remembering which known rooms Rex has moved between.
 """
+from .field_guide import GUIDE
 from array import array
 from collections import Counter, deque
 import math
@@ -369,11 +370,5 @@ class Places:
                 'connects_to': [n for n in neighbors if n],
                 'connections': [[self.rooms.get(r['a']), self.rooms.get(r['b'])] for r in links
                                 if r['a'] in self.rooms and r['b'] in self.rooms],
-                'meaning': ('Room recognition from the camera, not a map or a position. recognized: Rex knows this room. '
-                            'unsure: it may be one of looks_like; say so if it matters, never claim it. unfamiliar: Rex has '
-                            'moved and does not recognize the room. Unfamiliar, or unsure for a while: when people are here and '
-                            'it fits, ask once what room this is (a guess from looks_like is fine; do not ask again if it went '
-                            'unanswered) and use name_room when told, including a confirmation such as "yes, the workshop". learning: views '
-                            'of a just-named room are being collected; it is not learned until last_learning says learned. '
-                            'connects_to/connections: rooms Rex has gone between, not distances or directions.')}
+                'meaning': GUIDE['place']}
             return result

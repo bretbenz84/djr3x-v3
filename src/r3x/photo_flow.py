@@ -1,4 +1,5 @@
 """Bounded photographic inspection/teaching through the existing Session model."""
+from .field_guide import GUIDE
 import json
 from dataclasses import replace
 from .contracts import ProviderFailure
@@ -10,9 +11,9 @@ def context(state):
     return {'photo_memory':{'revision':state.photo_memory.data['revision'],'entities':state.photo_memory.catalog(),
         'objects':list(state.objects.snapshot()) if state.objects else [],
         'current_photographic_evidence':False,
-        'catalog_scope':'Only these entries are saved. A mentioned name absent here has NO saved photographic memory. Never apply its details to the sole existing entry.',
-        'detector_scope':'Unidentified category/position hints only. No named identity or appearance evidence. Inspect fresh pixels and references before answering current pet identity or spatial comparisons.',
-        'meaning':'Named objects/pets and reference photos. Detector labels and tracks are uncertain, not permanent identity. No person identity or ownership inferred.'}}
+        'catalog_scope':GUIDE['photo_memory.catalog_scope'],
+        'detector_scope':GUIDE['photo_memory.detector_scope'],
+        'meaning':GUIDE['photo_memory']}}
 
 
 def comparison(state, images):

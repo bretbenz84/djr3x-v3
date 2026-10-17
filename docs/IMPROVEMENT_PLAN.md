@@ -227,7 +227,7 @@ the baseline, the five runs of October 15–16 (52 minutes, owner alone): reply 
 against 262 and about $1.89 an hour against $1.36 (step 2's "equal or fewer calls" not met; the
 writer's room is 15% of calls), 14 of 59 planned lines heard, the floor recheck never fired and
 no remembered-route leg ran (step 3 unproven), 44 writer batches with one detected use (step 4
-unproven). The October 17 review repairs are in
+unproven). The October 17 review repairs, the reply context diet and the longer plans are in
 [implementation status](IMPLEMENTATION_STATUS.md#plan-review-repairs--october-17).
 
 ## First live run and repairs (October 14, evening)

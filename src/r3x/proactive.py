@@ -1,4 +1,5 @@
 """Bounded social opportunities and receipts; no language or mood classification."""
+from .field_guide import GUIDE
 from collections import deque
 from dataclasses import dataclass
 import threading
@@ -77,6 +78,18 @@ class OpportunityCancellation(Cancellation):
         super().check()
 
 
+RECENT_OUTCOMES = 10      # Past opportunities the reply model sees (feedback may refer to these).
+OUTCOME_TEXT = 240        # Of each one's spoken words.
+OUTCOME_FIELDS = ('event_id', 'kind', 'status', 'heard_complete_phrases', 'target_person_id', 'response')
+
+
+def public_outcome(row):
+    out = {k: row.get(k) for k in OUTCOME_FIELDS}
+    text = row.get('delivered_text')
+    out['delivered_text'] = text[:OUTCOME_TEXT] if isinstance(text, str) else text
+    return out
+
+
 class Initiative:
     """Session-state-owned pacing. Attempts never masquerade as heard speech.
 
@@ -103,7 +116,7 @@ class Initiative:
 
     def scheduling_context(self, source):
         return {'revision': self.schedule_revision, 'source_id': source,
-                'delay_bounds_seconds': [3, 300], 'meaning': 'Invitation review metadata only; agency plans own periodic advancement.'}
+                'delay_bounds_seconds': [3, 300], 'meaning': GUIDE['reconsideration']}
 
     def cancel_schedule(self, reason):
         if self.agency:
@@ -157,7 +170,9 @@ class Initiative:
 
     def context(self, now: float | None = None) -> dict:
         return {"initiative_quiet": self.quiet, "silent_until_released": self.silent, "policy_source_turn_id": self.policy_source,
-                "recent_opportunities": list(self.outcomes),
+                # October 17 (reply context diet): sixteen rows with up to 1,200 characters of spoken
+                # text each, already in the history, reached every reply. The last ten, words shortened.
+                "recent_opportunities": [public_outcome(row) for row in list(self.outcomes)[-RECENT_OUTCOMES:]],
                 "lull_attempts_since_source": self.lull_attempts,
                 "feedback": [dict(row) for row in self.feedback
                              if row["expires_at"] is None or now is None or now < row["expires_at"]]}
