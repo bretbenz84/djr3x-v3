@@ -1,4 +1,5 @@
 """Live orchestration: bounded capture/ASR queues feeding the shared Session."""
+from collections import deque
 from queue import Queue, Empty, Full
 from dataclasses import replace
 import sys
@@ -32,6 +33,7 @@ PLANNING_GLANCE_SECONDS = .25
 # Sounds that stop a hello before anyone is known to have spoken; a thrown-away one earns a retry.
 NOISE_CUTOFFS = frozenset({'human_speech','capture_queued','turn_queued','recognition_busy'})
 SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish before leaving them.
+WAITING_TURNS = 8   # Transcripts kept while the conversation is busy (a long drive), beyond the queue.
 
 class VoiceRuntime:
     def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None):
@@ -40,6 +42,11 @@ class VoiceRuntime:
         self.perception, self.recorder = perception, recorder
         self.captures = Queue(maxsize=2)
         self.turns = Queue(maxsize=3)
+        # Transcripts waiting for room in turns. October 16 (3af18a12): the speech-recognition
+        # worker blocked on a full turns queue during a two-minute drive, so every later capture,
+        # "stop" included, was dropped untranscribed. It now keeps listening while these wait.
+        self.waiting_turns = deque()
+        self._waiting_reported = False
         self.stop = threading.Event()
         self.asr_cancel = Cancellation()
         self.workers = []
@@ -95,25 +102,38 @@ class VoiceRuntime:
             self.trace.emit('capture_rejected',capture_id=item[0].capture_id,reason='playback_echo_risk')
             return
         if kind=='turns':
-            # Do not discard an already transcribed utterance during a slow
-            # network request. The ASR worker waits; capture/control remain live.
-            reported=False
-            while not self.stop.is_set() and not self.session.closed:
-                try:
-                    queue.put(item,timeout=.05)
-                    return
-                except Full:
-                    if not reported:
-                        self.trace.emit('transcript_waiting',reason='conversation_queue_full')
-                        reported=True
+            # Do not discard an already transcribed utterance during a slow request or a long
+            # drive, and never stop transcribing for it: a stop must still be heard.
+            self.waiting_turns.append(item)
+            if len(self.waiting_turns) > WAITING_TURNS:
+                # Drop the oldest unclear sound first, then the oldest words.
+                drop = next((w for w in self.waiting_turns if not w[1].trusted), self.waiting_turns[0])
+                self.waiting_turns.remove(drop)
+                self.trace.emit('input_overflow', queue='waiting_turns', policy='drop_oldest_untrusted_first',
+                                capture_id=drop[0].capture_id)
+            self.flush_turns()
             return
         try:
             queue.put_nowait(item)
         except Full:
             self.trace.emit("input_overflow", queue=kind, policy="reject_newest")
 
+    def flush_turns(self):
+        """Move waiting transcripts into the conversation queue, in order, as room appears."""
+        while self.waiting_turns:
+            try:
+                self.turns.put_nowait(self.waiting_turns[0])
+            except Full:
+                if not self._waiting_reported:
+                    self.trace.emit('transcript_waiting', reason='conversation_queue_full')
+                    self._waiting_reported = True
+                return
+            self.waiting_turns.popleft()
+        self._waiting_reported = False
+
     def _asr_loop(self):
         while not self.stop.is_set():
+            self.flush_turns()
             try:
                 with self.control_lock:
                     capture, revision = self.captures.get_nowait()

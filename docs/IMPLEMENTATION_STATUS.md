@@ -21,6 +21,31 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Stop while driving — October 16
+
+Session `3af18a12` (real hardware): on the way to the microwave, about to hit the kitchen island,
+the owner said "Rex, stop moving." and then "stop" several times; Rex kept driving and nothing was
+acknowledged. The first phrase was transcribed correctly 41 s into the drive but missed the strict
+stop list ("moving" was not an allowed word), so it queued as conversation behind the two-minute
+drive. The conversation queue was already full of unclear sounds, so the speech-recognition worker
+blocked on it, and every later capture (five in the next 100 s) was dropped untranscribed.
+
+Repairs (synthetic checks; **not yet run on the robot**):
+
+- The strict stop phrases also accept "stop moving/driving/turning", "stop it/that", "stop right
+  there", "hold it" and "don't move", still only as a whole utterance ("Keep moving", "Wait." and
+  "Stop by the store later" stay conversation).
+- Speech recognition never waits for the conversation: transcripts that do not fit wait beside the
+  queue (`waiting_turns`, eight at most, unclear sounds dropped first) and move in, in order, as
+  room appears. A stop said while he drives is transcribed and halts the wheels at once.
+- When a spoken stop halts a drive he says "Stopped." (not after "be quiet" or shutdown); a further
+  stop cuts that line too.
+
+Ordinary speech during a drive is still answered only after the drive ends. 1272 of 1273
+blocked-I/O checks pass (GUI import: PySide6 not installed), six new in
+`tests/test_stop_while_driving.py`; one older check now expects the waiting list instead of a
+blocked worker.
+
 ## Reply speed: where the wait goes, and four repairs — October 16
 
 Saved-log analysis (17 robot sessions, October 5–15; real hardware, no waveforms). A typical

@@ -12,11 +12,16 @@ from .history import TurnHistory
 from .output import Delivery, OutputOwner, Phrases, put_phrase
 
 # Syntax-only emergency controls; the only way to cut off audible speech.
-STOP_COMMANDS = frozenset({"stop","cancel","halt","whoa","freeze","shut up","stop talking","be quiet","quiet","hush"})
+STOP_COMMANDS = frozenset({"stop","cancel","halt","whoa","freeze","shut up","stop talking","be quiet","quiet","hush",
+                           "hold it","don't move","dont move"})
 # Strict fast path: the whole utterance is a stop phrase, optionally wrapped in a few
 # exclamations or Rex's name and repeated ("Oh, stop!", "Stop, stop, stop!", "Whoa, Rex, stop").
 # September 27: "Oh, stop!" missed the exact-match list while he drove toward an obstacle.
-STOP_WRAPPERS = frozenset({"oh","hey","no","whoa","rex","okay","ok","please","now","wait"})
+STOP_WRAPPERS = frozenset({"oh","hey","no","whoa","rex","okay","ok","please","now","wait",
+                           # October 16 (3af18a12): "Rex, stop moving." was heard clearly mid-drive and
+                           # missed the list, so it waited behind the drive like conversation.
+                           "moving","driving","rolling","turning","going","there","right","it","that",
+                           "immediately","robot"})
 
 
 # Stop phrases that ask for silence rather than a halt. They also leave Rex quiet (no
@@ -24,6 +29,7 @@ STOP_WRAPPERS = frozenset({"oh","hey","no","whoa","rex","okay","ok","please","no
 # only pauses his initiative for two minutes. Review October 3: with goals always running,
 # "be quiet" bought two minutes before the next unprompted line.
 QUIET_COMMANDS = frozenset({"shut up","stop talking","be quiet","quiet","hush"})
+STOPPED_LINE = "Stopped."   # Said when a spoken stop halts a drive (not for quiet phrases or shutdown).
 # Shutdown waits at most this long for the conversation lock, then goes ahead without it.
 SHUTDOWN_LOCK_SECONDS = .5
 LULL_FRESH_TOPIC_SECONDS = 45.   # Nobody has spoken this long: Rex's next goal opens something new.
@@ -111,6 +117,7 @@ class Session:
         # Goal planning runs beside conversation, never in front of it (October 2).
         self._planning_thread = None
         self._planning_cancel = Cancellation()
+        self._last_cancel = None   # (reason, quiet) of the latest stop, read when a drive is cut off.
 
     def planning_active(self) -> bool:
         return self._planning_thread is not None and self._planning_thread.is_alive()
@@ -402,6 +409,7 @@ class Session:
     def cancel(self, reason='explicit_stop', *, quiet=False) -> None:
         # Stop signals need no lock. Shutdown never waits for a worker that holds the
         # conversation lock (October 12: one stuck there kept Rex from shutting down).
+        self._last_cancel = (reason, quiet)
         self._planning_cancel.event.set()
         if self._cancel:
             self._cancel.event.set()
@@ -430,6 +438,33 @@ class Session:
         self.trace.emit("cancel", revision=self.revision)
         if quiet and self.state and self.state.initiative.quiet:
             self.trace.emit('initiative_quiet', source='stop_phrase')
+
+    def _say_stopped(self, turn_id):
+        """Confirm a spoken stop that halted the wheels. October 16 (3af18a12): told to stop
+        mid-drive, nothing said he had heard. A further stop cuts this line too."""
+        line_cancel, said = Cancellation(), Delivery()
+        with self._lock:
+            if self.closed or self._cancel is not None:
+                return
+            self._cancel = line_cancel
+        phrases = Queue()
+        try:
+            put_phrase(phrases, STOPPED_LINE, line_cancel)
+            put_phrase(phrases, None, line_cancel)
+            self.output.run(phrases, line_cancel, turn_id + ':stopped', said)
+        except Cancelled:
+            pass
+        except Exception as exc:
+            self.trace.emit('stop_acknowledgment_failed', turn_id=turn_id, error_type=type(exc).__name__)
+        finally:
+            with self._lock:
+                if self._cancel is line_cancel:
+                    self._cancel = None
+        self.trace.emit('stop_acknowledged', turn_id=turn_id, heard=bool(said.completed_text))
+        if said.completed_text:
+            self.history.append({'role': 'assistant', 'phase': 'final_answer', 'content': ' '.join(said.completed_text)})
+            self.history.append({'role': 'developer', 'content':
+                'Rex said the line above because he was told to stop while driving; the wheels stopped.'})
 
     def note_speech(self, ended_at: float, sustained: bool = True) -> None:
         """Yield an unheard reply to resumed, non-echo microphone speech.
@@ -2080,6 +2115,11 @@ class Session:
                 self.motion_committed = False
                 self.preparing_plan = False
                 self.agency_scope = None
+            halted_drive = (drive_action is not None and drive_action.receipt is not None
+                            and drive_action.receipt.status == 'cancelled')   # The stop cut the drive off.
+            if (halted_drive and self.revision != submitted_revision   # A stop came during this turn.
+                    and self._last_cancel == ('explicit_stop', False) and not self.closed):
+                self._say_stopped(turn_id)
             audio_at = delivery.first_audio_at
             self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, medium=delivery.medium, timings={
                 "endpoint": None if opportunity else source_end - speech_end,

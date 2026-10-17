@@ -180,16 +180,15 @@ class CoreTests(unittest.TestCase):
     def test_full_transcript_queue_waits_and_preserves_order(self):
         self.setup_core()
         runtime = VoiceRuntime(None,None,None,self.session,self.trace)
-        for i in range(3):runtime.enqueue(runtime.turns,i,'turns')
-        pending=threading.Thread(target=runtime.enqueue,args=(runtime.turns,3,'turns'))
-        pending.start()
-        try:
-            self.assertEqual(runtime.turns.get(timeout=1),0)
-            pending.join(1)
-            self.assertFalse(pending.is_alive())
-            self.assertEqual([runtime.turns.get_nowait() for _ in range(3)],[1,2,3])
-            self.assertFalse(any(r['event']=='input_overflow' for r in self.trace.rows))
-        finally:runtime.stop.set();pending.join(1)
+        for i in range(4):runtime.enqueue(runtime.turns,i,'turns')
+        # October 16: the fourth waits beside the queue instead of blocking speech recognition
+        # (a blocked worker dropped every "stop" during a drive), and moves in as room appears.
+        self.assertEqual(list(runtime.waiting_turns),[3])
+        self.assertEqual(runtime.turns.get(timeout=1),0)
+        runtime.flush_turns()
+        self.assertEqual([runtime.turns.get_nowait() for _ in range(3)],[1,2,3])
+        self.assertFalse(runtime.waiting_turns)
+        self.assertFalse(any(r['event']=='input_overflow' for r in self.trace.rows))
 
     def test_new_speech_during_outage_retains_old_words_and_answers_latest(self):
         from r3x.adapters.hosted import OpenAIBrain
