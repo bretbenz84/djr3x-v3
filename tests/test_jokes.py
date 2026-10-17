@@ -129,6 +129,37 @@ class HumorInConversation(MemoryFixture):
         self.assertEqual(result.completed_text, ['Sure.'])
         gate.set(); wait_for(room)
 
+    def test_material_the_reply_names_is_recorded_without_matching_words(self):
+        # October 17 review: 44 batches were written since October 15 and one use was detected,
+        # by word overlap alone. The reply now says which piece it used.
+        self.setup_memory()
+        room = JokeRoom(Writer(), self.state.trace, self.state.trace.clock)
+        brain = self.scripted('Bold order.', ToolCall('r', 'respond_with_intent', {
+            'text': 'Nothing in common with the written line, Alex.', 'intent_update': None,
+            'used_material': 'his salad alibi'}))
+        session = self.session('evening', brain); session.joke_room = room
+        self.turn(session, 'I ordered a salad.')
+        wait_for(room)
+        self.turn(session, "Then I ate everybody else's fries.")
+        told = self.store.rows("SELECT premise,reaction FROM joke_record")
+        self.assertEqual([(r['premise'], r['reaction']) for r in told], [('his salad alibi', 'told')])
+        self.assertIsNone(room.offer(jokes.audience_key(self.person), session.human_turns))   # Spent.
+
+    def test_no_material_is_written_after_a_turn_that_went_wrong(self):
+        # October 17 review: the writer wrote about Rex's own refused moves and corrections.
+        self.setup_memory()
+        room = JokeRoom(Writer(), self.state.trace, self.state.trace.clock)
+        brain = self.scripted(lambda s: ToolCall('x', 'retract_claim', {'claim_id': 'no-such-claim', 'text': None,
+                                                                         'source_turn_id': s.context['source_turn_id']}),
+                              'My mistake.', 'Sure.')
+        session = self.session('evening', brain); session.joke_room = room
+        result = self.turn(session, 'Forget what I said about the salad.')
+        self.assertEqual(result.completed_text, ['My mistake.'])
+        self.assertEqual(room.calls, [])                         # No material from a setback turn.
+        self.turn(session, 'Anyway, I ordered a salad.')
+        self.assertEqual(len(room.calls), 1)                     # The next ordinary turn asks again.
+        wait_for(room)
+
     def test_forgetting_a_person_removes_their_running_gags(self):
         self.setup_memory()
         with self.store.transaction() as conn:

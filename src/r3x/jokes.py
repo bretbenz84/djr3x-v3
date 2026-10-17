@@ -169,14 +169,17 @@ class JokeRoom:
                 return None
             return [dict(i) for i in material['items']]
 
-    def used(self, heard):
-        """The material a heard line used, removed from the offer; None if none."""
+    def used(self, heard, premise=None):
+        """The material a heard line used, removed from the offer; None if none. `premise` is
+        the piece the reply model said it used (its used_material field, October 17); the
+        wording check is the fallback, since reworded material was invisible to it."""
         with self.lock:
             material = self.material
             if not material:
                 return None
+            named = (premise or '').strip().casefold()
             for item in list(material['items']):
-                if overlaps(heard, item['line']):
+                if (named and item['premise'].strip().casefold() == named) or overlaps(heard, item['line']):
                     material['items'].remove(item)
                     return item
         return None

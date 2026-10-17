@@ -651,7 +651,13 @@ class DriveBase:
         side = min(rooms, key=rooms.get)
         telemetry, _ = self.link.snapshot()
         heading = self._heading(telemetry) if telemetry else None
-        return self.local_map.doubtful(tuple(self._at), heading, sides[side], rooms[side], now)
+        doubtful = self.local_map.doubtful(tuple(self._at), heading, sides[side], rooms[side], now)
+        if not doubtful and self.trace:
+            # Why a block was taken at face value, so a floor run shows whether the rule is too
+            # strict or simply never met (October 17: 0 rechecks in 34 live trips, no trace).
+            self.trace.emit('drive_doubtful_checked', side=side, distance_m=round(rooms[side], 2),
+                            **(self.local_map.last_check or {}))
+        return doubtful
 
     def _path_blocked(self, space, need):
         """A forward move would be refused for something in the path itself."""

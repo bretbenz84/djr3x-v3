@@ -120,6 +120,44 @@ if __name__ == '__main__':
     unittest.main()
 
 
+class StreamedWordsOnFailure(MemoryFixture):
+    """October 17 review: once words have streamed to the voice, a response that then breaks the
+    protocol (two tool calls) used to cut them off mid-word; only stop words may do that."""
+    def test_streamed_words_finish_when_the_response_then_fails(self):
+        class SlowSink(SyntheticSink):
+            def play(self, chunks, cancel, on_start, visualize=True):
+                def paced():
+                    for chunk in chunks:
+                        time.sleep(.05)
+                        yield chunk
+                return super().play(paced(), cancel, on_start, visualize)
+        class Brain:
+            def __init__(self): self.snapshots = []
+            def reply(self, snapshot, cancel):
+                self.snapshots.append(snapshot)
+                if len(self.snapshots) > 1:
+                    yield 'A second answer.'
+                    return
+                for piece in chunks(LINE, 9):
+                    yield ToolText('c', 'respond_with_intent', piece)
+                yield ToolText('c', 'respond_with_intent', '', True)
+                deadline = time.monotonic() + 3
+                while session._delivery.first_audio_at is None and time.monotonic() < deadline:
+                    time.sleep(.01)          # The first phrase is playing; the second is queued.
+                yield ToolCall('c', 'respond_with_intent', {'text': LINE, 'intent_update': None, 'used_material': None})
+                yield ToolCall('d', 'note_bit', {'premise': 'beige', 'reaction': 'landed', 'text': None})
+        brain = Brain()
+        session = Session('s', brain, OutputOwner(SyntheticTTS(), SlowSink(), self.state.trace),
+                          self.state.trace, self.state)
+        self.enroll('Sam')
+        cap = Capture('cap', 's', bytes(96000), 96, 99, 100, voiced_intervals=((0., 3.),))
+        result = session.process_turn(cap, Transcript('I bought eight cans of beige.', 0, True), 0, observation(), ())
+        self.assertEqual(' '.join(result.completed_text), LINE)       # Both phrases were heard in full.
+        self.assertEqual(result.status, 'failed')                       # The turn still counts as failed.
+        self.assertEqual(len(brain.snapshots), 1)                      # Nothing is said twice.
+        self.assertTrue(any(r['event'] == 'turn_failed' for r in self.state.trace.rows))
+
+
 class LeadInTests(MemoryFixture):
     """October 14 (e1f8b2c6): a look or a memory lookup left 6-10 s of silence before the answer."""
     def test_a_lookup_says_a_few_words_first_then_answers_without_repeating_them(self):

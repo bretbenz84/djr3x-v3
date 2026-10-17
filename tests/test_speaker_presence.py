@@ -184,6 +184,31 @@ class CarriedSpeakerTests(MemoryFixture):
         self.at += 400
         self.assertEqual(self.speak("You're in the living room.", MOTION_MASKED, motion=True).state, 'unresolved')
 
+    # October 17 review of the improvement plan.
+    def test_a_new_voice_whose_track_was_never_his_is_not_credited_to_him(self):
+        self.sure()
+        newcomer = vec(.22, .975, 0)             # Under the floor: not his, like the television.
+        first = self.speak('Hi there.', newcomer, seconds=2.)
+        self.assertNotEqual(first.state, 'inferred')
+        # Their next sentence joins that same session track but happens to score .30 against him.
+        second = self.speak('Is this the famous robot?', MOTION_MASKED, seconds=2.)
+        self.assertEqual(second.track_id, first.track_id)
+        self.assertNotEqual(second.state, 'inferred')
+
+    def test_two_faces_in_view_or_recent_company_end_the_carry_but_one_far_face_does_not(self):
+        self.sure()
+        two = [face(self.person), face(None, 'guest')]
+        self.assertEqual(self.speak('Look over here.', MOTION_MASKED, faces=two, motion=True).state, 'unresolved')
+        self.assertEqual(self.speak('Look over here.', MOTION_MASKED, faces=[face(None, 'far')], motion=True).state,
+                         'unresolved')                        # Company was just seen: ten quiet minutes first.
+        fresh = CarriedSpeakerTests('test_one_match_is_not_sure_enough'); fresh.setUp()
+        try:
+            fresh.sure()
+            self.assertEqual(fresh.speak('Look over here.', MOTION_MASKED, faces=[face(None, 'far')], motion=True).state,
+                             'inferred')                      # Owner, October 16: too far for a face match is still him.
+        finally:
+            fresh.tearDown()
+
 
 if __name__ == '__main__':
     unittest.main()

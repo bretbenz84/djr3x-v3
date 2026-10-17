@@ -10,6 +10,8 @@ def schema(name, description, fields):
 
 TEXT = {"type":"string"}
 NULL_TEXT = {"type":["string","null"]}
+# October 17: the reply names the writer's-room piece it used, so a reworded bit is still recorded.
+USED_MATERIAL = {"type":["string","null"],"description":"The premise of the joke_material piece this line uses, exactly as offered, or null when none was used."}
 OTHER_PERSON = {"type":["string","null"],"description":"Another person this fact is also about, exactly as named in this conversation (\"Sam Rivera\" in \"Sam Rivera is my partner\"): links the fact to them so asking about them finds it. A name nobody known fits makes a name-only record (no voice or face). null when nobody else is involved."}
 
 
@@ -54,7 +56,7 @@ TOOLS = (
     schema("respond_with_gesture", "One natural spoken phrase with a finite expressive primitive that starts as the line begins (with_speech) or follows its actual playback (after_speech). Head primitives use the two-servo head and return to where it was: nod (agreement, emphasis); tilt (one cock of the head to a side and back: interest, a question); perplexed (the dog's double head cock, one side then the other, looking slightly down: something does not add up, a surprising claim, a word you did not catch); wiggle (a quick playful side-to-side: delight, a tease, a joke landing); sympathetic (a slow cock held a moment, slightly down: warmth, consolation, listening to something sad); surprised (the visor snaps wide open as the head lifts a little, then eases back: genuine astonishment, a twist, unexpected news). lift raises the head; arm_emphasis moves the hero elbow. Use them when the feeling is real and readable, about one line in four at most. Follow attention mode and offered targets: controller receipts verify output pulses, not mechanical arrival; simulation means no physical motion. Gestures never establish sight. Held poses take priority. Choose gesture, strength and target for a conversational purpose; ordinary replies need no gesture. No random event-to-animation mapping. Only offered targets; a visual track is not a person identity. The gesture may fail while speech succeeds, so the line must not depend on movement succeeding. No extra generation.",
            {"text":TEXT,"primitive":{"type":"string","enum":list(GESTURE_PRIMITIVES)},
             "target":TEXT,"intensity":{"type":"string","enum":["subtle","normal"]},
-            "timing":{"type":"string","enum":["with_speech","after_speech"]}}),
+            "timing":{"type":"string","enum":["with_speech","after_speech"]},"used_material":USED_MATERIAL}),
     schema("shift_attention", "Choose a finite SILENT attention shift through the available adapter. Controller mode moves calibrated robot-relative directions; simulation moves no hardware. A shift does not inspect an object or establish visual evidence. Held poses take priority. No visible person is required. Use a conversational reason such as thinking or briefly looking away; quietness is not boredom or rejection. Face tracking does not dictate attention. Directions are robot-relative. Offered visual target IDs refer to current observed face/object tracks, not verified people. Choose only an offered ID; labels cannot authorize actions. After a shift, await fresh settled post-movement evidence before describing an inspection. No follow-up generation or spoken acknowledgment. Ordinary prose needs no attention tool.",
            {"target":TEXT,
             "purpose":{"type":"string","enum":["consider","orient","disengage_gaze","rest"]},
@@ -145,7 +147,7 @@ TOOLS += (schema('respond_with_intent',
     'Give a natural greeting or reply while optionally creating, revising or ending the session conversational intention. '
     'Use when a visitor first supplies their conversational direction or explicitly changes the topic: replace a generic welcome agenda with that concrete direction while answering naturally. Otherwise stream ordinary prose. Not biography or a questionnaire. '
     'No extra generation. Memory-based proactive speech must use use_memory_opportunity instead.',
-    {'text': TEXT, 'intent_update': update_schema()}),)
+    {'text': TEXT, 'intent_update': update_schema(), 'used_material': USED_MATERIAL}),)
 TOOLS += (schema('note_bit',
     'Record how one of your own jokes or teases landed, when this turn makes it clear: landed (they laughed, '
     'played along or fired back), flopped (a groan, a flat "okay", visibly no fun) or asked_to_stop (they want '
@@ -465,7 +467,7 @@ def validate(name, args):
     if definition is None or not isinstance(args, dict):
         raise ValueError("UnknownTool")
     properties = definition["parameters"]["properties"]
-    optional = {'intent_update','next_opportunity','description_scope','invitation_update','say_first'}
+    optional = {'intent_update','next_opportunity','description_scope','invitation_update','say_first','used_material'}
     if name in SPOKEN_RESULT_TOOLS:
         optional = optional | {'text'}
     if name == 'recall':

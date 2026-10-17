@@ -1,5 +1,5 @@
 """One sequential conversational owner shared by live input and scenarios."""
-from queue import Queue
+from queue import Full, Queue
 import json
 import re
 import threading
@@ -177,14 +177,24 @@ class Session:
                 return plain_text(message['content']).rstrip().endswith('?')
         return False
 
-    def _joke_followup(self, heard, context, opportunity, transcript, turn_id):
-        """Record a writer's-room bit that was used; after a human turn, ask for fresh material."""
+    def _joke_followup(self, heard, context, opportunity, transcript, turn_id, calls=(), setback=False):
+        """Record a writer's-room bit that was used; after a human turn, ask for fresh material.
+
+        October 17 review: the reply names the piece it used (used_material); and after a turn
+        that went wrong (a refused move, a failed look, a rejected tool) nothing is written, since
+        the writer then wrote about Rex's own failures, which it is told never to do."""
         from . import jokes
         person = (context.get('personal_memory') or {}).get('person_id')
-        item = self.joke_room.used(heard)
+        named = next((c.arguments.get('used_material') for c in calls
+                      if c.name in {'respond_with_intent', 'respond_with_gesture'}), None)
+        item = self.joke_room.used(heard, premise=named if isinstance(named, str) else None)
         if item:
             self.state.bit_told(self.session_id, person, item['premise'], heard)
-            self.trace.emit('joke_recorded', turn_id=turn_id, premise=item['premise'], reaction='told')
+            self.trace.emit('joke_recorded', turn_id=turn_id, premise=item['premise'], reaction='told',
+                            named=bool(named))
+        if setback:
+            self.trace.emit('joke_writer_skipped', turn_id=turn_id, reason='setback_turn')
+            return
         if opportunity is None and transcript is not None and transcript.trusted:
             memory = context.get('personal_memory') or {}
             known = [f"{r.get('predicate')}: {r.get('value')} (told {r.get('told')}"
@@ -676,6 +686,12 @@ class Session:
         agency_deferred = False
         context = {}
         driving = [False]   # A drive plan is running: the private-memory guard waits for speech.
+        calls = []
+        streamed = {}   # call_id -> reply-tool text already queued for speech while it streamed.
+        streamed_phrases = {}   # call_id -> how many phrases of that text were queued.
+        phrases = None
+        finishing = False   # Words already streamed to the voice finish although the turn failed.
+        setback = [False]   # A refused move, failed look or rejected tool this turn: no joke material.
         action_outcome = None
         impression = None
         shutdown_requested = False
@@ -1057,8 +1073,6 @@ class Session:
                             history_characters=self.history.size(snapshot.messages),
                             reasoning_effort=getattr(self.brain,"reasoning_effort",None))
             went_silent, withheld = [False], [False]
-            streamed = {}   # call_id -> reply-tool text already queued for speech while it streamed.
-            streamed_phrases = {}   # call_id -> how many phrases of that text were queued.
             def generate(request):
                 nonlocal first_token_at, first_output_at, generated
                 calls = []
@@ -1448,6 +1462,7 @@ class Session:
                     images=comparison_images if comparison_context else images
                     messages = self.history_messages()
                     if not images and not cached:
+                        setback[0] = True
                         messages = (*messages, {'role':'developer','content':LOOK_FAILED})
                     followup = Snapshot(self.session_id,turn_id,self.revision,messages,
                         snapshot.speaker,{**{k:v for k,v in context.items() if k!='scene_description'},'attention':self.state.attention.context(),'inspection':data,
@@ -1495,6 +1510,7 @@ class Session:
                         if retry:
                             followup_context['drive_refusal_replan'] = True
                         if inspection is not None:
+                            if not images: setback[0] = True
                             followup_context.update(inspection=inspection,inspection_description_allowed=bool(images),
                                                     drive_replan_allowed=replan and bool(images))
                         status = (output.get('drive') or {}).get('status') if isinstance(output, dict) else None
@@ -1642,6 +1658,7 @@ class Session:
                         elif not opportunity:
                             # Refused, rejected or incomplete: the model explains from the receipt, or
                             # once tries another way that still does what was asked.
+                            setback[0] = True
                             output = {'drive':receipt} if receipt else {**asdict(result),'nothing_moved':True,
                                   'meaning':'The plan was rejected before any motion. Rex did not move.'}
                             followup, retry_calls = drive_followup(call,output,retry=depth==0)
@@ -1953,6 +1970,8 @@ class Session:
                     if self.state.forgotten:
                         self.history.clear()
                         self.history.append({"role":"developer","content":"A person was forgotten. Do not reuse previous personal context."})
+                    if result.outcome != 'ok':
+                        setback[0] = True
                     followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
                                         snapshot.speaker,context,False,continuation)
                     if quiet_set:
@@ -2020,7 +2039,20 @@ class Session:
             delivery.error = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
             model_error = delivery.error
             self.trace.emit("turn_failed", turn_id=turn_id, reason=delivery.error)
-            cancel.event.set()
+            # October 17 review: words already streamed to the voice (step 5) or already playing
+            # finish; only a stop word cuts audible speech. The output owner's own failure has
+            # set cancel itself, and then nothing is left to finish.
+            finishing = (phrases is not None and worker is not None and worker.is_alive() and not cancel.event.is_set()
+                         and (bool(streamed) or delivery.first_audio_at is not None))
+            if finishing:
+                try:
+                    phrases.put(None, timeout=.5)
+                except Full:
+                    finishing = False
+            if finishing:
+                self.trace.emit("speech_finishing_after_failure", turn_id=turn_id, reason=delivery.error)
+            else:
+                cancel.event.set()
         finally:
             if drive_action is not None and not drive_noted:
                 drive_action.done.wait(5.)
@@ -2034,6 +2066,8 @@ class Session:
                     if self.state.attention.pending == attention_intent:
                         self.state.attention.clear()
                         self.trace.emit('attention_aborted', turn_id=turn_id, request_id=attention_intent.request_id)
+            if worker and worker.is_alive() and finishing:
+                worker.join(timeout=5 * (40 + 30) + 5)   # The queued phrases, as a completed turn waits.
             if worker and worker.is_alive():
                 cancel.event.set()
                 self.output.cancel()
@@ -2167,9 +2201,10 @@ class Session:
                 if self.state and delivery.completed_text:
                     # What was actually heard, for the conversation clock in the picture of the present.
                     heard = ' '.join(delivery.completed_text)
-                    self.state.present.rex_said(heard, self.trace.clock(), own_initiative=opportunity is not None)
+                    self.state.present.rex_said(heard, self.trace.clock(), own_initiative=opportunity is not None,
+                                                answering=(context.get('speaker') or {}).get('speaker_id') or self._memory_subject)
                     if self.joke_room is not None:
-                        self._joke_followup(heard, context, opportunity, transcript, turn_id)
+                        self._joke_followup(heard, context, opportunity, transcript, turn_id, calls, setback[0])
             if self.state and (schedule_proposal is not None or invitation_proposal is not None):
                 with self._lock:
                     valid = (schedule_accepted and schedule_action_ok and not self.closed and not cancel.event.is_set()

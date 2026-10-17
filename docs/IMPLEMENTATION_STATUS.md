@@ -21,6 +21,48 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Plan review repairs — October 17
+
+A review of the October 14 plan's commits against the five robot runs since October 15
+(`tools/baseline_report.py --since 2026-10-15`: 52 minutes, owner alone). Reply wait median
+3.56 s (3.38 s on October 16) against 4.99 s before, 30 of 108 over 4 s; 0 re-greetings; but
+343 model calls an hour against 262 (about $1.89 an hour against $1.36; 44 writer's-room
+batches with one detected use), 14 of 59 planned lines heard, the floor-memory recheck never
+fired in 34 trips, and no "wait for a better moment" by the performer. Seven code repairs
+(synthetic checks; **not yet run on the robot**):
+
+1. **Company is seen by the picture itself.** Two faces in one view now mark company in
+   `present.py` as they are seen, and the state owner feeds each turn's faces to the picture
+   before any speaker deduction. Before, company was recorded only when a reply or beat
+   context was built, so a second person seen between turns left "alone with the owner" true.
+2. **The voice carry rule is tighter.** The clip's own session track no longer escapes the
+   other-voice check unless it holds only this clip or was already credited to him, so a
+   newcomer's second sentence joining a track that was never his is not credited to him; two
+   faces in view or company within ten minutes end the carry. One far unrecognized face still
+   does not (owner, October 16). A newcomer's very first clip still rests on the .25 floor.
+3. **Streamed words finish when the turn then fails.** Reply words spoken as they stream
+   (step 5) used to be cut mid-word when the response then broke the protocol (two tool
+   calls, a bad drive target). They now play out, the turn is still recorded as failed, and
+   nothing is answered twice (`speech_finishing_after_failure`).
+4. **"Already spoken with" is the person he answered**, not everyone recognized within ten
+   seconds of his line: a known guest who walks in while Rex answers the owner is still greeted.
+5. **Writer's room.** The reply names the piece it used (`used_material` on the reply tools), so
+   a reworded bit is recorded; wording overlap stays as the fallback. After a turn that went
+   wrong (a refused or incomplete move, a failed look, a rejected tool) no material is
+   written, since the October 16 writer pitched Rex's own navigation failures.
+6. **Things in the picture** are placed on his left, middle or right from their box instead
+   of the ranking phrase "only detected object of this category"; a pet is not listed twice.
+7. **A block taken at face value is logged** (`drive_doubtful_checked`: remembered free
+   frames and returns at that spot) so the next floor run shows whether the recheck rule is
+   too strict or simply never met.
+
+1308 of 1309 blocked-I/O checks pass (GUI import: PySide6 not installed); nine new checks in
+`tests/test_present.py`, `tests/test_speaker_presence.py`, `tests/test_tool_text.py`,
+`tests/test_jokes.py` and `tests/test_local_map.py`. Not changed: the writer's 45 s and
+30-an-hour caps, planner cadence, the 0.35 s endpoint. Still open from the review: cost per
+hour against the budget, and whether the writer's material is used at all, which the new
+`used_material` field now makes countable from the trace.
+
 ## Memory repairs — October 16
 
 The October 14 plan "in five minutes I'm going to the store to get wine" was asked about in three

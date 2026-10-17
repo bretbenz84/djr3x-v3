@@ -52,8 +52,8 @@ THINGS_KEPT = 8             # Recently seen object labels kept for the picture.
 # October 14 live run (e1f8b2c6): with only his last line in the picture, Rex owned one clock
 # mistake four times in five minutes. His last few heard lines are kept as "already said".
 RECENT_LINES = 6
-# Someone recognized in view (or by voice) when Rex spoke was spoken with: the same run showed
-# a greeting prepared for the owner 74 s in, after they had already talked.
+# The person Rex answered, recognized this recently, was spoken with: the same run showed a
+# greeting prepared for the owner 74 s in, after they had already talked.
 ENGAGED_SECONDS = 10.
 
 
@@ -89,6 +89,18 @@ def local_time(moment):
             'afternoon' if hour < 17 else 'evening' if hour < 21 else 'night')
     clock = moment.strftime('%I:%M %p').lstrip('0')
     return f"{moment.strftime('%A')} {part}, {clock}, {moment.strftime('%B')} {moment.day}"
+
+
+def across_view(row):
+    """Where a detected thing sits across Rex's view, from its box; None when unknown."""
+    position = row.get('image_position') or {}
+    x = position.get('center_x')
+    if x is None:
+        box = row.get('box')
+        x = box[0] + box[2] / 2 if box and len(box) == 4 else None
+    if x is None:
+        return None
+    return 'on his left' if x < .38 else 'on his right' if x > .62 else 'in the middle of his view'
 
 
 def line_meaning(line, answered, seconds):
@@ -168,8 +180,13 @@ class Present:
         self.recognized[person] = max(last or at, at)
 
     def saw_faces(self, faces, now):
-        """Fresh camera faces. A tiny far face is not company."""
+        """Fresh camera faces. A tiny far face is not company; two faces in one view are.
+
+        October 17 review: company used to be recorded only when a reply or beat context was
+        built (note_audience), so a second person seen between turns left Rex believing the
+        owner was alone, which is the gate for deducing his voice."""
         with self.lock:
+            seen = []
             for face in faces or ():
                 at = face.get('at', now)
                 if at is None or at > now + 1:
@@ -177,8 +194,11 @@ class Present:
                 if (face.get('face_width_px') or 48) < 48:
                     continue
                 self.face_at = max(self.face_at, at)
+                seen.append(at)
                 if face.get('identity'):
                     self._recognize(face['identity'], at)
+            if len(seen) > 1:
+                self.company_at = max(self.company_at, max(seen))
 
     def heard(self, person_id, at):
         """Trusted human speech; person_id only for a supported voice. Rex's lines are answered."""
@@ -271,14 +291,15 @@ class Present:
 
     # Things ------------------------------------------------------------------
     def saw_things(self, rows, now):
+        """Detected objects. Pets have their own place in the picture; a thing's position is
+        where it sits across his view, worked out from the detector's box (October 17: the
+        ranking phrase "only detected object of this category" was reaching every prompt)."""
         with self.lock:
             self.pets.observe(rows, now)
             for row in rows:
-                if row.get('recently_seen') or not row.get('label'):
+                if row.get('recently_seen') or not row.get('label') or row['label'] in PET_LABELS:
                     continue
-                label = 'pet' if row['label'] in PET_LABELS else row['label']
-                self.things[label] = {'at': row.get('at', now),
-                                      'position': (row.get('image_position') or {}).get('description')}
+                self.things[row['label']] = {'at': row.get('at', now), 'position': across_view(row)}
             while len(self.things) > THINGS_KEPT:
                 oldest = min(self.things, key=lambda k: self.things[k]['at'])
                 self.things.pop(oldest)
@@ -288,8 +309,11 @@ class Present:
             return self.pets.take(session_id, now, speech_marker, faces)
 
     # Conversation clock --------------------------------------------------------
-    def rex_said(self, text, at, *, own_initiative=False):
-        """A line of Rex's that was actually heard (complete audible delivery)."""
+    def rex_said(self, text, at, *, own_initiative=False, answering=None):
+        """A line of Rex's that was actually heard (complete audible delivery). `answering` is
+        the person the line was for (the identified speaker, else the private audience): they
+        have been spoken with. October 17 review: marking everyone recognized within a few
+        seconds would have kept a known guest who walked in mid-reply from ever being greeted."""
         from .output import plain_text
         text = plain_text(text or '').strip()
         if not text:
@@ -298,9 +322,8 @@ class Present:
             self.last_rex = {'text': text[:300], 'at': at, 'question': text.endswith('?'),
                              'own_initiative': own_initiative}
             self.recent_rex.append({'text': text[:200], 'at': at})
-            for person, seen in self.recognized.items():
-                if at - seen <= ENGAGED_SECONDS:
-                    self.engaged[person] = max(self.engaged.get(person, at), at)
+            if answering and at - self.recognized.get(answering, float('-inf')) <= ENGAGED_SECONDS:
+                self.engaged[answering] = max(self.engaged.get(answering, at), at)
 
     def rex_looked(self, where, why, at):
         """Rex chose to look somewhere (his own beat or a request), and why."""

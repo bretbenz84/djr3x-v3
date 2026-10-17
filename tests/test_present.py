@@ -56,7 +56,7 @@ class PresentRules(unittest.TestCase):
         present.saw_things([{'target_id': 'o', 'label': 'cat', 'box': [.4, .4, .2, .2], 'at': 100}], 100)
         picture = present.describe(103)
         self.assertEqual(picture['pet'], {'seen': 'a few seconds ago', 'in_view': True})
-        self.assertEqual(picture['things_seen'][0]['thing'], 'pet')
+        self.assertEqual(picture['things_seen'], [])   # The pet has its own place; not a thing too.
 
     def test_forgetting_someone_removes_them_from_the_picture(self):
         present = Present()
@@ -125,7 +125,7 @@ class PresentRepairs(unittest.TestCase):
     def test_someone_he_already_spoke_with_is_not_arriving_even_in_their_first_minute(self):
         present = Present()
         present.saw_faces([face(100, 'bret', 'a')], 100)
-        present.rex_said("Brett, what's tonight's operation?", 105)
+        present.rex_said("Brett, what's tonight's operation?", 105, answering='bret')
         self.assertFalse(present.arriving('bret', 130))
         self.assertTrue(Present().arriving('bret', 130))
 
@@ -139,6 +139,42 @@ class PresentRepairs(unittest.TestCase):
         earlier = picture['conversation']['his_earlier_lines']
         self.assertEqual([l['text'] for l in earlier['lines']], ['I misspoke about the clock.', 'That clock correction was fair.'])
         self.assertIn('never bring back a mistake', earlier['meaning'])
+
+
+class PlanReviewRepairs(unittest.TestCase):
+    """October 17 review of the improvement plan."""
+    def test_company_is_noticed_by_the_pictures_own_eyes(self):
+        from r3x.present import COMPANY_SECONDS
+        present = Present()
+        present.saw_faces([face(100, 'bret', 'a')], 100)
+        self.assertTrue(present.alone_with('bret', 101))
+        # A second face between turns, with no reply or beat context built meanwhile.
+        present.saw_faces([face(120, 'bret', 'a'), face(120, None, 'b')], 120)
+        present.saw_faces([face(130, 'bret', 'a')], 130)
+        self.assertFalse(present.alone_with('bret', 131))
+        later = 120 + COMPANY_SECONDS + 1
+        present.saw_faces([face(later, 'bret', 'a')], later)
+        self.assertTrue(present.alone_with('bret', later + 1))
+
+    def test_a_known_guest_arriving_mid_reply_is_still_greeted(self):
+        present = Present()
+        present.saw_faces([face(100, 'bret', 'a')], 100)
+        present.heard('bret', 101)
+        present.saw_faces([face(103, 'bret', 'a'), face(103, 'jeff', 'b')], 103)   # Jeff walks in.
+        present.rex_said('Bold plan, Brett.', 105, answering='bret')              # Rex finishes answering Bret.
+        self.assertFalse(present.arriving('bret', 110))
+        self.assertTrue(present.arriving('jeff', 110))
+        present.rex_said('Jeff! Back already?', 112, answering='jeff')
+        self.assertFalse(present.arriving('jeff', 115))
+
+    def test_a_thing_is_placed_across_his_view_not_by_a_ranking_phrase(self):
+        present = Present()
+        present.saw_things([
+            {'target_id': 'c', 'label': 'clock', 'box': [.05, .3, .2, .2], 'at': 100,
+             'image_position': {'center_x': .15, 'center_y': .4, 'description': 'only detected object of this category'}},
+            {'target_id': 'b', 'label': 'bottle', 'box': [.4, .3, .2, .2], 'at': 100}], 100)
+        things = {row['thing']: row['where'] for row in present.describe(101)['things_seen']}
+        self.assertEqual(things, {'clock': 'on his left', 'bottle': 'in the middle of his view'})
 
 
 class LookingAwareness(memory_tests.MemoryFixture):

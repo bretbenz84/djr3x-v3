@@ -26,6 +26,9 @@ class LocalMapRules(unittest.TestCase):
         for k in range(10):
             memory.observe(*frame(103 + k * .2, ahead=.5), (0., 0.), 0., 103 + k * .2)
         self.assertFalse(memory.doubtful((0., 0.), 0., 0., .5, 105.2))
+        # October 17: the trace can say why (a return was remembered there).
+        self.assertTrue(memory.last_check['known'])
+        self.assertGreater(memory.last_check['hits'], 0)
 
     def test_nothing_seen_is_not_evidence_and_memory_fades(self):
         memory = LocalMap(lambda: 0)
@@ -94,6 +97,8 @@ class RecheckDriveTests(unittest.TestCase):
             settle(); self.drive.space(); self.clock.wait(.2)
         self.drive.execute(plan(DriveStep('move', meters=.8)), Cancellation())
         self.assertEqual(self.rechecks(), [])
+        checked = [r for r in self.rows if r['event'] == 'drive_doubtful_checked']
+        self.assertTrue(checked and checked[-1]['hits'] > 0 and checked[-1]['known'])   # And the log says why.
 
 
 if __name__ == '__main__':

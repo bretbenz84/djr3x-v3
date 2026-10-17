@@ -401,6 +401,9 @@ class CoreState:
             self.conversation_source = turn_id
         self.faces = tuple(f for f in faces if f.get("face_epoch",0)>=self.min_face_epoch)
         faces = self.faces
+        # The picture of the present sees this turn's faces before any deduction reads it
+        # (October 17: company seen at a turn must count against the next one's carry).
+        self.present.saw_faces(faces, self.trace.clock())
         attribution = self.infer_speaker(attribution, capture, transcript, observation, faces)
         attribution = self.carry_speaker(attribution, capture, transcript, observation, faces)
         self.current = (turn_id,capture,transcript,observation,attribution)
@@ -453,8 +456,10 @@ class CoreState:
         if attribution.person_id and attribution.state == 'supported':
             if conversation and conversation['person'] == attribution.person_id:
                 conversation.update(confirmed=conversation['confirmed'] + 1, last_at=now)
+                conversation['tracks'].add(attribution.track_id)
             else:
-                self.voice_conversation = {'person': attribution.person_id, 'confirmed': 1, 'last_at': now}
+                self.voice_conversation = {'person': attribution.person_id, 'confirmed': 1, 'last_at': now,
+                                           'tracks': {attribution.track_id}}   # Session tracks credited to him.
             return attribution
         if conversation and attribution.speaker_id == conversation['person']:
             conversation['last_at'] = now          # Presence named him: the conversation goes on.
@@ -469,15 +474,23 @@ class CoreState:
         if not ranked or ranked[0][0] != who or ranked[0][1] < CARRY_VOICE_FLOOR or (
                 len(ranked) > 1 and ranked[0][1] - ranked[1][1] < self.tracker.policy.margin):
             return attribution
-        if any(f.get('identity') not in (None, who) for f in faces):
-            return attribution                       # Somebody else is in view.
+        if any(f.get('identity') not in (None, who) for f in faces) or len(faces) > 1:
+            return attribution                       # Somebody else is in view (one far face may still be him).
         from .present import COMPANY_SECONDS
-        if self.present.recognized_other(who, now, COMPANY_SECONDS):
+        if self.present.recognized_other(who, now, COMPANY_SECONDS) or now - self.present.company_at < COMPANY_SECONDS:
             return attribution
         profiles = self.store.profiles(self.tracker.namespace)
-        if [t for t in self.tracker.other_voices(who, profiles, now - COMPANY_SECONDS) if t != attribution.track_id]:
+        # October 17 review: the clip's own session track used to be left out of the other-voice
+        # check, so a newcomer's second sentence, joining a track whose first was never his, was
+        # credited to him. The own track is left out only while it holds nothing but this clip
+        # (the floor above is then the whole test) or was itself credited to him earlier.
+        own = self.tracker.tracks.get(attribution.track_id)
+        own_is_his = own is not None and (len(own.references) <= 1 or attribution.track_id in conversation['tracks'])
+        if [t for t in self.tracker.other_voices(who, profiles, now - COMPANY_SECONDS)
+                if t != attribution.track_id or not own_is_his]:
             return attribution                       # Another voice this conversation.
         conversation['last_at'] = now
+        conversation['tracks'].add(attribution.track_id)
         return replace(attribution, state='inferred', reason='same_voice_this_conversation',
                        inferred_person_id=who, learning_eligible=False)
 

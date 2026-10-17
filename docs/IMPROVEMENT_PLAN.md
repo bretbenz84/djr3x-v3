@@ -220,9 +220,14 @@ answer in one call, and the endpoint is 0.35 s. Details and evidence:
 
 ## Where the plan stands
 
-All six steps are implemented in software. None of it has run on the robot: the owner chose to
-test the whole plan himself. `tools/baseline_report.py --since 2026-10-15` compares his next runs
-with the October 5-13 baseline above.
+All six steps are implemented in software and have run on the robot since October 14. Against
+the baseline, the five runs of October 15–16 (52 minutes, owner alone): reply wait median 3.56 s
+(step 5 met; slowest 10% 5.48 s, not yet), 0 re-greetings (step 1 met), model calls 343 an hour
+against 262 and about $1.89 an hour against $1.36 (step 2's "equal or fewer calls" not met; the
+writer's room is 15% of calls), 14 of 59 planned lines heard, the floor recheck never fired and
+no remembered-route leg ran (step 3 unproven), 44 writer batches with one detected use (step 4
+unproven). The October 17 review repairs are in
+[implementation status](IMPLEMENTATION_STATUS.md#plan-review-repairs--october-17).
 
 ## First live run and repairs (October 14, evening)
 

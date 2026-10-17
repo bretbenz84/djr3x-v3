@@ -41,6 +41,7 @@ class LocalMap:
         self.lock = threading.Lock()
         self.cells = {}          # (ix, iy) -> {'hit': [times], 'free': [times]}
         self.last_observed = float('-inf')
+        self.last_check = None   # What the last doubtful() saw: known cells, free frames, hits.
 
     @staticmethod
     def key(x, y):
@@ -89,6 +90,7 @@ class LocalMap:
         """Whether a close return at this bearing and distance (from the ring centre) contradicts
         what was just seen: open floor there in the last few seconds, no return there before."""
         if heading is None or position is None or distance is None:
+            self.last_check = {'known': False, 'free_frames': 0, 'hits': 0}
             return False
         cx = position[0] + AXLE_AFT * math.cos(math.radians(heading))
         cy = position[1] + AXLE_AFT * math.sin(math.radians(heading))
@@ -100,6 +102,9 @@ class LocalMap:
             near = [c for c in near if c]
             free = sorted({t for c in near for t in c['free'] if now - RECENT_FREE_S <= t < now - FRESHEST_S})
             hits = [t for c in near for t in c['hit'] if now - RECENT_HIT_S <= t < now - FRESHEST_S]
+        # Why the last reading was or was not doubtful, for the trace (October 17: the recheck
+        # never fired in 34 live trips and nothing said whether the rule was too strict).
+        self.last_check = {'known': bool(near), 'free_frames': len(free), 'hits': len(hits)}
         return len(free) >= FREE_FRAMES and not hits
 
     def open_way(self, position, heading, goal_bearing, length, now, *, side=None, spread=90., step=10.):
