@@ -156,6 +156,35 @@ def words(text):
     return re.findall(r"[\w']+", text.casefold())
 
 
+# Words too common to say what a search is about.
+QUERY_STOP = frozenset({'a','an','the','and','or','of','to','in','on','at','for','with','about','my','me','i',
+                        'you','your','we','our','is','was','are','were','be','do','did','have','has','had','it',
+                        'that','this','what','who','whether','ever','told','tell','said','say','know'})
+
+
+def _form(word):
+    """One spelling for plurals and common endings: "stars" and "star", "camping" and "camp"."""
+    word = word.removesuffix("'s")
+    for ending in ('ing', 'ed', 'es', 's'):
+        if len(word) > len(ending) + 3 and word.endswith(ending):
+            return word[:-len(ending)]
+    return word
+
+
+def _close(a, b):
+    """Near spellings of one word: speech recognition wrote "Jerry" for "Jeremy"."""
+    if len(a) < 4 or len(b) < 4 or a[0] != b[0] or abs(len(a) - len(b)) > 2:
+        return False
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, a, b).ratio() >= .7
+
+
+def match_score(wanted, text):
+    """How well text matches the wanted word forms: 1 per exact form, half per near spelling."""
+    have = {_form(w) for w in words(text)}
+    return sum(1. if w in have else .5 if any(_close(w, h) for h in have) else 0. for w in wanted)
+
+
 def recall(store, who, session, *, query='', after=None, before=None, period=None, limit=12, now=None):
     if not who: raise ValueError('PrivateRecallRequiresKnownAudience')
     if period is not None:
@@ -173,13 +202,16 @@ def recall(store, who, session, *, query='', after=None, before=None, period=Non
     if low is not None: sql += ' AND created_at>=?'; args.append(low)
     if high is not None: sql += ' AND created_at<?'; args.append(high)
     count = store.rows('SELECT count(*) AS n FROM ('+sql+')', args)[0]['n']
-    rows = store.rows(sql+' ORDER BY created_at DESC,id DESC LIMIT 200', args)
-    wanted = set(words(query or ''))
+    wanted = {_form(w) for w in words(query or '') if w not in QUERY_STOP}
+    # October 16 (3af18a12): only the newest 200 of 660 exchanges were searched, so "Voyager",
+    # said 329 exchanges earlier, could not be found. A search with words reads them all.
+    rows = store.rows(sql+' ORDER BY created_at DESC,id DESC LIMIT '+('5000' if wanted else '200'), args)
     def relevance(row):
-        # Whole words only ("night" is not "tonight"); what the person said counts double.
-        said, heard = set(words(row['human_text'])), set(words(row['heard_text']))
-        return sum(2*(w in said) + (w in heard) for w in wanted)
+        # Word forms and near spellings; what the person said counts double.
+        return 2*match_score(wanted, row['human_text']) + match_score(wanted, row['heard_text'])
     if wanted:
+        if not windowed:
+            rows = [row for row in rows if relevance(row)]   # A period is kept whole, as a conversation.
         rows.sort(key=lambda row: (relevance(row), bool(row['human_text']), row['created_at']), reverse=True)
     elif windowed:
         rows.sort(key=lambda row: (bool(row['human_text']), row['created_at']), reverse=True)
@@ -194,11 +226,17 @@ def recall(store, who, session, *, query='', after=None, before=None, period=Non
         row['human_text'] = row['human_text'][:600]
         row['heard_text'] = row['heard_text'][:600]
     result = {'exchanges':selected, 'matching_interval_count':count,
-              'selection_truncated':count>len(selected), 'searched_latest_limit':200,
+              'selection_truncated':count>len(selected), 'searched_latest_limit':5000 if wanted else 200,
               'order':'oldest first: the requested period as a conversation' if windowed else
                       'best word matches first' if wanted else 'newest first',
               'scope':'conversations scoped to this audience; speaker attribution is separate; prior sessions; completed audio phrases only',
               'coverage':'Dated archive of prior sessions; local_time is the robot\'s local clock. Absence of an excerpt is not proof nothing happened.'}
+    if wanted:
+        result['searched'] = 'every earlier conversation with this person, by word forms and near spellings'
+        if not matched:
+            # October 16: with no match, the newest unrelated chats ("Can you shut down?") came back.
+            result['no_match'] = ('No earlier conversation mentions those words. Say so plainly; do not '
+                                  'present unrelated conversations as an answer.')
     if windowed:
         result['window'] = {'from': local_time(low, now) if low is not None else None,
                             'until': local_time(high, now) if high is not None else None}
@@ -211,7 +249,10 @@ def recall(store, who, session, *, query='', after=None, before=None, period=Non
             AND json_extract(evidence,'$.attribution.state')='supported'
             AND json_extract(evidence,'$.trusted')=1 AND json_extract(evidence,'$.echo_risk')=0
             AND NOT EXISTS(SELECT 1 FROM conversation_exchanges x WHERE x.source_turn=turns.id)
-            ORDER BY rowid DESC LIMIT 8""",(session,who))
+            ORDER BY rowid DESC LIMIT """+('2000' if wanted else '8'),(session,who))
+        if wanted:
+            legacy = sorted((row for row in legacy if match_score(wanted, row['human_text'])),
+                            key=lambda row: match_score(wanted, row['human_text']), reverse=True)[:8]
         for row in legacy:
             row['text_truncated'] = len(row['human_text'])>600
             row['human_text'] = row['human_text'][:600]
@@ -254,9 +295,16 @@ def told(row, now):
     row = dict(row)
     at, due = row.pop('told_at', None), row.pop('due_at', None)
     kind = row.pop('followup_kind', None)
+    asked = row.pop('followup_asked_on', None)
     row['told'] = span(now - at) + ' ago (' + clock(at) + ')' if at is not None else 'unknown'
     if due is not None:
         row['planned_time'] = timing({'said_at': at, 'due_at': due, 'kind': kind}, now)['due']
+    if asked:
+        # October 16: the wine run was asked about three runs in a row; nothing said it had been.
+        row['followup'] = ('already asked about (' + asked + '); their answer is in the conversation record. '
+                           'Do not ask about it again.')
+        if due is not None and now >= due:
+            row['planned_time'] = 'a past plan, already asked about: not current'
     return row
 
 
@@ -266,7 +314,8 @@ def context(store, original, session, now):
     if not who: return result
     result['recent_exchanges'] = recall(store,who,session,limit=4,now=now)['exchanges']
     result['earlier_greetings'] = greetings(store, who, now)
-    result['interests_and_facts'] = [told(row, now) for row in store.claims(who)[:6]]
+    # October 16: only the newest 6 of 8 saved facts reached each reply.
+    result['interests_and_facts'] = [told(row, now) for row in store.claims(who)]
     result['current_session_exchanges'] = store.rows('SELECT id,human_text,heard_text FROM conversation_exchanges WHERE person_id=? AND session_id=? ORDER BY created_at DESC LIMIT 3',(who,session))
     result['episodes'] = store.rows('''SELECT e.id,e.summary,e.source_exchange,x.human_text,x.heard_text
         FROM conversation_episodes e JOIN conversation_exchanges x ON x.id=e.source_exchange

@@ -498,7 +498,8 @@ class ConversationMemoryTests(MemoryFixture):
         # Time words mistakenly left in query: whole words only, and the dated record stays primary.
         loose=cm.recall(self.store,self.person,'new',query='last night',now=self.clock)
         self.assertEqual({r['id'] for r in loose['exchanges'][:2]},{'indoors','astronomy'})
-        self.assertNotEqual(loose['exchanges'][2]['id'],'rex-tonight','"night" is not "tonight"')
+        # October 16: only matching conversations come back, and "night" is still not "tonight".
+        self.assertNotIn('rex-tonight',[r['id'] for r in loose['exchanges']],'"night" is not "tonight"')
         self.assertNotIn('legacy_source_utterances',loose)
         self.assertTrue(all('local_time' in r for r in loose['exchanges']))
         self.assertEqual(cm.recall(self.store,self.person,'new',query='drugs',now=self.clock)['exchanges'][0]['id'],'drugs')

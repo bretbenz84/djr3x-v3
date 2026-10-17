@@ -1251,7 +1251,8 @@ class Session:
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=dict(call.arguments))
                 with self._lock:
                     cancel.check()
-                    if call.name in {"recall_conversations","remember_episode","retract_episode"}:
+                    if (call.name in {"recall_conversations","remember_episode","retract_episode"}
+                            or call.name == 'recall' and call.arguments.get('query')):
                         memory_accessed[0] = True
                         refresh_current_view(context)
                         cancel.check()
@@ -2189,6 +2190,15 @@ class Session:
             if agency_step and self.state and not agency_deferred:
                 with self._lock:
                     self.state.agency.finish(agency_step,delivery,action_outcome,self.trace.clock(),agency_revision_reason)
+                if delivery.completed_text and delivery.medium == 'audio' and not self.state.frozen:
+                    # October 16: a beat asked about the wine run three runs in a row; only the
+                    # memory tool recorded a follow-up as asked. A heard beat built on it counts too.
+                    try:
+                        asked = self.state.followups_asked(agency_step.get('evidence_ids') or ())
+                        if asked:
+                            self.trace.emit('followup_asked', turn_id=turn_id, claim_ids=asked)
+                    except Exception as exc:
+                        self.trace.emit('state_finalize_failed', turn_id=turn_id, error_type=type(exc).__name__)
             if opportunity_attempted:
                 outcome = self.state.initiative.finished(opportunity,delivery,self.trace.clock())
                 self.trace.emit('proactive_outcome',**outcome)

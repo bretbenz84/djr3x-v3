@@ -57,7 +57,8 @@ def occasion(kind: str, scheduled: str | None, today: date, due_at: float | None
         # Once before its time (looking forward to it), once after (asking how it went).
         if now<due_at:return 'before_due' if (date.fromtimestamp(due_at)-today).days<=7 else None
         return 'after_due' if now-due_at<=AFTER_SECONDS else None
-    if kind=='callback':return today.isoformat()
+    # A callback without a time is brought up once, not once a day (October 16).
+    if kind=='callback':return 'callback'
     if kind=='birthday':return today.isoformat() if today.strftime('%m-%d')==scheduled else None
     days=(date.fromisoformat(scheduled)-today).days
     if kind=='celebration':return scheduled if days==0 else None

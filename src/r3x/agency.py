@@ -166,7 +166,8 @@ WHAT MAKES IT GOOD
   first lull.
 - Dated facts. known_facts and personal_fact evidence carry told (when they said it) and, for a plan with a time,
   planned_time. A plan or anything tied to a moment ("in five minutes", "tonight") is over once that moment has
-  gone by: never plan around it as current; at most ask how it went.
+  gone by: never plan around it as current; at most ask how it went. A fact with followup was already asked
+  about: never ask about it again.
 - Lulls. When quiet.lull is true the conversation has died down and Rex brings something NEW, in this order:
   a follow-up whose moment passed; someone or some animal newly in view (a pet in someone's arms: ask about
   it by name when a saved pet matches);
@@ -280,7 +281,7 @@ def evidence_catalog(context):
     for row in memory.get('interests_and_facts', ()):
         if row.get('id'):
             evidence[row['id']] = {'kind': 'personal_fact', 'data': {
-                k: row.get(k) for k in ('predicate', 'value', 'kind', 'source_text', 'told', 'planned_time') if k in row}}
+                k: row.get(k) for k in ('predicate', 'value', 'kind', 'source_text', 'told', 'planned_time', 'followup') if k in row}}
     for row in memory.get('episodes', ()):
         if row.get('id'):
             evidence[row['id']] = {'kind': 'episode', 'data': {'summary': row.get('summary')}}

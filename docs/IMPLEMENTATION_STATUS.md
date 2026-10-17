@@ -21,6 +21,42 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Memory repairs — October 16
+
+The October 14 plan "in five minutes I'm going to the store to get wine" was asked about in three
+runs (October 15, twice on October 16) although the owner answered and finally said "Stop asking me
+about it"; and in session `3af18a12` Rex said he had never been told the owner's favorite show
+(Voyager, said September 30 and October 11) and muddled "Jeremy". Causes, from the logs and the
+database (8 saved facts, 660 conversation exchanges with the owner):
+
+- A follow-up was recorded as asked only through `use_memory_opportunity`; planner beats asked
+  through ordinary replies, so it stayed due for a week. Answers changed nothing stored.
+- A "stop asking" boundary lived in memory and was gone after a restart.
+- Conversation search read only the newest 200 exchanges (Voyager was 329 back), matched whole
+  words only, and with no match returned the newest unrelated chats.
+- "What do you know about me" read saved facts only; replies saw only the newest 6 facts.
+
+Repairs (synthetic checks, temporary databases; **not yet run on the robot**):
+
+1. A heard planner beat whose evidence is a follow-up records it as asked (`followups_asked`,
+   trace `followup_asked`). A callback with no time is brought up once, not once a day.
+2. A fact whose follow-up was asked says so (`followup`), and a passed, asked plan is marked not
+   current; the planner is told never to ask about it again.
+3. `topic_avoid` feedback is saved per person (`topic_boundaries`) and carried into later runs
+   until retracted; forgetting the person removes it.
+4. Search with words reads every earlier conversation with the person, by word forms ("stars",
+   "star") and near spellings ("Jerry"/"Jeremy", half weight), and says plainly when nothing
+   matched. A time window ("last night") is still returned whole.
+5. `recall` takes an optional `query`: earlier conversations about that subject come back with the
+   saved facts (private memory, same audience rules as `recall_conversations`). Every saved fact
+   reaches each reply.
+
+The existing wine follow-up's one "after its time" occasion is still unrecorded in the live
+database, so it would be offered once more. 1289 of 1290 checks pass (GUI import: PySide6 not
+installed), nine new in `tests/test_memory_repairs.py`; one older search check now expects only
+matching conversations. Backfilling facts from old conversations and memory for other people are
+left for later (owner).
+
 ## Driving repairs from the October 16, 7:33 PM run
 
 Session `03bc4e1f` (real hardware, 8 minutes): the spoken stop halted a turn at once and was

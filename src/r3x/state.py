@@ -78,6 +78,7 @@ class CoreState:
         self.min_face_epoch = 0
         from .proactive import Initiative
         self.initiative = Initiative(trace)
+        self._load_topic_boundaries()
         from .present import Present
         self.present = Present()   # Who is here, things around, the conversation clock.
         # Whose voice this conversation has clearly matched: {'person', 'confirmed', 'last_at'}.
@@ -708,6 +709,34 @@ class CoreState:
                          (cue['cue_id'],cue['kind'],self.wall_clock()))
             self.store.advance(conn)
 
+    def _load_topic_boundaries(self):
+        """October 16 (03bc4e1f): "Stop asking me about it" held only until shutdown; the next
+        run asked again. A person's "don't bring that up" now carries across runs."""
+        for row in self.store.rows('SELECT * FROM topic_boundaries ORDER BY created_at DESC LIMIT 16'):
+            self.initiative.feedback.appendleft({
+                'id': row['id'], 'action': 'topic_avoid', 'reference_id': None, 'topic': row['topic'],
+                'source_turn_id': row['source_turn'], 'source_text': row['source_text'],
+                'participant': {'person_id': row['person_id'], 'track_id': None},
+                'at': self.trace.clock(), 'expires_at': None, 'told_on': row['told_on'],
+                'carried_from_earlier_run': True})
+
+    def followups_asked(self, claim_ids):
+        """Record follow-ups raised in a heard line, whatever tool carried it. Returns the
+        claim ids newly recorded."""
+        from .memory_opportunities import occasion
+        asked = []
+        for claim_id in dict.fromkeys(i for i in claim_ids if isinstance(i, str)):
+            rows = self.store.rows('SELECT f.kind,f.on_date,f.due_at FROM memory_followups f JOIN claims c '
+                                   "ON c.id=f.claim_id WHERE f.claim_id=? AND c.status='accepted'", (claim_id,))
+            if not rows:
+                continue
+            key = occasion(rows[0]['kind'], rows[0]['on_date'], self.calendar_today(), rows[0]['due_at'], self.wall_clock())
+            if key and not self.store.rows('SELECT 1 FROM memory_followup_delivery WHERE claim_id=? AND occasion=?',
+                                           (claim_id, key)):
+                self.memory_delivered({'claim_id': claim_id, 'occasion': key})
+                asked.append(claim_id)
+        return asked
+
     def memory_delivered(self, selected):
         with self.store.transaction() as conn:
             current=conn.execute("SELECT status FROM claims WHERE id=?",(selected['claim_id'],)).fetchone()
@@ -936,7 +965,15 @@ class CoreState:
                     pass
             return data,'feedback' in data
         if name == "conversation_feedback":
-            return self._feedback(args)
+            data, mutation = self._feedback(args)
+            person = data['participant']['person_id']
+            if data['action'] == 'topic_avoid' and person:
+                conn.execute('INSERT OR REPLACE INTO topic_boundaries VALUES(?,?,?,?,?,?,?)',
+                             (data['id'], person, data['topic'], data['source_turn_id'], data['source_text'],
+                              self.calendar_today().isoformat(), self.wall_clock()))
+            elif data['action'] == 'retract':
+                conn.execute('DELETE FROM topic_boundaries WHERE id=?', (data['reference_id'],))
+            return data, mutation
         if name == "set_initiative":
             self._source_allowed(args,name)
             return {"mode":args["mode"],"source_turn_id":turn_id,
@@ -994,7 +1031,18 @@ class CoreState:
         if name == "recall":
             if args["subject_id"]:
                 self._person(args["subject_id"])
-            return {"claims":self.store.claims(args["subject_id"])},False
+            data = {"claims":self.store.claims(args["subject_id"])}
+            if args.get("query"):
+                # Facts are only what was saved; the conversations hold the rest (October 16).
+                from . import conversation_memory as cm
+                who = cm.subject(context or self.context())
+                if who:
+                    found = cm.recall(self.store, who, capture.session_id, query=args["query"], limit=6, now=self.wall_clock())
+                    data["conversations"] = {k: found[k] for k in ('exchanges', 'searched', 'no_match', 'coverage',
+                                                                    'legacy_source_utterances') if k in found}
+                else:
+                    data["conversations"] = {"unavailable": "No known private audience: earlier conversations stay private."}
+            return data,False
         if name == "ask_face_question":
             if not any(f["track_id"]==args["face_track_id"] for f in self.faces):
                 raise ValueError("FaceEvidenceMissing")

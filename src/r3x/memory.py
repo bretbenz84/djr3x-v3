@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS memory_followups(
  kind TEXT NOT NULL,on_date TEXT,audience TEXT NOT NULL,said_at REAL,due_at REAL);
 CREATE TABLE IF NOT EXISTS interests(
  claim_id TEXT PRIMARY KEY REFERENCES claims(id) ON DELETE CASCADE,topic TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS topic_boundaries(
+ id TEXT PRIMARY KEY,person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+ topic TEXT NOT NULL,source_turn TEXT NOT NULL,source_text TEXT NOT NULL,told_on TEXT NOT NULL,created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS memory_followup_delivery(
  claim_id TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
  occasion TEXT NOT NULL,delivered_on TEXT NOT NULL, PRIMARY KEY(claim_id,occasion));
@@ -216,7 +219,8 @@ class Memory:
     def claims(self, person_id=None, include_candidates=False):
         states = ("accepted", "candidate") if include_candidates else ("accepted",)
         sql = ("SELECT c.*,t.text AS source_text,COALESCE(c.said_at,x.created_at) AS told_at,"
-               "f.kind AS followup_kind,f.due_at FROM claims c JOIN turns t ON t.id=c.source_turn "
+               "f.kind AS followup_kind,f.due_at,(SELECT max(d.delivered_on) FROM memory_followup_delivery d "
+               "WHERE d.claim_id=c.id) AS followup_asked_on FROM claims c JOIN turns t ON t.id=c.source_turn "
                "LEFT JOIN conversation_exchanges x ON x.id=c.source_turn LEFT JOIN memory_followups f ON f.claim_id=c.id "
                "WHERE c.status IN (" + ",".join("?" for _ in states) + ")")
         params = list(states)

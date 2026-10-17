@@ -99,7 +99,7 @@ TOOLS = (
     schema("remember_episode", "Optionally retain a concise shared-experience summary or unfinished topic from ONE retrieved exchange. Use its exact id as source_exchange_id. This is a fallible interpretation, not a personal fact. Preserve corrections and uncertainty; never invent experiences, intentions, emotions or completed actions. No mandatory summary call on ordinary turns. Source text remains attached. Save personal facts with record_claim instead.",
            {"source_exchange_id":TEXT,"summary":TEXT}),
     schema("retract_episode", "Withdraw an offered episode summary when corrected or no longer wanted; original conversation remains historical evidence. Use forget_person for full forgetting.", {"episode_id":TEXT}),
-    schema("recall", "Read accepted current claims with who said them and source; null subject returns a bounded view. Candidate claims are not established facts.", {"subject_id":NULL_TEXT}),
+    schema("recall", "Read accepted current claims with who said them and source; null subject returns a bounded view. Candidate claims are not established facts. Saved facts are only part of what you were told: for \"what do you know about me\", \"did I tell you...\" or \"do you know X\", put the subject in query (\"favorite TV show\", \"Jeremy\") and earlier conversations that mention it come back too. Never say they did not tell you before checking both. October 16: Voyager, said twice in earlier chats, was answered as never told.", {"subject_id":NULL_TEXT,"query":NULL_TEXT}),
     schema("cancel_association", "An identity correction or decline cancels provisional voice collection. Use the affected candidate person ID or track ID, never assume the current speaker is the mentioned person.",
            {"person_id":NULL_TEXT,"track_id":NULL_TEXT}),
     schema("rename_person", "Only an explicit correction to the stored spelling/display name uses this tool. A self-introduction uses introduce_person, including existing names. Mentioning someone ELSE must never rename the current speaker to that other person. Requires the subject's supported voice or its current provisional introduction.",
@@ -466,6 +466,8 @@ def validate(name, args):
     optional = {'intent_update','next_opportunity','description_scope','invitation_update','say_first'}
     if name in SPOKEN_RESULT_TOOLS:
         optional = optional | {'text'}
+    if name == 'recall':
+        optional = optional | {'query'}   # Added October 16; scripted callers may leave it out.
     if args.keys() - properties.keys() or properties.keys() - args.keys() - optional:
         raise ValueError("ToolFieldsMismatch")
     for key, spec in properties.items():
