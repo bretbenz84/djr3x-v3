@@ -223,6 +223,11 @@ class CoreState:
             if raw['direction'] is not None and raw['direction'] not in (
                     {'left', 'right'} if action in {'turn', 'seek'} else {'forward', 'backward'}):
                 raise ValueError('DriveDirectionMismatch:' + action)
+            if origin == 'self_initiated' and action == 'move' and raw['direction'] == 'backward':
+                # October 16 (03bc4e1f): "give Brett some room" reversed him into a chair the two
+                # narrow rear sensors missed. Until the rear depth sensor is fitted, only a person
+                # can ask him to back up.
+                raise ValueError('SelfInitiatedReverse')
             if action == 'seek' and not drive.get('vision_seek'):
                 raise ValueError('VisionSeekUnavailable')
             if action == 'approach' and raw['target'] == 'sought':

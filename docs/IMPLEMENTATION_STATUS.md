@@ -21,6 +21,33 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Driving repairs from the October 16, 7:33 PM run
+
+Session `03bc4e1f` (real hardware, 8 minutes): the spoken stop halted a turn at once and was
+confirmed; replies median 3.29 s, 1 of 19 over 4 s. Repaired (synthetic checks, simulated base;
+**not yet run on the robot**):
+
+- **Arrival lines are written on arrival.** He said "I'm heading toward the doorway." after
+  driving 3 m to it: the plan's `say_after` was written before setting off. After a completed
+  approach that travelled, the arrival line now comes from one short follow-up call that sees the
+  receipt, with the planned line as intent. Plain moves and turns still say `say_after` as written.
+- **An empty spoken line means nothing to say.** "Turn 60 degrees to your left" got 11 s of
+  silence: with `say_before` first the model wrote `""`, the plan was rejected as invalid text, and
+  the explanation call produced nothing for 9 s. Blank optional lines of any tool become null
+  before validation.
+- **His own plans never back up** until the rear depth sensor (bought October 16) is fitted: a
+  beat "to give Brett room" reversed 0.4 m into a chair the two narrow rear sensors missed. A
+  person can still ask him to back up.
+- **A stopped step is logged** like a finished one (heading change, seconds, odometry, clearance):
+  a turn stopped after 9 s at 0 degrees had left no trace.
+- **A move's words never claim a save.** "Ah, the entryway, got it" came with a turn toward the
+  owner and nothing was saved; the room tool now says to use it even when he also wants to turn or
+  reply, and drive lines may not say he saved or will remember anything (instruction only).
+
+Not changed: an own beat that approached an object no longer offered failed silently (0:36).
+1280 of 1281 checks pass (GUI import: PySide6 not installed), five new in
+`tests/test_drive_repairs.py`; one older approach check now expects the arrival follow-up.
+
 ## Stop while driving — October 16
 
 Session `3af18a12` (real hardware): on the way to the microwave, about to hit the kitchen island,

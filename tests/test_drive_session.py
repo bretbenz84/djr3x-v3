@@ -229,13 +229,16 @@ class DriveSessionTests(MemoryFixture):
                     yield ToolCall('next', 'drive_base', {'steps': [step('approach', target=target)], 'purpose': 'go to the photo',
                                                           'look_after': None, 'say_before': None, 'say_after': 'There it is!'})
                 else:
-                    yield 'Done.'
+                    yield 'Here I am, right by the clock photo.'
         self.setup_drive(drive_call(step('turn', degrees=90.)), inspection=True)
         self.session.brain = Brain()
         self.world.objects[:] = [('object-photo', 'clock', 0., 2.)]   # Directly to Rex's left.
         settle()
         delivery = self.turn('Turn left and find the photo of a clock.')
-        self.assertEqual(delivery.completed_text, ['Looking left.', 'There it is!'])
+        # October 16: an approach's arrival line is written on arrival, the planned one as intent.
+        self.assertEqual(delivery.completed_text, ['Looking left.', 'Here I am, right by the clock photo.'])
+        notes = [m['content'] for m in calls[-1].messages if m.get('role') == 'developer']
+        self.assertTrue(any('You have arrived' in n and 'There it is!' in n for n in notes))
         tools = {d['name'] for d in grounded_tools(calls[1].context)}
         self.assertEqual(tools, {'describe_view', 'drive_base'})
         results = self.rows('drive_result')

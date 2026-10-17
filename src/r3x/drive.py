@@ -2549,7 +2549,8 @@ class DriveBase:
             receipt.status, receipt.reason = 'refused', 'DriveBusy'
             return receipt
         self._parked = False
-        current = step_odom = None
+        current = step_odom = step_heading = None
+        step_started = self.clock()
         try:
             self._halt.clear()
             ok, reason = self.availability()
@@ -2571,6 +2572,7 @@ class DriveBase:
             for step in plan.steps:
                 self._check(cancel)
                 current, step_odom = step, (self.link.snapshot()[0] or {}).get('odom') or {}
+                step_heading, step_started = self._heading(self.link.snapshot()[0] or {}), self.clock()
                 self._pace = PACE.get(step.pace, 1.)
                 self._turn_moved = 0.
                 ok, reason = self.availability()
@@ -2624,6 +2626,15 @@ class DriveBase:
                 receipt.steps.append({'action': current.action, 'status': 'cancelled', 'reason': 'stop_requested',
                                       'travelled_m': round(moved, 2)})
                 receipt.travelled_m = round(receipt.travelled_m + moved, 2)
+                # October 16 (03bc4e1f): a turn stopped after 9 s at 0 degrees left no trace of what
+                # the sensors or the heading did. Keep the stopped step like a finished one.
+                heading = self._heading(self.link.snapshot()[0] or {})
+                self._step_trace({'action': current.action, 'status': 'cancelled', 'reason': 'stop_requested',
+                                  'travelled_m': round(moved, 2), 'seconds': round(self.clock() - step_started, 1),
+                                  'measured_deg': round(wrap(heading - step_heading), 1)
+                                  if heading is not None and step_heading is not None else None,
+                                  'odometry': {k: end.get(k) for k in ('x', 'y', 'theta')} if end else None},
+                                 self.space())
         except ArmParkFailed as exc:
             receipt.status, receipt.reason = 'refused', str(exc)   # Nothing moved: the park precedes wheels.
         except ProviderFailure as exc:

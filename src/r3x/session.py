@@ -1087,6 +1087,9 @@ class Session:
                                     put_phrase(phrases, phrase, cancel)
                             continue
                         if isinstance(delta, ToolCall):
+                            from .semantics import blank_text_to_null
+                            from dataclasses import replace as replace_call
+                            delta = replace_call(delta, arguments=blank_text_to_null(delta.name, delta.arguments))
                             # General intent replies follow ordinary prose once audible.
                             # Questions and memory-bearing tools retain audience guards.
                             update = delta.arguments.get('intent_update') or {}
@@ -1480,7 +1483,7 @@ class Session:
                         delivery.status, delivery.medium = 'requested', 'audio'
                         put_phrase(phrases,text,cancel)
                     def drive_followup(call, output, images=(), inspection=None, replan=False, wordless=False, arrived=False,
-                                       retry=False):
+                                       retry=False, reached=None):
                         # One bounded continuation: explain a refusal/incomplete motion,
                         # or answer look_after from a frame captured after motion.
                         continuation = (*call.preamble,
@@ -1501,7 +1504,13 @@ class Session:
                                 'Answer the look question in one short sentence about what matters for the request. '
                                 'Describe the scene in detail only if the person asked what you see.'
                                 + ('' if images else ' ' + LOOK_FAILED)})
-                        if arrived:
+                        if reached is not None:
+                            messages = (*messages, {'role':'developer','content':
+                                'You have arrived: the receipt shows the approach completed and you are there now, not '
+                                'on your way. Say one short line that fits being there ("Here I am.", or a word about '
+                                'the place). What you meant to say on arrival: ' + json.dumps(reached, ensure_ascii=False) +
+                                '. Do not repeat what you said before setting off.'})
+                        elif arrived:
                             # October 14 (e1f8b2c6): he rolled up to the owner without a word and was
                             # asked "you're just gonna walk up on me like that, but not say anything?".
                             messages = (*messages, {'role':'developer','content':
@@ -1536,12 +1545,13 @@ class Session:
                         nonlocal drive_action, drive_noted, visual_selected, visual_proposed_text, spoke
                         args = call.arguments
                         receipt = None
-                        if call.call_id in streamed:
+                        heard_early = bool(streamed.get(call.call_id, '').strip())
+                        if heard_early:
                             # The acknowledgment was queued as it streamed, before the plan was checked.
                             spoke = True
                             delivery.status, delivery.medium = 'requested', 'audio'
                         if result.outcome=='ok':
-                            if args['say_before'] and call.call_id not in streamed:
+                            if args['say_before'] and not heard_early:
                                 speak(args['say_before'])
                             drive_action = DriveAction(drive_plan)
                             drive_noted = False
@@ -1609,7 +1619,14 @@ class Session:
                                     visual_proposed_text = chosen.arguments['text']
                                     speak(visual_proposed_text)
                         elif receipt and receipt['status']=='completed':
-                            if args['say_after']:
+                            reached = any(s.get('action') == 'approach' and s.get('status') == 'completed'
+                                          and (s.get('travelled_m') or 0) > .2 for s in receipt.get('steps', []))
+                            if args['say_after'] and reached:
+                                # October 16 (03bc4e1f): the line written before the trip, "I'm heading
+                                # toward the doorway.", played on arrival. It is now written there.
+                                if drive_followup(call,{'drive':receipt},reached=args['say_after'])[1]:
+                                    raise ProviderFailure('ToolContinuationLimit')
+                            elif args['say_after']:
                                 speak(args['say_after'])
                             elif not opportunity and not spoke and not generated.strip():
                                 if drive_followup(call,{'drive':receipt},wordless=True)[1]:
@@ -1950,7 +1967,7 @@ class Session:
                              'they invite you to. Tell them so in one short sentence, in character.') +
                             ' If their words were not really a request to stop talking, say you may have misread '
                             'them and that they only need to say you can talk again.'}))
-                    if call.call_id in streamed:
+                    if streamed.get(call.call_id, '').strip():
                         from dataclasses import replace
                         followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
                             'Already said aloud before this result: '+json.dumps(streamed[call.call_id],ensure_ascii=False)+
