@@ -109,7 +109,9 @@ class DriveSessionTests(MemoryFixture):
         output = json.loads(followup.continuation[-1]['output'])
         self.assertEqual(output['drive']['status'], 'partial')
         self.assertEqual(output['drive']['steps'][0]['status'], 'blocked')
-        self.assertFalse(followup.tools_enabled)
+        # October 16: the explanation may instead be one new plan, and only a drive plan.
+        self.assertTrue(followup.tools_enabled)
+        self.assertEqual([d['name'] for d in grounded_tools(followup.context)], ['drive_base'])
 
     def test_rejected_plan_never_moves_and_is_explained(self):
         self.setup_drive(drive_call(step('move', meters=12.)), followup='That is farther than I can go in one step.')

@@ -152,6 +152,10 @@ class FillerLoop:
             thread.join(1.)
 
 
+# A look waits this long for words already playing (a lead-in is one short line).
+INSPECTION_WAIT_SECONDS = 8.
+
+
 class OutputOwner:
     def __init__(self, tts: TTS, sink: Sink, trace, *, attention=None, gestures=None, inspection=None,
                  speech_motion=None, leds=None, robot=None, drive=None, cloner=None):
@@ -172,9 +176,14 @@ class OutputOwner:
     def execute_inspection(self, request, cancel, valid):
         if self.inspection is None:
             raise ProviderFailure('InspectionUnavailable')
-        if not self._motion_lock.acquire(blocking=False):
-            return {'request_id':request.request_id,'status':'failed','medium':'simulation',
-                    'stage':'movement','motion_status':'not_completed','reason':'MotionResourceBusy'}, ()
+        # October 16 (511ce677): both looks failed at once because the lead-in ("Let me look.")
+        # was still playing with its talking motion. Wait for it, briefly, instead.
+        deadline = time.monotonic() + INSPECTION_WAIT_SECONDS
+        while not self._motion_lock.acquire(timeout=.05):
+            cancel.check()
+            if time.monotonic() > deadline:
+                return {'request_id':request.request_id,'status':'failed','medium':'simulation',
+                        'stage':'movement','motion_status':'not_completed','reason':'MotionResourceBusy'}, ()
         try:
             return self.inspection.execute(request,cancel,valid)
         finally:

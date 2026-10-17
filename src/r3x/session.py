@@ -30,6 +30,10 @@ LULL_FRESH_TOPIC_SECONDS = 45.   # Nobody has spoken this long: Rex's next goal 
 ANIMAL_ASIDE_HOLD_SECONDS = 20.   # Quiet after someone talks to a pet, before Rex may chime in.
 REPEAT_LINES = 6    # Rex's recent heard lines a planned beat must not repeat.
 REPEAT_RUN = 5      # Words in a row that count as repeating one of them.
+# October 16 (511ce677): after a look that took no picture he said the path was clear and
+# described a telescope that was not there.
+LOOK_FAILED = ('The look failed: no picture was taken. Say plainly that you could not look just now. Do not '
+               'describe, guess or confirm anything about what is there, and do not say a path is clear or blocked.')
 
 
 def is_quiet_command(text: str) -> bool:
@@ -1393,7 +1397,10 @@ class Session:
                         {'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
                         {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(asdict(result))})
                     images=comparison_images if comparison_context else images
-                    followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
+                    messages = self.history_messages()
+                    if not images and not cached:
+                        messages = (*messages, {'role':'developer','content':LOOK_FAILED})
+                    followup = Snapshot(self.session_id,turn_id,self.revision,messages,
                         snapshot.speaker,{**{k:v for k,v in context.items() if k!='scene_description'},'attention':self.state.attention.context(),'inspection':data,
                             **comparison_context,'inspection_description_allowed':bool(images),'visual_novelty':inspection_novelty,'action_continuity':self.state.actions.context(visual_memory.audience(context))},bool(images),continuation,images)
                     self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,
@@ -1427,7 +1434,8 @@ class Session:
                         spoke = True
                         delivery.status, delivery.medium = 'requested', 'audio'
                         put_phrase(phrases,text,cancel)
-                    def drive_followup(call, output, images=(), inspection=None, replan=False, wordless=False, arrived=False):
+                    def drive_followup(call, output, images=(), inspection=None, replan=False, wordless=False, arrived=False,
+                                       retry=False):
                         # One bounded continuation: explain a refusal/incomplete motion,
                         # or answer look_after from a frame captured after motion.
                         continuation = (*call.preamble,
@@ -1435,6 +1443,8 @@ class Session:
                             {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(output)})
                         followup_context = {**{k:v for k,v in context.items() if k!='scene_description'},
                             'drive':self.output.drive.context(origin) if self.output.drive else None}
+                        if retry:
+                            followup_context['drive_refusal_replan'] = True
                         if inspection is not None:
                             followup_context.update(inspection=inspection,inspection_description_allowed=bool(images),
                                                     drive_replan_allowed=replan and bool(images))
@@ -1444,7 +1454,8 @@ class Session:
                             # September 27: every arrival became a paragraph about the hallway.
                             messages = (*messages, {'role':'developer','content':
                                 'Answer the look question in one short sentence about what matters for the request. '
-                                'Describe the scene in detail only if the person asked what you see.'})
+                                'Describe the scene in detail only if the person asked what you see.'
+                                + ('' if images else ' ' + LOOK_FAILED)})
                         if arrived:
                             # October 14 (e1f8b2c6): he rolled up to the owner without a word and was
                             # asked "you're just gonna walk up on me like that, but not say anything?".
@@ -1464,9 +1475,13 @@ class Session:
                             messages = (*messages, {'role':'developer','content':
                                 'The movement did not happen as planned (receipt status: '+str(status or output.get('outcome'))+
                                 '). Say plainly what did or did not happen and why; do not repeat an earlier acknowledgment '
-                                'such as "on it", and do not claim you moved or found anything the receipt does not show.'})
+                                'such as "on it", and do not claim you moved or found anything the receipt does not show.'
+                                + (' If another way still does what they asked (looking around, getting away from a wall, '
+                                   'a smaller turn or move), you may instead send one new drive_base plan toward the open '
+                                   'directions in drive.clearance_m. Never turn or move opposite to a direction they named.'
+                                   if retry else '')})
                         followup = Snapshot(self.session_id,turn_id,self.revision,messages,snapshot.speaker,
-                                            followup_context,bool(images),continuation,images)
+                                            followup_context,bool(images) or retry,continuation,images)
                         self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='drive_result_continuation',
                                         image_count=len(images),reasoning_effort=getattr(self.brain,'reasoning_effort',None))
                         delivery.status, delivery.medium = 'requested', 'audio'
@@ -1562,11 +1577,26 @@ class Session:
                                 if drive_followup(call,{'drive':receipt},arrived=True)[1]:
                                     raise ProviderFailure('ToolContinuationLimit')
                         elif not opportunity:
-                            # Refused, rejected or incomplete: the model explains from the receipt.
+                            # Refused, rejected or incomplete: the model explains from the receipt, or
+                            # once tries another way that still does what was asked.
                             output = {'drive':receipt} if receipt else {**asdict(result),'nothing_moved':True,
                                   'meaning':'The plan was rejected before any motion. Rex did not move.'}
-                            if drive_followup(call,output)[1]:
-                                raise ProviderFailure('ToolContinuationLimit')
+                            followup, retry_calls = drive_followup(call,output,retry=depth==0)
+                            if retry_calls:
+                                chosen = retry_calls[0]
+                                if depth or len(retry_calls)!=1 or chosen.name!='drive_base' or generated.strip():
+                                    raise ProviderFailure('ToolContinuationLimit')
+                                from .contracts import ToolResult
+                                self.trace.emit('drive_replanned',turn_id=turn_id,after=(receipt or {}).get('status') or result.reason,
+                                                arguments=dict(chosen.arguments))
+                                try:
+                                    with self._lock:
+                                        next_plan = self.state.propose_drive(chosen,followup.context,cancel)
+                                    next_result = ToolResult(next_plan.request_id,'ok','DriveProposed',self.state.store.revision)
+                                except ValueError as exc:
+                                    next_plan, next_result = None, ToolResult(chosen.call_id,'rejected',str(exc),self.state.store.revision)
+                                    self.trace.emit('drive_rejected',turn_id=turn_id,reason=str(exc))
+                                return run_drive_with(chosen, next_plan, next_result, 1, followup.context['drive'])
                     def run_drive_with(call, plan, result, depth, fresh_context):
                         nonlocal drive_context
                         drive_context = fresh_context
@@ -1667,7 +1697,7 @@ class Session:
                              'visible. Keep it to one or two short sentences. '
                              if agency_step else
                              'Answer the look question from the new frame in one or two short sentences. ')+
-                            'Do not repeat the movement acknowledgment.'})
+                            'Do not repeat the movement acknowledgment.' + ('' if images else ' ' + LOOK_FAILED)})
                         followup = Snapshot(self.session_id,turn_id,self.revision,messages,snapshot.speaker,
                             {**{k:v for k,v in context.items() if k!='scene_description'},'inspection':data,
                              'inspection_description_allowed':bool(images)},bool(images),continuation,images)
@@ -1814,17 +1844,10 @@ class Session:
                     # (October 16: about 1-1.5 s). A claim kept only as a candidate still goes back.
                     from dataclasses import asdict
                     import json
-                    if call.name=='set_initiative':
-                        went_silent[0] = result.data['mode']=='silent'
-                        if result.data['mode'] in ('quiet','silent'):
-                            self.proactive_hold_until = self.trace.clock()+120
-                            self.state.initiative.cancel_schedule('quiet_or_human_floor')
-                        else:
-                            self.proactive_hold_until = float('-inf')
                     self.history.extend((
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {}), **({"next_opportunity":None} if "next_opportunity" in call.arguments else {})})},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
-                    if self.state.initiative.silent and call.name!='set_initiative':
+                    if self.state.initiative.silent:
                         # Told not to speak until released: the save stands, the words are withheld.
                         withheld[0] = True
                         self.trace.emit('silent_reply_withheld', turn_id=turn_id)

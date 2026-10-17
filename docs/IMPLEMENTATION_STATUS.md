@@ -45,8 +45,8 @@ Repairs (synthetic checks; **not yet run on the robot**):
 3. **Every look or lookup starts with a few words.** `say_first` is no longer optional: the
    model left it out on all 4 looks and the 1 recall of October 14–15 (6–10 s of silence).
 4. **Saves answer in one call.** `remember_followup`, `remember_interest`, `record_claim`,
-   `correct_claim`, `retract_claim`, `settle_question`, `set_initiative`, `name_room`,
-   `correct_room` and `note_bit` carry the spoken reply, said only after the executor succeeds
+   `correct_claim`, `retract_claim`, `settle_question`, `name_room`, `correct_room` and
+   `note_bit` carry the spoken reply, said only after the executor succeeds
    (a candidate claim, a refusal or a null line still goes back to the model). This saves about
    1–1.5 s and one model call each. While told to stay silent, the save stands and the words are
    withheld. Identity tools (introductions, renames, corrections of who is who) are unchanged.
@@ -57,6 +57,30 @@ pass, ten new in `tests/test_reply_speed.py`; the two others are the GUI import 
 installed) and an intermittent dashboard servo timing check that also fails without these changes.
 Live reply timing, whether a mandatory lead-in sounds repetitive, and how often 0.35 s splits
 a sentence need a robot run.
+
+First live run with these repairs (session `511ce677`, October 16 evening, real hardware): median
+reply 3.38 s, p90 4.48 s, 5 of 34 over 4 s (32 of 36 on October 13). Problems found and repaired
+the same night (synthetic checks; **not yet run on the robot**):
+
+- **Forward moves refused at "3 cm" with nothing there.** The front depth matrix's bottom row read
+  12-31 mm, under the 70 mm floor threshold, so host and firmware both stopped him (firmware zone
+  `stop` in 36 of 56 live frames). Cause: a peeling sticky cover on the sensor, removed by the
+  owner; the live re-read showed the floor at 270-430 mm, firmware zone clear in 56 of 56 frames.
+  Phantoms like this appear in logs from October 13. No code change.
+- **Every look failed (`MotionResourceBusy`).** The mandatory lead-in was still playing with its
+  talking motion, and a look gave up at once. A look now waits up to 8 s for words already playing.
+- **`set_initiative` answered "raise your head" three times** once it carried a spoken line,
+  switching quiet mode on while promising a move. It is back to a result-then-reply tool.
+- **A refused move ended the attempt** ("go look around": one refused left turn, right side open).
+  A refused or incomplete requested move may now be replanned once with `drive_base` only, never
+  opposite to a direction the person named; a second refusal is explained.
+- **After a look that took no picture he described things** (a clear path, a telescope). Failed
+  looks now carry an instruction to say so and describe nothing.
+
+The log shows no backward move; during a self-initiated 45° turn at 1:54 the wheels turned about
+133° while the body turned 43°, the bookshelf behind went from 0.5 to 0.3 m, and the owner saw him
+back into it: his rear likely scraped it while spinning. Not repaired; the turn swing check needs
+a look. 1266 of 1267 checks pass (GUI import: PySide6 not installed).
 
 ## Rex's voice model: ElevenLabs v4 Turbo — October 16
 

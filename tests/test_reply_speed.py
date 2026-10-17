@@ -165,13 +165,14 @@ class SpokenResultTests(MemoryFixture):
         self.assertEqual(len(brain.snapshots), 1)
         self.assertEqual(self.followups(), 1)
 
-    def test_going_quiet_is_said_in_the_same_call(self):
+    def test_going_quiet_still_goes_back_to_the_model(self):
+        # 511ce677: with a text field it was used to answer "raise your head" three times.
+        self.assertNotIn('text', next(t for t in TOOLS if t['name'] == 'set_initiative')['parameters']['properties'])
         self.enroll('Sam')
-        line = 'Fine, I will keep to myself until you invite me back in.'
-        brain, session, result = self.converse('set_initiative', {'mode': 'quiet', 'text': line},
+        brain, session, result = self.converse('set_initiative', {'mode': 'quiet'},
                                                said='Stop interrupting me for a while.')
-        self.assertEqual(result.completed_text, [line])
-        self.assertEqual(len(brain.snapshots), 1)
+        self.assertEqual(result.completed_text, ['A second answer.'])
+        self.assertEqual(len(brain.snapshots), 2)
         self.assertTrue(self.state.initiative.quiet)
 
     def test_without_a_line_the_result_still_goes_back_to_the_model(self):
@@ -204,3 +205,102 @@ class AdapterMoveStreamingTests(MemoryFixture):
         self.assertTrue(texts[-1].done)
         self.assertLess(out.index(texts[-1]), len(out) - 1)    # Before the finished call.
         self.assertIsInstance(out[-1], ToolCall)
+
+
+class LookWaitsForLeadInTests(MemoryFixture):
+    """511ce677: both looks failed at once because the lead-in's talking motion held the head."""
+    class View:
+        def __init__(self): self.calls = 0
+        def execute(self, request, cancel, valid):
+            self.calls += 1
+            return {'request_id': request.request_id, 'status': 'observed', 'stage': 'complete'}, ('image',)
+
+    def request(self):
+        from r3x.inspection import InspectionRequest
+        return InspectionRequest('look', 'current', 'What is there?', 0, 0.)
+
+    def test_a_look_waits_for_words_already_playing(self):
+        import threading
+        from r3x.contracts import Cancellation
+        view = self.View()
+        output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, inspection=view)
+        output._motion_lock.acquire()
+        threading.Timer(.3, output._motion_lock.release).start()      # The lead-in finishes.
+        data, images = output.execute_inspection(self.request(), Cancellation(), lambda: True)
+        self.assertEqual((data['status'], images, view.calls), ('observed', ('image',), 1))
+
+    def test_a_look_still_gives_up_when_the_head_stays_busy(self):
+        from unittest import mock
+        from r3x import output as output_module
+        from r3x.contracts import Cancellation
+        view = self.View()
+        output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, inspection=view)
+        output._motion_lock.acquire()
+        self.addCleanup(output._motion_lock.release)
+        with mock.patch.object(output_module, 'INSPECTION_WAIT_SECONDS', .2):
+            data, images = output.execute_inspection(self.request(), Cancellation(), lambda: True)
+        self.assertEqual((data['reason'], images, view.calls), ('MotionResourceBusy', (), 0))
+
+
+class ScriptBrain:
+    """Replies in order; each item is a ToolCall or words."""
+    def __init__(self, *replies):
+        self.replies, self.snapshots = list(replies), []
+
+    def reply(self, snapshot, cancel):
+        self.snapshots.append(snapshot)
+        yield self.replies.pop(0)
+
+
+class RefusedMoveRetryTests(MemoryFixture):
+    """511ce677: "go look around" ended at one refused turn though the right side was open."""
+    setup_drive = test_drive_session.DriveSessionTests.setup_drive
+    turn = test_drive_session.DriveSessionTests.turn
+
+    def drive_brain(self, *replies):
+        self.setup_drive(drive(step('move', meters=12.), say_before=None))
+        self.brain = ScriptBrain(*replies)
+        self.session.brain = self.brain
+
+    def test_a_refused_move_may_be_replanned_once_and_runs(self):
+        self.drive_brain(drive(step('move', meters=12.), say_before=None),
+                         ToolCall('again', 'drive_base', {'say_before': 'Half a metre, then.', 'steps': [step('move', meters=.5)],
+                                  'purpose': 'what fits', 'look_after': None, 'say_after': None}))
+        delivery = self.turn('Drive twelve metres forward.')
+        self.assertEqual(delivery.completed_text, ['Half a metre, then.'])
+        self.assertAlmostEqual(self.fake.x, .5, places=2)
+        self.assertEqual(len(self.brain.snapshots), 2)
+        self.assertTrue(any(r['event'] == 'drive_replanned' for r in self.state.trace.rows))
+
+    def test_a_second_refusal_is_explained_without_another_plan(self):
+        self.drive_brain(drive(step('move', meters=12.), say_before=None),
+                         ToolCall('again', 'drive_base', {'say_before': None, 'steps': [step('move', meters=11.)],
+                                  'purpose': 'still too far', 'look_after': None, 'say_after': None}),
+                         'That is still farther than I can go.')
+        delivery = self.turn('Drive twelve metres forward.')
+        self.assertEqual(delivery.completed_text, ['That is still farther than I can go.'])
+        self.assertEqual(self.fake.x, 0)
+        self.assertEqual(len(self.brain.snapshots), 3)
+        self.assertFalse(self.brain.snapshots[-1].tools_enabled)
+
+
+class FailedLookTests(MemoryFixture):
+    def test_a_look_that_took_no_picture_is_answered_as_failed(self):
+        from r3x.session import LOOK_FAILED
+        class View:
+            directions = ('current',)
+            def close(self): pass
+            def execute(self, request, cancel, valid):
+                return {'request_id': request.request_id, 'status': 'failed', 'stage': 'capture',
+                        'reason': 'CameraUnavailable'}, ()
+        brain = ScriptBrain(ToolCall('look', 'inspect_view', {'say_first': 'Let me look.', 'direction': 'current',
+                                     'question': 'Is the path clear?', 'next_opportunity': None}),
+                            'I could not look just now.')
+        output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, inspection=View())
+        session = Session('s', brain, output, self.state.trace, self.state); self.addCleanup(session.close)
+        self.enroll('Sam')
+        cap = Capture('cap', 's', bytes(96000), 96, 99, 100, voiced_intervals=((0., 3.),))
+        result = session.process_turn(cap, Transcript('Is anything in front of you?', 0, True), 0, observation(), ())
+        self.assertEqual(result.completed_text, ['Let me look.', 'I could not look just now.'])
+        notes = [m['content'] for m in brain.snapshots[-1].messages if m.get('role') == 'developer']
+        self.assertIn(LOOK_FAILED, notes)

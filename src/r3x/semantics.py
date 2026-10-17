@@ -77,7 +77,7 @@ TOOLS = (
             "reference_id":{"type":["string","null"],"description":"event_id for invitation feedback; feedback id for retract/floor_resolved; null for topic_closed, topic_avoid."},
             "topic":{"type":["string","null"],"description":"Subject only for topic_closed/topic_avoid. MUST be null for retract, floor_resolved, invitation feedback."},
             "source_turn_id":TEXT,"text":NULL_TEXT}),
-    schema("set_initiative", "Only for an explicit request to stop unsolicited conversation (quiet), or an explicit invitation to resume initiating (available). Quiet still permits direct replies. This session-wide boundary lasts for this run and is not cleared by another person's speech or facing the camera. Never infer it from tiredness, grief, short answers or an external conversation. Quiet is only for words that ask you to stop talking or stop starting conversations ('stop interrupting', 'leave me alone for a while', 'no more chatter'). Teasing, sarcasm, criticism of something you did, a rhetorical question ('you have eyes, don't you?'), impatience or a question about what you can see or do are never requests for quiet: answer them or do what they point at. After quiet is set you say one short line so they know, in text, in character: for quiet, that you will not start conversations until they invite you; for silent, what will release you. silent is stronger: they told you not to speak at all until they say so or until something they name happens ('stop talking until I greet you again', 'not a word until I get back'). You say one short line, then nothing: while participation.silent_until_released is true every utterance, even a question, an 'okay' or a remark about you, gets remain_silent, and only words that actually release you (the greeting or invitation they named) get set_initiative(available). Never use available just to reassure them or to answer. Use current source_turn_id.",
+    schema("set_initiative", "Only for an explicit request to stop unsolicited conversation (quiet), or an explicit invitation to resume initiating (available). Quiet still permits direct replies. This session-wide boundary lasts for this run and is not cleared by another person's speech or facing the camera. Never infer it from tiredness, grief, short answers or an external conversation. Quiet is only for words that ask you to stop talking or stop starting conversations ('stop interrupting', 'leave me alone for a while', 'no more chatter'). Teasing, sarcasm, criticism of something you did, a rhetorical question ('you have eyes, don't you?'), impatience or a question about what you can see or do are never requests for quiet: answer them or do what they point at. After quiet is set you say one short line so they know. silent is stronger: they told you not to speak at all until they say so or until something they name happens ('stop talking until I greet you again', 'not a word until I get back'). You say one short line, then nothing: while participation.silent_until_released is true every utterance, even a question, an 'okay' or a remark about you, gets remain_silent, and only words that actually release you (the greeting or invitation they named) get set_initiative(available). Never use available just to reassure them or to answer. Use current source_turn_id.",
            {"mode":{"type":"string","enum":["quiet","silent","available"]},"source_turn_id":TEXT}),
     schema("introduce_person", "People only: a pet or an object being named is never introduce_person (photo memory handles those, and NameBelongsToSavedPet rejects a saved pet's name). Interpret an explicit introduction, including a speaker giving the name of an existing person. Select face_track_id from visual evidence when clear; naming a shy friend keeps the current speaker separate. A face_status other than saved/already_saved means the face has NOT been enrolled; use a targeted clarification or closer look if needed. This is not a rename. subject=self saves the self-reported name immediately and starts a provisional voice association when usable audio is available; this is not independent recognition. Ambiguous older unnamed voices do not prevent a fresh introduction. other never enrolls the current speaker as the mentioned person. Use existing candidate ID when resolved, otherwise null. Never use unrelated next utterance as a name answer.",
            {"name":TEXT,"aliases":{"type":"array","items":TEXT},"subject":{"type":"string","enum":["self","other"]},"person_id":NULL_TEXT,"face_track_id":NULL_TEXT}),
@@ -175,12 +175,13 @@ for _definition in TOOLS:
     if _definition['name'] in LEAD_IN_TOOLS:
         _definition['parameters']['properties'] = {'say_first': dict(LEAD_IN), **_definition['parameters']['properties']}
         _definition['parameters']['required'] = list(_definition['parameters']['properties'])
-# October 16: a save, a correction or a quiet request needed a second model call before Rex said
+# October 16: a save or a correction needed a second model call before Rex said
 # anything (about 1-1.5 s more). These tools carry the spoken reply; it is said only after the
 # executor reports success, otherwise the result goes back to the model as before.
+# set_initiative left the set the same day: given a text field, it was called three times to answer
+# "raise your head" (511ce677), turning quiet mode on while promising a move that never came.
 SPOKEN_RESULT_TOOLS = frozenset({'remember_followup', 'remember_interest', 'record_claim', 'correct_claim',
-                                 'retract_claim', 'settle_question', 'set_initiative', 'name_room',
-                                 'correct_room', 'note_bit'})
+                                 'retract_claim', 'settle_question', 'name_room', 'correct_room', 'note_bit'})
 RESULT_TEXT = {'type': ['string', 'null'], 'description': 'Your whole spoken reply this turn, said only once this '
                'succeeds; answer them naturally. It may acknowledge what you were told but never claim more than '
                'this tool does. null when you need to see the result before replying.'}
@@ -233,6 +234,9 @@ def grounded_tools(context):
                                                                'respond_with_gesture','remain_silent'}]
     elif context.get('trigger')=='unseen_presence':
         definitions = [d for d in definitions if d['name'] in {'drive_base','remain_silent'}]
+    if context.get('drive_refusal_replan'):
+        # October 16: "go look around" ended at one refused turn though the right side was open.
+        definitions = copy.deepcopy([d for d in TOOLS if d['name']=='drive_base'])
     if context.get('inspection_description_allowed'):
         # After a turn-and-look, one follow-up drive plan may use the fresh view.
         definitions = copy.deepcopy([d for d in TOOLS if d['name']=='describe_view' or
