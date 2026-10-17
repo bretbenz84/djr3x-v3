@@ -41,10 +41,14 @@ Repairs (synthetic checks; **not yet run on the robot**):
 - When a spoken stop halts a drive he says "Stopped." (not after "be quiet" or shutdown); a further
   stop cuts that line too.
 
-Ordinary speech during a drive is still answered only after the drive ends. 1272 of 1273
-blocked-I/O checks pass (GUI import: PySide6 not installed), six new in
-`tests/test_stop_while_driving.py`; one older check now expects the waiting list instead of a
-blocked worker.
+- Owner ruling: while he is driving, a warning that he is about to hit something ("you're going
+  to hit", "gonna hit", "about to hit", anywhere in the sentence) stops him like "stop", and he
+  says "Stopped." Standing still, the same words are ordinary conversation.
+
+Other speech during a drive is still answered only after the drive ends (owner: not anything, only
+stops and warnings). 1275 of 1276 blocked-I/O checks pass (GUI import: PySide6 not installed),
+nine new in `tests/test_stop_while_driving.py`; one older check now expects the waiting list
+instead of a blocked worker.
 
 ## Reply speed: where the wait goes, and four repairs — October 16
 

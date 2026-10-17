@@ -102,3 +102,51 @@ class StopConfirmedTests(MemoryFixture):
     def test_be_quiet_halts_without_a_word(self):
         self.stop_mid_drive(quiet=True)
         self.assertFalse(any(r['event'] == 'stop_acknowledged' for r in self.state.trace.rows))
+
+
+class CollisionWarningTests(unittest.TestCase):
+    """Owner ruling, October 16: "you're going/gonna hit" also stops him while he drives."""
+    def test_warning_phrases(self):
+        from r3x.session import is_collision_warning
+        for text in ("You're gonna hit the island!", 'You’re going to hit the wall.', 'Rex, you are about to hit that chair.'):
+            self.assertTrue(is_collision_warning(text), text)
+        for text in ('That song is gonna be a hit.', 'I hit the wall yesterday.', "We're going to hitch a ride."):
+            self.assertFalse(is_collision_warning(text), text)
+
+    def runtime(self, moving):
+        trace = Trace()
+        session = Session('s', Brain(), OutputOwner(SyntheticTTS(), SyntheticSink(), trace), trace)
+        self.addCleanup(session.close)
+        class ASR:
+            def transcribe(self, *args): return Transcript("You're gonna hit the island!", -.01, True)
+        class Drive:
+            def __init__(self): self.moving = threading.Event()
+        drive = Drive()
+        if moving:
+            drive.moving.set()
+        runtime = VoiceRuntime(None, None, ASR(), session, trace, drive=drive)
+        runtime.enqueue(runtime.captures, (Capture('c', 's', bytes(1024), 98, 99, 99.6), 0), 'captures')
+        return runtime, session
+
+    def test_while_driving_a_warning_stops_him(self):
+        runtime, session = self.runtime(moving=True)
+        worker = threading.Thread(target=runtime._asr_loop); worker.start()
+        try:
+            deadline = time.monotonic() + 2
+            while session.revision == 0 and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertEqual(session.revision, 1)
+            self.assertTrue(any(r['event'] == 'collision_warning_stop' for r in runtime.trace.rows))
+            self.assertTrue(runtime.turns.empty())
+        finally:
+            runtime.stop.set(); worker.join(2)
+
+    def test_standing_still_the_same_words_are_conversation(self):
+        runtime, session = self.runtime(moving=False)
+        worker = threading.Thread(target=runtime._asr_loop); worker.start()
+        try:
+            row = runtime.turns.get(timeout=2)
+            self.assertEqual(row[1].text, "You're gonna hit the island!")
+            self.assertEqual(session.revision, 0)
+        finally:
+            runtime.stop.set(); worker.join(2)

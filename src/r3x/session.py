@@ -29,6 +29,10 @@ STOP_WRAPPERS = frozenset({"oh","hey","no","whoa","rex","okay","ok","please","no
 # only pauses his initiative for two minutes. Review October 3: with goals always running,
 # "be quiet" bought two minutes before the next unprompted line.
 QUIET_COMMANDS = frozenset({"shut up","stop talking","be quiet","quiet","hush"})
+# Owner ruling, October 16 (3af18a12, about to hit the kitchen island): while he is driving, a
+# warning that he is going to hit something stops him like "stop". Only while driving: in
+# conversation it is ordinary speech. Syntax only, like the stop words.
+COLLISION_WARNINGS = ("going to hit", "gonna hit", "about to hit")
 STOPPED_LINE = "Stopped."   # Said when a spoken stop halts a drive (not for quiet phrases or shutdown).
 # Shutdown waits at most this long for the conversation lock, then goes ahead without it.
 SHUTDOWN_LOCK_SECONDS = .5
@@ -59,6 +63,12 @@ def is_quiet_command(text: str) -> bool:
         else:
             i += 1
     return True
+
+
+def is_collision_warning(text: str) -> bool:
+    """A warning that he is about to hit something ("You're gonna hit the island!")."""
+    words = " ".join(re.sub(r"[^a-z' ]", " ", text.lower().replace("\u2019", "'")).split())
+    return any(f" {phrase} " in f" {words} " for phrase in COLLISION_WARNINGS)
 
 
 def is_stop_command(text: str) -> bool:

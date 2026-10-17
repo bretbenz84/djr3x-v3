@@ -8,7 +8,7 @@ import time
 
 from .capture import Endpoint
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .session import is_quiet_command, is_stop_command
+from .session import is_collision_warning, is_quiet_command, is_stop_command
 
 # Voiced time within one utterance before it yields an unheard reply. Live September 28:
 # every phantom "Oh."/"Okay." noise capture had <= 0.48 s voiced; real speech >= 0.64 s.
@@ -170,7 +170,9 @@ class VoiceRuntime:
                         break
                     command = transcript.text.strip().lower().rstrip('.!?')
                     shutdown = command in {'shut down','shutdown','rex shut down','rex, shut down','shut down rex'}
-                    if (capture.self_noise_risk and transcript.trusted and not shutdown
+                    warning = (self.drive is not None and self.drive.moving.is_set()
+                               and is_collision_warning(transcript.text))
+                    if (capture.self_noise_risk and transcript.trusted and not shutdown and not warning
                             and not is_stop_command(transcript.text)
                             and (transcript.avg_logprob is None or transcript.avg_logprob < SELF_NOISE_LOGPROB)):
                         # Lower confidence, not a discard: the words stay in the trace and
@@ -186,8 +188,10 @@ class VoiceRuntime:
                         self.stop.set()
                         self.cancel()
                         break
-                    if transcript.trusted and is_stop_command(transcript.text):
+                    if transcript.trusted and (is_stop_command(transcript.text) or warning):
                         # Bypasses a busy conversational generation.
+                        if warning:
+                            self.trace.emit('collision_warning_stop', capture_id=part.capture_id)
                         if is_quiet_command(transcript.text): self.cancel(quiet=True)
                         else: self.cancel()
                         break
