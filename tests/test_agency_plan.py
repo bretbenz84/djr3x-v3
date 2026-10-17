@@ -68,11 +68,11 @@ class PlanTests(memory_tests.MemoryFixture):
         self.tick(self.trace.at+9)
         self.assertEqual(len(self.planner.requests),1)
         self.assertEqual(self.state.agency.record['cursor'],2)
-        # Two unanswered lines: he eases off. The next goal is prepared but not performed yet.
-        self.assertEqual(self.tick(self.trace.at+9).status,'prepared')
-        self.assertEqual(len(self.executor.snapshots),2)
-        self.tick(self.trace.at+30)
+        # Two unanswered lines: no easing off (owner, October 17). The next goal is planned and
+        # its first beat performed at the next lull, and the planner hears he is being ignored.
+        self.assertEqual(self.tick(self.trace.at+9).status,'completed')
         self.assertEqual(len(self.planner.requests),2)
+        self.assertTrue(self.planner.requests[1]['engagement']['ignored'])
         self.assertEqual(len(self.executor.snapshots),3)
         self.assertEqual(self.store.claims(),[])
         self.assertEqual(self.store.people(),[])
@@ -697,33 +697,44 @@ class GoalTests(memory_tests.MemoryFixture):
         self.assertEqual(result.status,'completed')
         self.assertEqual(self.state.agency.record['scope'],'general')
 
-    def test_ignored_rex_talks_less_but_keeps_doing(self):
-        # Owner, October 3: with nobody answering he sat "not doing anything for what feels
-        # like forever". Ignored, a spoken beat needs a longer quiet; a silent move does not,
-        # the performer is told to keep it wordless, and the planner hears how his lines landed.
-        from r3x.agency import SILENT_KINDS
+    def test_ignored_twice_rex_drops_the_goal_and_plans_a_new_one_at_once(self):
+        # Owner, October 17 (replacing October 3's 30/60-second quiet): ignored twice, he moves
+        # on to a fresh goal within the planner's 8-second floor, may open it with one
+        # self-deprecating jab, and never waits a long quiet before talking again.
+        from r3x.agency import IGNORED_LINES
         from r3x.output import Delivery
         self.setup_owner()
         agency=self.state.agency
         steps=[{'kind':'contribute','instruction':'Tease.','evidence_ids':[],'wake':{'when':'quiet','seconds':4}},
                {'kind':'pose','instruction':'Look left, silently.','evidence_ids':[],'wake':{'when':'quiet','seconds':4}},
-               {'kind':'contribute','instruction':'Opine.','evidence_ids':[],'wake':{'when':'quiet','seconds':4}}]
+               {'kind':'contribute','instruction':'Opine.','evidence_ids':[],'wake':{'when':'quiet','seconds':4}},
+               {'kind':'contribute','instruction':'Muse.','evidence_ids':[],'wake':{'when':'quiet','seconds':4}}]
         agency.install({**draft(),'steps':steps},'[]',{},['contribute','pose'],agency.revision,100)
-        agency.present.unanswered=3
-        self.assertEqual(agency.engagement()['unanswered_lines'],3)
         heard=Delivery(status='completed',medium='audio');heard.completed_text=['A line.']
         agency.finish(agency.step(100),heard,None,100)
-        self.assertIn('pose',SILENT_KINDS)
-        self.assertTrue(agency.ready(104,4,4))                  # The move needs only its own wake-up.
-        self.assertEqual(agency.step(104)['unanswered_lines'],4)
+        self.assertEqual(agency.unanswered,1)                   # One unanswered line changes nothing.
+        self.assertTrue(agency.ready(104,4,4))
         moved=Delivery(status='suppressed',medium='none')
         agency.finish(agency.step(104),moved,{'kind':'set_robot_pose','executor':{'status':'pulses_reached','changed_channels':[0]}},104)
-        self.assertEqual(agency.unanswered,4)                   # A silent move is not another unanswered line.
-        self.assertFalse(agency.ready(140,36,4))                # Talking again waits for a long quiet...
-        self.assertEqual(agency.waiting,'ignored_talks_less')
-        self.assertTrue(agency.ready(170,66,4))                 # ...a minute of it, not two or five.
-        agency.present.unanswered=2
-        self.assertTrue(agency.ready(140,36,4))
+        self.assertEqual(agency.unanswered,1)                   # A silent move is not another unanswered line.
+        agency.finish(agency.step(108),heard,None,108)
+        self.assertEqual(agency.unanswered,IGNORED_LINES)
+        self.assertEqual(agency.ending_reason(109),'ignored')   # The goal is over; a new one is due now.
+        self.assertTrue(agency.needs_plan(109))
+        self.assertEqual(agency.goal_history(109)[-1]['ended'],'ignored')
+        engagement=agency.engagement()
+        self.assertTrue(engagement['ignored']); self.assertFalse(engagement['ignored_jab_spent'])
+        # The fresh goal runs at the plain lull, and being ignored again costs no second plan.
+        agency.install({**draft(),'steps':steps},'[]',{},['contribute','pose'],agency.revision,112)
+        self.assertTrue(agency.ready(117,5,4))
+        agency.finish(agency.step(117),heard,None,117)
+        self.assertEqual(agency.unanswered,3)
+        self.assertIsNone(agency.ending_reason(118))
+        self.assertTrue(agency.engagement()['ignored_jab_spent'])
+        self.assertTrue(agency.ready(122,5,4))                  # Talking again needs no long quiet.
+        agency.human_spoke(None,130)
+        self.assertEqual(agency.unanswered,0)
+        self.assertFalse(agency.ignored_replanned)
 
     def test_an_unheard_beat_cut_off_by_a_sound_is_retried_within_seconds(self):
         # Live October 3: a noise cancelled a beat and its 15-second breathing room was then waited.
@@ -744,8 +755,9 @@ class GoalTests(memory_tests.MemoryFixture):
                        'completely silent','pace (slow, easy, normal)','look_at_people','unanswered_lines'):
             self.assertIn(phrase,PLANNER_INSTRUCTIONS)
 
-    def test_unanswered_lines_ease_off_and_any_reply_restores_the_pace(self):
-        # Review October 3: with a face in view he spoke every 15-25 seconds indefinitely.
+    def test_ignored_rex_keeps_a_lively_pace_and_a_reply_resets_the_count(self):
+        # Owner, October 17: no easing ladder. Ignored twice costs one fresh plan (the planner
+        # hears it and may open with a jab); after that he carries on at the ordinary pace.
         self.setup_owner()
         agency=self.state.agency
         gaps=[]
@@ -757,9 +769,12 @@ class GoalTests(memory_tests.MemoryFixture):
                 agency.present.saw_faces([{'track_id':'t','identity':None,'at':self.trace.at}],self.trace.at)
                 self.tick(self.trace.at+5)
             gaps.append(self.trace.at-start)
-        self.assertLess(gaps[0],20)
-        self.assertGreaterEqual(gaps[-1],60)
-        self.assertEqual(gaps,sorted(gaps))
+        self.assertTrue(all(gap<=20 for gap in gaps),gaps)
+        endings=[r['reason'] for r in self.trace.rows if r['event']=='agency_goal_ending']
+        self.assertEqual(endings.count('ignored'),1)
+        asked=[r['engagement'] for r in self.planner.requests]
+        self.assertTrue(any(e['ignored'] and not e['ignored_jab_spent'] for e in asked))   # The jab is offered once...
+        self.assertTrue(asked[-1]['ignored'] and asked[-1]['ignored_jab_spent'])            # ...and then spent.
         agency.human_spoke(None,self.trace.at)
         self.assertEqual(agency.unanswered,0)
         self.assertLessEqual(agency.due_at,self.trace.at)

@@ -32,10 +32,13 @@ STEP_KINDS = ('contribute', 'inspect', 'look', 'gesture', 'pose', 'drive')
 WAKE_KINDS = ('quiet', 'answered', 'unanswered', 'pet_in_view')
 WAKE_MIN_SECONDS, WAKE_MAX_SECONDS = 3, 180
 GIVE_UP_SECONDS = 240.     # An 'answered' or 'pet_in_view' wake that never fires is let go.
-# One floor stays in code: ignored, he talks less (owner, October 3: but never sits doing
-# nothing; silent moves are not held). With 2-3 of his lines unanswered a spoken beat needs
-# 30 s of quiet, with 4 or more 60 s.
-IGNORED_QUIET_SECONDS = ((4, 60.), (2, 30.))
+# Being ignored (owner, October 17, replacing the October 3 easing): once this many of his
+# spoken lines in a row go unanswered, the goal is over and a new one is planned at once (the
+# planner's own 8-second floor is the only wait); the planner may open it with one short
+# self-deprecating jab about being ignored, then something new. It happens once per silence:
+# a second ignored goal just carries on, mostly silent, until somebody speaks. No 30/60-second
+# quiet before he may talk again.
+IGNORED_LINES = 2
 SILENT_KINDS = ('pose', 'look', 'drive')   # Beats that can be done without a word.
 # An unheard beat that yielded to a sound is tried again this soon (the lull still applies).
 RETRY_SECONDS = 4.
@@ -177,9 +180,13 @@ WHAT MAKES IT GOOD
 - Varied. Read recent_goals. Do not repeat a goal kind, subject or premise that just ran or was rejected, do
   not return to a topic Rex's last two lines already covered, and do not stretch one joke across several
   beats: each beat brings something new.
-- Tuned to the room. engagement.unanswered_lines counts Rex's spoken lines since anyone answered. At 2 or more
-  the people are busy: plan mostly silent doing (moves, looks, poses, a wander) with at most one short spoken
-  beat, instead of more questions. At 0 or 1, talk freely.
+- Tuned to the room. engagement.unanswered_lines counts Rex's spoken lines since anyone answered. At 0 or 1,
+  talk freely. engagement.ignored (2 or more) means they let his last lines go by and this goal replaces the
+  one they ignored: unless ignored_jab_spent, the FIRST beat may be one short self-deprecating jab about being
+  ignored, roast-style, in his own voice ("Still there, or did I finally bore a human into stasis?" is the
+  tone, never those words); after it, or instead of it, plan something NEW and mostly silent doing (moves,
+  looks, poses, a wander) with at most one more short spoken beat and no questions. Never a second jab about
+  being ignored in the same silence, and never sulking or asking for a reply.
 
 BEATS (steps)
 - 4 to 6 beats, each one concrete act for one lull, so one plan carries several minutes (each plan is a paid
@@ -312,20 +319,21 @@ class AgencyPlan:
         self.speech_at = float('-inf')  # Latest trusted human speech, for talked-over beats.
         self.goals = deque(maxlen=6)  # Finished goals for variety; never executed again.
         self.waiting = None  # Why the current beat is not running yet, for the trace.
+        self.ignored_replanned = False  # This silence already cost one goal for being ignored.
 
     @property
     def unanswered(self):
         """Rex's own heard lines since a human last spoke (kept by the present)."""
         return self.present.unanswered
 
-    def ignored_quiet(self):
-        """Quiet a spoken beat needs while his own lines go unanswered."""
-        return next((seconds for count, seconds in IGNORED_QUIET_SECONDS if self.unanswered >= count), 0.)
-
     def engagement(self):
         """For the planner: how Rex's recent lines landed."""
-        return {'unanswered_lines': self.unanswered,
-                'meaning': 'Spoken lines since a human last answered. At 2 or more, favor silent doing over talking.'}
+        ignored = self.unanswered >= IGNORED_LINES
+        return {'unanswered_lines': self.unanswered, 'ignored': ignored,
+                'ignored_jab_spent': ignored and self.ignored_replanned and self.ending != 'ignored',
+                'meaning': 'Spoken lines since a human last answered. ignored: they let two or more of his lines '
+                           'go by; the first beat may be ONE short self-deprecating jab about it unless '
+                           'ignored_jab_spent, then something new and mostly silent doing.'}
 
     def _emit(self, event, **fields):
         self.trace.emit(event, revision=self.revision, **fields)
@@ -371,6 +379,7 @@ class AgencyPlan:
         if self.present.unanswered:
             # Someone answered: back to a lively pace (the lull still applies).
             self.due_at = min(self.due_at, now)
+        self.ignored_replanned = False
         self.present.heard(person_id, now)
 
     def subject_present(self, now):
@@ -631,8 +640,6 @@ class AgencyPlan:
             why = 'retry_wait'
         elif quiet_seconds < floor:
             why = 'lull'
-        elif step['kind'] not in SILENT_KINDS and quiet_seconds < self.ignored_quiet():
-            why = 'ignored_talks_less'
         elif verdict == 'ready':
             why = None
         if why != self.waiting:
@@ -746,3 +753,7 @@ class AgencyPlan:
                        unanswered=self.unanswered)
         if record['cursor'] >= len(record['steps']):
             self._emit('agency_goal_beats_used', plan_id=record['id'], goal_kind=record['goal_kind'])
+        elif heard and self.unanswered >= IGNORED_LINES and not self.ignored_replanned:
+            # Owner, October 17: ignored twice, he drops this goal and plans a fresh one now.
+            self.ignored_replanned = True
+            self.replace('ignored')

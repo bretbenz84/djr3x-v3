@@ -64,10 +64,11 @@ look, inspect and drive.
    inside the five-second lull floor. A beat whose moment never comes is let go without a
    model call. Luna performs it with fresh context and the offered tool, adapting it to
    whatever was just said, and after people have spoken may hold it once (`wait_for`).
-5. **Talking less when ignored.** With two or three of his lines unanswered a spoken beat
-   needs 30 s of quiet, with four or more 60 s. Silent beats (pose, look, drive) are not held
-   and are performed silently once two lines have gone unanswered. Any human speech or a new
-   arrival restores the lively pace. (Replaces the October 3 easing ladder.)
+5. **Moving on when ignored** (owner, October 17; this replaced a 30/60-second quiet, which
+   had replaced the October 3 easing ladder). Two of his spoken lines unanswered in a row end
+   the goal (`ignored`) and a fresh one is planned at once; the planner may open it with one
+   short self-deprecating jab about being ignored, then plans something new and mostly silent.
+   One such replan per silence; any human speech or a new arrival resets the count.
 
 **What steers it.** Human turns no longer end the goal. The reply model sees the goal
 (`agency_plan`: objective and next beat) and may move it along when it fits. A goal about

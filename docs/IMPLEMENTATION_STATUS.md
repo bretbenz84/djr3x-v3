@@ -21,6 +21,19 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Ignored means move on — October 17
+
+Owner ruling, replacing the October 3 easing: when two of Rex's spoken lines in a row go
+unanswered, the current goal ends (`ignored`) and a fresh one is planned at once, so he is doing
+something new within the planner's 8-second floor; the planner is told `engagement.ignored` and
+may open the new goal with one short self-deprecating, roast-style jab about being ignored, then
+something new and mostly silent. The 30-second and 60-second quiet a spoken beat used to need
+after two and four unanswered lines is gone. Bounds kept in code: one such replan per silence
+(`ignored_jab_spent` tells the planner the jab is used; a second ignored goal just carries on until
+somebody speaks), the five-second lull floor, and the planner's "mostly silent doing" guidance at
+two or more unanswered lines. Synthetic checks only (`tests/test_agency_plan.py`); the cost of an
+extra planner call per ignored stretch is unmeasured live.
+
 ## Plan review repairs — October 17
 
 A review of the October 14 plan's commits against the five robot runs since October 15

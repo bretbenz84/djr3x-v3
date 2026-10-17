@@ -370,7 +370,8 @@ class Present:
             conversation['quiet'] = quiet_meaning(quiet)
             if self.unanswered:
                 conversation['unanswered_lines'] = (f'{self.unanswered} of his own lines in a row went unanswered: '
-                                                    'people are busy or not in the mood to chat')
+                                                    'people are busy or not in the mood to chat. One light '
+                                                    'self-deprecating jab about it is fair, once; never sulking.')
             earlier = list(self.recent_rex)[:-1] if self.last_rex else list(self.recent_rex)
             if earlier:
                 conversation['his_earlier_lines'] = {

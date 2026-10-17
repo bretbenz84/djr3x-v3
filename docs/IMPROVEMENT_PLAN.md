@@ -96,9 +96,10 @@ planner chooses them; the picture of the present watches them. A beat whose mome
 planned, the performer may also hold it once with the new `wait_for` tool, naming the moment.
 
 Kept fixed in code: people first, quiet and floor rules, the five-second lull floor, the
-8-second minimum between planner calls, and one rule for being ignored: with two or three of
-his lines unanswered a spoken beat needs 30 s of quiet, with four or more 60 s (silent moves are
-never held). Retired: `delay_seconds`, the 0/10/20/40/80/120-second easing ladder
+8-second minimum between planner calls, and one rule for being ignored (October 17, owner:
+ignored twice, the goal ends and a fresh one is planned at once, which may open with one
+self-deprecating jab; this replaced a 30/60-second quiet before he could talk again).
+Retired: `delay_seconds`, the 0/10/20/40/80/120-second easing ladder
 (`EASE_STEP_SECONDS`, `EASE_MAX_SECONDS`, `ease_seconds`) and the 20-second plan lead
 (`PLAN_LEAD_SECONDS`), which only existed to rest during that ladder.
 
