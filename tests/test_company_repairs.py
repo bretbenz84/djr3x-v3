@@ -109,3 +109,69 @@ class NewsAndQuietTests(MemoryFixture):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class October18Repairs(MemoryFixture):
+    """October 18 run (owner, a friend on the couch, Max, Toby and Nova)."""
+
+    def propose(self, steps, recent_motion, now):
+        from tests.test_drive_session import drive_call
+        from r3x.contracts import Cancellation
+        self.state.trace.at = now
+        drive = {'available': True, 'origin': 'self_initiated', 'vision_seek': True, 'last_sought': None,
+                 'recent_motion': recent_motion,
+                 'targets': [{'target_id': 'nearest_person', 'kind': 'nearest_person', 'visible_now': True},
+                             {'target_id': 'object-door', 'kind': 'object', 'label': 'door', 'bearing_deg': 40}]}
+        context = {'source_turn_id': 't', 'state_revision': self.store.revision, 'drive': drive}
+        return self.state.propose_drive(drive_call(*steps), context, Cancellation())
+
+    def test_a_position_he_was_asked_for_is_kept_against_his_own_wandering(self):
+        from tests.test_drive_session import step
+        faced = [{'origin': 'requested', 'status': 'completed', 'finished_at': 100., 'steps_run': ['face:completed']}]
+        with self.assertRaisesRegex(ValueError, 'KeepingRequestedPosition'):
+            self.propose([step('approach', target='object-door')], faced, 130.)
+        self.propose([step('face', target='nearest_person')], faced, 130.)          # Toward a person is fine.
+        self.propose([step('approach', target='object-door')], faced, 100. + 121)   # Two minutes on, free again.
+        own = [{**faced[0], 'origin': 'self_initiated'}]
+        self.propose([step('approach', target='object-door')], own, 130.)           # His own earlier move holds nothing.
+
+    def test_another_name_for_a_known_person_becomes_an_alias(self):
+        self.enroll('Bret')
+        self.begin('To your left is my friend Exudica.')
+        self.call('introduce_person', {'name': 'Exudica', 'aliases': [], 'subject': 'other', 'person_id': None,
+                                       'face_track_id': None})
+        friend = self.store.resolve('Exudica')[0]
+        self.begin("She's also known as Tjoy.")
+        self.call('introduce_person', {'name': 'Exudica', 'aliases': ['Tjoy'], 'subject': 'other',
+                                       'person_id': friend['id'], 'face_track_id': None})
+        self.assertEqual(self.store.person(friend['id'])['aliases'], ['Tjoy'])
+        self.assertEqual(self.store.resolve('Tjoy')[0]['id'], friend['id'])
+
+    def test_a_known_persons_name_is_never_saved_as_a_pet(self):
+        from r3x.contracts import ToolCall
+        self.enroll('Bret')
+        self.begin('To your left is my friend Exudica.')
+        self.call('introduce_person', {'name': 'Exudica', 'aliases': [], 'subject': 'other', 'person_id': None,
+                                       'face_track_id': None})
+        self.state.photo_memory = SimpleNamespace(data={'revision': 0})
+        context = {'state_revision': self.store.revision, 'photo_memory': {'revision': 0, 'objects': []},
+                   'photo_inspection': {'evidence_id': 'e'}}
+        result = self.state.apply_photo(ToolCall('p', 'remember_object', {'evidence_id': 'e', 'entity_id': None,
+            'name': 'Exudica', 'kind': 'pet', 'notes': 'a dark dog', 'source_turn_id': self.state.current[0],
+            'text': 'Got it.'}), context, __import__('r3x.contracts', fromlist=['Cancellation']).Cancellation())
+        self.assertEqual((result['outcome'], result.get('reason')), ('rejected', 'NameBelongsToPerson'))
+
+    def test_concessions_after_a_lead_in_are_counted_and_the_reply_is_reminded(self):
+        from r3x.adapters.hosted import OpenAIBrain
+        from r3x.contracts import Cancellation, Snapshot
+        present = Present()
+        present.rex_said("Let me check what's there now. You're right, you're not holding a dog.", 100)
+        picture = present.describe(101)
+        self.assertIn('concessions', picture['conversation'])
+        brain = OpenAIBrain('fixture')
+        brain.client = Client(Response([{'type': 'response.output_text.delta', 'delta': 'Hi.'}, {'type': 'response.completed'}]))
+        list(brain.reply(Snapshot('s', 't', 0, ({'role': 'user', 'content': 'hi'},), tools_enabled=True,
+                                  context={'source_turn_id': 't', 'right_now': picture}), Cancellation()))
+        last = brain.client.calls[0][1]['json']['input'][-1]
+        self.assertEqual(last['role'], 'developer')
+        self.assertIn('No "You\'re right"', last['content'])

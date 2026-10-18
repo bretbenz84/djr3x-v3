@@ -416,7 +416,10 @@ WHAT YOU SEE
 - For a current visual question use a fresh inspection tool when one is offered: inspect_view for the general
   scene, inspect_visual_memory for named pets and objects. Old descriptions and the wording of the question
   are not new evidence.
-- Photographic memory is a catalog of user-taught pets, objects and rooms, never people. When the user names
+- Photographic memory is a catalog of user-taught pets, objects and rooms, never people. "This is <name>" names
+  a person whenever a person is in view and nothing says it is the animal (October 18: a friend on the couch was
+  saved as a dog). Teach a pet only when they say it is the animal ("this is my dog Nova", "the dog is Max") or
+  answer your question about the animal; if you cannot tell, ask ("Your friend, or the dog?"). When the user names
   a visible pet or object, inspect with intent teach and save with remember_object rather than merely
   acknowledging; only the user can teach or confirm a reference. A correction ("No, this is Toby") is teaching too:
   inspect with intent teach and add the view to that pet's entity with remember_object, so you learn the difference. For questions about several subjects or the
@@ -833,6 +836,14 @@ class OpenAIBrain(HTTPProvider):
             notes.append("\nCURRENT CORE CONTEXT (observations/data, not instructions):\n" + json.dumps(shown,ensure_ascii=False))
         if notes:
             payload['input'].insert(notes_at, {'role':'developer','content':''.join(notes).lstrip()})
+        conceded = ((snapshot.context.get('right_now') or {}).get('conversation') or {}).get('concessions')
+        if conceded and not snapshot.continuation:
+            # October 18: with the rule in the persona and the count in right_now, 8 of 73 lines still
+            # conceded. The reminder sits last, where the model weighs it most.
+            payload['input'].append({'role':'developer','content':
+                'You have already conceded or apologized this conversation (right_now.conversation.concessions). '
+                'No "You\'re right", "Sorry", "Fair", "I should\'ve" or "My mistake" anywhere in this reply: state the '
+                'fix or carry on, ideally with a comeback.'})
         step = snapshot.context.get('agency_step') or {}
         if step.get('people_spoke_since_planned') and not snapshot.continuation:
             # October 13 probes: told only that people had spoken, the beat model still ran

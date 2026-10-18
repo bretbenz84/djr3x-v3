@@ -21,6 +21,43 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## October 18 run: the friend saved as a dog, and other repairs
+
+Session `50ab4eda` (31 minutes after midnight, real hardware): the owner, a friend on the couch
+and three dogs. Replies that started at once had a median of 3.37 s and p90 of 4.17 s (5 more
+waited behind Rex's own speech, median 9.7 s); both spoken stops halted the wheels with
+"Stopped."; news, "turn around", "move forward five feet" and "back up six feet" worked; the
+owner was recognized on 31 of about 100 trusted turns. Not great, repaired (synthetic checks;
+**not yet run on the robot**):
+
+- **The friend was saved as a pet** ("This is ..." with dogs in view) and a dog was saved under
+  a misheard name. A pet may not take a known person's name (`NameBelongsToPerson`), and the
+  persona says "This is <name>" names a person unless they say it is the animal; ask when unsure.
+- **"She also goes by ..." became a reminder about the owner.** An introduction of a known
+  person now adds new names as aliases; remember_followup is never for names.
+- **He told the guest he could not "save your face"**: never talk about faces or voices being
+  saved, scanned or learned.
+- **Asked to face the owner, he turned away 30 s later** on his own doorway beat. For two
+  minutes after a person's requested move, his own moves may only face or approach a person
+  (`KeepingRequestedPosition`).
+- **Still conceding** (8 of 73 lines) and **22 of 73 lines opened "Let me check/compare/get"**.
+  Concessions are now counted in any sentence, a reminder goes last in the request once one was
+  made, and lead-ins are told to vary (often a sound or a reaction, not "Let me" again).
+
+Memory cleanup at the owner's request (backups `local/core.before-oct18-cleanup-*.sqlite3` and
+`local/visual-memory.before-oct18-cleanup-*`): two wrongly taught photo entries forgotten with
+their photos, the misfiled other name moved to the friend's aliases (its claim retracted and
+reminder removed), and the provisional "Dad" forgotten through the store's forget.
+
+Microphone direction with all four beams logged: the beam Rex reads (index 3) is the right one,
+as no other beam carried speech when it read zero; slow reads are gone (2 of 14,248 over 0.2 s).
+Sentences of 1.5 s or more got a direction 12 of 30 times; one-word replies 17 of 93. The
+remaining limit is the 50,000 energy floor and three-sample minimum on short speech; lowering
+them should be checked against the recognized face's bearing first.
+
+1330 of 1331 blocked-I/O checks pass apart from the intermittent dashboard servo timing check
+(GUI import: PySide6 not installed); four new in `tests/test_company_repairs.py`.
+
 ## Three on the couch: repairs from the October 17 night runs
 
 Sessions `2b044e51` and `76184646` (10 and 12 minutes, real hardware): the owner, Jeremy and a

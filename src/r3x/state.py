@@ -32,7 +32,9 @@ INFER_BLOCKING_REASONS = frozenset({'missing_or_wrong_namespace', 'echo_mixed_or
 # for the rest of the conversation, through motion noise and with his face too far to recognize;
 # other voices score differently and are never tied to his. October 15 (2f85db5c): alone with
 # Rex, 15 of his sentences went unattributed during Rex's own motion, scoring .15-.60.
-CARRY_CONFIRMATIONS = 2       # Clear acoustic matches in this conversation before the carry starts.
+# A position a person asked for is kept this long against Rex's own moves (October 18).
+REQUESTED_POSITION_SECONDS = 120.
+CARRY_CONFIRMATIONS = 2      # Clear acoustic matches in this conversation before the carry starts.
 CARRY_GAP_SECONDS = 300.      # Nobody speaking this long ends the conversation (the track expiry).
 # Clean clips of other voices and the television scored .19 or less against Bret's profile in
 # every saved run; his own motion-masked clips scored .25 or more on 14 of 15 lost turns.
@@ -126,6 +128,10 @@ class CoreState:
                 raise ValueError('StalePhotoRevision')
             if call.name=='remember_object' and call.arguments['evidence_id']!=context.get('photo_inspection',{}).get('evidence_id'):
                 raise ValueError('PhotoEvidenceNotOffered')
+            if call.name=='remember_object' and call.arguments.get('kind')=='pet' and self.store.resolve(call.arguments['name']):
+                # October 18: "This is Exodia" (a friend on the couch) was saved as a dog. The
+                # roster decides this, mirroring NameBelongsToSavedPet for introductions.
+                raise ValueError('NameBelongsToPerson')
             if call.name=='remember_object' and call.arguments.get('kind')=='pet':
                 pets=[r for r in context['photo_memory'].get('objects',[]) if r.get('label') in {'dog','cat'}]
                 if len(pets)>1 and not context.get('photo_inspection',{}).get('target',{}).get('target_id'):
@@ -190,6 +196,24 @@ class CoreState:
             raise ValueError('InspectionUnavailable')
         return tuple(poses)
 
+    def _keeping_requested_position(self, drive, steps, offered):
+        """October 18 (50ab4eda): asked to face the owner, Rex lined up after two corrections; 30 s
+        later his own "roll toward the doorway" beat turned him away ("Why did you turn to face
+        away?"). For REQUESTED_POSITION_SECONDS after a person's requested move completes, his own
+        moves may only face or approach a person."""
+        now = self.trace.clock()
+        recent = any(row.get('origin') == 'requested' and row.get('status') == 'completed'
+                     and row.get('finished_at') is not None and 0 <= now - row['finished_at'] <= REQUESTED_POSITION_SECONDS
+                     for row in drive.get('recent_motion') or ())
+        if not recent:
+            return False
+        def toward_person(step):
+            target = step.get('target')
+            kind = (offered.get(target) or {}).get('kind')
+            return step.get('action') in {'face', 'approach', 'find_person'} and (
+                target in {'nearest_person', 'speaker'} or kind in {'face', 'nearest_person'})
+        return not all(toward_person(step) for step in steps)
+
     def propose_drive(self, call, context, cancel):
         """Validate a model-selected base plan against offered targets and limits.
 
@@ -210,6 +234,8 @@ class CoreState:
         limits = LIMITS[origin]
         args = call.arguments
         offered = {t['target_id']: t for t in drive['targets']}
+        if origin == 'self_initiated' and self._keeping_requested_position(drive, args['steps'], offered):
+            raise ValueError('KeepingRequestedPosition')
         if len(args['steps']) > limits['max_steps']:
             raise ValueError('DriveTooManySteps')
         steps, meters, degrees = [], 0., 0.
@@ -1189,6 +1215,17 @@ class CoreState:
                     if reliable_track and voice_usable else Attribution(reason='name_only_introduction'))
             if not person_id:
                 person_id = self.store.add_person(conn,name_text,args["aliases"],turn_id)
+            elif args["aliases"]:
+                # October 18: "She's also known as Tjoy" was filed as a reminder about the owner.
+                # Another name for someone known joins their lookup names (display data only).
+                known = self.store.person(person_id)
+                names = {label(known["name"]), *(label(a) for a in known["aliases"])}
+                fresh = [" ".join(a.split()) for a in args["aliases"]
+                         if isinstance(a, str) and 0 < len(a.strip()) <= 120 and not any(ord(c) < 32 for c in a)
+                         and label(a) not in names]
+                if fresh:
+                    conn.execute("UPDATE people SET aliases=? WHERE id=?",
+                                 (json.dumps([*known["aliases"], *dict.fromkeys(fresh)][:8]), person_id))
             from .face_attribution import target_allowed, learning_samples
             face = next((f for f in self.faces if f["track_id"]==args["face_track_id"]),None)
             # The semantic owner may omit the face ID for an ordinary self-introduction.

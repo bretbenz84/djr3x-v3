@@ -95,18 +95,27 @@ def local_time(moment):
 
 # Owner, October 17: "The 'you're right' is getting old" (nine concessions in two runs).
 CONCESSION_SECONDS = 600.
-CONCESSION_OPENINGS = ("you're right", "you are right", 'fair point', 'my mistake', 'my bad', 'sorry',
-                       "i'm sorry", 'apologies', 'i lost the thread', "i should've", 'i should have', 'good catch')
+CONCESSION_OPENINGS = ("you're right", "you are right", 'fair point', 'fair—', 'fair,', 'fair.', 'my mistake',
+                       'my bad', 'sorry', "i'm sorry", 'apologies', 'i lost the thread', "i should've",
+                       'i should have', 'good catch')
+CONCESSION_PREFIXES = ('yeah', 'yes', 'okay', 'ok', 'oh', 'ah', 'right', 'no', 'and')
 
 
 def conceded(text):
-    """Whether one of Rex's own heard lines opened with a concession. Wording of his own output
-    only, like jokes.overlaps; nothing a person said is read here."""
-    opening = (text or '').strip().lower().replace('’', "'").lstrip('"\'(').lstrip()
-    for word in ('yeah', 'yes', 'okay', 'ok', 'oh', 'ah', 'right', 'no'):
-        if opening.startswith(word + ',') or opening.startswith(word + '.') or opening.startswith(word + ' -'):
-            opening = opening[len(word) + 1:].lstrip(' .,-—')
-    return opening.startswith(CONCESSION_OPENINGS)
+    """Whether a sentence or clause of one of Rex's own heard lines opens with a concession.
+    Wording of his own output only, like jokes.overlaps; nothing a person said is read here.
+    October 18: lead-ins come first ("Let me check what's there now. You're right..."), so every
+    sentence and dash-separated clause counts, not only the start of the line."""
+    import re
+    for part in re.split(r'(?<=[.!?])\s+|—|\s-\s', (text or '').replace('’', "'")):
+        opening = part.strip().lower().lstrip('"\'(').lstrip()
+        if opening.startswith(CONCESSION_OPENINGS) or opening.rstrip(' .,!') in {'fair', 'fair enough', 'true'}:
+            return True
+        for word in CONCESSION_PREFIXES:
+            if opening.startswith(word) and opening[len(word):len(word) + 1] in {',', '.', ' '}:
+                if opening[len(word) + 1:].lstrip(' .,-').startswith(CONCESSION_OPENINGS):
+                    return True
+    return False
 
 
 def across_view(row):
