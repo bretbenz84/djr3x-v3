@@ -21,6 +21,39 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Pets from close crops only; near spellings of a name — October 18
+
+Same run, traced further. Of 24 photo looks and teachings, 21 used the whole camera view: the
+detector found any dog in 39% of frames and flickered on the dog held in the owner's arms, and
+the reply model often chose the whole view. Whole views are sent at 960 px wide, so the white
+chihuahua was about 40 pixels across in dim light and was saved as "light-colored with darker
+ears"; four of six saved pet photos were the whole room, and one saved as Max showed only Toby.
+The friend's name was transcribed Exudica, Exodia, Exotica, Exhilar and "exude a cup".
+Repairs (synthetic checks; **not yet run on the robot**):
+
+- **Every animal seen in the last 10 s gets its own close crop** (`Objects.pet_views`: each
+  sighting keeps its own frame, newest per place, up to three, box widened 25%), offered beside
+  the overview in looks and teachings, each with its own evidence id.
+- **A pet is saved only from a close crop** (`PetPhotoNeedsCloseCrop`; "hold them up toward me"),
+  replacing `PhotoTeachingNeedsSinglePetCrop`; whole-room pet photos are never used in
+  comparisons; when pet crops are present, only pet photos are compared, within the eight-image
+  budget. Objects and rooms may still use the whole view.
+- **Near spellings.** For someone named or introduced in the last 30 minutes, a name scoring .7
+  or more (same first letter) is that person in introductions, third-party mentions and pet
+  naming, and each request carries `name_spellings` (heard word, saved name) so Rex uses the
+  saved name without remarking on spelling. Only when exactly one recent person fits. Known
+  limit: a different person with a near name introduced within half an hour is taken as the
+  first (Michael/Michelle score .80, Daniel/Danielle .86, as close as Exodia .77).
+
+Photo memory cleanup at the owner's request (backup `local/visual-memory.before-pet-crops-*`):
+the four whole-room pet photos removed; the owner confirmed the remaining crop saved as Max is
+Toby, so it moved to Toby (two photos, both confirmed); Max and Nova keep their names with no
+photo until re-taught up close, Nova described as the owner did ("small, completely white
+chihuahua").
+
+1337 of 1338 blocked-I/O checks pass apart from the intermittent dashboard servo timing check
+(GUI import: PySide6 not installed); seven new in `tests/test_pet_crops_and_names.py`.
+
 ## October 18 run: the friend saved as a dog, and other repairs
 
 Session `50ab4eda` (31 minutes after midnight, real hardware): the owner, a friend on the couch

@@ -21,6 +21,16 @@ def names_subject(text, name):
         start=end
     return False
 
+# Pictures offered in one look: the overview plus a crop for each animal or a chosen thing.
+EVIDENCE_KEPT = 5
+
+
+def close_view(reference):
+    """A saved or offered picture shows the subject up close: a detector crop, not the whole view."""
+    target = reference.get('target') or {}
+    return bool(target.get('target_id')) and target.get('label') != 'whole view'
+
+
 class PhotoMemory:
     def __init__(self,root: Path):
         self.root=root
@@ -54,22 +64,25 @@ class PhotoMemory:
 
     def offer(self,image,target,now):
         self.evidence={k:v for k,v in self.evidence.items() if now-v['offered_at']<=45}
-        while len(self.evidence)>=3:self.evidence.pop(next(iter(self.evidence)))
+        while len(self.evidence)>=EVIDENCE_KEPT:self.evidence.pop(next(iter(self.evidence)))
         key='photo-'+uuid4().hex
         self.evidence[key]={'image':image,'target':target,'offered_at':now}
         return key
 
-    def references(self,ids=None):
+    def references(self,ids=None,kinds=None):
         images=[];labels=[]
         automatic = ids is None
         # A small library fits beside two current images within the eight-image budget.
         # Larger libraries require model-selected candidates, never an arbitrary subset.
-        if automatic:ids=list(self.data['entities']) if len(self.data['entities'])<=6 else []
+        if automatic:
+            pool=[k for k,e in self.data['entities'].items() if kinds is None or e['kind'] in kinds]
+            ids=pool if len(pool)<=6 else []
         elif len(ids)>3 or len(set(ids))!=len(ids):raise ValueError('AtMostThreePhotoCandidates')
         for key in ids:
             entity=self.data['entities'].get(key)
             if not entity:raise ValueError('UnknownPhotoEntity')
-            for reference in entity['references'][-1 if automatic else -2:]:
+            usable=[r for r in entity['references'] if entity['kind']!='pet' or close_view(r)]
+            for reference in usable[-1 if automatic else -2:]:
                 data=self._path(reference['file']).read_bytes()
                 if len(data)>1_100_000 or hashlib.sha256(data).hexdigest()!=reference['sha256']:raise ValueError('PhotoReferenceChanged')
                 images.append(SceneImage(reference['sha256'],reference['captured_at'],'data:image/png;base64,'+base64.b64encode(data).decode()))
@@ -103,6 +116,9 @@ class PhotoMemory:
             key=a['entity_id'] or uuid4().hex
             if a['entity_id'] and key not in data['entities']:raise ValueError('UnknownPhotoEntity')
             if key not in data['entities'] and len(data['entities'])>=32:raise ValueError('PhotoGalleryFull')
+            if a['kind']=='pet' and not close_view(evidence):
+                # October 18: Nova's only photo was the whole dim room, a 40-pixel blob in arms.
+                raise ValueError('PetPhotoNeedsCloseCrop')
             image=evidence['image'];raw=base64.b64decode(image.data_url.split(',',1)[1],validate=True)
             if not raw.startswith(b'\x89PNG\r\n\x1a\n') or len(raw)>1_100_000:raise ValueError('InvalidPhotoImage')
             digest=hashlib.sha256(raw).hexdigest()

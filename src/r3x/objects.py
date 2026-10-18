@@ -24,6 +24,18 @@ def crop_image(frame,box=None):
     return SceneImage(frame.frame_id,frame.at,'data:image/png;base64,'+base64.b64encode(data).decode())
 
 
+# Up to this many animals get their own close crop in a look (October 18: three dogs at once).
+PET_VIEWS = 3
+PET_MARGIN = .25   # Each side of a pet box widens by this share, so ears, tail and coat edges show.
+
+
+def pet_box(box,margin=PET_MARGIN):
+    x,y,w,h=box
+    x0,y0=max(0.,x-w*margin),max(0.,y-h*margin)
+    x1,y1=min(1.,x+w*(1+margin)),min(1.,y+h*(1+margin))
+    return [x0,y0,x1-x0,y1-y0]
+
+
 def describe_positions(rows):
     """Camera-image coordinates and relative order, never identity or robot bearing."""
     for row in rows:
@@ -50,6 +62,7 @@ class Objects:
         self.stop=Event();self.lock=RLock();self.worker=None;self.frame=None;self.rows=[];self.failure=None
         self.labels={}   # Recent target id -> label, to re-find a thing whose track restarted.
         self.last_pet=None   # (frame, row) of the latest pet detection, for flickering detections.
+        self.pet_sightings=[]   # [(frame, row)] of every pet detection in the last PET_RECALL_SECONDS.
         self.capability=Capability('objects',detector.capability.provider,'stable object cues and crops',detector.capability.model,
             detector.capability.dependencies,('one shared frame; one inference pass/1.5 seconds; latest work only',))
 
@@ -74,6 +87,9 @@ class Objects:
             for r in rows:self.labels[r['target_id']]=r['label']
             pets=[r for r in rows if r['label'] in PET_LABELS]
             if pets:self.last_pet=(frame,dict(max(pets,key=lambda r:r['box'][2]*r['box'][3])))
+            self.pet_sightings=[(f,r) for f,r in self.pet_sightings if 0<=frame.at-r['at']<=PET_RECALL_SECONDS]
+            self.pet_sightings+=[(frame,dict(r)) for r in pets]
+            del self.pet_sightings[:-24]
             while len(self.labels)>64:self.labels.pop(next(iter(self.labels)))
         if appeared and self.scene:
             with self.scene.lock:self.scene.scene_id='objects:'+uuid4().hex
@@ -93,6 +109,32 @@ class Objects:
         if not self.last_pet:return None
         frame,row=self.last_pet
         return self.last_pet if 0<=self.clock()-row['at']<=PET_RECALL_SECONDS else None
+
+    def pet_views(self,limit=PET_VIEWS):
+        """A close crop of each animal seen in the last few seconds, newest sighting per place.
+
+        October 18: the detector found a dog in only 39% of frames, so most looks and every
+        teaching of a held dog fell back to the whole dim room, where a white chihuahua was about
+        40 pixels across and was saved as "light-colored with darker ears". The sightings of the
+        last PET_RECALL_SECONDS each keep their own frame, so a flicker in the newest frame does not
+        lose them. Crops from different frames are separate pictures, never stitched."""
+        with self.lock:
+            now=self.clock()
+            seen=sorted(((f,r) for f,r in self.pet_sightings if 0<=now-r['at']<=PET_RECALL_SECONDS),
+                        key=lambda fr:fr[1]['at'],reverse=True)
+        views=[]
+        for frame,row in seen:
+            centre=(row['box'][0]+row['box'][2]/2,row['box'][1]+row['box'][3]/2)
+            if any(abs(centre[0]-c[0])<.08 and abs(centre[1]-c[1])<.12 for _,_,c in views):continue
+            views.append((frame,row,centre))
+            if len(views)>=limit:break
+        out=[]
+        for frame,row,centre in sorted(views,key=lambda v:v[2][0]):
+            target={'label':row['label'],'box':pet_box(row['box']),'target_id':row['target_id'],'at':row['at'],
+                    'where':'left of the view' if centre[0]<.38 else 'right of the view' if centre[0]>.62 else 'middle of the view',
+                    'seen_seconds_ago':round(self.clock()-row['at'],1),'crop':'pet'}
+            out.append((crop_image(frame,target['box']),target))
+        return out
 
     def inspect(self,target_id=None):
         with self.lock:

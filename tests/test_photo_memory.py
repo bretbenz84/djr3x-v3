@@ -264,7 +264,7 @@ class PhotoTests(MemoryFixture):
         args={'evidence_id':evidence,'entity_id':None,'name':'Max','kind':'pet','notes':'Dog.',
               'source_turn_id':self.state.current[0],'text':'Saved.'}
         result=self.state.apply_photo(ToolCall('whole-view','remember_object',args),ctx,Cancellation())
-        self.assertEqual(result,{'outcome':'rejected','reason':'PhotoTeachingNeedsSinglePetCrop'})
+        self.assertEqual(result,{'outcome':'rejected','reason':'PetPhotoNeedsCloseCrop'})   # October 18: crops only.
         self.assertFalse(self.album.catalog())
 
     def test_invalid_source_expired_unoffered_and_frozen_writes_rejected(self):

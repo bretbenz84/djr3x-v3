@@ -32,6 +32,10 @@ INFER_BLOCKING_REASONS = frozenset({'missing_or_wrong_namespace', 'echo_mixed_or
 # for the rest of the conversation, through motion noise and with his face too far to recognize;
 # other voices score differently and are never tied to his. October 15 (2f85db5c): alone with
 # Rex, 15 of his sentences went unattributed during Rex's own motion, scoring .15-.60.
+# A near spelling of a name counts as that person only for someone named this recently, and only
+# this close (October 18: Exodia .77 and Exotica .71 against the friend's saved spelling).
+NAME_SPELLING_SECONDS = 1800.
+NAME_SPELLING_RATIO = .7
 # A position a person asked for is kept this long against Rex's own moves (October 18).
 REQUESTED_POSITION_SECONDS = 120.
 CARRY_CONFIRMATIONS = 2      # Clear acoustic matches in this conversation before the carry starts.
@@ -110,6 +114,7 @@ class CoreState:
         self.present = Present()   # Who is here, things around, the conversation clock.
         # Whose voice this conversation has clearly matched: {'person', 'confirmed', 'last_at'}.
         self.voice_conversation = None
+        self.named_people = {}   # person_id -> when their exact name was last said or they were introduced.
         from .agency import AgencyPlan
         self.agency = AgencyPlan(store, trace, self.present)
         self.initiative.agency = self.agency
@@ -126,16 +131,15 @@ class CoreState:
                 raise ValueError('PhotoTeachingNeedsHumanTurn')
             if context['state_revision']!=self.store.revision or context['photo_memory']['revision']!=self.photo_memory.data['revision']:
                 raise ValueError('StalePhotoRevision')
-            if call.name=='remember_object' and call.arguments['evidence_id']!=context.get('photo_inspection',{}).get('evidence_id'):
+            offered_ids={context.get('photo_inspection',{}).get('evidence_id'),
+                         *context.get('photo_inspection',{}).get('evidence_ids',())}
+            if call.name=='remember_object' and call.arguments['evidence_id'] not in offered_ids-{None}:
                 raise ValueError('PhotoEvidenceNotOffered')
-            if call.name=='remember_object' and call.arguments.get('kind')=='pet' and self.store.resolve(call.arguments['name']):
+            if call.name=='remember_object' and call.arguments.get('kind')=='pet' and (
+                    self.store.resolve(call.arguments['name']) or self.near_named(call.arguments['name'])):
                 # October 18: "This is Exodia" (a friend on the couch) was saved as a dog. The
                 # roster decides this, mirroring NameBelongsToSavedPet for introductions.
                 raise ValueError('NameBelongsToPerson')
-            if call.name=='remember_object' and call.arguments.get('kind')=='pet':
-                pets=[r for r in context['photo_memory'].get('objects',[]) if r.get('label') in {'dog','cat'}]
-                if len(pets)>1 and not context.get('photo_inspection',{}).get('target',{}).get('target_id'):
-                    raise ValueError('PhotoTeachingNeedsSinglePetCrop')
             turn,capture,transcript,voice,attribution=self.current
             if not transcript.trusted or capture.echo_risk:raise ValueError('UntrustedPhotoTeaching')
             source={'turn_id':turn,'session_id':capture.session_id,'text':transcript.text,
@@ -195,6 +199,57 @@ class CoreState:
         if call.arguments['look_after'] is not None and not context.get('inspection_enabled'):
             raise ValueError('InspectionUnavailable')
         return tuple(poses)
+
+    def _note_names_said(self, text):
+        """Known people whose exact name or alias was said in this trusted utterance."""
+        said = [w.casefold() for w in name_words(text)]
+        now = self.trace.clock()
+        for person in self.store.people():
+            for name in (person["name"], *person["aliases"]):
+                wanted = [w.casefold() for w in name_words(name)]
+                if wanted and any(said[i:i+len(wanted)] == wanted for i in range(len(said)-len(wanted)+1)):
+                    self.named_people[person["id"]] = now
+                    break
+
+    def near_named(self, reference):
+        """The one known person this conversation already named whose name this is a near spelling of.
+
+        October 18: speech recognition wrote one friend's name as Exudica, Exodia, Exotica and
+        "exude a cup" within minutes. Spelling alone cannot be trusted across conversations
+        (Michael and Michelle score .80, Daniel and Danielle .86), so a near spelling counts only
+        for someone named or introduced in the last NAME_SPELLING_SECONDS, and only when exactly
+        one such person fits. Exact names never come here."""
+        from difflib import SequenceMatcher
+        heard = "".join(w.casefold() for w in name_words(reference or ""))
+        if len(heard) < 4 or heard in NOT_NAMES:
+            return None
+        now = self.trace.clock()
+        fits = []
+        for person_id, at in list(self.named_people.items()):
+            if now - at > NAME_SPELLING_SECONDS:
+                continue
+            person = self.store.person(person_id)
+            if person is None:
+                self.named_people.pop(person_id, None)
+                continue
+            for name in (person["name"], *person["aliases"]):
+                known = "".join(w.casefold() for w in name_words(name))
+                if (known and known != heard and known[0] == heard[0] and len(known) >= 4
+                        and SequenceMatcher(None, known, heard).ratio() >= NAME_SPELLING_RATIO):
+                    fits.append(person)
+                    break
+        return fits[0] if len(fits) == 1 else None
+
+    def name_spellings(self, text):
+        """Words of this utterance that are near spellings of someone named this conversation."""
+        rows = []
+        for word in dict.fromkeys(name_words(text or "")):
+            if len(word) < 5 or self.store.resolve(word):
+                continue
+            person = self.near_named(word)
+            if person:
+                rows.append({"heard": word, "known_as": person["name"], "person_id": person["id"]})
+        return rows
 
     def _keeping_requested_position(self, drive, steps, offered):
         """October 18 (50ab4eda): asked to face the owner, Rex lined up after two corrections; 30 s
@@ -444,6 +499,7 @@ class CoreState:
         self.current = (turn_id,capture,transcript,observation,attribution)
         if transcript.trusted and not capture.echo_risk:
             self.conversation_source = turn_id
+            self._note_names_said(transcript.text)
         self.faces = tuple(f for f in faces if f.get("face_epoch",0)>=self.min_face_epoch)
         faces = self.faces
         # The picture of the present sees this turn's faces before any deduction reads it
@@ -569,6 +625,7 @@ class CoreState:
                            "display_name":speaker_person["name"] if speaker_person else None,
                            "direction":observation.direction},
                 "provisional_person_id":track.person_id if track else None,
+                "name_spellings":self.name_spellings(transcript.text) if transcript.trusted else [],
                 "people":[public_person(p) for p in self.store.people()],
                 "claims":[public_claim(row, self.wall_clock()) for row in self.store.claims(include_candidates=True)],
                 "pending_question":self.pending,"faces":[{**public_face(f),"person_hypothesis":self.face_associations.get(f["track_id"])} for f in self.faces],
@@ -1162,6 +1219,12 @@ class CoreState:
                 raise ValueError("InvalidDisplayLabel")
             matches = self.store.resolve(name_text)
             person_id = args["person_id"]
+            if not person_id and not matches:
+                near = self.near_named(name_text)
+                if near:
+                    # October 18: the transcriber wrote one friend's name five ways in ten minutes.
+                    # Someone named this conversation wins over a saved pet's near name.
+                    person_id = near["id"]
             if (args["subject"] == "other" and not person_id and not matches and not args["face_track_id"]
                     and self.photo_memory is not None and any(
                         e['kind'] == 'pet' and e['name'].casefold() == name_text.casefold()
@@ -1215,7 +1278,8 @@ class CoreState:
                     if reliable_track and voice_usable else Attribution(reason='name_only_introduction'))
             if not person_id:
                 person_id = self.store.add_person(conn,name_text,args["aliases"],turn_id)
-            elif args["aliases"]:
+            self.named_people[person_id] = self.trace.clock()
+            if args["aliases"]:
                 # October 18: "She's also known as Tjoy" was filed as a reminder about the owner.
                 # Another name for someone known joins their lookup names (display data only).
                 known = self.store.person(person_id)
@@ -1397,6 +1461,8 @@ class CoreState:
                 conn.execute("UPDATE people SET aliases=? WHERE id=?",(json.dumps([*person["aliases"],name_text]),person_id))
         elif overlapping:
             raise ValueError("PossiblySameAsAKnownPerson")
+        elif (near := self.near_named(name_text)) is not None:
+            person_id = near["id"]
         else:
             if self.photo_memory is not None and any(e['kind']=='pet' and label(e['name'])==label(name_text)
                                                      for e in self.photo_memory.catalog()):
