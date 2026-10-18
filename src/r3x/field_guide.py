@@ -87,6 +87,8 @@ GUIDE = {
     'agency_plan': ('The goal Rex chose for himself. Answer the human first; let the reply move the goal along '
                     'only when it fits naturally. Never recite it or force it.'),
     'reconsideration': 'Invitation review metadata only; agency plans own periodic advancement.',
+    'claims': ('Saved facts about everyone, with ids for correct_claim and retract_claim. The facts of '
+               'personal_memory\'s person are listed only there (interests_and_facts, same ids).'),
 }
 
 # Every guide text, for stripping from a request by value.
@@ -102,11 +104,28 @@ def render():
     return '\n'.join(lines)
 
 
+# Camera bookkeeping on every face that the model never reads (October 17: two face lists were
+# 4,100 characters a request). Code keeps them; the request leaves them out.
+FACE_DIAGNOSTICS = frozenset({'similarity', 'margin', 'detector_score', 'sharpness', 'brightness',
+                              'embedding_available', 'learning_quality', 'track_first_seen', 'face_epoch'})
+
+
 def slim(value):
-    """A copy of a context with the guide's fixed meanings removed (data stays)."""
+    """A copy of a context with the guide's fixed meanings and face diagnostics removed (data stays)."""
     if isinstance(value, dict):
+        face = 'track_id' in value and 'box' in value
         return {k: slim(v) for k, v in value.items()
-                if not (k in MEANING_KEYS and isinstance(v, str) and v in GUIDE_TEXTS)}
+                if not (k in MEANING_KEYS and isinstance(v, str) and v in GUIDE_TEXTS)
+                and not (face and k in FACE_DIAGNOSTICS)}
     if isinstance(value, list):
         return [slim(v) for v in value]
     return value
+
+
+def without_repeated_facts(context):
+    """Saved facts already shown in personal_memory are not sent twice in claims (same ids)."""
+    memory = context.get('personal_memory') or {}
+    shown = {row.get('id') for row in memory.get('interests_and_facts') or () if row.get('id')}
+    if shown and isinstance(context.get('claims'), list):
+        context = {**context, 'claims': [c for c in context['claims'] if c.get('id') not in shown]}
+    return context

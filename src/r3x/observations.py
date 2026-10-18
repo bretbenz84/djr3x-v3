@@ -240,6 +240,27 @@ class PublicObservations:
             today=date.fromisoformat(local_day(now))
             return tuple(with_timing(c,today) for c in (merged[start:]+merged[:start])[:4])
 
+    def listing(self, topics=(), limit=14):
+        """Everything current, for someone asking what is in the news (October 17: asked, Rex said
+        he could not pull headlines while sixteen sat in this cache). Reads only; nothing is
+        marked offered or delivered. Interest news only for topics of people in view."""
+        from datetime import date
+        from .news import local_day, with_timing
+        with self.lock:
+            now=self.clock();topics=set(topics)
+            rows=[r for group in self.rows.values() for r in group if r.expires_at>now and
+                  (r.kind!='interest_news' or r.topic in topics)]
+            today=date.fromisoformat(local_day(now))
+        order={'interest_news':0,'story':1,'news':2,'weather':3}
+        rows.sort(key=lambda r:(order.get(r.kind,4),-r.published_at))
+        out=[]
+        for cue in rows[:limit]:
+            cue=with_timing(cue,today)
+            out.append({'kind':cue.kind,'source':cue.source,'text':cue.text[:400],
+                        **({'interest':cue.topic} if cue.topic else {}),
+                        'published':datetime.fromtimestamp(cue.published_at).strftime('%A %-I:%M %p')})
+        return out
+
     def valid(self,cue_id):
         with self.lock:
             return any(r.cue_id==cue_id and r.expires_at>self.clock() for group in self.rows.values() for r in group)

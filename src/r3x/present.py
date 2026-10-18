@@ -93,6 +93,22 @@ def local_time(moment):
     return f"{moment.strftime('%A')} {part}, {clock}, {moment.strftime('%B')} {moment.day}"
 
 
+# Owner, October 17: "The 'you're right' is getting old" (nine concessions in two runs).
+CONCESSION_SECONDS = 600.
+CONCESSION_OPENINGS = ("you're right", "you are right", 'fair point', 'my mistake', 'my bad', 'sorry',
+                       "i'm sorry", 'apologies', 'i lost the thread', "i should've", 'i should have', 'good catch')
+
+
+def conceded(text):
+    """Whether one of Rex's own heard lines opened with a concession. Wording of his own output
+    only, like jokes.overlaps; nothing a person said is read here."""
+    opening = (text or '').strip().lower().replace('’', "'").lstrip('"\'(').lstrip()
+    for word in ('yeah', 'yes', 'okay', 'ok', 'oh', 'ah', 'right', 'no'):
+        if opening.startswith(word + ',') or opening.startswith(word + '.') or opening.startswith(word + ' -'):
+            opening = opening[len(word) + 1:].lstrip(' .,-—')
+    return opening.startswith(CONCESSION_OPENINGS)
+
+
 def across_view(row):
     """Where a detected thing sits across Rex's view, from its box; None when unknown."""
     position = row.get('image_position') or {}
@@ -173,6 +189,7 @@ class Present:
         self.engaged = {}        # person_id -> last time Rex spoke with them in view or heard them
         self.last_look = None    # {'where', 'why', 'at'}: the last look Rex chose, and why.
         self.unanswered = 0      # Rex's own heard lines since a human last spoke.
+        self.concessions = deque(maxlen=12)   # When his heard lines opened with a concession.
 
     # People ------------------------------------------------------------------
     def _recognize(self, person, at):
@@ -323,6 +340,8 @@ class Present:
             self.last_rex = {'text': text[:300], 'at': at, 'question': text.endswith('?'),
                              'own_initiative': own_initiative}
             self.recent_rex.append({'text': text[:200], 'at': at})
+            if conceded(text):
+                self.concessions.append(at)
             if answering and at - self.recognized.get(answering, float('-inf')) <= ENGAGED_SECONDS:
                 self.engaged[answering] = max(self.engaged.get(answering, at), at)
 
@@ -369,6 +388,11 @@ class Present:
                 conversation['rex_last_line'] = {'text': line['text'], 'said': ago(now - line['at']),
                     'what_became_of_it': line_meaning(line, answered, now - line['at'])}
             conversation['quiet'] = quiet_meaning(quiet)
+            recent = [at for at in self.concessions if now - at <= CONCESSION_SECONDS]
+            if recent:
+                conversation['concessions'] = (f'{len(recent)} of his lines in the last ten minutes opened with a '
+                                               'concession or apology ("You\'re right...", "Sorry..."). No more: take '
+                                               'the next point with a comeback or simply carry on.')
             if self.unanswered:
                 conversation['unanswered_lines'] = (f'{self.unanswered} of his own lines in a row went unanswered: '
                                                     'people are busy or not in the mood to chat. One light '

@@ -47,6 +47,24 @@ LOOK_FAILED = ('The look failed: no picture was taken. Say plainly that you coul
                'describe, guess or confirm anything about what is there, and do not say a path is clear or blocked.')
 
 
+def company_evidence(context, utterance):
+    """Two or more people around, and whether this utterance has Rex's name in it.
+
+    October 17 (owner and Jeremy, a third person on the couch): "You got in a conversation
+    that didn't involve you." With company, most words are between the people. Whether his
+    name appears is spelling, not meaning: the model still judges who the words are for."""
+    faces = (context.get('current_view') or {}).get('faces', context.get('faces', [])) or []
+    picture = context.get('right_now') or {}
+    people = max(len([f for f in faces if (f.get('face_width_px') or 48) >= 48]),
+                 len(picture.get('people_here') or ()) + bool(picture.get('unrecognized_face_in_view')))
+    if people < 2:
+        return None
+    named = None
+    if utterance is not None:
+        named = any(word in {'rex', "rex's", 'dj', 'r3x'} for word in re.findall(r"[a-z0-9']+", utterance.lower()))
+    return {'people_around': people, **({'rex_named': named} if named is not None else {})}
+
+
 def context_sizes(context, top=12):
     """Characters each part of the request context would take, largest first, for the trace.
     October 17: the reply context was about a third of each call's tokens and nothing said
@@ -897,7 +915,8 @@ class Session:
                 if opportunity and held - set(getattr(owner,'kept_channels',())): context['robot_pose_enabled']=False
             if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:
                 context['drive'] = self.output.drive.context('self_initiated' if opportunity else 'requested',
-                    speaker_direction=None if opportunity else (context.get('speaker') or {}).get('direction'))
+                    speaker_direction=None if opportunity else (context.get('speaker') or {}).get('direction'),
+                    speaker_person=None if opportunity else (context.get('speaker') or {}).get('speaker_id'))
             elif self.state and not self.state.frozen and getattr(self.output,'drive_unavailable',None):
                 from .drive import LIMITS
                 origin = 'self_initiated' if opportunity else 'requested'
@@ -940,6 +959,11 @@ class Session:
                     context.get('current_view', {}).get('faces', context.get('faces', [])))
                 # Kept in the session log so a run can be read back the way Rex saw it.
                 self.trace.emit('right_now', turn_id=turn_id, picture=context['right_now'])
+                company = company_evidence(context, None if opportunity else transcript.text)
+                if company:
+                    context['company'] = company
+                if not opportunity and getattr(self.state, 'observations', None) is not None:
+                    context['news_available'] = True   # news_today reads the fetched headlines.
             if self.state:
                 from . import conversation_memory
                 context["personal_memory"] = conversation_memory.context(
@@ -1158,6 +1182,20 @@ class Session:
                     if close:
                         close()
             calls = generate(snapshot)
+            if (len(calls) == 1 and calls[0].name == 'set_initiative' and calls[0].arguments.get('mode') == 'available'
+                    and not generated.strip() and self.state is not None and not opportunity
+                    and not self.state.initiative.quiet and not self.state.initiative.silent):
+                # October 17: "Can you look over at me?" and "hold out your hero arm" were answered
+                # through this no-op ("I can't turn my head from here"). Nothing would change, so the
+                # turn is asked once more without it.
+                from dataclasses import replace as replace_snapshot
+                self.trace.emit('initiative_noop_retried', turn_id=turn_id)
+                snapshot = replace_snapshot(snapshot, context={**snapshot.context, 'initiative_unchanged_retry': True},
+                    messages=(*snapshot.messages, {'role': 'developer', 'content':
+                        'You are already free to talk and start things; set_initiative would change nothing. Do what '
+                        'they actually asked with the tool for it (look, turn, pose, answer), or say plainly what you '
+                        'cannot do.'}))
+                calls = generate(snapshot)
             repeated = (self._repeats_recent_line(calls[0])
                         if agency_step and len(calls) == 1 and not generated.strip() else None)
             if (not repeated and agency_step and len(calls) == 1 and not generated.strip()
@@ -2199,6 +2237,10 @@ class Session:
             audio_at = delivery.first_audio_at
             self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, medium=delivery.medium, timings={
                 "endpoint": None if opportunity else source_end - speech_end,
+                # October 17: replies of 8-15 s were words that waited while Rex was still talking
+                # or driving (his speech finishes unless stopped), not slow models. Recognition
+                # plus that wait, from the end of the capture to the start of this turn.
+                "before_turn": None if opportunity else began - source_end,
                 "context": model_at - began if model_at is not None else None,
                 "model_first_text": first_token_at - model_at if first_token_at is not None else None,
                 "model_first_output": first_output_at - model_at if first_output_at is not None else None,

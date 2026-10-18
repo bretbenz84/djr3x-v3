@@ -291,7 +291,7 @@ class DriveRuntimeTests(MemoryFixture):
         output = TextOutput(self.state.trace)
         body = {'target_id': 'radar:+150', 'kind': 'radar_body', 'bearing_deg': 150., 'range_m': 2.,
                 'moving': True, 'where': 'behind on the left'}
-        output.drive = SimpleNamespace(context=lambda origin, speaker_direction=None: {
+        output.drive = SimpleNamespace(context=lambda origin, speaker_direction=None, speaker_person=None: {
             'available': True, 'origin': origin, 'targets': [body], 'limits': {}})
         session = Session('session', brain, output, self.state.trace, self.state)
         self.addCleanup(session.close)

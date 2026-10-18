@@ -1266,6 +1266,25 @@ class ComeHereTests(unittest.TestCase):
         self.assertLess(abs(next(t for t in again['targets'] if t['target_id'] == 'speaker')['bearing_deg']), 5)
         self.assertNotIn('speaker', [t['target_id'] for t in drive.context('self_initiated')['targets']])
 
+    def test_with_no_voice_bearing_face_me_turns_to_the_speakers_recognized_face(self):
+        # October 17: the microphone gave no bearing and "turn to face me" was refused twice
+        # while the owner, identified by voice, was recognized in view.
+        clock, fake, drive, world = base_setup(self)
+        drive.start(); self.addCleanup(drive.close)
+        person = (2.5*math.cos(math.radians(30)), 2.5*math.sin(math.radians(30)))
+        world.people.append(('face-1', 'person-1', *person))
+        settle()
+        unheard = {'status': 'unavailable', 'bearing_deg': None, 'ended_at': 1.}
+        self.assertNotIn('speaker', [t['target_id'] for t in drive.context('requested', unheard)['targets']])
+        context = drive.context('requested', unheard, speaker_person='person-1')
+        speaker = next(t for t in context['targets'] if t['target_id'] == 'speaker')
+        self.assertEqual((speaker['kind'], speaker['basis']), ('face', 'speaker_recognized_face'))
+        self.assertNotIn('speaker', [t['target_id'] for t in
+                                     drive.context('requested', unheard, speaker_person='somebody-else')['targets']])
+        receipt = self.run_plan(clock, drive, context, DriveStep('face', target='speaker'))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertAlmostEqual(fake.theta, 30., delta=6.)
+
     def test_the_logged_extra_turn_no_longer_strands_him_facing_away(self):
         person = (2.6, 0.)                                         # Already facing the person.
         clock, fake, drive, world, context = self.start(person, 0.)

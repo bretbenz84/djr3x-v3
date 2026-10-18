@@ -34,6 +34,9 @@ SIDE_CALLS = {'visual_locate': 'gpt-5.4-mini', 'visual_route': 'gpt-5.4-mini',
               'observation_refresh': 'gpt-6-luna'}
 
 
+QUEUED_SECONDS = 2.   # Recognition takes about 1 s; more means the words waited for Rex.
+
+
 def percentile(values, q):
     v = sorted(values)
     return v[max(0, math.ceil(len(v) * q) - 1)] if v else None
@@ -90,6 +93,12 @@ class Totals:
                         'opportunity_to_first_audio'):
                 if timings.get(key) is not None:
                     self.lists[key].append(timings[key])
+            # October 17: words said while Rex was still talking or driving wait for him to
+            # finish. Those waits are reported apart from replies that started at once.
+            wait = timings.get('end_of_speech_to_first_audio')
+            if wait is not None and timings.get('before_turn') is not None:
+                key = 'reply_wait_queued' if timings['before_turn'] > QUEUED_SECONDS else 'reply_wait_prompt'
+                self.lists[key].append(wait)
         self.lists['asr_seconds'] += [r['asr_seconds'] for r in events['transcript'] if r.get('asr_seconds') is not None]
         self.lists['tts_first_pcm_seconds'] += [r['tts_first_pcm_seconds'] for r in events['tts_first_pcm']
                                                 if r.get('tts_first_pcm_seconds') is not None]
@@ -180,6 +189,8 @@ class Totals:
         return {
             'sessions': self.counts['sessions'], 'hours': round(self.hours, 2),
             'reply_wait': {**spread(waits), 'over_4s': sum(w > 4 for w in waits)},
+            'reply_wait_prompt': spread(self.lists['reply_wait_prompt']),
+            'reply_wait_queued_behind_rex': spread(self.lists['reply_wait_queued']),
             'model_first_output': spread(self.lists['model_first_output']),
             'model_first_text': spread(self.lists['model_first_text']),
             'asr_seconds': spread(self.lists['asr_seconds']),

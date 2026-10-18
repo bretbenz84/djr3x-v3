@@ -345,8 +345,10 @@ class App:
                 perception = Perception(asr,encoder,trace,camera,direction)
                 session = Session(session_id, brain, output, trace, state=state)
                 if self.robot and camera:
-                    from .gaze import addressee_neck, face_aim
+                    from .gaze import FaceTurns, addressee_neck
                     from .faces import VISIBLE_FACE_MAX_AGE
+                    import random
+                    turns = FaceTurns(random.Random(), trace.clock)
                     def gaze():
                         now = trace.clock()
                         faces = [f for f in camera.latest(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
@@ -358,7 +360,12 @@ class App:
                     def idle_face():
                         now = trace.clock()
                         faces = [f for f in camera.latest(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
-                        return face_aim(faces, self.robot.owner.neck_degrees())
+                        current = state.current
+                        # The latest identified speaker (voice or the state owner's inference) draws
+                        # the gaze for a few seconds; aiming only, never attribution.
+                        speaker = ((current[4].speaker_id, current[1].ended_at)
+                                   if current and current[4].speaker_id else None)
+                        return turns(faces, self.robot.owner.neck_degrees(), speaker)
                     self.robot.idle.face = idle_face
                     def reflex_faces():
                         now = trace.clock()

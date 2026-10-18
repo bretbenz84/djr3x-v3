@@ -802,7 +802,7 @@ class CoreState:
         revision = self.store.revision
         try:
             validate(call.name,call.arguments)
-            if self.frozen and call.name not in {"recall","recall_conversations","personal_history","ask_question","ask_face_question","settle_question","remain_silent"}:
+            if self.frozen and call.name not in {"recall","recall_conversations","personal_history","news_today","ask_question","ask_face_question","settle_question","remain_silent"}:
                 raise ValueError("FrozenEvaluationDisallowsMutation")
             if call.name == 'respond_with_intent':
                 cancel.check()
@@ -1078,6 +1078,14 @@ class CoreState:
                                    (args['episode_id'],who)).rowcount
             if not deleted: raise ValueError('EpisodeUnavailable')
             return {'episode_id':args['episode_id'],'status':'retracted'},True
+        if name == "news_today":
+            if self.observations is None:
+                raise ValueError("NewsUnavailable")
+            from .news import interest_topics
+            topics = list(interest_topics(self.store, self.faces))
+            items = self.observations.listing(topics)
+            return {'items': items, 'count': len(items),
+                    'meaning': 'What Rex has read today; not live and not complete. A story absent here is one he has not seen.'}, False
         if name == "personal_history":
             from .personal_history import lookup
             return lookup(args["section"]),False

@@ -21,6 +21,56 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Three on the couch: repairs from the October 17 night runs
+
+Sessions `2b044e51` and `76184646` (10 and 12 minutes, real hardware): the owner, Jeremy and a
+third person who did not speak. Nobody was wrongly credited with the owner's voice and Rex
+recalled what the owner had said about Jeremy; but 95 replies were started and thrown away to
+cross-talk, Rex answered talk that was not for him ("You got in a conversation that didn't
+involve you"), Jeremy felt stared at, "turn to face me" was refused twice, simple requests went
+through the quiet-mode tool with false "I can't" answers, he said he could not get news, and
+nine lines opened with a concession. Repairs (synthetic checks; **not yet run on the robot**):
+
+- **Endpoint 0.5 s** (owner; was 0.35 s), in the default, the example and `local/settings.toml`.
+- **Company.** With two or more people around, each request carries `company` (how many, and
+  whether "Rex" is in the words: spelling, not meaning) and the persona's `in_company` rule:
+  answer only words that are for him, otherwise `remain_silent(other_addressee)`.
+- **Gaze shared among people** (owner): with two or more faces the idle head stays with one
+  person 4-9 s, then goes to whoever it looked at least recently, and turns to someone
+  identified as speaking within 6 s; the existing glances away every 7-16 s are unchanged
+  (`gaze.FaceTurns`, replacing "always the largest face").
+- **"Face me" without a voice bearing** uses the identified speaker's own recognized face as the
+  `speaker` drive target.
+- **No more "You're right."** The persona forbids opening with a concession or apology and
+  treats a disputed word as a mishearing; `right_now.conversation.concessions` counts his own
+  recent concessions (his output only).
+- **Wrong tools.** A no-op `set_initiative(available)` is retried once without that tool, so the
+  request gets its real tool; `news_today` reads the already-fetched headlines, stories and
+  weather when asked; `inspect_view` says it cannot look anything up; `recall` points time
+  questions to `recall_conversations`; the hero arm has no hold-out pose and he says so.
+- **A relationship is not a name** ("My dad." saved a person named Dad): introduce_person asks
+  for a name first. Live, this may have been a real introduction of the third person.
+- **Context.** Saved facts in `personal_memory` carry only what the model uses (the block was
+  15,600 characters), the `claims` list no longer repeats them, and camera diagnostics on each
+  face are left out of requests.
+- **Measurement.** `turn_done.timings.before_turn` and the report's `reply_wait_prompt` /
+  `reply_wait_queued_behind_rex`: the 8-15 s replies were words that waited while Rex was still
+  talking or driving, not slow models.
+
+**Microphone direction** (no bearing on 102 of 119 and 85 of 97 utterances): not mainly
+loudness. The array's selected-beam speech energy read zero on 61% of polls its own detector
+marked as speech; a quarter of the rest were under the 50,000 floor; a 1-2 s utterance yields
+about two usable polls and three are needed; slow USB reads (16%) and Rex's own playback
+(13%) removed more. The read-time limit is now 0.2 s (was 0.15) and all four beam energies are
+logged; which register or floor is right needs a short read-only probe with someone speaking
+from known places. **Voice recognition in company** stays strict: 90% of recordings are marked
+"during motion" because idle movement is continuous, which raises the match bar by .05 (owner
+ruling: lower confidence, never discard); four of the owner's lines at .52-.53 missed it.
+Lowering that needs a labelled recording with a second voice.
+
+1326 of 1327 blocked-I/O checks pass (GUI import: PySide6 not installed); new checks in
+`tests/test_company_repairs.py`, `tests/test_face_turns.py` and `tests/test_floor_feedback.py`.
+
 ## Reply context diet and longer plans — October 17
 
 Where the money went in the five runs since October 15 (token records, 52 minutes, about

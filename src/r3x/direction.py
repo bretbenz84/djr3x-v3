@@ -37,6 +37,12 @@ def coordinates(bearing):
     return {'side': side, 'degrees_from_forward': magnitude, 'description': description}
 
 
+# A poll is three USB reads; the sample is stamped at their midpoint, so a slower poll is
+# still placed within half this of the truth. October 17 runs: reads took 0.11 s median and
+# 0.16 s at p90, so a 0.15 s limit threw away about one in six samples during speech.
+READ_SECONDS = .2
+
+
 @dataclass(frozen=True)
 class DirectionSample:
     at: float
@@ -113,7 +119,8 @@ class Direction:
         began = self.clock()
         before_echo = self.echo_risk()
         doa, flag = self.control.read('doa')
-        energy = self.control.read('energy')[3]
+        energies = self.control.read('energy')
+        energy = energies[3]
         radians = self.control.read('azimuth')[3]
         if not all(math.isfinite(v) for v in (doa, energy, radians)) or energy < 0:
             raise ProviderFailure('FlexNonfiniteOrNegativeEvidence')
@@ -122,12 +129,16 @@ class Direction:
             self.last_echo = now
         beam = wrap(math.degrees(radians))
         sample = DirectionSample((began+now)/2, float(doa), beam, energy,
-                                 now-began <= .15 and now-self.last_echo > .4)
+                                 now-began <= READ_SECONDS and now-self.last_echo > .4)
         with self.lock:
             self.samples.append(sample)
         if self.trace:
+            # All four beams' energies are logged (October 17): the selected beam read zero on
+            # 61% of polls the array itself flagged as speech, and only a run with the others
+            # logged can show whether another beam carries it.
             self.trace.emit('direction_sample', sampled_at=sample.at, doa_deg=doa,
                 speech_flag=bool(flag), beam_deg=beam, speech_energy=energy,
+                beam_energies=[round(e) if math.isfinite(e) else None for e in energies],
                 eligible=sample.eligible, read_seconds=now-began)
 
     def run(self):

@@ -16,7 +16,7 @@ import re
 # acknowledgment (October 16: 18 of 36 replies on October 13 were moves, median 4.3 s).
 STREAMED_FIELDS = {'respond_with_intent': 'text', 'respond_with_gesture': 'text', 'inspect_view': 'say_first',
                    'inspect_visual_memory': 'say_first', 'recall_conversations': 'say_first',
-                   'personal_history': 'say_first', 'drive_base': 'say_before', 'set_robot_pose': 'say_before'}
+                   'personal_history': 'say_first', 'news_today': 'say_first', 'drive_base': 'say_before', 'set_robot_pose': 'say_before'}
 STREAMED_TOOLS = frozenset(STREAMED_FIELDS)
 _ESCAPES = {'"': '"', '\\': '\\', '/': '/', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t'}
 

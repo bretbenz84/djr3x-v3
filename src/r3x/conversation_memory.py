@@ -267,6 +267,22 @@ def recall(store, who, session, *, query='', after=None, before=None, period=Non
 EXCHANGE_TEXT = 400
 
 
+# October 17 (second diet): personal_memory was the largest block, 15,600 characters, because each
+# saved fact carried its whole database row (source track, turn, revision, raw times, follow-up
+# columns). The model and the planner use the fact, who said it, its kind, the words it came
+# from and when it was told.
+FACT_FIELDS = ('id', 'subject_id', 'said_by', 'mentions_id', 'predicate', 'value', 'kind',
+               'source_text', 'told', 'planned_time', 'followup')
+FACT_SOURCE_TEXT = 200
+
+
+def public_fact(row):
+    out = {k: row[k] for k in FACT_FIELDS if row.get(k) is not None}
+    if isinstance(out.get('source_text'), str) and len(out['source_text']) > FACT_SOURCE_TEXT:
+        out['source_text'] = out['source_text'][:FACT_SOURCE_TEXT] + '...'
+    return out
+
+
 def public_exchange(row):
     """An earlier exchange as the reply model needs it: the words, when, who spoke."""
     speaker = (row.get('attribution') or {}).get('speaker') or {}
@@ -333,7 +349,7 @@ def context(store, original, session, now):
     result['recent_exchanges'] = [public_exchange(row) for row in recall(store,who,session,limit=4,now=now)['exchanges']]
     result['earlier_greetings'] = greetings(store, who, now)
     # October 16: only the newest 6 of 8 saved facts reached each reply.
-    result['interests_and_facts'] = [told(row, now) for row in store.claims(who)]
+    result['interests_and_facts'] = [public_fact(told(row, now)) for row in store.claims(who)]
     # Ids only: their words are already in the history. The key still marks private memory in use.
     result['current_session_exchanges'] = store.rows('SELECT id FROM conversation_exchanges WHERE person_id=? AND session_id=? ORDER BY created_at DESC LIMIT 3',(who,session))
     result['episodes'] = store.rows('''SELECT e.id,e.summary,e.source_exchange,x.human_text,x.heard_text

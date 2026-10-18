@@ -717,8 +717,9 @@ class DriveBase:
             return []
         return [f for f in self.faces(now) if 0 <= now - f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
 
-    def context(self, origin, speaker_direction=None):
-        """Robot-relative targets and clearance for the conversation model."""
+    def context(self, origin, speaker_direction=None, speaker_person=None):
+        """Robot-relative targets and clearance for the conversation model. speaker_person is
+        who the state owner identified as speaking (acoustic or inferred), for the face fallback."""
         now = self.clock()
         ok, reason = self.availability(now)
         if origin=='self_initiated' and self._pose_held():
@@ -770,6 +771,16 @@ class DriveBase:
                             'where': describe_bearing(bearing),
                             'heard_seconds_ago': round(now - self._voice['at']) if voice is not None else 0,
                             'basis': self._voice.get('basis', 'voice') if voice is not None else 'voice'})
+        elif origin == 'requested' and speaker_person:
+            # October 17: the microphone gave no bearing on most turns, so "turn to face me" was
+            # refused twice while the owner, identified by voice, sat recognized in view. The
+            # speaker's own recognized face stands in; it is re-found by identity as he turns.
+            own = [f for f in faces if f.get('identity') == speaker_person]
+            if len(own) == 1:
+                bearing = image_bearing(own[0]['box'], self._neck())
+                targets.append({'target_id': 'speaker', 'kind': 'face', 'person_id': speaker_person,
+                                'bearing_deg': round(bearing), 'where': describe_bearing(bearing),
+                                'basis': 'speaker_recognized_face'})
         displacement = None
         if telemetry and self.origin:
             odom = telemetry.get('odom') or {}
