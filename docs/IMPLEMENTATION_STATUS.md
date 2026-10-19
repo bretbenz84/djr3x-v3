@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 17, 2026. This is the consolidated
+Updated October 18, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,59 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## October 18 afternoon run: "ignored" fired too soon, and a cake that was not there
+
+Session `6aaf22aa` (4:52–5:09 PM, real hardware, the owner alone; the first run with all of the
+October 17–18 repairs). What worked: 17 replies to the owner, median 3.5 s from the end of his words
+to Rex's first sound, 10 of them under 4 s; every one over 4 s except two was a reply queued behind
+Rex's own drive or line (22 s and 7.8 s), not a slow model. Twelve drive trips: both approaches to
+the owner and "back up three feet" (0.91 m) completed, turns landed within 2–3° of what was asked,
+a self-chosen reverse was refused as designed, and "shut down" acted at once. No lead-in opened
+"Let me"; no "You're right" openers; news read the fetched headlines; Jeremy was recalled as the
+decorator; nobody else was credited with the owner's voice (recognized on 9 of 28 trusted turns,
+all the rest unresolved, never wrong). The pose, lights and idle motion ran without a freeze; no
+playback underruns; peak memory 3.65 GB.
+
+What did not, and the repairs (synthetic checks; **not yet run on the robot**):
+
+- **All four "ignored" goal endings were wrong.** The count rose the moment Rex's second line
+  finished playing and the goal ended right there: "Brett, is tonight anything beyond the
+  laundry?" was ended as ignored as it finished, and the owner answered six seconds later. Twice
+  more the owner's words ("I'm scratching my head", "Back up.") were already captured and waiting
+  behind Rex's own approach when the goal ended. Each cost a planner call and a self-deprecating
+  jab the owner had not earned. Now the decision is taken at the lull check: after the second
+  unanswered line the next beat holds for `IGNORED_ANSWER_SECONDS` (8 s, from the end of his line)
+  while the person may answer; speech captured but not yet understood keeps the check from running
+  (the existing human_work_pending gate) and then resets the count; a plan made while already
+  ignored is the ignored response and is not itself ended as ignored (the probe showed a second
+  planner call otherwise).
+- **A phantom cake.** The object detector read a "cake" in 14 of 671 looks, never more than three in
+  a row (also pizza, a kite, a frisbee, a cat, a toothbrush); it entered the picture of the present
+  as a thing "seen just now", the writer's room pitched "cake sitting in the room" and Rex teased the
+  owner about a cake until he said there was none. Detector scores do not separate it (cake .46
+  median; the real backpack, cup and remote .46–.48), persistence does: real things are seen for
+  minutes. A thing now joins the picture only after `STEADY_SAMPLES` (5) looks in a row, about seven
+  seconds; once known it stays through a dropped look. Pets keep their separate path. The planner's
+  own evidence list and drive targets still come from the two-look snapshot.
+
+Also seen, not repaired here: the first plan was written before the owner's face was recognized
+and its beat still asked a recognized owner his name ("You already know me"); the planner later
+called the recognized owner "the unfamiliar person seated with a phone" while
+`unrecognized_face_in_view` was true with him alone in view; "Back up." waited 11 s behind Rex's own
+beat and was then dropped when the owner spoke again, so he backed up only when asked a second time;
+the second approach ended 0.32 m from the owner; a look's follow-up said Halloween was "months ahead"
+on October 18; a lead-in was spoken twice ("Oh, that one I know. Oh, that one I know."); 53 of 81
+captures were motor noise heard as "Okay." or "Oh." (never answered, but they cut off 13 beats and
+once filled the conversation queue); a bearing came with 6 of 81 utterances; the writer's material
+was never reported as used (one joke recorded: the cake). Reply requests still carried about 45,000
+input tokens each (47% cached), the same as before the October 17 diet; the two October 18 runs
+together cost about $1.86 an hour at 366 model calls an hour (`tools/baseline_report.py --since
+2026-10-18`). The weather fetch failed twice with an HTTP error.
+
+1339 of 1340 blocked-I/O checks pass apart from the GUI import (PySide6 not installed); new checks in
+`tests/test_present.py` (a flicker is not a thing) and `tests/test_agency_plan.py` (an answer in the
+window keeps the goal; queued speech blocks the check).
 
 ## Pets from close crops only; near spellings of a name — October 18
 

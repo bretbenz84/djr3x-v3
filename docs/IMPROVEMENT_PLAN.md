@@ -97,8 +97,10 @@ planned, the performer may also hold it once with the new `wait_for` tool, namin
 
 Kept fixed in code: people first, quiet and floor rules, the five-second lull floor, the
 8-second minimum between planner calls, and one rule for being ignored (October 17, owner:
-ignored twice, the goal ends and a fresh one is planned at once, which may open with one
-self-deprecating jab; this replaced a 30/60-second quiet before he could talk again).
+ignored twice, the goal ends and a fresh one is planned, which may open with one
+self-deprecating jab; this replaced a 30/60-second quiet before he could talk again; since
+October 18 the person gets eight seconds after his second line to answer first, and words still
+waiting to be understood count as an answer).
 Retired: `delay_seconds`, the 0/10/20/40/80/120-second easing ladder
 (`EASE_STEP_SECONDS`, `EASE_MAX_SECONDS`, `ease_seconds`) and the 20-second plan lead
 (`PLAN_LEAD_SECONDS`), which only existed to rest during that ladder.

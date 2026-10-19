@@ -66,9 +66,13 @@ look, inspect and drive.
    whatever was just said, and after people have spoken may hold it once (`wait_for`).
 5. **Moving on when ignored** (owner, October 17; this replaced a 30/60-second quiet, which
    had replaced the October 3 easing ladder). Two of his spoken lines unanswered in a row end
-   the goal (`ignored`) and a fresh one is planned at once; the planner may open it with one
-   short self-deprecating jab about being ignored, then plans something new and mostly silent.
-   One such replan per silence; any human speech or a new arrival resets the count.
+   the goal (`ignored`) and a fresh one is planned; the planner may open it with one short
+   self-deprecating jab about being ignored, then plans something new and mostly silent. One
+   such replan per silence; any human speech or a new arrival resets the count. October 18
+   (6aaf22aa, all four endings premature): the decision waits `IGNORED_ANSWER_SECONDS` (8 s)
+   of quiet after his second line, the next beat holding meanwhile; speech captured but not yet
+   understood blocks the check and then resets the count; a plan made while ignored is the
+   response and is not itself ended as ignored.
 
 **What steers it.** Human turns no longer end the goal. The reply model sees the goal
 (`agency_plan`: objective and next beat) and may move it along when it fits. A goal about

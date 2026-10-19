@@ -701,7 +701,7 @@ class GoalTests(memory_tests.MemoryFixture):
         # Owner, October 17 (replacing October 3's 30/60-second quiet): ignored twice, he moves
         # on to a fresh goal within the planner's 8-second floor, may open it with one
         # self-deprecating jab, and never waits a long quiet before talking again.
-        from r3x.agency import IGNORED_LINES
+        from r3x.agency import IGNORED_LINES, IGNORED_ANSWER_SECONDS
         from r3x.output import Delivery
         self.setup_owner()
         agency=self.state.agency
@@ -719,22 +719,62 @@ class GoalTests(memory_tests.MemoryFixture):
         self.assertEqual(agency.unanswered,1)                   # A silent move is not another unanswered line.
         agency.finish(agency.step(108),heard,None,108)
         self.assertEqual(agency.unanswered,IGNORED_LINES)
-        self.assertEqual(agency.ending_reason(109),'ignored')   # The goal is over; a new one is due now.
-        self.assertTrue(agency.needs_plan(109))
+        # October 18: the second line's own answer gets IGNORED_ANSWER_SECONDS of quiet first; the
+        # next beat holds meanwhile. Only then is the goal over and a new one due.
+        self.assertIsNone(agency.ending_reason(109))
+        self.assertFalse(agency.ready(112,4,4)); self.assertEqual(agency.waiting,'answer_window')
+        self.assertFalse(agency.ready(116,IGNORED_ANSWER_SECONDS,4))
+        self.assertEqual(agency.ending_reason(116),'ignored')   # The goal is over; a new one is due now.
+        self.assertTrue(agency.needs_plan(116))
         self.assertEqual(agency.goal_history(109)[-1]['ended'],'ignored')
         engagement=agency.engagement()
         self.assertTrue(engagement['ignored']); self.assertFalse(engagement['ignored_jab_spent'])
         # The fresh goal runs at the plain lull, and being ignored again costs no second plan.
-        agency.install({**draft(),'steps':steps},'[]',{},['contribute','pose'],agency.revision,112)
-        self.assertTrue(agency.ready(117,5,4))
-        agency.finish(agency.step(117),heard,None,117)
+        agency.install({**draft(),'steps':steps},'[]',{},['contribute','pose'],agency.revision,120)
+        self.assertTrue(agency.ready(125,5,4))
+        agency.finish(agency.step(125),heard,None,125)
         self.assertEqual(agency.unanswered,3)
-        self.assertIsNone(agency.ending_reason(118))
+        self.assertIsNone(agency.ending_reason(126))
         self.assertTrue(agency.engagement()['ignored_jab_spent'])
-        self.assertTrue(agency.ready(122,5,4))                  # Talking again needs no long quiet.
-        agency.human_spoke(None,130)
+        self.assertTrue(agency.ready(130,5,4))                  # Talking again needs no long quiet.
+        agency.human_spoke(None,138)
         self.assertEqual(agency.unanswered,0)
         self.assertFalse(agency.ignored_replanned)
+
+    def test_an_answer_within_the_window_keeps_the_goal_and_so_does_speech_still_queued(self):
+        # October 18 (6aaf22aa): "Brett, is tonight anything beyond the laundry?" ended the goal
+        # as ignored the instant it finished; the owner answered six seconds later. Twice more
+        # the owner's words were captured and waiting behind Rex's own drive when a goal ended.
+        from r3x.agency import IGNORED_ANSWER_SECONDS
+        from r3x.output import Delivery
+        self.setup_owner()
+        agency=self.state.agency
+        steps=[{'kind':'contribute','instruction':f'Line {n}.','evidence_ids':[],'wake':{'when':'quiet','seconds':4}}
+               for n in range(6)]
+        agency.install({**draft(),'steps':steps},'[]',{},['contribute'],agency.revision,100)
+        heard=Delivery(status='completed',medium='audio');heard.completed_text=['A line.']
+        agency.finish(agency.step(100),heard,None,100)
+        agency.finish(agency.step(104),heard,None,104)
+        self.assertEqual(agency.unanswered,2)
+        self.assertFalse(agency.ready(107,3,4))                  # Holding for an answer, not planning.
+        self.assertFalse(agency.needs_plan(107))
+        agency.human_spoke(None,110)                             # They answered within the window.
+        self.assertEqual(agency.unanswered,0)
+        self.assertIsNone(agency.ending_reason(111))
+        self.assertTrue(agency.ready(115,5,4))                   # The same goal carries on.
+        self.assertNotIn('ignored',[r['reason'] for r in self.trace.rows if r['event']=='agency_goal_ending'])
+        # Through the runtime: words captured but not yet understood keep the check from running at all.
+        agency.finish(agency.step(115),heard,None,115)
+        agency.finish(agency.step(119),heard,None,119)
+        self.assertEqual(agency.unanswered,2)
+        self.runtime.captures.put(('pending capture',0))
+        self.session.last_interaction_at=119
+        self.assertEqual(self.tick(119+IGNORED_ANSWER_SECONDS+1),None)
+        self.assertEqual([r['reason'] for r in self.trace.rows if r['event']=='initiative_gate'][-1],'human_work_pending')
+        self.assertIsNone(agency.ending_reason(130))
+        self.runtime.captures.get()
+        agency.human_spoke(None,131)
+        self.assertEqual(agency.unanswered,0)
 
     def test_an_unheard_beat_cut_off_by_a_sound_is_retried_within_seconds(self):
         # Live October 3: a noise cancelled a beat and its 15-second breathing room was then waited.
@@ -771,7 +811,9 @@ class GoalTests(memory_tests.MemoryFixture):
             gaps.append(self.trace.at-start)
         self.assertTrue(all(gap<=20 for gap in gaps),gaps)
         endings=[r['reason'] for r in self.trace.rows if r['event']=='agency_goal_ending']
-        self.assertEqual(endings.count('ignored'),1)
+        # At most one goal is ended for being ignored (October 18: a goal whose beats ran out while
+        # he was ignored ends as beats_used, and the plan that follows is the ignored response).
+        self.assertLessEqual(endings.count('ignored'),1)
         asked=[r['engagement'] for r in self.planner.requests]
         self.assertTrue(any(e['ignored'] and not e['ignored_jab_spent'] for e in asked))   # The jab is offered once...
         self.assertTrue(asked[-1]['ignored'] and asked[-1]['ignored_jab_spent'])            # ...and then spent.

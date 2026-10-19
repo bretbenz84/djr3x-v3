@@ -40,6 +40,14 @@ GIVE_UP_SECONDS = 240.     # An 'answered' or 'pet_in_view' wake that never fire
 # a second ignored goal just carries on, mostly silent, until somebody speaks. No 30/60-second
 # quiet before he may talk again.
 IGNORED_LINES = 2
+# October 18 (6aaf22aa): all four "ignored" endings were wrong. The count rose the moment his
+# second line finished playing and the goal ended right there, before anyone could answer (the
+# owner answered six seconds later); twice the owner's words were already captured and waiting
+# behind Rex's own drive and line. So the decision is taken at the lull check, not at the end of
+# the line: the next beat holds while the person gets this long to answer, measured from the end
+# of Rex's line, and queued speech blocks the check (the runtime's human_work_pending gate) and
+# then resets the count.
+IGNORED_ANSWER_SECONDS = 8.
 SILENT_KINDS = ('pose', 'look', 'drive')   # Beats that can be done without a word.
 # An unheard beat that yielded to a sound is tried again this soon (the lull still applies).
 RETRY_SECONDS = 4.
@@ -550,6 +558,11 @@ class AgencyPlan:
                        'created_at': now, 'beat_since': now}
         self.ending = None
         self.pending_subject = None
+        if self.unanswered >= IGNORED_LINES:
+            # The planner was told he is being ignored, so this goal already answers it (its jab is
+            # the one allowed); it is not ended as ignored in its turn (probe, October 18: a plan
+            # made after the beats ran out was ended at once and planned again).
+            self.ignored_replanned = True
         self.revision += 1
         if origin == 'planner':
             self.failures = 0
@@ -638,6 +651,20 @@ class AgencyPlan:
             self._skip_current('moment_passed', now)
         else:
             self.waiting = None
+            return False
+        if self.unanswered >= IGNORED_LINES and not self.ignored_replanned:
+            # Ignored twice (owner, October 17). The person gets IGNORED_ANSWER_SECONDS of quiet
+            # after his last line before this goal ends; a reply in that window resets the count
+            # (human_spoke) and the goal simply goes on.
+            if quiet_seconds >= IGNORED_ANSWER_SECONDS:
+                self.ignored_replanned = True
+                self.waiting = 'ignored'
+                self.replace('ignored')
+                return False
+            why = 'answer_window'
+            if why != self.waiting:
+                self.waiting = why
+                self._emit('agency_beat_waiting', plan_id=self.record['id'], step=self.record['cursor'], reason=why)
             return False
         step = self.record['steps'][self.record['cursor']]
         if not self.due(now):
@@ -757,7 +784,5 @@ class AgencyPlan:
                        unanswered=self.unanswered)
         if record['cursor'] >= len(record['steps']):
             self._emit('agency_goal_beats_used', plan_id=record['id'], goal_kind=record['goal_kind'])
-        elif heard and self.unanswered >= IGNORED_LINES and not self.ignored_replanned:
-            # Owner, October 17: ignored twice, he drops this goal and plans a fresh one now.
-            self.ignored_replanned = True
-            self.replace('ignored')
+        # Owner, October 17: ignored twice, he drops this goal and plans a fresh one. Decided in
+        # ready(), once the person has had IGNORED_ANSWER_SECONDS to answer this line.

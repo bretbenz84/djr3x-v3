@@ -51,6 +51,12 @@ PET_SETTLE_SECONDS = 2.5    # In view this long before its arrival counts.
 PET_ABSENT_SECONDS = 120.   # Gone this long, a reappearance is a new arrival.
 PET_COOLDOWN_SECONDS = 300. # At most one pet arrival this often.
 THINGS_KEPT = 8             # Recently seen object labels kept for the picture.
+# October 18 (6aaf22aa): the detector read a "cake" in 14 of 671 looks, never more than three in a
+# row; it entered the picture, the writer's room pitched it and Rex teased the owner about a cake
+# that was not there (also pizza, a kite, a frisbee). Real things in the room are seen for minutes
+# on end. A thing joins the picture only once the detector has seen it this many looks running
+# (about seven seconds); pets keep their own, separate path.
+STEADY_SAMPLES = 5
 # October 14 live run (e1f8b2c6): with only his last line in the picture, Rex owned one clock
 # mistake four times in five minutes. His last few heard lines are kept as "already said".
 RECENT_LINES = 6
@@ -326,6 +332,8 @@ class Present:
             for row in rows:
                 if row.get('recently_seen') or not row.get('label') or row['label'] in PET_LABELS:
                     continue
+                if (row.get('samples') or 0) < STEADY_SAMPLES and row['label'] not in self.things:
+                    continue   # A flicker is not a thing in the room yet.
                 self.things[row['label']] = {'at': row.get('at', now), 'position': across_view(row)}
             while len(self.things) > THINGS_KEPT:
                 oldest = min(self.things, key=lambda k: self.things[k]['at'])
