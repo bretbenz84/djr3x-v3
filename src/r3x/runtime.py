@@ -41,6 +41,12 @@ class VoiceRuntime:
         self.endpoint = Endpoint(session.session_id, silence)
         self.perception, self.recorder = perception, recorder
         self.captures = Queue(maxsize=2)
+        # Captures and turns on their way that may be words for Rex: confirmed speech, and a
+        # brief sound that recognition then trusted. October 18 (6aaf22aa): 11 of 13 beats cut
+        # off in flight were cut off by his own motors heard as "Okay." or "Oh.", so an
+        # unconfirmed sound no longer interrupts a beat; its transcript decides.
+        self.words_pending = set()
+        self.words_lock = threading.Lock()
         self.turns = Queue(maxsize=3)
         # Transcripts waiting for room in turns. October 16 (3af18a12): the speech-recognition
         # worker blocked on a full turns queue during a two-minute drive, so every later capture,
@@ -91,6 +97,7 @@ class VoiceRuntime:
             self.session.cancel('shutdown' if self.stop.is_set() else 'explicit_stop',
                                 quiet=quiet and not self.stop.is_set())
             self.asr_cancel.event.set()
+            with self.words_lock: self.words_pending.clear()
         finally:
             if locked: self.control_lock.release()
         self.trace.emit("input_invalidated", captured_before=self.cancel_before)
@@ -115,6 +122,8 @@ class VoiceRuntime:
             return
         try:
             queue.put_nowait(item)
+            if kind=='captures' and not item[0].self_noise_risk:
+                self.words_arriving(item[0].capture_id)
         except Full:
             self.trace.emit("input_overflow", queue=kind, policy="reject_newest")
 
@@ -131,6 +140,16 @@ class VoiceRuntime:
             self.waiting_turns.popleft()
         self._waiting_reported = False
 
+    def words_arriving(self, capture_id):
+        with self.words_lock: self.words_pending.add(capture_id)
+
+    def words_settled(self, capture_id):
+        with self.words_lock: self.words_pending.discard(capture_id)
+
+    def words_on_the_way(self):
+        """Whether queued or half-recognized audio may still be words for Rex."""
+        with self.words_lock: return bool(self.words_pending)
+
     def _asr_loop(self):
         while not self.stop.is_set():
             self.flush_turns()
@@ -143,18 +162,22 @@ class VoiceRuntime:
                 continue
             if revision != self.session.revision or capture.started_at <= self.cancel_before:
                 self.trace.emit("capture_rejected", capture_id=capture.capture_id, reason="cancelled")
+                self.words_settled(capture.capture_id)
                 self.asr_busy.clear()
                 continue
             if capture.echo_risk:
                 self.trace.emit("capture_rejected", capture_id=capture.capture_id, reason="playback_echo_risk")
+                self.words_settled(capture.capture_id)
                 self.asr_busy.clear()
                 continue
             with self.control_lock:
                 if revision != self.session.revision or self.stop.is_set():
+                    self.words_settled(capture.capture_id)
                     self.asr_busy.clear()
                     continue
                 self.asr_cancel = Cancellation()
             began = self.trace.clock()
+            words = False   # A trusted turn under this capture's own id keeps it among the words pending.
             try:
                 perceived_turns = self.perception.analyze_many(capture,self.asr_cancel) if self.perception else (None,)
                 cued = False   # One listening cue per capture, however many turns it splits into.
@@ -205,12 +228,18 @@ class VoiceRuntime:
                                 outcome = 'failed:' + type(exc).__name__
                             if outcome != 'started':
                                 self.trace.emit('listening_cue_skipped', capture_id=part.capture_id, reason=outcome)
+                        if transcript.trusted:
+                            # Words, whether or not the sound was confirmed as speech: a beat
+                            # still being prepared yields to them (turn_queued).
+                            self.words_arriving(part.capture_id)
+                            words = words or part.capture_id == capture.capture_id
                         self.enqueue(self.turns, (part, transcript, revision, perceived), "turns")
             except Cancelled:
                 self.trace.emit("asr_cancelled", capture_id=capture.capture_id)
             except Exception as exc:
                 self.trace.emit("provider_failed", capability="asr", error_type=type(exc).__name__)
             finally:
+                if not words: self.words_settled(capture.capture_id)
                 self.asr_busy.clear()
 
     def _turn_loop(self):
@@ -220,6 +249,7 @@ class VoiceRuntime:
             except Empty:
                 self.proactive_tick()
                 continue
+            self.words_settled(capture.capture_id)
             self.session.process_turn(capture, transcript, revision,
                 observation=perceived.voice if perceived else None, faces=perceived.faces if perceived else (),
                 latest_faces=self.camera.latest if self.camera else None)
@@ -392,12 +422,16 @@ class VoiceRuntime:
             # Motor noise is short; only sustained speech interrupts a move already under way.
             spoke = (self.session._resumed_speech > event.speech_marker if committed else
                      self.session._latest_speech != event.speech_marker)
+            # Queued audio interrupts a beat still being prepared only while it may be words:
+            # confirmed speech, or a brief sound recognition then trusted. His own motors heard
+            # as "Okay." are recognized, found unreliable and never answered; the beat goes on.
+            words = not committed and self.words_on_the_way()
             reason = ('intent_audience_changed' if intent_audience_changed else
                       'shutdown' if self.stop.is_set() else
                       'human_speech' if spoke else
-                      'capture_queued' if not committed and not self.captures.empty() else
-                      'turn_queued' if not committed and not self.turns.empty() else
-                      'recognition_busy' if not committed and self.asr_busy.is_set() else
+                      'capture_queued' if words and not self.captures.empty() else
+                      'turn_queued' if words and not self.turns.empty() else
+                      'recognition_busy' if words and self.asr_busy.is_set() else
                       'audio_timestamp_ahead' if audio_age<0 else
                       'audio_stale' if audio_age>.5 else
                       # Identity, not track IDs: renumbered faces of the same person are the same visit.

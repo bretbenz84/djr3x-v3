@@ -27,7 +27,8 @@ it or reads its data.
     movement on his own until someone invites him to talk again; "stop" pauses that for
     two minutes.
   - Transcripts the recognizer marks unreliable are kept but never answered. These are
-    usually his own motors heard as "Oh.".
+    usually his own motors heard as "Oh.", and since October 18 such a sound no longer cuts
+    off a line he is preparing; only words do.
 - **Who is speaking.** CAM++ voice tracks, natural introductions and enrollment, and
   face recognition (SCRFD-10G + EdgeFace-S). Speaker, visible face, microphone direction
   and addressee stay separate.

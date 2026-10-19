@@ -499,7 +499,7 @@ class InitiativeCoreTests(MemoryFixture):
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
         self.assertFalse(any(r['event']=='proactive_invalidated' for r in trace.rows))
 
-    def cut_off_greeting(self):
+    def cut_off_greeting(self, confirmed=True):
         self.setup_core();self.visible(108)
         runtime,trace=self.runtime,self.trace
         from r3x.proactive import Arrivals
@@ -509,17 +509,47 @@ class InitiativeCoreTests(MemoryFixture):
             def reply(self,snapshot,cancel):
                 self.calls+=1;self.snapshots.append(snapshot)
                 if self.calls==1:
-                    runtime.captures.put('motor noise')   # A sound queued before any audio.
+                    # A sound queued before any audio: confirmed speech, or a brief sound during
+                    # Rex's own motion that recognition has yet to judge.
+                    sound=Capture(uuid4().hex,'session',bytes(32000),107,108,108.5,self_noise_risk=not confirmed)
+                    runtime.enqueue(runtime.captures,(sound,0),'captures')
                 cancel.check()
                 yield 'Hello there.'
         brain=Hello();self.session.brain=brain
         runtime.proactive_tick()
+        if not confirmed: return brain
         self.assertEqual(self.state.initiative.outcomes[-1]['status'],'interrupted')
         self.assertEqual([r['reason'] for r in trace.rows if r['event']=='proactive_invalidated'],['capture_queued'])
-        runtime.captures.get_nowait()   # Recognition threw it away: no trusted turn.
+        sound,_=runtime.captures.get_nowait()   # Recognition threw it away: no trusted turn.
+        runtime.words_settled(sound.capture_id)
         for at in (109,110,111):runtime.arrivals.observe([face(at,track='visitor')],at)
         trace.at=111;runtime.audio_seen_at=111
         return brain
+
+    def test_a_brief_sound_during_his_own_motion_does_not_cut_off_a_greeting(self):
+        # October 18 (6aaf22aa): 11 of 13 beats cut off in flight were cut off by his own motors
+        # heard as "Okay." or "Oh.", which recognition then found unreliable and never answered.
+        brain=self.cut_off_greeting(confirmed=False)
+        self.assertEqual(brain.calls,1)
+        self.assertEqual(self.state.initiative.outcomes[-1]['status'],'completed')
+        self.assertFalse(any(r['event']=='proactive_invalidated' for r in self.trace.rows))
+        self.assertFalse(self.runtime.words_on_the_way())
+        # Had recognition trusted the sound after all, the queued turn would have been words:
+        # a beat still being prepared then yields to it (turn_queued).
+        sound,_=self.runtime.captures.get_nowait()
+        self.runtime.words_arriving(sound.capture_id)
+        self.runtime.turns.put((sound,Transcript('Rex, come here.',-.02,True),0,None))
+        class Later(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1
+                cancel.check()
+                yield 'Hello again.'
+        self.session.brain=Later()
+        self.trace.at=120;self.runtime.audio_seen_at=120
+        self.session.last_interaction_at=100
+        self.runtime.proactive_tick()
+        reasons=[r['reason'] for r in self.trace.rows if r['event'] in ('proactive_invalidated','initiative_gate')]
+        self.assertIn('human_work_pending',reasons)   # The lull itself waits for the words.
 
     def test_greeting_cut_off_by_discarded_noise_is_retried_before_the_cooldown(self):
         brain=self.cut_off_greeting()

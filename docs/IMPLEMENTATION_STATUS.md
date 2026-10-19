@@ -55,6 +55,15 @@ What did not, and the repairs (synthetic checks; **not yet run on the robot**):
   minutes. A thing now joins the picture only after `STEADY_SAMPLES` (5) looks in a row, about seven
   seconds; once known it stays through a dropped look. Pets keep their separate path. The planner's
   own evidence list and drive targets still come from the two-look snapshot.
+- **His own motors cut off his beats** (owner: "that's probably why he sits there doing nothing").
+  53 of 81 captures were brief sounds during his own motion, recognized as "Okay." or "Oh.",
+  found unreliable and never answered; but 11 of the 13 beats cut off while being prepared were
+  cut off by exactly these (`capture_queued`, `recognition_busy`), each then waiting its 4-second
+  retry and a fresh 5-second lull, and a second cut-off skips the beat. Queued audio now
+  interrupts a beat in flight only while it may be words (`words_pending`): a capture confirmed as
+  speech, or a brief sound whose transcript recognition then trusted (it joins as a queued turn).
+  An unconfirmed sound found unreliable lets the beat go on. Audible speech, stop words, "shut
+  down" and the lull gate itself are unchanged.
 
 Also seen, not repaired here: the first plan was written before the owner's face was recognized
 and its beat still asked a recognized owner his name ("You already know me"); the planner later
@@ -63,16 +72,18 @@ called the recognized owner "the unfamiliar person seated with a phone" while
 beat and was then dropped when the owner spoke again, so he backed up only when asked a second time;
 the second approach ended 0.32 m from the owner; a look's follow-up said Halloween was "months ahead"
 on October 18; a lead-in was spoken twice ("Oh, that one I know. Oh, that one I know."); 53 of 81
-captures were motor noise heard as "Okay." or "Oh." (never answered, but they cut off 13 beats and
-once filled the conversation queue); a bearing came with 6 of 81 utterances; the writer's material
+captures were motor noise heard as "Okay." or "Oh." (never answered; the beats they cut off are
+repaired above; once they filled the conversation queue); a bearing came with 6 of 81 utterances; the writer's material
 was never reported as used (one joke recorded: the cake). Reply requests still carried about 45,000
 input tokens each (47% cached), the same as before the October 17 diet; the two October 18 runs
 together cost about $1.86 an hour at 366 model calls an hour (`tools/baseline_report.py --since
 2026-10-18`). The weather fetch failed twice with an HTTP error.
 
-1339 of 1340 blocked-I/O checks pass apart from the GUI import (PySide6 not installed); new checks in
-`tests/test_present.py` (a flicker is not a thing) and `tests/test_agency_plan.py` (an answer in the
-window keeps the goal; queued speech blocks the check).
+1339 of 1341 blocked-I/O checks pass apart from the GUI import (PySide6 not installed) and the
+intermittent dashboard servo timing check (passes alone); new checks in
+`tests/test_present.py` (a flicker is not a thing), `tests/test_agency_plan.py` (an answer in the
+window keeps the goal; queued speech blocks the check) and `tests/test_proactive_core.py` (a brief
+sound during his own motion does not cut off a greeting; a trusted turn still does).
 
 ## Pets from close crops only; near spellings of a name — October 18
 
