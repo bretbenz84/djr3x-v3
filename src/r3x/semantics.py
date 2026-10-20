@@ -174,9 +174,11 @@ LEAD_IN_TOOLS = frozenset({'inspect_view', 'inspect_visual_memory', 'recall_conv
 # October 16: the lead-in was optional and left out on every look (4 of 4) and recall (1 of 1) in the
 # October 14-15 runs, which kept those replies at 6-10 s. It is now always written.
 LEAD_IN = {'type': 'string', 'description': 'A few words said aloud right away while you look or check, '
-           'in your own voice, never the answer itself. Vary it every time: a sound or a reaction is often best '
-           '("Hmm.", "Ooh, hang on.", "One sec.", "Squinting...", "Flight log, flight log..."). Not "Let me" again '
-           'if one of your recent lines began that way (October 18: 22 of 73 lines opened "Let me check/compare/get").'}
+           'in your own voice, never the answer itself and never a label for what you are checking ("Flight log", '
+           '"Memory check"). Vary it every time: a sound or a reaction is often best '
+           '("Hmm.", "Ooh, hang on.", "One sec.", "Squinting..."). Not "Let me" again '
+           'if one of your recent lines began that way (October 18: 22 of 73 lines opened "Let me check/compare/get"; '
+           'October 20: an example, "Flight log", opened every story).'}
 for _definition in TOOLS:
     if _definition['name'] in LEAD_IN_TOOLS:
         _definition['parameters']['properties'] = {'say_first': dict(LEAD_IN), **_definition['parameters']['properties']}

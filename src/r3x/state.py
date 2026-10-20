@@ -86,6 +86,7 @@ class CoreState:
         self.frozen = frozen
         self.require_microphone_hold = require_microphone_hold
         self.voice_grown = {}   # person_id -> clips added to their saved voice this run.
+        self.history_told = {}  # session_id -> personal_history sections looked up this conversation.
         from datetime import date
         self.calendar_today = date.today
         self.memory_cursor = 0
@@ -1178,7 +1179,15 @@ class CoreState:
                     'meaning': 'What Rex has read today; not live and not complete. A story absent here is one he has not seen.'}, False
         if name == "personal_history":
             from .personal_history import lookup
-            return lookup(args["section"]),False
+            told = self.history_told.setdefault(capture.session_id, set())
+            data = lookup(args["section"])
+            if args["section"] in told:
+                # October 20 probes: told once per conversation in the persona, the Endor story was
+                # still looked up and retold in three replies running.
+                data = {**data, 'already_told': 'You looked this section up earlier in this conversation and told it. '
+                        'Do not retell it or a variation of it; say something else entirely.'}
+            told.add(args["section"])
+            return data,False
         if name == "recall":
             if args["subject_id"]:
                 self._person(args["subject_id"])

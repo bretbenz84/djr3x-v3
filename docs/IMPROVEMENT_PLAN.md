@@ -416,3 +416,59 @@ room, and whether the per-reply reminder flattens sincere replies are all unasse
 model, not a person; both arms use the same cheap reply model, so this measures instructions, not
 intelligence. A held bit under pushback and a reframing of their words both still count against him in
 the labels. The planner's beats were not changed; furniture bits can still arrive from a decor goal.
+
+## Fourth pass at humor: the DJ costume and nothing to say (October 20)
+
+The October 19 rewrite's first live run (`8a600211`, ten minutes, 30 of the owner's lines) removed the
+praise but left one register: every short line was answered as a review of his act ("One heckle and
+suddenly you run the booth", "running a one-man review panel with no encore budget"), disco came up five
+times, and he offered to play a track he cannot play. Handed the floor ("So what's up with you?", "I'm
+just here for conversation", "Anyway") he had no subject, then talked about needing one, then asked three
+interview questions in a row ("what do you think people misunderstand most about you?"). "I'm so tired of
+this conversation" and "this conversation's terrible" got concessions ("Fair charge", "I'll quit pushing
+it"), "Too soon" was taken literally, and a low mood got a fix ("let's make one small thing worth
+anticipating"). He had about 2,600 characters of the owner's memory in every reply and used none of it.
+Owner, October 20: "The DJ stuff is really boring and awful ... just make it funny and interesting again."
+
+Changed (synthetic checks and paid text probes; **not yet heard live**):
+
+- **Character** (`CHARACTER` in `hosted.py`): his comic baggage is the piloting career (overshot his first
+  destination, fired, crated as DEFECTIVE, replaced by C-3PO, crashed on Batuu), with an opinion about
+  everything. NO MUSIC: the DJ job is history, never a topic or a metaphor unless they raise music, and he
+  cannot play any. BEING INTERESTING lists his material (what he knows about them, a news item, an
+  arguable opinion or hypothetical, now and then one story from his past) and requires one of them when he
+  is handed the floor; no talking about what the conversation needs, no interview questions. THE
+  CONVERSATION IS NOT YOUR ACT: "okay" and "anyway" are not reviews; no jokes about being heckled, rated or
+  audited. A real complaint changes the subject at once with no apology or concession; a jab at him is
+  still the game. Comedy phrases ("too soon") are played along with; low moods get presence, not fixes. No
+  hour in greetings (also removed from the arrival guidance and the writer's material).
+- **Per-reply reminder** adds: no concession, no interview question, no music or DJ talk, no jokes about the
+  conversation; handed the floor or told it is boring, bring one specific new thing.
+- **Writer's room and planner**: no DJ material or jokes about the conversation; the planner's entertain
+  goal draws on his piloting past, real opinions and challenges instead of DJ opinions, and no longer
+  writes mock-official rulings, verdicts, bans or weather bits; no interview beats.
+- **personal_history** marks a section already looked up this conversation (`already_told`: do not retell
+  it), and the lead-in no longer offers "Flight log" as an example: the first probe of this pass retold the
+  same Endor story three replies running, each opened "Flight log."
+- **Probe**: scenario `just_talk` from this run; the judge also labels music, meta (jokes about his own
+  act), interview and substance (a subject of his own).
+
+Evidence (`--before HEAD`, writer in both arms; the per-reply reminder is shared by both arms):
+
+| Probe | Lines per arm | Teases | Funny (light) | Retreat | Interview | Substance | Music |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `humor-a6627b81`, 7 scenarios, committed / rewrite | 40 | 23 / 23 | 2.11 / 2.69 | 2 / 4 | 3 / 0 | 6 / 11 | 2 / 2 |
+| `humor-2bed44b3`, just_talk and chat_with_me, after the history guard | 11 | 2 / 7 | 1.64 / 2.82 | 2 / 0 | 1 / 0 | 4 / 5 | 0 / 0 |
+
+Music in the first row is the karaoke scenario, where the guest raised it. The first run's retreats were
+the repeated Endor story ("The pilot stories are retired"), which the history guard addressed; an
+intermediate four-scenario run (`humor-cdcc0367`) confirmed clean greetings and still
+showed the repeat. Final just_talk lines: "I've been thinking humans treat a tiny houseplant like a
+long-term roommate, then forget to water it. Absolute landlord behavior."; "Then settle this for me: is
+cereal soup, or are humans just afraid to admit breakfast is a bowl of wet crumbs?"; told it was tiring, a
+new subject with no concession. About $2.50 across the three probes, estimated from request counts. 1,353
+blocked-I/O checks pass.
+
+Not done: no live run. The probe's Sam has no saved facts, so using the owner's memory when handed the
+floor is untested. The new risk is generic "humans are weird" observations becoming the next tic; listen
+for that, and for whether he brings up the owner's own interests and the news. Restating is unchanged.

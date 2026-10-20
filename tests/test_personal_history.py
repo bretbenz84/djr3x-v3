@@ -61,3 +61,15 @@ class PersonalHistoryTests(MemoryFixture):
                        'Star Wars land', 'January 9, 1987', 'Paul Reubens'):
             self.assertIn(detail, history)
         self.assertNotIn('Bret', history)
+
+    def test_a_section_already_told_this_conversation_comes_back_marked(self):
+        # October 20 probes: the Endor story was looked up and retold in three replies running.
+        self.begin('What was flying like?')
+        first = self.call('personal_history', {'say_first': 'Hmm.', 'section': 'the_flight'})
+        self.begin('So what else is up with you?')
+        again = self.call('personal_history', {'say_first': 'Hmm.', 'section': 'the_flight'})
+        other = self.call('personal_history', {'say_first': 'Hmm.', 'section': 'retirement'})
+        self.assertNotIn('already_told', first.data)
+        self.assertIn('Do not retell it', again.data['already_told'])
+        self.assertEqual(again.data['memory'], first.data['memory'])
+        self.assertNotIn('already_told', other.data)

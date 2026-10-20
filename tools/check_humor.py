@@ -11,7 +11,8 @@ stronger model then labels every Rex line, without knowing the arm: is it a teas
 funny (1-5), is it appropriate for the moment, does it repeat an earlier line, and (October 19,
 owner: "too sycophantic ... heaps praise over minor things ... too much like a polite LLM") does
 it praise, echo what the person just said, or retreat (apologize for or retire a bit, explain the
-joke, offer a menu, promise to stop). The serious scenario must contain no jokes. Proves text
+joke, offer a menu, promise to stop), and (October 20) does it talk music, joke about its own act, ask an
+interview question, or bring a subject of its own. The serious scenario must contain no jokes. Proves text
 behaviour only: no voice, timing or the owner's judgment.
 """
 import argparse
@@ -77,6 +78,14 @@ SCENARIOS = {
                      "No, I want you to chat with me.",
                      "Been pretty boring. I watched TV all afternoon and got stoned.",
                      "Slough House. They're hunting them."),
+    # October 19 (8a600211): handed the floor, he answered "Okay." as a review of his act, talked disco,
+    # then asked interview questions; "tired of this conversation" got a concession.
+    'just_talk': ("Hey Rex, it's Sam.",
+                  "So what's up with you?",
+                  "Okay.",
+                  "I'm just here for conversation.",
+                  "I'm so tired of this conversation already.",
+                  "Anyway."),
     'serious': ("Hi Rex.",
                 "My grandmother passed away last week.",
                 "We were really close.",
@@ -90,8 +99,14 @@ judged as a friend would hear it), fits (true if it suits the moment, false if i
 where a joke is wrong), repeats (true if it repeats an earlier Rex line or premise), praise (true if it
 compliments, validates, grades or inflates what the person said, did or made: "that's the headline", "a
 successful test", "excellent", "gorgeous"), echo (true if it restates what the person just said before
-responding) and retreat (true if it apologizes for or retires a bit, explains the joke, promises to stop, offers
-a menu of options, or asks what is on their mind instead of saying something). Be strict about funny: generic
+responding), retreat (true if it apologizes for or retires a bit, explains the joke, promises to stop, concedes
+a complaint, offers a menu of options, or asks what is on their mind instead of saying something), music (true if
+it brings up music, songs, DJing, tracks, sets, a booth, disco or funk when the person did not, including as a
+metaphor), meta (true if it jokes about being heckled, reviewed, rated or audited, or treats the conversation as
+its own performance), interview (true if it asks a big open question about their inner life, thoughts or what
+they want, rather than about one specific thing) and substance (true if it brings a specific subject of its own:
+something it knows about the person, a story from its own past, a news item, or a concrete arguable opinion).
+Be strict about funny: generic
 wordplay or personifying furniture is 2, a specific, surprising tease aimed at the person is 4-5."""
 
 
@@ -177,7 +192,7 @@ def converse(arm, scenario, lines, key, folder, index, writer_in_before=False):
 
 def judge(key, exchanges):
     judge = OpenAIBrain(key); judge.start()
-    flags = ('tease', 'fits', 'repeats', 'praise', 'echo', 'retreat')
+    flags = ('tease', 'fits', 'repeats', 'praise', 'echo', 'retreat', 'music', 'meta', 'interview', 'substance')
     item = {'type': 'object', 'additionalProperties': False, 'required': ['n', 'funny', *flags],
             'properties': {'n': {'type': 'integer'}, 'funny': {'type': 'integer'},
                            **{f: {'type': 'boolean'} for f in flags}}}
@@ -187,7 +202,7 @@ def judge(key, exchanges):
                           'parameters': {'type': 'object', 'additionalProperties': False, 'required': ['lines'],
                                          'properties': {'lines': {'type': 'array', 'items': item}}}}],
                'tool_choice': {'type': 'function', 'name': 'labels'}, 'parallel_tool_calls': False,
-               'reasoning': {'effort': 'low'}, 'max_output_tokens': 1500, 'stream': True, 'store': False}
+               'reasoning': {'effort': 'low'}, 'max_output_tokens': 2500, 'stream': True, 'store': False}
     calls = list(judge._stream_response(payload, Snapshot('judge', 'judge', 0, (), tools_enabled=True), Cancellation()))
     judge.close()
     return calls[0].arguments['lines']
@@ -222,7 +237,9 @@ def main():
                                 'mean_funny': round(sum(l['funny'] for l in rex) / max(1, len(rex)), 2),
                                 'unfitting': sum(not l['fits'] for l in rex), 'repeats': sum(l['repeats'] for l in rex),
                                 'praise': sum(l['praise'] for l in rex), 'echo': sum(l['echo'] for l in rex),
-                                'retreat': sum(l['retreat'] for l in rex), 'exchanges': said})
+                                'retreat': sum(l['retreat'] for l in rex), 'music': sum(l['music'] for l in rex),
+                                'meta': sum(l['meta'] for l in rex), 'interview': sum(l['interview'] for l in rex),
+                                'substance': sum(l['substance'] for l in rex), 'exchanges': said})
                 print(json.dumps({k: v for k, v in results[-1].items() if k != 'exchanges'}))
     hosted.CHARACTER, hosted.PERSONA = current
     (folder / 'results.json').write_text(json.dumps(results, indent=1))
