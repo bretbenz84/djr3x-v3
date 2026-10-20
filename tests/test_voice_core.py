@@ -21,7 +21,9 @@ class Trace:
         self.rows = []
         self.at = 100.
     def clock(self): return self.at
-    def emit(self, event, **data): self.rows.append({"event": event, **data})
+    def emit(self, event, **data):
+        json.dumps(data, ensure_ascii=False, allow_nan=False)   # What the real trace accepts.
+        self.rows.append({"event": event, **data})
 
 
 class Brain:

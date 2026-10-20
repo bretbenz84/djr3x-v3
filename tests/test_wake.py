@@ -106,3 +106,17 @@ class WakeTests(memory_tests.MemoryFixture):
         step = self.executor.snapshots[-1].context['agency_step']
         self.assertTrue(step['deferred'])
         self.assertNotIn('wait_for', {d['name'] for d in grounded_tools(self.executor.snapshots[-1].context)})
+
+    def test_a_rescue_line_answered_before_any_beat_ran_is_let_go_and_traced(self):
+        # October 19: an arrival reset the goal timer, the plan's first beat was a rescue line,
+        # the person answered, and skipping it wrote -inf to the trace and stopped the worker.
+        self.setup_owner([beat('Rule on the late hour.', 'unanswered', 18),
+                          beat('Opine about midnight projects.', 'quiet', 5)])
+        self.state.agency.replace('person_arrived', {'person_id': None, 'track_id': None})
+        self.tick(100)
+        self.reply_from_someone(105)
+        self.tick(130)
+        finished = [r for r in self.trace.rows if r['event'] == 'agency_step_finished']
+        self.assertEqual(finished[0]['revision_reason'], 'moment_passed')
+        self.assertNotIn('Rule on the late hour.', self.instructions())
+        self.assertIn('Opine about midnight projects.', self.instructions())

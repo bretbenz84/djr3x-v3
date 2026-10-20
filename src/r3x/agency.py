@@ -11,6 +11,7 @@ from .field_guide import GUIDE
 from collections import deque
 from copy import deepcopy
 import json
+import math
 from uuid import uuid4
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS agency_plan(
@@ -350,6 +351,11 @@ class AgencyPlan:
 
     def _emit(self, event, **fields):
         self.trace.emit(event, revision=self.revision, **fields)
+
+    def _due_for_trace(self):
+        # October 19: an arrival leaves due_at at -inf until a beat runs; the trace is strict
+        # JSON, and a beat skipped before then stopped the conversation worker.
+        return self.due_at if math.isfinite(self.due_at) else None
 
     def load(self):
         if self.loaded: return
@@ -716,7 +722,7 @@ class AgencyPlan:
         rows = [row, *self._drop_orphans()]
         self.save()
         for item in rows:
-            self._emit('agency_step_finished', plan_id=record['id'], **item, due_at=self.due_at,
+            self._emit('agency_step_finished', plan_id=record['id'], **item, due_at=self._due_for_trace(),
                        unanswered=self.unanswered)
         if record['cursor'] >= len(record['steps']):
             self._emit('agency_goal_beats_used', plan_id=record['id'], goal_kind=record['goal_kind'])
@@ -777,10 +783,10 @@ class AgencyPlan:
         # waited before the retry. Otherwise the next beat's own wake-up decides when it runs.
         self.due_at = now + RETRY_SECONDS if status == 'interrupted' else now
         self.save()
-        self._emit('agency_step_finished', plan_id=record['id'], **row, due_at=self.due_at,
+        self._emit('agency_step_finished', plan_id=record['id'], **row, due_at=self._due_for_trace(),
                    unanswered=self.unanswered)
         for orphan in orphans:
-            self._emit('agency_step_finished', plan_id=record['id'], **orphan, due_at=self.due_at,
+            self._emit('agency_step_finished', plan_id=record['id'], **orphan, due_at=self._due_for_trace(),
                        unanswered=self.unanswered)
         if record['cursor'] >= len(record['steps']):
             self._emit('agency_goal_beats_used', plan_id=record['id'], goal_kind=record['goal_kind'])
