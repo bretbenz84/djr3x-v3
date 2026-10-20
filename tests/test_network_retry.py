@@ -26,7 +26,10 @@ class NetworkRetryTests(unittest.TestCase):
         snapshot=Snapshot('s','t',0,({'role':'user','content':'Please remember what I said.'},))
         self.assertEqual(list(brain.reply(snapshot,Cancellation())),['I heard you.'])
         self.assertEqual(self.delays,[2,4])
-        self.assertEqual([c[1]['json']['input'] for c in client.calls],[list(snapshot.messages)]*3)
+        inputs=[c[1]['json']['input'] for c in client.calls]
+        self.assertEqual(inputs,[inputs[0]]*3)                       # The same request each retry.
+        self.assertEqual(inputs[0][:len(snapshot.messages)],list(snapshot.messages))
+        self.assertEqual(inputs[0][-1]['role'],'developer')          # The per-reply voice reminder (October 19).
         self.assertEqual(self.rows[-1]['event'],'openai_recovered')
         self.assertNotIn('private transport details',str(self.rows))
 

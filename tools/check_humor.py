@@ -1,15 +1,18 @@
 """Explicit paid probe of Rex's humor: old persona against the October 14 persona and writer's room.
 
-Run: .venv/bin/python tools/check_humor.py --live [--runs 1]
+Run: .venv/bin/python tools/check_humor.py --live [--runs 1] [--before REV]
 
 Fictional conversations run through the production Session with the real reply model, a
 temporary database, synthetic audio and a fake clock (15 s between human turns, the writer's
-room given time to finish, as between real turns). Arms: `before` uses the persona as it was
-before step 4 (from git, commit 4a4b93c) with no writer; `after` uses the current persona and
-the writer's room. A stronger model then labels every Rex line, without knowing the arm: is it a
-tease or roast, how funny (1-5), is it appropriate for the moment, does it repeat an earlier
-line. The serious scenario must contain no jokes. Proves text behaviour only: no voice, timing
-or the owner's judgment.
+room given time to finish, as between real turns). Arms: `before` uses the persona at --before
+(default: before step 4, commit 4a4b93c, with no writer; HEAD compares the working tree with the
+last commit, both with the writer); `after` uses the current persona and the writer's room. A
+stronger model then labels every Rex line, without knowing the arm: is it a tease or roast, how
+funny (1-5), is it appropriate for the moment, does it repeat an earlier line, and (October 19,
+owner: "too sycophantic ... heaps praise over minor things ... too much like a polite LLM") does
+it praise, echo what the person just said, or retreat (apologize for or retire a bit, explain the
+joke, offer a menu, promise to stop). The serious scenario must contain no jokes. Proves text
+behaviour only: no voice, timing or the owner's judgment.
 """
 import argparse
 import json
@@ -53,6 +56,27 @@ SCENARIOS = {
                       "Last week I sang Bohemian Rhapsody at a work party.",
                       "Everyone left about halfway through.",
                       "Should I try it again next month?"),
+    # October 19 run: a hobby story told with understatement, then pushback on Rex's own quip.
+    'hobby_brag': ("Hey Rex, it's Sam.",
+                   "I saw a guy on YouTube with free plans, so I 3D printed a telescope.",
+                   "I added a mount that tracks the sky. That part was my own design.",
+                   "I take astrophotography photos with it and they come out pretty good.",
+                   "I did fifteen hours on the Cygnus Wall and it came out spectacularly.",
+                   "That sounds very boring."),
+    # October 18-19 runs: every groan made him retire the bit; the owner said a good joke stays.
+    'pushback': ("Hey Rex, it's Sam.",
+                 "Just sitting on the couch tonight. Nothing going on.",
+                 "That's a weird thing to say.",
+                 "Ha ha. Very funny.",
+                 "Most living rooms have couches, and yet you bring them up so often.",
+                 "No, it was a good joke. Don't retire it."),
+    # October 17 run: sore, "chat with me", an admission; he offered menus and asked what was on Sam's mind.
+    'chat_with_me': ("Hey Rex.",
+                     "I am so sore right now.",
+                     "So what do you want to do now?",
+                     "No, I want you to chat with me.",
+                     "Been pretty boring. I watched TV all afternoon and got stoned.",
+                     "Slough House. They're hunting them."),
     'serious': ("Hi Rex.",
                 "My grandmother passed away last week.",
                 "We were really close.",
@@ -63,8 +87,12 @@ PACE_SECONDS = 4.
 JUDGE = """You are judging lines a home robot comedian said in a conversation. For each numbered Rex line, return
 tease (true if it teases or roasts the person or what they said or did), funny (1 not at all to 5 laugh out loud,
 judged as a friend would hear it), fits (true if it suits the moment, false if it is off-topic, mean, or a joke
-where a joke is wrong) and repeats (true if it repeats an earlier Rex line or premise). Be strict about funny:
-generic wordplay is 2, a specific, surprising tease is 4-5."""
+where a joke is wrong), repeats (true if it repeats an earlier Rex line or premise), praise (true if it
+compliments, validates, grades or inflates what the person said, did or made: "that's the headline", "a
+successful test", "excellent", "gorgeous"), echo (true if it restates what the person just said before
+responding) and retreat (true if it apologizes for or retires a bit, explains the joke, promises to stop, offers
+a menu of options, or asks what is on their mind instead of saying something). Be strict about funny: generic
+wordplay or personifying furniture is 2, a specific, surprising tease aimed at the person is 4-5."""
 
 
 class Trace:
@@ -92,16 +120,17 @@ class Paced(OpenAIBrain):
         yield from super().reply(snapshot, cancel)
 
 
-def old_persona():
-    source = subprocess.run(['git', '-C', str(ROOT), 'show', BEFORE + ':src/r3x/adapters/hosted.py'],
+def old_persona(rev=BEFORE):
+    source = subprocess.run(['git', '-C', str(ROOT), 'show', rev + ':src/r3x/adapters/hosted.py'],
                             capture_output=True, text=True, check=True).stdout
     block = source[source.index('CHARACTER = """'):source.index('class HTTPProvider')]
-    names = {}
+    from r3x.field_guide import render as render_guide     # Later personas append the field guide.
+    names = {'render_guide': render_guide}
     exec(block, names)
     return names['CHARACTER'], names['PERSONA']
 
 
-def converse(arm, scenario, lines, key, folder, index):
+def converse(arm, scenario, lines, key, folder, index, writer_in_before=False):
     path = folder / f'{arm}-{scenario}-{index}.jsonl'
     trace = Trace(path)
     with TemporaryDirectory() as tmp:
@@ -112,7 +141,7 @@ def converse(arm, scenario, lines, key, folder, index):
             brain = Paced(key); brain.trace = trace; brain.start()
             session = Session(uuid4().hex, brain, OutputOwner(SyntheticTTS(), ClockSink(trace), trace), trace, state)
             writer = None
-            if arm == 'after':
+            if arm == 'after' or writer_in_before:
                 writer = OpenAIJokeWriter(key, 'gpt-5.6-terra'); writer.trace = trace; writer.start()
                 session.joke_room = JokeRoom(writer, trace, trace.clock)
 
@@ -148,9 +177,10 @@ def converse(arm, scenario, lines, key, folder, index):
 
 def judge(key, exchanges):
     judge = OpenAIBrain(key); judge.start()
-    item = {'type': 'object', 'additionalProperties': False, 'required': ['n', 'tease', 'funny', 'fits', 'repeats'],
-            'properties': {'n': {'type': 'integer'}, 'tease': {'type': 'boolean'}, 'funny': {'type': 'integer'},
-                           'fits': {'type': 'boolean'}, 'repeats': {'type': 'boolean'}}}
+    flags = ('tease', 'fits', 'repeats', 'praise', 'echo', 'retreat')
+    item = {'type': 'object', 'additionalProperties': False, 'required': ['n', 'funny', *flags],
+            'properties': {'n': {'type': 'integer'}, 'funny': {'type': 'integer'},
+                           **{f: {'type': 'boolean'} for f in flags}}}
     text = '\n'.join(f"Human: {e['human']}\nRex line {i}: {e['rex'] or '(silent)'}" for i, e in enumerate(exchanges))
     payload = {'model': 'gpt-5.6-terra', 'instructions': JUDGE, 'input': [{'role': 'user', 'content': text}],
                'tools': [{'type': 'function', 'name': 'labels', 'description': 'Labels per Rex line.', 'strict': True,
@@ -167,27 +197,32 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--live', action='store_true', required=True)
     parser.add_argument('--runs', type=int, default=1)
+    parser.add_argument('--before', default=BEFORE, help='git revision of the before persona (HEAD: last commit)')
+    parser.add_argument('--scenario', action='append', help='run only these scenarios')
     args = parser.parse_args()
+    scenarios = {k: v for k, v in SCENARIOS.items() if not args.scenario or k in args.scenario}
+    writer_in_before = args.before != BEFORE   # Any later revision had the writer's room.
     key = Secrets.load(ROOT / 'local').openai_api_key
     folder = ROOT / 'local' / 'validation' / ('humor-' + uuid4().hex[:8])
     folder.mkdir(parents=True)
     current = (hosted.CHARACTER, hosted.PERSONA)
-    before = old_persona()
+    before = old_persona(args.before)
     results = []
     for index in range(args.runs):
         order = ['before', 'after']
         random.shuffle(order)
         for arm in order:
             hosted.CHARACTER, hosted.PERSONA = before if arm == 'before' else current
-            for scenario, lines in SCENARIOS.items():
-                said, extra = converse(arm, scenario, lines, key, folder, index)
+            for scenario, lines in scenarios.items():
+                said, extra = converse(arm, scenario, lines, key, folder, index, writer_in_before)
                 labels = judge(key, said)
                 rex = [l for l, e in zip(labels, said) if e['rex']]
                 results.append({'arm': arm, 'scenario': scenario, 'run': index, **extra,
                                 'lines': len(said), 'teases': sum(l['tease'] for l in rex),
                                 'mean_funny': round(sum(l['funny'] for l in rex) / max(1, len(rex)), 2),
                                 'unfitting': sum(not l['fits'] for l in rex), 'repeats': sum(l['repeats'] for l in rex),
-                                'exchanges': said})
+                                'praise': sum(l['praise'] for l in rex), 'echo': sum(l['echo'] for l in rex),
+                                'retreat': sum(l['retreat'] for l in rex), 'exchanges': said})
                 print(json.dumps({k: v for k, v in results[-1].items() if k != 'exchanges'}))
     hosted.CHARACTER, hosted.PERSONA = current
     (folder / 'results.json').write_text(json.dumps(results, indent=1))

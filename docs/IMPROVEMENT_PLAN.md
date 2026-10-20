@@ -313,3 +313,106 @@ stand-in head, real reply model), answers to "What are you looking at?": idle gl
 caught my eye. It's been keeping better time than my flight record ever did."; following Sam: "I'm
 looking straight ahead at you, Sam"; chosen look: "The clock, mostly" (the planner's reason was not
 speakable). No camera words in any answer. Dog recognition from saved photos remains weak.
+
+## Third pass at humor: the polite LLM (October 19, night)
+
+Owner, after the October 17–19 runs: too sycophantic, not funny enough, "he doesn't tease me enough
+and heaps praise over minor things", "too much like a polite LLM". Read from the session logs, the
+praise was not a joke problem but three assistant habits the persona's prohibitions did not stop:
+
+1. **Restate, approve, ask.** "Sulfur, oxygen, and hydrogen-alpha, three separate filters for one very
+   patient night. That's not 'pretty good', Brett; that's the cosmos submitting to quality control."
+   "Fifteen hours ... That's the headline. What did you capture?" "That's a successful test." A grep of
+   the last eight sessions found praise or concession markers in 29 of 219 delivered lines, and nearly
+   every hobby line opened with a recap of what had just been said.
+2. **Retreat on any pushback.** "I'll retire the couch commentary", "I'll skip the telescope
+   interrogation", "I was trying to make a joke out of your hesitation, and it didn't land, sorry",
+   "You caught me ... that was a lousy offer." The owner had already said "It was a good joke. Don't
+   retire it." (October 17) and "Don't say sorry." (October 18).
+3. **Care-mode menus.** "I am so sore" got "Want to tell me what's aching, or should I just sit quietly
+   with you a minute?"; "chat with me" got "Tell me what's on your mind, I'm listening."
+
+What passed for teasing was mostly furniture personified (the couch as a VIP lounge twice, a plant
+supervising the budget, curtains as a theater, a plate getting VIP treatment), which the owner called
+out live ("There's nothing spectacular about couches, and yet you bring them up so often"). The writer's
+room was pitching observations, not angles ("Brett facing Rex", "Late-night navigation", "Brett's week
+going well"), and its lines were not in the log, so writer and reply model could not be told apart.
+
+Changed (synthetic checks and paid text probes; **not yet heard live**):
+
+- **Persona** (`CHARACTER` in `hosted.py`): Rex is funny company, not helpful company; fond and
+  unimpressed in equal measure. The joke is on the person (choices, understatement, bragging, habits,
+  what they are doing now) or on Rex, never on the quality of their work. Praise is three words at most
+  and never the punchline. Never restate what they said before replying. No menus; asked to chat, he
+  has a subject. "Pushback is the second beat": a groan, "very funny" or "you bring that up a lot" is
+  the game, not a correction; bits are not retired, explained or apologized for, and "don't retire it"
+  needs no tool. Only an explicit stop ends a bit, with one dry line and no promise. Tired or sore gets
+  one dry line, not a grief response. The bad examples are the owner's own lines above. The clock is a
+  once-a-visit joke, not a greeting. The priority ladder now says it chooses what he addresses, not how
+  he sounds, and a routine reply may itself be the joke.
+- **A voice reminder on every reply.** The October 18 last-position concession reminder is now always
+  present (react without restating, no praise beyond three words, no apology, no retiring or explaining a
+  bit, no menu), with the concession sentence added once he has conceded. About forty tokens after the
+  cached prefix; placed ahead of a closing image message.
+- **Writer's room** (`jokes.WRITER_INSTRUCTIONS`): every item is a joke on a person, never a scene
+  description or furniture personification, with the October 19 observation-premises as what not to
+  write; the `joke_material` trace now keeps the lines, not only the premises.
+- **Probe** (`tools/check_humor.py`): `--before REV` compares any committed persona (HEAD for the last
+  commit, with the writer in both arms); three scenarios transcribed from the live runs (a hobby told
+  with understatement, pushback on a couch bit, sore-then-"chat with me"-then-an-admission); the judge
+  also labels praise, echo (restating) and retreat (apology, retired bit, explained joke, menu).
+
+Evidence, run 1 (`local/validation/humor-146ec2e2`, commit `7288e77` against the rewrite, one run,
+six scenarios, 35 Rex lines per arm, labels by `gpt-5.6-terra` without the arm, about $1 estimated):
+
+| Per arm, 35 lines | Committed persona | Rewrite |
+| --- | ---: | ---: |
+| Lines that tease | 14 | 24 |
+| Mean funny (1–5), excluding grief | 2.07 | 2.30 |
+| Praise | 8 | 5 |
+| Restating what they said | 18 | 18 |
+| Retreats | 5 | 3 |
+| Repeated premise | 3 | 9 |
+| Jokes after the grief disclosure | 0 | 0 |
+
+Read in full, the rewrite was better where the owner complained ("'Pretty good,' says the person who
+built a telescope that follows the sky. Most people watch the sky; you assigned it a motor and a
+performance review."; "You heckle the DJ, then leave me with the playlist. Bold."; no menu for the sore
+evening) and exposed two tics: an "it's 11:19 and you're still up" greeting in every scenario (the clock
+was listed as material), and, told "don't retire it", a rejected `conversation_feedback(retract)` narrated
+aloud ("I couldn't change the conversation note"). Restating was unchanged, and holding a bit under
+pushback reads to the judge as repetition. The clock, the tool and the restating are the reasons for the
+greeting rule, the tool-free sentence and the per-reply reminder above, added after run 1.
+
+Run 2 (`humor-0f7241be`, the four live-run scenarios, 23 Rex lines per arm, after the greeting rule, the
+tool-free sentence and the per-reply reminder): no clock greeting, no narrated tool, no retreat in the
+three light scenarios (the grief scenario's one "retreat" is the correct "No jokes. I'm here with you");
+teases 14 against 4, praise 6 against 5, restating 9 against 8, mean funny 2.05 against 1.68. Held
+bits still count as repeats to the judge (3 in the pushback scenario). The reading exposed something
+the numbers do not show: two of the best lines were the persona's own examples recited nearly word for
+word ("Fifteen hours on one patch of gas, and I'm the one who needs supervision"; "So the afternoon had
+a plot after all"), and those examples were the owner's real telescope and TV lines, so he would have
+heard his own story answered with a script. The positive examples are now invented situations of the
+same shape (a half marathon, sourdough, a run that became television) with a sentence saying the line
+comes from the person's words, never from the examples; the owner's real lines remain only as the
+things not to say.
+
+Run 3 (`humor-bb35b093`, the three light scenarios with the invented examples, 18 Rex lines per arm):
+teases 12 against 3, praise 2 against 4, retreats 0 against 2, mean funny 2.56 against 2.00; no
+example recited (one old V2 style line, "laughing just encourages me", was reused, which the persona has
+always allowed). Restating stayed high in the hobby scenario (5 of 6 in both arms: the judge counts a
+reframing such as "So one YouTube tutorial and suddenly you're a telescope manufacturer" as an echo).
+Lines: "'Pretty good' is how you describe photos you took with a telescope you built? You're impossible to
+impress."; "Weird is carrying this couch conversation, Sam. I stand by it."; told to chat: "Then give me a
+subject, Sam. I'm not going to interview your sore muscles all night."
+
+Three runs cost roughly $2 in total, estimated from request counts. 1,350 blocked-I/O checks pass; the
+GUI avatar import check fails in this venv for lack of PySide6 on the committed tree as well, and one
+dashboard servo-yield check fails only while a probe loads the machine. The retry check now allows the
+per-reply reminder after the history.
+
+Not done: no live run, so whether the owner laughs, whether "fond and unimpressed" reads as cold in his
+room, and whether the per-reply reminder flattens sincere replies are all unassessed. The judge is a
+model, not a person; both arms use the same cheap reply model, so this measures instructions, not
+intelligence. A held bit under pushback and a reframing of their words both still count against him in
+the labels. The planner's beats were not changed; furniture bits can still arrive from a decor goal.
