@@ -123,6 +123,23 @@ class DirectionTests(unittest.TestCase):
         self.assertIsNone(result['coordinates'])
         self.assertEqual(len(result['clusters']),2)
 
+    def test_a_loud_front_back_flip_is_not_a_voice_behind(self):
+        # October 19 (b4ce6464), "why can't you come forward?": the owner stood in front, the
+        # beam flipped to its mirror mid-sentence and the loud flipped half read 179.7, so
+        # "face me" turned him around. Beam bearings and energies as logged.
+        logged = [(-31, 202825), (-1, 87536), (-5, 109793), (179, 51462), (179, 434204),
+                  (-179, 58151), (-178, 170517), (-180, 189043), (178, 150921)]
+        rows = [DirectionSample(1+i*.13, 2, b, e, True) for i, (b, e) in enumerate(logged)]
+        result = summarize(rows, 0, 3)
+        self.assertEqual((result['status'], result['reason']), ('ambiguous', 'front_back_mirror'))
+        self.assertIsNone(result['bearing_deg'])
+        # A voice really behind him, with no front mirror heard, is still behind.
+        behind = summarize(self.samples([157]*6, 200000), 0, 2)
+        self.assertEqual(round(behind['bearing_deg']), 157)
+        # A front voice with a small flipped echo behind stays in front: volume still wins.
+        front = summarize(self.samples([2]*8 + [178]*2, 200000), 0, 3)
+        self.assertEqual((front['status'], round(front['bearing_deg'])), ('observed', 2))
+
     def test_fresh_beam_beats_lagging_doa_and_self_audio_is_excluded(self):
         control = Mock()
         control.read.side_effect=lambda name: {'doa':(90,1),'energy':(0,0,0,100000),

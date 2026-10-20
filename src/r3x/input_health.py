@@ -3,6 +3,12 @@ from array import array
 import math
 import sys
 
+# October 19 (b4ce6464): three or four shouted stops during a 36 s approach left one
+# capture; 5 s summaries could not show whether the processed channel carried any voice
+# while the wheels ran. While they run, windows are one second and marked.
+INTERVAL_S = 5.
+MOVING_INTERVAL_S = 1.
+
 
 class InputHealth:
     def __init__(self, trace, device):
@@ -11,8 +17,14 @@ class InputHealth:
         self.frames = self.samples = self.energy = self.peak = 0
         self.speech_frames = self.echo_frames = 0
         self.peak_vad_probability = None
+        self.moving = False
 
-    def observe(self, frame, speech, pending, *, vad_probability=None):
+    def observe(self, frame, speech, pending, *, vad_probability=None, wheels_moving=False):
+        now = self.trace.clock()
+        if wheels_moving != self.moving:
+            if self.frames:
+                self._emit(now, pending)   # A window never mixes rolling with standing still.
+            self.moving = wheels_moving
         samples = array('h', frame.pcm)
         if sys.byteorder != 'little': samples.byteswap()
         self.frames += 1
@@ -23,8 +35,10 @@ class InputHealth:
             self.peak_vad_probability = max(self.peak_vad_probability or 0.,vad_probability)
         self.speech_frames += bool(speech)
         self.echo_frames += bool(frame.echo_risk)
-        now = self.trace.clock()
-        if now-self.began < 5: return
+        if now-self.began < (MOVING_INTERVAL_S if self.moving else INTERVAL_S): return
+        self._emit(now, pending)
+
+    def _emit(self, now, pending):
         def db(value):
             return 20*math.log10(value/32768) if value else None
         self.trace.emit('audio_input_health', device=self.device,
@@ -32,7 +46,7 @@ class InputHealth:
             peak_dbfs=db(self.peak), rms_dbfs=db(math.sqrt(self.energy/self.samples)) if self.samples else None,
             speech_frames=self.speech_frames, echo_frames=self.echo_frames,
             peak_vad_probability=self.peak_vad_probability,
-            utterance_pending=bool(pending))
+            utterance_pending=bool(pending), wheels_moving=self.moving)
         self.began = now
         self.frames = self.samples = self.energy = self.peak = 0
         self.speech_frames = self.echo_frames = 0

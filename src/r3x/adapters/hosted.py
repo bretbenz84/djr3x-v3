@@ -728,8 +728,18 @@ class OpenAIBrain(HTTPProvider):
                 'part of this reply: one drive_base call with the single step action face, target speaker (a turn '
                 'of that size, never a full search), your whole spoken reply in say_before so they hear the answer '
                 'first, say_after null, and no announcement of the turn. Skip the turn when the words were not for you, '
-                'when you were asked to stay put or be still, when this turn needs a different tool, or when you are '
+                'when you were asked to stay put or be still, when they are complaining about how you just moved or '
+                'that you did not stop, when this turn needs a different tool, or when you are '
                 'in the middle of something that honestly interests you more; then just answer.')
+        last_drive = (drive_context.get('recent_motion') or [None])[-1]
+        if (last_drive and last_drive.get('reason') == 'stop_requested' and drive_context.get('available')
+                and not snapshot.continuation):
+            # October 19 (b4ce6464): after the owner stopped an approach, "I told you to stop" and
+            # "why did you do that?" were answered with a turn and the approach resumed.
+            notes.append('\nYOU WERE STOPPED: a person stopped your last drive (' + str(last_drive.get('purpose')) +
+                '). That request is over. Do not call drive_base in this reply unless their latest words newly '
+                'ask you to move ("okay, now come here"). A complaint, a question about what you did, or a reaction '
+                'gets words only, and your words must not promise motion you are not sending.')
         if snapshot.context.get('drive') and not snapshot.continuation:
             notes.append('\nWheeled base: you can drive with drive_base. Each step takes a pace (slow, easy or normal): '
                 'vary it to suit the moment instead of always moving at one speed.  Moving is part of how you express yourself. '
@@ -737,6 +747,12 @@ class OpenAIBrain(HTTPProvider):
                 'your camera view, or go get a closer look at what is being discussed. Do not move on every turn. Your own '
                 'moves may cross the room toward something interesting: the base stops for obstacles and its time-of-flight '
                 'limits by itself. Stay put when anyone asked you to stay, be still or stop moving. '
+                'A stop ends the request it interrupted (in drive.recent_motion, reason stop_requested): do not resume '
+                'it, even if it never finished, unless they ask again in a new request. A complaint or question '
+                'about how you just moved ("why did you do that?", "I told you to stop", "why are you running away?") is '
+                'answered in words with no drive_base call. Your words must match your steps: never say you will stay put '
+                'while sending steps, and never say you turned or moved unless the receipt shows it (a face receipt with '
+                'reason already_facing_voice_direction_no_face_in_view means you did not turn and nobody is in view). '
                 'drive.limits.max_move_m is the whole distance one plan may cover; long moves run as several legs automatically. '
                 'Explicit movement requests always use drive_base, with stacked requests as ordered steps: include every '
                 'part asked for. "Come here" or "come to me" is one approach to nearest_person, even with nobody in view: Rex '

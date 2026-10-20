@@ -1179,3 +1179,43 @@ that the front matrix's left column (~0.9 m) did not see; cause not yet known.
 Outstanding: left/right check with a hand behind each corner (behind on his left must
 lower `rl`), the front-left radial's intermittent near returns, a supervised reverse toward
 a leg, and lifting `SelfInitiatedReverse` once the owner accepts the rear module.
+
+## October 19 evening: turned away from "come closer", stops missed
+
+Run b4ce6464 (living room, owner about 2.8 m ahead, recognized in 25 of 58 frames).
+
+- **Backwards voice.** Mid-sentence the microphone's selected beam flipped from about -2 to
+  179 degrees (its front/back mirror) while the array's own DoA register stayed at 2; the
+  flipped half was the loudest, so energy weighting read the voice as behind and "face the
+  speaker" turned him 180. `direction.summarize` now calls a dominant bearing behind him
+  `ambiguous` (`front_back_mirror`) when its front mirror image is also heard in the same
+  utterance. Replayed over 25 recent sessions it changes only this reading.
+- **Stale voice.** "Face me" later turned 166 degrees on that voice, heard 90 s and 2.6 m of
+  driving earlier. A remembered voice now lapses once he has rolled 0.5 m (`VOICE_MOVED_M`).
+- **Words against moves.** Answering "I told you to stop" and "why did you do that?", the reply
+  model said "I'll stay put now" while sending a turn and then a 0.5 m move that resumed the
+  stopped approach. When his last drive was stopped by a person, the reply prompt now says
+  so and that only a new request moves him; complaints get words. A face step on a voice
+  with nobody in view reports `already_facing_voice_direction_no_face_in_view` (or
+  `turned_toward_...`) instead of a bare completion that became "I've turned to face you".
+- **"Come closer" refused.** An approach to "speaker" with no speaker direction or identity
+  becomes an approach to the nearest person (state validation); facing the speaker still
+  needs a direction.
+- **Stops while rolling.** Only one of three or four shouted stops reached the recognizer.
+  For the first 25 s of the approach the processed channel stayed below the room's quiet
+  level (-43 vs -40 dBFS RMS) and the detector never rose above 0.28; one "Okay." was noise
+  (the owner said no such thing). The recognized "Stop." halted him about 1 s after the word
+  ended. Effects play through the XVF3800, so AEC has their reference, and the drive never
+  marks echo. While the wheels run, mic health is now logged each second (`wheels_moving`),
+  and a short burst (up to 1.5 s voiced) is transcribed after a 0.2 s pause beside the normal
+  capture: a stop word or collision warning halts the wheels at once (`stop_peek`).
+
+Checks (synthetic): new direction, voice-memory, fast-stop, input-health and validation tests;
+full blocked-I/O suite 1,351 tests with the known PySide6 import error and one servo timing
+test that passed 3 of 3 when rerun alone. Hosted `check_drive_planning.py` (production
+model, paced; the harness's stand-in drive had broken on the newer `speaker_person`
+argument and is fixed): "I told you to stop" got words only 3/3, a fresh "okay, now come
+here" after a stop still approached 3/3, "why did you do that?" still resumed the approach
+in 2 of 3; told-to-stay-put and voice-from-the-side unchanged at 3/3.
+Whether the board suppresses a voice under motor noise is not yet known: it needs a live
+test with the wheels running and someone saying "stop" at measured distances.

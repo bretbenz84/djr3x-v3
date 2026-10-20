@@ -115,6 +115,10 @@ TIGHT_PACE = .6
 # right after he turns and for requests spoken while he moves (the model re-used "88 degrees
 # left" after he had already turned to face it, and he ended up facing away).
 VOICE_MEMORY_S = 120.
+# October 19 (b4ce6464): "face me" turned 166 degrees on a voice heard 90 s and 2.6 m of
+# driving earlier. A heading only points at the person from where he heard it; once he has
+# rolled this far the remembered voice no longer says where they are.
+VOICE_MOVED_M = .5
 # Closing on a target, the firmware's wall-steering treats what is ahead as something to go
 # around (owner: "the firmware starts steering him away rather than just slowing him down").
 # The host turns that steering off for the last stretch; the firmware still slows and stops.
@@ -833,14 +837,17 @@ class DriveBase:
                                     samples=direction.get('samples'), nearest_face_deg=round(nearest),
                                     kept_deg=round(self._voice_bearing(now)))
                 return
-        self._voice = {'heading': wrap(facing + bearing), 'at': now, 'basis': basis}
+        self._voice = {'heading': wrap(facing + bearing), 'at': now, 'basis': basis, 'from': tuple(self._at)}
 
     def _voice_bearing(self, now=None):
-        """Base-relative bearing of the last located voice, while it is recent."""
+        """Base-relative bearing of the last located voice, while it is recent and he has
+        not driven away from where he heard it."""
         now = self.clock() if now is None else now
         telemetry, _ = self.link.snapshot()
         facing = self._heading(telemetry) if telemetry else None
         if self._voice is None or facing is None or now - self._voice['at'] > VOICE_MEMORY_S:
+            return None
+        if math.dist(self._voice['from'], self._at) > VOICE_MOVED_M:
             return None
         return wrap(self._voice['heading'] - facing)
 
@@ -1648,7 +1655,13 @@ class DriveBase:
             if target is None:
                 return {**row, 'status': 'lost', 'reason': 'target_not_redetected_after_turn', 'turned_deg': turned}
         faces = self._fresh_faces(self.clock())
-        return {**row, 'status': 'completed', 'reason': None, 'turned_deg': turned,
+        reason = None
+        if target['kind'] not in CAMERA_KINDS and not faces:
+            # October 19 (b4ce6464): a 0 degree "face me" on a remembered voice with nobody in
+            # view became "There, I've turned to face you". The receipt says what was done.
+            reason = ('already_facing_voice_direction_no_face_in_view' if abs(turned) < 5
+                      else 'turned_toward_voice_direction_no_face_in_view')
+        return {**row, 'status': 'completed', 'reason': reason, 'turned_deg': turned,
                 'final_bearing_deg': round(wrap(target['bearing_deg'])) if target['kind'] in CAMERA_KINDS else None,
                 'faces_visible_after': len(faces)}
 

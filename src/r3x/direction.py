@@ -52,6 +52,26 @@ class DirectionSample:
     eligible: bool
 
 
+# October 19 (b4ce6464): halfway through "why can't you come forward?" the selected beam
+# jumped from about -2 degrees to 179, its front/back mirror image, while the array's own
+# DoA register held 2. The flipped half was louder, so the voice read as directly behind
+# and "face me" turned him around. Energy weighting (V2: the louder direction wins over
+# wall reflections) picked the wrong one because the flipped half was the loudest. A
+# dominant bearing BEHIND him whose front mirror image is also heard in the same utterance
+# is not a direction: turning around on it is the costly error. Real voices from behind
+# (157, 178 and -120 in the October 16-18 runs) did not carry a mirror cluster, and a front
+# bearing with a small mirror behind (three in those runs) stays observed.
+MIRROR_DEG = 20.
+MIRROR_SAMPLES = 2
+
+
+def mirrored(bearing, group):
+    """The cluster sits at the front/back mirror (or the opposite) of this bearing."""
+    return group['samples'] >= MIRROR_SAMPLES and min(
+        abs(wrap(group['bearing_deg'] - (180. - bearing))),
+        abs(wrap(group['bearing_deg'] - (bearing + 180.)))) <= MIRROR_DEG
+
+
 def summarize(samples, start, end):
     """Use only this speech window, excluding playback and low-energy polls.
 
@@ -89,6 +109,8 @@ def summarize(samples, start, end):
         return result
     if first['weight_share'] < .7:
         result.update(status='ambiguous', reason='competing_directions')
+    elif abs(first['bearing_deg']) > 90. and any(mirrored(first['bearing_deg'], g) for g in groups[1:]):
+        result.update(status='ambiguous', reason='front_back_mirror')
     else:
         result.update(status='observed', reason='dominant_speech_energy_beam',
                       bearing_deg=first['bearing_deg'], coordinates=first['coordinates'])

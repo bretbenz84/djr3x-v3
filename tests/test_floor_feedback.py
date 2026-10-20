@@ -529,6 +529,11 @@ class TurnAroundAndComeTests(unittest.TestCase):
                 # "Come here" alone is valid too: the drive owner looks for the person (October 3).
                 alone = state.propose_drive(drive_call(step('approach', target='nearest_person')), offered, Cancellation())
                 self.assertEqual([s.action for s in alone.steps], ['approach'])
+                # October 19: "come a little closer" written as an approach to an unheard speaker.
+                asked = state.propose_drive(drive_call(step('approach', target='speaker')), offered, Cancellation())
+                self.assertEqual(asked.steps[0].target, 'nearest_person')
+                with self.assertRaisesRegex(ValueError, 'DriveTargetNotOffered'):   # Facing them needs a direction.
+                    state.propose_drive(drive_call(step('face', target='speaker')), offered, Cancellation())
                 plan = state.propose_drive(drive_call(step('move', meters=-.3), step('turn', degrees=180),
                                                       step('approach', target='nearest_person', stop_at_m=1)),
                                            offered, Cancellation())
@@ -540,6 +545,22 @@ class TurnAroundAndComeTests(unittest.TestCase):
         self.assertEqual([r['action'] for r in receipt.steps], ['move', 'turn', 'approach'])
         self.assertLess(math.hypot(-2.6 - fake.x, fake.y), 1.3)
         self.assertEqual(drive.history[-1]['steps_run'], ['move:completed', 'turn:completed', 'approach:completed'])
+
+    def test_a_voice_heard_before_he_drove_away_no_longer_says_where_they_are(self):
+        # October 19 (b4ce6464): "face me" turned 166 degrees on a voice heard 90 s and 2.6 m
+        # of driving earlier.
+        clock, fake, drive, world = self.start()
+        heard = {'status': 'observed', 'bearing_deg': 90., 'ended_at': 1.}
+        speaker = lambda context: next((t for t in context['targets'] if t['target_id'] == 'speaker'), None)
+        self.assertEqual(speaker(drive.context('requested', speaker_direction=heard))['bearing_deg'], 90)
+        receipt = drive.execute(DrivePlan('p', (DriveStep('turn', degrees=30.),), 'requested', 't', {}, clock()+60),
+                                Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertEqual(speaker(drive.context('requested'))['bearing_deg'], 60)   # Turning keeps it.
+        receipt = drive.execute(DrivePlan('p', (DriveStep('move', meters=.8),), 'requested', 't', {}, clock()+60),
+                                Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertIsNone(speaker(drive.context('requested')))
 
     def test_furniture_short_of_the_person_keeps_the_normal_margin(self):
         clock, fake, drive, world = self.start()

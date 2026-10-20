@@ -315,6 +315,13 @@ class CoreState:
                 # can only mean what was just sought; so does a spelling of the word itself
                 # (September 27: the model wrote "drive.last_sought").
                 raw = {**raw, 'target': 'sought'}
+            if (action == 'approach' and named == 'speaker' and 'speaker' not in offered
+                    and 'nearest_person' in offered):
+                # October 19 (b4ce6464): "come a little closer" with the owner in view 2.8 m
+                # ahead became an approach to "speaker" while the microphone gave no direction,
+                # and was refused. Coming to whoever asked is an approach to the nearest person,
+                # which looks for them first; it names nobody.
+                raw = {**raw, 'target': 'nearest_person'}
             if action == 'seek' and raw.get('target') is not None:
                 # September 27: the model put "white door on the left" in target. A seek names
                 # things only in words; keep them as the description rather than refuse.

@@ -150,3 +150,62 @@ class CollisionWarningTests(unittest.TestCase):
             self.assertEqual(session.revision, 0)
         finally:
             runtime.stop.set(); worker.join(2)
+
+
+class StopPeekTests(unittest.TestCase):
+    """Owner, October 19: a stop said while he rolls must not wait for the end of the sentence.
+    The recognized "Stop." in b4ce6464 halted the wheels about 1 s after the word ended."""
+    def run_audio(self, voiced_frames, moving=True, text='Stop!'):
+        from unittest.mock import patch
+        from r3x.capture import Frame
+        trace = Trace()
+        session = Session('s', Brain(), OutputOwner(SyntheticTTS(), SyntheticSink(), trace), trace)
+        self.addCleanup(session.close)
+        labels = [True]*voiced_frames + [False]*40
+        frames = [Frame(bytes(1024), 200+i*.032, 200+(i+1)*.032) for i in range(len(labels))]
+        bursts, halted = [], []
+        class Mic:
+            dropped = status_errors = 0
+            def read(inner):
+                if not frames:
+                    time.sleep(.2); runtime.stop.set(); return None
+                return frames.pop(0)
+            def cancel(inner): pass
+        class VAD:
+            def reset(inner): pass
+            def is_speech(inner, pcm): return labels.pop(0)
+        class ASR:
+            def transcribe(inner, capture, cancel):
+                bursts.append(capture); return Transcript(text, -.3, False)
+        class Drive:
+            def __init__(inner): inner.moving = threading.Event()
+            def cancel(inner): halted.append(True); inner.moving.clear()
+        drive = Drive()
+        if moving:
+            drive.moving.set()
+        runtime = VoiceRuntime(Mic(), VAD(), ASR(), session, trace, drive=drive)
+        with patch('sys.stdin.isatty', return_value=False):
+            runtime.run()
+        return trace.rows, bursts, halted
+
+    def test_a_short_stop_while_rolling_halts_before_the_sentence_ends(self):
+        rows, bursts, halted = self.run_audio(15)
+        peek = next(r for r in rows if r['event'] == 'stop_peek')
+        self.assertEqual(peek['status'], 'halted')
+        self.assertTrue(halted)
+        self.assertTrue(any(r['event'] == 'cancel' or r['event'] == 'input_invalidated' for r in rows))
+        burst = bursts[0]
+        self.assertTrue(burst.motion_risk)
+        self.assertLess(burst.ended_at - burst.speech_ended_at, .3)   # Checked after a 0.2 s pause, not 0.7 s.
+        # The full capture of the same words starts before the stop, so it is not obeyed twice.
+        self.assertFalse(any(r['event'] == 'stop_acknowledged' and not r.get('heard', True) for r in rows))
+
+    def test_ordinary_words_while_rolling_wait_for_the_normal_turn(self):
+        rows, bursts, halted = self.run_audio(15, text='Look at the cat.')
+        self.assertEqual(next(r for r in rows if r['event'] == 'stop_peek')['status'], 'not_a_stop')
+        self.assertFalse(halted)
+
+    def test_standing_still_or_a_long_sentence_is_not_peeked(self):
+        for frames, moving in ((15, False), (60, True)):
+            rows, bursts, halted = self.run_audio(frames, moving=moving)
+            self.assertFalse(any(r['event'] == 'stop_peek' for r in rows), (frames, moving))

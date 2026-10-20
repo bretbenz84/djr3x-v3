@@ -27,6 +27,13 @@ CONFIRM_RUN_SECONDS = .25      # Continuous voiced time that confirms speech dur
 CONFIRM_RECENT_SECONDS = .4    # Or this much voiced time within the last second.
 SUSPECT_OPEN_SECONDS = 3.5     # A suspected capture open this long gets a still moment to end.
 SELF_NOISE_LOGPROB = -.1       # Trust floor for a suspected capture (the usual floor is lower).
+# Owner, October 19 (b4ce6464): a shouted "stop" halted the wheels about 1 s after the word
+# ended (0.5 s waiting for the end of the sentence, 0.3 s transcription, queueing). While the
+# wheels run, a short burst followed by a brief pause is transcribed at once, beside the
+# normal capture; a stop word or collision warning halts the drive without waiting for the
+# endpoint. Nothing else is acted on early: the full capture still becomes the turn.
+STOP_PEEK_SILENCE = .2         # Pause after a short burst before it is checked for "stop".
+STOP_PEEK_MAX_VOICED = 1.5     # Longer speech is a sentence, not a stop: normal endpointing.
 # How long the idle tick waits for a just-started goal plan before returning to listening.
 # Hosted planning takes seconds and finishes in the background; this bounds the pause.
 PLANNING_GLANCE_SECONDS = .25
@@ -126,6 +133,31 @@ class VoiceRuntime:
                 self.words_arriving(item[0].capture_id)
         except Full:
             self.trace.emit("input_overflow", queue=kind, policy="reject_newest")
+
+    def _stop_peek(self, frames, speech_ended_at, revision):
+        """Transcribe a short burst heard while rolling; halt at once on a stop word."""
+        from uuid import uuid4
+        from .contracts import Capture
+        burst = Capture(uuid4().hex, self.session.session_id, b''.join(f.pcm for f in frames),
+                        frames[0].started_at, speech_ended_at, frames[-1].ended_at, motion_risk=True)
+        def run():
+            began = self.trace.clock()
+            try:
+                transcript = self.asr.transcribe(burst, Cancellation())
+            except Exception as exc:
+                self.trace.emit('stop_peek', status='failed', error_type=type(exc).__name__)
+                return
+            halt = is_stop_command(transcript.text) or is_collision_warning(transcript.text)
+            acted = (halt and revision == self.session.revision and not self.stop.is_set()
+                     and self.drive.moving.is_set())
+            if acted:
+                self.drive.cancel()   # Wheels first; the conversation's own stop follows.
+                self.cancel(quiet=is_quiet_command(transcript.text))
+            self.trace.emit('stop_peek', status='halted' if acted else 'stop_word_late' if halt else 'not_a_stop',
+                            text=transcript.text, avg_logprob=transcript.avg_logprob,
+                            asr_seconds=round(self.trace.clock() - began, 3),
+                            after_speech_seconds=round(self.trace.clock() - speech_ended_at, 3))
+        threading.Thread(target=run, name='r3x-stop-peek', daemon=True).start()
 
     def flush_turns(self):
         """Move waiting transcripts into the conversation queue, in order, as room appears."""
@@ -504,6 +536,7 @@ class VoiceRuntime:
         vad_fresh_at = None
         direction = getattr(self.perception, 'direction', None)
         reflexed = False
+        peeked = False           # This utterance was already checked for a stop while rolling.
         run = 0.                 # Continuous voiced time ending at the latest frame.
         from collections import deque
         recent = deque()         # (ended_at, seconds) of voiced frames in the last second.
@@ -603,7 +636,8 @@ class VoiceRuntime:
                     # Existing echo/hold guards still exclude it from learning.
                     self.robot.note_speech()
                 health.observe(frame,speech,self.endpoint.frames,
-                    vad_probability=getattr(self.vad,'last_probability',None))
+                    vad_probability=getattr(self.vad,'last_probability',None),
+                    wheels_moving=self.drive is not None and self.drive.moving.is_set())
                 if (speech and self.speech_confirmed and not frame.echo_risk
                         and not (self.drive is not None and self.drive.moving.is_set())):
                     # Motor noise or talk while the wheels run does not yield the plan;
@@ -621,8 +655,15 @@ class VoiceRuntime:
                                                 bearing_deg=round(evidence['bearing_deg'], 1))
                 confirmed = self.speech_confirmed
                 capture = self.endpoint.push(frame, speech)
+                if (not capture and not peeked and not speech and self.endpoint.frames
+                        and self.drive is not None and self.drive.moving.is_set()
+                        and 0 < self.endpoint.voiced <= STOP_PEEK_MAX_VOICED
+                        and frame.ended_at - self.endpoint.last_speech >= STOP_PEEK_SILENCE):
+                    peeked = True
+                    self._stop_peek(self.endpoint.frames, self.endpoint.last_speech, self.session.revision)
                 if not self.endpoint.frames:
                     reflexed = False
+                    peeked = False
                     self.speech_confirmed = False
                 if capture:
                     capture = replace(capture,device=getattr(self.mic,"source_device",getattr(self.mic,"device_name","configured_microphone")),

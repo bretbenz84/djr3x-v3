@@ -21,3 +21,18 @@ class InputHealthTests(unittest.TestCase):
         self.assertIsNone(rows[1]['peak_dbfs'])
         self.assertIsNone(rows[1]['peak_vad_probability'])
         self.assertEqual(rows[1]['frames'],1)
+
+    def test_rolling_windows_are_one_second_and_never_mix_with_standing(self):
+        # October 19: 5 s summaries could not show whether a shouted stop reached the
+        # detector while the wheels ran.
+        rows=[];clock=[0.]
+        trace=SimpleNamespace(clock=lambda:clock[0],emit=lambda event,**data:rows.append({'event':event,**data}))
+        health=InputHealth(trace,'Synthetic microphone')
+        health.observe(Frame(bytes(1024),0,.032),False,False)
+        clock[0]=2
+        health.observe(Frame(b'\x00\x40'*512,1.968,2),True,False,vad_probability=.9,wheels_moving=True)
+        self.assertEqual([r['wheels_moving'] for r in rows],[False])   # The still part closes first.
+        clock[0]=3.1
+        health.observe(Frame(bytes(1024),3.068,3.1),False,False,wheels_moving=True)
+        self.assertEqual(rows[1]['wheels_moving'],True)
+        self.assertEqual((rows[1]['speech_frames'],rows[1]['peak_vad_probability']),(1,.9))
