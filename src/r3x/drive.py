@@ -635,12 +635,13 @@ class DriveBase:
         telemetry, matrix = self.link.snapshot()
         now = self.clock() if now is None else now
         self._remember(telemetry, matrix, now)
-        return clearance(telemetry, matrix, now)
+        return clearance(telemetry, matrix, now, rear_matrix=self.link.rear_snapshot())
 
     def _remember(self, telemetry, matrix, now):
         """Fold this sensor frame into the short-term memory of the floor around him."""
         if telemetry:
-            self.local_map.observe(telemetry, matrix, tuple(self._at), self._heading(telemetry), now)
+            self.local_map.observe(telemetry, matrix, tuple(self._at), self._heading(telemetry), now,
+                                   rear_matrix=self.link.rear_snapshot())
 
     def _doubtful(self, space, now):
         """The closest return on his straight path contradicts what was just seen there."""

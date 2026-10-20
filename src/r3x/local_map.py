@@ -60,11 +60,11 @@ class LocalMap:
                     if max(cell['hit'][-1:] + cell['free'][-1:], default=float('-inf')) < now - MEMORY_S]:
             del self.cells[key]
 
-    def observe(self, telemetry, matrix, position, heading, now):
+    def observe(self, telemetry, matrix, position, heading, now, *, rear_matrix=None):
         """One sensor frame. position: his tracked position (rear-axle frame); heading: degrees."""
         if heading is None or position is None or now - self.last_observed < OBSERVE_EVERY_S:
             return
-        rows = open_directions(telemetry, matrix, now)
+        rows = open_directions(telemetry, matrix, now, rear_matrix=rear_matrix)
         if not rows:
             return
         with self.lock:

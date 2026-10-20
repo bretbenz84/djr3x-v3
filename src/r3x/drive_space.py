@@ -123,7 +123,18 @@ def matrix_path(matrix):
     return result
 
 
-def open_directions(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
+# The rear matrix (owner, October 19) is the same module at the same height and distance
+# from the centre, turned to face straight back: its column 0 is its own left, which is
+# the robot's rear-right. Its grid arrives in that sensor frame.
+REAR_MATRIX_COLUMN_DEG = tuple(wrap(180. + deg) for deg in MATRIX_COLUMN_DEG)
+
+
+def _rear_radials(ring):
+    """The radial rear pair alone; firmware 0.2.9 folds the rear matrix into rl/rr."""
+    return [ring.get(f'{key}_radial') if f'{key}_radial' in ring else ring.get(key) for key in ('rl', 'rr')]
+
+
+def open_directions(telemetry, matrix, now, *, rear_matrix=None, telemetry_age=.5, matrix_age=1.):
     """How far each range sensor sees, by bearing: the room around him as the sensors know it.
 
     Owner, October 3: the planner needs "which directions have the most open area relative
@@ -138,9 +149,16 @@ def open_directions(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
         for col in range(8):
             rows.append((MATRIX_COLUMN_DEG[col], min((v for i, v in zones.items() if i % 8 == col), default=MATRIX_CLEAR),
                          'front matrix'))
+    zones = (matrix_zones(rear_matrix)
+             if rear_matrix and 0 <= now - rear_matrix['received_at'] <= matrix_age else None)
+    if zones is not None:
+        for col in range(8):
+            rows.append((REAR_MATRIX_COLUMN_DEG[col], min((v for i, v in zones.items() if i % 8 == col),
+                                                          default=MATRIX_CLEAR), 'rear matrix'))
     if telemetry and 0 <= now - telemetry['received_at'] <= telemetry_age:
         tof = telemetry.get('tof_mm') or {}
-        for key, bearing in (('fl_radial', 22.5), ('fr_radial', -22.5)) + RING[2:]:
+        rear = tuple((f'{key}_radial' if f'{key}_radial' in tof else key, bearing) for key, bearing in RING[2:4])
+        for key, bearing in (('fl_radial', 22.5), ('fr_radial', -22.5)) + rear + RING[4:]:
             value = _meters(tof.get(key))
             if value is not None:
                 rows.append((bearing, min(value, 4.), 'ring'))
@@ -172,13 +190,19 @@ def _path_sides(ring, sectors, corridor):
     return sides
 
 
-def clearance(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
-    """Open distance by direction, with explicit unknowns and sensor health."""
+def clearance(telemetry, matrix, now, *, rear_matrix=None, telemetry_age=.5, matrix_age=1.):
+    """Open distance by direction, with explicit unknowns and sensor health.
+
+    rear_matrix is the backward-facing matrix's latest frame, None when it has never been
+    seen (not fitted): then the rear is the radial pair alone, as before October 19. Once
+    seen, a stale frame makes the rear unknown, so reversing waits rather than trusting
+    two narrow beams to catch a chair leg the matrix was fitted to see."""
     health = []
     ring = {}
     if telemetry and 0 <= now - telemetry['received_at'] <= telemetry_age:
         tof = telemetry.get('tof_mm') or {}
         ring = {key: _meters(tof.get(key)) for key, _ in RING + (('fl_radial', 0), ('fr_radial', 0))}
+        ring.update({key: _meters(tof.get(key)) for key in ('rl_radial', 'rr_radial') if key in tof})
     else:
         health.append('drive_telemetry_stale')
     fresh = matrix if matrix and 0 <= now - matrix['received_at'] <= matrix_age else None
@@ -196,6 +220,19 @@ def clearance(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
         values = [v for v in values if v is not None]
         return min(values) if values else None
     front = least(radial_front + (list(sectors.values()) if sectors else []))
+    # Behind: both radial beams count in full, as before; a rear matrix zone counts when it
+    # lies inside the corridor the body sweeps backing straight up (matrix_path is symmetric
+    # about the sensor's axis, so its sensor-frame sides need no mirroring for this).
+    rear_radial = _rear_radials(ring) if ring else []
+    if rear_matrix is None:
+        rear = least(rear_radial)
+    else:
+        rear_path = matrix_path(rear_matrix if 0 <= now - rear_matrix['received_at'] <= matrix_age else None)
+        if rear_path is None:
+            health.append('rear_depth_matrix_unavailable')
+            rear = None
+        else:
+            rear = least(rear_radial + [min(rear_path.values())]) if ring else None
     result = {
         'front_m': front,
         'path_m': min(sides.values()) if sides else None,
@@ -209,7 +246,7 @@ def clearance(telemetry, matrix, now, *, telemetry_age=.5, matrix_age=1.):
         'front_right_m': least([ring.get('fr_radial')] + ([sectors['right']] if sectors else [])),
         'left_m': least([ring.get('lf'), ring.get('lb')]),
         'right_m': least([ring.get('rf'), ring.get('rb')]),
-        'rear_m': least([ring.get('rl'), ring.get('rr')]),
+        'rear_m': rear,
         'front_radial_left_m': least([ring.get('fl_radial') or ring.get('fl')]),
         'front_radial_right_m': least([ring.get('fr_radial') or ring.get('fr')]),
         'front_band_left_m': sectors['left'] if sectors else None,

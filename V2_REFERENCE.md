@@ -1224,3 +1224,17 @@ Not ported:
 - Pause/Sleep, the pose skeleton and occlusion zones.
 
 Checks and remaining live validation are in [dashboard](docs/GUI.md#evidence).
+
+## Owner-directed rear matrix and front-right re-enable — October 19, 2026
+
+Direct firmware edit, not an extraction: V2 HEAD `95f2403e78c9ef786054fa13a31bb2ac534cc29d`
+plus its existing uncommitted firmware edits (0.2.6-0.2.8), preserved. The owner asked
+for rear 8x8 support and, replacing the faulty module, the front-right radial back on,
+then to compile and flash. Changed: `tof_matrix.cpp` (two modules, per-module state
+machines on one task), `tof_matrix_floor.h` (pure geometry/aggregation per module),
+`tof_matrix.h`, `tof.cpp` (rear overlay, channel 5 re-enabled), `calib.h` (rear
+constants, crosstalk 0), `context.h`/`proto_io.*` (`rl_radial`/`rr_radial`,
+`tofmx_rear`), `protocol.h` 0.2.9, README, and V2 tests `test_tof_matrix_floor.py`,
+`test_tof_fr_xtalk.py`. No dependency added; no V2 application or data changed.
+Evidence and outstanding live checks:
+[drive integration](docs/DRIVE_BASE_INTEGRATION.md#rear-depth-matrix-and-front-right-replacement--october-19-2026).

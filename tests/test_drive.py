@@ -9,7 +9,7 @@ import unittest
 from r3x.contracts import Cancellation, Capture, ToolCall, Transcript
 from r3x.drive import DriveBase, DrivePlan, DriveStep, Flinch, Radar, LIMITS, CONFIG
 from r3x.drive_space import (allowed_turn, clearance, face_range, image_bearing, matrix_sectors,
-                             move_allowance, radar_bodies, FACE_WIDTH, HALF_FOV)
+                             move_allowance, open_directions, radar_bodies, FACE_WIDTH, HALF_FOV)
 from r3x.adapters.esp32 import seam_merge
 
 
@@ -48,6 +48,7 @@ class FakeBase:
         self.sensors = None                 # callable -> (ToF overrides in mm, 64-zone grid in mm): shaped rooms
         self.imu_drift = 0.                 # degrees added to IMU yaw per completed turn
         self.matrix = True
+        self.rear_grid = None               # 64-zone rear matrix grid in mm (sensor frame), when fitted
         self.assist_gain = 2.               # Firmware wall-steering (V2 calib.h ASSIST_GAIN), config can change it.
         self.assist_on = True               # Off for fixtures whose readings are a pose, not a room that answers motion.
         self.setpoint = None                # (lin, ang, set_at) of the last drive command.
@@ -244,6 +245,9 @@ class FakeBase:
                 elif self.matrix:
                     mm = int(max(25, front*1000)) if front is not None else 3500
                     self.emit(type='tofmx', g=f'{min(mm, 4095):03x}'*64, rej=[4095]*8)
+                if self.rear_grid is not None:
+                    self.emit(type='tofmx_rear', g=''.join(f'{min(v, 4095):03x}' for v in self.rear_grid),
+                              rej=[4095]*8)
             lines, self.out = b''.join(self.out), deque()
         return lines
 
@@ -382,6 +386,17 @@ class DriveOwnerTests(unittest.TestCase):
         self.assertAlmostEqual(self.fake.x, .65, places=2)
         move = next(c for c in self.fake.commands if c['cmd'] == 'move')
         self.assertLessEqual(move['speed'], .25)
+
+    def test_rear_matrix_frames_shorten_a_reverse_through_the_real_link(self):
+        self.start()
+        grid = [4000]*64
+        for row in (3, 4, 5):
+            grid[row*8+2] = 700                                     # A chair leg 0.7 m behind.
+        self.fake.rear_grid = grid
+        settle()
+        receipt = self.drive.execute(plan(DriveStep('move', meters=-1.)), Cancellation())
+        self.assertEqual(receipt.steps[0]['commanded_m'], -.4)
+        self.assertEqual(receipt.steps[0]['reason'], 'shortened_by_clearance')
 
     def test_blocked_move_ends_the_plan_as_partial(self):
         self.start()
@@ -801,6 +816,48 @@ class GeometryTests(unittest.TestCase):
         self.assertIn('front_right_radial_unavailable', space['health'])
         self.assertEqual(space['front_m'], 1.8)
         self.assertEqual((space['left_m'], space['right_m'], space['rear_m']), (.5, .4, .9))
+
+    # Owner, October 19: an identical 8x8 matrix facing straight back, so he cannot back
+    # into bookshelf or chair legs the two narrow rear beams miss. Its grid arrives in its
+    # own frame: column 0 is its left, the robot's rear-right.
+    REAR_RING = {'fl': 3000, 'fr': 3000, 'fl_radial': 3000, 'fr_radial': 3000, 'rl': 2000, 'rr': 2000,
+                 'rl_radial': 2000, 'rr_radial': 2000, 'lf': 1500, 'lb': 1500, 'rf': 1500, 'rb': 1500}
+
+    def rear_frame(self, zones, at=1.):
+        grid = [4000]*64
+        for (row, col), mm in zones.items():
+            grid[row*8+col] = mm
+        return {'grid': grid, 'rej': [4095]*8, 'received_at': at}
+
+    def test_rear_matrix_shortens_reversing_for_a_leg_the_rear_beams_miss(self):
+        telemetry = {'received_at': 1., 'tof_mm': dict(self.REAR_RING)}
+        front = {'grid': [3500]*64, 'rej': [4095]*8, 'received_at': 1.}
+        leg = self.rear_frame({(row, 5): 600 for row in (3, 4, 5)})     # Behind him, a little to his left.
+        space = clearance(telemetry, front, 1., rear_matrix=leg)
+        self.assertEqual(space['rear_m'], .6)
+        self.assertEqual(move_allowance(-1., space), (-.3, 'shortened_by_clearance'))
+        rows = [r for r in open_directions(telemetry, front, 1., rear_matrix=leg) if r['sensor'] == 'rear matrix']
+        self.assertEqual(len(rows), 8)
+        self.assertEqual(next(r['bearing_deg'] for r in rows if r['open_m'] == .6), 171.6)   # +: his left.
+        self.assertTrue(all(abs(r['bearing_deg']) > 150 and r['image_x'] is None for r in rows))
+
+    def test_rear_matrix_ignores_a_wall_beside_the_reversing_path(self):
+        # The firmware folds the matrix into rl/rr for its own reflex; the host uses the radial
+        # pair alone plus matrix zones inside the corridor, as it does in front.
+        tof = {**self.REAR_RING, 'rr': 1000}
+        wall = self.rear_frame({(row, 0): 1000 for row in (3, 4, 5)})   # Off to his right, outside his width.
+        space = clearance({'received_at': 1., 'tof_mm': tof}, None, 1., rear_matrix=wall)
+        self.assertEqual(space['rear_m'], 2.)
+        self.assertEqual(move_allowance(-.5, space), (-.5, None))
+
+    def test_fitted_rear_matrix_going_quiet_refuses_reversing(self):
+        telemetry = {'received_at': 5., 'tof_mm': dict(self.REAR_RING)}
+        space = clearance(telemetry, None, 5., rear_matrix=self.rear_frame({}, at=1.))
+        self.assertIsNone(space['rear_m'])
+        self.assertIn('rear_depth_matrix_unavailable', space['health'])
+        self.assertEqual(move_allowance(-.5, space), (0., 'rear_clearance_unknown'))
+        # Never seen (not fitted): the radial pair alone, as before.
+        self.assertEqual(clearance(telemetry, None, 5.)['rear_m'], 2.)
 
 
 if __name__ == '__main__':

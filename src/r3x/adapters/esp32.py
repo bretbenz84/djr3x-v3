@@ -136,6 +136,9 @@ class DriveLink(NDJSONLink):
         super().__init__(open_port, clock=clock, name='drive')
         self.telemetry = None
         self.matrix = None
+        # Optional backward-facing 8x8 matrix (firmware 0.2.9). Never seen means not
+        # fitted, and reversing keeps the radial rear pair alone.
+        self.rear_matrix = None
         self.acks = {}
         self.dones = {}
         self.events = deque(maxlen=32)
@@ -146,12 +149,16 @@ class DriveLink(NDJSONLink):
         with self._state:
             if kind == 'telemetry':
                 self.telemetry = {**message, 'received_at':received_at}
-            elif kind == 'tofmx':
+            elif kind in ('tofmx', 'tofmx_rear'):
                 grid = message.get('g')
                 if isinstance(grid,str) and len(grid) == 192:
-                    self.matrix = {'grid':[int(grid[i:i+3],16) for i in range(0,192,3)],
-                                   'rej':[int(v) for v in (message.get('rej') or [])][:8],
-                                   'received_at':received_at}
+                    frame = {'grid':[int(grid[i:i+3],16) for i in range(0,192,3)],
+                             'rej':[int(v) for v in (message.get('rej') or [])][:8],
+                             'received_at':received_at}
+                    if kind == 'tofmx':
+                        self.matrix = frame
+                    else:
+                        self.rear_matrix = frame
             elif kind == 'ack' and isinstance(message.get('seq'),int):
                 self.acks[message['seq']] = message
                 while len(self.acks) > 64: self.acks.pop(next(iter(self.acks)))
@@ -171,6 +178,11 @@ class DriveLink(NDJSONLink):
         with self._state:
             return (dict(self.telemetry) if self.telemetry else None,
                     dict(self.matrix) if self.matrix else None)
+
+    def rear_snapshot(self):
+        """Latest rear matrix frame (its grid columns start at the robot's rear-right), or None."""
+        with self._state:
+            return dict(self.rear_matrix) if self.rear_matrix else None
 
     def ack(self, seq):
         with self._state:

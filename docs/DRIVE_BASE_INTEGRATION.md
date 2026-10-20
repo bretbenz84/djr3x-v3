@@ -1133,3 +1133,49 @@ rechecked for 0.6 s (`RECHECK_S`) before a move is refused or a continuous roll 
 leg around an obstacle, up to four further 0.8 m legs on the same side come from remembered
 open floor (`drive_memory_leg`) before another hosted look. Firmware unchanged. Simulated base
 only; no floor run.
+
+## Rear depth matrix and front-right replacement — October 19, 2026
+
+Owner: a second SEN0628 8x8 matrix at the front module's height, facing straight back,
+so he cannot reverse into chair or bookshelf legs the two narrow rear beams miss (the
+October 16 chair). Wired to the front module's private bus at DIP address 0x32. The
+owner is also replacing the faulty front-right radial, so firmware re-enables it.
+
+Firmware `0.2.9-rear-matrix` (V2 working tree; see V2_REFERENCE.md): both matrices on
+one poll task, rear optional and folded into `rl`/`rr` for the reverse reflex, new
+`rl_radial`/`rr_radial` telemetry and a `tofmx_rear` grid stream; channel 5 polled
+again with crosstalk compensation cleared.
+
+Host: `DriveLink` keeps the rear grid; `clearance()` counts both rear radials in full
+plus rear matrix zones inside the straight reversing corridor (the same corridor rule
+as the front), so a wall beside him does not shorten a reverse. Never seen means not
+fitted: the rear stays radial-only. Once seen, a stale rear frame makes `rear_m`
+unknown (`rear_depth_matrix_unavailable`) and reversing is refused. The local floor
+memory records rear matrix columns at their bearings (`open_directions`); the camera
+route's planner facts do not include them. His own plans still never reverse
+(`SelfInitiatedReverse`) until the rear module is calibrated and seen working.
+
+Checks (synthetic): 4 new host tests through the production link and clearance code
+(a leg behind shortens a 1 m reverse to 0.4 m via the fake firmware's `tofmx_rear`
+stream; a wall outside the corridor does not; a fitted matrix going quiet refuses;
+unfitted keeps the radial pair). Full blocked-I/O suite: 1,345 tests, one unrelated
+error (PySide6 not installed in `.venv`). V2 lean runner: 61 native firmware checks
+including the rear module's floor/obstacle rules. Full four-flag Bluepad32 build
+814,081 bytes program, 90,956 globals; bare and matrix-only variants also compile.
+
+Deployment (owner-requested, both modules wired): upload hashes verified, binary SHA-256
+`671151a3cc137a25d2dc5cbb8076d8a19781c9d50a2b2870ee6941437b2182ab`. Read-only stationary
+captures under ignored `local/firmware/2026-10-19-0.2.9-*.ndjson` (no commands sent; one
+controller reset to read the boot log). Boot: `0.2.9-rear-matrix`, all eight radials OK
+(8/8, front-right included), front matrix ready at 0x33 and rear at 0x32 about 6.7 s after
+boot. First capture: 237 telemetry, 159 front and 108 rear grids, zone clear, no -1. Rear
+grid bottom rows read 271-293 / 381-428 mm, matching the front module's floor (268-288 /
+390-422), so the copied calibration fits; rows 0-5 saw something 0.7-1.2 m behind. Rear
+radials 0.87-0.90 m; rear matrix halves 0.63-0.75 m; host `rear_m` 0.69 m, no health flags.
+New front-right radial steady at 838-853 mm, agreeing with the front matrix's right column
+(791-855). Front-left radial alternated between open (up to 4 m) and 0.30-0.46 m returns
+that the front matrix's left column (~0.9 m) did not see; cause not yet known.
+
+Outstanding: left/right check with a hand behind each corner (behind on his left must
+lower `rl`), the front-left radial's intermittent near returns, a supervised reverse toward
+a leg, and lifting `SelfInitiatedReverse` once the owner accepts the rear module.
