@@ -33,6 +33,21 @@ def learning_samples(face, capture, person_id, store):
     samples = [s for s in face.get('_samples',()) if s.eligible and s.vector is not None and
                s.session_id==capture.session_id and capture.started_at<=s.at<=capture.speech_ended_at]
     if len(samples)<2 or samples[-1].at-samples[0].at<.8: return (), 'need_clear_compatible_views'
+    return vetted_samples(samples, person_id, store)
+
+
+def stranger(face):
+    """Nobody saved: not recognized, and not close to anyone's saved face either."""
+    return not face.get('identity') and not face.get('resembles')
+
+
+def appearance(face):
+    """The face's embedding, from its track or any of its views, for comparing later views."""
+    return face.get('_vector') or next((s.vector for s in face.get('_samples',()) if s.vector is not None), None)
+
+
+def vetted_samples(samples, person_id, store):
+    """Compatible views of one face that no other saved person rivals."""
     namespace = samples[0].namespace
     if any(s.namespace!=namespace for s in samples): return (), 'namespace_conflict'
     if any(cosine(a.vector,b.vector)<.6 for a in samples for b in samples): return (), 'incompatible_face_views'

@@ -5,7 +5,7 @@ import hashlib
 import json
 import time
 from collections import deque
-from .speakers import Track, cosine, unit
+from .speakers import Track, centroid, cosine, unit
 from uuid import uuid4
 
 from .contracts import ToolResult
@@ -49,6 +49,18 @@ MENTION_SECONDS = 600.
 # Words that refer to someone without naming them; a person record is never made from them.
 NOT_NAMES = frozenset({'he', 'she', 'him', 'her', 'his', 'hers', 'they', 'them', 'their', 'i', 'me', 'my', 'you',
                        'your', 'we', 'us', 'our', 'it', 'someone', 'somebody', 'everyone', 'nobody'})
+# Owner ruling, October 20: someone introduced by another person ("This is Jeremy", "get to know
+# Jeremy") whose face or voice Rex has not saved is learned from the one unknown face and the one
+# unknown voice around, under that name. Live 515d71db: Jeremy was introduced and talked to for
+# fifteen minutes, and nothing of his face or voice was gathered.
+NEWCOMER_SECONDS = 1800.      # The visit; saying their name again extends it.
+NEWCOMER_LOOKBACK = 120.      # A voice heard this long before the introduction can be theirs.
+NEWCOMER_MIN_SECONDS = 1.5    # Real speech on the voice (as SpeakerTracker.other_voices).
+# A voice this close to a saved one may be that person unrecognized. Other voices and the
+# television scored .19 or less against Bret's profile in every saved run (CARRY_VOICE_FLOOR).
+NEWCOMER_KNOWN_CEILING = .30
+NEWCOMER_FACE_ANCHOR = .45    # Later views must look like the introduced face (FaceTracker.CONTINUITY).
+NEWCOMER_FACE_VIEWS = 6       # The face_references cap per person.
 # Unresolved for want of acoustic strength, not because the clip conflicts with itself or him.
 # ambiguous_continuity is left out: the clip is close to two different voices of this visit.
 CARRY_REASONS = frozenset({'motion_low_confidence', 'session_track', 'tentative_continuity', 'short_continuity',
@@ -116,6 +128,7 @@ class CoreState:
         # Whose voice this conversation has clearly matched: {'person', 'confirmed', 'last_at'}.
         self.voice_conversation = None
         self.named_people = {}   # person_id -> when their exact name was last said or they were introduced.
+        self.newcomers = {}      # person_id -> an introduced person's face and voice still being gathered.
         from .agency import AgencyPlan
         self.agency = AgencyPlan(store, trace, self.present)
         self.initiative.agency = self.agency
@@ -205,12 +218,15 @@ class CoreState:
         """Known people whose exact name or alias was said in this trusted utterance."""
         said = [w.casefold() for w in name_words(text)]
         now = self.trace.clock()
+        named = []
         for person in self.store.people():
             for name in (person["name"], *person["aliases"]):
                 wanted = [w.casefold() for w in name_words(name)]
                 if wanted and any(said[i:i+len(wanted)] == wanted for i in range(len(said)-len(wanted)+1)):
                     self.named_people[person["id"]] = now
+                    named.append(person["id"])
                     break
+        return named
 
     def near_named(self, reference):
         """The one known person this conversation already named whose name this is a near spelling of.
@@ -507,7 +523,10 @@ class CoreState:
         self.current = (turn_id,capture,transcript,observation,attribution)
         if transcript.trusted and not capture.echo_risk:
             self.conversation_source = turn_id
-            self._note_names_said(transcript.text)
+            for person_id in self._note_names_said(transcript.text):
+                if person_id in self.newcomers:   # "Talk to Jeremy": still getting to know him.
+                    self.newcomers[person_id]['until'] = capture.ended_at + NEWCOMER_SECONDS
+        self.newcomers = {k: n for k, n in self.newcomers.items() if capture.ended_at <= n['until']}
         self.faces = tuple(f for f in faces if f.get("face_epoch",0)>=self.min_face_epoch)
         faces = self.faces
         # The picture of the present sees this turn's faces before any deduction reads it
@@ -520,6 +539,7 @@ class CoreState:
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
         self.store.source(turn_id,capture,transcript,attribution,observation,track.person_id if track else None)
         self.forgotten = False
+        self.link_newcomer_voice()
         self.learn_observation()
         self.learn_faces()
         return attribution
@@ -1311,6 +1331,14 @@ class CoreState:
             # The semantic owner may omit the face ID for an ordinary self-introduction.
             if face is None and args['subject']=='self' and len(self.faces)==1:
                 face = self.faces[0]
+            from .face_attribution import stranger
+            if (args['subject']=='other' and face is not None and
+                    (face.get('identity') not in (None,person_id) or face.get('resembles') not in (None,person_id))):
+                # October 20 (515d71db): "This is Jeremy Thomas" was pinned on a blurry face that
+                # scored .77 against Bret's saved face, beside the one face that matched nobody.
+                strangers = [f for f in self.faces if stranger(f)]
+                if len(strangers)==1:
+                    face = strangers[0]
             competing = any(key!=attribution.track_id and 0<=capture.ended_at-track.last_at<=8
                             for key,track in self.tracker.tracks.items())
             consistent_intro = (not observation.direction_conflict and observation.consistency is not None and
@@ -1333,6 +1361,11 @@ class CoreState:
             voice_status = 'awaiting_usable_audio'
             if args['subject']=='self' and introduction_attribution.track_id:
                 voice_status = 'recognized' if attribution.person_id else 'collecting_evidence'
+            elif args['subject']=='other':
+                # Their own speech is gathered after the introduction (_welcome), never the introducer's.
+                voice_status = ('recognized' if person_id in self.store.profiles(self.tracker.namespace) else
+                                'collecting_evidence' if any(e.person_id==person_id for e in self.enrollments.values())
+                                else 'listening_for_their_voice')
             return {"person_id":person_id,"subject":args["subject"],"track_id":introduction_attribution.track_id if args["subject"]=="self" else None,
                     "fresh_voice_track":fresh_track,
                     "identity_basis":"self_report" if args['subject']=='self' else 'third_party_introduction',
@@ -1613,6 +1646,10 @@ class CoreState:
                 self.enrollments[attribution.track_id] = proposal
                 self.persist_evidence(proposal)
                 self.learn_observation()
+        if name=="introduce_person" and data["subject"]=="other":
+            self._welcome(data)
+        if name in {"cancel_association","forget_person"}:
+            self.newcomers.pop(data.get("person_id"), None)
         if name=='cancel_association':
             self.initiative.discard_association(data.get('person_id'),data.get('track_id'))
             if self.voice_references is not None and data.get('track_id'):
@@ -1654,12 +1691,166 @@ class CoreState:
         if name in {"settle_question","introduce_person","record_claim","correct_claim","cancel_association"}:
             self.pending = None
 
+    def _welcome(self, data):
+        """Open, or renew, the window in which an introduced person's face and voice are
+        gathered (owner ruling, October 20). Nothing is opened for what is already saved."""
+        if self.frozen:
+            return
+        from .face_attribution import appearance, stranger
+        turn_id, capture, transcript, observation, attribution = self.current
+        person_id = data['person_id']
+        voice = person_id not in self.store.profiles(self.tracker.namespace)
+        face = not data.get('face_samples_saved') and not self.store.rows(
+            'SELECT 1 FROM face_references WHERE person_id=? LIMIT 1', (person_id,))
+        if not voice and not face:
+            self.newcomers.pop(person_id, None)
+            return
+        newcomer = self.newcomers.setdefault(person_id, {
+            'person_id': person_id, 'since': capture.ended_at, 'introducers': set(), 'anchor': None, 'pool': [],
+            'voice_track': None})
+        newcomer.update(voice=voice, face=face, source_turn=turn_id, said_by=attribution.person_id,
+                        until=capture.ended_at + NEWCOMER_SECONDS)
+        if attribution.track_id:
+            newcomer['introducers'].add(attribution.track_id)   # The introducer's voice is never theirs.
+        target = next((f for f in self.faces if f['track_id'] == data.get('face_track_id')), None)
+        if newcomer['anchor'] is None and target is not None and stranger(target):
+            newcomer['anchor'] = appearance(target)
+        self.trace.emit('newcomer_welcomed', person_id=person_id, gathering_voice=voice, gathering_face=face,
+                        face_anchor=newcomer['anchor'] is not None)
+        self.link_newcomer_voice()
+
+    def link_newcomer_voice(self):
+        """Give the one unknown voice around the name of the one person introduced and still
+        without a voice (owner ruling, October 20).
+
+        Only an unnamed session voice with real speech, heard since shortly before the
+        introduction, that sounds like no saved voice and was not the introducer's. Another
+        such voice heard twice, or two people waiting, links nothing and undoes a link until
+        that voice has gone. The link is a hypothesis: the existing enrollment chain still needs
+        three compatible turns and eight voiced seconds, rechecked against every other voice
+        of the visit, before a voice is saved."""
+        if self.frozen or not self.newcomers:
+            return
+        profiles = self.store.profiles(self.tracker.namespace)
+        for newcomer in self.newcomers.values():
+            if newcomer['voice'] and newcomer['person_id'] in profiles:
+                newcomer['voice'], newcomer['voice_track'] = False, None   # Enrollment saved it.
+        self.newcomers = {k: n for k, n in self.newcomers.items() if n['voice'] or n['face']}
+        waiting = [n for n in self.newcomers.values() if n['voice']]
+        if len(waiting) != 1:
+            return
+        newcomer = waiting[0]
+        if newcomer['voice_track'] not in self.tracker.tracks:
+            newcomer['voice_track'] = None   # The linked voice expired with its evidence.
+        chain = next((k for k, e in self.enrollments.items() if e.person_id == newcomer['person_id']), None)
+        if chain is not None and chain != newcomer['voice_track']:
+            newcomer['voice'] = False   # Their own introduction started this chain; it is not ours.
+            return
+        candidates = []
+        for key, track in self.tracker.tracks.items():
+            if (track.person_id is not None or key in newcomer['introducers'] or not track.references
+                    or track.last_at < newcomer['since'] - NEWCOMER_LOOKBACK
+                    or track.voiced_seconds < NEWCOMER_MIN_SECONDS or self.tracker.voice_of(track, profiles)):
+                continue
+            ranked = self.tracker.rank(centroid(list(track.references)), profiles)
+            if not ranked or ranked[0][1] < NEWCOMER_KNOWN_CEILING:
+                candidates.append(key)
+        def rivals(key):
+            # Another voice heard on two clips or more; one odd clip (a laugh) can split a voice.
+            return [k for k in candidates if k != key and len(self.tracker.tracks[k].references) >= 2]
+        if newcomer['voice_track'] is not None:
+            if rivals(newcomer['voice_track']):
+                self._unlink_newcomer_voice(newcomer, 'another_unknown_voice')
+            return
+        if not candidates:
+            return
+        key = max(candidates, key=lambda k: self.tracker.tracks[k].voiced_seconds)
+        if rivals(key):
+            return
+        track = self.tracker.tracks[key]
+        self.tracker.associate(key, newcomer['person_id'])
+        proposal = self.evidence.get(key) or Enrollment(None, key, centroid(list(track.references)))
+        proposal.person_id = newcomer['person_id']
+        proposal.updated_at = time.time()
+        self.evidence[key] = proposal
+        self.enrollments[key] = proposal
+        self.persist_evidence(proposal)
+        newcomer['voice_track'] = key
+        self.trace.emit('newcomer_voice_linked', person_id=newcomer['person_id'], track_id=key,
+                        samples=len(proposal.samples), voiced_seconds=round(track.voiced_seconds, 2))
+
+    def _unlink_newcomer_voice(self, newcomer, reason):
+        """Take the name back off a linked voice; its clips stay as unnamed evidence."""
+        key = newcomer['voice_track']
+        track = self.tracker.tracks.get(key)
+        if track is not None and track.person_id == newcomer['person_id']:
+            track.person_id, track.association = None, 'unresolved'
+        proposal = self.enrollments.pop(key, None)
+        if proposal is not None:
+            with self.store.transaction() as conn:
+                conn.executemany('UPDATE artifacts SET person_id=NULL WHERE capture_id=? AND person_id=?',
+                                 [(s[0].capture_id, newcomer['person_id']) for s in proposal.samples])
+            proposal.person_id = None
+            self.persist_evidence(proposal)
+        newcomer['voice_track'] = None
+        self.trace.emit('newcomer_voice_unlinked', person_id=newcomer['person_id'], track_id=key, reason=reason)
+
+    def gather_newcomer_face(self):
+        """Pool clear views of the one stranger's face in view for the one introduced person
+        still without a face, across the camera's track changes (owner ruling, October 20;
+        that night face tracks lasted a median half second). Views must look like the face
+        the introduction pointed at, when it had one, and like each other, and no saved
+        person may rival them; then they are saved under the introduced name."""
+        from .face_attribution import appearance, stranger, vetted_samples
+        turn, capture, transcript, observation, attribution = self.current
+        waiting = [n for n in self.newcomers.values() if n['face']]
+        strangers = [f for f in self.faces if stranger(f)]
+        if len(waiting) != 1 or len(strangers) != 1:
+            return
+        newcomer, face = waiting[0], strangers[0]
+        if newcomer['anchor'] is None:
+            newcomer['anchor'] = appearance(face)
+        anchor, pool = newcomer['anchor'], newcomer['pool']
+        if anchor is None:
+            return
+        frames = {s.frame_id for s in pool}
+        for sample in face.get('_samples', ()):
+            if (len(pool) < NEWCOMER_FACE_VIEWS and sample.eligible and sample.vector is not None
+                    and sample.session_id == capture.session_id and sample.frame_id not in frames
+                    and cosine(sample.vector, anchor) >= NEWCOMER_FACE_ANCHOR
+                    and all(cosine(sample.vector, kept.vector) >= .6 for kept in pool)):
+                pool.append(sample)
+                frames.add(sample.frame_id)
+        if len(pool) < 2 or max(s.at for s in pool) - min(s.at for s in pool) < .8:
+            return
+        samples, reason = vetted_samples(sorted(pool, key=lambda s: s.at), newcomer['person_id'], self.store)
+        if not samples:
+            pool.clear()   # A rival or conflict: start again from fresh views.
+            self.trace.emit('face_learning_deferred', person_id=newcomer['person_id'], reason=reason)
+            return
+        try:
+            with self.store.transaction() as conn:
+                saved = self.store.save_faces(conn, newcomer['person_id'], samples, newcomer['source_turn'],
+                    {'subject': 'other', 'said_by': newcomer['said_by'], 'basis': 'introduced_newcomer_sole_stranger_face'})
+                revision = self.store.advance(conn) if saved else self.store.revision
+        except Exception as exc:
+            pool.clear()
+            self.trace.emit('face_learning_failed', error_type=type(exc).__name__)
+            return
+        newcomer['face'] = False
+        pool.clear()
+        self.trace.emit('face_learning_saved', person_id=newcomer['person_id'], samples=saved, revision=revision,
+                        basis='introduced_newcomer')
+        if not newcomer['voice']:
+            self.newcomers.pop(newcomer['person_id'], None)
+
     def learn_faces(self):
         if self.frozen: return
         from .face_attribution import learning_samples
         turn,capture,transcript,observation,attribution = self.current
         visible = {f['track_id']:f for f in self.faces}
         self.face_learning = {k:v for k,v in self.face_learning.items() if k in visible and capture.ended_at<=v['expires']}
+        self.gather_newcomer_face()   # Faces, not words: an untrusted or echoed turn still shows them.
         if not transcript.trusted or capture.echo_risk or observation.mixed or capture.overlap is True or capture.truncated or capture.parent_capture_id:
             return
         # A supported voice and sole clear face can associate an already named person

@@ -12,6 +12,8 @@ from .voice_reflex import VoiceReflex
 
 # A picture asked for after a drive has a 3 s capture window from 0.3 s after the stop.
 LOOK_STILL_S = 4.
+# Speech heard this recently means the person is still talking: no listening cue now.
+STILL_TALKING_S = .3
 
 
 class RobotServos:
@@ -38,6 +40,7 @@ class RobotServos:
         self.on_startup = lambda: None   # Startup sounds begin with the wake choreography.
         self.on_shutdown = lambda: None  # The power-down sound begins with the park choreography.
         self._arm_return = None
+        self._speech_at = float('-inf')
 
     def _sequence(self, kind):
         result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.),Cancellation())
@@ -227,13 +230,19 @@ class RobotServos:
         self._arm_return.start()
 
     def note_speech(self):
+        """A person is speaking: idle movement and a listening cue stop so the rest is heard cleanly."""
+        self._speech_at = self.owner.clock()
         self.idle.stop()
+        self.reflex.settle()
 
     def heard(self):
         """A trusted transcript is back: cock the head while he thinks, unless he is
-        already talking. Calm idle movement steps aside so the cue is not refused busy."""
+        already talking or the person has carried on speaking. Calm idle movement steps
+        aside so the cue is not refused busy."""
         if self.talking._thread is not None:
             return 'talking'
+        if self.owner.clock() - self._speech_at < STILL_TALKING_S:
+            return 'person_still_talking'
         self.idle.stop()
         return self.reflex.heard()
 

@@ -358,3 +358,42 @@ class ListeningCueTests(unittest.TestCase):
         self.robot.talking.start('reply', Cancellation())               # Stops the cue before talking moves.
         self.robot.talking.stop()
         self.assertEqual(self.rows[0][1]['status'], 'cancelled')
+
+    def test_someone_talking_during_the_hold_stops_the_head_where_it_is_with_no_motion(self):
+        # October 20 (515d71db): people answered during the cock's hold and return, so 41 of 87
+        # longer clips counted as heard while he moved; a new voice never starts from those.
+        import threading
+        from r3x.servo_poses import LISTEN_TILT, head_pose
+        holding, proceed = threading.Event(), threading.Event()
+        def gated_wait(seconds):
+            self.clock.wait(seconds)
+            if self.robot.owner.busy and not self.robot.owner.motion_risk():
+                holding.set()
+                proceed.wait(2)
+        self.robot.owner.wait = gated_wait
+        self.assertEqual(self.robot.heard(), 'started')
+        self.assertTrue(holding.wait(2))
+        self.assertFalse(self.robot.owner.motion_risk())               # Holding still is not motion.
+        cocked = dict(self.port.pose)
+        self.robot.note_speech()
+        proceed.set(); self.settle()
+        self.assertEqual(self.rows[-1][1]['status'], 'cancelled')
+        self.assertEqual(self.port.pose, cocked)                        # No return beat: it stays cocked.
+        self.assertAlmostEqual(abs(head_pose(cocked)[1]), LISTEN_TILT, delta=.05)
+        self.assertFalse(self.robot.owner.motion_risk())               # Nothing travelled: no settle tail.
+
+    def test_no_cue_while_the_person_is_still_talking(self):
+        self.robot.note_speech()
+        self.assertEqual(self.robot.heard(), 'person_still_talking')
+        self.clock.wait(1.)
+        self.assertEqual(self.robot.heard(), 'started'); self.settle()
+
+    def test_the_cock_itself_is_motion_and_its_whir_does_not_stop_it(self):
+        seen = []
+        def sent():
+            if not seen:   # The cock's targets go out: its own whir heard as speech.
+                seen.append((self.robot.owner.travelling, self.robot.owner.motion_risk(), self.robot.reflex.settle()))
+        self.port.on_target = sent
+        self.assertEqual(self.robot.heard(), 'started'); self.settle()
+        self.assertEqual(seen, [(True, True, False)])
+        self.assertEqual(self.rows[-1][1]['status'], 'pulses_reached')

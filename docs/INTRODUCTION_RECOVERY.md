@@ -50,3 +50,30 @@ hardware or hosted service was modified or operated for this implementation.
 Next live acceptance: restart Rex, let Jeff introduce himself once and converse
 normally, then alternate with Bret. Check both enrollment progress and wrong-name
 versus unresolved outcomes, followed by another restart.
+
+## October 20: someone introduced by another person
+
+Owner ruling after run `515d71db`. The owner introduced his partner and told Rex several times
+to talk to him; fifteen minutes later nothing of the partner's face or voice was saved. The
+third-party introduction above deliberately linked no voice; face learning was tied to one
+camera track for 30 s while tracks lasted a median half second, and the model had pointed at the
+owner's own blurry face. Now `introduce_person` with subject=other opens a window for the visit
+(`NEWCOMER_SECONDS`, renewed whenever the name is said) while the person has no saved voice or face:
+
+- **Voice.** The one unnamed session voice with at least 1.5 voiced seconds, heard from two
+  minutes before the introduction, that is not the introducer's track and scores under .30
+  against every saved voice, becomes the person's hypothesis track and enrollment chain.
+  Another such voice heard on two clips links nothing and undoes an existing link (its clips
+  stay unnamed evidence); one odd clip, such as a laugh, does not. The voice is saved only by the existing chain: three compatible turns,
+  eight voiced seconds, rechecked against every other voice of the visit.
+- **Face.** Views of the one face that is neither recognized nor resembling a saved face
+  (`resembles`: .45 or more against a saved face at any point on that camera track) are pooled
+  across track changes. They must look like the
+  introduced face when it had an embedding (.45) and like each other (.6), and no saved face may
+  rival them; two views spanning 0.8 s are saved.
+- **Target.** A face the model names that is recognized as, or resembles, someone else is
+  replaced by the one stranger's face in view.
+- An objection from the newcomer does not stop gathering (owner); `forget_person` and
+  `cancel_association` do.
+
+Synthetic voices and faces only; not yet run on the robot.

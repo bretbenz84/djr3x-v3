@@ -316,7 +316,7 @@ class IdleMotion:
         """Begin the next phrase if the owner is free and a part is due (the lock is held)."""
         if self._thread is not None and self._thread.is_alive():
             return
-        if (now < self._resume or self.owner.state != 'active' or self.owner._motion.is_set()
+        if (now < self._resume or self.owner.state != 'active' or self.owner.busy
                 or getattr(self.owner, '_base_held', False)):
             return
         phrase = self._compose(now, calm)

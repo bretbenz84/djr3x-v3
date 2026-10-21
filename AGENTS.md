@@ -43,6 +43,12 @@ implemented. Update status and evidence when implementation actually lands.
   other voice or recognized person came up in ten minutes, and nobody has been
   silent for five. Also `inferred`, with the same exclusions; other voices are never
   tied to that person.
+- Someone introduced by another person is learned from the room (owner ruling, October 20):
+  while that person has no saved voice or face, the state owner links the one unknown voice
+  heard since shortly before the introduction (never the introducer's, nothing close to a
+  saved voice) and pools views of the one face that is neither recognized nor resembling a
+  saved face. Another unknown voice heard twice undoes the link; the voice still completes only through
+  the enrollment chain. A newcomer's objection does not stop it; forgetting does.
 - Personal facts retain source turns, speaker attribution, subject, and status.
   An uncertain speaker does not silently become the mentioned person.
 - Ordinary replies retain one primary model generation. Do not add a mandatory

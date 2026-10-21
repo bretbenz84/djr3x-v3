@@ -57,6 +57,8 @@ class FaceTrack:
     candidate: str | None = None
     candidate_since: float = 0.
     first_seen: float | None = None
+    resembles: str | None = None   # Whoever this track looked most like at CONTINUITY or more.
+    resembles_score: float = 0.
 
 
 class FaceTracker:
@@ -117,6 +119,9 @@ class FaceTracker:
                         self.sample_bytes -= self.sample_history.popleft()[2]
             ranked = rank_face(vector,profiles)
             score = ranked[0][1] if ranked else None
+            if ranked and score>=self.CONTINUITY and score>track.resembles_score:
+                track.resembles,track.resembles_score = ranked[0][0],score
+            if track.resembles not in profiles: track.resembles,track.resembles_score = None,0.
             margin = score-ranked[1][1] if len(ranked)>1 else (score+1 if ranked else None)
             candidate = ranked[0][0] if ranked and score>=self.ACCEPT and margin>=self.MARGIN else None
             if track.identity not in profiles: track.identity = None
@@ -137,6 +142,10 @@ class FaceTracker:
             seen.append({'track_id':key,'face_epoch':self.epoch,'box':list(box),'at':at,'track_first_seen':track.first_seen,
                 'position':'left' if center<.33 else 'right' if center>.67 else 'center',
                 'identity':track.identity,'evidence':'face_match' if track.identity else 'face_unresolved',
+                # Too weak to name, close enough on this track that it is not a stranger's face.
+                # October 20 (515d71db): Bret's blurry face (.77, then .41, never named) was
+                # taken for the newcomer's.
+                'resembles':track.resembles,
                 'similarity':score,'margin':margin,'face_width_px':sample.width if sample else None,
                 'detector_score':sample.detector_score if sample else None,
                 'sharpness':sample.sharpness if sample else None,
@@ -165,7 +174,9 @@ class FaceTracker:
             if row['track_id'] not in latest_tracks:continue
             if end-row['at']>1.: continue
             evidence = tuple(s for key,s,_ in self.sample_history if key==row['track_id'] and start<=s.at<=end)[-3:] if row['track_id'] in crop_targets else ()
+            track = self.tracks.get(row['track_id'])
             answer.append({**row,'sole_face_throughout':len(all_tracks)==1,
                 'newly_presented':row.get('track_first_seen',float('-inf'))>start+.5,
-                '_samples':evidence})
+                '_samples':evidence,
+                '_vector':track.vector if track else None})   # Appearance, also from a blurry view.
         return tuple(answer)

@@ -102,6 +102,14 @@ more). No setting. 1,109 blocked-I/O checks pass (synthetic, simulated servo boa
 head servos are, and whether it still fires during a reply that streams quickly are unseen on
 the robot.
 
+October 20 (`515d71db`): people answered during the 3 s hold, so 41 of 87 longer clips counted
+as heard while Rex moved; such clips never start a new voice, and the owner's clips during the
+cue matched his voice at a median .39 (.57 still, across 15 runs). The hold with every servo at
+its target is no longer motion (`QUIET_HOLD_KINDS`); speech during it stops the cue where it is
+with no return beat and no settle tail (`VoiceReflex.settle` from `RobotServos.note_speech`, never
+while the cock travels, whose whir can sound like speech); and no cue starts within 0.3 s of
+speech. Synthetic checks only; how the frozen cock looks on the robot is unseen.
+
 ## October 15: one stuck joint no longer freezes every servo
 
 Run `24279950`: after a 45° turn the throttle stayed tucked beside an obstacle. Seven seconds

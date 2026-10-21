@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 18, 2026. This is the consolidated
+Updated October 20, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,36 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## October 20 run: an introduced guest was never learned
+
+Session `515d71db` (24 minutes, real hardware, the owner and his partner Jeremy). The owner
+introduced Jeremy ("This is Jeremy Thomas", "get to know Jeremy", "talk to Jeremy") and Rex
+gathered none of his face or voice: the owner called it the biggest issue. Four causes, and the
+repairs (synthetic checks; **not yet run on the robot**):
+
+- **A third-party introduction linked no voice by design.** It now opens a window for the visit in
+  which the one unknown voice and the one stranger's face around are gathered under the
+  introduced name (owner ruling, AGENTS.md; details in
+  [introduction recovery](INTRODUCTION_RECOVERY.md#october-20-someone-introduced-by-another-person)).
+  A second unknown voice undoes the voice link; the voice still completes only through the
+  enrollment chain. A guest's objection does not stop it (owner); forgetting does.
+- **The listening head cock made new voices unlearnable.** 81 of 87 clips with a second or more of
+  speech overlapped Rex's motion, 41 of them the listening cue: people answered during its hold.
+  A clip heard during motion never starts a new voice. The still hold no longer counts as motion,
+  speech during it stops the cue where it is, and no cue starts while the person is mid-sentence.
+- **Face learning followed one camera track for 30 s;** tracks lasted a median 0.5 s (1,169 in 24
+  minutes). Views are now pooled across tracks, anchored on the introduced face.
+- **The model pointed at the owner's blurry face** (.77 against his saved face, unnamed) instead of
+  Jeremy's. Face rows now carry `resembles`, and a target that resembles someone else is replaced
+  by the one stranger's face in view.
+
+Also seen, not repaired here: speech came in pieces at 0.5 s pauses and about 95 prepared replies
+were dropped for newer speech; the microphone array placed only 44 of 268 utterances, so a
+two-minute-old voice direction from Jeremy sent Rex the wrong way when the owner said "We're over
+here"; approaches stopped about a metre from Jeremy, too close for him. 1358 of 1365 blocked-I/O checks pass (5 skipped); the GUI import check needs
+PySide6, which this environment lacks, and one dashboard operator check lost an existing race with
+idle motion once under full-suite load (it passes alone).
 
 ## October 18 afternoon run: "ignored" fired too soon, and a cake that was not there
 

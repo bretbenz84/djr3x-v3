@@ -23,6 +23,11 @@ HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement th
 # Requests that only run once he is awake (after startup, before park).
 AWAKE_KINDS = frozenset({'talking', 'idle', 'pose', 'reflex', 'listening', 'base_park', 'base_release',
                          'attention', 'gesture', 'operator'})
+# Requests whose still hold between beats is not motion. October 20 (515d71db): people answered
+# during the listening cue's 3 s hold, so 41 of 87 longer clips counted as heard while Rex moved;
+# such clips never start a new voice, and Jeremy's never did.
+QUIET_HOLD_KINDS = frozenset({'listening'})
+SETTLE_SECONDS = .5   # Motion risk lasts this long after the servos stop.
 
 
 @dataclass(frozen=True)
@@ -172,6 +177,16 @@ class ServoOwner:
     def motion_risk(self) -> bool:
         return self._motion.is_set() or self._arm_returning or self.clock() < self.motion_until
 
+    @property
+    def travelling(self) -> bool:
+        """A servo request is under way and not merely holding still."""
+        return self._motion.is_set()
+
+    @property
+    def busy(self) -> bool:
+        """A servo request, including a quiet hold, owns the board."""
+        return self._lock.locked()
+
     def human_hold_active(self):
         """A pose a person asked for blocks Rex's own movement only while it is recent.
 
@@ -185,7 +200,7 @@ class ServoOwner:
     def yield_stale_hold(self):
         """Drop an aged pose hold before Rex's own beat; a recent one stays."""
         kept = self.kept_channels
-        if (self.held_channels - kept and not self.human_hold_active() and not self._motion.is_set()
+        if (self.held_channels - kept and not self.human_hold_active() and not self.busy
                 and not self._base_held and not self._arm_returning):  # Never the drive stance or a returning arm.
             self.held_channels.intersection_update(kept)   # An arm kept clear of an obstacle stays.
             return True
@@ -272,6 +287,7 @@ class ServoOwner:
         touched = set()
         accepted = False
         reframed = False
+        holding = False   # A QUIET_HOLD_KINDS request has arrived and holds still.
         try:
             if self.state not in {'ready', 'active', 'stopped'} or self._bus is None:
                 return receipt('rejected', 'ServoUnavailableOrParked')
@@ -372,6 +388,9 @@ class ServoOwner:
                                 self.camera_moving = True
                                 self.on_camera_motion(True, request.request_id, request.kind)
                         touched.update(targets)  # Include partially sent batches on failure.
+                        if holding:
+                            self._motion.set()
+                            holding = False
                         self._bus.targets(targets)
                         changed.update(changes)
                         self.commanded.update(targets)
@@ -402,6 +421,13 @@ class ServoOwner:
                             lagging = ','.join(f'ch{ch}@{observed[ch]}->{value}' for ch, value in beat.targets
                                                if abs(observed[ch] - value) > 2)
                             raise ProviderFailure('ServoArrivalTimeout:' + lagging)
+                if (request.kind in QUIET_HOLD_KINDS and not holding and active
+                        and all(arrived is not None for _, arrived in active.values())):
+                    # Every servo is at its target, dwelling: nothing travels until the next beat.
+                    self.motion_until = max(self.motion_until,
+                                            max(arrived for _, arrived in active.values()) + SETTLE_SECONDS)
+                    self._motion.clear()
+                    holding = True
                 if len(completed) < len(lanes) or active:
                     self.wait(.025)
             cancel.check()
@@ -458,7 +484,8 @@ class ServoOwner:
                     self.on_camera_motion(False, request.request_id, request.kind)
             finally:
                 if accepted:
-                    self.motion_until = self.clock() + .5
+                    if not holding:   # Stopped mid-hold, nothing was travelling: no settle tail.
+                        self.motion_until = self.clock() + SETTLE_SECONDS
                     if self.microphone_moved_until == float('inf'):
                         self.microphone_moved_until = self.motion_until
                         self.microphone_still_since = self.clock()

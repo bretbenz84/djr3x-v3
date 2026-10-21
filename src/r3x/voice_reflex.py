@@ -13,6 +13,9 @@ camera is the precise sensor. This only aims the head; it attributes no speaker.
 The same worker gives the listening cue (owner, October 11): once a trusted transcript
 is back, the head cocks to one side while Rex thinks (servo_poses.listening_lanes).
 Anything that moves him deliberately (talking, a pose, a gesture, a drive) stops it first.
+A person speaking stops it where it is (settle), and it does not start while they are
+mid-sentence: October 20 (515d71db), clips heard during the cue matched Bret's voice at a
+median .39 against .57 still, and none of them could start a new person's voice.
 """
 from dataclasses import asdict
 import random
@@ -43,6 +46,7 @@ class VoiceReflex:
         self._lock = threading.Lock()
         self._thread = None
         self._cancel = None
+        self._listening = None   # (cancellation, thread) of the latest listening cue.
         self._index = 0
         self.closed = False
 
@@ -108,8 +112,21 @@ class VoiceReflex:
                 if self.trace:
                     self.trace.emit('listening_cue', side=side, **asdict(result))
             self._thread = threading.Thread(target=run, name='r3x-listening-cue', daemon=True)
+            self._listening = (token, self._thread)
             self._thread.start()
             return 'started'
+
+    def settle(self) -> bool:
+        """A person is talking: a running listening cue stops where it is and the head holds
+        still, so the rest of what they say is heard cleanly. Only while it holds: the cock's
+        own whir can sound like speech. Called from the audio loop, so it takes no lock and
+        joins nothing; the servo owner sees the cancel within a step."""
+        listening = self._listening
+        if (listening is None or listening[0].event.is_set() or not listening[1].is_alive()
+                or self.owner.travelling):
+            return False
+        listening[0].event.set()
+        return True
 
     def _stop(self):
         if self._cancel:
