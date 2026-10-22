@@ -15,7 +15,8 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
-                          UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS)
+                          UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
+                          VISOR_RAISE_SECONDS, visor_over_eyes)
 
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
 ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})   # The arms the drive stance moved: walked back after the wheels stop.
@@ -209,9 +210,17 @@ class ServoOwner:
         kept = self.kept_channels
         if (self.held_channels - kept and not self.human_hold_active() and not self.busy
                 and not self._base_held and not self._arm_returning):  # Never the drive stance or a returning arm.
-            self.held_channels.intersection_update(kept)   # An arm kept clear of an obstacle stays.
+            # A shut visor stays shut: let go, idle motion would drift it open without a word.
+            # Rex raises it himself when he wants to see again (may_raise_visor).
+            shut = {3} if 3 in self.held_channels and visor_over_eyes(self.commanded) else set()
+            self.held_channels.intersection_update(kept | shut)   # An arm kept clear of an obstacle stays.
             return True
         return False
+
+    def may_raise_visor(self):
+        """A person shut his visor and has asked nothing newer of him for a while: he may raise it."""
+        return (visor_over_eyes(self.commanded) and not self.hold_until_released
+                and self.clock() - self.pose_held_at >= VISOR_RAISE_SECONDS)
 
     def release_microphone_hold(self):
         self.microphone_hold = (0., 0.)
@@ -335,8 +344,9 @@ class ServoOwner:
                 return receipt('rejected', 'ArmKeptClearOfObstacle:' + ','.join(sorted(self.kept_arms)))
             if request.kind == 'pose' and not request.hold_pose:
                 channels = {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
+                own_visor = request.pose == 'visor_up' and self.may_raise_visor()
                 if request.pose == 'release_poses' or (
-                        channels.intersection(self.held_channels) and self.human_hold_active()):
+                        channels.intersection(self.held_channels) and self.human_hold_active() and not own_visor):
                     return receipt('rejected', 'AgencyCannotOverrideHeldPose')
                 self.held_channels.difference_update(channels)  # An aged hold gives way.
             self.version += 1

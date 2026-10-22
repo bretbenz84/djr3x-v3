@@ -48,7 +48,11 @@ Owner: since the stale-goal change he speaks less, the pauses between his own li
   the visor, arms, lights or wheels moved ("Visor up." came with a nod). Shut, the visor covers his
   eyes (owner: it "effectively blinds him"): while it is (nearly) fully down the context says he
   sees nothing, and lowering it, and now and then while it stays shut, he makes light of his own
-  dark ("Oh wow, it's dark in here"), never of blind people.
+  dark ("Oh wow, it's dark in here"), never of blind people. A shut visor no longer drifts open
+  when a person's hold ages out (idle motion took it back after 90 s, without a word). Fifteen
+  seconds after a person shuts it, with nothing newer asked of him, it is his to raise: any lull
+  beat may raise it (and only it) with a line that leans in ("I kept it down for you, but I really
+  wanted to see again. It was dark in here!"), unless they asked him to keep it down.
 - **Lights.** `compliment` is now `sparkle` and lights the chest only (it also lit the eyes and ran
   the mouth). A wordless light request while answering someone is asked once for its line.
 - **Looks back.** Look beats can look back at the people (`shift_attention` target `people`,

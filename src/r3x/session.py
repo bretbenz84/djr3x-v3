@@ -949,9 +949,12 @@ class Session:
                     'arms_held_until_told': bool(getattr(owner,'hold_until_released',False)),
                     # October 11: tucked after a drive because something is within reach.
                     'arms_tucked_for_obstacle': sorted(getattr(owner,'kept_arms',()))}
+                own_visor = bool(getattr(owner, 'may_raise_visor', lambda: False)())
                 if visor_over_eyes(commanded):
-                    context['visor_over_eyes'] = {'closed': True, 'meaning': GUIDE['visor_over_eyes']}
-                if opportunity and held - set(getattr(owner,'kept_channels',())): context['robot_pose_enabled']=False
+                    context['visor_over_eyes'] = {'closed': True, 'yours_to_raise': own_visor, 'meaning':
+                        GUIDE['visor_over_eyes (yours to raise)' if own_visor else 'visor_over_eyes']}
+                if opportunity and held - set(getattr(owner,'kept_channels',())) - ({3} if own_visor else set()):
+                    context['robot_pose_enabled']=False
             if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:
                 context['drive'] = self.output.drive.context('self_initiated' if opportunity else 'requested',
                     speaker_direction=None if opportunity else (context.get('speaker') or {}).get('direction'),

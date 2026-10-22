@@ -94,6 +94,12 @@ GUIDE = {
                         'it\'s dark in here", "who turned out the lights?", "nobody move, I can\'t find you"), never '
                         'the same way twice. The joke is on your own situation, never on blind people or blindness. '
                         'You may ask them to raise it.'),
+    'visor_over_eyes (yours to raise)': (
+        'Your visor is shut over your eyes and you see nothing; faces and the room are what you saw before it '
+        'closed. It has been down a while: whenever you want to see again you may raise it yourself '
+        '(set_robot_pose with visor_up), and lean into it in its text ("I kept it down for you, but I really '
+        'wanted to see again. It was dark in here!"). Keep it shut if they asked you to keep it down. Joke about '
+        'your own darkness, never about blind people or blindness.'),
     'claims': ('Saved facts about everyone, with ids for correct_claim and retract_claim. The facts of '
                'personal_memory\'s person are listed only there (interests_and_facts, same ids).'),
 }

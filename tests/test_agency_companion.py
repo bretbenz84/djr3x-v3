@@ -190,6 +190,7 @@ class PhysicalPlanTests(MemoryFixture):
                 runtime=HealthyRuntime(None,None,None,self.session,trace)
                 runtime.started_at=self.clock()-10
                 self.state.agency.human_spoke(None,self.clock())
+                self.state.agency.plan_started=float('-inf')   # Each round plans its own move beat.
                 self.brain.text=ToolCall('pose','set_robot_pose',{'poses':['look_left','look_right'],'look_after':None,'say_before':None,'text':None})
                 value=draft();value['steps']=[{**value['steps'][0],'kind':'pose','instruction':'Look left then right.'}]
                 planner=Planner();planner.choose=lambda f,c:deepcopy(value)

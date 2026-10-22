@@ -210,6 +210,8 @@ class CoreState:
         from .leds import LIGHT_STEPS
         poses = call.arguments['poses']
         if not poses or any(p not in POSE_COMMANDS and p not in LIGHT_STEPS for p in poses): raise ValueError('UnknownRobotPose')
+        if (context.get('agency_step') or {}).get('kind', 'pose') != 'pose' and list(poses) != ['visor_up']:
+            raise ValueError('OnlyHisOwnVisorThisBeat')   # A pose on another kind of beat raises the visor, nothing else.
         if any(p in LIGHT_STEPS and not (context.get('led_enabled') and LIGHT_STEPS[p] in context.get('led_patterns',()))
                for p in poses): raise ValueError('LEDPatternUnavailable')
         if call.arguments['look_after'] is not None and not context.get('inspection_enabled'):

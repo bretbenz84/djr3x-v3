@@ -229,7 +229,7 @@ def plans_noon(day):
 class VisorOverEyesTests(memory_tests.MemoryFixture):
     # Owner, October 22: closing the visor "effectively blinds him"; he should know it and joke
     # about his own dark, never about blind people.
-    def context_with_visor(self, pulses):
+    def context_with_visor(self, pulses, raise_it=False):
         from r3x.servo_poses import DRIVE_HEAD, NECK_CENTER
         from r3x.scenario import SyntheticSink
         from tests.test_voice_core import Brain
@@ -237,7 +237,7 @@ class VisorOverEyesTests(memory_tests.MemoryFixture):
         output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace)
         output.robot = SimpleNamespace(owner=SimpleNamespace(state='active', held_channels=set(),
             commanded={0: NECK_CENTER, **dict(DRIVE_HEAD), 3: pulses}, hold_until_released=False,
-            kept_arms=(), kept_channels=()), idle=SimpleNamespace(mode=lambda: 'people'))
+            kept_arms=(), kept_channels=(), may_raise_visor=lambda: raise_it), idle=SimpleNamespace(mode=lambda: 'people'))
         session = Session('session', brain, output, self.state.trace, self.state)
         self.addCleanup(session.close)
         self.begin('Can you lower your visor?')
@@ -252,6 +252,62 @@ class VisorOverEyesTests(memory_tests.MemoryFixture):
         self.assertEqual(self.context_with_visor(VISOR_DOWN)['visor_over_eyes']['meaning'], GUIDE['visor_over_eyes'])
         for pulses in (VISOR_OPEN, VISOR_UP):
             self.assertNotIn('visor_over_eyes', self.context_with_visor(pulses))
+        later = self.context_with_visor(VISOR_DOWN, raise_it=True)['visor_over_eyes']
+        self.assertEqual((later['yours_to_raise'], later['meaning']), (True, GUIDE['visor_over_eyes (yours to raise)']))
+        self.assertIn('I kept it down for you', GUIDE['visor_over_eyes (yours to raise)'])
         self.assertIn('never on blind people', GUIDE['visor_over_eyes'])
         pose = next(t for t in TOOLS if t['name'] == 'set_robot_pose')['description']
         self.assertIn("it's dark in here", pose)
+
+
+class RaisingHisOwnVisorTests(memory_tests.MemoryFixture):
+    # Owner, October 22: "he should be able to choose to raise his own visor if he wants to after a
+    # while" (about 15 s, not the 90 s other poses wait); until then a shut visor stays shut.
+    def owner(self):
+        from r3x.servos import ServoOwner
+        clock = test_servos.Clock()
+        port = test_servos.PulsePort()
+        owner = ServoOwner(lambda: port, medium='simulation', clock=clock, wait=clock.wait)
+        owner.start(); self.addCleanup(owner.close)
+        owner.execute(ServoRequest('boot', owner.version, 'startup', clock() + 120), Cancellation())
+        return owner, clock, port
+
+    def test_after_a_while_he_may_raise_it_and_until_then_it_stays_shut(self):
+        from r3x.servo_poses import VISOR_DOWN, VISOR_RAISE_SECONDS, VISOR_UP
+        owner, clock, port = self.owner()
+        person = owner.execute(ServoRequest('down', owner.version, 'pose', clock() + 60, pose='visor_down'), Cancellation())
+        self.assertEqual(person.status, 'pulses_reached')
+        def his_own():
+            return owner.execute(ServoRequest(uuid4().hex, owner.version, 'pose', clock() + 60, pose='visor_up',
+                                              hold_pose=False), Cancellation())
+        clock.wait(VISOR_RAISE_SECONDS - 5)
+        self.assertFalse(owner.may_raise_visor())
+        self.assertEqual(his_own().reason, 'AgencyCannotOverrideHeldPose')
+        clock.wait(6)
+        self.assertTrue(owner.may_raise_visor())
+        clock.wait(90)                                         # Other holds have long given way...
+        self.assertTrue(owner.yield_stale_hold())
+        self.assertIn(3, owner.held_channels)                  # ...but idle never drifts it open.
+        self.assertEqual(port.pose[3], VISOR_DOWN)
+        self.assertEqual(his_own().status, 'pulses_reached')
+        self.assertEqual(port.pose[3], VISOR_UP)
+        self.assertNotIn(3, owner.held_channels)
+
+    def test_a_beat_offers_it_and_may_only_raise_the_visor(self):
+        from r3x.agency import AgencyPlan
+        from r3x.present import Present
+        from r3x.semantics import grounded_tools
+        plan = AgencyPlan(self.store, self.state.trace, Present())
+        plan.install(plan_of(2), '[]', {}, {'contribute'}, plan.revision, 10.)
+        step = plan.step(11.)
+        base = {'agency_step': step, 'robot_pose_enabled': True, 'conversation_intent': {'revision': 0}}
+        self.assertNotIn('set_robot_pose', {t['name'] for t in grounded_tools(base)})
+        shut = {**base, 'visor_over_eyes': {'closed': True, 'yours_to_raise': True}}
+        self.assertIn('set_robot_pose', {t['name'] for t in grounded_tools(shut)})
+        call = ToolCall('wave', 'set_robot_pose', {'say_before': None, 'poses': ['wave'], 'look_after': None, 'text': 'Hi.'})
+        context = {**shut, 'state_revision': self.store.revision}
+        with self.assertRaisesRegex(ValueError, 'OnlyHisOwnVisorThisBeat'):
+            self.state.propose_pose(call, context, Cancellation())
+        raised = ToolCall('up', 'set_robot_pose', {'say_before': None, 'poses': ['visor_up'], 'look_after': None,
+                                                   'text': 'I kept it down for you, but it was dark in here!'})
+        self.assertEqual(self.state.propose_pose(raised, context, Cancellation()), ('visor_up',))

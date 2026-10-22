@@ -1051,6 +1051,11 @@ def pose_channels(name) -> tuple[int, ...]:
     return tuple(ch for ch, _ in NAMED_POSES.get(name, ()))
 
 
+# Owner, October 22: once a person has shut his visor and this long has passed with no newer pose
+# asked of him, Rex may raise it himself ("I kept it down for you, but I really wanted to see again").
+VISOR_RAISE_SECONDS = 15.
+
+
 def visor_over_eyes(commanded) -> bool:
     """The visor is shut over the camera, his eyes. Owner, October 22: closing it "effectively blinds
     him". Where it starts to cover the camera is not measured, so only (nearly) fully down counts."""

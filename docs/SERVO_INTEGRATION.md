@@ -356,7 +356,10 @@ and eases both back; it is a reply-model gesture and a `set_robot_pose` step. Th
 mirrored guess (open 5120) was replaced by these readings. October 22 (run 1072c10a): `visor_up` went to the open neutral, inside
 the range the visor already wanders while he talks and idles, so "raise your visor all the way"
 moved nothing visible. It now holds 1150 µs (4600), fully open and a little short of the surprise
-limit so the held servo is not pressed against its stop. Not yet checked on the robot.
+limit so the held servo is not pressed against its stop. Shut by a person, the visor stays shut when
+their hold ages out (idle motion would otherwise drift it open), and after 15 s with nothing newer
+asked Rex may raise it himself (`ServoOwner.may_raise_visor`, `VISOR_RAISE_SECONDS`); other holds
+still yield after 90 s. Not yet checked on the robot.
 
 **First live run (session `f07e53af`, October 10 evening).** The wake choreography,
 `tilt_left`, `tilt_right`, `look_level`, `look_up`, `look_down` and `poker_up` all reached
