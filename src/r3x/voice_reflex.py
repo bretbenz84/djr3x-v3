@@ -101,8 +101,9 @@ class VoiceReflex:
             if self._thread is not None and self._thread.is_alive():
                 return 'already_turning'
             _, tilt = head_pose(self.owner.commanded) if set(HEAD_PAIR).issubset(self.owner.commanded) else (0., 0.)
-            # Away from a lean the head already has, so the cock is always visible.
-            side = (-1 if tilt > 0 else 1) if abs(tilt) > .2 else self.rng.choice((-1, 1))
+            # On the side of a lean the head already has (October 21: cocking away from it swung
+            # the head across, left then right, as a person went on talking); straight, either side.
+            side = (1 if tilt > 0 else -1) if abs(tilt) > .1 else self.rng.choice((-1, 1))
             self._index += 1
             request = ServoRequest(f'listening:{self._index}', self.owner.version, 'listening',
                                    self.owner.clock()+10., side=side)

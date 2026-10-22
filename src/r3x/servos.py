@@ -320,7 +320,7 @@ class ServoOwner:
                      pose_lanes(request.pose,current,further=request.hold_pose) if request.kind == 'pose' else
                      pose_lanes(dict(request.pose),current) if request.kind == 'operator' else
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
-                     listening_lanes(current, request.side) if request.kind == 'listening' else
+                     listening_lanes(current, request.side, self.rng) if request.kind == 'listening' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))
             if self._arm_returning and (request.kind in {'base_park', 'park', 'shutdown'} or any(

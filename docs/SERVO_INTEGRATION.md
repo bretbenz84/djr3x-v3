@@ -6,6 +6,24 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 21 (later still): the listening cue eases in, varies and stays on one side
+
+Owner, on the robot: while he is spoken to the head tilts left and right, not smoothly, so the
+whole picture wobbles, and it repeats itself. That is the listening cue (October 11): on each
+trusted transcript the two head servos snapped to a 0.35 cock at board speed 35, the same
+every time, and each new cue cocked away from the lean the last one left, so a person's run of
+sentences swung the head across and back.
+
+- `listening_lanes` now eases the cock and its return on the head's minimum-jerk curve
+  (`LISTEN_EASE`: 0.6 s + 0.05 s per degree, about 0.8-1 s; both servos arrive together, board
+  speeds of 12 or less), with a different amount (0.2-0.35) and dip (0.03-0.08) each time.
+- A head already leaning (more than 0.1) cocks on that same side; a straight head picks either.
+  The 3 s hold, the stop-where-it-is when the person speaks during the hold, and the gating are
+  unchanged. Small cocks no longer count as a new camera view (`head_reframes`), as in idle.
+
+A flaky check from the previous change (which channels a cancelled talking cycle holds) now
+records the hold itself instead of reading writes after the cancel. Synthetic only.
+
 ## October 21 (late night): the throttle keeps going, a gentler wrist, a fully relaxed shoulder
 
 Owner, on the robot: the throttle arm still stopped the moment he stopped speaking, its wrist was

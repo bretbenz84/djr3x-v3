@@ -1084,19 +1084,24 @@ def reflex_lanes(target):
 # Owner, October 11: the moment Rex has understood what was said, his head cocks to one
 # side and stays there while he thinks, so people see he heard them before his answer
 # (about 2.5 s later) begins. Talking sway straightens the head when the reply starts.
-LISTEN_TILT = .35            # Fraction of side travel: more than idle's 0.15-0.3, less than the 0.6 'tilt' gesture.
+# October 21 (owner): it snapped over at board speed 35, the camera wobbled, and it was the
+# same cock every time. It now eases in and out on the head's curve and varies.
+LISTEN_TILT = (.2, .35)      # Fraction of side travel, different each time: up to idle's cock and a bit more.
+LISTEN_DIP = (.03, .08)      # A touch down, also varied.
 LISTEN_HOLD_SECONDS = 3.     # Roughly model plus voice time; a reply starting sooner takes over.
+LISTEN_EASE = (.6, .05)      # Gentler than talking: about 0.8-1 s in, and as long back.
 
 
-def listening_lanes(current, side):
-    """The 'I heard you' cock: the two head servos only, quickly to one side and a touch
+def listening_lanes(current, side, rng=None):
+    """The 'I heard you' cock: the two head servos only, easing to one side and a touch
     down, held, then back to where the head was. side is -1 (Rex's left) or 1 (his right)."""
     if side not in (-1, 1): raise ValueError('ListeningSideRequired')
+    rng = rng or random.Random()
     pitch0, _ = head_pose(current)
     start = tuple((ch, current[ch]) for ch in HEAD_PAIR)
-    cocked = tuple(head_pulses(pitch0 - .05, side * LISTEN_TILT).items())
-    lane = (Beat(cocked, speed=35, acceleration=8, dwell=LISTEN_HOLD_SECONDS),
-            Beat(start, speed=20, acceleration=6))
+    cocked = tuple(head_pulses(pitch0 - rng.uniform(*LISTEN_DIP), side * rng.uniform(*LISTEN_TILT)).items())
+    lane = (eased_head_beat(current, cocked, dwell=LISTEN_HOLD_SECONDS, pace=LISTEN_EASE),
+            eased_head_beat({**current, **dict(cocked)}, start, pace=LISTEN_EASE))
     for beat in lane:
         validate_pose(dict(beat.targets))
     return (lane,)

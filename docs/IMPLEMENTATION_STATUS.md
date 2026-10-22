@@ -37,6 +37,8 @@ liveliness of talking for about 20 s; the throttle arm moves firmly in bouts and
 between them; the poker arm sways while he speaks. Synthetic checks only.
 Then: the throttle finishes its talking move at its own pace and goes straight on, its wrist
 is gentler, and at rest the shoulder relaxes fully (through the tuck). Synthetic checks only.
+The listening cue (head cock as he hears you) now eases in and out, varies, and stays on one
+side across a run of sentences instead of swinging across. Synthetic checks only.
 
 ## October 20 run: an introduced guest was never learned
 

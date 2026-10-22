@@ -318,7 +318,7 @@ class ListeningCueTests(unittest.TestCase):
         before = dict(self.port.pose)
         self.assertEqual(self.robot.heard(), 'started'); self.settle()
         (cocked_at, cocked), (back_at, back) = self.settled()
-        self.assertAlmostEqual(abs(head_pose(cocked)[1]), LISTEN_TILT, delta=.05)
+        self.assertTrue(LISTEN_TILT[0] - .05 <= abs(head_pose(cocked)[1]) <= LISTEN_TILT[1] + .05)
         self.assertGreaterEqual(back_at - cocked_at, LISTEN_HOLD_SECONDS)
         for ch in (0, 1, 3, 4, 5, 7):                       # Only the two head servos move; never the array arm.
             self.assertEqual(cocked[ch], before[ch])
@@ -326,12 +326,29 @@ class ListeningCueTests(unittest.TestCase):
         self.assertEqual(self.rows[-1][1]['status'], 'pulses_reached')
         self.assertEqual(self.robot.owner.held_channels, set())   # Nobody's pose: nothing is held.
 
-    def test_cocks_away_from_a_lean_the_head_already_has(self):
+    def test_stays_on_the_side_of_a_lean_the_head_already_has(self):
+        # October 21: cocking away from a lean swung the head across, left then right, as the
+        # person went on talking. A head already leaning stays on that side.
         from r3x.servo_poses import head_pose, head_pulses
-        self.robot.execute_pose(head_pulses(0., .4), Cancellation(), 'lean', hold_pose=False)
-        self.poses.clear()
-        self.assertEqual(self.robot.heard(), 'started'); self.settle()
-        self.assertLess(head_pose(self.settled()[0][1])[1], 0.)
+        for lean in (.4, -.3):
+            self.robot.execute_pose(head_pulses(0., lean), Cancellation(), 'lean', hold_pose=False)
+            self.poses.clear()
+            self.assertEqual(self.robot.heard(), 'started'); self.settle()
+            self.assertGreater(head_pose(self.settled()[0][1])[1] * lean, 0.)
+
+    def test_the_cock_eases_in_and_out_and_varies(self):
+        # October 21: it snapped over at board speed 35 (the picture wobbled) and was the same
+        # every time. Both head servos now ease along one curve, and the amount varies.
+        from r3x.servo_poses import LISTEN_EASE, head_pose
+        tilts = set()
+        for _ in range(6):
+            self.port.packets.clear(); self.poses.clear()
+            self.assertEqual(self.robot.heard(), 'started'); self.settle()
+            speeds = [p[2] + 128 * p[3] for p in self.port.packets if p[0] == 0x87 and p[1] in (2, 11)]
+            self.assertTrue(speeds); self.assertLessEqual(max(speeds), 12)       # Was 35.
+            tilts.add(round(abs(head_pose(self.settled()[0][1])[1]), 2))
+            self.robot.execute_pose('look_level', Cancellation(), 'level', hold_pose=False)
+        self.assertGreater(len(tilts), 3)
 
     def test_a_held_head_pose_and_his_own_talking_are_left_alone(self):
         self.robot.execute_pose('look_up', Cancellation(), 'asked')     # A person asked: the head is held.
@@ -379,7 +396,7 @@ class ListeningCueTests(unittest.TestCase):
         proceed.set(); self.settle()
         self.assertEqual(self.rows[-1][1]['status'], 'cancelled')
         self.assertEqual(self.port.pose, cocked)                        # No return beat: it stays cocked.
-        self.assertAlmostEqual(abs(head_pose(cocked)[1]), LISTEN_TILT, delta=.05)
+        self.assertTrue(LISTEN_TILT[0] - .05 <= abs(head_pose(cocked)[1]) <= LISTEN_TILT[1] + .05)
         self.assertFalse(self.robot.owner.motion_risk())               # Nothing travelled: no settle tail.
 
     def test_no_cue_while_the_person_is_still_talking(self):

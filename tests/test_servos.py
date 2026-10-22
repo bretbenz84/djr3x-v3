@@ -355,21 +355,20 @@ class ServoTests(unittest.TestCase):
         from r3x.servos import COAST
         self.owner.start()
         self.execute()
+        hold = self.owner._hold
         for coasting in (COAST, frozenset()):
-            token, sent = Cancellation(), []
+            token, sent, held = Cancellation(), [], []
             def cancel_later():
                 sent.append(1)
                 if len(sent) == 12:
                     self.owner.coasting = coasting
                     token.event.set()
             self.port.on_target = cancel_later
-            before = len(self.port.packets)
+            self.owner._hold = lambda channels: (held.append(set(channels)), hold(channels))
             self.assertEqual(self.owner.execute(self.request('talking'), token).status, 'cancelled')
-            self.port.on_target = lambda: None
+            self.port.on_target, self.owner._hold = (lambda: None), hold
             self.owner.coasting = frozenset()
-            writes = [p for p in self.port.packets[before:] if p[0] in (0x84, 0x9F)]
-            held = writes[12:]   # The hold that followed the cancellation.
-            channels = {ch for p in held for ch in ((p[1],) if p[0] == 0x84 else range(p[2], p[2] + p[1]))}
+            channels = set().union(*held)   # What the cancellation held.
             self.assertTrue(channels & {0, 1, 2, 11})                          # The head is held either way.
             if coasting:
                 self.assertFalse(channels & COAST, channels)                       # The arms run on.
