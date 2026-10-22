@@ -32,6 +32,9 @@ Later the same evening, after a robot run (fluid but slow, little looking around
 idle moves are quicker with more frequent, wider glances and room looks and drift through each
 phrase; talking moves the head, and the hero elbow and wrist, on the same eased curve, varied
 each time, with the arm and visor starting just after the head. Synthetic checks only.
+After a second robot run: a line that plays out lets the arms run on and idle carries the
+liveliness of talking for about 20 s; the throttle arm moves firmly in bouts and rests lower
+between them; the poker arm sways while he speaks. Synthetic checks only.
 
 ## October 20 run: an introduced guest was never learned
 

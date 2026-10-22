@@ -186,6 +186,46 @@ class IdleTests(unittest.TestCase):
         self.assertGreater(len(aims),60)                              # Somewhere different each time.
         self.assertLess(max(spreads),.2)
 
+    def test_after_a_line_the_arms_carry_on_at_once_and_slow_to_idle_pace(self):
+        # Owner, October 21: when speech ended the arms froze for a few seconds before idle
+        # moved them; alive, then suddenly not. Now they move at once and slow down over time.
+        self.execute('startup');self.clock.wait(30.)
+        for part in self.idle._due:self.idle._due[part]=self.clock()+60.   # Nothing due on its own.
+        self.idle.after_speech()
+        early=self.run_scheduler(3.)
+        self.assertTrue(early and early[0][0]-self.clock()+3.<=.3,early)     # Moving within moments...
+        self.assertTrue(any({4,5}&channels for _,channels in early))         # ...the hero arm among them,
+        self.assertTrue(any({6,12,13}&channels for _,channels in early))     # and the poker arm.
+        self.assertGreater(self.idle.energy(self.clock()-3.),.95)
+        self.assertLess(self.idle.energy(self.clock()+20.),.05)              # About 20 s later: idle pace.
+        def arm_moves(seconds):
+            return sum(bool({4,5,8,9,10}&channels) for _,channels in self.run_scheduler(seconds))
+        self.idle.after_speech();lively=arm_moves(10.)
+        self.clock.wait(30.);calm=arm_moves(10.)
+        self.assertGreater(lively,calm)
+
+    def test_the_throttle_arm_moves_firmly_in_bouts_and_rests_lower_between(self):
+        # Owner, October 21: its stiff joints slipped during the slow idle glide, and held
+        # half-raised it looked like someone straining to keep an arm up.
+        from r3x.servo_poses import THROTTLE,THROTTLE_MIN_SPEED,THROTTLE_RELAXED
+        self.execute('startup');self.clock.wait(.6)
+        relaxed=[dict(p) for p in THROTTLE_RELAXED]
+        poses,speeds=[],[]
+        end=self.clock()+400.
+        while self.clock()<end:
+            before=len(self.port.packets)
+            self.idle.tick(True)
+            if self.idle._thread is not None:
+                self.idle._thread.join(2)
+                for p in self.port.packets[before:]:
+                    if p[0]==0x87 and p[1] in THROTTLE:speeds.append(p[2]+128*p[3])
+            poses.append((self.clock(),{ch:self.port.pose[ch] for ch in THROTTLE}))
+            self.clock.wait(.25)
+        lowered=sum(pose in relaxed for _,pose in poses)/len(poses)
+        self.assertGreater(lowered,.3)                         # Much of the time it rests lower...
+        self.assertLess(lowered,.9)                            # ...between bouts of movement.
+        self.assertTrue(speeds);self.assertGreaterEqual(min(speeds),THROTTLE_MIN_SPEED)   # Never a creep.
+
     def test_bigger_idle_head_moves_take_longer(self):
         from r3x.servo_poses import eased_head_beat,head_pulses
         start={0:NECK_CENTER,1:3600,**head_pulses(0.,0.)}

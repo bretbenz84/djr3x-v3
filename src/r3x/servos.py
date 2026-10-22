@@ -28,6 +28,11 @@ AWAKE_KINDS = frozenset({'talking', 'idle', 'pose', 'reflex', 'listening', 'base
 # such clips never start a new voice, and Jeremy's never did.
 QUIET_HOLD_KINDS = frozenset({'listening'})
 SETTLE_SECONDS = .5   # Motion risk lasts this long after the servos stop.
+# Owner, October 21: at the end of a line every arm froze mid-move. When a line finishes
+# normally the arms and visor run on to the targets already sent (the head and microphone arm
+# are still held); motion risk covers that run.
+COAST = frozenset({3, 4, 5, 6, *THROTTLE, *POKER})
+COAST_SECONDS = 2.
 
 
 @dataclass(frozen=True)
@@ -95,6 +100,7 @@ class ServoOwner:
         self._talking_head_origin: dict[int, int] | None = None
         self._motion = threading.Event()
         self.motion_until = 0.
+        self.coasting = frozenset()   # Channels a cancellation lets run on to their sent targets (COAST).
         self.microphone_hold = (0., 0.)
         self.on_motion = lambda: None
         self.on_camera_motion = lambda moving, request_id, kind: None
@@ -288,6 +294,7 @@ class ServoOwner:
         accepted = False
         reframed = False
         holding = False   # A QUIET_HOLD_KINDS request has arrived and holds still.
+        coasted = False   # Cancelled with arms left running on to their targets.
         try:
             if self.state not in {'ready', 'active', 'stopped'} or self._bus is None:
                 return receipt('rejected', 'ServoUnavailableOrParked')
@@ -451,7 +458,8 @@ class ServoOwner:
         except (Cancelled, KeyboardInterrupt):
             if accepted:
                 try:
-                    self._hold(touched)
+                    coasted = bool(touched & self.coasting)
+                    self._hold(touched - self.coasting)
                     self.state = 'active' if request.kind in AWAKE_KINDS else 'stopped'
                 except Exception:
                     self.state = 'faulted'
@@ -485,7 +493,7 @@ class ServoOwner:
             finally:
                 if accepted:
                     if not holding:   # Stopped mid-hold, nothing was travelling: no settle tail.
-                        self.motion_until = self.clock() + SETTLE_SECONDS
+                        self.motion_until = self.clock() + SETTLE_SECONDS + (COAST_SECONDS if coasted else 0.)
                     if self.microphone_moved_until == float('inf'):
                         self.microphone_moved_until = self.motion_until
                         self.microphone_still_since = self.clock()
@@ -631,6 +639,7 @@ class TalkingMotion:
         self._token = None
         self.result = None
         self.before_start = lambda: None
+        self.after_speech = lambda: None   # A line played to its end (RobotServos: idle carries on).
         self.gaze = None   # callable -> neck pulse toward the addressee, or None
 
     def start(self, turn_id: str, cancel: Cancellation) -> None:
@@ -664,11 +673,21 @@ class TalkingMotion:
         if self._token:
             self._token.event.set()
 
-    def stop(self) -> ServoReceipt | None:
-        self.cancel()
-        if self._thread:
-            self._thread.join(timeout=2.)
-            if self._thread.is_alive():
-                raise ProviderFailure('TalkingMotionStillActive')
-            self._thread = None
+    def stop(self, finished: bool = False) -> ServoReceipt | None:
+        """finished: the line played to its end. The arms then run on instead of freezing and
+        idle life takes over at once. Otherwise (interrupted, a pose, a drive) all is held."""
+        talking = self._thread is not None
+        if finished and talking:
+            self.owner.coasting = COAST
+        try:
+            self.cancel()
+            if self._thread:
+                self._thread.join(timeout=2.)
+                if self._thread.is_alive():
+                    raise ProviderFailure('TalkingMotionStillActive')
+                self._thread = None
+        finally:
+            self.owner.coasting = frozenset()
+        if finished and talking:
+            self.after_speech()
         return self.result

@@ -31,6 +31,7 @@ class RobotServos:
             self.idle.stop()
             self.reflex.stop()
         self.talking.before_start = quiet
+        self.talking.after_speech = self.idle.after_speech
         self.idle.busy = lambda: self.talking._thread is not None
         self.trace = None
         self.wait = wait

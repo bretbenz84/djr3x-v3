@@ -472,8 +472,10 @@ class OutputOwner:
                     with talking_lock:
                         playing = True
                         start_talking()
+                played_out = False   # The whole line played: talking motion winds down, not freezes.
                 try:
                     receipt = self.sink.play(chunks(), cancel, started)
+                    played_out = not cancel.event.is_set()
                 finally:
                     with talking_lock:
                         playing = False
@@ -484,7 +486,7 @@ class OutputOwner:
                         self._light_result(delivery,turn_id,light.request,'cancelled','PlaybackNotStarted')
                     if talking_started:
                         try:
-                            motion_receipt = self.speech_motion.stop()
+                            motion_receipt = self.speech_motion.stop(finished=played_out)
                             if motion_receipt:
                                 from dataclasses import asdict
                                 self.trace.emit('talking_motion', turn_id=turn_id, **asdict(motion_receipt))

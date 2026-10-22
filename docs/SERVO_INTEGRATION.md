@@ -6,6 +6,34 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 21 (night): arms run on after speech, a resting throttle, a swaying poker arm
+
+Owner, on the robot: the talking and idle head are much improved, but as a line ends the throttle
+and hero arms freeze for seconds until idle moves them ("alive, then suddenly his arms freeze");
+the throttle's stiff joints slip during slow idle glides; held half-raised, the big throttle arm
+looks like someone straining; and the poker arm does nothing while he speaks.
+
+- *Run on, then wind down:* a line that plays to its end (`OutputOwner` passes
+  `stop(finished=True)`) no longer holds the arms and visor (`servos.COAST`): they run on to the
+  targets already sent, with motion risk covering 2 s more; the head and microphone arm are held.
+  Interrupted lines, poses and drives still hold everything. `IdleMotion.after_speech` then makes
+  the hero arm, poker sway and visor due at once (the throttle 1.5 s later, after its run-on) with
+  energy 1, fading as e^(-t/6 s): part rhythms are up to 70% shorter and arm moves up to 40%
+  quicker at first, at idle pace again after about 20 s.
+- *Throttle:* idle moves come in bouts of one to three (every 3-7 s, was 5-11 s), then the arm
+  lowers to the halfway-down or tucked waypoint of the startup/park route (`THROTTLE_RELAXED`) and
+  rests 10-25 s. After a line it makes one or two moves, then lowers. Idle moves take 1.3-2 s
+  (were 2-3.2 s) at the talking pace, include talking's two poses, and no moving throttle joint
+  goes slower than board speed 4 (`THROTTLE_MIN_SPEED`); the clearance rule already allows joints
+  to progress independently. The `throttle_idle` profile is retired. Fully parked is not used:
+  talking cannot start from it.
+- *Poker arm while talking:* its cat's-tail sway at 0.6 of the idle timing, about 6 s per cycle,
+  starting 0.2-0.5 s after the head; held or kept arms are left alone, and an arm outside the
+  sway takes the staged route back first.
+
+Synthetic only (simulated servo board, which arrives instantly). The run-on's look on the robot,
+the throttle's resting poses, noise, and whether more arm motion stills him more often are unseen.
+
 ## October 21 (later): livelier idle, eased talking
 
 Owner, after running the eased idle head on the robot: more fluid, but slower and hardly

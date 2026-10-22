@@ -299,7 +299,6 @@ class Beat:
     acceleration: int = 8
     dwell: float = 0.
     throttle_duration: float | None = None
-    throttle_idle: bool = False
     wait: float = 0.        # Seconds this beat's lane rests before the targets are sent.
     reframes: bool = True   # False: a head move too small to count as a new camera view.
     seconds: float | None = None   # Travel time of an eased beat (eased_beat): its profiles arrive together.
@@ -367,21 +366,31 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
     # mechanical noise across idle, speech, requested poses and lifecycle moves.
     # Scale both caps and proportional travel, including acceleration.
     pace = {8: 1.375, 9: 1.76, 10: 1.1}
-    speed = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (14,32,36) if beat.throttle_idle else (26,60,65))}
-    accel = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (3,6,7) if beat.throttle_idle else (5,10,12))}
+    # Owner, October 21: the throttle's joints are stiff, and the slow idle pace (caps 14/32/36,
+    # 3/6/7) let them slip and creak; idle now uses the talking pace, and no moving joint goes
+    # slower than THROTTLE_MIN_SPEED (the clearance check allows independent joint progress).
+    speed = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (26,60,65))}
+    accel = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (5,10,12))}
     distance = {ch: abs(target[ch] - current[ch]) for ch in THROTTLE if target[ch] != current[ch]}
     if not distance:
         return {ch: (speed[ch], accel[ch]) for ch in THROTTLE}
     scale = max(beat.throttle_duration * 100,
                 max(distance[ch] * pace[ch] / speed[ch] for ch in distance))
     ramp = max(distance[ch] * pace[ch] / accel[ch] for ch in distance)
-    result = {ch: (max(1, min(speed[ch], round(distance[ch] * pace[ch] / scale))),
+    result = {ch: (max(THROTTLE_MIN_SPEED, min(speed[ch], round(distance[ch] * pace[ch] / scale))),
                  max(1, min(accel[ch], round(distance[ch] * pace[ch] / ramp))))
             for ch in distance}
     return {ch: result.get(ch, (speed[ch], accel[ch])) for ch in THROTTLE}
 
 
 TALK_HEAD_SECONDS = 6.     # Head moves planned per talking cycle, so a repeat is rare.
+TALK_TAIL_PACE = .6        # The poker arm's sway while he speaks, against its idle pace.
+THROTTLE_TALK = (((8, 3360), (9, 8560), (10, 7920)), ((8, 4000), (9, 7800), (10, 3800)))
+# Owner, October 21: held half-raised for long, the big throttle arm looks like someone
+# straining to hold it up. Between bouts of movement it rests lower: the halfway-down and
+# tucked waypoints of the startup/park route (fully parked would block talking's route).
+THROTTLE_RELAXED = (((8, 4800), (9, 8000), (10, 3800)), TUCK)
+THROTTLE_MIN_SPEED = 4      # No throttle joint creeps slower than this (board units).
 TALK_NECK_DEG = (3., 7.)    # Emphasis either side of the addressee (V2's 260 pulses barely read).
 
 
@@ -399,8 +408,7 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     start a moment after the head instead of all at once. Channel 7 (microphone) stays fixed.
     """
     rng = rng or random.Random()
-    targets = (((8, 3360), (9, 8560), (10, 7920)),
-               ((8, 4000), (9, 7800), (10, 3800)))
+    targets = THROTTLE_TALK
     if set(THROTTLE).intersection(held):
         targets = ()
     previous = current
@@ -444,7 +452,24 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     throttle = tuple(Beat(p,dwell=1.,throttle_duration=1.7) for p in targets)
     if throttle:
         throttle = (replace(throttle[0], wait=rng.uniform(.3, .6)), *throttle[1:])
-    lanes = (tuple(head),visor,arm,throttle)
+    # Owner, October 21: the poker arm did nothing while he spoke. Its cat's-tail sway, quicker.
+    poker = ()
+    if not set((6, *POKER)).intersection(held):
+        reached = {ch: current[ch] for ch in (6, *POKER)}
+        first = poker_tail(rng, reached, pace=TALK_TAIL_PACE)
+        if first is None:   # Outside the sway (after a drive or a pose): the staged route back first.
+            route = poker_lane(current, {ch: POKER_TAIL[ch][0] for ch in POKER}, speed=15, acceleration=5)
+            poker = (Beat(((6, POKER_TAIL[6][0]), *route[0].targets), speed=15, acceleration=5), *route[1:])
+        else:
+            poker = (first,)
+        while _lane_seconds(poker, current) < TALK_HEAD_SECONDS:
+            reached.update({ch: value for beat in poker for ch, value in beat.targets})
+            more = poker_tail(rng, reached, pace=TALK_TAIL_PACE)
+            if more is None:
+                break
+            poker += (more,)
+        poker = (replace(poker[0], wait=rng.uniform(.2, .5)), *poker[1:])
+    lanes = (tuple(head),visor,arm,throttle,poker)
     lanes = tuple(lane for lane in lanes if lane and not set(dict(lane[0].targets)).intersection(held))
     for lane in lanes:
         for beat in lane:
@@ -469,6 +494,8 @@ class IdlePhrase:
     head_dwell: float = 0.
     swing: bool = False   # The hero arm's move includes its shoulder, which carries the microphone array.
     tail_settle: bool = False   # The poker arm's sway ends: it eases back to its awake pose and rests.
+    throttle_rest: bool = False   # The throttle arm's bout ends: it lowers to rest (THROTTLE_RELAXED).
+    energy: float = 0.   # 1 just after speech, fading to 0: livelier, quicker arm moves (idle_motion).
 
 
 # Each arm is one part: when it moves, all of its joints move a little together (owner,
@@ -672,21 +699,22 @@ def _eased(travel, seconds, acceleration):
     return velocity // 100, round(covered)
 
 
-def poker_tail(rng, start, settle=False):
+def poker_tail(rng, start, settle=False, pace=1.):
     """Half of the poker arm's idle sway, like a cat's tail (owner, October 13): the swing and
     elbow cross to the other side of the awake pose while the wrist bends the opposite way,
     trailing them. Elbow and wrist share one beat, as the clearance check requires; the wrist
     picks up speed slowly and arrives a little after the elbow, so the hand follows through.
     settle: the bout of swaying is over; ease back to the awake pose itself, still trailing.
-    None when the arm starts outside the sway (after a drive or a pose), which needs a route."""
+    None when the arm starts outside the sway (after a drive or a pose), which needs a route.
+    pace scales its timing (talking sways quicker, idle just after speech a little quicker)."""
     side = -1 if start[12] >= POKER_TAIL[12][0] else 1
     ranges = {6: (4500, 7500), **POKER_IDLE}
     aim = {ch: centre + (0 if settle else (-side if ch == 13 else side) * rng.randint(least, most))
            for ch, (centre, least, most) in POKER_TAIL.items()}
     if max(start[12], aim[12]) > poker_elbow_max(max(start[13], aim[13])):
         return None
-    seconds = rng.uniform(*POKER_TAIL_SECONDS)
-    timing = {6: (seconds, 3), 12: (seconds, 3), 13: (seconds + rng.uniform(*POKER_TAIL_TRAIL), 1)}
+    seconds = rng.uniform(*POKER_TAIL_SECONDS) * pace
+    timing = {6: (seconds, 3), 12: (seconds, 3), 13: (seconds + rng.uniform(*POKER_TAIL_TRAIL) * pace, 1)}
     targets, profiles = [], []
     for ch, (time, acceleration) in timing.items():
         speed, covered = _eased(abs(aim[ch] - start[ch]), time, acceleration)
@@ -725,6 +753,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
     if phrase is None:
         phrase = IdlePhrase(tuple((part, 0.) for part in IDLE_CHANNELS), swing=True)
     clamp = lambda ch, value: max(LIMITS[ch][0], min(LIMITS[ch][1], round(value)))
+    quicken = lambda by: 1 - by * phrase.energy   # Just after speech the arms still move near its pace.
     lanes, head_at = [], None
     for part, wait in phrase.parts:
         channels = IDLE_CHANNELS[part]
@@ -746,7 +775,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 lane = (drift(current),)
         elif part == 'visor':
             first = _elsewhere(rng, *VISOR_IDLE, current[3], 200, 600)
-            lane = (Beat(((3, first),), speed=rng.randint(8, 14), acceleration=3),)
+            lane = (Beat(((3, first),), speed=rng.randint(8, 14) + round(10 * phrase.energy), acceleration=3),)
             if rng.random() < .25:   # A slow half-blink: down to the speaking floor and open again.
                 lane = (Beat(((3, VISOR_SPEECH[1]),), speed=rng.randint(8, 14), acceleration=3, dwell=rng.uniform(.2, .6)),
                         Beat(((3, rng.randint(VISOR_OPEN - 300, VISOR_OPEN + 50)),), speed=rng.randint(6, 10), acceleration=2))
@@ -769,30 +798,32 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 reached = {**current, **dict(out.targets)}
                 lane = (out, beat(reached, ((7, 5984), *bend(reached, 100)), rng.uniform(2.2, 3.2)))
             else:
-                first = beat(current, bend(current, 200), rng.uniform(1.1, 2.))
+                first = beat(current, bend(current, 200), rng.uniform(1.1, 2.) * quicken(.4))
                 lane = (first,)
                 if rng.random() < .3:    # Roll a little past, pause, ease back: both joints again.
                     reached = {**current, **dict(first.targets)}
                     ease = tuple((ch, clamp(ch, reached[ch] + (-1 if reached[ch] > current[ch] else 1) * rng.randint(*by)))
                                  for ch, by in ((4, (60, 150)), (5, (250, 500))))
-                    lane = (replace(first, dwell=rng.uniform(.3, .9)), beat(reached, ease, rng.uniform(.9, 1.5)))
+                    lane = (replace(first, dwell=rng.uniform(.3, .9)), beat(reached, ease, rng.uniform(.9, 1.5) * quicken(.4)))
         elif part == 'poker':
             # During a bout of swaying the scheduler moves it in every phrase: half a tail sway
             # each time, then a last move back to the awake pose before it rests. Starting
             # outside the sway (after a drive or a pose), the elbow and wrist take their staged
             # route back to the awake pose first, the first stage riding with the swing.
-            tail = poker_tail(rng, current, settle=phrase.tail_settle)
+            tail = poker_tail(rng, current, settle=phrase.tail_settle, pace=quicken(.35))
             if tail is not None:
                 lane = (tail,)
             else:
                 route = poker_lane(current, {ch: POKER_TAIL[ch][0] for ch in POKER}, speed=rng.randint(7, 15), acceleration=3)
                 lane = (Beat(((6, POKER_TAIL[6][0]), *route[0].targets), speed=12, acceleration=3), *route[1:])
         elif part == 'throttle':
-            target = rng.choice([p for p in THROTTLE_IDLE if any(abs(current[ch]-v) > 2 for ch, v in p)])
+            poses = THROTTLE_RELAXED if phrase.throttle_rest else THROTTLE_IDLE + THROTTLE_TALK
+            target = rng.choice([p for p in poses if any(abs(current[ch]-v) > 2 for ch, v in p)])
             route = (() if throttle_clear(current, dict(target)) else pose_lanes('throttle_rest', current)[0])
             previous = dict(route[-1].targets) if route else current
             if not throttle_clear(previous, dict(target)): raise ValueError('IdleRouteOutsideClearance')
-            lane = route + (Beat(target, throttle_duration=rng.uniform(2., 3.2), throttle_idle=True),)
+            # Firmer than the old 2-3.2 s glide, which let the stiff joints slip (October 21).
+            lane = route + (Beat(target, throttle_duration=rng.uniform(1.3, 2.) * quicken(.3)),)
         else:
             raise ValueError('UnknownIdlePart')
         if wait > 0:
@@ -812,7 +843,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
             if _lane_seconds(lane, current) + 1. > longest:
                 break
             reached = {**current, **{ch: value for beat in lane for ch, value in beat.targets}}
-            more = poker_tail(rng, reached)
+            more = poker_tail(rng, reached, pace=quicken(.35))
             if more is None:
                 break
             validate_pose(dict(more.targets))

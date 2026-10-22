@@ -253,7 +253,7 @@ class ServoTests(unittest.TestCase):
         self.port.packets.clear()
         result = self.execute('talking')
         self.assertEqual(result.status,'pulses_reached')
-        self.assertEqual(result.completed_lanes,(0,1,2,3))
+        self.assertEqual(result.completed_lanes,(0,1,2,3,4))
         def targets(ch):
             return [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,ch))]
         self.assertGreater(len(targets(3)),4)
@@ -274,6 +274,8 @@ class ServoTests(unittest.TestCase):
         # The head starts first; the visor and arm follow a moment later, not all at once.
         first=lambda ch:next(i for i,p in enumerate(self.port.targets) if p[:2]==bytes((0x84,ch)))
         self.assertLess(first(0),first(3));self.assertLess(first(0),first(4))
+        # October 21: the poker arm sways while he speaks (it did nothing before).
+        self.assertGreater(len(set(targets(6))),1);self.assertGreater(len(set(targets(12))),1)
 
     def test_repeating_lanes_drain_sent_targets_before_success(self):
         self.owner.start()
@@ -345,6 +347,35 @@ class ServoTests(unittest.TestCase):
         self.port.write = delayed
         self.assertEqual(self.execute().reason, 'ServoRequestExpired')
         self.assertEqual(self.port.targets, [])
+
+    def test_a_finished_line_lets_the_arms_run_on_and_an_interrupted_one_holds_all(self):
+        # Owner, October 21: when a line ended every arm froze mid-move, then nothing moved for
+        # seconds. A line played to its end leaves the arms and visor running on to the targets
+        # already sent; only the head is held. Interrupted (someone speaks), everything holds.
+        from r3x.servos import COAST
+        self.owner.start()
+        self.execute()
+        for coasting in (COAST, frozenset()):
+            token, sent = Cancellation(), []
+            def cancel_later():
+                sent.append(1)
+                if len(sent) == 12:
+                    self.owner.coasting = coasting
+                    token.event.set()
+            self.port.on_target = cancel_later
+            before = len(self.port.packets)
+            self.assertEqual(self.owner.execute(self.request('talking'), token).status, 'cancelled')
+            self.port.on_target = lambda: None
+            self.owner.coasting = frozenset()
+            writes = [p for p in self.port.packets[before:] if p[0] in (0x84, 0x9F)]
+            held = writes[12:]   # The hold that followed the cancellation.
+            channels = {ch for p in held for ch in ((p[1],) if p[0] == 0x84 else range(p[2], p[2] + p[1]))}
+            self.assertTrue(channels & {0, 1, 2, 11})                          # The head is held either way.
+            if coasting:
+                self.assertFalse(channels & COAST, channels)                       # The arms run on.
+                self.assertGreater(self.owner.motion_until, self.clock() + 1.)     # Still motion meanwhile.
+            else:
+                self.assertTrue(channels & COAST, channels)                        # Everything holds.
 
     def test_repeated_interrupted_talking_does_not_ratchet_headlift(self):
         self.owner.start()
@@ -501,11 +532,11 @@ class ArmReturnTests(unittest.TestCase):
         self.assertEqual(self.owner.return_arm(keep={'throttle'}).status, 'pulses_reached')
         moved = self.owner.execute(self.request('pose', pose={4: 6845}, hold_pose=False), Cancellation())
         self.assertEqual(moved.status, 'pulses_reached')               # Idle life moves the elbow.
-        poker = {ch: self.port.pose[ch] for ch in (6, *POKER)}
         self.owner.begin_arm_return()
         talk = self.owner.execute(self.request('talking'), Cancellation())
         self.assertEqual(talk.status, 'pulses_reached')                # Not ServoBusy while the throttle walks.
         elbow = self.port.pose[4]
+        poker = {ch: self.port.pose[ch] for ch in (6, *POKER)}
         receipt = self.owner.return_arm()
         self.assertEqual(receipt.status, 'pulses_reached')
         self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
@@ -609,14 +640,14 @@ class TalkingOutputTests(unittest.TestCase):
     def test_actual_audio_start_and_finally_stop_own_talking_motion(self):
         for fail in (False, True):
             with self.subTest(fail=fail):
-                calls = []
+                calls, ended = [], []
                 class TTS:
                     def synthesize(self, text, cancel):
                         self_test.assertEqual(calls, [])
                         yield b'pcm'
                 class Motion:
                     def start(self, turn, cancel): calls.append('start')
-                    def stop(self): calls.append('stop')
+                    def stop(self, finished=False): calls.append('stop'); ended.append(finished)
                     def cancel(self): calls.append('cancel')
                 class Sink:
                     def play(self, chunks, cancel, started):
@@ -637,6 +668,7 @@ class TalkingOutputTests(unittest.TestCase):
                 delivery = Delivery()
                 owner.run(queue,Cancellation(),'turn',delivery)
                 self.assertEqual(calls, ['start','stop'])
+                self.assertEqual(ended, [not fail])   # Only a line played to its end lets the arms run on.
                 self.assertEqual(delivery.status, 'failed' if fail else 'completed')
                 self.assertTrue(owner._motion_lock.acquire(blocking=False))
                 owner._motion_lock.release()
