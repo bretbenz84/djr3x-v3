@@ -201,14 +201,25 @@ class LEDs:
         with self.lock:
             if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
             if pattern not in PATTERNS or pattern=='blink': raise ProviderFailure('UnknownLEDPattern')
-            if pattern=='sparkle' and ('chest' not in self.devices or speaking):
-                raise ProviderFailure('ChestLEDUnavailable' if 'chest' not in self.devices else 'UnknownLEDPattern')
+            if pattern=='sparkle' and 'chest' not in self.devices:
+                raise ProviderFailure('ChestLEDUnavailable')
             if request and (request.version!=self.version or self.clock()>=request.expires_at):
                 raise ProviderFailure('StaleLEDRequest')
             self.version += 1
-            self.chest_only = pattern=='sparkle'
+            self.chest_only = pattern=='sparkle' and not speaking
             if self.chest_only:
                 self.speaking = self.demo = False   # No mouth levels: the head is not part of it.
+                self._send('chest','COMPLIMENT')
+                return self.version
+            if pattern=='sparkle':
+                # October 22 (0421a222): run before his words, the sparkle added 2.5 s before he spoke.
+                # With words, the chest sparkles while the mouth talks as it always does.
+                self.speaking,self.demo = True,False
+                self.last_level,self.last_sent = -1,float('-inf')
+                self.eye_color = COLORS['neutral']
+                self._send('head','EYE:'+','.join(map(str,self.eye_color)))
+                self._send('head','SPEAK:neutral')
+                self.mouth, self.speak_sent, self.speak_sends = 'neutral', self.clock(), 1
                 self._send('chest','COMPLIMENT')
                 return self.version
             self.speaking,self.demo = speaking,not speaking

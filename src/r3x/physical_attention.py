@@ -10,7 +10,7 @@ class PhysicalAttention:
     # 'people' looks back at the people here and his eyes follow their faces again (the
     # look_at_people pose). October 22 (1072c10a): beats to "return attention to Brett" invented a
     # face or person id, which no direction is, and the beat failed.
-    targets = ('left','right','up','forward','people','unfocused')
+    targets = ('left','right','up','down','forward','people','unfocused')
 
     def __init__(self, robot):
         self.robot, self.started = robot, False

@@ -27,6 +27,10 @@ CONFIRM_RUN_SECONDS = .25      # Continuous voiced time that confirms speech dur
 CONFIRM_RECENT_SECONDS = .4    # Or this much voiced time within the last second.
 SUSPECT_OPEN_SECONDS = 3.5     # A suspected capture open this long gets a still moment to end.
 SELF_NOISE_LOGPROB = -.1       # Trust floor for a suspected capture (the usual floor is lower).
+# The exact spoken shutdown, with his name as recognition often hears it (October 22, 0421a222:
+# "Red shut down." was taken as words for someone else and he stayed on).
+SHUTDOWN_COMMANDS = frozenset({'shut down', 'shutdown', 'shut down rex'} | {
+    f'{name}{sep} shut down' for name in ('rex', 'red', 'wrecks', 'wrex', 'rick', 'rx') for sep in ('', ',')})
 # Owner, October 19 (b4ce6464): a shouted "stop" halted the wheels about 1 s after the word
 # ended (0.5 s waiting for the end of the sentence, 0.3 s transcription, queueing). While the
 # wheels run, a short burst followed by a brief pause is transcribed at once, beside the
@@ -40,6 +44,7 @@ PLANNING_GLANCE_SECONDS = .25
 # An unrecognized face as the only face in view this soon after someone known was recognized
 # (face or voice) is them from another angle, not a newcomer to ask for a name (October 22).
 KNOWN_FACE_TURN_SECONDS = 60.
+GREETING_FIRST_SECONDS = 20.   # At startup, a face in view waits this long for its greeting before Rex plans alone.
 # Sounds that stop a hello before anyone is known to have spoken; a thrown-away one earns a retry.
 NOISE_CUTOFFS = frozenset({'human_speech','capture_queued','turn_queued','recognition_busy'})
 SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish before leaving them.
@@ -227,7 +232,7 @@ class VoiceRuntime:
                         self.trace.emit("transcript_rejected", capture_id=part.capture_id, reason="stale")
                         break
                     command = transcript.text.strip().lower().rstrip('.!?')
-                    shutdown = command in {'shut down','shutdown','rex shut down','rex, shut down','shut down rex'}
+                    shutdown = command in SHUTDOWN_COMMANDS
                     warning = (self.drive is not None and self.drive.moving.is_set()
                                and is_collision_warning(transcript.text))
                     if (capture.self_noise_risk and transcript.trusted and not shutdown and not warning
@@ -241,7 +246,7 @@ class VoiceRuntime:
                             perceived = replace(perceived, transcript=transcript)
                         self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
                                         reason='brief_sound_during_own_motion', avg_logprob=transcript.avg_logprob)
-                    if transcript.trusted and command in {'shut down','shutdown','rex shut down','rex, shut down','shut down rex'}:
+                    if transcript.trusted and command in SHUTDOWN_COMMANDS:
                         self.trace.emit('shutdown_requested',source='voice',capture_id=part.capture_id)
                         self.stop.set()
                         self.cancel()
@@ -376,6 +381,12 @@ class VoiceRuntime:
                 if agency.needs_plan(now):
                     if self.session.planning_active():
                         self.initiative_gate('planning_goal')
+                        return
+                    if (agency.ending_reason(now) in {'startup', 'restart'} and now - self.started_at < GREETING_FIRST_SECONDS
+                            and self.arrivals.greeting_pending()):
+                        # October 22: a goal planned in the first seconds was replaced by the greeting's own
+                        # plan 9 s later, one planner call wasted every startup. Someone in view is greeted first.
+                        self.initiative_gate('greeting_first')
                         return
                     from .agency import PLAN_MIN_INTERVAL_SECONDS
                     if (now >= agency.planner_retry_at and not _after_planning and

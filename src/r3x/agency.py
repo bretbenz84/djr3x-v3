@@ -187,8 +187,9 @@ WHAT MAKES IT GOOD
 - Varied in pace. Drive steps take a pace (slow, easy, normal). Say in the instruction when a move is a slow
   stroll, a lazy swivel or a careful creep instead of a brisk roll; not every move is the same speed.
 - Eyes. By himself Rex follows people's faces. A look_* pose or a look beat points his head where you choose,
-  and it stays there; pose look_at_people, or a look beat back at the people, returns his eyes to them. Use the
-  pair on purpose: look away at the thing, then back at the person he is talking to.
+  and it stays there; pose look_at_people, or a look beat back at the people, returns his eyes to them. Plan a look
+  back only right after a look away: while he follows faces, looking back at them does nothing (October 22: seven
+  such beats in one run). Use the pair on purpose: look away at the thing, then back at the person.
 - Grounded. Use only what was offered: images, targets, visual memory, dialogue, saved facts. Opinions,
   hypotheticals and imagination are welcome; invented facts about people, ownership, past visits, things not
   seen or actions not taken are not. Rex's own earlier lines are not evidence: never build a beat on a thing he
@@ -219,7 +220,9 @@ WHAT MAKES IT GOOD
   Never just extend the last exchange in a lull.
 - Varied. Read recent_goals. Do not repeat a goal kind, subject or premise that just ran or was rejected, do
   not return to a topic Rex's last two lines already covered, and do not stretch one joke across several
-  beats: each beat brings something new.
+  beats: each beat brings something new. A subject of any goal in recent_goals, this run's or the last, is spent
+  for now, and so is the same thing in view under another name: plan around something else unless the person
+  brings it up (October 22: the telescope led two runs in a row and came up in 9 of 47 lines).
 - Tuned to the room. engagement.unanswered_lines counts Rex's spoken lines since anyone answered. At 0 or 1,
   talk freely. engagement.ignored (2 or more) means they let his last lines go by and this goal replaces the
   one they ignored: unless ignored_jab_spent, the FIRST beat may be one short self-deprecating jab about being
@@ -726,8 +729,13 @@ class AgencyPlan:
                 return ('ready', None) if quiet_seconds >= min(seconds, 5) else ('waiting', 'answer_settling')
             return ('passed', None) if now - since > GIVE_UP_SECONDS else ('waiting', 'answer')
         if when == 'unanswered':
-            if answered: return ('passed', None)
-            return ('ready', None) if now - since >= seconds else ('waiting', 'no_answer_yet')
+            # Counted from his last heard line, not a silent glance between (October 22, 0421a222: a
+            # look beat restarted the wait and left 35 s of silence twice).
+            start = since
+            if self.present.last_rex:
+                start = min(since, max(self.present.last_rex['at'], record.get('created_at', since)))
+            if human > start: return ('passed', None)
+            return ('ready', None) if now - start >= seconds else ('waiting', 'no_answer_yet')
         seen = self.present.pets.seen_ago(now)
         from .present import PET_GAP_SECONDS
         if seen is not None and seen <= PET_GAP_SECONDS and self.present.pets.last_seen >= since:
@@ -769,6 +777,27 @@ class AgencyPlan:
             self.waiting = why
             if why: self._emit('agency_beat_waiting', plan_id=self.record['id'], step=self.record['cursor'], reason=why)
         return why is None
+
+    def insert_beat(self, instruction, now):
+        """One spoken beat that comes next, ahead of the plan's own; the goal carries on after it.
+        Only for an event of his own body (October 22: the visor closing over his eyes)."""
+        self.load()
+        if not self.applicable(now): return False
+        record = self.record
+        record['steps'].insert(record['cursor'], {'kind': 'contribute', 'instruction': instruction, 'evidence_ids': [],
+                                                  'wake': {'when': 'quiet', 'seconds': 3}, 'follows_previous': False,
+                                                  'requires_visor_shut': True})
+        record['attempts'] = 0
+        record.pop('interrupted_at', None)
+        self._next_beat(now)
+        self.due_at = min(self.due_at, now)
+        self.save()
+        self._emit('agency_beat_inserted', plan_id=record['id'], step=record['cursor'])
+        return True
+
+    def let_go(self, reason, now):
+        """The current beat's moment is gone (its precondition no longer holds)."""
+        if self.applicable(now): self._skip_current(reason, now)
 
     def defer(self, step, wake, now):
         """The performer chose a better moment for this beat (once per beat)."""

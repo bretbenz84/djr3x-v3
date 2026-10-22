@@ -8,7 +8,8 @@ from datetime import date, datetime, timedelta
 import calendar
 
 WEEKDAYS = ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')
-OPERATIONS = ('now', 'describe', 'between', 'shift', 'nth_weekday', 'next_weekday', 'next_month_day', 'easter', 'time_in')
+OPERATIONS = ('now', 'describe', 'between', 'shift', 'nth_weekday', 'next_weekday', 'next_month_day', 'easter', 'time_in',
+              'born')
 UNITS = ('days', 'weeks', 'months', 'years')
 
 
@@ -140,6 +141,17 @@ def answer(args, now):
         else:
             raise ValueError('NoSuchCalendarDay')
         result['result'] = describe(date(year, month, day), today)
+    elif op == 'born':
+        # October 22 (0421a222): "I'm 42, what year was I born?" came out right with the reason backwards
+        # ("your birthday this year is still ahead"; June 5 had passed). Age and birthday decide it here.
+        amount, month, day = need('amount', 'month', 'day')
+        if not 0 <= amount <= 130:
+            raise ValueError('CalendarAgeOutOfRange')
+        birthday = date(today.year, month, min(day, calendar.monthrange(today.year, month)[1]))
+        had_it = birthday <= today
+        result['result'] = {'born_in': today.year - amount - (0 if had_it else 1),
+                            'birthday_this_year': 'already passed' if had_it else 'still ahead',
+                            'this_years_birthday': describe(birthday, today)}
     elif op == 'easter':
         result['result'] = describe(easter(args.get('year') or today.year), today)
     elif op == 'time_in':

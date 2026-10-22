@@ -223,7 +223,18 @@ class LEDSessionTests(MemoryFixture):
         self.assertEqual(led.finish(token),'commands_sent')
         self.assertEqual(ports['head'].commands,head)          # No eye colour, no mouth.
         self.assertEqual(ports['chest'].commands[-1],'SPEAK_STOP')
-        with self.assertRaises(ProviderFailure): led.begin('sparkle',speaking=True)
+        # October 22 (0421a222): with words it runs while he speaks, the mouth talking as usual.
+        token=led.begin('sparkle',speaking=True)
+        self.assertEqual(ports['chest'].commands[-1],'COMPLIMENT')
+        self.assertIn('SPEAK:neutral',ports['head'].commands)
+        self.assertEqual(led.finish(token),'commands_sent')
+
+    def test_a_sparkle_with_words_starts_speaking_at_once(self):
+        self.setup_session(choice('before_speech','There. Dazzled yet?','sparkle'));result=self.turn()
+        self.assertEqual(result.status,'completed')
+        prepared=next(r for r in self.state.trace.rows if r['event']=='light_request_prepared')
+        self.assertEqual(prepared['arguments']['timing'],'during_speech')
+        self.assertIn('COMPLIMENT',self.ports['chest'].commands)
 
     def test_ordinary_reply_automatically_animates_speech(self):
         self.setup_session();self.brain.text='Hello, the lights follow actual playback.'

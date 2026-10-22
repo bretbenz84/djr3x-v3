@@ -39,7 +39,9 @@ chest, is a standalone effect, and since October 22 touches only the chest: it n
 the eyes green or runs the mouth (run 1072c10a: "he made your mouth sparkle too"; named
 `compliment`, the model told the owner it could not make the chest sparkle). When answering a
 person, a light request without words is asked once more for the line said after the lights; if
-the line still does not come, the lights run on their own. A silent beat of his own may stay silent. These are theatrical styles, not
+the line still does not come, the lights run on their own. A silent beat of his own may stay silent.
+With words, the sparkle runs while he speaks, the mouth talking as usual (run 0421a222: before
+speech it added 2.5 s to the reply). These are theatrical styles, not
 inferences about a human's feelings. The model cannot send raw serial commands,
 change ports, operate battery displays or override lifecycle shutdown. No speech
 regex selects patterns, and no additional model call is needed for these actions.

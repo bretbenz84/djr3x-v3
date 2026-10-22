@@ -51,6 +51,16 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(calendar('next_month_day', month=10, day=21)['result']['relative'], 'today')
         self.assertEqual(calendar('easter', year=2027)['result']['date'], '2027-03-28')
 
+    def test_the_birth_year_comes_from_the_age_and_the_birthday(self):
+        # October 22 (0421a222): right year, backwards reason ("your birthday this year is still ahead").
+        june = calendar('born', amount=42, month=6, day=5)['result']
+        self.assertEqual((june['born_in'], june['birthday_this_year']), (1984, 'already passed'))
+        december = calendar('born', amount=42, month=12, day=1)['result']
+        self.assertEqual((december['born_in'], december['birthday_this_year']), (1983, 'still ahead'))
+        self.assertEqual(calendar('born', amount=42, month=10, day=21)['result']['born_in'], 1984)   # Today.
+        with self.assertRaisesRegex(ValueError, 'CalendarFieldsMissing:month,day'):
+            calendar('born', amount=42)
+
     def test_other_time_zones(self):
         tokyo = calendar('time_in', timezone='Asia/Tokyo')['result']
         self.assertEqual((tokyo['local_time'], tokyo['day'], tokyo['hours_ahead_of_here']), ('7:15 AM', 'tomorrow there', 16.0))

@@ -97,7 +97,7 @@ GUIDE = {
     'visor_over_eyes (yours to raise)': (
         'Your visor is shut over your eyes and you see nothing; faces and the room are what you saw before it '
         'closed. It has been down a while: whenever you want to see again you may raise it yourself '
-        '(set_robot_pose with visor_up), and lean into it in its text ("I kept it down for you, but I really '
+        '(set_robot_pose with visor_normal), and lean into it in its text ("I kept it down for you, but I really '
         'wanted to see again. It was dark in here!"). Keep it shut if they asked you to keep it down. Joke about '
         'your own darkness, never about blind people or blindness.'),
     'claims': ('Saved facts about everyone, with ids for correct_claim and retract_claim. The facts of '

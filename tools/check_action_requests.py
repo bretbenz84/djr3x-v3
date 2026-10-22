@@ -29,7 +29,7 @@ from r3x.leds import LEDs
 from r3x.memory import Memory
 from r3x.output import OutputOwner
 from r3x.scenario import SyntheticSink, SyntheticTTS
-from r3x.servo_poses import DRIVE_HEAD, NECK_CENTER, VISOR_DOWN, VISOR_OPEN
+from r3x.servo_poses import DRIVE_HEAD, NECK_CENTER, VISOR_DOWN, VISOR_OPEN, VISOR_UP
 from r3x.session import Session
 from r3x.settings import Secrets
 from r3x.speakers import SpeakerTracker, VoiceObservation
@@ -68,6 +68,13 @@ CASES = {
                    'Raise your visor.', 'action', pose('visor_up')),
     'not_the_sparkle': ((('Okay, do it.', ''),), VISOR_DOWN, False,
                         'No, not the sparkle. Make your visor raise all the way up.', 'action', pose('visor_up')),
+    # October 22 (0421a222): worded as blinding him, lowering took four asks.
+    'visor_lower_favor': ((), VISOR_OPEN, False, 'Can you do me a favor and lower your visor all the way down?', 'action',
+                          pose('visor_down')),
+    'visor_lower_bare': ((), VISOR_OPEN, False, 'Lower your visor.', 'action', pose('visor_down')),
+    'visor_back_to_normal': ((('Can you raise your visor all the way?', 'On it. All the way up.'),), VISOR_UP, False,
+                             'You can put it back to the way it normally goes now.', 'action',
+                             pose('visor_normal', 'release_poses')),
     'raise_head': ((), VISOR_OPEN, False, 'Can you raise your head up?', 'action', acted),
     'outstretch_hand': ((), VISOR_OPEN, False, 'Can you outstretch your hand?', 'action', acted),
     'put_hand_out': ((), VISOR_OPEN, False, 'Can you put your hand out?', 'action', acted),
@@ -126,7 +133,7 @@ def run(case, key, folder, round_=0):
                     session.history.append({'role': 'assistant', 'content': answered})
             # Stand-ins: the pose and light tools are offered as on the robot, and refuse to run.
             owner = SimpleNamespace(state='active', commanded={0: NECK_CENTER, **dict(DRIVE_HEAD), 3: visor},
-                                    held_channels={3} if visor == VISOR_DOWN else set(), hold_until_released=False,
+                                    held_channels={3} if visor in (VISOR_DOWN, VISOR_UP) else set(), hold_until_released=False,
                                     kept_arms=(), kept_channels=())
             output.robot = SimpleNamespace(owner=owner, idle=SimpleNamespace(mode=lambda: 'people',
                                                                              activity=('following_people', 0.)))

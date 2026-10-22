@@ -218,6 +218,15 @@ class Arrivals:
         self.moved_allows_new = False
         self.passed_over = []   # Unknown faces taken for someone already here, for the trace.
 
+    def greeting_pending(self):
+        """A face in view, large enough to greet, that has not been greeted yet."""
+        for face in self.faces:
+            box = face.get('box', (0, 0, 0, 0))
+            if (face.get('face_width_px') or 0) < 48 or box[2] * box[3] < .006: continue
+            entry = self.seen.get(face.get('identity') or face['track_id'])
+            if entry is not None and not entry['used']: return True
+        return False
+
     def note_base_motion(self, now, allow_new=False):
         """Rotating/driving re-frames the room; faces newly tracked right after it
         are the same visit, not arrivals, unless the move went to investigate."""

@@ -8,6 +8,11 @@ from uuid import uuid4
 
 from .contracts import ASR, Brain, Cancellation, Cancelled, Capture, ProviderFailure, Snapshot, Transcript, ToolCall, ToolText
 from .field_guide import GUIDE
+RECENT_LOOK_SECONDS = 120.   # An own camera look (inspect beat) waits this long after the last look.
+# The one beat that follows his visor closing (owner, October 22). The step that runs it checks the
+# visor is still shut.
+DARK_BEAT = ('Your visor just shut over your eyes and you see nothing. Say one short, light line about your own '
+             'sudden dark ("Oh wow, it\'s dark in here."), about you, never about blind people or blindness.')
 from .speakers import VoiceObservation
 from .history import TurnHistory
 from .output import Delivery, OutputOwner, Phrases, put_phrase
@@ -147,6 +152,7 @@ class Session:
         self._capture_end = float("inf")
         self.proactive_hold_until = float("-inf")
         self.last_interaction_at = float("-inf")
+        self.last_look_at = float("-inf")   # Latest camera look (inspection), his or asked for.
         self.last_spoken_reply = None
         self.last_trusted_speech_at = float("-inf")
         self.resolved_audio_at = float("-inf")
@@ -188,6 +194,10 @@ class Session:
         line = words(text)
         if line in said:
             return ' '.join(line)
+        # October 22 (0421a222): "Mouth sparkle isn't a separate setting..." and, 15 s later as a beat,
+        # "Mouth sparkle isn't on the controls...": the same point under the same opening words.
+        if said and len(line) >= 3 and line[:3] == said[-1][:3] and sum(len(w) >= 4 for w in line[:3]) >= 1:
+            return ' '.join(line[:3])
         runs = {tuple(w[i:i+REPEAT_RUN]) for w in said for i in range(len(w) - REPEAT_RUN + 1)}
         for i in range(len(line) - REPEAT_RUN + 1):
             run = tuple(line[i:i+REPEAT_RUN])
@@ -750,6 +760,7 @@ class Session:
         schedule_guard = None
         schedule_action_ok = True
         agency_step = None
+        went_dark = [False]   # The visor shut over his eyes this turn.
         agency_revision_reason = None
         agency_deferred = False
         context = {}
@@ -1110,6 +1121,15 @@ class Session:
                         agency.install_recovery_step(bound_audience,agency.revision,self.trace.clock(),capabilities,
                             subject_person=self._subject_person(context))
                     agency_step = agency.step(self.trace.clock())
+                    if agency_step and agency_step.get('requires_visor_shut') and not context.get('visor_over_eyes'):
+                        agency.let_go('visor_open', self.trace.clock())   # Raised again before he got to it.
+                        agency_step = agency.step(self.trace.clock())
+                    while (agency_step and agency_step['kind'] == 'inspect'
+                           and self.trace.clock() - self.last_look_at < RECENT_LOOK_SECONDS):
+                        # October 22 (0421a222): "one more peek", "one last look" at the same droid on top
+                        # of four looks asked for. A closer look this soon after the last is let go.
+                        agency.let_go('looked_just_now', self.trace.clock())
+                        agency_step = agency.step(self.trace.clock())
                     if agency_step is None:
                         delivery.status,delivery.medium='suppressed','none'
                         self.trace.emit('agency_no_runnable_beat',turn_id=turn_id,reason=agency.ending_reason(self.trace.clock()))
@@ -1257,6 +1277,19 @@ class Session:
                     calls = retry
             repeated = (self._repeats_recent_line(calls[0])
                         if agency_step and len(calls) == 1 and not generated.strip() else None)
+            if (agency_step and agency_step.get('overtaken') and agency_step['kind'] in {'contribute', 'gesture'}
+                    and len(calls) == 1 and calls[0].name == 'remain_silent' and not generated.strip()
+                    and calls[0].arguments.get('reason') == 'no_response_needed'):
+                # October 22: told to speak, moved-on beats still went silent (7 of 11 in 1072c10a, 2 of 4
+                # in 0421a222). Silence needs a real reason; asked once more, then it stands.
+                from dataclasses import replace as replace_snapshot
+                self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='moved_on_silence_retry',
+                                reasoning_effort=getattr(self.brain, 'reasoning_effort', None))
+                calls = generate(replace_snapshot(snapshot, messages=(*snapshot.messages, {'role': 'developer', 'content':
+                    'Silence needs a real reason: they are talking to each other, busy, or mid-thought. Otherwise say '
+                    'one short thing now that follows their latest words, in your own voice.'})))
+                repeated = (self._repeats_recent_line(calls[0])
+                            if len(calls) == 1 and not generated.strip() else None)
             if (not repeated and agency_step and len(calls) == 1 and not generated.strip()
                     and self._asks_over_open_question(calls[0])):
                 # Owner ruling, September 18: after his own unanswered question Rex cracks a joke
@@ -1438,8 +1471,10 @@ class Session:
                         elif call.name == 'animate_lights':
                             if isinstance(call.arguments.get('text'), str) and not call.arguments['text'].strip():
                                 call.arguments['text'] = None
-                            if call.arguments.get('text') is None or call.arguments.get('pattern') in {'sparkle','blink'}:
+                            if call.arguments.get('text') is None or call.arguments.get('pattern') == 'blink':
                                 call.arguments['timing'] = 'before_speech'
+                            elif call.arguments.get('pattern') == 'sparkle':
+                                call.arguments['timing'] = 'during_speech'   # Words at once; the chest sparkles as he talks.
                             self.trace.emit('light_request_prepared',turn_id=turn_id,arguments=dict(call.arguments))
                             light_request = self.state.propose_lights(call,context,cancel)
                             from .contracts import ToolResult
@@ -1552,6 +1587,7 @@ class Session:
                     data, images = self.output.execute_inspection(inspection_request,cancel,inspection_valid)
                     schedule_action_ok = data.get('status') in {'observed','simulated'} and data.get('stage') == 'complete' and bool(images)
                     self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
+                    self.last_look_at = self.trace.clock()   # For his own looks: not the same thing again so soon.
                     with self._lock:self.state.actions.observed({**data,'images_acquired':bool(images)})
                     cancel.check()
                     if images and data.get('image_digest'):
@@ -1728,6 +1764,7 @@ class Session:
                             data = {**data,'question':args['look_after'],'source_turn_id':context.get('source_turn_id'),
                                     'event_id':context.get('event_id'),'after_drive':receipt['status']}
                             self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
+                            self.last_look_at = self.trace.clock()   # For his own looks: not the same thing again so soon.
                             self.history.append({'role':'developer','content':'Inspection after driving: '+json.dumps(data)})
                             followup, look_calls = drive_followup(call,{'drive':receipt,'inspection':data},images,data,replan=depth==0)
                             if look_calls:
@@ -1852,6 +1889,8 @@ class Session:
                             self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps({'pose':step,**asdict(receipt)})})
                             moved, last_at = receipt.status == 'pulses_reached', receipt.at
                             changed_channels.update(receipt.changed_channels)
+                            if moved and step == 'visor_down':
+                                went_dark[0] = True
                             if moved and isinstance(step, str) and step.startswith(('look_', 'tilt_')):
                                 # Why his head is where it is, for when someone asks.
                                 self.state.present.rex_looked(step.replace('_', ' '),
@@ -1885,6 +1924,7 @@ class Session:
                         data, images = self.output.execute_inspection(look,cancel,lambda: True)
                         data = {**data,'question':look_question,'source_turn_id':context.get('source_turn_id'),'after_poses':list(pose)}
                         self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
+                        self.last_look_at = self.trace.clock()   # For his own looks: not the same thing again so soon.
                         with self._lock:self.state.actions.observed(data)
                         self.history.append({'role':'developer','content':'Inspection after moving: '+json.dumps(data)})
                         continuation = (*call.preamble,
@@ -2332,6 +2372,11 @@ class Session:
             if agency_step and self.state and not agency_deferred:
                 with self._lock:
                     self.state.agency.finish(agency_step,delivery,action_outcome,self.trace.clock(),agency_revision_reason)
+            if went_dark[0] and self.state and not self.state.frozen:
+                # Owner, October 22: lowered, the visor blinds him and he should make light of it. Run
+                # 0421a222: told so only in the instructions, he never did. His next beat does it.
+                with self._lock:
+                    self.state.agency.insert_beat(DARK_BEAT, self.trace.clock())
                 if delivery.completed_text and delivery.medium == 'audio' and not self.state.frozen:
                     # October 16: a beat asked about the wine run three runs in a row; only the
                     # memory tool recorded a follow-up as asked. A heard beat built on it counts too.

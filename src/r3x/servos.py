@@ -344,13 +344,15 @@ class ServoOwner:
                 return receipt('rejected', 'ArmKeptClearOfObstacle:' + ','.join(sorted(self.kept_arms)))
             if request.kind == 'pose' and not request.hold_pose:
                 channels = {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
-                own_visor = request.pose == 'visor_up' and self.may_raise_visor()
+                own_visor = request.pose in ('visor_up', 'visor_normal') and self.may_raise_visor()
                 if request.pose == 'release_poses' or (
                         channels.intersection(self.held_channels) and self.human_hold_active() and not own_visor):
                     return receipt('rejected', 'AgencyCannotOverrideHeldPose')
                 self.held_channels.difference_update(channels)  # An aged hold gives way.
             self.version += 1
-            if request.kind == 'pose' and request.hold_pose and request.pose not in ('release_poses', *GESTURES):  # dict poses too
+            if request.kind == 'pose' and request.pose == 'visor_normal':
+                self.held_channels.discard(3)   # Back to its usual place: speech and idle move it again.
+            elif request.kind == 'pose' and request.hold_pose and request.pose not in ('release_poses', *GESTURES):  # dict poses too
                 self.held_channels.update(ch for lane in lanes for beat in lane for ch, _ in beat.targets)
                 self.pose_held_at = self.clock()
                 if request.pose == 'hold_arms':

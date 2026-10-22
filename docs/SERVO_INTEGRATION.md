@@ -359,7 +359,8 @@ moved nothing visible. It now holds 1150 µs (4600), fully open and a little sho
 limit so the held servo is not pressed against its stop. Shut by a person, the visor stays shut when
 their hold ages out (idle motion would otherwise drift it open), and after 15 s with nothing newer
 asked Rex may raise it himself (`ServoOwner.may_raise_visor`, `VISOR_RAISE_SECONDS`); other holds
-still yield after 90 s. Not yet checked on the robot.
+still yield after 90 s. `visor_normal` returns it to the open neutral and releases it to speech and
+idle motion (run 0421a222: asked for "the way it normally goes", it stayed fully open). Not yet checked on the robot.
 
 **First live run (session `f07e53af`, October 10 evening).** The wake choreography,
 `tilt_left`, `tilt_right`, `look_level`, `look_up`, `look_down` and `poker_up` all reached

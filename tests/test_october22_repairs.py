@@ -257,7 +257,12 @@ class VisorOverEyesTests(memory_tests.MemoryFixture):
         self.assertIn('I kept it down for you', GUIDE['visor_over_eyes (yours to raise)'])
         self.assertIn('never on blind people', GUIDE['visor_over_eyes'])
         pose = next(t for t in TOOLS if t['name'] == 'set_robot_pose')['description']
-        self.assertIn("it's dark in here", pose)
+        # Run 0421a222: worded as blinding him, lowering took four asks. The tool stays neutral; the
+        # dark is noticed once it is down (the reminder and the beat that follows it).
+        self.assertNotIn('see nothing', pose)
+        self.assertIn('do either whenever asked', pose)
+        from r3x.session import DARK_BEAT
+        self.assertIn('never about blind people', DARK_BEAT)
 
 
 class RaisingHisOwnVisorTests(memory_tests.MemoryFixture):
@@ -334,3 +339,108 @@ class FastModeTests(memory_tests.MemoryFixture):
             self.assertEqual(sent.get('service_tier'), 'fast' if tier == 'fast' else None)
         usage = [r for r in rows if r['event'] == 'model_usage']
         self.assertEqual([r['served_tier'] for r in usage], ['default', 'default'])   # A fast request served at Standard shows.
+
+
+class LateOctober22Tests(memory_tests.MemoryFixture):
+    # Run 0421a222 (October 22, 2:37 PM): seventeen issues; each test names its own.
+    setup_owner, tick = plans.PlanTests.setup_owner, plans.PlanTests.tick
+
+    def servo_owner(self):
+        return RaisingHisOwnVisorTests.owner(self)
+
+    def test_visor_normal_puts_it_back_and_lets_it_move_again(self):
+        # "You can put it back to the way it normally goes now" got words, then "the visor stays up".
+        from r3x.servo_poses import VISOR_OPEN
+        owner, clock, port = self.servo_owner()
+        owner.execute(ServoRequest('up', owner.version, 'pose', clock() + 60, pose='visor_up'), Cancellation())
+        self.assertIn(3, owner.held_channels)
+        owner.execute(ServoRequest('normal', owner.version, 'pose', clock() + 60, pose='visor_normal'), Cancellation())
+        self.assertEqual(port.pose[3], VISOR_OPEN)
+        self.assertNotIn(3, owner.held_channels)
+
+    def test_after_the_visor_closes_his_next_beat_is_about_the_dark(self):
+        from r3x.session import DARK_BEAT
+        self.setup_owner()
+        self.planner.choose = lambda facts, cancel: plan_of(6)
+        self.tick(100)
+        goal = self.state.agency.record['id']
+        self.assertTrue(self.state.agency.insert_beat(DARK_BEAT, self.trace.at))
+        step = self.state.agency.step(self.trace.at)
+        self.assertEqual((step['instruction'], step['requires_visor_shut']), (DARK_BEAT, True))
+        self.tick(self.trace.at + 9)                 # No visor stand-in: it is not shut, so the beat is let go.
+        outcomes = self.state.agency.record['outcomes']
+        self.assertEqual(outcomes[-2]['revision_reason'], 'visor_open')
+        self.assertEqual(self.state.agency.record['id'], goal)   # The goal carries on.
+
+    def test_the_no_answer_wait_counts_from_his_last_line_not_a_silent_glance(self):
+        from r3x.agency import AgencyPlan
+        from r3x.present import Present
+        present = Present()
+        plan = AgencyPlan(self.store, self.state.trace, present)
+        value = plan_of(2)
+        value['steps'][1]['wake'] = {'when': 'unanswered', 'seconds': 15}
+        plan.install(value, '[]', {}, {'contribute'}, plan.revision, 10.)
+        present.rex_said('Is it the 600 millimeter one?', 12.)
+        plan._skip_current('silent_glance', 20.)    # A glance between his line and this beat.
+        self.assertEqual(plan._wake(26., 14.)[0], 'waiting')
+        self.assertEqual(plan._wake(27.5, 15.)[0], 'ready')       # 15 s after the line, not after the glance.
+
+    def test_a_closer_look_right_after_another_is_let_go(self):
+        self.setup_owner()
+        self.planner.choose = lambda facts, cancel: plan_of(3, ('inspect', 'contribute', 'contribute'))
+        self.session.output.inspection = SimpleNamespace(directions=('current',))   # Looks are possible...
+        self.session.last_look_at = 95.                                             # ...and one just happened.
+        self.tick(100)
+        first = self.state.agency.record['outcomes'][0]
+        self.assertEqual((first['kind'], first['revision_reason']), ('inspect', 'looked_just_now'))
+
+    def test_a_persons_look_request_goes_to_the_pose_tool_and_down_is_a_direction(self):
+        from r3x.semantics import grounded_tools
+        base = {'attention_enabled': True, 'robot_pose_enabled': True, 'conversation_intent': {'revision': 0},
+                'attention': {'vision': {'targets': []}}, 'source_turn_id': 't'}
+        names = {t['name'] for t in grounded_tools(base)}
+        self.assertIn('set_robot_pose', names)
+        self.assertNotIn('shift_attention', names)               # Human turn: not the silent glance.
+        beat = {t['name']: t for t in grounded_tools({**base, 'trigger': 'reconsideration'})}
+        self.assertIn('down', beat['shift_attention']['parameters']['properties']['target']['enum'])
+        self.assertIn('down', PhysicalAttention.targets)
+
+    def test_a_misheard_name_still_shuts_him_down(self):
+        from r3x.runtime import SHUTDOWN_COMMANDS
+        for said in ('red shut down', 'red, shut down', 'rex shut down', 'shut down', 'wrecks shut down'):
+            self.assertIn(said, SHUTDOWN_COMMANDS)
+        self.assertNotIn('shut that idea down', SHUTDOWN_COMMANDS)
+
+    def test_a_beat_opening_like_his_last_line_is_a_repeat(self):
+        self.setup_owner()
+        self.session.history.append({'role': 'assistant', 'content': "Mouth sparkle isn't a separate setting."})
+        call = ToolCall('b', 'respond_with_intent', {'text': "Mouth sparkle isn't on the controls, but Voyager...",
+                                                      'intent_update': None, 'used_material': None,
+                                                      'invitation_update': None, 'next_opportunity': None})
+        self.assertEqual(self.session._repeats_recent_line(call), "mouth sparkle isn't")
+
+    def test_a_moved_on_beat_that_picks_silence_is_asked_once_more(self):
+        self.setup_owner()
+        self.planner.choose = lambda facts, cancel: plan_of(6)
+        self.tick(100)
+        PacingTests.say(self, 'My dogs chewed a shoe.')
+        PacingTests.say(self, 'Toby ate the laces too.')
+        seen = []
+        def choose(snapshot, cancel):
+            seen.append(snapshot)
+            if len(seen) == 1:
+                yield from let_go(snapshot, cancel)
+            else:
+                yield 'Toby has better taste in laces than most pilots.'
+        self.executor.choose = choose
+        self.assertEqual(self.tick(self.trace.at + 20).status, 'completed')
+        self.assertEqual(len(seen), 2)
+        self.assertIn('Silence needs a real reason', str(seen[1].messages))
+
+    def test_at_startup_someone_in_view_is_greeted_before_he_plans(self):
+        self.setup_owner()
+        self.runtime.camera = SimpleNamespace(latest=lambda at: [face(at, None, 'newcomer')])
+        self.runtime.started_at = 95.
+        self.assertIsNone(self.tick(100))                       # The face has not settled into a greeting yet.
+        self.assertFalse(self.planner.requests)
+        self.assertIn('greeting_first', [r.get('reason') for r in self.trace.rows if r['event'] == 'initiative_gate'])

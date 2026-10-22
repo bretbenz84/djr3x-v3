@@ -679,7 +679,7 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
     Direction is robot-relative, not a promise to fixate a detected image object.
     Explicit poses/drive stance reject the whole action instead of partially acting.
     """
-    if target not in {'left','right','up','forward','unfocused'}:
+    if target not in {'left','right','up','down','forward','unfocused'}:
         raise ValueError('DirectionalAttentionOnly')
     if intensity not in {'subtle','normal'} or hold_seconds not in (.5, 1.5):
         raise ValueError('InvalidExpression')
@@ -688,6 +688,7 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
     if kind == 'attention':
         targets = {'left':((0,NECK_CENTER-1040),), 'right':((0,NECK_CENTER+1040),),
                    'up':tuple(head_targets(HEAD_POSES['look_up'], current).items()),
+                   'down':tuple(head_targets(HEAD_POSES['look_down'], current).items()),
                    'forward':((0,NECK_CENTER),)+DRIVE_HEAD,
                    'unfocused':((0,clamp(0,current[0]+520)),)}[target]
         lane = (Beat(targets,speed=35,acceleration=6,dwell=hold_seconds),)
@@ -1006,6 +1007,9 @@ NAMED_POSES = {
     # neck pose" got look_up, a head tip on a pole raised only to 4200 of its 7744.
     'neck_up': ((1,LIMITS[1][1]),), 'neck_down': ((1,LIMITS[1][0]),),
     'visor_down': ((3,VISOR_DOWN),), 'visor_up': ((3,VISOR_UP),),
+    # Owner, October 22: "put it back to the way it normally goes". Its usual open point, then it moves
+    # with speech and idle again (never held).
+    'visor_normal': ((3,VISOR_OPEN),),
     'throttle_offer': ((8,2176),(9,2601),(10,5938)),
     'throttle_high_five': ((8,2176),(9,9361),(10,6302)),
     'throttle_down': FULL_DOWN, 'throttle_rest': REST,

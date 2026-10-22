@@ -91,6 +91,7 @@ def run(session,call,snapshot,generate,cancel):
             data={'outcome':'failed','reason':str(exc)};images=()
             ctx={**snapshot.context,**context(state),'photo_inspection_failed':True}
         session.trace.emit('photo_inspection',turn_id=snapshot.turn_id,**data,image_count=len(images))
+        session.last_look_at = session.trace.clock()
     continuation=(*call.preamble,{'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
                   {'type':'function_call_output','call_id':call.call_id,'output':json.dumps(data)})
     messages=snapshot.messages

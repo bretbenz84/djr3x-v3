@@ -210,7 +210,7 @@ class CoreState:
         from .leds import LIGHT_STEPS
         poses = call.arguments['poses']
         if not poses or any(p not in POSE_COMMANDS and p not in LIGHT_STEPS for p in poses): raise ValueError('UnknownRobotPose')
-        if (context.get('agency_step') or {}).get('kind', 'pose') != 'pose' and list(poses) != ['visor_up']:
+        if (context.get('agency_step') or {}).get('kind', 'pose') != 'pose' and list(poses) not in (['visor_normal'], ['visor_up']):
             raise ValueError('OnlyHisOwnVisorThisBeat')   # A pose on another kind of beat raises the visor, nothing else.
         if any(p in LIGHT_STEPS and not (context.get('led_enabled') and LIGHT_STEPS[p] in context.get('led_patterns',()))
                for p in poses): raise ValueError('LEDPatternUnavailable')
@@ -418,7 +418,7 @@ class CoreState:
         args = call.arguments
         if args['pattern'] not in context['led_patterns']:
             raise ValueError('LEDPatternUnavailable')
-        if args['timing']=='during_speech' and (args['text'] is None or args['pattern'] in {'sparkle','blink'}):
+        if args['timing']=='during_speech' and (args['text'] is None or args['pattern']=='blink'):
             raise ValueError('InvalidSpeakingAnimation')
         source = context.get('event_id') or context['source_turn_id']
         return LightRequest(source+':'+call.call_id,args['pattern'],
@@ -460,7 +460,7 @@ class CoreState:
             raise ValueError('StaleAttentionVersion')
         source = context.get('event_id') or context['source_turn_id']
         anchor = None
-        if call.arguments['target'] not in {'left','right','up','forward','people','unfocused'} and not call.arguments['target'].startswith('visual:'):
+        if call.arguments['target'] not in {'left','right','up','down','forward','people','unfocused'} and not call.arguments['target'].startswith('visual:'):
             raise ValueError('InvalidAttentionTarget')
         if call.arguments['target'].startswith('visual:'):
             offered = next((t for t in context['attention']['vision']['targets']

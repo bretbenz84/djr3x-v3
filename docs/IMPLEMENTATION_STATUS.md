@@ -21,6 +21,38 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Seventeen repairs from run 0421a222 — October 22
+
+Owner review of the 2:37 PM run (18 min). Fast mode held (all 76 reply calls served Fast; 6 of 31
+replies over 4 s, from 19 of 25) and plans written ahead were adopted at once. Fixed:
+- **Visor.** Worded as blinding him, lowering took four asks (silence, a nod saying "Down it goes",
+  words, then the move); the pose tool is neutral again and the dark is noticed once it is down:
+  a one-line reminder rides each request while it is shut, and his next beat after it closes is
+  about the dark (let go if it was raised first). `visor_normal` puts it back to its usual open
+  position and lets it move again; his own raise uses it; `release_poses` says the visor goes back.
+- **Looking.** "Look left and tell me what's on the desk" is one `set_robot_pose` with `look_after`;
+  the silent glance is no longer offered on a person's turn when poses are, and a follow-up "do you
+  see it?" looks again in that call (the voice reflex turns the head back to whoever speaks, kept
+  for "I'm over here", September 28). Glances can look down.
+- **Showing.** Being shown something is a look, not a save; he offers to remember it.
+- **Repeated looks.** An own closer look within 2 minutes of the last look is let go, no call; the
+  voice reminder forbids announcing a bit or subject switch.
+- **Shutdown.** "Red shut down" and similar mishearings of his name are the exact shutdown.
+- **Pacing.** The "if nobody answers in N s" wait counts from his last heard line, not a silent glance
+  (35 and 36 s silences); the planner plans a look back only after a look away (seven empty ones);
+  a moved-on beat that picks silence without a reason is asked once more.
+- **Lights.** An effect he does not have is said, not substituted; the sparkle with words runs while
+  he speaks (it added 2.5 s before); a beat opening like his last line counts as a repeat.
+- **Speed.** Pose replies always lead with a short line; at startup, planning waits up to 20 s for the
+  greeting of a face in view (one wasted planner call per startup).
+- **Content.** Subjects of recent goals, this run's or the last, are spent for the planner (the
+  telescope in 9 of 47 lines); `calendar` gains `born` (age and birthday give the year; the
+  answer was right for the wrong reason); praise gets "Naturally.", not "You're welcome".
+Blocked-I/O checks: the 1,028 tests in the affected files pass (not the full suite). Paid probe,
+visor cases only, two rounds: 10 of 10 (lowering on the first ask, "back to normal" with
+`visor_normal`) in short fresh conversations; the live miss came in a long one. **Not yet run on the
+robot.**
+
 ## Reply model in Fast mode — October 22
 
 Owner choice: Rex's reply model (GPT-6 Luna, reasoning effort low) runs in OpenAI Fast mode
