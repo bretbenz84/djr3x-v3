@@ -52,6 +52,10 @@ NECK_DEAD_DEG = 5.           # V2's 60 px dead zone, about this much of the wide
 Y_DEAD = .08
 VERTICAL_HALF_FOV = 29.      # 16:9 frame behind the measured 45 degree horizontal half view.
 FACE_LOST_SECONDS = 4.       # Keep looking where a face just was before scanning the room.
+# Owner, October 21 (Microduck's look-around): a room look goes somewhere clearly new, and
+# about one in four comes back to straight ahead. Each move's pace is servo_poses.eased_head_beat.
+SCAN_APART_DEG = 12.
+SCAN_CENTRE_CHANCE = .25
 
 
 class IdleMotion:
@@ -77,6 +81,7 @@ class IdleMotion:
         self._glance_at = None
         self._glance_until = float('-inf')
         self._scan_at = float('-inf')
+        self._scan_neck = NECK_CENTER       # Where the last room look pointed.
         self._face_at = float('-inf')
         self._cock = 0.                    # A gentle attentive head cock while following a face...
         self._cock_until = float('-inf')   # ...held until then...
@@ -151,7 +156,7 @@ class IdleMotion:
                         anchor_pitch + rng.uniform(-pitch_by, pitch_by), anchor_tilt + rng.uniform(-tilt_by, tilt_by))
         if self.mode(now) == 'direction':
             self._doing('holding_chosen_direction', now)
-            return near(self._anchor), rng.randint(10, 14), 0.
+            return near(self._anchor), 0.
         aim = None
         if self.face:
             try:
@@ -163,7 +168,7 @@ class IdleMotion:
             if self._glance_at is None:
                 self._glance_at = now + rng.uniform(7., 16.)
         if now < self._glance_until:
-            return (), rng.randint(10, 14), 0.          # Still looking away; drift there.
+            return (), 0.          # Still looking away; drift there.
         if aim is not None and aim.get('at', now) > self.owner.head_moved_at + .1:
             if now >= self._glance_at and not calm:
                 # Break eye contact like V2's gaze engine: 12-24 degrees aside, level or a
@@ -173,7 +178,7 @@ class IdleMotion:
                 self._doing('glancing_away', now)
                 neck = aim['neck'] + rng.choice((-1, 1)) * rng.uniform(12., 24.) * NECK_PER_DEG
                 glance_pitch = pitch_from_degrees(degrees_from_pitch(pitch) - rng.uniform(0., 5.))
-                return look(neck, current[1], glance_pitch, tilt + rng.choice((-1, 1)) * rng.uniform(.1, .25)), rng.randint(12, 18), 0.
+                return look(neck, current[1], glance_pitch, tilt + rng.choice((-1, 1)) * rng.uniform(.1, .25)), 0.
             self._doing('following_people', now)
             error = aim['neck'] - current[0]
             neck = current[0] + (FACE_GAIN * error if abs(error) > NECK_DEAD_DEG * NECK_PER_DEG else rng.randint(-160, 160))
@@ -184,7 +189,6 @@ class IdleMotion:
                 degrees = degrees_from_pitch(pitch) - FACE_GAIN * off * 2 * VERTICAL_HALF_FOV
                 pitch = pitch_from_degrees(degrees)
             self.owner.gaze_pitch = pitch
-            far = abs(error) > 12 * NECK_PER_DEG
             # Attentive listening, as a dog does: every 10-25 s the head settles into a gentle
             # cock to one side for 3-8 s, then straightens (owner, October 10: a little more tilt).
             if now >= self._cock_at:
@@ -193,9 +197,9 @@ class IdleMotion:
                 self._cock_at = self._cock_until + rng.uniform(10., 25.)
             tilt = (self._cock if now < self._cock_until else 0.) + rng.uniform(-.05, .05)
             pitch += rng.uniform(-.04, .04)   # A living nod and lean around the framing, never a fixed stare.
-            return look(neck, level[1] + rng.randint(-110, 110), pitch, tilt), 18 if far else 13, 0.
+            return look(neck, level[1] + rng.randint(-110, 110), pitch, tilt), 0.
         if aim is not None or now - self._face_at <= FACE_LOST_SECONDS:
-            return (), rng.randint(10, 14), 0.          # Waiting for a fresh look at them.
+            return (), 0.          # Waiting for a fresh look at them.
         # Nobody in view: look around the room now and then (V2's scan leaned downward,
         # where seated people are), drifting in place between looks.
         self._glance_at = None
@@ -204,10 +208,25 @@ class IdleMotion:
             self.owner.gaze_pitch = None
             self._doing('looking_around_the_room', now)
             vertical = rng.uniform(-.3, 1.)           # Negative looks up, positive down.
-            neck = NECK_CENTER + rng.uniform(-LOOK_NECK_DEG, LOOK_NECK_DEG) * NECK_PER_DEG
-            return (look(neck, level[1] - vertical * 200, -vertical * .65, rng.uniform(-.3, .3)),
-                    rng.randint(12, 18), rng.uniform(.4, 1.2))
-        return (), rng.randint(10, 14), 0.
+            neck = self._scan_neck = self._somewhere_new()
+            tilt = 0. if neck == NECK_CENTER else rng.uniform(-.3, .3)
+            return look(neck, level[1] - vertical * 200, -vertical * .65, tilt), rng.uniform(.4, 1.2)
+        return (), 0.
+
+    def _somewhere_new(self):
+        """Where the next room look points: now and then straight ahead again, otherwise
+        anywhere in range, but never just beside the last look (Microduck's look-around)."""
+        def draw():
+            if self.rng.random() < SCAN_CENTRE_CHANCE:
+                return NECK_CENTER
+            return NECK_CENTER + self.rng.uniform(-LOOK_NECK_DEG, LOOK_NECK_DEG) * NECK_PER_DEG
+        away = lambda neck: abs(neck - self._scan_neck)
+        best = draw()
+        for _ in range(8):
+            if away(best) >= SCAN_APART_DEG * NECK_PER_DEG:
+                break
+            best = max(best, draw(), key=away)
+        return best
 
     def _compose(self, now, calm):
         held = set(self.owner.held_channels)
@@ -241,8 +260,8 @@ class IdleMotion:
             elif now >= self._tail_until:
                 settle, self._tail_until = True, None
                 self._due['poker'] = now + self.rng.uniform(*TAIL_REST_SECONDS)
-        head, speed, dwell = self._head(now, calm) if 'head' in chosen else ((), 9, 0.)
-        return IdlePhrase(tuple(parts), tuple((ch, round(value)) for ch, value in head), speed, dwell, swing, settle)
+        head, dwell = self._head(now, calm) if 'head' in chosen else ((), 0.)
+        return IdlePhrase(tuple(parts), tuple((ch, round(value)) for ch, value in head), dwell, swing, settle)
 
     # Scheduling -----------------------------------------------------------
     def _stop(self):

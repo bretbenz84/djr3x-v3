@@ -6,6 +6,28 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 21: idle head moves on one smooth curve
+
+Owner, after a fluid robot-head demo (Microduck's idle look-around): Rex's random head motion
+is not fluid. Every idle head move gave all four head servos the same board speed (10-18) and
+acceleration 3 whatever their distance, so the head cocked quickly while the neck kept
+swinging, and long moves ran at constant speed. Now (`servo_poses.eased_head_beat`):
+
+- *One curve, one arrival:* a move takes 0.4 s plus 0.05 s per degree of neck, pitch and tilt
+  together (a full side tilt is taken as 20 degrees, unmeasured). Each servo gets the whole-number
+  board speed and acceleration whose ramp stays closest to a minimum-jerk curve over that time.
+- *Measured on a model of the board's ramp* (servos travelling 500 pulses or more, 400 random
+  moves): the gap between the first and last servo to arrive fell from a median 51% of the move
+  to 4%, and time at constant speed from 43% to 28%. Short, slow moves stay partly at constant
+  speed: the board's gentlest acceleration (1250 pulses/s²) is too steep for them.
+- *Room looks:* each goes at least 12 degrees from the last one, and about one in four comes back
+  to straight ahead. Speeds no longer come from the gaze code (`IdlePhrase.head_speed` retired).
+
+Talking sway, poses, gestures and the listening cue are unchanged. Face-following, glances,
+holds and drift keep their targets and timing; only how each move travels changed. Synthetic
+only: 1,368 blocked-I/O checks pass (simulated servo board). The board's real ramp, the head's
+weight and linkage, how it looks and how loud it is are unseen until a run on the robot.
+
 ## October 13 (later): sway, then rest
 
 Owner, after seeing it: it moved too much, too constantly. The tail now alternates: a bout of

@@ -11,6 +11,7 @@ poker arm gained an elbow (12) and a wrist (13) with a measured clearance ceilin
 the visor servo now runs inverted (low pulses up).
 """
 from dataclasses import dataclass, replace
+import math
 from types import MappingProxyType
 
 
@@ -450,7 +451,6 @@ class IdlePhrase:
     joints start and finish at different moments instead of all at once."""
     parts: tuple[tuple[str, float], ...]
     head: tuple[tuple[int, int], ...] = ()   # Gaze-chosen head targets; empty drifts in place.
-    head_speed: int = 9
     head_dwell: float = 0.
     swing: bool = False   # The hero arm's move includes its shoulder, which carries the microphone array.
     tail_settle: bool = False   # The poker arm's sway ends: it eases back to its awake pose and rests.
@@ -487,6 +487,84 @@ GESTURE_PRIMITIVES = (*HEAD_EXPRESSIONS, 'lift', 'arm_emphasis')
 
 def head_reframes(current, targets) -> bool:
     return any(abs(current[ch] - value) > HEAD_SMALL[ch] for ch, value in targets if ch in HEAD_SMALL)
+
+
+# Owner, October 21 (after a fluid robot-head demo, Microduck's idle look-around): an idle
+# head move follows one smooth curve (minimum jerk: no sudden start or stop), every head
+# servo arrives at the same moment, and a bigger move takes longer. The board's own ramp
+# draws each servo's curve: it speeds up at its acceleration, holds at most its speed limit
+# and slows down again. Board units are whole numbers and the gentlest acceleration is
+# still steep for a short, slow move, so each servo gets whichever nearby setting keeps
+# its ramp closest to the shared curve.
+HEAD_EASE_SECONDS = .4      # Every idle head move takes at least this long...
+HEAD_EASE_PER_DEG = .05     # ...plus this per degree: about the old idle pace for large looks.
+TILT_DEG = 20.              # Degrees of a full side tilt: an estimate, like the pitch's.
+SPEED_UNIT = 100.           # Pulses per second for one board speed unit (0.25 us per 10 ms).
+ACCEL_UNIT = 1250.          # Pulses per second squared for one board acceleration unit (per 80 ms).
+
+
+def minimum_jerk(x: float) -> float:
+    """Share of a move done at share x of its time; no speed or acceleration at either end."""
+    x = max(0., min(1., x))
+    return x ** 3 * (10 + x * (-15 + 6 * x))
+
+
+def board_seconds(travel: float, speed: int, acceleration: int) -> float:
+    """How long the board's ramp takes over travel pulses at this speed and acceleration."""
+    v, a = speed * SPEED_UNIT, acceleration * ACCEL_UNIT
+    if v * v >= a * travel:
+        return 2 * math.sqrt(travel / a)    # Never reaches the speed limit: up, then straight down.
+    return travel / v + v / a
+
+
+def board_travel(t: float, travel: float, speed: int, acceleration: int) -> float:
+    """Pulses the board's ramp has covered t seconds into a move."""
+    a = acceleration * ACCEL_UNIT
+    v = min(speed * SPEED_UNIT, math.sqrt(a * travel))
+    ramp, total = v / a, board_seconds(travel, speed, acceleration)
+    if t >= total:
+        return travel
+    if t <= ramp:
+        return a * t * t / 2
+    if t <= total - ramp:
+        return v * (t - ramp / 2)
+    return travel - a * (total - t) ** 2 / 2
+
+
+def _head_ramp(travel: float, seconds: float) -> tuple[int, int]:
+    """(speed, acceleration) whose ramp stays closest to a minimum-jerk move over seconds."""
+    ideal = 4 * travel / seconds ** 2 / ACCEL_UNIT    # A ramp straight up and straight down.
+    best = None
+    for units in {max(1, min(255, math.floor(ideal))), max(1, min(255, math.ceil(ideal)))}:
+        a = units * ACCEL_UNIT
+        speeds = {math.ceil(math.sqrt(a * travel) / SPEED_UNIT)}    # No speed limit reached.
+        room = (a * seconds) ** 2 - 4 * a * travel
+        if room >= 0:   # Too steep: a speed limit stretches the ramp to the shared time.
+            level = (a * seconds - math.sqrt(room)) / 2 / SPEED_UNIT
+            speeds |= {max(1, math.floor(level)), max(1, math.ceil(level))}
+        for speed in speeds:
+            end = max(seconds, board_seconds(travel, speed, units))
+            miss = max(abs(board_travel(end * k / 40, travel, speed, units) - travel * minimum_jerk(end * k / 40 / seconds))
+                       for k in range(41))
+            best = min(best or (miss, units, speed), (miss, units, speed))
+    return best[2], best[1]
+
+
+def head_degrees(start, targets) -> float:
+    """Roughly how far a head move turns: neck, pitch and side tilt together."""
+    end = {**start, **dict(targets)}
+    (pitch0, tilt0), (pitch1, tilt1) = head_pose(start), head_pose(end)
+    return math.hypot((end[0] - start[0]) / NECK_PER_DEG, degrees_from_pitch(pitch1) - degrees_from_pitch(pitch0),
+                      (tilt1 - tilt0) * TILT_DEG)
+
+
+def eased_head_beat(start, targets, dwell=0.) -> Beat:
+    """One idle head move on a shared smooth curve, timed by its size."""
+    targets = tuple(targets)
+    seconds = HEAD_EASE_SECONDS + HEAD_EASE_PER_DEG * head_degrees(start, targets)
+    profiles = tuple((ch, *(_head_ramp(abs(value - start[ch]), seconds) if abs(value - start[ch]) > 2 else (1, 1)))
+                     for ch, value in targets)
+    return Beat(targets, dwell=dwell, reframes=head_reframes(start, targets), seconds=seconds, profiles=profiles)
 
 
 def _elsewhere(rng, low, high, here, least, most=None):
@@ -627,10 +705,10 @@ def _lane_seconds(lane, current):
         total += beat.wait + beat.dwell
         if beat.throttle_duration:
             total += beat.throttle_duration
-        elif beat.profiles:
-            total += max(abs(dict(beat.targets)[ch] - position[ch]) / (100 * speed) for ch, speed, _ in beat.profiles)
         elif beat.seconds:
             total += beat.seconds
+        elif beat.profiles:
+            total += max(abs(dict(beat.targets)[ch] - position[ch]) / (100 * speed) for ch, speed, _ in beat.profiles)
         else:
             total += max((abs(value - position[ch]) / (100 * max(1, beat.speed)) for ch, value in beat.targets), default=0.)
         position.update(beat.targets)
@@ -655,23 +733,22 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
         if set(channels).intersection(held):
             continue
         if part == 'head':
-            def drift(start, speed):
+            def drift(start):
                 # A small wander from where the head is, inside the camera's settled view.
                 pitch, tilt = head_pose(start)
                 moved = ((0, clamp(0, start[0] + rng.randint(-260, 260))),
                          (1, clamp(1, start[1] + rng.randint(-110, 110))),
                          *head_pulses(pitch + rng.uniform(-.05, .05), tilt + rng.uniform(-.08, .08)).items())
-                return Beat(moved, speed=speed, acceleration=3, reframes=head_reframes(start, moved))
+                return eased_head_beat(start, moved)
             if phrase.head:
                 targets = tuple((ch, clamp(ch, value)) for ch, value in phrase.head)
-                lane = (Beat(targets, speed=phrase.head_speed, acceleration=3, dwell=phrase.head_dwell,
-                             reframes=head_reframes(current, targets)),)
+                lane = (eased_head_beat(current, targets, dwell=phrase.head_dwell),)
             else:
-                lane = (drift(current, phrase.head_speed),)
+                lane = (drift(current),)
             # Owner, October 12: the head stopped and waited while an arm finished, which read
             # as frozen. With other parts in the phrase it keeps wandering gently until they do.
             if len(phrase.parts) > 1:
-                lane += (drift({**current, **dict(lane[-1].targets)}, rng.randint(8, 12)),)
+                lane += (drift({**current, **dict(lane[-1].targets)}),)
         elif part == 'visor':
             first = _elsewhere(rng, *VISOR_IDLE, current[3], 200, 600)
             lane = (Beat(((3, first),), speed=rng.randint(8, 14), acceleration=3),)

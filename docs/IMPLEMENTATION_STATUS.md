@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 20, 2026. This is the consolidated
+Updated October 21, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,15 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## Idle head moves on one smooth curve — October 21
+
+Owner: the random head motion is not fluid (compared with Microduck's look-around). Each idle head
+move now times itself by its size and gives every head servo the board speed and acceleration that
+keep it closest to one shared minimum-jerk curve, so they arrive together; room looks go somewhere
+new and sometimes straight ahead. Details and the simulated-ramp numbers are in
+[servo integration](SERVO_INTEGRATION.md#october-21-idle-head-moves-on-one-smooth-curve).
+Synthetic checks only; **not yet run on the robot**.
 
 ## October 20 run: an introduced guest was never learned
 

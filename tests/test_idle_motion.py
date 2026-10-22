@@ -114,6 +114,76 @@ class IdleTests(unittest.TestCase):
         self.assertEqual(events,[True,False])
         self.assertEqual(self.owner.head_moved_at,self.clock())
 
+    @staticmethod
+    def board_ramp(travel,speed,acceleration):
+        """Where the board's documented ramp puts a servo every 10 ms: speed changes by
+        acceleration/8 units per step (one unit per 80 ms), capped at the speed limit, and
+        slows down in time to stop on target. One speed unit is 100 pulses a second."""
+        v=x=0.;path=[0.]
+        while x<travel-1:
+            dv=acceleration/8*100
+            v=max(v-dv,dv) if travel-x<=v*v/(2*acceleration*1250) else min(v+dv,speed*100)
+            x=min(travel,x+v*.01);path.append(x)
+        return path
+
+    def test_idle_head_moves_follow_one_smooth_curve_and_arrive_together(self):
+        # Owner, October 21 (Microduck's look-around): each head servo had the same board
+        # speed whatever its distance, so the head cocked quickly while the neck kept
+        # swinging. Every servo that moves far now eases in and out along one shared
+        # minimum-jerk curve and they arrive together.
+        from r3x.servo_poses import head_pose,head_pulses,minimum_jerk
+        self.execute('startup');self.clock.wait(.6)
+        rng=random.Random(5);spreads=[]
+        for _ in range(60):
+            start={ch:self.port.pose[ch] for ch in (0,1,2,11)}
+            pitch,tilt=head_pose(start)
+            neck=max(LIMITS[0][0],min(LIMITS[0][1],start[0]+rng.choice((-1,1))*rng.randint(500,2000)))
+            if abs(neck-NECK_CENTER)>1500:neck=NECK_CENTER+rng.randint(-300,300)
+            aim={0:neck,1:start[1]+rng.randint(-200,200),
+                 **head_pulses(max(-.6,min(.6,pitch+rng.uniform(-.4,.4))),max(-.5,min(.5,tilt+rng.uniform(-.3,.3))))}
+            self.port.packets.clear()
+            self.assertEqual(self.execute('idle',IdlePhrase((('head',0.),),tuple(aim.items()))).status,'pulses_reached')
+            speed={p[1]:p[2]+128*p[3] for p in self.port.packets if p[0]==0x87}
+            accel={p[1]:p[2]+128*p[3] for p in self.port.packets if p[0]==0x89}
+            seconds=.4+.05*abs(neck-start[0])/NECK_PER_DEG   # At least the neck's share of the move.
+            arrivals=[]
+            for ch,value in aim.items():
+                travel=abs(value-start[ch])
+                if travel<500:continue   # A short, slow move is below what whole board units can shape.
+                path=self.board_ramp(travel,speed[ch],accel[ch])
+                arrivals.append(len(path)*.01)
+                duration=max(arrivals[-1],seconds)
+                worst=max(abs(x-travel*minimum_jerk(k*.01/duration)) for k,x in enumerate(path))
+                self.assertLess(worst/travel,.2,(ch,travel,speed[ch],accel[ch]))
+            if len(arrivals)>1:spreads.append((max(arrivals)-min(arrivals))/max(arrivals))
+        self.assertGreaterEqual(len(spreads),10)
+        self.assertLess(max(spreads),.15,spreads)
+
+    def test_bigger_idle_head_moves_take_longer(self):
+        from r3x.servo_poses import eased_head_beat,head_pulses
+        start={0:NECK_CENTER,1:3600,**head_pulses(0.,0.)}
+        def arrival(degrees):
+            beat=eased_head_beat(start,((0,round(NECK_CENTER+degrees*NECK_PER_DEG)),))
+            ch,speed,acceleration=beat.profiles[0]
+            return len(self.board_ramp(abs(dict(beat.targets)[0]-start[0]),speed,acceleration))*.01
+        small,medium,large=arrival(3),arrival(12),arrival(30)
+        self.assertGreaterEqual(small,.4)          # Even a small shift is never a twitch...
+        self.assertLess(small,medium);self.assertLess(medium,large)
+        self.assertLess(large,2.4)                 # ...and a wide look is not a crawl.
+
+    def test_room_looks_go_somewhere_new_and_sometimes_straight_ahead(self):
+        self.execute('startup')
+        looks=[]
+        for _ in range(2400):
+            self.clock.wait(.5)
+            targets,_=self.idle._head(self.clock(),False)
+            if targets:looks.append(dict(targets)[0])
+        self.assertGreater(len(looks),100)
+        for before,after in zip(looks,looks[1:]):
+            self.assertGreaterEqual(abs(after-before),12*NECK_PER_DEG-1)
+        ahead=sum(abs(neck-NECK_CENTER)<=1 for neck in looks)/len(looks)
+        self.assertGreater(ahead,.12);self.assertLess(ahead,.4)
+
     def test_only_the_array_arm_ends_the_microphone_hold(self):
         # With continuous idle movement the hold would otherwise never be valid, and no
         # voice could be learned. Other joints' noise is judged per capture (motion_risk).
@@ -323,7 +393,7 @@ class IdleTests(unittest.TestCase):
         self.idle.face=lambda:{**face,'at':self.clock()}
         from r3x.servo_poses import head_pose
         neck,pitch=self.port.pose[0],head_pose(self.port.pose)[0]
-        targets,speed,_=self.idle._head(self.clock(),False)
+        targets,_=self.idle._head(self.clock(),False)
         target=dict(targets)
         # V2 centring gain 0.5: half the way to the face, not a snap.
         self.assertAlmostEqual(target[0],neck+.5*(4000-neck),delta=2)
@@ -334,14 +404,14 @@ class IdleTests(unittest.TestCase):
         self.assertAlmostEqual(self.owner.gaze_pitch,head_pose(target)[0],delta=.045)
         self.owner.commanded.update({0:4000,2:target[2],11:target[11]})
         face['y']=.40
-        targets,_,_=self.idle._head(self.clock(),False)
+        targets,_=self.idle._head(self.clock(),False)
         self.assertLessEqual(abs(dict(targets)[0]-4000),160)    # Inside the dead zone: only a little life.
         self.assertAlmostEqual(head_pose(dict(targets))[0],head_pose(target)[0],delta=.045)
         # Constant tracking was creepy in V2: within 16 seconds he looks aside, then comes back.
         looked=[]
         for _ in range(200):
             self.clock.wait(.1)
-            targets,_,_=self.idle._head(self.clock(),False)
+            targets,_=self.idle._head(self.clock(),False)
             if targets and abs(dict(targets)[0]-4000)>=12*NECK_PER_DEG-1:looked.append(self.clock())
         self.assertGreaterEqual(len(looked),1)
         self.assertLessEqual(len(looked),3)
@@ -356,7 +426,7 @@ class IdleTests(unittest.TestCase):
         looks=[]
         for _ in range(400):
             self.clock.wait(.5)
-            targets,_,_=self.idle._head(self.clock(),False)
+            targets,_=self.idle._head(self.clock(),False)
             if targets:looks.append(dict(targets))
         self.assertGreater(len(looks),10)
         self.assertLess(len(looks),40)            # A look every 6-13 seconds, drifting in between.
@@ -372,7 +442,7 @@ class IdleTests(unittest.TestCase):
         tilts=[]
         for _ in range(900):
             self.clock.wait(.2)
-            targets,_,_=self.idle._head(self.clock(),False)
+            targets,_=self.idle._head(self.clock(),False)
             if targets and self.clock()>=self.idle._glance_until:
                 tilt=head_pose(dict(targets))[1]
                 tilts.append(round(tilt,2))
@@ -394,7 +464,7 @@ class IdleTests(unittest.TestCase):
         self.assertEqual(self.idle.mode(),'direction')
         for _ in range(20):
             self.clock.wait(1.)
-            targets,_,_=self.idle._head(self.clock(),False)
+            targets,_=self.idle._head(self.clock(),False)
             self.assertLessEqual(abs(dict(targets)[0]-8000),60)   # Alive, but still looking there.
         self.idle.look_at_people()
         self.assertEqual(self.idle.mode(),'people')
