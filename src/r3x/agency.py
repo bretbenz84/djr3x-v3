@@ -61,9 +61,10 @@ MAX_STEP_ATTEMPTS = 2
 # 193c8df6: five telescope remarks in five minutes, one after a talk about the dogs; a "new
 # guest" beat 50 s after the guest turned out to be the owner's head turn). Once people have
 # spoken this many times since the goal's last heard beat (or since it was planned), the goal
-# is overtaken: its look-closer beat is let go without a model call, a spoken beat may only
-# follow what they are on now, and letting it go ends the goal. No extra planner call is spent
-# until the beats would have ended anyway.
+# is overtaken: its next beat must reach the goal through what they are talking about now, or
+# be let go. The goal itself goes on: conversation steers a goal and never ends it (owner,
+# October 1), and plans stay long so the planner, the costly call, is not called more often
+# (owner, October 17).
 OVERTAKEN_TURNS = 2
 # Owner, October 17: plans should last longer. Since October 15, 4-6-beat plans were used up in
 # about two and a half minutes each (beats run roughly every 30 s; dropped and skipped beats count),
@@ -109,8 +110,6 @@ WHY YOU WERE CALLED (goal_trigger)
 - beats_used: the last goal's beats are done. If its person is still here and the exchange is alive, continue
   that goal with fresh beats; when the conversation died, revive it with something new, never a recap. Otherwise
   choose a new goal.
-- overtaken_by_conversation: the people moved the conversation on and Rex let the old goal's beat go. Build on
-  what they are talking about now (recent exchanges); do not bring the old goal's subject back.
 - startup, no_goal, restart, revised, participant_boundary, subject_left: choose a goal from what is here now.
   After participant_boundary or revised, the previous goal is finished: do not bring its premise back.
 
@@ -641,12 +640,6 @@ class AgencyPlan:
             self._skip_current('overtaken_by_conversation', now)
             if not self.applicable(now): return None
         overtaken = self.overtaken()
-        while overtaken and self.applicable(now) and self.record['steps'][self.record['cursor']]['kind'] == 'inspect':
-            # A closer look at the old subject would only bring it back (55db1330: "that telescope is
-            # enormous" after a talk about where Rex is kept).
-            self._skip_current('overtaken_by_conversation', now)
-        if not self.applicable(now): return None
-        record = self.record
         return {'plan_id': record['id'], 'revision': self.revision, 'index': record['cursor'],
                 'scope': record['scope'], 'origin': record.get('origin', 'planner'),
                 'goal_kind': record['goal_kind'], 'subject': record['subject'],
@@ -833,8 +826,5 @@ class AgencyPlan:
                        unanswered=self.unanswered)
         if record['cursor'] >= len(record['steps']):
             self._emit('agency_goal_beats_used', plan_id=record['id'], goal_kind=record['goal_kind'])
-        elif step.get('overtaken') and kind in {'contribute', 'gesture'} and not heard and status == 'skipped':
-            # He let a beat of an overtaken goal go: the rest of it is stale too.
-            self.replace('overtaken_by_conversation')
         # Owner, October 17: ignored twice, he drops this goal and plans a fresh one. Decided in
         # ready(), once the person has had IGNORED_ANSWER_SECONDS to answer this line.

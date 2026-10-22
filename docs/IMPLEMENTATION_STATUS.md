@@ -28,10 +28,12 @@ past event stays, by the owner's choice):
 - **Stale goal beats.** Plans of about eight beats on one subject kept returning to it after the
   talk moved on (five telescope remarks in five minutes, one right after a talk about the dogs;
   a second cloud insult). A goal is now *overtaken* once people have spoken twice since its last
-  heard beat, or since planning began. Its look-closer beat is let go without a model call; a
-  spoken beat is told its subject is stale and may only follow the current talk or stay silent,
-  without the option to wait and bring it back; letting it go ends the goal, so the next plan
-  starts from the talk now (`overtaken_by_conversation`). No planner call is added otherwise.
+  heard beat, or since planning began. Its next beat is told not to jump back to the subject cold
+  but to reach the goal through what they are talking about now, or let the beat go; a look-closer
+  beat may be let go too. The goal itself goes on (conversation steers a goal and never ends it,
+  owner ruling of October 1) and no planner call is added (October 17). A first version that
+  ended overtaken goals was softened the same day: replayed on these runs it would have ended
+  goals at 4 of 9 beats and added planner calls. A heard beat resets the count.
 - **A head turn taken for a newcomer.** The owner, alone and recognized until 119.0 s, turned his
   head; the unrecognized view was asked "what should I call you?" and a "newly arrived guest" goal
   followed. An unrecognized face is no longer an arrival when it is the only face in view and

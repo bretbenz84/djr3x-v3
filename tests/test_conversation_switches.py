@@ -29,8 +29,9 @@ class OvertakenGoalTests(memory_tests.MemoryFixture):
         self.session.process_turn(Capture(uuid4().hex, 'session', bytes(96000), now - 3, now, now),
                                   Transcript(text, -.01, True), 0, memory_tests.observation())
 
-    def test_after_people_talk_on_the_beat_may_only_follow_them_and_letting_go_ends_the_goal(self):
+    def test_after_people_talk_on_the_beat_must_bridge_or_go_and_the_goal_goes_on(self):
         # 55db1330: a telescope beat after a talk about the dogs, another after where Rex is kept.
+        # Conversation steers a goal, never ends it (owner, October 1); plans stay long (October 17).
         self.setup_owner()
         self.planner.choose = lambda facts, cancel: telescope_plan()
         self.tick(100)                                        # Telescope beat 0 is heard.
@@ -45,13 +46,16 @@ class OvertakenGoalTests(memory_tests.MemoryFixture):
         self.assertEqual(self.tick(self.trace.at + 20).status, 'suppressed')
         step = seen[-1].context['agency_step']
         self.assertTrue(step['overtaken'])
-        self.assertNotIn('wait_for', {t['name'] for t in grounded_tools(seen[-1].context)})   # No later comeback.
-        self.assertEqual(self.state.agency.ending, 'overtaken_by_conversation')
+        record = self.state.agency.record
+        self.assertEqual((record['outcomes'][-1]['step'], record['outcomes'][-1]['status']), (1, 'skipped'))
+        self.assertIsNone(self.state.agency.ending)            # The goal goes on.
         self.executor.choose = None
-        self.tick(self.trace.at + 20)
-        self.assertEqual(len(self.planner.requests), 2)       # The next goal starts from the talk now.
-        self.assertEqual(self.planner.requests[-1]['goal_trigger'], 'overtaken_by_conversation')
-        self.assertIn('Toby and Max', json.dumps(self.planner.requests[-1]))
+        self.tick(self.trace.at + 20)                          # Its next beat, still bridging.
+        self.assertEqual(self.executor.snapshots[-1].context['agency_step']['index'], 2)
+        self.assertTrue(self.executor.snapshots[-1].context['agency_step']['overtaken'])
+        self.assertEqual(len(self.planner.requests), 1)        # No extra planner call.
+        self.tick(self.trace.at + 20)                          # A heard beat resets the count.
+        self.assertFalse(self.executor.snapshots[-1].context['agency_step']['overtaken'])
 
     def test_one_answer_to_a_beat_keeps_the_goal(self):
         self.setup_owner()
@@ -73,16 +77,17 @@ class OvertakenGoalTests(memory_tests.MemoryFixture):
         plan.human_spoke(None, 62.)
         self.assertTrue(plan.step(63.)['overtaken'])
 
-    def test_an_overtaken_goal_does_not_look_closer_at_its_old_subject(self):
+    def test_an_overtaken_look_closer_may_be_let_go(self):
         # 55db1330: "that telescope is enormous" from an inspect beat after the talk had moved on.
         plan = AgencyPlan(self.store, self.state.trace, Present())
         plan.install(telescope_plan(('inspect', 'contribute')), '[]', {}, {'contribute', 'inspect'}, plan.revision, 10.)
-        self.assertEqual(plan.step(11.)['kind'], 'inspect')
+        context = {'inspection_enabled': True, 'agency_step': plan.step(11.)}
+        self.assertEqual({t['name'] for t in grounded_tools(context)}, {'inspect_view'})   # Its planned moment.
         plan.human_spoke(None, 12.)
         plan.human_spoke(None, 14.)
-        step = plan.step(15.)
-        self.assertEqual((step['index'], step['kind'], step['overtaken']), (1, 'contribute', True))
-        self.assertEqual(plan.record['outcomes'][0]['revision_reason'], 'overtaken_by_conversation')
+        context = {'inspection_enabled': True, 'agency_step': plan.step(15.)}
+        self.assertEqual((context['agency_step']['kind'], context['agency_step']['overtaken']), ('inspect', True))
+        self.assertEqual({t['name'] for t in grounded_tools(context)}, {'inspect_view', 'remain_silent'})
 
     def test_the_performer_is_told_the_subject_is_stale(self):
         from r3x.adapters.hosted import OpenAIBrain
@@ -96,6 +101,7 @@ class OvertakenGoalTests(memory_tests.MemoryFixture):
         notes = json.dumps(brain.client.calls[0][1]['json']['input'])
         self.assertIn('THE CONVERSATION MOVED ON', notes)
         self.assertIn('the telescope', notes)
+        self.assertIn('the goal goes on', notes)
 
 
 class HeadTurnArrivalTests(unittest.TestCase):

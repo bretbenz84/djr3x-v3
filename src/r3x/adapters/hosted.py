@@ -989,10 +989,11 @@ class OpenAIBrain(HTTPProvider):
             # October 22 (55db1330, 193c8df6): stale beats came back to the goal's subject after the
             # people had talked on (telescope remarks after a talk about the dogs).
             payload['input'].append({'role':'developer','content':
-                'THE CONVERSATION MOVED ON: people have talked on since this goal last spoke, so its subject ('
-                + json.dumps(step.get('subject', ''), ensure_ascii=False) + ') and this beat\'s premise are stale. Do not '
-                'bring them up again, or anything you said about them. Either say one short thing that follows what they '
-                'are talking about now, or remain_silent; letting the beat go ends this goal.'})
+                'THE CONVERSATION MOVED ON: people have talked on since this goal last spoke. Do not jump back to its '
+                'subject (' + json.dumps(step.get('subject', ''), ensure_ascii=False) + ') cold, and do not repeat '
+                'anything you already said about it. Pursue the goal only through what they are talking about now: '
+                'build a bridge from their latest words to it, or do a beat that serves the current talk. If no natural '
+                'bridge exists, remain_silent and let this beat go; the goal goes on.'})
         offered = None
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             # Prompt caching matches the rendered prefix, and tool definitions precede the
