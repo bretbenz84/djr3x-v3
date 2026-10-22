@@ -882,7 +882,7 @@ class GoalTests(memory_tests.MemoryFixture):
             self.assertIsNone(self.tick(self.trace.at+wait))
         self.assertEqual(len(self.executor.snapshots),calls)
         self.assertTrue(any(r['event']=='initiative_quiet' for r in self.trace.rows))
-        self.state.initiative.quiet=False  # What set_initiative(available) does on "you can talk again."
+        self.state.initiative.quiet=False  # What resume_chiming_in does on "you can talk again."
         self.state.agency.human_spoke(None,self.trace.at)
         self.assertIsNotNone(self.tick(self.trace.at+20))
 

@@ -13,7 +13,10 @@ from .providers import Capability
 
 COLORS = {'neutral':(0,180,255), 'happy':(0,255,100), 'excited':(255,200,0),
           'sad':(0,50,200), 'angry':(255,0,0), 'curious':(180,0,255)}
-PATTERNS = (*COLORS, 'compliment', 'blink')
+# sparkle is the chest firmware's COMPLIMENT effect. October 22 (1072c10a): named for its purpose, the
+# model told the owner it could not make the chest sparkle; it also turned the eyes green and ran the
+# mouth, so "he made your mouth sparkle too". It is named for what people see and is the chest's alone.
+PATTERNS = (*COLORS, 'sparkle', 'blink')
 # Light steps a requested movement sequence may include, e.g. "... and blink your eyes".
 LIGHT_STEPS = {'blink': 'blink', **{'lights_'+p: p for p in PATTERNS if p != 'blink'}}
 
@@ -68,6 +71,7 @@ class LEDs:
         self.fade_at = None
         self.eye_color = (255,200,0)
         self.mouth = 'neutral'            # Emotion of the running mouth animation.
+        self.chest_only = False           # The running animation leaves the head as it is.
         self.speak_sent, self.speak_sends = float('-inf'), 0
         self.trace = None
         self.on_command = []              # Observers (zone, command) of each command written; the dashboard mirror.
@@ -197,19 +201,23 @@ class LEDs:
         with self.lock:
             if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
             if pattern not in PATTERNS or pattern=='blink': raise ProviderFailure('UnknownLEDPattern')
-            if pattern=='compliment' and 'chest' not in self.devices:
-                raise ProviderFailure('ChestLEDUnavailable')
+            if pattern=='sparkle' and ('chest' not in self.devices or speaking):
+                raise ProviderFailure('ChestLEDUnavailable' if 'chest' not in self.devices else 'UnknownLEDPattern')
             if request and (request.version!=self.version or self.clock()>=request.expires_at):
                 raise ProviderFailure('StaleLEDRequest')
             self.version += 1
+            self.chest_only = pattern=='sparkle'
+            if self.chest_only:
+                self.speaking = self.demo = False   # No mouth levels: the head is not part of it.
+                self._send('chest','COMPLIMENT')
+                return self.version
             self.speaking,self.demo = speaking,not speaking
             self.last_level,self.last_sent = -1,float('-inf')
-            emotion = 'happy' if pattern=='compliment' else pattern
-            self.eye_color = COLORS[emotion]
+            self.eye_color = COLORS[pattern]
             self._send('head','EYE:'+','.join(map(str,self.eye_color)))
-            self._send('head','SPEAK:'+emotion)
-            self.mouth, self.speak_sent, self.speak_sends = emotion, self.clock(), 1
-            self._send('chest','COMPLIMENT' if pattern=='compliment' else 'SPEAK:'+emotion)
+            self._send('head','SPEAK:'+pattern)
+            self.mouth, self.speak_sent, self.speak_sends = pattern, self.clock(), 1
+            self._send('chest','SPEAK:'+pattern)
             return self.version
 
     def finish(self, token):
@@ -217,11 +225,13 @@ class LEDs:
             if token != self.version or self.state != 'ready':
                 return 'failed' if self.state=='faulted' else 'superseded'
             self.speaking = self.demo = False
-            self._send('head','SPEAK_LEVEL:0')
-            for index in range(3):
-                self._send('head','SPEAK_STOP')
-                if index<2: self.wait(.025)
-            self._send('head','ACTIVE')  # SPEAK_STOP suspends firmware blinking.
+            if not self.chest_only:
+                self._send('head','SPEAK_LEVEL:0')
+                for index in range(3):
+                    self._send('head','SPEAK_STOP')
+                    if index<2: self.wait(.025)
+                self._send('head','ACTIVE')  # SPEAK_STOP suspends firmware blinking.
+            self.chest_only = False
             self._send('chest','SPEAK_STOP')
             self.version += 1
             return 'commands_sent'

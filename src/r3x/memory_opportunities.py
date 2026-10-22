@@ -98,15 +98,19 @@ def candidates(store, faces, today: date, offset: int = 0, limit: int = 6, *, no
                include_delivered: bool = False) -> list[dict]:
     visible={f.get('identity') for f in faces if f.get('identity')}
     if not visible:return []
+    # A follow-up is brought up with the person who told it: their own occasion, or (October 22)
+    # someone else's they told Rex about ("Jeremy turns 36 on November 30"), saved as that
+    # person's and offered only with its teller.
     rows=store.rows('''SELECT f.*,c.subject_id,c.predicate,c.value,c.source_turn,c.said_by,
-                      t.text AS source_text FROM memory_followups f
+                      p.name AS subject_name,t.text AS source_text FROM memory_followups f
                       JOIN claims c ON c.id=f.claim_id JOIN turns t ON t.id=c.source_turn
-                      JOIN people p ON p.id=c.subject_id
-                      WHERE c.status='accepted' AND c.kind='self_report' AND c.said_by=c.subject_id
-                      AND p.status='supported' ORDER BY c.revision DESC LIMIT 128''')
+                      JOIN people p ON p.id=c.subject_id JOIN people teller ON teller.id=c.said_by
+                      WHERE c.status='accepted' AND teller.status='supported' AND
+                      (c.kind='self_report' AND c.said_by=c.subject_id OR c.kind='third_party')
+                      ORDER BY c.revision DESC LIMIT 128''')
     result=[]
     for row in rows:
-        if row['subject_id'] not in visible:continue
+        if row['said_by'] not in visible:continue
         if row['audience']=='subject_only' and (len(faces)!=1 or len(visible)!=1):continue
         key=occasion(row['kind'],row['on_date'],today,row['due_at'],now)
         if key is None:continue

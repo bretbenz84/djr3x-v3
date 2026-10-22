@@ -29,9 +29,10 @@ class OvertakenGoalTests(memory_tests.MemoryFixture):
         self.session.process_turn(Capture(uuid4().hex, 'session', bytes(96000), now - 3, now, now),
                                   Transcript(text, -.01, True), 0, memory_tests.observation())
 
-    def test_after_people_talk_on_the_beat_must_bridge_or_go_and_the_goal_goes_on(self):
+    def test_after_people_talk_on_the_beat_follows_them_and_one_let_go_catches_the_goal_up(self):
         # 55db1330: a telescope beat after a talk about the dogs, another after where Rex is kept.
         # Conversation steers a goal, never ends it (owner, October 1); plans stay long (October 17).
+        # October 22 (1072c10a): once stale, every later beat stayed stale and 7 of 11 were let go.
         self.setup_owner()
         self.planner.choose = lambda facts, cancel: telescope_plan()
         self.tick(100)                                        # Telescope beat 0 is heard.
@@ -50,12 +51,17 @@ class OvertakenGoalTests(memory_tests.MemoryFixture):
         self.assertEqual((record['outcomes'][-1]['step'], record['outcomes'][-1]['status']), (1, 'skipped'))
         self.assertIsNone(self.state.agency.ending)            # The goal goes on.
         self.executor.choose = None
-        self.tick(self.trace.at + 20)                          # Its next beat, still bridging.
+        self.tick(self.trace.at + 20)                          # Letting one go caught the goal up.
         self.assertEqual(self.executor.snapshots[-1].context['agency_step']['index'], 2)
-        self.assertTrue(self.executor.snapshots[-1].context['agency_step']['overtaken'])
-        self.assertEqual(len(self.planner.requests), 1)        # No extra planner call.
-        self.tick(self.trace.at + 20)                          # A heard beat resets the count.
         self.assertFalse(self.executor.snapshots[-1].context['agency_step']['overtaken'])
+        # No extra planner call: the only other one writes the next goal ahead of this one's end.
+        self.assertEqual([r['goal_trigger'] for r in self.planner.requests][1:], ['beats_running_out'])
+        self.assertEqual(self.state.agency.record['subject'], 'the telescope')
+        self.say('Toby is the loud one.')
+        self.say('Max just sleeps.')                           # Two more turns: stale again.
+        self.tick(self.trace.at + 20)
+        self.assertEqual(self.executor.snapshots[-1].context['agency_step']['index'], 3)
+        self.assertTrue(self.executor.snapshots[-1].context['agency_step']['overtaken'])
 
     def test_one_answer_to_a_beat_keeps_the_goal(self):
         self.setup_owner()
@@ -68,14 +74,19 @@ class OvertakenGoalTests(memory_tests.MemoryFixture):
         self.assertIsNone(self.state.agency.ending)
         self.assertEqual(len(self.planner.requests), 1)
 
-    def test_speech_during_planning_counts_toward_overtaking(self):
+    def test_overtaking_counts_from_when_the_plan_is_ready(self):
+        # October 22 (1072c10a): two lines said while the planner worked made the plan stale
+        # before its first beat. The beat still sees their words (people_spoke_since_planned).
         plan = AgencyPlan(self.store, self.state.trace, Present())
         plan.plan_started = 50.
         plan.human_spoke(None, 52.)                           # While the planner was working.
+        plan.human_spoke(None, 55.)
         plan.install(telescope_plan(), '[]', {}, {'contribute'}, plan.revision, 60.)
         self.assertFalse(plan.step(61.)['overtaken'])
         plan.human_spoke(None, 62.)
-        self.assertTrue(plan.step(63.)['overtaken'])
+        self.assertFalse(plan.step(63.)['overtaken'])
+        plan.human_spoke(None, 64.)
+        self.assertTrue(plan.step(65.)['overtaken'])
 
     def test_an_overtaken_look_closer_may_be_let_go(self):
         # 55db1330: "that telescope is enormous" from an inspect beat after the talk had moved on.
@@ -102,6 +113,9 @@ class OvertakenGoalTests(memory_tests.MemoryFixture):
         self.assertIn('THE CONVERSATION MOVED ON', notes)
         self.assertIn('the telescope', notes)
         self.assertIn('the goal goes on', notes)
+        # October 22 (1072c10a): a stale spoken beat speaks; silence only for a real reason.
+        self.assertIn('Say one short thing that follows what they are talking about now', notes)
+        self.assertNotIn('If no natural bridge exists, remain_silent', notes)
 
 
 class HeadTurnArrivalTests(unittest.TestCase):

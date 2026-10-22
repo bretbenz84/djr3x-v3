@@ -114,7 +114,7 @@ class SpokenResultBrain:
 
     def reply(self, snapshot, cancel):
         self.snapshots.append(snapshot)
-        if snapshot.continuation:
+        if snapshot.continuation or len(self.snapshots) > 1:
             yield 'A second answer.'
             return
         yield ToolCall('save', self.name, {**self.arguments, 'source_turn_id': snapshot.context['source_turn_id']})
@@ -167,9 +167,9 @@ class SpokenResultTests(MemoryFixture):
 
     def test_going_quiet_still_goes_back_to_the_model(self):
         # 511ce677: with a text field it was used to answer "raise your head" three times.
-        self.assertNotIn('text', next(t for t in TOOLS if t['name'] == 'set_initiative')['parameters']['properties'])
+        self.assertNotIn('text', next(t for t in TOOLS if t['name'] == 'stop_chiming_in')['parameters']['properties'])
         self.enroll('Sam')
-        brain, session, result = self.converse('set_initiative', {'mode': 'quiet'},
+        brain, session, result = self.converse('stop_chiming_in', {'mode': 'quiet'},
                                                said='Stop interrupting me for a while.')
         self.assertEqual(result.completed_text, ['A second answer.'])
         self.assertEqual(len(brain.snapshots), 2)

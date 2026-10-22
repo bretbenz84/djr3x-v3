@@ -145,6 +145,10 @@ def poker_route(start, target) -> list[dict[int, int]]:
 # Owner's console readings, October 11: neutral open 1433 us, surprise 1136 us (the widest it
 # opens, the channel's low limit). Closed 1744 us reached on the robot at shutdown.
 VISOR_OPEN, VISOR_SURPRISE, VISOR_DOWN = 5732, 4544, 6976
+# October 22 (1072c10a): "raise your visor all the way" sent it to the open neutral, inside the
+# range it already wanders while talking, and nothing visibly rose. visor_up now holds it fully
+# open, a little short of the surprise limit so the held servo is not pressed against its stop.
+VISOR_UP = 4600                  # 1150 us.
 # Speaking and idle keep the September offsets around the open neutral (then 6400, speaking
 # 6000-6640, idle 6050-6750, half-blink to 6000), mirrored for the inverted servo.
 VISOR_SPEECH = (5492, 6132)      # Widest and most closed speaking targets.
@@ -1001,7 +1005,7 @@ NAMED_POSES = {
     # The owner calls the head-lift pole the neck. October 13: "raise your neck" and "highest
     # neck pose" got look_up, a head tip on a pole raised only to 4200 of its 7744.
     'neck_up': ((1,LIMITS[1][1]),), 'neck_down': ((1,LIMITS[1][0]),),
-    'visor_down': ((3,VISOR_DOWN),), 'visor_up': ((3,VISOR_OPEN),),
+    'visor_down': ((3,VISOR_DOWN),), 'visor_up': ((3,VISOR_UP),),
     'throttle_offer': ((8,2176),(9,2601),(10,5938)),
     'throttle_high_five': ((8,2176),(9,9361),(10,6302)),
     'throttle_down': FULL_DOWN, 'throttle_rest': REST,
@@ -1045,6 +1049,12 @@ def pose_channels(name) -> tuple[int, ...]:
     if name in NECK_POSES:
         return (0,)
     return tuple(ch for ch, _ in NAMED_POSES.get(name, ()))
+
+
+def visor_over_eyes(commanded) -> bool:
+    """The visor is shut over the camera, his eyes. Owner, October 22: closing it "effectively blinds
+    him". Where it starts to cover the camera is not measured, so only (nearly) fully down counts."""
+    return commanded.get(3, VISOR_OPEN) >= VISOR_DOWN - 100
 
 
 def at_pose(name, commanded) -> bool:

@@ -145,7 +145,7 @@ class InvitationTests(test_memory_core.MemoryFixture):
         self.state.initiative.feedback.append({'action':'yield_floor','expires_at':200})
         self.assertIsNone(self.tick(104));self.assertEqual(self.brain.calls,1)
         self.state.initiative.feedback.clear()
-        self.brain.choose=lambda c:ToolCall('quiet','set_initiative',{'mode':'quiet','source_turn_id':c['source_turn_id']})
+        self.brain.choose=lambda c:ToolCall('quiet','stop_chiming_in',{'mode':'quiet','source_turn_id':c['source_turn_id']})
         self.turn('Stop starting conversations.')
         self.assertIsNone(self.invitations.pending)
         self.assertEqual(self.invitations.recent[-1]['status'],'interrupted')

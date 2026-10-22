@@ -371,6 +371,8 @@ class VoiceRuntime:
                 if not present.someone_around(now, self.started_at):
                     self.initiative_gate('nobody_around')
                     return
+                with self.session._lock:
+                    agency.adopt_prepared(now)   # A plan written ahead follows the last beat at once.
                 if agency.needs_plan(now):
                     if self.session.planning_active():
                         self.initiative_gate('planning_goal')
@@ -382,6 +384,8 @@ class VoiceRuntime:
                     elif quiet_seconds < self.lull_seconds or not agency.due(now):
                         self.initiative_gate('planner_retry_wait')
                         return
+                elif agency.wants_next_plan(now) and not self.session.planning_active() and not _after_planning:
+                    planning_only = True  # The next plan, written while this goal's last beats run.
                 else:
                     with self.session._lock:
                         ready = agency.ready(now, quiet_seconds, self.lull_seconds)

@@ -269,7 +269,7 @@ class Memory:
                      (person_id,name,json.dumps(aliases),status,source_turn,import_ref))
         return person_id
 
-    def claims(self, person_id=None, include_candidates=False):
+    def claims(self, person_id=None, include_candidates=False, told=False):
         states = ("accepted", "candidate") if include_candidates else ("accepted",)
         sql = ("SELECT c.*,t.text AS source_text,COALESCE(c.said_at,x.created_at) AS told_at,"
                "f.kind AS followup_kind,f.due_at,(SELECT max(d.delivered_on) FROM memory_followup_delivery d "
@@ -277,7 +277,13 @@ class Memory:
                "LEFT JOIN conversation_exchanges x ON x.id=c.source_turn LEFT JOIN memory_followups f ON f.claim_id=c.id "
                "WHERE c.status IN (" + ",".join("?" for _ in states) + ")")
         params = list(states)
-        if person_id:
+        if person_id and told:
+            # October 22: what someone told Rex about another person is part of what Rex knows with
+            # them (the partner's dislike of AI and birthday were saved about the partner, told by
+            # the owner, and never came up with the owner). Only for that person's own context.
+            sql += " AND (c.subject_id=? OR c.mentions_id=? OR c.said_by=?)"
+            params += [person_id, person_id, person_id]
+        elif person_id:
             sql += " AND (c.subject_id=? OR c.mentions_id=?)"
             params += [person_id, person_id]
         return self.rows(sql+" ORDER BY c.revision DESC LIMIT 32", params)

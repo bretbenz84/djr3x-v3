@@ -17,7 +17,8 @@ class ScriptedBrain:
         self.tool = None
 
     def reply(self, snapshot, cancel):
-        if self.tool and not snapshot.continuation:
+        # The turn after a chime-in change answers the rest; the change itself is not repeated.
+        if self.tool and not snapshot.continuation and not snapshot.context.get('initiative_changed'):
             arguments = {k:snapshot.turn_id if v=="$turn" else v for k,v in self.tool["arguments"].items()}
             yield ToolCall(uuid4().hex,self.tool["name"],arguments)
             return

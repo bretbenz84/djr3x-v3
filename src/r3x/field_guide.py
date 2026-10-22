@@ -87,6 +87,13 @@ GUIDE = {
     'agency_plan': ('The goal Rex chose for himself. Answer the human first; let the reply move the goal along '
                     'only when it fits naturally. Never recite it or force it.'),
     'reconsideration': 'Invitation review metadata only; agency plans own periodic advancement.',
+    # Owner, October 22: closing the visor "effectively blinds him"; he should know it and make light of it.
+    'visor_over_eyes': ('Your visor is shut over your eyes: you see nothing until it is raised. Faces and the room '
+                        'are what you saw before it closed; never describe your surroundings as if you could see '
+                        'them now. Now and then while it is shut, make light of your own sudden darkness ("Oh wow, '
+                        'it\'s dark in here", "who turned out the lights?", "nobody move, I can\'t find you"), never '
+                        'the same way twice. The joke is on your own situation, never on blind people or blindness. '
+                        'You may ask them to raise it.'),
     'claims': ('Saved facts about everyone, with ids for correct_claim and retract_claim. The facts of '
                'personal_memory\'s person are listed only there (interests_and_facts, same ids).'),
 }

@@ -87,25 +87,38 @@ class NewsAndQuietTests(MemoryFixture):
         self.assertEqual(result.completed_text, ['Let me think what I read.',
                                                  'BBC says a flying car prototype just made its first hop.'])
 
-    def test_a_no_op_quiet_mode_change_is_asked_again_without_it(self):
+    def test_resuming_is_offered_only_while_quiet_and_the_turn_then_does_the_rest(self):
+        # October 22 (1072c10a): set_initiative drew "Can you..." requests (15 wrong calls in 7 runs),
+        # and "You can talk again, but you can raise your visor too" lifted quiet and promised a visor
+        # that never moved. The switch runs first; the same turn then answers the rest with any tool.
         from r3x.semantics import grounded_tools
         class Brain:
             def __init__(self): self.snapshots = []
             def reply(self, snapshot, cancel):
                 self.snapshots.append(snapshot)
                 if len(self.snapshots) == 1:
-                    yield ToolCall('q', 'set_initiative', {'mode': 'available',
-                                                           'source_turn_id': snapshot.context['source_turn_id']})
+                    yield ToolCall('q', 'resume_chiming_in', {'source_turn_id': snapshot.context['source_turn_id']})
                 else:
-                    yield 'Looking right at you.'
+                    yield 'Back on the air, and looking right at you.'
+        class Free(Brain):
+            def reply(self, snapshot, cancel):
+                self.snapshots.append(snapshot)
+                yield 'Looking right at you.'
+        free = Free()
+        self.turn(free, 'Hey Rex, can you look over at me?')
+        offered = {d['name'] for d in grounded_tools(free.snapshots[0].context)}
+        self.assertIn('stop_chiming_in', offered)
+        self.assertNotIn('resume_chiming_in', offered)          # Nothing to resume: never offered.
+        self.state.initiative.quiet = True
         brain = Brain()
-        result, _ = self.turn(brain, 'Hey Rex, can you look over at me?')
-        self.assertEqual(result.completed_text, ['Looking right at you.'])
-        self.assertEqual(len(brain.snapshots), 2)
-        self.assertNotIn('set_initiative', {d['name'] for d in grounded_tools(brain.snapshots[1].context)})
-        self.assertTrue(any(r['event'] == 'initiative_noop_retried' for r in self.state.trace.rows))
+        result, _ = self.turn(brain, 'You can talk again, and look over at me.')
+        self.assertIn('resume_chiming_in', {d['name'] for d in grounded_tools(brain.snapshots[0].context)})
         self.assertFalse(self.state.initiative.quiet)
-
+        self.assertEqual(len(brain.snapshots), 2)
+        then = {d['name'] for d in grounded_tools(brain.snapshots[1].context)}
+        self.assertFalse(then & {'stop_chiming_in', 'resume_chiming_in'})
+        self.assertIn('do it now with its tool', str(brain.snapshots[1].messages))
+        self.assertEqual(result.completed_text, ['Back on the air, and looking right at you.'])
 
 if __name__ == '__main__':
     unittest.main()

@@ -257,11 +257,11 @@ class InitiativeCoreTests(MemoryFixture):
         class Quiet(Brain):
             def reply(self,snapshot,cancel):
                 self.calls+=1
-                if snapshot.continuation:
+                if snapshot.context.get('initiative_changed'):
                     self.notes=[m['content'] for m in snapshot.messages if m.get('role')=='developer']
                     yield 'Quiet until you say otherwise.'
                 else:
-                    yield ToolCall(uuid4().hex,'set_initiative',{'mode':'quiet','source_turn_id':snapshot.context['source_turn_id']})
+                    yield ToolCall(uuid4().hex,'stop_chiming_in',{'mode':'quiet','source_turn_id':snapshot.context['source_turn_id']})
         self.setup_core(Quiet())
         result=self.turn('Please stop starting conversations until I ask you to again.')
         self.assertEqual(result.status,'completed');self.assertEqual(self.brain.calls,2)
@@ -282,8 +282,8 @@ class InitiativeCoreTests(MemoryFixture):
         class Told(Brain):
             def reply(self,snapshot,cancel):
                 self.calls+=1;self.snapshots.append(snapshot)
-                if snapshot.continuation: yield 'Not a word until you greet me.'
-                else: yield ToolCall(uuid4().hex,'set_initiative',{'mode':'silent','source_turn_id':snapshot.context['source_turn_id']})
+                if snapshot.context.get('initiative_changed'): yield 'Not a word until you greet me.'
+                else: yield ToolCall(uuid4().hex,'stop_chiming_in',{'mode':'silent','source_turn_id':snapshot.context['source_turn_id']})
         self.setup_core(Told())
         result=self.turn('Stop talking until I greet you again.')
         self.assertEqual(result.completed_text,['Not a word until you greet me.'])     # The one line.
@@ -293,14 +293,14 @@ class InitiativeCoreTests(MemoryFixture):
         result=self.turn('Okay.')
         self.assertEqual((result.status,result.completed_text),('suppressed',[]))          # Withheld.
         # Silenced, he can still be released, stay silent, or be told to shut down.
-        self.assertEqual({d['name'] for d in grounded_tools(chatty.snapshots[-1].context)},{'set_initiative','remain_silent','shut_down'})
+        self.assertEqual({d['name'] for d in grounded_tools(chatty.snapshots[-1].context)},{'resume_chiming_in','remain_silent','shut_down'})
         self.assertTrue(chatty.snapshots[-1].context['participation']['silent_until_released'])
         self.assertTrue(self.state.initiative.silent)
         class Released(Brain):
             def reply(self,snapshot,cancel):
                 self.calls+=1
-                if snapshot.continuation: yield 'Hello again. I missed talking.'
-                else: yield ToolCall(uuid4().hex,'set_initiative',{'mode':'available','source_turn_id':snapshot.context['source_turn_id']})
+                if snapshot.context.get('initiative_changed'): yield 'Hello again. I missed talking.'
+                else: yield ToolCall(uuid4().hex,'resume_chiming_in',{'source_turn_id':snapshot.context['source_turn_id']})
         self.session.brain=Released();self.trace.at=200
         result=self.turn('Hello, Rex.')
         self.assertEqual(result.completed_text,['Hello again. I missed talking.'])
@@ -310,8 +310,8 @@ class InitiativeCoreTests(MemoryFixture):
         class Resume(Brain):
             def reply(self,snapshot,cancel):
                 self.calls+=1
-                if snapshot.tools_enabled:
-                    yield ToolCall(uuid4().hex,'set_initiative',{'mode':'available','source_turn_id':snapshot.context['source_turn_id']})
+                if not snapshot.context.get('initiative_changed'):
+                    yield ToolCall(uuid4().hex,'resume_chiming_in',{'source_turn_id':snapshot.context['source_turn_id']})
                 else: yield 'I have a few thoughts worth sharing.'
         self.setup_core(Resume());self.state.initiative.quiet=True
         result=self.turn('You can start conversations again, Rex.')
@@ -322,7 +322,7 @@ class InitiativeCoreTests(MemoryFixture):
         self.setup_core();self.turn()
         from r3x.contracts import Cancellation
         args={'mode':'quiet','source_turn_id':'wrong-source'}
-        call=ToolCall('invalid','set_initiative',args)
+        call=ToolCall('invalid','stop_chiming_in',args)
         self.assertEqual(self.state.execute(call,self.store.revision,Cancellation()).reason,'SourceTurnMismatch')
         self.assertFalse(self.state.initiative.quiet)
         args['source_turn_id']=self.state.current[0]
@@ -333,7 +333,7 @@ class InitiativeCoreTests(MemoryFixture):
         self.setup_core();self.turn()
         class Bad(Brain):
             def reply(self,snapshot,cancel):
-                yield ToolCall('bad','set_initiative',{'mode':'quiet','source_turn_id':snapshot.context['opportunity']['source_turn_id']})
+                yield ToolCall('bad','stop_chiming_in',{'mode':'quiet','source_turn_id':snapshot.context['opportunity']['source_turn_id']})
         self.session.brain=Bad()
         result=self.session.process_opportunity(self.lull(),0,lambda:True)
         self.assertEqual(result.error,'VisualEventDoesNotAuthorizeMutation')

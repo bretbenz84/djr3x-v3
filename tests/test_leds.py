@@ -1,5 +1,6 @@
 """LED contracts: fake serial/audio only, through production state and output owners."""
 from dataclasses import replace
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -118,7 +119,7 @@ class LEDTests(unittest.TestCase):
         other=LEDs({'head':'head'},opener=self.ports.get,clock=self.clock,wait=self.clock.wait)
         other.start()
         try:
-            with self.assertRaises(ProviderFailure): other.begin('compliment')
+            with self.assertRaises(ProviderFailure): other.begin('sparkle')
         finally: other.close()
 
     def test_partial_open_failure_closes_owned_port(self):
@@ -186,14 +187,43 @@ class LEDSessionTests(MemoryFixture):
         self.assertEqual(self.brain.calls,1)
         self.assertFalse(self.store.claims())
 
-    def test_silent_animation_uses_no_tts_or_continuation(self):
-        self.setup_session(choice('before_speech',None,'compliment'));result=self.turn()
+    def test_a_wordless_light_reply_is_asked_once_for_words_then_runs_silently(self):
+        # October 22 (1072c10a): "Okay, do it." and "No, not the sparkle..." got a silent sparkle.
+        self.setup_session(choice('before_speech',None,'sparkle'));result=self.turn()
         self.assertEqual(result.status,'suppressed')
         self.assertEqual(result.completed_text,[])
         self.assertEqual(result.lights[0]['status'],'commands_sent')
         self.assertIn('COMPLIMENT',self.ports['chest'].commands)
-        self.assertEqual(self.brain.calls,1)
+        self.assertEqual(self.brain.calls,2)
+        self.assertIn('animate_lights needs text',json.dumps(self.brain.snapshots[-1].messages))
         self.assertFalse(any(r['event']=='playback_started' for r in self.state.trace.rows))
+
+    def test_the_retry_brings_the_line_said_after_the_lights(self):
+        self.setup_session(choice('before_speech',None,'sparkle'))
+        class Sequence(Brain):
+            def __init__(self, calls): super().__init__(); self.left=list(calls)
+            def reply(self, snapshot, cancel):
+                self.calls += 1; self.snapshots.append(snapshot)
+                yield self.left.pop(0)
+        self.brain=self.session.brain=Sequence([choice('before_speech',None,'sparkle'),
+                                                choice('before_speech','There. Dazzled yet?','sparkle')])
+        result=self.turn()
+        self.assertEqual(result.status,'completed')
+        self.assertEqual(result.completed_text,['There. Dazzled yet?'])
+        self.assertIn('COMPLIMENT',self.ports['chest'].commands)
+        self.assertEqual(self.brain.calls,2)
+
+    def test_sparkle_is_the_chest_alone(self):
+        # October 22 (1072c10a): "He made your mouth sparkle too."
+        led,ports,clock=rig();self.addCleanup(led.close)
+        head=list(ports['head'].commands)
+        token=led.begin('sparkle')
+        led.tick()
+        self.assertEqual(ports['chest'].commands[-1],'COMPLIMENT')
+        self.assertEqual(led.finish(token),'commands_sent')
+        self.assertEqual(ports['head'].commands,head)          # No eye colour, no mouth.
+        self.assertEqual(ports['chest'].commands[-1],'SPEAK_STOP')
+        with self.assertRaises(ProviderFailure): led.begin('sparkle',speaking=True)
 
     def test_ordinary_reply_automatically_animates_speech(self):
         self.setup_session();self.brain.text='Hello, the lights follow actual playback.'
@@ -222,14 +252,14 @@ class LEDSessionTests(MemoryFixture):
         self.assertEqual(result.status,'suppressed')
         self.assertEqual(result.lights[0]['status'],'commands_sent')
         self.assertEqual(result.completed_text,[])
-        self.assertEqual(self.brain.calls,1)
+        self.assertEqual(self.brain.calls,2)                   # Asked once for words, as above.
 
     def test_silent_and_standalone_patterns_normalize_to_demo(self):
-        for call in (choice(text=None),choice(pattern='compliment')):
+        for call in (choice(text=None),choice(pattern='sparkle')):
             self.setup_session(call)
             result=self.turn()
             self.assertEqual(result.lights[0]['status'],'commands_sent')
-            if call.arguments['pattern']=='compliment':
+            if call.arguments['pattern']=='sparkle':
                 self.assertIn('COMPLIMENT',self.ports['chest'].commands)
             self.session.close();self.led.close()
 

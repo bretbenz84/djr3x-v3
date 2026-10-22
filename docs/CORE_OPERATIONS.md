@@ -484,13 +484,15 @@ Pending captures, recognition, recent unresolved microphone activity and speech 
 defer dispatch. The model receives its last completed reply explicitly at each lull;
 new wording or a new camera frame does not make a repeated premise novel.
 
-An explicit "stop starting conversations until I ask" can call `set_initiative`
-with `mode=quiet`; since October 3 Rex then says one short line so a misread request is
-heard, not silent. It creates a session-wide quiet boundary that survives
-ordinary replies and history eviction. Direct questions still receive answers.
-An explicit invitation to initiate again uses `mode=available`; its acknowledgment
-follows the executed result. Both modes require a trusted current source, never a
-camera event. They reset on a new run. Source-linked topic/per-person boundaries
+An explicit "stop starting conversations until I ask" can call `stop_chiming_in`
+with `mode=quiet` (or `silent`: not a word until released); since October 3 Rex then says one
+short line so a misread request is heard, not silent. It creates a session-wide quiet boundary
+that survives ordinary replies and history eviction, and pauses his current goal without erasing
+it. Direct questions still receive answers. An explicit invitation to initiate again uses
+`resume_chiming_in`, offered only while he is quiet; `stop_chiming_in` is not offered once he is
+silent. The switch is applied first and the same turn then answers the rest of what was said, with
+any other tool (October 22: "you can talk again, but raise your visor too"). Both require a trusted
+current source, never a camera event. They reset on a new run. Source-linked topic/per-person boundaries
 and human-floor feedback retain their existing validation.
 
 New speech, queued captures/transcripts, ASR work and stale microphone frames

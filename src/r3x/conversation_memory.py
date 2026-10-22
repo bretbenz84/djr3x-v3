@@ -349,7 +349,7 @@ def context(store, original, session, now):
     result['recent_exchanges'] = [public_exchange(row) for row in recall(store,who,session,limit=4,now=now)['exchanges']]
     result['earlier_greetings'] = greetings(store, who, now)
     # October 16: only the newest 6 of 8 saved facts reached each reply.
-    result['interests_and_facts'] = [public_fact(told(row, now)) for row in store.claims(who)]
+    result['interests_and_facts'] = [public_fact(told(row, now)) for row in store.claims(who, told=True)]
     # Ids only: their words are already in the history. The key still marks private memory in use.
     result['current_session_exchanges'] = store.rows('SELECT id FROM conversation_exchanges WHERE person_id=? AND session_id=? ORDER BY created_at DESC LIMIT 3',(who,session))
     result['episodes'] = store.rows('''SELECT e.id,e.summary,e.source_exchange,x.human_text,x.heard_text

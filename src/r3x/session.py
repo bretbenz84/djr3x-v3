@@ -349,7 +349,7 @@ class Session:
             images = tuple(i for i in opportunity.scene_images[-1:] if 0 <= now - i.at <= 30)
         targets = (context.get('drive') or {}).get('targets', [])
         facts = {'request_id': turn_id, 'revision': agency.revision,
-            'goal_trigger': agency.ending_reason(now),
+            'goal_trigger': agency.ending_reason(now) or 'beats_running_out',
             'subject': subject,
             'visible_people': [{'track_id': f.get('track_id'), 'person_id': f.get('identity'),
                                 'display_name': people.get(f.get('identity'), {}).get('name'),
@@ -436,7 +436,8 @@ class Session:
                     with self._lock:
                         if self.closed: raise Cancelled()
                         agency.install(proposed, job['audience'], job['evidence'], job['capabilities'],
-                                       job['revision'], self.trace.clock(), subject_person=job['subject_person'])
+                                       job['revision'], self.trace.clock(), subject_person=job['subject_person'],
+                                       prepare=job.get('prepare', False))
                     return True
                 except ValueError as exc:
                     if str(exc) == 'StaleAgencyPlan': raise Cancelled() from None
@@ -490,6 +491,42 @@ class Session:
         self.trace.emit("cancel", revision=self.revision)
         if quiet and self.state and self.state.initiative.quiet:
             self.trace.emit('initiative_quiet', source='stop_phrase')
+
+    def _change_initiative(self, call, snapshot, context, turn_id, cancel, went_silent):
+        """Apply stop_chiming_in/resume_chiming_in now; the snapshot that answers the rest of the turn."""
+        from dataclasses import replace
+        self.trace.emit("tool_proposed", turn_id=turn_id, call_id=call.call_id, name=call.name,
+                        arguments=dict(call.arguments))
+        with self._lock:
+            cancel.check()
+            result = self.state.execute(call, context["state_revision"], cancel, context=context)
+            mode = result.data.get('mode') if result.outcome == 'ok' else None
+            if mode in ('quiet', 'silent'):
+                self.proactive_hold_until = self.trace.clock() + 120
+                self.state.initiative.cancel_schedule('quiet_or_human_floor')
+                went_silent[0] = mode == 'silent'
+            elif mode == 'available':
+                self.proactive_hold_until = float('-inf')
+            participation = self.state.initiative.context(self.trace.clock())
+        self.trace.emit("tool_executed", turn_id=turn_id, request_id=result.request_id, outcome=result.outcome)
+        rest = (' If their words also asked you to do something (move, pose, lights, look, drive), do it now with '
+                'its tool, its text saying so; otherwise answer in plain words.')
+        note = ('The chime-in change was refused (' + str(result.reason) + '). Answer them normally.' if mode is None else
+                # October 3: "Well, you have eyes, don't you?" was taken as a request for quiet and executed
+                # without a word; the owner waited 69 seconds. Quiet is always heard.
+                'You have just gone silent: you will say nothing at all, not even answers, until they release you. '
+                'Say so in one short sentence, in character, naming what will release you.' if mode == 'silent' else
+                'You have just switched yourself to quiet: you will not start conversations until they invite you '
+                'to. Tell them so in one short sentence, in character. If their words were not really a request to '
+                'stop talking, say you may have misread them and that they only need to say you can talk again.'
+                if mode == 'quiet' else
+                'You may chime in again: you just switched that back on, so do not ask permission or announce it at '
+                'length.' + rest)
+        # Gone quiet or silent, the next words say so and no tool is offered (paid probe, October 22: given
+        # tools, three of four such turns went on to remain_silent and he was never heard).
+        return replace(snapshot, context={**snapshot.context, 'initiative_changed': mode or 'refused', 'participation': participation,
+                                          'state_revision': result.revision},
+                       messages=(*snapshot.messages, {'role': 'developer', 'content': note}))
 
     def _say_stopped(self, turn_id):
         """Confirm a spoken stop that halted the wheels. October 16 (3af18a12): told to stop
@@ -890,14 +927,14 @@ class Session:
                 from .leds import PATTERNS
                 led = self.output.leds
                 context.update(led_enabled=led.state=='ready',led_version=led.version,
-                    led_patterns=[p for p in PATTERNS if (p!='compliment' or 'chest' in led.ports) and (p!='blink' or 'head' in led.ports)])
+                    led_patterns=[p for p in PATTERNS if (p!='sparkle' or 'chest' in led.ports) and (p!='blink' or 'head' in led.ports)])
             if (self.state and not self.state.frozen and not opportunity and getattr(self.output,'cloner',None) is not None
                     and self.state.voice_references is not None):
                 from . import impersonation
                 context['impersonation'] = impersonation.context(self.state, self.trace.clock())
             context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and getattr(self.output,'robot',None) and self.output.robot.owner.state=='active')
             if context['robot_pose_enabled']:
-                from .servo_poses import HEAD_POSES, HELD_PARTS, NAMED_POSES, NECK_POSES, at_pose, joint_percents
+                from .servo_poses import HEAD_POSES, HELD_PARTS, NAMED_POSES, NECK_POSES, at_pose, joint_percents, visor_over_eyes
                 owner = self.output.robot.owner
                 if opportunity and hasattr(owner,'yield_stale_hold'):
                     owner.yield_stale_hold()  # An aged human pose no longer blocks his own beats.
@@ -912,6 +949,8 @@ class Session:
                     'arms_held_until_told': bool(getattr(owner,'hold_until_released',False)),
                     # October 11: tucked after a drive because something is within reach.
                     'arms_tucked_for_obstacle': sorted(getattr(owner,'kept_arms',()))}
+                if visor_over_eyes(commanded):
+                    context['visor_over_eyes'] = {'closed': True, 'meaning': GUIDE['visor_over_eyes']}
                 if opportunity and held - set(getattr(owner,'kept_channels',())): context['robot_pose_enabled']=False
             if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:
                 context['drive'] = self.output.drive.context('self_initiated' if opportunity else 'requested',
@@ -1041,9 +1080,14 @@ class Session:
                     self.state.present.saw_faces(context.get('faces', []), now)
                     job = None
                     from .agency import PLAN_MIN_INTERVAL_SECONDS
-                    if (agency.needs_plan(now) and not self.planning_active() and now >= agency.planner_retry_at
+                    agency.adopt_prepared(now)
+                    ahead = planning_only and agency.wants_next_plan(now) and not self.planning_active()
+                    if ahead or (agency.needs_plan(now) and not self.planning_active() and now >= agency.planner_retry_at
                             and now-agency.plan_started >= PLAN_MIN_INTERVAL_SECONDS):
                         job = self._planning_job(turn_id, context, planning_context, bound_audience, capabilities, opportunity)
+                        job['prepare'] = ahead
+                        if ahead:
+                            agency.prepared_for = agency.record['id']
                 if job and planning_only:
                     # Runs beside conversation: a human turn neither waits for it nor cancels it.
                     self._start_planning(job)
@@ -1185,20 +1229,29 @@ class Session:
                     if close:
                         close()
             calls = generate(snapshot)
-            if (len(calls) == 1 and calls[0].name == 'set_initiative' and calls[0].arguments.get('mode') == 'available'
-                    and not generated.strip() and self.state is not None and not opportunity
-                    and not self.state.initiative.quiet and not self.state.initiative.silent):
-                # October 17: "Can you look over at me?" and "hold out your hero arm" were answered
-                # through this no-op ("I can't turn my head from here"). Nothing would change, so the
-                # turn is asked once more without it.
-                from dataclasses import replace as replace_snapshot
-                self.trace.emit('initiative_noop_retried', turn_id=turn_id)
-                snapshot = replace_snapshot(snapshot, context={**snapshot.context, 'initiative_unchanged_retry': True},
-                    messages=(*snapshot.messages, {'role': 'developer', 'content':
-                        'You are already free to talk and start things; set_initiative would change nothing. Do what '
-                        'they actually asked with the tool for it (look, turn, pose, answer), or say plainly what you '
-                        'cannot do.'}))
+            from .semantics import INITIATIVE_TOOLS
+            if (len(calls) == 1 and calls[0].name in INITIATIVE_TOOLS and not generated.strip()
+                    and self.state is not None and not opportunity):
+                # October 22 (1072c10a): "You can talk again, but you can raise your visor too" lifted
+                # quiet and promised the visor, and the visor never moved: one tool per turn, and the
+                # follow-up after a mode change had none. The switch is applied first; the same turn
+                # then answers the rest, any tool but the switch included.
+                snapshot = self._change_initiative(calls[0], snapshot, context, turn_id, cancel, went_silent)
                 calls = generate(snapshot)
+            if (len(calls) == 1 and calls[0].name == 'animate_lights' and not generated.strip() and not opportunity
+                    and not (calls[0].arguments.get('text') or '').strip() and self.state is not None
+                    and not self.state.initiative.silent):
+                # October 22 (1072c10a): "Okay, do it." and "No, not the sparkle..." each got a silent
+                # sparkle and no word. Someone who spoke to him gets words with the lights; asked once,
+                # and if the line still does not come the lights run on their own.
+                from dataclasses import replace as replace_snapshot
+                self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='light_words_retry',
+                                reasoning_effort=getattr(self.brain, 'reasoning_effort', None))
+                retry = generate(replace_snapshot(snapshot, messages=(*snapshot.messages, {'role': 'developer', 'content':
+                    'You are answering them, so animate_lights needs text: the short line you say right after the '
+                    'lights. If lights are not what they asked for, use the tool for what they did ask instead.'})))
+                if retry or generated.strip():
+                    calls = retry
             repeated = (self._repeats_recent_line(calls[0])
                         if agency_step and len(calls) == 1 and not generated.strip() else None)
             if (not repeated and agency_step and len(calls) == 1 and not generated.strip()
@@ -1382,7 +1435,7 @@ class Session:
                         elif call.name == 'animate_lights':
                             if isinstance(call.arguments.get('text'), str) and not call.arguments['text'].strip():
                                 call.arguments['text'] = None
-                            if call.arguments.get('text') is None or call.arguments.get('pattern') in {'compliment','blink'}:
+                            if call.arguments.get('text') is None or call.arguments.get('pattern') in {'sparkle','blink'}:
                                 call.arguments['timing'] = 'before_speech'
                             self.trace.emit('light_request_prepared',turn_id=turn_id,arguments=dict(call.arguments))
                             light_request = self.state.propose_lights(call,context,cancel)
@@ -1400,6 +1453,15 @@ class Session:
                         else:
                             result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel,context=context)
                     except ValueError as exc:
+                        if opportunity and agency_step and call.name == 'shift_attention':
+                            # October 22 (1072c10a): a look beat aimed at a person id failed its whole
+                            # turn twice. The glance is let go with its reason; the goal goes on.
+                            agency_revision_reason = 'ToolRejected:' + (str(exc) or type(exc).__name__)
+                            self.trace.emit('tool_refused', turn_id=turn_id, name=call.name, reason=agency_revision_reason[13:])
+                            delivery.status, delivery.medium = 'suppressed', 'none'
+                            put_phrase(phrases, None, cancel)
+                            worker.join(timeout=2)
+                            return delivery
                         if opportunity:
                             raise
                         # October 3: a look aimed at a face id the tool does not take raised an
@@ -2009,13 +2071,6 @@ class Session:
                         # recent memories; the result is already in continuation.
                         memory = context['personal_memory']
                         context['personal_memory'] = {k:memory[k] for k in ('person_id','now','local_now')}
-                    quiet_set = call.name=='set_initiative' and result.outcome=='ok' and result.data['mode'] in ('quiet','silent')
-                    went_silent[0] = quiet_set and result.data['mode']=='silent'
-                    if quiet_set:
-                        self.proactive_hold_until = self.trace.clock()+120
-                        self.state.initiative.cancel_schedule('quiet_or_human_floor')
-                    elif call.name=='set_initiative' and result.outcome=='ok':
-                        self.proactive_hold_until = float('-inf')
                     continuation = (*call.preamble,
                         {"type":"function_call","call_id":call.call_id,"name":call.name,
                          "arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {}), **({"next_opportunity":None} if "next_opportunity" in call.arguments else {})})},
@@ -2029,19 +2084,6 @@ class Session:
                         setback[0] = True
                     followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
                                         snapshot.speaker,context,False,continuation)
-                    if quiet_set:
-                        # October 3: "Well, you have eyes, don't you?" was taken as a request for
-                        # quiet and executed without a word; the owner waited 69 seconds, then
-                        # asked whether Rex was going to say something. Quiet is now always heard.
-                        from dataclasses import replace
-                        followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
-                            ('You have just gone silent: you will say nothing at all, not even answers, until they '
-                             'release you. Say so in one short sentence, in character, naming what will release you.'
-                             if went_silent[0] else
-                             'You have just switched yourself to quiet: you will not start conversations until '
-                             'they invite you to. Tell them so in one short sentence, in character.') +
-                            ' If their words were not really a request to stop talking, say you may have misread '
-                            'them and that they only need to say you can talk again.'}))
                     if streamed.get(call.call_id, '').strip():
                         from dataclasses import replace
                         followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
@@ -2251,7 +2293,10 @@ class Session:
                 "opportunity_to_first_audio": audio_at - source_end if audio_at is not None and opportunity else None,
                 "total": self.trace.clock() - began,
             })
-            if state_started and (opportunity or transcript.trusted or delivery.completed_text):
+            # A beat nobody heard (a silent glance, or one let go) does not start a new lull: its own
+            # short pause follows instead (agency SILENT_BEAT_SECONDS). October 22 (1072c10a).
+            unheard_beat = bool(opportunity and agency_step and not delivery.completed_text)
+            if state_started and not unheard_beat and (opportunity or transcript.trusted or delivery.completed_text):
                 self.last_interaction_at = self.trace.clock()
                 if not opportunity and delivery.status=='completed': self.proactive_hold_until = float('-inf')
             if delivery.medium == 'audio' and delivery.first_audio_at is not None:

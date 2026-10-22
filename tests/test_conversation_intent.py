@@ -198,8 +198,8 @@ class ConversationIntentTests(MemoryFixture):
         self.greet()
         class Quiet(Brain):
             def reply(inner,snapshot,cancel):
-                if snapshot.continuation: yield 'Quiet until you say so.'
-                else: yield ToolCall('quiet','set_initiative',dict(mode='quiet',source_turn_id=snapshot.context['source_turn_id']))
+                if snapshot.context.get('initiative_changed'): yield 'Quiet until you say so.'
+                else: yield ToolCall('quiet','stop_chiming_in',dict(mode='quiet',source_turn_id=snapshot.context['source_turn_id']))
         self.session.brain=Quiet()
         self.assertEqual(self.human('Please stop starting conversations.').completed_text,['Quiet until you say so.'])
         self.assertEqual(self.state.conversation_intent.record.status,'suspended')

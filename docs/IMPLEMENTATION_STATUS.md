@@ -21,6 +21,57 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Speaking less, long pauses, light and visor fumbles — October 22 run 1072c10a
+
+Owner: since the stale-goal change he speaks less, the pauses between his own lines are too long,
+"sparkle your chest" got "I can't", and the visor would lower but not rise. Run 1072c10a (14 min):
+15 spoken beats, 6 said; silences of 39 s and 52 s; 19 of 25 replies over 4 s to first audio.
+- **Moved-on beats speak.** Told "if no natural bridge exists, remain_silent", the performer let 7
+  of 11 moved-on beats go. A moved-on spoken beat now says one short thing that follows the
+  current talk, bridging to the goal where natural; silence only for a real reason. Letting a
+  beat go resets the two-turn count (it never reset, so every later beat was stale too), and the
+  count starts when the plan is ready, not when planning began (the telescope plan was stale
+  before its first beat). This revises the stale-goal rule below.
+- **Pauses.** A beat nobody heard (a silent glance, one let go) no longer restarts the five-second
+  quiet clock; the next follows 3 s later. The next plan is written in the background once a goal
+  is two beats in with two left, and follows its last beat at once (8-13 s of planning silence
+  before); same planner calls, one wasted only if the goal ends another way first.
+- **Quiet switch.** `set_initiative` drew "Can you..." requests, 15 times in 7 runs since
+  October 16, twice today switching him quiet. It is now `stop_chiming_in` (quiet or silent) and
+  `resume_chiming_in`, each offered only when it changes something, with no motion examples. The
+  switch runs first; after resuming, the same turn does the rest with any tool ("you can talk again,
+  but raise your visor too" lifted quiet and promised a visor that never moved); after going
+  quiet or silent the next words say so, with no tool. Quiet pauses the goal instead of erasing it.
+  The October 17 no-op retry is retired.
+- **Visor.** `visor_up` sent it to the open neutral, inside the range it wanders while talking, so
+  nothing rose; it now holds 1150 µs, just short of the surprise limit. A nod line may not claim
+  the visor, arms, lights or wheels moved ("Visor up." came with a nod). Shut, the visor covers his
+  eyes (owner: it "effectively blinds him"): while it is (nearly) fully down the context says he
+  sees nothing, and lowering it, and now and then while it stays shut, he makes light of his own
+  dark ("Oh wow, it's dark in here"), never of blind people.
+- **Lights.** `compliment` is now `sparkle` and lights the chest only (it also lit the eyes and ran
+  the mouth). A wordless light request while answering someone is asked once for its line.
+- **Looks back.** Look beats can look back at the people (`shift_attention` target `people`,
+  following faces again); a look at an invented person id is let go with its reason instead of
+  failing the turn (twice today).
+- **Facts about other people** (owner: "I should be able to talk about other people and have those
+  facts be about those people"). "He turns thirty-six on November thirtieth" was saved as the
+  owner's birthday. `remember_followup` and `remember_interest` take the other person's name; the
+  record is theirs, said by the teller, and a follow-up about them comes back with the teller.
+  Facts someone told about others are now part of what Rex knows with that person.
+Paid probe `tools/check_action_requests.py` (real reply model, synthetic voice, stand-in head and
+in-memory lights; 19 cases: the logged misfires and real quiet requests): before, 18 of 19 in each
+of two rounds, failing "you can talk again, but raise your visor too" both times; after, 38 of 38
+over two rounds, every quiet request heard. In these short fresh conversations the old switch was
+not called for action requests either, so the live misfires (long context) are not reproduced and
+their fix is not proven by it. `tools/check_stale_beats.py` was written to measure moved-on beats
+and not yet run. Blocked-I/O checks: the last full run (1418) passed except the PySide6 import test;
+with the GUI packages now installed that test and the dashboard tests pass. After the last changes
+(quiet words-only, the shut visor, told-by facts kept to the teller) only the affected test files
+were run, not the full suite. The saved birthday of the owner's partner was moved from the owner's
+record to the partner's (backup `local/core.before-jeremy-birthday-20261022.sqlite3`).
+**Not yet run on the robot**: visor height, the chest-only sparkle, pacing in a live room.
+
 ## Conversation switches that felt random — October 22
 
 Owner review of runs 55db1330 and 193c8df6. Three causes found and fixed (the greeting about a
@@ -28,8 +79,9 @@ past event stays, by the owner's choice):
 - **Stale goal beats.** Plans of about eight beats on one subject kept returning to it after the
   talk moved on (five telescope remarks in five minutes, one right after a talk about the dogs;
   a second cloud insult). A goal is now *overtaken* once people have spoken twice since its last
-  heard beat, or since planning began. Its next beat is told not to jump back to the subject cold
-  but to reach the goal through what they are talking about now, or let the beat go; a look-closer
+  heard beat, or since planning began (counted from the ready plan since run 1072c10a, above). Its
+  next beat is told not to jump back to the subject cold but to reach the goal through what they
+  are talking about now, or let the beat go (now: say something that fits instead); a look-closer
   beat may be let go too. The goal itself goes on (conversation steers a goal and never ends it,
   owner ruling of October 1) and no planner call is added (October 17). A first version that
   ended overtaken goals was softened the same day: replayed on these runs it would have ended

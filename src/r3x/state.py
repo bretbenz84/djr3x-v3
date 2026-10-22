@@ -416,7 +416,7 @@ class CoreState:
         args = call.arguments
         if args['pattern'] not in context['led_patterns']:
             raise ValueError('LEDPatternUnavailable')
-        if args['timing']=='during_speech' and (args['text'] is None or args['pattern'] in {'compliment','blink'}):
+        if args['timing']=='during_speech' and (args['text'] is None or args['pattern'] in {'sparkle','blink'}):
             raise ValueError('InvalidSpeakingAnimation')
         source = context.get('event_id') or context['source_turn_id']
         return LightRequest(source+':'+call.call_id,args['pattern'],
@@ -458,7 +458,7 @@ class CoreState:
             raise ValueError('StaleAttentionVersion')
         source = context.get('event_id') or context['source_turn_id']
         anchor = None
-        if call.arguments['target'] not in {'left','right','up','forward','unfocused'} and not call.arguments['target'].startswith('visual:'):
+        if call.arguments['target'] not in {'left','right','up','forward','people','unfocused'} and not call.arguments['target'].startswith('visual:'):
             raise ValueError('InvalidAttentionTarget')
         if call.arguments['target'].startswith('visual:'):
             offered = next((t for t in context['attention']['vision']['targets']
@@ -1148,9 +1148,9 @@ class CoreState:
             elif data['action'] == 'retract':
                 conn.execute('DELETE FROM topic_boundaries WHERE id=?', (data['reference_id'],))
             return data, mutation
-        if name == "set_initiative":
+        if name in {"stop_chiming_in","resume_chiming_in"}:
             self._source_allowed(args,name)
-            return {"mode":args["mode"],"source_turn_id":turn_id,
+            return {"mode":args["mode"] if name=="stop_chiming_in" else "available","source_turn_id":turn_id,
                     "reason":"explicit_initiative_request"},False
         if name == "remember_followup":
             self._source_allowed(args,name)
@@ -1160,9 +1160,13 @@ class CoreState:
             validate_date(args['kind'],args['on_date'])
             said_at=self.wall_clock()
             due_at=resolve_due(args['kind'],args['on_date'],args['due_in_minutes'],args['due_by'],said_at,self.calendar_today())
-            data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.speaker_id,
-                subject_reference=None,predicate=args['predicate'],value=args['value'],
-                kind='self_report',source_turn_id=turn_id,other_person=args.get('other_person')))
+            # October 22 (1072c10a): "he turns thirty-six on November thirtieth", about the owner's
+            # partner, was saved as the owner's birthday. Someone else's occasion is theirs, said by
+            # the speaker, and comes back up with the speaker (memory_opportunities).
+            about = args.get('subject_reference')
+            data, _ = self._apply(conn,'record_claim',dict(subject_id=None if about else attribution.speaker_id,
+                subject_reference=about,predicate=args['predicate'],value=args['value'],
+                kind='third_party' if about else 'self_report',source_turn_id=turn_id,other_person=args.get('other_person')))
             if data['status']!='accepted':raise ValueError('FollowupNeedsAcceptedClaim')
             conn.execute('INSERT INTO memory_followups(claim_id,kind,on_date,audience,said_at,due_at) VALUES(?,?,?,?,?,?)',
                          (data['claim_id'],args['kind'],args['on_date'],args['audience'],said_at,due_at))
@@ -1178,24 +1182,29 @@ class CoreState:
             from .news import normalize_topic
             topic=normalize_topic(args['topic'])
             if not 2<=len(topic)<=80:raise ValueError('InvalidInterestTopic')
+            # October 22: someone else's interest ("Jeremy loves to play volleyball") is theirs.
+            about = args.get('subject_reference')
+            subject = self._mentioned(conn,about,None)[0] if about else attribution.speaker_id
             saved=conn.execute("SELECT c.id,c.value FROM interests i JOIN claims c ON c.id=i.claim_id "
                                "WHERE c.subject_id=? AND c.status='accepted' AND i.topic=?",
-                               (attribution.speaker_id,topic)).fetchone()
+                               (subject,topic)).fetchone()
             if saved:
                 # Said again: already one of their interests, not a contradiction.
-                return {'claim_id':saved[0],'status':'accepted','subject_id':attribution.speaker_id,'value':saved[1],
+                return {'claim_id':saved[0],'status':'accepted','subject_id':subject,'value':saved[1],
                         'interest_topic':topic,'already_saved':True,
                         'meaning':'Already saved as their interest; nothing new was written.'},False
             # October 17: interests were saved under the model's label ("interest", "likes"), and a
             # second one with the same label read as contradicting the first, so it was refused. A
             # person has many interests: each gets a label of its own.
-            data, _ = self._apply(conn,'record_claim',dict(subject_id=attribution.speaker_id,
-                subject_reference=None,predicate='interest: '+topic,value=args['value'],
-                kind='self_report',source_turn_id=turn_id))
+            data, _ = self._apply(conn,'record_claim',dict(subject_id=subject,
+                subject_reference=about,predicate='interest: '+topic,value=args['value'],
+                kind='third_party' if about else 'self_report',source_turn_id=turn_id))
             if data['status']!='accepted':raise ValueError('InterestNeedsAcceptedClaim')
             conn.execute('INSERT INTO interests VALUES(?,?)',(data['claim_id'],topic))
             return {**data,'interest_topic':topic,
-                    'meaning':'Saved as their own stated interest; fresh news about it may be offered while they are here.'},True
+                    'meaning':('Saved as '+data['subject_name']+"'s interest, told by the speaker; news about it may be "
+                               'offered while '+data['subject_name']+' is here.') if about else
+                              'Saved as their own stated interest; fresh news about it may be offered while they are here.'},True
         if name in {'recall_conversations','remember_episode','retract_episode'}:
             from . import conversation_memory as cm
             who = cm.subject(context or self.context())
@@ -1605,7 +1614,7 @@ class CoreState:
         if name in {'retract_visual','revise_visual'}:
             self.agency.clear(name)
             self.initiative.invitations.invalidate(name,erase=True)
-        if name=='set_initiative':
+        if name in {'stop_chiming_in','resume_chiming_in'}:
             self.initiative.quiet = data['mode'] in ('quiet','silent')
             self.initiative.silent = data['mode']=='silent'
             self.initiative.policy_source = data['source_turn_id']

@@ -30,11 +30,16 @@ The sole conversation model can use `animate_lights`:
 
 - `during_speech`: choose neutral, happy, excited, sad, angry or curious for the
   accompanying phrase. The pattern starts only when audio starts.
-- `before_speech`: show one of those patterns, or chest compliment sparkles, for
-  one or 2.5 seconds. Optional text follows; null text produces a silent animation.
+- `before_speech`: show one of those patterns, or `sparkle` (the chest firmware's
+  COMPLIMENT effect), for one or 2.5 seconds. Text follows; null text produces a silent
+  animation.
 
-Curious has purple eyes/mouth and the chest's neutral fallback. Compliment is offered
-only with a chest and is a standalone effect. These are theatrical styles, not
+Curious has purple eyes/mouth and the chest's neutral fallback. Sparkle is offered only with a
+chest, is a standalone effect, and since October 22 touches only the chest: it no longer turns
+the eyes green or runs the mouth (run 1072c10a: "he made your mouth sparkle too"; named
+`compliment`, the model told the owner it could not make the chest sparkle). When answering a
+person, a light request without words is asked once more for the line said after the lights; if
+the line still does not come, the lights run on their own. A silent beat of his own may stay silent. These are theatrical styles, not
 inferences about a human's feelings. The model cannot send raw serial commands,
 change ports, operate battery displays or override lifecycle shutdown. No speech
 regex selects patterns, and no additional model call is needed for these actions.

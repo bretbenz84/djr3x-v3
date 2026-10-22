@@ -447,12 +447,12 @@ SELF-DIRECTED PARTICIPATION
   contribution; elapsed time never resolves identity or grants permission to repeat it.
 
 SOCIAL STATE
-- "Don't speak until ..." is set_initiative(silent): one short line, then remain_silent for everything until their
-  words release you; then set_initiative(available) and greet them back.
-- "Stop starting conversations" is set_initiative(quiet), then one short acknowledgment. A spoken "be quiet" or "shut up"
+- "Don't speak until ..." is stop_chiming_in(silent): one short line, then remain_silent for everything until their
+  words release you; then resume_chiming_in and greet them back.
+- "Stop starting conversations" is stop_chiming_in(quiet), then one short acknowledgment. A spoken "be quiet" or "shut up"
   sets the same quiet by itself (participation.initiative_quiet is then true). Direct questions still get
-  answers while quiet. An explicit invitation to resume MUST execute set_initiative(available) before any
-  acknowledgment; prose alone leaves you quiet. Nothing else changes this setting: not another person's speech, eye contact or an ordinary
+  answers while quiet. An explicit invitation to resume MUST execute resume_chiming_in before any
+  acknowledgment; prose alone leaves you quiet. A request to move, look or light up is never either one. Nothing else changes this setting: not another person's speech, eye contact or an ordinary
   question. Dropping one subject is conversation_feedback, not global quiet. If you already acknowledged a
   request for quiet or space, do not reassure again or announce that you will be quiet; just be quiet.
 - When someone asks you to drop or avoid a subject, answers or declines an untracked invitation you were heard making,
@@ -988,12 +988,20 @@ class OpenAIBrain(HTTPProvider):
         if step.get('overtaken') and not snapshot.continuation:
             # October 22 (55db1330, 193c8df6): stale beats came back to the goal's subject after the
             # people had talked on (telescope remarks after a talk about the dogs).
-            payload['input'].append({'role':'developer','content':
-                'THE CONVERSATION MOVED ON: people have talked on since this goal last spoke. Do not jump back to its '
-                'subject (' + json.dumps(step.get('subject', ''), ensure_ascii=False) + ') cold, and do not repeat '
-                'anything you already said about it. Pursue the goal only through what they are talking about now: '
-                'build a bridge from their latest words to it, or do a beat that serves the current talk. If no natural '
-                'bridge exists, remain_silent and let this beat go; the goal goes on.'})
+            # October 22 (1072c10a): told "if no natural bridge exists, remain_silent", the performer let 7 of 11
+            # such beats go, and Rex went quiet for up to 52 s at a time. A spoken beat now speaks.
+            moved_on = ('THE CONVERSATION MOVED ON: people have talked on since this goal last spoke. Do not jump back to '
+                        'its subject (' + json.dumps(step.get('subject', ''), ensure_ascii=False) + ') cold, and do not '
+                        'repeat anything you already said about it. ')
+            payload['input'].append({'role':'developer','content': moved_on + (
+                'Say one short thing that follows what they are talking about now, in the spirit of the goal: bridge '
+                'from their latest words to it where that comes naturally, otherwise react to their latest words, an '
+                'interest of theirs, a news item or something you see. That is this beat, and the goal goes on. '
+                'remain_silent only for a real reason: they are talking to each other, busy, or mid-thought.'
+                if step.get('kind') in {'contribute', 'gesture'} else
+                'Look closer only if it serves what they are talking about now; otherwise remain_silent and let this '
+                'look go. The goal goes on.' if step.get('kind') == 'inspect' else
+                'Do this move only in a way that fits what is happening now.')})
         offered = None
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             # Prompt caching matches the rendered prefix, and tool definitions precede the
@@ -1004,7 +1012,8 @@ class OpenAIBrain(HTTPProvider):
             offered = grounded_tools(snapshot.context)
             teach = snapshot.context.get('photo_inspection',{}).get('intent')=='teach'
             payload.update(tools=list(TOOLS), parallel_tool_calls=False,
-                tool_choice={'type':'allowed_tools','mode':'required' if teach or (snapshot.context.get('agency_step') and not snapshot.continuation) or (snapshot.context.get('participation',{}).get('silent_until_released') and not snapshot.continuation) else 'auto',
+                tool_choice={'type':'allowed_tools','mode':'required' if teach or (snapshot.context.get('agency_step') and not snapshot.continuation) or (snapshot.context.get('participation',{}).get('silent_until_released') and not snapshot.continuation
+                                                    and not snapshot.context.get('initiative_changed')) else 'auto',
                              'tools':[{'type':'function','name':d['name']} for d in offered]} if offered else 'none')
         yield from self._stream_response(payload, snapshot, cancel, offered)
 

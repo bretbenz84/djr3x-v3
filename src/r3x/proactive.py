@@ -122,8 +122,11 @@ class Initiative:
         if self.agency:
             # October 2: a human turn steers the goal; it no longer discards it (live
             # October 1, every "Okay." threw away the plan: 40 planner calls in ten minutes).
+            # October 22: quiet pauses the goal rather than erasing it. Nothing runs while quiet (the
+            # runtime's quiet_requested gate); invited back, he carries on instead of planning again
+            # (1072c10a: two misread requests for quiet each cost a fresh plan).
             if reason in {'forgotten','forget_person','correct_claim','retract_claim',
-                          'cancel_association','reset_face_identity','explicit_stop','initiative_quiet'}:
+                          'cancel_association','reset_face_identity','explicit_stop'}:
                 self.agency.clear(reason)
             elif reason == 'participant_boundary':
                 # "Drop it" ends the goal; it stays as context so its premise is not revived.

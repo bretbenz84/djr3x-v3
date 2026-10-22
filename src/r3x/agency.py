@@ -52,6 +52,14 @@ IGNORED_ANSWER_SECONDS = 8.
 SILENT_KINDS = ('pose', 'look', 'drive')   # Beats that can be done without a word.
 # An unheard beat that yielded to a sound is tried again this soon (the lull still applies).
 RETRY_SECONDS = 4.
+# After a beat nobody heard (a silent glance, or one let go) the next may run this soon, not after
+# a whole new lull. October 22 (1072c10a): each such beat restarted the five-second quiet clock, so
+# a run of let-go beats cost about ten seconds of silence apiece (39 s and 52 s gaps).
+SILENT_BEAT_SECONDS = 3.
+# The next plan is written while this many beats are still to run, so it is ready when they are
+# done. October 22: writing it only then left 8-13 s of silence after a goal's last beat. Same
+# number of planner calls; one is wasted only if the goal ends some other way first.
+PREPARE_AT_BEATS_LEFT = 2
 # Floor between planner calls, whatever goes wrong; each goal costs a stronger-model call.
 PLAN_MIN_INTERVAL_SECONDS = 8.
 # An interrupted beat is retried at the next lull, then skipped; the goal continues.
@@ -60,11 +68,11 @@ MAX_STEP_ATTEMPTS = 2
 # earlier kept returning to their subject after the person had moved on (runs 55db1330 and
 # 193c8df6: five telescope remarks in five minutes, one after a talk about the dogs; a "new
 # guest" beat 50 s after the guest turned out to be the owner's head turn). Once people have
-# spoken this many times since the goal's last heard beat (or since it was planned), the goal
-# is overtaken: its next beat must reach the goal through what they are talking about now, or
-# be let go. The goal itself goes on: conversation steers a goal and never ends it (owner,
-# October 1), and plans stay long so the planner, the costly call, is not called more often
-# (owner, October 17).
+# spoken this many times since the goal's last heard beat (or since its plan was ready, or since
+# it last let a beat go), the goal is overtaken: its next spoken beat follows what they are
+# talking about now, bridging to the goal where that is natural. The goal itself goes on:
+# conversation steers a goal and never ends it (owner, October 1), and plans stay long so the
+# planner, the costly call, is not called more often (owner, October 17).
 OVERTAKEN_TURNS = 2
 # Owner, October 17: plans should last longer. Since October 15, 4-6-beat plans were used up in
 # about two and a half minutes each (beats run roughly every 30 s; dropped and skipped beats count),
@@ -110,6 +118,9 @@ WHY YOU WERE CALLED (goal_trigger)
 - beats_used: the last goal's beats are done. If its person is still here and the exchange is alive, continue
   that goal with fresh beats; when the conversation died, revive it with something new, never a recap. Otherwise
   choose a new goal.
+- beats_running_out: current_goal still has its last beat or two to run, and they run first. Plan what comes
+  right after them: fresh beats for the same goal if its person is here and it is landing, otherwise a new goal.
+  Never repeat its remaining beats.
 - startup, no_goal, restart, revised, participant_boundary, subject_left: choose a goal from what is here now.
   After participant_boundary or revised, the previous goal is finished: do not bring its premise back.
 
@@ -176,8 +187,8 @@ WHAT MAKES IT GOOD
 - Varied in pace. Drive steps take a pace (slow, easy, normal). Say in the instruction when a move is a slow
   stroll, a lazy swivel or a careful creep instead of a brisk roll; not every move is the same speed.
 - Eyes. By himself Rex follows people's faces. A look_* pose or a look beat points his head where you choose,
-  and it stays there; pose look_at_people returns his eyes to the people. Use the pair on purpose: look away at
-  the thing, then back at the person he is talking to.
+  and it stays there; pose look_at_people, or a look beat back at the people, returns his eyes to them. Use the
+  pair on purpose: look away at the thing, then back at the person he is talking to.
 - Grounded. Use only what was offered: images, targets, visual memory, dialogue, saved facts. Opinions,
   hypotheticals and imagination are welcome; invented facts about people, ownership, past visits, things not
   seen or actions not taken are not. Rex's own earlier lines are not evidence: never build a beat on a thing he
@@ -355,6 +366,8 @@ class AgencyPlan:
         self.waiting = None  # Why the current beat is not running yet, for the trace.
         self.ignored_replanned = False  # This silence already cost one goal for being ignored.
         self.spoken = deque(maxlen=16)  # When trusted human turns ended, to tell an overtaken goal.
+        self.prepared = None  # The next plan, validated and waiting for this goal's last beat.
+        self.prepared_for = None  # The goal the next plan was last written for (one attempt each).
 
     @property
     def unanswered(self):
@@ -428,7 +441,7 @@ class AgencyPlan:
         record = self.record
         if not record: return False
         since = max(record.get('basis_at', record.get('created_at', float('-inf'))),
-                    record.get('beat_heard_at', float('-inf')))
+                    record.get('beat_heard_at', float('-inf')), record.get('caught_up_at', float('-inf')))
         return sum(1 for at in self.spoken if at > since) >= OVERTAKEN_TURNS
 
     def subject_present(self, now):
@@ -451,6 +464,29 @@ class AgencyPlan:
     def needs_plan(self, now):
         return not self.applicable(now)
 
+    def wants_next_plan(self, now):
+        """Time to write the plan that follows this goal's last beats, in the background."""
+        record = self.record
+        # At least two beats in, so the next plan is written from how this goal went, not before it began.
+        return (self.applicable(now) and self.prepared is None and self.prepared_for != record['id']
+                and record['cursor'] >= 2 and len(record['steps']) - record['cursor'] <= PREPARE_AT_BEATS_LEFT
+                and now >= self.planner_retry_at and now - self.plan_started >= PLAN_MIN_INTERVAL_SECONDS)
+
+    def adopt_prepared(self, now):
+        """This goal's beats are done and its successor is ready: it starts now, with no planner wait."""
+        self.load()
+        prepared = self.prepared
+        if (prepared is None or not self.record or self.ending is not None or self.record['id'] != prepared['for_plan']
+                or self.ending_reason(now) != 'beats_used'):
+            return False
+        self.prepared = None
+        try:
+            self._commit(prepared['value'], prepared['audience'], prepared['subject_person'], now, origin='planner')
+        except ValueError as exc:  # Its person left meanwhile: plan afresh.
+            self._emit('agency_prepared_plan_dropped', plan_id=prepared['for_plan'], reason=str(exc))
+            return False
+        return True
+
     @property
     def dirty(self):
         return self.ending is not None
@@ -471,6 +507,7 @@ class AgencyPlan:
         """Erase derived notes (stop, quiet, forgetting, corrections)."""
         self.load()
         self.record = None
+        self.prepared = None
         self.goals.clear()
         self.pending_subject = None
         self.ending = reason
@@ -481,6 +518,7 @@ class AgencyPlan:
     def replace(self, reason, subject=None):
         """A real ending: the next goal is planned fresh. The old one remains context."""
         self.load()
+        self.prepared = None  # Written to follow this goal, which now ends another way.
         if self.ending is None:
             used = bool(self.record) and self.record['cursor'] >= len(self.record['steps'])
             self._retire('beats_used' if used else reason)
@@ -543,7 +581,8 @@ class AgencyPlan:
                 rows.append(deepcopy(goal))
         return rows
 
-    def install(self, value, audience, evidence, capabilities, revision, now, *, origin='planner', subject_person=None):
+    def install(self, value, audience, evidence, capabilities, revision, now, *, origin='planner', subject_person=None,
+                prepare=False):
         if revision != self.revision: raise ValueError('StaleAgencyPlan')
         if not isinstance(value, dict) or set(value) != {'goal_kind', 'subject', 'scope', 'narrative', 'objective',
                                                           'evidence_ids', 'steps'}:
@@ -576,12 +615,23 @@ class AgencyPlan:
         if value['scope'] == 'general' and scoped_refs:
             value['scope'] = 'audience'
             self._emit('agency_scope_narrowed', evidence_ids=scoped_refs, audience=audience)
-        if origin == 'planner' and value['scope'] == 'audience':
-            if not self.present.here(subject_person, now):
-                # A goal for someone who is not here could never run; replanning it every
-                # tick would only spend planner calls.
-                raise ValueError('AgencyAudienceNotPresent')
         self.load()
+        if prepare and self.applicable(now):
+            # Written ahead: it waits for the current goal's last beat (adopt_prepared).
+            self.prepared = {'value': value, 'audience': audience, 'subject_person': subject_person,
+                             'for_plan': self.record['id']}
+            self._emit('agency_plan_prepared', for_plan=self.record['id'], goal_kind=value['goal_kind'],
+                       subject=value['subject'], steps=len(steps))
+            return
+        self._commit(value, audience, subject_person, now, origin=origin)
+
+    def _commit(self, value, audience, subject_person, now, *, origin):
+        if origin == 'planner' and value['scope'] == 'audience' and not self.present.here(subject_person, now):
+            # A goal for someone who is not here could never run; replanning it every
+            # tick would only spend planner calls.
+            raise ValueError('AgencyAudienceNotPresent')
+        steps = value['steps']
+        self.prepared = None
         if self.ending is None and self.record:
             self._retire('beats_used' if self.record['cursor'] >= len(self.record['steps']) else 'replaced')
         previous = self.record or {}
@@ -592,8 +642,10 @@ class AgencyPlan:
                        'previous_outcomes': (previous.get('previous_outcomes', []) + previous.get('outcomes', []))[-8:],
                        'previous_goals': list(self.goals), 'needs_revalidation': False, 'origin': origin,
                        'created_at': now, 'beat_since': now,
-                       # What the plan was made from: speech during the planner call already overtook it.
-                       'basis_at': (self.plan_started if origin == 'planner' and self.plan_started <= now else now)}
+                       # Counted from when the plan is ready. October 22 (1072c10a): counted from when
+                       # planning began, two lines said while it was written made the telescope plan stale
+                       # before its first beat, and 7 of its 11 spoken beats were let go in silence.
+                       'basis_at': now}
         self.ending = None
         self.pending_subject = None
         if self.unanswered >= IGNORED_LINES:
@@ -815,9 +867,14 @@ class AgencyPlan:
         if heard:
             self.present.beat_heard()
             record['beat_heard_at'] = now
+        elif step.get('overtaken') and status == 'skipped':
+            # A beat of a goal the talk overtook was let go: the goal has caught up with the talk.
+            # October 22 (1072c10a): the count never reset, so every later beat was stale too and
+            # was let go in turn, about ten seconds of silence each.
+            record['caught_up_at'] = now
         # Live October 3: a noise cancelled an unheard beat and its full breathing room was then
         # waited before the retry. Otherwise the next beat's own wake-up decides when it runs.
-        self.due_at = now + RETRY_SECONDS if status == 'interrupted' else now
+        self.due_at = now + (RETRY_SECONDS if status == 'interrupted' else 0. if heard else SILENT_BEAT_SECONDS)
         self.save()
         self._emit('agency_step_finished', plan_id=record['id'], **row, due_at=self._due_for_trace(),
                    unanswered=self.unanswered)
