@@ -135,7 +135,7 @@ class PresentRepairs(unittest.TestCase):
         for at, line in ((100, 'I misspoke about the clock.'), (120, 'That clock correction was fair.'), (140, 'Nice vape.')):
             present.rex_said(line, at)
         picture = present.describe(150, wall=datetime(2026, 10, 14, 18, 24))
-        self.assertEqual(picture['local_time'], 'Wednesday evening, 6:24 PM, October 14')
+        self.assertEqual(picture['local_time'], 'Wednesday evening, 6:24 PM, October 14, 2026')
         earlier = picture['conversation']['his_earlier_lines']
         self.assertEqual([l['text'] for l in earlier['lines']], ['I misspoke about the clock.', 'That clock correction was fair.'])
         self.assertIn('never bring back a mistake', earlier['meaning'])

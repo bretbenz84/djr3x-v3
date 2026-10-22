@@ -68,8 +68,9 @@ hallway no-reverse rule. No firmware was changed.
 - **Sound.** V2's drive and turn whirs loop while the wheels move (50% volume; a quarter
   of that for self-initiated moves). Blocked stops play the slow-down accent and
   arrivals the arrival chirp.
-- **What the model can report.** `drive.base_status` gives battery percent, volts,
-  current, charger, controller state, tilt and room climate. `drive.clearance_m` with
+- **What the model can report.** The `systems_status` tool (October 21) reads
+  `DriveBase.base_status` on request: battery percent, volts, current, charger,
+  controller state, tilt and room climate (offset-corrected). `drive.clearance_m` with
   `clearance_meaning` covers obstructions, and `drive.radar_view` the radar ring's
   bodies.
 - **Not used yet.** The QMC5883L compass and V2's compass fusion are not ported. The
@@ -481,8 +482,8 @@ The owner ran the robot: moves, turns and approaches executed. Findings and chan
 - **Base status for honest answers.** `drive.base_status` carries the controller's
   coulomb-counted battery percent, volts, current, charger state, controller state/fault/
   error count, gamepad, IMU pitch/roll and room temperature/pressure/humidity, with -1 or
-  absent sensors as null. It is in every conversation context, including a
-  disconnected-controller notice.
+  absent sensors as null. Superseded October 21: no longer in every context; the
+  `systems_status` tool reads it on request.
 - **Simulated only.** Motion blur on looks while rolling, steering feel and the reported
   battery percent's accuracy are unverified.
 

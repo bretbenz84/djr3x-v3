@@ -43,6 +43,9 @@ class Settings:
     weather_location: str = "Sacramento, CA"
     weather_latitude: float = 38.5816
     weather_longitude: float = -121.4944
+    # The base's climate sensor sits inside Rex beside warm electronics. October 21: the house read
+    # 72 F while it reported 87 F. Added to its temperature before he reports the room.
+    room_temperature_offset_f: float = -15.0
 
     def __post_init__(self) -> None:
         if self.agency_planner_model not in {"gpt-6-terra", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-terra"}:
@@ -81,6 +84,8 @@ class Settings:
         for name,limit in (('weather_latitude',90),('weather_longitude',180)):
             value=getattr(self,name)
             if type(value) not in (int,float) or not math.isfinite(value) or not -limit<=value<=limit:raise ValueError('InvalidWeatherCoordinates')
+        value=self.room_temperature_offset_f
+        if type(value) not in (int,float) or not math.isfinite(value) or not -40<=value<=40:raise ValueError('InvalidRoomTemperatureOffset')
         if self.camera_enabled and not self.camera_device_name.strip():
             raise ValueError("Enabled camera requires a device name")
         for name, lower, upper in (("camera_width", 320, 1920), ("camera_height", 240, 1080)):

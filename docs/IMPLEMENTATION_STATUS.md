@@ -21,6 +21,31 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Calendar, weather and systems tools — October 21
+
+Owner requests. Live session 7f6ce043: asked for the weather and then "Sacramento, California", Rex
+said he had no report; `news_today` returned 14 items and the fetched weather, sorted last, fell off.
+- **Clock.** `right_now.local_time` now includes the year.
+- **`calendar`.** The model names an operation and the dates it means; `dates.py` computes
+  weekdays, day counts, date shifts, nth weekdays (Thanksgiving), next weekday or anniversary,
+  Easter and the time in another IANA time zone. Missing or invalid fields are rejected.
+- **`weather`.** `weather.py` asks Open-Meteo (free, no key) for the named city (region and
+  country narrow it) or, with no city, Rex's home location: current conditions, the next
+  twelve hours in two-hour steps and a seven-day forecast, reused for ten minutes per place.
+  Rex says he looked it up. `news_today` no longer carries weather; lull weather remarks are unchanged.
+- **`systems_status`.** Battery percent, volts, amps, watts, charger flag, controller state,
+  tilt and the room's temperature, humidity and pressure, read live from the drive controller
+  on request (`systems.py`). These readings left the per-turn drive context. The climate
+  sensor sits inside Rex (87 F in a 72 F house), so `room_temperature_offset_f` (default
+  −15) corrects the temperature and humidity is recomputed for the corrected temperature
+  (same moisture, Magnus formula).
+- The three lookups run outside the store transaction; a failure is a structured result.
+Checks: 18 new or updated blocked-I/O checks with synthetic data and fake HTTP; the full
+suite's one error (`test_boot` cannot import PySide6 in `.venv`) fails identically on the prior
+commit. One live Open-Meteo lookup (Sacramento, home, Tokyo, Portland) matched the parser.
+**Not yet run on the robot or with the hosted model**: tool choice, the corrected room
+reading against a thermometer, and battery answers from the real controller are unverified.
+
 ## Idle head moves on one smooth curve — October 21
 
 Owner: the random head motion is not fluid (compared with Microduck's look-around). Each idle head

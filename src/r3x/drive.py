@@ -793,7 +793,7 @@ class DriveBase:
             heading = self._heading(telemetry)
             displacement = {'distance_m': round(math.hypot(dx, dy), 2),
                             'heading_change_deg': round(wrap(heading - self.origin[2])) if heading is not None and self.origin[2] is not None else None}
-        return {'available': ok, 'unavailable_reason': reason, 'base_status': self.base_status(),
+        return {'available': ok, 'unavailable_reason': reason,
                 'clearance_m': {k: (round(v, 1) if isinstance(v, float) else v) for k, v in space.items() if k != 'health'},
                 'clearance_meaning': GUIDE['drive.clearance_m'],
                 'radar_view': {'status': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),

@@ -89,14 +89,14 @@ def quiet_meaning(seconds):
 
 
 def local_time(moment):
-    """The wall clock the way a person keeps it in mind: 'Wednesday evening, 6:24 PM, October 14'."""
+    """The wall clock the way a person keeps it in mind: 'Wednesday evening, 6:24 PM, October 14, 2026'."""
     if moment is None:
         return None
     hour = moment.hour
     part = ('night' if hour < 5 else 'early morning' if hour < 9 else 'morning' if hour < 12 else
             'afternoon' if hour < 17 else 'evening' if hour < 21 else 'night')
     clock = moment.strftime('%I:%M %p').lstrip('0')
-    return f"{moment.strftime('%A')} {part}, {clock}, {moment.strftime('%B')} {moment.day}"
+    return f"{moment.strftime('%A')} {part}, {clock}, {moment.strftime('%B')} {moment.day}, {moment.year}"
 
 
 # Owner, October 17: "The 'you're right' is getting old" (nine concessions in two runs).

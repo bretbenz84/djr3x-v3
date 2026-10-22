@@ -52,6 +52,8 @@ class App:
         public = PublicObservations(self.settings, search=search, cache=NewsCache(self.paths.root / 'cache/news.json')) \
             if self.settings.news_feed_urls or self.settings.weather_enabled or search else None
         scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
+        from .weather import Weather
+        weather = Weather(self.settings) if self.settings.weather_enabled else None
         from .objects import Objects
         from .adapters.objects import ObjectDetector
         objects = Objects(camera,ObjectDetector(self.paths.root / 'models/objects/rfdetr-nano.onnx'),scene=scene) if camera and self.settings.object_memory_enabled else None
@@ -88,7 +90,7 @@ class App:
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -214,6 +216,7 @@ class App:
         brain.trace = trace
         camera = next((p for p in optional if p.capability.name=='camera'),None)
         public = next((p for p in optional if p.capability.name=='public_observations'),None)
+        weather = next((p for p in optional if p.capability.name=='weather_lookup'),None)
         scene = next((p for p in optional if p.capability.name=='scene_observations'),None)
         objects = next((p for p in optional if p.capability.name=='objects'),None)
         places = next((p for p in optional if p.capability.name=='places'),None)
@@ -336,6 +339,13 @@ class App:
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene
+                state.weather = weather if weather and 'weather_lookup' in active else None
+                if self.drive:
+                    from .systems import report
+                    offset = self.settings.room_temperature_offset_f
+                    # Configured wheels that failed to start still answer: not connected.
+                    state.systems_status = ((lambda: report(self.drive.base_status(), offset)) if 'drive_base' in active
+                                            else (lambda: report(None, offset)))
                 state.places=places
                 if objects:
                     from .photo_memory import PhotoMemory

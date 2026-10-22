@@ -70,12 +70,19 @@ news_feed_urls = ["https://feeds.bbci.co.uk/news/rss.xml"]
 # local/cache/news.json so a same-day restart does not search again. false disables both.
 news_search_enabled = true
 
-# Sacramento, CA, per the user's requested weather location. No geolocation lookup.
-# Open-Meteo current conditions, Fahrenheit/mph/inches; no credential required.
+# Rex's home location: Sacramento, CA, per the user's request. No geolocation lookup.
+# Open-Meteo (Fahrenheit/mph/inches, no credential): occasional current-conditions
+# remarks, and the weather tool's lookups for any named place and seven-day forecasts.
+# false disables both.
 weather_enabled = true
 weather_location = "Sacramento, CA"
 weather_latitude = 38.5816
 weather_longitude = -121.4944
+
+# The drive base's climate sensor sits inside Rex beside warm electronics (October 21:
+# 87 F inside against a 72 F house). Added to its temperature before he reports the room;
+# humidity is recomputed for the corrected temperature. Range -40 to 40.
+room_temperature_offset_f = -15.0
 
 # Named pet/object photographic memory, with one shared RF-DETR Nano ONNX pass
 # every 1.5 seconds. Requires --camera and prepared local/models/objects weights.

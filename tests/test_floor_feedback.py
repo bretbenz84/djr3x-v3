@@ -732,7 +732,9 @@ class BaseStatusTests(unittest.TestCase):
         drive.start()
         self.addCleanup(drive.close)
         settle()
-        status = drive.context('requested')['base_status']
+        from r3x.systems import report
+        self.assertNotIn('base_status', drive.context('requested'))   # October 21: read by systems_status on request.
+        status = report(drive.base_status(), -15.)
         self.assertTrue(status['connected'])
         self.assertEqual(status['battery']['volts'], 12.8)
         self.assertIsNone(status['battery']['percent'])        # The fake controller reports no estimate.

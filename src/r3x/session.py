@@ -921,7 +921,6 @@ class Session:
                 from .drive import LIMITS
                 origin = 'self_initiated' if opportunity else 'requested'
                 context['drive'] = {'available':False,'unavailable_reason':self.output.drive_unavailable,
-                    'base_status':{'connected':False,'readings':None},
                     'origin':origin,'targets':[],'limits':dict(LIMITS[origin]),
                     'meaning':GUIDE['drive (unavailable)']}
             if self.state and not self.state.frozen and getattr(self.state,'places',None) is not None:
@@ -964,6 +963,10 @@ class Session:
                     context['company'] = company
                 if not opportunity and getattr(self.state, 'observations', None) is not None:
                     context['news_available'] = True   # news_today reads the fetched headlines.
+                if not opportunity and getattr(self.state, 'weather', None) is not None:
+                    context['weather_available'] = True
+                if not opportunity and getattr(self.state, 'systems_status', None) is not None:
+                    context['systems_status_available'] = True
             if self.state:
                 from . import conversation_memory
                 context["personal_memory"] = conversation_memory.context(

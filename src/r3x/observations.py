@@ -243,15 +243,16 @@ class PublicObservations:
     def listing(self, topics=(), limit=14):
         """Everything current, for someone asking what is in the news (October 17: asked, Rex said
         he could not pull headlines while sixteen sat in this cache). Reads only; nothing is
-        marked offered or delivered. Interest news only for topics of people in view."""
+        marked offered or delivered. Interest news only for topics of people in view. Weather is
+        the weather tool's: October 21 the fetched report sorted last and fell off this list."""
         from datetime import date
         from .news import local_day, with_timing
         with self.lock:
             now=self.clock();topics=set(topics)
-            rows=[r for group in self.rows.values() for r in group if r.expires_at>now and
+            rows=[r for group in self.rows.values() for r in group if r.expires_at>now and r.kind!='weather' and
                   (r.kind!='interest_news' or r.topic in topics)]
             today=date.fromisoformat(local_day(now))
-        order={'interest_news':0,'story':1,'news':2,'weather':3}
+        order={'interest_news':0,'story':1,'news':2}
         rows.sort(key=lambda r:(order.get(r.kind,4),-r.published_at))
         out=[]
         for cue in rows[:limit]:

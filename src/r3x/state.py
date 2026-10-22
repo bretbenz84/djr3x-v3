@@ -110,6 +110,8 @@ class CoreState:
         from .attention import AttentionState
         self.attention = AttentionState(trace.clock)
         self.observations = None
+        self.weather = None          # weather.Weather: on-request lookups.
+        self.systems_status = None   # Callable: battery and room readings (systems.report).
         self.scene_observer = None
         self.objects = None
         self.places = None
@@ -913,12 +915,18 @@ class CoreState:
         revision = self.store.revision
         try:
             validate(call.name,call.arguments)
-            if self.frozen and call.name not in {"recall","recall_conversations","personal_history","news_today","ask_question","ask_face_question","settle_question","remain_silent"}:
+            if self.frozen and call.name not in {"recall","recall_conversations","personal_history","news_today","weather","calendar","systems_status","ask_question","ask_face_question","settle_question","remain_silent"}:
                 raise ValueError("FrozenEvaluationDisallowsMutation")
             if call.name == 'respond_with_intent':
                 cancel.check()
                 if revision != expected_revision:raise ValueError('StaleStateRevision')
                 return ToolResult(request_id,'ok','executed',revision,{'text':call.arguments['text']})
+            if call.name in {'weather','calendar','systems_status'}:
+                # Read-only lookups: nothing is written, and a network wait never holds the store.
+                cancel.check()
+                result = ToolResult(request_id,'ok','executed',revision,self._lookup(call.name,call.arguments,cancel))
+                self.trace.emit("tool_result", name=call.name, **asdict(result))
+                return result
             with self.store.transaction() as conn:
                 cancel.check()
                 previous = conn.execute("SELECT * FROM operations WHERE request_id=?",(request_id,)).fetchone()
@@ -949,6 +957,19 @@ class CoreState:
             result = ToolResult(request_id,"failed",type(exc).__name__,self.store.revision)
         self.trace.emit("tool_result",name=call.name,**asdict(result))
         return result
+
+    def _lookup(self, name, args, cancel):
+        if name == 'calendar':
+            from datetime import datetime
+            from .dates import answer
+            return answer(args, datetime.fromtimestamp(self.wall_clock()).astimezone())
+        if name == 'weather':
+            if self.weather is None:
+                raise ValueError('WeatherUnavailable')
+            return self.weather.lookup(args['city'], args['region'], args['country'], cancel)
+        if self.systems_status is None:
+            raise ValueError('SystemsStatusUnavailable')
+        return self.systems_status()
 
     def _source_allowed(self, args, name):
         turn_id,capture,transcript,observation,attribution = self.current
