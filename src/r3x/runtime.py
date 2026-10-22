@@ -37,6 +37,9 @@ STOP_PEEK_MAX_VOICED = 1.5     # Longer speech is a sentence, not a stop: normal
 # How long the idle tick waits for a just-started goal plan before returning to listening.
 # Hosted planning takes seconds and finishes in the background; this bounds the pause.
 PLANNING_GLANCE_SECONDS = .25
+# An unrecognized face as the only face in view this soon after someone known was recognized
+# (face or voice) is them from another angle, not a newcomer to ask for a name (October 22).
+KNOWN_FACE_TURN_SECONDS = 60.
 # Sounds that stop a hello before anyone is known to have spoken; a thrown-away one earns a retry.
 NOISE_CUTOFFS = frozenset({'human_speech','capture_queued','turn_queued','recognition_busy'})
 SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish before leaving them.
@@ -350,7 +353,11 @@ class VoiceRuntime:
             planning_only = False
             # People first: a settled new arrival is greeted before any goal work.
             event = self.arrivals.take(self.session.session_id, now, self.session._latest_speech,
-                                      self.session.human_turns)
+                                      self.session.human_turns,
+                                      known_just_now=present.recently_recognized(now, KNOWN_FACE_TURN_SECONDS))
+            while self.arrivals.passed_over:
+                self.trace.emit('arrival_skipped', track_id=self.arrivals.passed_over.pop(0),
+                                reason='unrecognized_view_of_someone_here')
             if event is not None and event.person_id and not present.arriving(event.person_id, now):
                 # Seen or heard within the last few minutes: their face was out of view or
                 # unrecognized for a while, but this is the same visit, not an arrival to greet

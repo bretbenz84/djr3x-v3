@@ -213,6 +213,7 @@ class Arrivals:
         self._audience_since = float('inf')
         self.moved_at = float('-inf')
         self.moved_allows_new = False
+        self.passed_over = []   # Unknown faces taken for someone already here, for the trace.
 
     def note_base_motion(self, now, allow_new=False):
         """Rotating/driving re-frames the room; faces newly tracked right after it
@@ -287,8 +288,9 @@ class Arrivals:
                     self.unknown_target = None
             self.seen = dict(sorted(self.seen.items(),key=lambda p:p[1]['last'],reverse=True)[:128])
 
-    def take(self, session_id, now, speech_marker, human_turns=None):
-        """human_turns counts trusted human turns so far; None makes no quick retry."""
+    def take(self, session_id, now, speech_marker, human_turns=None, known_just_now=False):
+        """human_turns counts trusted human turns so far; None makes no quick retry.
+        known_just_now: someone Rex knows was recognized (face or voice) moments ago."""
         with self.lock:
             # A hello cut off by a sound later thrown away (October 14: Rex's own motor noise,
             # heard as "Oh.") is retried at once, ahead of the cooldown and anything else, while
@@ -302,6 +304,7 @@ class Arrivals:
             if not retry and now-self.last_attempt<self.global_cooldown: return None
             if not self.audience(now): return None
             candidates = []
+            sizable = [f for f in self.faces if 0<=now-f['at']<=VISIBLE_FACE_MAX_AGE and (f.get('face_width_px') or 0)>=48]
             for face in self.faces:
                 if not 0<=now-face['at']<=VISIBLE_FACE_MAX_AGE: continue
                 person = face.get('identity')
@@ -313,6 +316,14 @@ class Arrivals:
                 if entry['used'] or entry['last']-entry['first']<self.stable_seconds: continue
                 if now-entry['attempt']<self.person_cooldown: continue
                 if retry and not entry.get('cut_off'): continue
+                if not person and known_just_now and len(sizable)==1:
+                    # October 22 (193c8df6): the owner, alone and talking, turned his head; his face went
+                    # unrecognized and was asked its name as a newcomer. The only face in view, right
+                    # after someone known was recognized, is them from another angle. A second face
+                    # beside a known one is still a newcomer to greet.
+                    entry['used'] = True
+                    self.passed_over.append(face['track_id'])
+                    continue
                 candidates.append((bool(person),box[2]*box[3],face,key,entry))
             if not candidates: return None
             _,_,target,key,entry = max(candidates,key=lambda r:r[:2])

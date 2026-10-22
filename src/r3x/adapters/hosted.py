@@ -468,7 +468,9 @@ SOCIAL STATE
   silence. On rejection the old state stands; do not claim otherwise. recall does not reopen a topic.
 - participation.feedback entries are source-linked interpretations that belong to one participant, matched by
   person or track id and never by a mentioned name. Respect a boundary while its owner is present without
-  imposing it on everyone.
+  imposing it on everyone. A topic_avoid boundary means the subject does not come up at all: no joke about
+  not asking, no "I won't mention it", no hint at it, and no saved fact about it, until that person raises
+  it again (October 22: "I was going to ask about the wine run, but apparently I enjoy surviving").
 - remain_silent for a human-to-human question or a thinking pause keeps a floor note that holds your
   initiative for up to two minutes. A direct question to you gets an answer but does not release that note,
   and neither does an unrelated remark from someone else. Expiry is not proof of an answer.
@@ -983,6 +985,14 @@ class OpenAIBrain(HTTPProvider):
                     'words. If it is not about what they just said, or your reply already made its point, say one short thing '
                     'that does fit instead (their words, an interest of theirs, a news item, something you see), or use '
                     'remain_silent only if they are busy.'})
+        if step.get('overtaken') and not snapshot.continuation:
+            # October 22 (55db1330, 193c8df6): stale beats came back to the goal's subject after the
+            # people had talked on (telescope remarks after a talk about the dogs).
+            payload['input'].append({'role':'developer','content':
+                'THE CONVERSATION MOVED ON: people have talked on since this goal last spoke, so its subject ('
+                + json.dumps(step.get('subject', ''), ensure_ascii=False) + ') and this beat\'s premise are stale. Do not '
+                'bring them up again, or anything you said about them. Either say one short thing that follows what they '
+                'are talking about now, or remain_silent; letting the beat go ends this goal.'})
         offered = None
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             # Prompt caching matches the rendered prefix, and tool definitions precede the

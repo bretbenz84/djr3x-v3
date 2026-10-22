@@ -295,7 +295,8 @@ def grounded_tools(context):
             names = names | {'remain_silent'}
             # Or hold it for a better moment, once (October 14 plan, step 2). Only after people
             # spoke, like letting go: a beat nobody has talked over still has its planned moment.
-            if not context['agency_step'].get('deferred'):
+            # Not for an overtaken goal: waiting only brings a stale beat back later.
+            if not context['agency_step'].get('deferred') and not context['agency_step'].get('overtaken'):
                 names = names | {'wait_for'}
         # Only a goal about a person can lose its premise (they left or refused). Live October 3
         # the performer revised impersonal look beats for no real reason, three times in ten

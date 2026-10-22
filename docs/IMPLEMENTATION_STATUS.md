@@ -21,6 +21,30 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Conversation switches that felt random — October 22
+
+Owner review of runs 55db1330 and 193c8df6. Three causes found and fixed (the greeting about a
+past event stays, by the owner's choice):
+- **Stale goal beats.** Plans of about eight beats on one subject kept returning to it after the
+  talk moved on (five telescope remarks in five minutes, one right after a talk about the dogs;
+  a second cloud insult). A goal is now *overtaken* once people have spoken twice since its last
+  heard beat, or since planning began. Its look-closer beat is let go without a model call; a
+  spoken beat is told its subject is stale and may only follow the current talk or stay silent,
+  without the option to wait and bring it back; letting it go ends the goal, so the next plan
+  starts from the talk now (`overtaken_by_conversation`). No planner call is added otherwise.
+- **A head turn taken for a newcomer.** The owner, alone and recognized until 119.0 s, turned his
+  head; the unrecognized view was asked "what should I call you?" and a "newly arrived guest" goal
+  followed. An unrecognized face is no longer an arrival when it is the only face in view and
+  someone known was recognized by face or voice within 60 s; a second face beside a known one is
+  still greeted.
+- **An avoided topic joked about.** "I was going to ask about the wine run, but apparently I enjoy
+  surviving" broke the owner's October 16 "Stop asking me about it". The reply and planner
+  instructions now forbid any mention of an avoided topic, including jokes about not asking and
+  plan text such as "without revisiting" it. The old wine plan was no longer offered as a
+  follow-up; the saved fact remains, and the rule governs it.
+9 new blocked-I/O checks with scripted providers. **Not yet run with the hosted model or on the
+robot**: whether the performer follows the stale-subject note and the never-mention rule.
+
 ## Startup sound buffered; boot line lights the mouth — October 22
 
 Owner: the please-wait line left the mouth LEDs dark, and the droid filler stuttered while models

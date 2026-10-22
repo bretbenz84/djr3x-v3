@@ -245,6 +245,11 @@ class Present:
                 self.spoke[person_id] = max(self.spoke.get(person_id, at), at)
                 self.engaged[person_id] = max(self.engaged.get(person_id, at), at)
 
+    def recently_recognized(self, now, seconds):
+        """Someone Rex knows was recognized by face or voice within `seconds`."""
+        with self.lock:
+            return now - max(self.recognized.values(), default=float('-inf')) <= seconds
+
     def here(self, person, now):
         """Is this person still here? None asks whether anyone is."""
         with self.lock:
