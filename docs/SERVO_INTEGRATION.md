@@ -24,7 +24,7 @@ looking around, and talking was rapid and robotic beside it, so the start of a r
 - *Idle hero arm* moves on the eased curve too; `_together` and the plain `Beat.seconds` pacing
   are retired. The throttle arm keeps V2's pacing; the poker tail already eased.
 
-Synthetic only (simulated servo board). How lively it reads, the noise and whether more motion
+Synthetic only: 1,369 blocked-I/O checks pass (simulated servo board). How lively it reads, the noise and whether more motion
 stills him more often (his own servo noise) are unseen until a run on the robot.
 
 ## October 21: idle head moves on one smooth curve

@@ -188,7 +188,9 @@ class OperatorServoTests(unittest.TestCase):
         self.clock.now += 60
         self.robot.owner.refresh_microphone_hold()   # Rex does not recentre the array arm meanwhile.
         self.assertEqual(self.robot.owner.microphone_hold, hold)
-        self.robot.end_operator()   # Rex's own idle life resumes from here.
+        self.robot.end_operator()   # Rex's own idle life resumes from here...
+        if self.robot.idle._thread is not None:
+            self.robot.idle._thread.join(2)   # ...and its first phrase may hold the owner (ServoBusy) meanwhile.
         self.assertEqual(self.robot.operator_pose({0: 5000}, Cancellation(), 'op-2').reason, 'OperatorOverrideOff')
 
     def test_operator_poses_keep_calibrated_limits_and_throttle_routes(self):

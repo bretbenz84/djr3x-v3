@@ -1,5 +1,6 @@
 """September 27 floor-test repairs: clipped onsets, stop words, gaze and seated approach."""
 import math
+import random
 import time
 import unittest
 
@@ -8,7 +9,7 @@ from r3x.contracts import Cancellation
 from r3x.drive import DrivePlan, DriveStep
 from r3x.drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
 from r3x.gaze import addressee_neck
-from r3x.servo_poses import LIMITS, talking_lanes
+from r3x.servo_poses import LIMITS, NECK_PER_DEG, talking_lanes
 from r3x.session import is_stop_command
 from tests.test_drive import base_setup, settle
 
@@ -72,9 +73,12 @@ class GazeTests(unittest.TestCase):
     def test_talking_sway_centres_on_the_gaze_anchor(self):
         current = {ch: (lo+hi)//2 for ch, (lo, hi) in LIMITS.items()}
         current.update({8: 4200, 9: 7720, 10: 5120})
-        lanes = talking_lanes(current, held=frozenset({8, 9, 10}), neck=4500)
-        head = lanes[0]
-        self.assertEqual([dict(b.targets)[0] for b in head], [5020, 3980, 4500])
+        lanes = talking_lanes(current, held=frozenset({8, 9, 10}), neck=4500, rng=random.Random(3))
+        necks = [dict(b.targets)[0] for b in lanes[0]]
+        # Emphasis to either side of the addressee (October 21: varied, eased), ending on them.
+        self.assertTrue(all(abs(neck - 4500) <= 7 * NECK_PER_DEG + 1 for neck in necks))
+        self.assertTrue(any(neck < 4500 for neck in necks) and any(neck > 4500 for neck in necks))
+        self.assertEqual(necks[-1], 4500)
 
 
 class SeatedApproachTests(unittest.TestCase):
