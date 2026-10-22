@@ -413,7 +413,11 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
 
 
 TALK_HEAD_SECONDS = 6.     # Head moves planned per talking cycle, so a repeat is rare.
-TALK_TAIL_PACE = .6        # The poker arm's sway while he speaks, against its idle pace.
+# The poker arm's sway while he speaks, against its idle sway. October 21 (later): at 0.6 of
+# the idle timing and full size it moved too much; now a small, unhurried sway with pauses.
+TALK_TAIL_PACE = 1.
+TALK_TAIL_REACH = .35
+TALK_TAIL_PAUSE = (.4, 1.2)
 THROTTLE_TALK = (((8, 3360), (9, 8560), (10, 7920)), ((8, 4000), (9, 7800), (10, 3800)))
 # Owner, October 21: held half-raised for long, the big throttle arm looks like someone
 # straining to hold it up. Between bouts of movement it rests lower: the halfway-down and
@@ -489,18 +493,19 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     poker = ()
     if not set((6, *POKER)).intersection(held):
         reached = {ch: current[ch] for ch in (6, *POKER)}
-        first = poker_tail(rng, reached, pace=TALK_TAIL_PACE)
+        sway = lambda at: poker_tail(rng, at, pace=TALK_TAIL_PACE, reach=TALK_TAIL_REACH)
+        first = sway(reached)
         if first is None:   # Outside the sway (after a drive or a pose): the staged route back first.
             route = poker_lane(current, {ch: POKER_TAIL[ch][0] for ch in POKER}, speed=15, acceleration=5)
             poker = (Beat(((6, POKER_TAIL[6][0]), *route[0].targets), speed=15, acceleration=5), *route[1:])
         else:
-            poker = (first,)
+            poker = (replace(first, dwell=rng.uniform(*TALK_TAIL_PAUSE)),)
         while _lane_seconds(poker, current) < TALK_HEAD_SECONDS:
             reached.update({ch: value for beat in poker for ch, value in beat.targets})
-            more = poker_tail(rng, reached, pace=TALK_TAIL_PACE)
+            more = sway(reached)
             if more is None:
                 break
-            poker += (more,)
+            poker += (replace(more, dwell=rng.uniform(*TALK_TAIL_PAUSE)),)
         poker = (replace(poker[0], wait=rng.uniform(.2, .5)), *poker[1:])
     lanes = (tuple(head),visor,arm,throttle,poker)
     lanes = tuple(lane for lane in lanes if lane and not set(dict(lane[0].targets)).intersection(held))
@@ -733,17 +738,17 @@ def _eased(travel, seconds, acceleration):
     return velocity // 100, round(covered)
 
 
-def poker_tail(rng, start, settle=False, pace=1.):
+def poker_tail(rng, start, settle=False, pace=1., reach=1.):
     """Half of the poker arm's idle sway, like a cat's tail (owner, October 13): the swing and
     elbow cross to the other side of the awake pose while the wrist bends the opposite way,
     trailing them. Elbow and wrist share one beat, as the clearance check requires; the wrist
     picks up speed slowly and arrives a little after the elbow, so the hand follows through.
     settle: the bout of swaying is over; ease back to the awake pose itself, still trailing.
     None when the arm starts outside the sway (after a drive or a pose), which needs a route.
-    pace scales its timing (talking sways quicker, idle just after speech a little quicker)."""
+    pace scales its timing (idle just after speech a little quicker); reach its size (talking)."""
     side = -1 if start[12] >= POKER_TAIL[12][0] else 1
     ranges = {6: (4500, 7500), **POKER_IDLE}
-    aim = {ch: centre + (0 if settle else (-side if ch == 13 else side) * rng.randint(least, most))
+    aim = {ch: centre + (0 if settle else (-side if ch == 13 else side) * round(rng.randint(least, most) * reach))
            for ch, (centre, least, most) in POKER_TAIL.items()}
     if max(start[12], aim[12]) > poker_elbow_max(max(start[13], aim[13])):
         return None

@@ -64,6 +64,7 @@ Then: the throttle finishes its talking move at its own pace and goes straight o
 is gentler, and at rest the shoulder relaxes fully (through the tuck). Synthetic checks only.
 The listening cue (head cock as he hears you) now eases in and out, varies, and stays on one
 side across a run of sentences instead of swinging across. Synthetic checks only.
+The poker arm's sway while he talks is about a third of its idle size, slower, with pauses.
 
 ## October 20 run: an introduced guest was never learned
 

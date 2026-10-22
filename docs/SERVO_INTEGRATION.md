@@ -6,6 +6,13 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 21 (last): a smaller poker sway while talking
+
+Owner: the poker arm moved too much while he talked. Its talking sway (full idle size at 0.6
+of the idle timing, back to back) is now about a third of the idle size (`TALK_TAIL_REACH`
+0.35, `poker_tail(reach=)`), at the idle pace, with a 0.4-1.2 s pause after each half sway.
+Idle and the after-speech sway are unchanged. Synthetic only.
+
 ## October 21 (later still): the listening cue eases in, varies and stays on one side
 
 Owner, on the robot: while he is spoken to the head tilts left and right, not smoothly, so the

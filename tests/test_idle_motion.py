@@ -264,6 +264,20 @@ class IdleTests(unittest.TestCase):
                 profile=motion_profiles(beat,{**start,**dict(TUCK)})
                 self.assertLessEqual(profile[10][0],THROTTLE_WRIST_SPEED)
 
+    def test_the_poker_arm_sways_only_a_little_while_he_talks(self):
+        # Owner, October 21 (later): during speech the poker arm moved too much. Its sway is now
+        # about a third of the idle size, at the idle pace, with pauses between half sways.
+        from r3x.servo_poses import POKER,POKER_TAIL,THROTTLE,head_pulses,talking_lanes
+        anchor={0:NECK_CENTER,1:3600,**head_pulses(0.,0.)}
+        current={**self.port.pose,**anchor,3:5900,4:6900,5:6000,6:6000,12:6000,13:3768}
+        for seed in range(10):
+            lanes=talking_lanes(current,anchor,held=frozenset(THROTTLE),rng=random.Random(seed))
+            poker=next(l for l in lanes if set(dict(l[0].targets))=={6,*POKER})
+            for beat in poker:
+                for ch,value in beat.targets:
+                    self.assertLessEqual(abs(value-POKER_TAIL[ch][0]),.45*POKER_TAIL[ch][2],(seed,ch,value))   # Idle: up to the full size.
+                self.assertGreaterEqual(beat.dwell,.4)              # A pause after each half sway.
+
     def test_bigger_idle_head_moves_take_longer(self):
         from r3x.servo_poses import eased_head_beat,head_pulses
         start={0:NECK_CENTER,1:3600,**head_pulses(0.,0.)}
