@@ -60,7 +60,8 @@ class LEDs:
         self.speaking = False
         self.demo = False
         self.sample = (b'',0.)
-        self.samples = deque(maxlen=8)
+        # Startup sound is written up to about 1.5 s ahead (BufferedOutput), 46 ms per sample.
+        self.samples = deque(maxlen=48)
         self.last_level, self.last_sent = -1, float('-inf')
         self.stop_event = threading.Event()
         self.worker = None

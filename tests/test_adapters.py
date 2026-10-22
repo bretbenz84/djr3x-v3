@@ -1,9 +1,10 @@
 import json
 from types import SimpleNamespace
 import threading
+import time
 import unittest
 
-from r3x.adapters.audio import AudioSink, resolve_device
+from r3x.adapters.audio import AudioSink, BufferedOutput, resolve_device
 from r3x.adapters.hosted import OpenAIBrain, ElevenLabsTTS
 from r3x.contracts import Cancellation, Cancelled, ProviderFailure, Snapshot,ToolCall
 from r3x.semantics import grounded_tools
@@ -254,6 +255,79 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(b"".join(observed)[:len(expected)],expected)
         self.assertEqual(len(starts), 1)
         self.assertIsNone(sink.stream)
+
+
+
+class Ring:
+    """PortAudio's blocking-mode output ring: drains in real time on its own thread."""
+    def __init__(self, capacity=4410, latency=.25, **kwargs):
+        self.capacity, self.latency, self.kwargs = capacity, latency, kwargs
+        self.queued, self.at, self.written, self.aborted, self.closed, self.started = 0., None, [], False, False, False
+    def _drain(self):
+        now = time.monotonic()
+        if self.at is not None:
+            self.queued = max(0., self.queued - (now - self.at) * 22050)
+        self.at = now
+    def start(self): self.started = True; self._drain()
+    @property
+    def write_available(self):
+        self._drain()
+        return int(self.capacity - self.queued)
+    def write(self, data):
+        self._drain()
+        assert len(data) // 2 <= self.capacity - self.queued + 1, 'a write that would block'
+        underflow = bool(self.written) and self.queued == 0
+        self.queued += len(data) // 2
+        self.written.append(bytes(data))
+        return underflow
+    def abort(self): self.aborted = True; self.queued = 0
+    def close(self): self.closed = True
+
+
+class BufferedOutputTests(unittest.TestCase):
+    """October 22: startup sound written ahead into the driver's ring, so model loading cannot starve it."""
+    def sink(self, ring):
+        sink = AudioSink()
+        sink.sd = SimpleNamespace(RawOutputStream=lambda **kwargs: ring.__dict__.update(kwargs=kwargs) or ring)
+        return sink
+
+    def test_sound_is_written_ahead_in_small_pieces_and_returns_once_heard(self):
+        ring = Ring()
+        sink = self.sink(ring)
+        levels = []
+        sink.on_pcm = lambda data, at: levels.append(at)
+        output = sink.buffered()
+        self.assertEqual((ring.kwargs['latency'], ring.started), (.5, True))
+        clip = bytes(range(256)) * 86 + b'\x01'                # About 0.5 s, odd network boundaries.
+        starts, began = [], time.monotonic()
+        receipt = output.play(iter([clip[:3], clip[3:-1], clip[-1:] + b'\x00']), Cancellation(), starts.append)
+        self.assertEqual(b''.join(ring.written), clip + b'\x00')
+        self.assertLessEqual(max(map(len, ring.written)), 2048)
+        self.assertEqual(len(starts), 1)
+        self.assertGreaterEqual(time.monotonic() - began, .45)   # Returns after the ring played it out.
+        self.assertEqual(levels, sorted(levels))                 # Mouth levels arrive timed to playback.
+        self.assertEqual((receipt.frames, receipt.underruns), (len(clip + b'\x00') // 2, 0))
+        output.close()
+        self.assertTrue(ring.closed)
+
+    def test_a_hard_stop_discards_the_queued_tail_and_a_stalled_device_fails(self):
+        ring = Ring()
+        output = self.sink(ring).buffered()
+        cancel = Cancellation()
+        def pieces():
+            yield b'\x00' * 8000
+            cancel.event.set()
+            yield b'\x00' * 8000
+        with self.assertRaises(Cancelled):
+            output.play(pieces(), cancel, lambda at: None)
+        self.assertTrue(ring.aborted)
+        stuck = Ring()
+        stuck._drain = lambda: None                              # The device stopped consuming.
+        stuck.queued = stuck.capacity
+        clock = iter(range(0, 100, 2))
+        output = BufferedOutput(stuck, lambda: None, clock=lambda: float(next(clock)))
+        with self.assertRaisesRegex(ProviderFailure, 'PlaybackStalled'):
+            output.play(iter([b'\x00' * 4096]), Cancellation(), lambda at: None)
 
 
 class LookImageTests(unittest.TestCase):

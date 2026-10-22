@@ -277,7 +277,7 @@ class LEDTimingTests(unittest.TestCase):
         clock.wait(.1);led.tick()
         self.assertEqual(ports['head'].commands[-1],'SPEAK_LEVEL:255')
         for _ in range(100): led.pcm(bytes(8192),clock()+1)
-        self.assertEqual(len(led.samples),8)
+        self.assertEqual(len(led.samples),48)   # Bounded; holds the ~1.5 s buffered startup sound writes ahead.
         self.assertEqual(len(led.samples[0][0]),4096)
 
     def test_failed_chest_fade_cannot_wake_already_fading_head(self):

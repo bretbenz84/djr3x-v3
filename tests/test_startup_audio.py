@@ -15,9 +15,22 @@ from tests.test_voice_core import Trace
 
 
 class RecordingSink:
-    """Consumes pieces at a pace, like a device; records each clip as it plays."""
+    """Consumes pieces at a pace, like a device; records each clip as it plays. Its buffered
+    stream records into the same list, so a test sees every clip in order either way."""
     def __init__(self, pace=0.):
         self.played, self.visualized, self.pace = [], [], pace
+        self.streams = []   # One entry per buffered stream: [clips played through it, closed]
+
+    def buffered(self):
+        sink = self
+        class Stream:
+            latency = .1
+            def __init__(stream): sink.streams.append(stream); stream.clips, stream.closed = 0, False
+            def play(stream, chunks, cancel, on_start, visualize=True):
+                stream.clips += 1
+                return sink.play(chunks, cancel, on_start, visualize)
+            def close(stream): stream.closed = True
+        return Stream()
 
     def play(self, chunks, cancel, on_start, visualize=True):
         on_start(time.monotonic())
@@ -189,6 +202,60 @@ class StartupAudioTests(unittest.TestCase):
         self.assertEqual(len(sink.played), 4)
         audio.shutdown_started()                                  # A second park request does not replay it.
         self.assertEqual(len(sink.played), 4)
+
+    def test_startup_sound_shares_one_buffered_stream_closed_before_live_speech(self):
+        # October 22: the filler stuttered while models loaded; startup sound is buffered by the driver.
+        sink = RecordingSink(pace=.004)
+        audio = StartupAudio(CountingTTS(), sink, self.dir, rng=random.Random(1))
+        audio.start()
+        deadline = time.monotonic() + 3
+        while len(sink.played) < 3 and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue(audio.stop())
+        self.assertEqual(len(sink.streams), 1)
+        self.assertEqual(sink.streams[0].clips, 3)              # Whir, line and filler.
+        self.assertTrue(sink.streams[0].closed)                 # Closed before the ready line plays.
+        audio.shutdown_started()
+        audio.close()
+        self.assertEqual(sink.streams[0].clips, 3)              # Power-down uses ordinary playback.
+        self.assertEqual(len(sink.played), 4)
+
+    def test_the_please_wait_line_lights_the_mouth_like_any_line(self):
+        # October 22 (owner): the mouth LEDs stayed dark through the boot line.
+        events, line = [], b'\x01\x00' * 400
+        class LEDs:
+            def clear_pcm(self): events.append('clear')
+            def begin(self, pattern, speaking=False, request=None):
+                events.append(('begin', pattern, speaking)); return 7
+            def finish(self, token): events.append(('finish', token)); return 'commands_sent'
+        class Sink(RecordingSink):
+            def play(inner, chunks, cancel, on_start, visualize=True):
+                result = RecordingSink.play(inner, chunks, cancel, on_start, visualize)
+                events.append(('play', inner.played[-1] == line))
+                return result
+        audio = StartupAudio(CountingTTS(), Sink(), self.dir, leds=LEDs())
+        audio.start()
+        deadline = time.monotonic() + 3
+        while ('finish', 7) not in events and time.monotonic() < deadline:
+            time.sleep(.01)
+        audio.stop()
+        self.assertEqual(events[:5], [('play', False), 'clear', ('begin', 'neutral', True), ('play', True), ('finish', 7)])
+
+    def test_a_dark_led_board_does_not_stop_the_line(self):
+        class LEDs:
+            def clear_pcm(self): pass
+            def begin(self, pattern, speaking=False, request=None):
+                from r3x.contracts import ProviderFailure
+                raise ProviderFailure('LEDUnavailable')
+        trace, sink = Trace(), RecordingSink()
+        audio = StartupAudio(CountingTTS(), sink, self.dir, leds=LEDs(), trace=trace)
+        audio.start()
+        deadline = time.monotonic() + 3
+        while len(sink.played) < 2 and time.monotonic() < deadline:
+            time.sleep(.01)
+        audio.stop()
+        self.assertEqual(sink.played[1], b'\x01\x00' * 400)
+        self.assertIn('speaking_lights_failed', [r.get('status') for r in trace.rows if r['event'] == 'startup_audio'])
 
     def test_startup_lines_are_short(self):
         self.assertTrue(all(len(line.split()) <= 7 for line in BOOT_LINES + READY_LINES))

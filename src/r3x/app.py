@@ -99,7 +99,7 @@ class App:
         # V2 startup sounds start as soon as speech output is ready and play over
         # servo wake and model loading; live() stops them before the ready line.
         from .startup_audio import StartupAudio
-        self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache', robot=self.robot)
+        self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache', robot=self.robot, leds=self.leds)
         if self.robot:
             self.robot.on_startup = self.startup_audio.motion_started
             self.robot.on_shutdown = self.startup_audio.shutdown_started   # Power-down clip over the park.

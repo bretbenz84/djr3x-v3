@@ -128,3 +128,13 @@ restarts the level at zero on `SPEAK:`). A lost start is recovered within a frac
 second instead of costing the whole line. The cause is inferred from the firmware source
 and the trace, not observed on the board; confirm on the robot that every line animates
 and that the once-a-second repeat is not visible as a flicker.
+
+## October 22: the boot line lights the mouth
+
+The please-wait line during startup played straight to the sink and never began the speaking
+LEDs (only the ready line logged `led_delivery`). `StartupAudio` now clears the level mailbox,
+begins `neutral` speaking lights, plays the line and finishes them; failures are logged as
+`startup_audio` `speaking_lights_failed` and never stop the line. Startup sound is written up to
+about 1.5 s ahead through PortAudio's buffered stream, so playback levels arrive early with
+their predicted play times; the mailbox holds 48 samples (was 8), still bounded. Synthetic
+checks only; the boot-line mouth has not been seen on hardware.

@@ -10,6 +10,11 @@ copied but not played: V2 ships with PLAY_STARTUP_SPEECH_CLIP disabled.
 
 Shutdown (owner request, October 10): V2's power-down clip plays while the servos park,
 started by the servo owner's park hook and finished before playback closes.
+
+October 22 (owner): the filler stuttered while models loaded, and the please-wait line left the
+mouth LEDs dark. Startup sound now goes through one driver-buffered stream (AudioSink.buffered),
+opened as startup begins so its initial silence plays out before the whir; the please-wait line
+runs the speaking LEDs like any other line.
 """
 import hashlib
 import json
@@ -116,8 +121,9 @@ class StartupAudio:
         'startup whir, please-wait line and filler while models load; ready line after; power-down clip while the servos park',
         required=False, shutdown='stop startup playback; let the power-down clip finish; join threads')
 
-    def __init__(self, tts, sink, state_dir: Path, *, rng=None, trace=None, robot=None):
-        self.tts, self.sink, self.trace, self.robot = tts, sink, trace, robot
+    def __init__(self, tts, sink, state_dir: Path, *, rng=None, trace=None, robot=None, leds=None):
+        self.tts, self.sink, self.trace, self.robot, self.leds = tts, sink, trace, robot, leds
+        self._output = None   # The buffered startup stream, open while _run plays.
         self._motion_started = threading.Event()
         self.cycle = LineCycle(state_dir / 'startup-lines.json', rng)
         self.cache = state_dir / 'startup-tts'
@@ -166,7 +172,8 @@ class StartupAudio:
               visualize: bool = True):
         """Feed ~0.1 s pieces like streamed speech (a whole clip at once exceeded the
         sink's drain bound and forced an abort). A gentle clip stops by starving the
-        stream at readiness, so it drains instead of being force-stopped."""
+        stream at readiness, so it drains instead of being force-stopped. During startup
+        the pieces go to the buffered stream; the power-down clip uses ordinary playback."""
         cancel = cancel or self._cancel
         cancel.check()
         def pieces():
@@ -174,8 +181,9 @@ class StartupAudio:
                 if gentle and self._ready.is_set():
                     return
                 yield pcm[i:i+4410]
-        self.sink.play(pieces(), cancel, lambda at: None, visualize=visualize)
-        self._emit(status='played', clip=label)
+        output = self._output if cancel is self._cancel and self._output is not None else self.sink
+        playback = output.play(pieces(), cancel, lambda at: None, visualize=visualize)
+        self._emit(status='played', clip=label, underruns=getattr(playback, 'underruns', None))
 
     def motion_started(self):
         """Servo wake choreography is beginning: play the whir with it (owner request)."""
@@ -227,11 +235,25 @@ class StartupAudio:
                 except Exception as exc:
                     talking = None
                     self._emit(status='talking_motion_failed', error_type=type(exc).__name__)
+        lights = None
+        if self.leds is not None:
+            # October 22 (owner): the mouth stayed dark through this line; ordinary speech
+            # lights it from playback levels, and so does this line now.
+            try:
+                self.leds.clear_pcm()
+                lights = self.leds.begin('neutral', speaking=True)
+            except Exception as exc:
+                self._emit(status='speaking_lights_failed', error_type=type(exc).__name__)
         self._line.set()
         try:
             self._play(pcm, 'boot_line')
         finally:
             self._line.clear()
+            if lights is not None:
+                try:
+                    self._emit(status='speaking_lights', result=self.leds.finish(lights))
+                except Exception as exc:
+                    self._emit(status='speaking_lights_failed', error_type=type(exc).__name__)
             if talking is not None:
                 try:
                     talking.stop()
@@ -242,6 +264,11 @@ class StartupAudio:
         try:
             line = self.cycle.pick('boot', BOOT_LINES)
             fetched = self._fetch(line)   # Overlaps the LED boot, the whir and the servo wake.
+            try:
+                self._output = self.sink.buffered()
+                self._emit(status='buffered_output', ahead_seconds=round(self._output.latency, 2))
+            except Exception as exc:
+                self._emit(status='buffered_output_failed', error_type=type(exc).__name__)
             if self.robot is not None:
                 # Start with the servo wake-up, not before it (LED startup comes first).
                 self._wait(self._motion_started.is_set, 15.)
@@ -254,6 +281,13 @@ class StartupAudio:
             self._emit(status='stopped')
         except Exception as exc:
             self._emit(status='failed', error_type=type(exc).__name__, reason=str(exc)[:120])
+        finally:
+            output, self._output = self._output, None
+            if output is not None:
+                try:
+                    output.close()   # Drained already; live speech gets the device alone.
+                except Exception as exc:
+                    self._emit(status='buffered_output_close_failed', error_type=type(exc).__name__)
 
     def start(self):
         self._thread = threading.Thread(target=self._run, name='r3x-startup-audio', daemon=True)

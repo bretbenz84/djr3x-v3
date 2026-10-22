@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 21, 2026. This is the consolidated
+Updated October 22, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,27 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## Startup sound buffered; boot line lights the mouth — October 22
+
+Owner: the please-wait line left the mouth LEDs dark, and the droid filler stuttered while models
+loaded. Logs (sessions 7f6ce043, b9b8237f, 55db1330) show `led_delivery` for the ready line only;
+the boot line was played straight to the sink, with talking motion but no speaking lights.
+- **Mouth.** The boot line now begins the speaking LEDs and feeds them playback levels, then
+  finishes them, like any line; a dark LED board is logged and the line still plays.
+- **Stutter.** Loading the ASR model held the interpreter up to 97 ms at a time (silent probe);
+  the playback callback needs it every 46 ms and had at most 0.18 s queued. Under quarter-second
+  holds it ran dry 10 times in 3 s, and the device reported none as an underflow, so callback-mode
+  `underruns: 0` is not evidence of clean audio on the reSpeaker. Startup sound (whir, boot line,
+  filler) now shares one PortAudio blocking-mode stream (`AudioSink.buffered`, latency 0.5:
+  about 1.5 s of ring on the reSpeaker) that PortAudio drains without Python. It opens as
+  startup begins, so the ring's initial silence plays out before the servo wake, and closes
+  before the ready line. The power-down clip and live speech are unchanged.
+- Silent real-device probe: the buffered stream playing 9 s of silence while the ASR model
+  loaded plus six 0.25 s holds never fell below 1.02 s queued (median 1.39 s), zero underruns.
+- Readiness still lets the filler drain (up to about 1.5 s, as the old 1.6 s queue did).
+Synthetic checks for the stream, startup order and lights; the one `test_boot` PySide6 error is
+unchanged. **Not yet heard on the robot**: audible clip quality and mouth timing on the boot line.
 
 ## Calendar, weather and systems tools — October 21
 

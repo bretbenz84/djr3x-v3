@@ -188,6 +188,93 @@ class SileroVAD:
         self.model = None
 
 
+class BufferedOutput:
+    """Startup sound written ahead into PortAudio's blocking-mode ring buffer.
+
+    October 22: the startup filler stuttered while models loaded. Loading the ASR model held
+    the interpreter up to 97 ms at a time; the playback callback, which needs the interpreter
+    every 46 ms and had at most 0.18 s queued at the device, missed its deadline (10 dropouts
+    in 3 s under 0.25 s holds, none reported as underflow). In blocking mode PortAudio's own
+    thread drains a ring sized from the requested latency (about 1.5 s for 0.5 on the
+    reSpeaker) without Python; under the same holds it never fell below about 1.1 s.
+    The ring starts full of silence, so it is opened early and kept for the whole startup.
+    Writes never block (only what fits), so cancellation and stall checks stay responsive.
+    """
+    PIECE = 2048   # Bytes: 46 ms, the size of one speech LED level sample.
+
+    def __init__(self, stream, on_pcm, clock=time.monotonic):
+        self.stream, self.on_pcm, self.clock = stream, on_pcm, clock
+        self.latency = float(stream.latency)
+
+    def ahead(self) -> float:
+        """Seconds until newly written audio is heard (queued ring plus device latency)."""
+        return max(0., self.latency - self.stream.write_available / 22050)
+
+    def play(self, chunks, cancel: Cancellation, on_start, visualize=True) -> Playback:
+        """Write ahead as far as the ring allows; return once the last sample has played."""
+        frames = underruns = 0
+        started_at = None
+        remainder = b""
+        last_progress, last_free = self.clock(), None
+        try:
+            for chunk in chunks:
+                remainder += chunk
+                while len(remainder) >= self.PIECE:
+                    piece, remainder = remainder[:self.PIECE], remainder[self.PIECE:]
+                    while True:
+                        cancel.check()
+                        free = self.stream.write_available
+                        if free * 2 >= len(piece):
+                            break
+                        if free != last_free:
+                            last_free, last_progress = free, self.clock()
+                        elif self.clock() - last_progress > 3:
+                            raise ProviderFailure("PlaybackStalled")
+                        cancel.event.wait(.01)
+                    heard_at = self.clock() + self.ahead()
+                    if started_at is None:
+                        started_at = heard_at
+                        on_start(heard_at)
+                    # The first write after a pause finds the ring empty by design; later ones should not.
+                    if self.stream.write(piece) and frames:
+                        underruns += 1
+                    frames += len(piece) // 2
+                    sink = self.on_pcm()
+                    if sink and visualize:
+                        sink(piece, heard_at)
+            if len(remainder) % 2:
+                raise ProviderFailure("OddPCMByteCount")
+            if remainder:
+                if started_at is None:
+                    started_at = self.clock() + self.ahead()
+                    on_start(started_at)
+                while self.stream.write_available * 2 < len(remainder):
+                    cancel.check()
+                    cancel.event.wait(.01)
+                self.stream.write(remainder)
+                frames += len(remainder) // 2
+            if not frames:
+                raise ProviderFailure("EmptyAudio")
+            done_at = self.clock() + self.ahead()
+            while self.clock() < done_at:
+                cancel.check()
+                cancel.event.wait(min(.05, max(0., done_at - self.clock())))
+            return Playback(frames, started_at, self.clock(), underruns)
+        except Cancelled:
+            self.stream.abort()   # A hard stop: the queued tail is discarded.
+            raise
+        finally:
+            close = getattr(chunks, "close", None)
+            if close:
+                close()
+
+    def close(self):
+        try:
+            self.stream.abort()
+        finally:
+            self.stream.close()
+
+
 class AudioSink:
     """Callback receipts use the device DAC clock; completion waits for drain."""
     def __init__(self, output_name="", clock=time.monotonic):
@@ -215,6 +302,16 @@ class AudioSink:
             self.stream.close()
             self.stream = None
         self.sd = None
+
+    def buffered(self, latency: float = .5, clock=None) -> "BufferedOutput":
+        """A stream whose PCM waits in PortAudio's own ring buffer, ahead of time, for sound
+        that must play on while model loading starves Python (startup clips)."""
+        if self.sd is None:
+            raise ProviderFailure("PlaybackNotStarted")
+        stream = self.sd.RawOutputStream(device=self.index, samplerate=22050, channels=1,
+                                         dtype="int16", latency=latency)
+        stream.start()
+        return BufferedOutput(stream, lambda: self.on_pcm, clock or self.clock)
 
     def play(self, chunks, cancel: Cancellation, on_start, visualize=True) -> Playback:
         """visualize=False plays effects (motion whir) without driving the speech LEDs."""
