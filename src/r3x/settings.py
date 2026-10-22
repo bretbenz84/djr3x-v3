@@ -31,6 +31,9 @@ class Settings:
     camera_framerate: float = 30.0
     record_evaluation: bool = False
     agency_planner_model: str = "gpt-5.6-terra"
+    # OpenAI service tier for the reply model (owner, October 22): "fast" (Fast mode, formerly priority
+    # processing) at twice the Standard token price, or "default" (Standard). Planner and writer stay Standard.
+    reply_service_tier: str = "fast"
     joke_writer_enabled: bool = True  # Side joke material from the planner model between turns (paid, capped at 30 calls an hour).
     proactive_lull_seconds: float = 5.0
     scene_observations_enabled: bool = True
@@ -50,6 +53,8 @@ class Settings:
     def __post_init__(self) -> None:
         if self.agency_planner_model not in {"gpt-6-terra", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-terra"}:
             raise ValueError("UnsupportedAgencyPlannerModel")
+        if self.reply_service_tier not in {"default", "fast"}:
+            raise ValueError("UnsupportedReplyServiceTier")
         if self.profile != "dev-mac":
             raise ValueError("Only the dev-mac boot profile is implemented")
         if self.microphone_mode not in ("standard", "respeaker-flex"):

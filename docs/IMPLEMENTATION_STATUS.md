@@ -21,6 +21,26 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Reply model in Fast mode — October 22
+
+Owner choice: Rex's reply model (GPT-6 Luna, reasoning effort low) runs in OpenAI Fast mode
+(formerly priority processing), `reply_service_tier = "fast"`, at twice the Standard token price;
+the planner and joke writer stay Standard. `model_usage` records the tier actually served (Fast
+can fall back to Standard when traffic ramps). Run 1072c10a had 19 of 25 replies over 4 s.
+Paid probe `tools/check_reply_latency.py` (production-sized synthetic request, 34k input tokens,
+10 alternating rounds per arm, all 20 Fast requests served Fast), median time to the first
+speakable phrase:
+
+| route | Standard | Fast |
+|---|---|---|
+| reply tool (most live replies) | 2.18 s (p90 2.30) | 1.42 s (p90 1.49) |
+| prose | 3.43 s (p90 3.97, max 5.55) | 2.26 s (p90 2.44, max 2.85) |
+
+Logged Luna spend was about $0.61 per running hour at Standard (1,682 calls, 11.5 h, $4.71 in the
+last 30 days); Fast doubles it, about $4.70 more a month at that use. Live requests carry about
+50k input tokens, so the live gain may differ; **not yet measured on the robot**. Cache writes were
+54% of Luna spend (about 40% of calls miss the prompt cache), a separate saving not yet pursued.
+
 ## Speaking less, long pauses, light and visor fumbles — October 22 run 1072c10a
 
 Owner: since the stale-goal change he speaks less, the pauses between his own lines are too long,

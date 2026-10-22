@@ -31,7 +31,7 @@ class App:
         secrets = Secrets.load(self.paths.root)
         asr = QwenASR(self.paths.root / "models/qwen3-asr", self.settings.asr_trust_logprob)
         vad = SileroVAD(self.settings.vad_threshold)
-        brain = OpenAIBrain(secrets.openai_api_key)
+        brain = OpenAIBrain(secrets.openai_api_key, self.settings.reply_service_tier)
         agency_planner = OpenAIAgencyPlanner(secrets.openai_api_key,self.settings.agency_planner_model)
         joke_writer = (OpenAIJokeWriter(secrets.openai_api_key,self.settings.agency_planner_model)
                        if self.settings.joke_writer_enabled else None)

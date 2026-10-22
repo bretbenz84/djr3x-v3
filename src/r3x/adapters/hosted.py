@@ -622,9 +622,10 @@ class HTTPProvider:
 class OpenAIBrain(HTTPProvider):
     reasoning_effort = "low"
 
-    def __init__(self, key: str):
+    def __init__(self, key: str, service_tier: str = "default"):
         super().__init__()
         self.key = key
+        self.service_tier = service_tier   # "fast": OpenAI Fast mode, 2x Standard price (settings.reply_service_tier).
         self.trace = None
         self.capability = Capability("brain", "OpenAI Responses", "one main conversational generation",
                                      "gpt-6-luna", ("httpx",), ("network",))
@@ -692,6 +693,8 @@ class OpenAIBrain(HTTPProvider):
         payload = {"model": self.capability.model, "instructions": PERSONA,
                    "input": prefix+list(snapshot.messages)+list(snapshot.continuation), "stream": True, "store": False,
                    "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 1536 if snapshot.tools_enabled else 768}
+        if self.service_tier != "default":
+            payload["service_tier"] = self.service_tier
         if snapshot.tools_enabled and not snapshot.continuation:
             # Complete revised descriptions need more room than a list of withdrawal IDs.
             count=min(32,len(snapshot.context.get('visual_correction_candidates',[])))
@@ -1081,9 +1084,13 @@ class OpenAIBrain(HTTPProvider):
                             counts = dict(usage, cached_tokens=inputs.get('cached_tokens'),
                                           cache_write_tokens=inputs.get('cache_write_tokens'),
                                           reasoning_tokens=outputs.get('reasoning_tokens'))
+                            # Fast traffic can be served at Standard speed and price; record what was served.
+                            served = event.get('response',{}).get('service_tier')
+                            if isinstance(served, str): counts['served_tier'] = served
                             self.trace.emit('model_usage',model=payload['model'],turn_id=snapshot.turn_id,**{k:v for k,v in counts.items()
                                 if k in {'input_tokens','cached_tokens','cache_write_tokens','output_tokens',
-                                         'reasoning_tokens','total_tokens'} and type(v) is int and v>=0})
+                                         'reasoning_tokens','total_tokens'} and type(v) is int and v>=0
+                                or k == 'served_tier'})
                     elif kind == "response.output_item.done" and event.get("item",{}).get("type")=="function_call":
                         item = event["item"]
                         if len(calls) >= 4 or len(item.get("arguments","")) > 8000:

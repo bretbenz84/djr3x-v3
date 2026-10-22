@@ -127,6 +127,11 @@ radar_port = ""
 # Replies and plan-step execution continue to use GPT-6 Luna. No silent fallback.
 agency_planner_model = "gpt-5.6-terra"
 
+# Reply model service tier (owner choice, October 22): "fast" is OpenAI Fast mode (formerly priority
+# processing), up to 2.5x faster by OpenAI's claim at twice the Standard token price; "default" is
+# Standard. Fast traffic can be served at Standard when it ramps; model_usage records served_tier.
+reply_service_tier = "fast"
+
 # Writer's room: after a reply the planner model may write two or three optional joke angles
 # that the next reply can use. Never delays a reply; at most every 45 s and 30 calls an hour.
 joke_writer_enabled = true

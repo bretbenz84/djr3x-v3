@@ -311,3 +311,26 @@ class RaisingHisOwnVisorTests(memory_tests.MemoryFixture):
         raised = ToolCall('up', 'set_robot_pose', {'say_before': None, 'poses': ['visor_up'], 'look_after': None,
                                                    'text': 'I kept it down for you, but it was dark in here!'})
         self.assertEqual(self.state.propose_pose(raised, context, Cancellation()), ('visor_up',))
+
+
+class FastModeTests(memory_tests.MemoryFixture):
+    # Owner, October 22: Rex's reply model runs in OpenAI Fast mode (2x the Standard price).
+    def test_the_reply_tier_is_sent_and_the_served_tier_recorded(self):
+        from r3x.adapters.hosted import OpenAIBrain
+        from r3x.contracts import Snapshot
+        from r3x.settings import Settings
+        from tests.test_adapters import Client, Response
+        self.assertEqual(Settings().reply_service_tier, 'fast')
+        with self.assertRaises(ValueError):
+            Settings(reply_service_tier='priority-ish')
+        rows = []
+        for tier, served in (('fast', 'default'), ('default', 'default')):
+            brain = OpenAIBrain('fixture', tier)
+            brain.trace = SimpleNamespace(emit=lambda event, **data: rows.append({'event': event, **data}))
+            brain.client = Client(Response([{'type': 'response.output_text.delta', 'delta': 'Hi.'},
+                {'type': 'response.completed', 'response': {'service_tier': served, 'usage': {'input_tokens': 10}}}]))
+            list(brain.reply(Snapshot('s', 't', 0, ()), Cancellation()))
+            sent = brain.client.calls[0][1]['json']
+            self.assertEqual(sent.get('service_tier'), 'fast' if tier == 'fast' else None)
+        usage = [r for r in rows if r['event'] == 'model_usage']
+        self.assertEqual([r['served_tier'] for r in usage], ['default', 'default'])   # A fast request served at Standard shows.
