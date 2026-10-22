@@ -6,6 +6,27 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 21 (later): livelier idle, eased talking
+
+Owner, after running the eased idle head on the robot: more fluid, but slower and hardly
+looking around, and talking was rapid and robotic beside it, so the start of a reply jarred.
+
+- *Idle:* moves take 0.35 s plus 0.035 s per degree (was 0.4 + 0.05); glances away from a face
+  every 4-10 s (7-16) and 15-30 degrees (12-24); room looks every 3.5-7 s (6-13); drift up to
+  about 5 degrees of neck (3.4), and ±300 pulses inside the face dead zone (±160). The head keeps
+  drifting until the rest of the phrase finishes (it moved at most twice per phrase), never past it.
+- *Talking:* the neck, lift, nod and cock are one lane on the same eased curve
+  (`servo_poses.TALK_EASE`, 0.3 s + 0.025 s per degree: moves of 0.3-0.65 s, peak board speed
+  up to 33, was a fixed 45). Each cycle plans about 6 s of moves to alternating sides of the
+  addressee (3-7 degrees), a quarter of them back to the addressee, never the same three moves;
+  offsets stay measured from the anchor. Elbow and wrist move together on a curve (were two
+  lanes at speed 35). The visor, arm and throttle start 0.1-0.6 s after the head.
+- *Idle hero arm* moves on the eased curve too; `_together` and the plain `Beat.seconds` pacing
+  are retired. The throttle arm keeps V2's pacing; the poker tail already eased.
+
+Synthetic only (simulated servo board). How lively it reads, the noise and whether more motion
+stills him more often (his own servo noise) are unseen until a run on the robot.
+
 ## October 21: idle head moves on one smooth curve
 
 Owner, after a fluid robot-head demo (Microduck's idle look-around): Rex's random head motion

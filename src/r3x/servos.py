@@ -305,7 +305,7 @@ class ServoOwner:
             current = self._bus.positions(LIMITS)
             validate_pose(current)
             lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels, self.talking_neck,
-                                   self.talking_pitch) if request.kind == 'talking' else
+                                   self.talking_pitch, self.rng) if request.kind == 'talking' else
                      idle_lanes(current,self.rng,self.held_channels,request.idle) if request.kind == 'idle' else
                      expressive_lanes(current,request.kind,request.target,request.primitive,request.intensity,
                                       request.hold_seconds,self.held_channels) if request.kind in {'attention','gesture'} else

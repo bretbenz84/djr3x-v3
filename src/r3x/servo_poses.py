@@ -12,6 +12,7 @@ the visor servo now runs inverted (low pulses up).
 """
 from dataclasses import dataclass, replace
 import math
+import random
 from types import MappingProxyType
 
 
@@ -301,7 +302,7 @@ class Beat:
     throttle_idle: bool = False
     wait: float = 0.        # Seconds this beat's lane rests before the targets are sent.
     reframes: bool = True   # False: a head move too small to count as a new camera view.
-    seconds: float | None = None   # Travel time: every joint's speed is set so they start and arrive together.
+    seconds: float | None = None   # Travel time of an eased beat (eased_beat): its profiles arrive together.
     profiles: tuple[tuple[int, int, int], ...] = ()   # (channel, speed, acceleration) per joint, when each eases differently.
 
 
@@ -360,11 +361,6 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
     target = dict(beat.targets)
     if beat.profiles:
         return {ch: (speed, acceleration) for ch, speed, acceleration in beat.profiles}
-    if beat.throttle_duration is None and beat.seconds:
-        # One limb moving as a whole: each joint covers its own distance in the same time,
-        # never faster than the beat's speed.
-        return {ch: (max(1, min(beat.speed, round(abs(value - current[ch]) / (beat.seconds * 100)))), beat.acceleration)
-                for ch, value in target.items()}
     if beat.throttle_duration is None:
         return {ch: (beat.speed, beat.acceleration) for ch in target}
     # Retain V2 shoulder/elbow pacing. Halve throttle-wrist pacing to reduce
@@ -385,16 +381,24 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
     return {ch: result.get(ch, (speed[ch], accel[ch])) for ch in THROTTLE}
 
 
+TALK_HEAD_SECONDS = 6.     # Head moves planned per talking cycle, so a repeat is rare.
+TALK_NECK_DEG = (3., 7.)    # Emphasis either side of the addressee (V2's 260 pulses barely read).
+
+
 def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = None, held=frozenset(),
-                  neck: int | None = None, pitch: float | None = None) -> tuple[tuple[Beat, ...], ...]:
-    """Independent speech lanes around stable head anchors, not interrupted poses.
+                  neck: int | None = None, pitch: float | None = None, rng=None) -> tuple[tuple[Beat, ...], ...]:
+    """Speech lanes around stable head anchors, not interrupted poses.
 
     pitch is where the gaze had the head pitched when the reply began (looking down at a
     seated face): the sway centres there instead of snapping back to level for each line.
 
-    V2's neck/lift ranges and head/arm profiles, with smooth bounded beats instead
-    of random per-frame reversals. Talking leaves microphone-hold channel 7 fixed.
+    Owner, October 21: speaking motion was rapid and robotic next to the eased idle head, and
+    jarring as it began. The head now moves as one (neck, lift, nod and cock on one smooth
+    curve, servo by servo arriving together), somewhere different each time, livelier than
+    idle; the hero elbow and wrist move together on a curve; the visor, arm and throttle
+    start a moment after the head instead of all at once. Channel 7 (microphone) stays fixed.
     """
+    rng = rng or random.Random()
     targets = (((8, 3360), (9, 8560), (10, 7920)),
                ((8, 4000), (9, 7800), (10, 3800)))
     if set(THROTTLE).intersection(held):
@@ -411,25 +415,36 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     if pitch is not None:
         pitch0 = _clamp(float(pitch), -.9, .9)
     def offset(ch, amount):
-        return max(LIMITS[ch][0], min(LIMITS[ch][1], origin[ch]+amount))
-    head = tuple(Beat(((0,offset(0,neck)),(1,offset(1,lift))),
-                     speed=45,acceleration=8,dwell=.25)
-                 for neck,lift in ((520,160),(-520,-160),(0,0)))  # About +/-7 degrees; V2's 260 barely read.
-    # The two head servos sway slowly together: a small nod with a slight cock to each side.
-    sway = tuple(Beat(tuple(head_pulses(pitch0+dp, tilt0+dt).items()),speed=20,acceleration=6,dwell=.6)
-                 for dp,dt in ((.06,.1),(-.06,-.1),(0.,0.)))
+        return max(LIMITS[ch][0], min(LIMITS[ch][1], round(origin[ch]+amount)))
+    # Emphasis to alternate sides of the addressee, now and then back to them, with a small
+    # nod and a slight cock toward the side; offsets always from the anchor, never ratcheting.
+    home = ((0, origin[0]), (1, origin[1]), *head_pulses(pitch0, tilt0).items())
+    at, side, head, planned = {ch: current[ch] for ch in HEAD}, rng.choice((-1, 1)), [], 0.
+    while planned < TALK_HEAD_SECONDS:
+        if head and rng.random() < .25:
+            aim = home
+        else:
+            side = -side if not head or rng.random() < .75 else side
+            aim = ((0, offset(0, side*rng.uniform(*TALK_NECK_DEG)*NECK_PER_DEG)), (1, offset(1, side*rng.randint(60, 160))),
+                   *head_pulses(pitch0 + rng.uniform(-.06, .06), tilt0 + side*rng.uniform(.03, .1)).items())
+        beat = eased_head_beat(at, aim, dwell=rng.uniform(.1, .35), pace=TALK_EASE)
+        head.append(beat)
+        at.update(aim)
+        planned += beat.seconds + beat.dwell
+    head.append(eased_head_beat(at, home, dwell=.15, pace=TALK_EASE))
     # V2's speech floor permits visible expression instead of pinning the visor
     # at neutral. Keep it in the upper part of calibrated travel while speaking.
-    visor = tuple(Beat(((3,target),),speed=45,acceleration=8,dwell=.15)
-                  for target in (5612,6132,5492,5932))
-    # V2 neutral-expression elbow/wrist range, with independent pacing. These
-    # are channels 4/5, not channel 7 (the microphone-bearing hero-arm axis).
-    elbow = tuple(Beat(((4,target),),speed=35,acceleration=8,dwell=.35)
-                  for target in (7100,6740))
-    wrist = tuple(Beat(((5,target),),speed=35,acceleration=8,dwell=.25)
-                  for target in (7120,4880))
-    lanes = (head,sway,visor,elbow,wrist,
-             tuple(Beat(p,dwell=1.,throttle_duration=1.7) for p in targets))
+    visor = tuple(Beat(((3,target),),speed=45,acceleration=8,dwell=.15,wait=wait)
+                  for target, wait in zip((5612,6132,5492,5932), (rng.uniform(.1, .3), 0., 0., 0.)))
+    # V2 neutral-expression elbow/wrist range, channels 4/5, not channel 7 (the
+    # microphone-bearing hero-arm axis). The arm moves as a whole, as in idle.
+    out, back = ((4,7100),(5,7120)), ((4,6740),(5,4880))
+    arm = (replace(eased_beat(dict(back), out, rng.uniform(.9, 1.2), rng.uniform(.25, .4)), wait=rng.uniform(.2, .5)),
+           eased_beat(dict(out), back, rng.uniform(.9, 1.2), rng.uniform(.25, .4)))
+    throttle = tuple(Beat(p,dwell=1.,throttle_duration=1.7) for p in targets)
+    if throttle:
+        throttle = (replace(throttle[0], wait=rng.uniform(.3, .6)), *throttle[1:])
+    lanes = (tuple(head),visor,arm,throttle)
     lanes = tuple(lane for lane in lanes if lane and not set(dict(lane[0].targets)).intersection(held))
     for lane in lanes:
         for beat in lane:
@@ -496,8 +511,10 @@ def head_reframes(current, targets) -> bool:
 # and slows down again. Board units are whole numbers and the gentlest acceleration is
 # still steep for a short, slow move, so each servo gets whichever nearby setting keeps
 # its ramp closest to the shared curve.
-HEAD_EASE_SECONDS = .4      # Every idle head move takes at least this long...
-HEAD_EASE_PER_DEG = .05     # ...plus this per degree: about the old idle pace for large looks.
+# Owner, the same evening on the robot: fluid, but slow and hardly looking around; quicker now.
+HEAD_EASE_SECONDS = .35     # Every idle head move takes at least this long...
+HEAD_EASE_PER_DEG = .035    # ...plus this per degree.
+TALK_EASE = (.3, .025)      # Talking moves the same way, livelier: (least seconds, per degree).
 TILT_DEG = 20.              # Degrees of a full side tilt: an estimate, like the pitch's.
 SPEED_UNIT = 100.           # Pulses per second for one board speed unit (0.25 us per 10 ms).
 ACCEL_UNIT = 1250.          # Pulses per second squared for one board acceleration unit (per 80 ms).
@@ -558,13 +575,19 @@ def head_degrees(start, targets) -> float:
                       (tilt1 - tilt0) * TILT_DEG)
 
 
-def eased_head_beat(start, targets, dwell=0.) -> Beat:
-    """One idle head move on a shared smooth curve, timed by its size."""
+def eased_beat(start, targets, seconds, dwell=0.) -> Beat:
+    """Joints moving together on one smooth curve over seconds, arriving together."""
     targets = tuple(targets)
-    seconds = HEAD_EASE_SECONDS + HEAD_EASE_PER_DEG * head_degrees(start, targets)
     profiles = tuple((ch, *(_head_ramp(abs(value - start[ch]), seconds) if abs(value - start[ch]) > 2 else (1, 1)))
                      for ch, value in targets)
-    return Beat(targets, dwell=dwell, reframes=head_reframes(start, targets), seconds=seconds, profiles=profiles)
+    return Beat(targets, dwell=dwell, seconds=seconds, profiles=profiles)
+
+
+def eased_head_beat(start, targets, dwell=0., pace=(HEAD_EASE_SECONDS, HEAD_EASE_PER_DEG)) -> Beat:
+    """One head move on a shared smooth curve, timed by its size."""
+    targets = tuple(targets)
+    seconds = pace[0] + pace[1] * head_degrees(start, targets)
+    return replace(eased_beat(start, targets, seconds, dwell), reframes=head_reframes(start, targets))
 
 
 def _elsewhere(rng, low, high, here, least, most=None):
@@ -632,31 +655,6 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
     for lane in lanes:
         for beat in lane:validate_pose(dict(beat.targets))
     return lanes
-
-
-def _together(current, targets, seconds, ranges, exact=()):
-    """One limb's beat whose joints all arrive at the same moment. Board speeds are whole
-    numbers (quarter-microseconds per 10 ms), so at idle pace a joint can finish seconds
-    before the others; each joint's travel is stretched or shortened to a whole speed over
-    the beat's time instead. Channels in `exact` keep their target and set that time.
-    Returns (targets, seconds)."""
-    targets = dict(targets)
-    for ch in exact:
-        travel = abs(targets[ch] - current[ch])
-        if travel > 2:
-            seconds = travel / (100 * max(1, round(travel / (100 * seconds))))
-    result = []
-    for ch, value in targets.items():
-        travel = value - current[ch]
-        if ch in exact or abs(travel) <= 2:
-            result.append((ch, value))
-            continue
-        speed, way = max(1, round(abs(travel) / (100 * seconds))), (1 if travel > 0 else -1)
-        low, high = ranges.get(ch, LIMITS[ch])
-        options = [current[ch] + w * round(k * 100 * seconds) for k in (speed, speed - 1, speed + 1) if k >= 1
-                   for w in (way, -way)]
-        result.append((ch, next((v for v in options if low <= v <= high), value)))
-    return tuple(result), seconds
 
 
 def _eased(travel, seconds, acceleration):
@@ -727,16 +725,17 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
     if phrase is None:
         phrase = IdlePhrase(tuple((part, 0.) for part in IDLE_CHANNELS), swing=True)
     clamp = lambda ch, value: max(LIMITS[ch][0], min(LIMITS[ch][1], round(value)))
-    lanes = []
+    lanes, head_at = [], None
     for part, wait in phrase.parts:
         channels = IDLE_CHANNELS[part]
         if set(channels).intersection(held):
             continue
         if part == 'head':
+            head_at = len(lanes)
             def drift(start):
                 # A small wander from where the head is, inside the camera's settled view.
                 pitch, tilt = head_pose(start)
-                moved = ((0, clamp(0, start[0] + rng.randint(-260, 260))),
+                moved = ((0, clamp(0, start[0] + rng.randint(-380, 380))),
                          (1, clamp(1, start[1] + rng.randint(-110, 110))),
                          *head_pulses(pitch + rng.uniform(-.05, .05), tilt + rng.uniform(-.08, .08)).items())
                 return eased_head_beat(start, moved)
@@ -745,10 +744,6 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 lane = (eased_head_beat(current, targets, dwell=phrase.head_dwell),)
             else:
                 lane = (drift(current),)
-            # Owner, October 12: the head stopped and waited while an arm finished, which read
-            # as frozen. With other parts in the phrase it keeps wandering gently until they do.
-            if len(phrase.parts) > 1:
-                lane += (drift({**current, **dict(lane[-1].targets)}),)
         elif part == 'visor':
             first = _elsewhere(rng, *VISOR_IDLE, current[3], 200, 600)
             lane = (Beat(((3, first),), speed=rng.randint(8, 14), acceleration=3),)
@@ -764,15 +759,15 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
             def bend(start, least):
                 return ((4, _elsewhere(rng, *ranges[4], start[4], least, 550)),
                         (5, _elsewhere(rng, *ranges[5], start[5], 3 * least, 1700)))
-            def beat(start, targets, seconds, exact=(), dwell=0.):
-                targets, seconds = _together(start, targets, seconds, ranges, exact)
-                return Beat(targets, speed=18, acceleration=3, dwell=dwell, seconds=seconds)
+            def beat(start, targets, seconds, dwell=0.):
+                # October 21: on the head's smooth curve, every joint easing in and out together.
+                return eased_beat(start, targets, seconds, dwell)
             if phrase.swing:
                 side = (-1 if current[7] >= 5984 + 500 else 1 if current[7] <= 5984 - 500 else rng.choice((-1, 1)))
                 out = beat(current, ((7, clamp(7, 5984 + side * rng.randint(700, 1400))), *bend(current, 150)),
-                           rng.uniform(2.2, 3.2), exact=(7,), dwell=rng.uniform(.8, 1.6))
+                           rng.uniform(2.2, 3.2), dwell=rng.uniform(.8, 1.6))
                 reached = {**current, **dict(out.targets)}
-                lane = (out, beat(reached, ((7, 5984), *bend(reached, 100)), rng.uniform(2.2, 3.2), exact=(7,)))
+                lane = (out, beat(reached, ((7, 5984), *bend(reached, 100)), rng.uniform(2.2, 3.2)))
             else:
                 first = beat(current, bend(current, 200), rng.uniform(1.1, 2.))
                 lane = (first,)
@@ -823,6 +818,17 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
             validate_pose(dict(more.targets))
             lane += (more,)
         lanes[tail] = lane
+    if head_at is not None and len(lanes) > 1:
+        # Owner, October 12: the head stopped and waited while an arm finished, which read as
+        # frozen; October 21: still too little motion. It keeps wandering until the rest ends.
+        longest = max(_lane_seconds(lane, current) for i, lane in enumerate(lanes) if i != head_at)
+        lane = lanes[head_at]
+        for _ in range(8):   # Never past the rest of the phrase: that would hold up the other parts.
+            more = drift({**current, **{ch: value for beat in lane for ch, value in beat.targets}})
+            if _lane_seconds(lane + (more,), current) > longest:
+                break
+            lane += (more,)
+        lanes[head_at] = lane
     return tuple(lanes)
 
 

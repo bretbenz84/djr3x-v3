@@ -6,7 +6,7 @@ import unittest
 
 from r3x.contracts import Cancellation, Playback, ProviderFailure
 from r3x.output import Delivery, OutputOwner
-from r3x.servo_poses import AWAKE_ARMS, HEAD_PARK, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
+from r3x.servo_poses import AWAKE_ARMS, HEAD_PARK, NECK_PER_DEG, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
 from r3x.servos import ARM_RETURN
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 
@@ -253,22 +253,27 @@ class ServoTests(unittest.TestCase):
         self.port.packets.clear()
         result = self.execute('talking')
         self.assertEqual(result.status,'pulses_reached')
-        self.assertEqual(result.completed_lanes,(0,1,2,3,4,5))
+        self.assertEqual(result.completed_lanes,(0,1,2,3))
         def targets(ch):
             return [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,ch))]
-        self.assertGreater(len(targets(0)),3)
         self.assertGreater(len(targets(3)),4)
         self.assertEqual(set(targets(3)),{5612,6132,5492,5932})   # Around the 1433 us open neutral; lower is wider.
-        # The two head servos sway together: a slight nod with a slight cock to each side, and back.
-        from r3x.servo_poses import head_pulses
-        self.assertEqual(len(targets(2)), len(targets(11)))   # The startup anchor is the level head.
-        self.assertEqual(set(zip(targets(2), targets(11))),
-                         {tuple(head_pulses(dp, dt).values()) for dp, dt in ((.06,.1),(-.06,-.1),(0,0))})
+        # Owner, October 21: the head moves as one, somewhere different each time, around the
+        # anchor (the level startup head), instead of the same three moves over and over.
+        from r3x.servo_poses import NECK_PER_DEG,head_pose
+        self.assertEqual(len({len(targets(ch)) for ch in (0,1,2,11)}),1)
+        self.assertGreater(len(set(targets(0))),4)
+        self.assertTrue(all(abs(n-5472)<=7*NECK_PER_DEG+1 and abs(l-3600)<=160 for n,l in zip(targets(0),targets(1))))
+        for left,right in zip(targets(2),targets(11)):
+            pitch,tilt=head_pose({2:left,11:right})
+            self.assertLessEqual(abs(pitch),.07);self.assertLessEqual(abs(tilt),.11)   # A small nod and cock.
+        # The arm moves as a whole: elbow and wrist together, between V2's neutral poses.
         self.assertGreater(len(targets(4)),2)
-        self.assertGreater(len(targets(5)),2)
-        self.assertGreater(len(set(targets(0))),1)
-        self.assertEqual(set(targets(4)),{7100,6740})
-        self.assertEqual(set(targets(5)),{7120,4880})
+        self.assertEqual(len(targets(4)),len(targets(5)))
+        self.assertEqual(set(zip(targets(4),targets(5))),{(7100,7120),(6740,4880)})
+        # The head starts first; the visor and arm follow a moment later, not all at once.
+        first=lambda ch:next(i for i,p in enumerate(self.port.targets) if p[:2]==bytes((0x84,ch)))
+        self.assertLess(first(0),first(3));self.assertLess(first(0),first(4))
 
     def test_repeating_lanes_drain_sent_targets_before_success(self):
         self.owner.start()
@@ -349,8 +354,9 @@ class ServoTests(unittest.TestCase):
             self.port.on_target = token.event.set
             result = self.owner.execute(self.request('talking'),token)
             self.assertEqual(result.status,'cancelled')
-            self.assertEqual(self.port.pose[1],3760)
-            self.assertEqual(self.port.pose[0],5992)
+            # Each emphasis is measured from the startup anchor, never from where the last stopped.
+            self.assertLessEqual(abs(self.port.pose[0]-5472),7*NECK_PER_DEG+1)
+            self.assertLessEqual(abs(self.port.pose[1]-3600),160)
 
     def test_production_output_drives_real_executor_with_synthetic_port(self):
         self.owner.start()

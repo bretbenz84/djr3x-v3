@@ -28,7 +28,10 @@ move now times itself by its size and gives every head servo the board speed and
 keep it closest to one shared minimum-jerk curve, so they arrive together; room looks go somewhere
 new and sometimes straight ahead. Details and the simulated-ramp numbers are in
 [servo integration](SERVO_INTEGRATION.md#october-21-idle-head-moves-on-one-smooth-curve).
-Synthetic checks only; **not yet run on the robot**.
+Later the same evening, after a robot run (fluid but slow, little looking around, talking jarring):
+idle moves are quicker with more frequent, wider glances and room looks and drift through each
+phrase; talking moves the head, and the hero elbow and wrist, on the same eased curve, varied
+each time, with the arm and visor starting just after the head. Synthetic checks only.
 
 ## October 20 run: an introduced guest was never learned
 

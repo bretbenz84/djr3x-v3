@@ -131,7 +131,7 @@ class IdleTests(unittest.TestCase):
         # speed whatever its distance, so the head cocked quickly while the neck kept
         # swinging. Every servo that moves far now eases in and out along one shared
         # minimum-jerk curve and they arrive together.
-        from r3x.servo_poses import head_pose,head_pulses,minimum_jerk
+        from r3x.servo_poses import HEAD_EASE_PER_DEG,HEAD_EASE_SECONDS,head_pose,head_pulses,minimum_jerk
         self.execute('startup');self.clock.wait(.6)
         rng=random.Random(5);spreads=[]
         for _ in range(60):
@@ -145,7 +145,7 @@ class IdleTests(unittest.TestCase):
             self.assertEqual(self.execute('idle',IdlePhrase((('head',0.),),tuple(aim.items()))).status,'pulses_reached')
             speed={p[1]:p[2]+128*p[3] for p in self.port.packets if p[0]==0x87}
             accel={p[1]:p[2]+128*p[3] for p in self.port.packets if p[0]==0x89}
-            seconds=.4+.05*abs(neck-start[0])/NECK_PER_DEG   # At least the neck's share of the move.
+            seconds=HEAD_EASE_SECONDS+HEAD_EASE_PER_DEG*abs(neck-start[0])/NECK_PER_DEG   # At least the neck's share.
             arrivals=[]
             for ch,value in aim.items():
                 travel=abs(value-start[ch])
@@ -158,6 +158,33 @@ class IdleTests(unittest.TestCase):
             if len(arrivals)>1:spreads.append((max(arrivals)-min(arrivals))/max(arrivals))
         self.assertGreaterEqual(len(spreads),10)
         self.assertLess(max(spreads),.15,spreads)
+
+    def test_talking_head_moves_vary_and_follow_one_smooth_curve(self):
+        # Owner, October 21: talking was rapid and robotic beside the eased idle head, the same
+        # three moves over and over. It stays livelier than idle but moves on the same curve.
+        from r3x.servo_poses import THROTTLE,head_pulses,minimum_jerk,talking_lanes
+        anchor={0:NECK_CENTER,1:3600,**head_pulses(0.,0.)}
+        current={**self.port.pose,**anchor,3:5900,4:6900,5:6000}
+        spreads,aims=[],set()
+        for seed in range(20):
+            head=talking_lanes(current,anchor,held=frozenset(THROTTLE),rng=random.Random(seed))[0]
+            at=dict(anchor)
+            for beat in head:
+                self.assertLess(beat.seconds,.7)                   # Lively: no move is slow.
+                arrivals=[]
+                for ch,speed,acceleration in beat.profiles:
+                    travel=abs(dict(beat.targets)[ch]-at[ch])
+                    if travel<150:continue
+                    path=self.board_ramp(travel,speed,acceleration)
+                    arrivals.append(len(path)*.01)
+                    duration=max(arrivals[-1],beat.seconds)
+                    worst=max(abs(x-travel*minimum_jerk(k*.01/duration)) for k,x in enumerate(path))
+                    self.assertLess(worst/travel,.2,(seed,ch,travel,speed,acceleration))
+                if len(arrivals)>1:spreads.append((max(arrivals)-min(arrivals))/max(arrivals))
+                at.update(beat.targets);aims.add(dict(beat.targets)[0])
+            self.assertEqual(dict(head[-1].targets)[0],NECK_CENTER)   # Each cycle ends back at the addressee.
+        self.assertGreater(len(aims),60)                              # Somewhere different each time.
+        self.assertLess(max(spreads),.2)
 
     def test_bigger_idle_head_moves_take_longer(self):
         from r3x.servo_poses import eased_head_beat,head_pulses
@@ -405,7 +432,7 @@ class IdleTests(unittest.TestCase):
         self.owner.commanded.update({0:4000,2:target[2],11:target[11]})
         face['y']=.40
         targets,_=self.idle._head(self.clock(),False)
-        self.assertLessEqual(abs(dict(targets)[0]-4000),160)    # Inside the dead zone: only a little life.
+        self.assertLessEqual(abs(dict(targets)[0]-4000),300)    # Inside the dead zone: only a little life.
         self.assertAlmostEqual(head_pose(dict(targets))[0],head_pose(target)[0],delta=.045)
         # Constant tracking was creepy in V2: within 16 seconds he looks aside, then comes back.
         looked=[]

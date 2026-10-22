@@ -9,7 +9,7 @@ between phrases. The head belongs to the gaze:
 - following people (the default): it keeps the nearest face in view with V2's
   proportional centring (gain 0.5 and a dead zone, hardware/servos.py at fb96f08), framed
   in the upper part of the picture so the camera sees the person and not only their face,
-  and breaks eye contact with a side glance every 7-16 s (V2's gaze engine). The owner
+  and breaks eye contact with a side glance every 4-10 s (V2's gaze engine). The owner
   found V2's constant tracking creepy.
 - holding a direction: after the conversation model chose where to look (look_left,
   look_down, a silent look), the head stays there with small living movement until the
@@ -56,6 +56,11 @@ FACE_LOST_SECONDS = 4.       # Keep looking where a face just was before scannin
 # about one in four comes back to straight ahead. Each move's pace is servo_poses.eased_head_beat.
 SCAN_APART_DEG = 12.
 SCAN_CENTRE_CHANCE = .25
+# Owner, the same evening on the robot: fluid, but hardly looking around. Glances away from
+# a face came every 7-16 s and went 12-24 degrees; room looks every 6-13 s.
+GLANCE_EVERY = (4., 10.)
+GLANCE_DEG = (15., 30.)
+SCAN_EVERY = (3.5, 7.)
 
 
 class IdleMotion:
@@ -166,22 +171,22 @@ class IdleMotion:
         if aim is not None:
             self._face_at = now
             if self._glance_at is None:
-                self._glance_at = now + rng.uniform(7., 16.)
+                self._glance_at = now + rng.uniform(*GLANCE_EVERY)
         if now < self._glance_until:
             return (), 0.          # Still looking away; drift there.
         if aim is not None and aim.get('at', now) > self.owner.head_moved_at + .1:
             if now >= self._glance_at and not calm:
-                # Break eye contact like V2's gaze engine: 12-24 degrees aside, level or a
+                # Break eye contact like V2's gaze engine: 15-30 degrees aside, level or a
                 # little down, never up, with a slight cock of the head, then back.
                 self._glance_until = now + rng.uniform(1.4, 2.8)
-                self._glance_at = self._glance_until + rng.uniform(7., 16.)
+                self._glance_at = self._glance_until + rng.uniform(*GLANCE_EVERY)
                 self._doing('glancing_away', now)
-                neck = aim['neck'] + rng.choice((-1, 1)) * rng.uniform(12., 24.) * NECK_PER_DEG
+                neck = aim['neck'] + rng.choice((-1, 1)) * rng.uniform(*GLANCE_DEG) * NECK_PER_DEG
                 glance_pitch = pitch_from_degrees(degrees_from_pitch(pitch) - rng.uniform(0., 5.))
                 return look(neck, current[1], glance_pitch, tilt + rng.choice((-1, 1)) * rng.uniform(.1, .25)), 0.
             self._doing('following_people', now)
             error = aim['neck'] - current[0]
-            neck = current[0] + (FACE_GAIN * error if abs(error) > NECK_DEAD_DEG * NECK_PER_DEG else rng.randint(-160, 160))
+            neck = current[0] + (FACE_GAIN * error if abs(error) > NECK_DEAD_DEG * NECK_PER_DEG else rng.randint(-300, 300))
             off = aim['y'] - FACE_Y
             if abs(off) > Y_DEAD:
                 # A face low in the frame needs the head pitched lower. The travel is
@@ -204,7 +209,7 @@ class IdleMotion:
         # where seated people are), drifting in place between looks.
         self._glance_at = None
         if now >= self._scan_at and not calm:
-            self._scan_at = now + rng.uniform(6., 13.)
+            self._scan_at = now + rng.uniform(*SCAN_EVERY)
             self.owner.gaze_pitch = None
             self._doing('looking_around_the_room', now)
             vertical = rng.uniform(-.3, 1.)           # Negative looks up, positive down.

@@ -40,7 +40,7 @@ def aim_at(face, neck_deg):
 # Jeremy asked "Why are you looking at him?" and "Are you obsessed with me?" while the head held
 # the largest face. With two or more people in view the gaze stays with one for a while, then
 # moves to whoever it looked at least recently, and goes to someone who just spoke. Looking away
-# is the idle motion's own glance (every 7-16 s), unchanged.
+# is the idle motion's own glance (every 4-10 s since October 21).
 DWELL_SECONDS = (4., 9.)     # How long the gaze stays with one person among several.
 SPOKE_SECONDS = 6.           # Someone identified as speaking this recently draws the gaze.
 SAME_PERSON_DEG = 12.        # Two faces this close in bearing are one person (track ids churn).
