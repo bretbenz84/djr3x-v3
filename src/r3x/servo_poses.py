@@ -273,6 +273,27 @@ def full_down_corridor(pose: dict[int, int]) -> bool:
             abs(pose[9] - 5589) <= 2 and abs(pose[10] - 9511) <= 2)
 
 
+def throttle_route(current, target) -> list[dict[int, int]]:
+    """Clearance-checked throttle stages from current to target (target last): direct when
+    clear, else through the waypoints that are. The lowered rest (October 21: shoulder fully
+    down, wrist folded) is reached and left through the tuck."""
+    start, target = {ch: current[ch] for ch in THROTTLE}, dict(target)
+    if throttle_clear(start, target):
+        routes = ([target],)
+    elif full_down_corridor(start):
+        routes = ([{8:RAISED,9:5589,10:9511}, {8:RAISED,9:8400,10:2048}, target],)
+    elif full_down_corridor(target):
+        routes = ([{**start,8:RAISED}, {**target,8:RAISED}, target],)
+    else:
+        routes = tuple([*map(dict, via), target] for via in ((REST,), (TUCK,), (TUCK, REST), (REST, TUCK)))
+    for stages in routes:
+        for stage in stages:
+            validate_pose(stage)
+        if all(throttle_clear(a, b) for a, b in zip([start, *stages], stages)):
+            return stages
+    raise ValueError('ThrottleRouteOutsideClearance')
+
+
 def throttle_clear(start: dict[int, int], end: dict[int, int]) -> bool:
     """Empirical clearance for independent joint progress, not Cartesian safety."""
     if full_down_corridor(start) and full_down_corridor(end):
@@ -299,6 +320,7 @@ class Beat:
     acceleration: int = 8
     dwell: float = 0.
     throttle_duration: float | None = None
+    wrist_speed: int | None = None   # A slower cap for the throttle wrist alone (talking and idle).
     wait: float = 0.        # Seconds this beat's lane rests before the targets are sent.
     reframes: bool = True   # False: a head move too small to count as a new camera view.
     seconds: float | None = None   # Travel time of an eased beat (eased_beat): its profiles arrive together.
@@ -372,15 +394,22 @@ def motion_profiles(beat: Beat, current: dict[int, int]) -> dict[int, tuple[int,
     speed = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (26,60,65))}
     accel = {ch: round(cap * pace[ch]) for ch, cap in zip(THROTTLE, (5,10,12))}
     distance = {ch: abs(target[ch] - current[ch]) for ch in THROTTLE if target[ch] != current[ch]}
+    def gentle(profiles):
+        if beat.wrist_speed:
+            # Owner, October 21: the wrist was too fast. Only it goes gentler (the shoulder and
+            # elbow keep their pace) and may arrive after them; the clearance rule allows
+            # independent joint progress.
+            profiles[10] = (min(profiles[10][0], beat.wrist_speed), min(profiles[10][1], THROTTLE_WRIST_ACCEL))
+        return profiles
     if not distance:
-        return {ch: (speed[ch], accel[ch]) for ch in THROTTLE}
+        return gentle({ch: (speed[ch], accel[ch]) for ch in THROTTLE})
     scale = max(beat.throttle_duration * 100,
                 max(distance[ch] * pace[ch] / speed[ch] for ch in distance))
     ramp = max(distance[ch] * pace[ch] / accel[ch] for ch in distance)
     result = {ch: (max(THROTTLE_MIN_SPEED, min(speed[ch], round(distance[ch] * pace[ch] / scale))),
                  max(1, min(accel[ch], round(distance[ch] * pace[ch] / ramp))))
             for ch in distance}
-    return {ch: result.get(ch, (speed[ch], accel[ch])) for ch in THROTTLE}
+    return gentle({ch: result.get(ch, (speed[ch], accel[ch])) for ch in THROTTLE})
 
 
 TALK_HEAD_SECONDS = 6.     # Head moves planned per talking cycle, so a repeat is rare.
@@ -389,8 +418,11 @@ THROTTLE_TALK = (((8, 3360), (9, 8560), (10, 7920)), ((8, 4000), (9, 7800), (10,
 # Owner, October 21: held half-raised for long, the big throttle arm looks like someone
 # straining to hold it up. Between bouts of movement it rests lower: the halfway-down and
 # tucked waypoints of the startup/park route (fully parked would block talking's route).
-THROTTLE_RELAXED = (((8, 4800), (9, 8000), (10, 3800)), TUCK)
+# Later that night: the shoulder relaxes fully (its lowest), the elbow stays partway as it was;
+# fully down the wrist must be folded (clearance), and the tuck is the way in and out.
+THROTTLE_RELAXED = (((8, 9088), (9, 8400), (10, 2048)), ((8, 9088), (9, 8000), (10, 2048)))
 THROTTLE_MIN_SPEED = 4      # No throttle joint creeps slower than this (board units).
+THROTTLE_WRIST_SPEED, THROTTLE_WRIST_ACCEL = 12, 5   # The gentler wrist while talking and idle.
 TALK_NECK_DEG = (3., 7.)    # Emphasis either side of the addressee (V2's 260 pulses barely read).
 
 
@@ -408,14 +440,14 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     start a moment after the head instead of all at once. Channel 7 (microphone) stays fixed.
     """
     rng = rng or random.Random()
-    targets = THROTTLE_TALK
-    if set(THROTTLE).intersection(held):
-        targets = ()
-    previous = current
-    for pose in targets:
-        if not throttle_clear(previous, dict(pose)):
+    targets = ()
+    if not set(THROTTLE).intersection(held):
+        try:   # From the lowered rest the arm rises through the tuck first.
+            targets = tuple(tuple(stage.items()) for stage in throttle_route(current, dict(THROTTLE_TALK[0]))[:-1]) + THROTTLE_TALK
+        except ValueError:
             raise ValueError('TalkingRouteOutsideClearance')
-        previous = dict(pose)
+        if not throttle_clear(dict(THROTTLE_TALK[0]), dict(THROTTLE_TALK[1])):
+            raise ValueError('TalkingRouteOutsideClearance')
     origin = dict(current if head_origin is None else head_origin)
     if neck is not None:
         origin[0] = max(LIMITS[0][0], min(LIMITS[0][1], int(neck)))
@@ -449,7 +481,8 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     out, back = ((4,7100),(5,7120)), ((4,6740),(5,4880))
     arm = (replace(eased_beat(dict(back), out, rng.uniform(.9, 1.2), rng.uniform(.25, .4)), wait=rng.uniform(.2, .5)),
            eased_beat(dict(out), back, rng.uniform(.9, 1.2), rng.uniform(.25, .4)))
-    throttle = tuple(Beat(p,dwell=1.,throttle_duration=1.7) for p in targets)
+    # Short pauses (were 1 s): the arm is rarely standing still when a line ends.
+    throttle = tuple(Beat(p,dwell=rng.uniform(.2, .5),throttle_duration=1.7,wrist_speed=THROTTLE_WRIST_SPEED) for p in targets)
     if throttle:
         throttle = (replace(throttle[0], wait=rng.uniform(.3, .6)), *throttle[1:])
     # Owner, October 21: the poker arm did nothing while he spoke. Its cat's-tail sway, quicker.
@@ -495,6 +528,7 @@ class IdlePhrase:
     swing: bool = False   # The hero arm's move includes its shoulder, which carries the microphone array.
     tail_settle: bool = False   # The poker arm's sway ends: it eases back to its awake pose and rests.
     throttle_rest: bool = False   # The throttle arm's bout ends: it lowers to rest (THROTTLE_RELAXED).
+    throttle_run_on: tuple[tuple[int, int, int, int], ...] = ()   # (channel, target, speed, acceleration) still under way.
     energy: float = 0.   # 1 just after speech, fading to 0: livelier, quicker arm moves (idle_motion).
 
 
@@ -817,13 +851,21 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 route = poker_lane(current, {ch: POKER_TAIL[ch][0] for ch in POKER}, speed=rng.randint(7, 15), acceleration=3)
                 lane = (Beat(((6, POKER_TAIL[6][0]), *route[0].targets), speed=12, acceleration=3), *route[1:])
         elif part == 'throttle':
+            start, lane = current, ()
+            if phrase.throttle_run_on:
+                # Just after a line: finish the talking move at its own pace, then straight on.
+                lane = (Beat(tuple((ch, value) for ch, value, _, _ in phrase.throttle_run_on),
+                             profiles=tuple((ch, speed, acceleration) for ch, _, speed, acceleration in phrase.throttle_run_on)),)
+                start = {**current, **{ch: value for ch, value, _, _ in phrase.throttle_run_on}}
             poses = THROTTLE_RELAXED if phrase.throttle_rest else THROTTLE_IDLE + THROTTLE_TALK
-            target = rng.choice([p for p in poses if any(abs(current[ch]-v) > 2 for ch, v in p)])
-            route = (() if throttle_clear(current, dict(target)) else pose_lanes('throttle_rest', current)[0])
-            previous = dict(route[-1].targets) if route else current
-            if not throttle_clear(previous, dict(target)): raise ValueError('IdleRouteOutsideClearance')
+            target = rng.choice([p for p in poses if any(abs(start[ch]-v) > 2 for ch, v in p)])
+            try:
+                stages = throttle_route(start, dict(target))
+            except ValueError:
+                raise ValueError('IdleRouteOutsideClearance')
             # Firmer than the old 2-3.2 s glide, which let the stiff joints slip (October 21).
-            lane = route + (Beat(target, throttle_duration=rng.uniform(1.3, 2.) * quicken(.3)),)
+            lane += tuple(Beat(tuple(stage.items()), throttle_duration=rng.uniform(1.3, 2.) * quicken(.3),
+                               wrist_speed=THROTTLE_WRIST_SPEED) for stage in stages)
         else:
             raise ValueError('UnknownIdlePart')
         if wait > 0:
@@ -1088,21 +1130,7 @@ def pose_lanes(name, current, further=True):
         target = dict(NAMED_POSES[name])
     lanes = ()
     if set(target).intersection(THROTTLE):
-        throttle = {ch: target.pop(ch) for ch in THROTTLE}
-        start = {ch:current[ch] for ch in THROTTLE}
-        stages = [throttle]
-        if not throttle_clear(start,throttle):
-            if full_down_corridor(start):
-                stages = [{8:RAISED,9:5589,10:9511}, {8:RAISED,9:8400,10:2048},throttle]
-            elif full_down_corridor(throttle):
-                stages = [{**start,8:RAISED},{**throttle,8:RAISED},throttle]
-            else:
-                stages = [dict(REST),throttle]
-        previous = start
-        for stage in stages:
-            validate_pose(stage)
-            if not throttle_clear(previous,stage): raise ValueError('ThrottleRouteOutsideClearance')
-            previous = stage
+        stages = throttle_route(current, {ch: target.pop(ch) for ch in THROTTLE})
         lanes += (tuple(Beat(tuple(stage.items()),throttle_duration=1.7) for stage in stages),)
     if set(POKER).issubset(target):
         lanes += (poker_lane(current, {ch: target.pop(ch) for ch in POKER}),)

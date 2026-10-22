@@ -35,6 +35,8 @@ each time, with the arm and visor starting just after the head. Synthetic checks
 After a second robot run: a line that plays out lets the arms run on and idle carries the
 liveliness of talking for about 20 s; the throttle arm moves firmly in bouts and rests lower
 between them; the poker arm sways while he speaks. Synthetic checks only.
+Then: the throttle finishes its talking move at its own pace and goes straight on, its wrist
+is gentler, and at rest the shoulder relaxes fully (through the tuck). Synthetic checks only.
 
 ## October 20 run: an introduced guest was never learned
 

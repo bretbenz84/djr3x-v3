@@ -24,7 +24,7 @@ import random
 import threading
 
 from .contracts import Cancellation, ProviderFailure
-from .servo_poses import (DRIVE_HEAD, HEAD, HEAD_SMALL, IDLE_CHANNELS, LOOK_NECK_DEG, NECK_CENTER,
+from .servo_poses import (DRIVE_HEAD, HEAD, HEAD_SMALL, IDLE_CHANNELS, LOOK_NECK_DEG, NECK_CENTER, THROTTLE,
                           NECK_PER_DEG, PITCH_SMALL, TILT_SMALL, IdlePhrase, degrees_from_pitch, head_pose,
                           head_pulses, pitch_from_degrees)
 from .servos import ServoRequest
@@ -90,6 +90,7 @@ class IdleMotion:
         self._tail_until = None    # When the poker arm's bout of swaying ends; None while it rests.
         self._throttle_left = None   # Throttle moves left in this bout; 0 lowers it to rest.
         self._spoke_at = float('-inf')   # When Rex's last line finished playing.
+        self._run_on = False       # The throttle is still finishing its talking move.
         self._rest = {}            # part -> time until which Rex's own pose is left alone
         self.gaze = 'people'
         self._anchor = None        # Head pulses of a model-chosen look.
@@ -256,9 +257,11 @@ class IdleMotion:
                 return
             now = self.owner.clock()
             self._spoke_at, self._allowed, self._resume = now, True, now
-            # The throttle first finishes the talking move it is on (it runs on for up to about 2 s).
-            for part, after in (('hero', 0.), ('poker', .1), ('visor', .3), ('throttle', 1.5)):
+            # The throttle finishes the talking move it is on, then goes straight on (October 21:
+            # waiting for it to arrive first still read as stopping the moment he stopped).
+            for part, after in (('hero', 0.), ('throttle', 0.), ('poker', .1), ('visor', .3)):
                 self._due[part] = min(self._due.get(part, now + after), now + after)
+            self._run_on = True
             if self._tail_until is None:
                 self._tail_until = now + self.rng.uniform(*TAIL_SWAY_SECONDS)
             self._throttle_left = self.rng.randint(1, 2)
@@ -276,7 +279,7 @@ class IdleMotion:
                      and not held.intersection(IDLE_CHANNELS[part]))
         if not due:
             return None
-        chosen = [part for _, part in due[:PHRASE_PARTS]]
+        chosen = [part for _, part in due[:PHRASE_PARTS + round(energy)]]   # One more just after speech.
         # The array stays put while Rex listens or works, and while a person has told him to keep his arms still.
         swing = ('hero' in chosen and now >= self._swing_at and not calm
                  and not getattr(self.owner, 'hold_until_released', False))
@@ -296,7 +299,13 @@ class IdleMotion:
             elif now >= self._tail_until:
                 settle, self._tail_until = True, None
                 self._due['poker'] = now + self.rng.uniform(*TAIL_REST_SECONDS)
-        lower = False
+        lower, run_on = False, ()
+        if 'throttle' in chosen and self._run_on:
+            sent = self.owner.profiles_sent
+            run_on = tuple((ch, self.owner.commanded[ch], *sent[ch]) for ch in THROTTLE
+                           if ch in self.owner.commanded and ch in sent)
+            run_on = run_on if len(run_on) == len(THROTTLE) else ()
+            self._run_on = False
         if 'throttle' in chosen:
             if self._throttle_left is None:
                 self._throttle_left = self.rng.randint(*THROTTLE_BOUT_MOVES)
@@ -307,7 +316,7 @@ class IdleMotion:
                 self._throttle_left -= 1
         head, dwell = self._head(now, calm) if 'head' in chosen else ((), 0.)
         return IdlePhrase(tuple(parts), tuple((ch, round(value)) for ch, value in head), dwell, swing, settle,
-                          throttle_rest=lower, energy=round(energy, 3))
+                          throttle_rest=lower, throttle_run_on=run_on, energy=round(energy, 3))
 
     # Scheduling -----------------------------------------------------------
     def _stop(self):

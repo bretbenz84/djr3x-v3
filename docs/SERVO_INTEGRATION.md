@@ -6,6 +6,28 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 21 (late night): the throttle keeps going, a gentler wrist, a fully relaxed shoulder
+
+Owner, on the robot: the throttle arm still stopped the moment he stopped speaking, its wrist was
+too fast, and at rest the shoulder should relax fully while the elbow stays partway.
+
+- *No stop:* the talking throttle paused 1 s at each pose (now 0.2-0.5 s), so a line often ended
+  with it already still, and idle gave it a new move only 1.5 s later, after the first idle phrase.
+  Now `after_speech` puts it in that first phrase (which may take four parts while energy is high):
+  it finishes the talking move at the board speed and acceleration talking left it (the servo
+  owner keeps `profiles_sent`), then goes straight on with no pause.
+- *Wrist:* during talking and idle the throttle wrist (channel 10) is capped at board speed 12 and
+  acceleration 5 (`Beat.wrist_speed`), after the move is timed, so the shoulder and elbow keep
+  their pace and the wrist may arrive after them. Talking had it at about 27.
+- *Rest:* `THROTTLE_RELAXED` is now the shoulder fully down (9088) with the elbow partway (8400 or
+  8000). Fully down, the clearance rule requires the wrist folded (2048), so these are reached and
+  left through the tuck. `throttle_route` now plans every throttle move (named poses, idle,
+  talking): direct when clear, else through rest and/or the tuck; talking from the rest rises
+  through the tuck first.
+
+Synthetic only (simulated servo board). How the run-on and the relaxed arm look, and the wrist's
+new pace, are unseen until a run on the robot.
+
 ## October 21 (night): arms run on after speech, a resting throttle, a swaying poker arm
 
 Owner, on the robot: the talking and idle head are much improved, but as a line ends the throttle

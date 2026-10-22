@@ -101,6 +101,7 @@ class ServoOwner:
         self._motion = threading.Event()
         self.motion_until = 0.
         self.coasting = frozenset()   # Channels a cancellation lets run on to their sent targets (COAST).
+        self.profiles_sent: dict[int, tuple[int, int]] = {}   # Board (speed, acceleration) last set per channel.
         self.microphone_hold = (0., 0.)
         self.on_motion = lambda: None
         self.on_camera_motion = lambda moving, request_id, kind: None
@@ -153,7 +154,7 @@ class ServoOwner:
                 targets.update({ch: readback[ch] or rest[ch] for ch in pair})
         pose = {**readback, **targets}
         validate_pose(pose)
-        self._bus.profiles({ch: (10, 2) for ch in self.energized_channels})
+        self._profiles({ch: (10, 2) for ch in self.energized_channels})
         self._bus.targets(targets)
         # The board applies new targets on its next 20 ms servo period; until then
         # a just-energized channel still reads 0.
@@ -245,7 +246,7 @@ class ServoOwner:
                 return   # Recentre once the other joints have settled.
             self._motion.set()
             self.on_motion()
-            self._bus.profiles({7:(22,6)})
+            self._profiles({7:(22,6)})
             self._bus.targets({7:center})
             self.commanded[7] = center
             self.microphone_moved_until = self.clock() + 5.5
@@ -383,7 +384,7 @@ class ServoOwner:
                         changes = {ch for ch,value in targets.items() if abs(observed[ch]-value)>2}
                         if beat.throttle_duration and not throttle_clear(observed, targets):
                             raise ProviderFailure('ThrottleRouteChanged')
-                        self._bus.profiles(motion_profiles(beat, observed))
+                        self._profiles(motion_profiles(beat, observed))
                         cancel.check()
                         if self._cancel.is_set():
                             raise Cancelled()
@@ -567,7 +568,7 @@ class ServoOwner:
                         validate_pose(observed)
                         if beat.throttle_duration and not throttle_clear(observed, targets):
                             raise ProviderFailure('ThrottleRouteChanged')
-                        self._bus.profiles(motion_profiles(beat, observed))
+                        self._profiles(motion_profiles(beat, observed))
                         self._bus.targets(targets)
                         changed.update(ch for ch, value in targets.items() if abs(observed[ch]-value) > 2)
                         self.commanded.update(targets)
@@ -615,6 +616,10 @@ class ServoOwner:
             self.motion_until = max(self.motion_until, self.clock() + .5)
             self._arm_returning = False
             self._returning_channels = frozenset()
+
+    def _profiles(self, profiles: dict[int, tuple[int, int]]) -> None:
+        self._bus.profiles(profiles)
+        self.profiles_sent.update(profiles)
 
     def _hold(self, channels: set[int]) -> None:
         if channels and self._bus:

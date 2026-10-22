@@ -7,7 +7,7 @@ from r3x.contracts import Cancellation
 from r3x.idle_motion import IdleMotion
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 from r3x.robot_servos import RobotServos
-from r3x.servo_poses import HEAD_SMALL, LIMITS, NECK_CENTER, NECK_PER_DEG, IdlePhrase
+from r3x.servo_poses import HEAD_SMALL, LIMITS, NECK_CENTER, NECK_PER_DEG, IdlePhrase, idle_lanes
 from tests.test_servos import PulsePort,Clock
 
 
@@ -225,6 +225,44 @@ class IdleTests(unittest.TestCase):
         self.assertGreater(lowered,.3)                         # Much of the time it rests lower...
         self.assertLess(lowered,.9)                            # ...between bouts of movement.
         self.assertTrue(speeds);self.assertGreaterEqual(min(speeds),THROTTLE_MIN_SPEED)   # Never a creep.
+
+    def test_after_a_line_the_throttle_finishes_its_move_and_goes_straight_on(self):
+        # Owner, October 21 (later): the throttle still stopped the moment he stopped speaking.
+        from r3x.servo_poses import THROTTLE,THROTTLE_TALK
+        self.execute('startup');self.clock.wait(.6)
+        self.owner._profiles({8:(30,7),9:(50,12),10:(12,5)})      # As talking left them...
+        self.owner.commanded.update(dict(THROTTLE_TALK[0]))          # ...on the way to a talking pose.
+        for part in self.idle._due:self.idle._due[part]=self.clock()+60.
+        self.idle.after_speech()
+        phrase=self.idle._compose(self.clock(),False)
+        self.assertIn('throttle',[part for part,_ in phrase.parts])   # In the very first phrase.
+        self.assertEqual({(ch,t) for ch,t,_,_ in phrase.throttle_run_on},set(THROTTLE_TALK[0]))
+        self.assertEqual({ch:(s,a) for ch,_,s,a in phrase.throttle_run_on},{8:(30,7),9:(50,12),10:(12,5)})
+        lane=next(lane for lane in idle_lanes({**self.port.pose,**dict(THROTTLE_TALK[0])},random.Random(2),phrase=phrase)
+                  if set(dict(lane[0].targets))==set(THROTTLE))
+        self.assertEqual(lane[0].profiles,((8,30,7),(9,50,12),(10,12,5)))   # Same pace: no change mid-move.
+        self.assertGreater(len(lane),1)                                    # Then straight on to a new pose.
+        self.assertEqual(lane[1].dwell,0.)
+
+    def test_the_throttle_rests_with_the_shoulder_fully_down_and_gets_out_again(self):
+        # Owner, October 21 (later): when it rests, the shoulder relaxes fully; the elbow stays partway.
+        from r3x.servo_poses import (LIMITS,THROTTLE,THROTTLE_RELAXED,THROTTLE_WRIST_SPEED,TUCK,motion_profiles,
+                                     pose_lanes,talking_lanes,throttle_clear)
+        for relaxed in THROTTLE_RELAXED:
+            relaxed=dict(relaxed)
+            self.assertEqual(relaxed[8],LIMITS[8][1])
+            self.assertIn(relaxed[9],(8000,8400))
+            start={**self.port.pose,**relaxed,0:NECK_CENTER}
+            for name in ('throttle_rest','throttle_offer','throttle_high_five','release_poses'):
+                stages=[dict(b.targets) for b in pose_lanes(name,start)[0]]
+                self.assertEqual(stages[0],dict(TUCK))                   # Up through the tuck first.
+            talk=[l for l in talking_lanes(start,start,rng=random.Random(1)) if set(dict(l[0].targets))==set(THROTTLE)][0]
+            self.assertEqual(dict(talk[0].targets),dict(TUCK))
+            path=[relaxed]+[dict(b.targets) for b in talk]
+            self.assertTrue(all(throttle_clear(a,b) for a,b in zip(path,path[1:])))
+            for beat in talk:                                            # The wrist goes gently...
+                profile=motion_profiles(beat,{**start,**dict(TUCK)})
+                self.assertLessEqual(profile[10][0],THROTTLE_WRIST_SPEED)
 
     def test_bigger_idle_head_moves_take_longer(self):
         from r3x.servo_poses import eased_head_beat,head_pulses
