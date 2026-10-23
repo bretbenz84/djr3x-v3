@@ -1179,13 +1179,20 @@ class Session:
             # Rex's own beats are checked for repeats before speaking, so they never stream.
             stream_tool_text = bool(not opportunity and self.state is not None and not self.state.initiative.silent
                                     and context.get('photo_inspection', {}).get('intent') != 'teach')
+            messages, shown = self.history_messages(), context
             if sentry_reply:
-                # The guard's lines see the intruder (sentry mode): one fresh picture, nothing else visual.
+                # The guard's lines see the intruder (sentry mode): one picture of them, nothing else visual.
                 scene_images = tuple(sentry_reply.get('images') or ())
                 context.pop('scene_description', None)
-            snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
+                if sentry_reply.get('messages'):
+                    # And only their own brief and this intrusion's exchange: October 22, given ordinary Rex's
+                    # history and context, the alarm roasted the telescope instead of the intruder.
+                    messages = tuple(sentry_reply['messages'])
+                    shown = {'sentry': context['sentry'], 'trigger': context.get('trigger'),
+                             'state_revision': context.get('state_revision')}
+            snapshot = Snapshot(self.session_id, turn_id, self.revision, messages,
                                 context.get("speaker",{}).get("person_id") or "unresolved",
-                                context, self.state is not None, images=scene_images,
+                                shown, self.state is not None, images=scene_images,
                                 stream_tool_text=stream_tool_text)
             phrases = Queue(maxsize=4)
             worker = threading.Thread(target=self.output.run, args=(phrases, cancel, turn_id, delivery),

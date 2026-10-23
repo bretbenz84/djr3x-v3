@@ -21,6 +21,24 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Sentry mode's alarm talk spoke as ordinary Rex — October 22 run a45983c1
+
+Owner: "It in practice works exactly as designed. The problem is when he's triggered. He started
+commenting on the telescope in the room." The alarm lines were sent with ordinary Rex's whole request:
+36 messages of earlier conversation, saved memories, room and photo memory, joke material, and a
+picture of the whole room. A voice-only trip (a device saying "you don't have enough credits") got
+"A telescope in the room and not a face in sight" and a jab at a closet. In the second test Bret was
+recognized 0.6 s before the roast, but the guard checked faces only after speaking: "Oh, Brett—it's
+you. Stand-down; I was about to accuse that telescope…" in alarm. The phone alert waited behind the
+first line (22 s).
+- Guard lines are written from a guard-duty brief and this intrusion's own exchange only, with the
+  sentry facts as their whole context. The picture is cropped to the stranger (none when nobody is in
+  view: he calls out to the hidden voice instead).
+- A known face in view is checked before the cry and before every line: he stands down instead.
+- The alert has its own 10 s timer.
+Checks: 37 sentry checks (3 new) and the full suite pass. Paid probe: three voice-only alarm lines
+with a telescope conversation in history, all on guard duty. **The repair is not yet run on the robot.**
+
 ## Sentry mode — October 22
 
 Owner request: "activate sentry mode", read by the reply model ("until 7pm", "for 1 hour", "with no

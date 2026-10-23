@@ -118,12 +118,17 @@ def line(key, folder, kind):
         else:
             rig.state.sentry.begin(rules.SentryPlan(30, None, True, time.time()))
             rig.state.sentry.arm(rig.trace.clock())
-            rig.state.sentry.trip('face', rig.trace.clock(), 'probe')
-            note, context = rules.ALARM_NOTE + rules.NO_PICTURE, None   # As the guard sends it without a picture.
+            event = rig.state.sentry.trip('speech', rig.trace.clock(), 'probe')
+            # Ordinary Rex's history is still there, as on the robot: the guard's line must not use it.
+            turn(rig, 'Look at my new telescope, Rex. I just set it up by the window.')
+            event.exchange += [('intruder', 'Hello? Is anybody home right now?'), ('rex', rules.ALERT)]
+            messages = rules.alarm_messages('sentry_alarm', event, False)   # As sent without a picture.
+            note, context = messages[0]['content'], None
         event = Opportunity(uuid4().hex, rig.session.session_id, rig.trace.clock(), None, person, (),
                             rig.session._latest_speech, False, kind)
-        rig.session.sentry = SimpleNamespace(active=kind != 'sentry_stand_down', reply_context=lambda opportunity: {
-            'context': context or rig.state.sentry.context(rig.trace.clock()), 'note': note, 'images': ()})
+        reply = {'context': context or rig.state.sentry.context(rig.trace.clock(), intruder_in_view=False),
+                 'note': note, 'images': (), **({} if context else {'messages': messages})}
+        rig.session.sentry = SimpleNamespace(active=kind != 'sentry_stand_down', reply_context=lambda opportunity: reply)
         result = rig.session.process_opportunity(event, rig.session.revision, lambda: True)
         tools = [r.get('name') for r in rig.rows if r['event'] == 'tool_proposed']
         return {'kind': kind, 'spoken': ' '.join(result.completed_text), 'status': result.status, 'tools': tools}

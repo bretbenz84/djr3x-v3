@@ -56,7 +56,9 @@ class SentryGuard:
         self.arm_out = False
         self._names = (float('-inf'), {})
         self._looked = float('-inf')
-        self._push = None             # {'event_id', 'due', 'sent', ...}
+        self._push = None             # {'event_id', 'sent', ...}: the alert for the current intrusion.
+        self.push_delay = rules.PUSH_DELAY_SECONDS
+        self.crop = None              # (frame, box) -> image; objects.crop_image unless replaced.
         self._expired_at = None
         session.sentry = self
 
@@ -135,7 +137,8 @@ class SentryGuard:
                 self.recorder.stop(details)
             else:
                 threading.Thread(target=self.recorder.stop, args=(details,), name='r3x-sentry-video', daemon=True).start()
-        push, self._push = self._push, None
+        with self.lock:
+            push, self._push = self._push, None
         if push and push.get('sent') and person_id and self.push is not None:
             name = self.known(person_id) or 'someone he knows'
             self._send_push('Sentry mode stood down', f'{name} is here; Rex stood down.', None, priority='default',
@@ -316,10 +319,9 @@ class SentryGuard:
                 return
             if self._expired_at is None:
                 self._expired_at = now   # Mid-alarm: the recording finishes first.
-        if self.pending:
-            self._speak(self.pending.popleft())
-            return
-        if now - self._looked >= LOOK_EVERY and self.camera is not None:
+        # The camera first: someone he knows standing there stands him down before any alarm line is said
+        # (October 22: recognized 0.6 s before the roast, he shouted "Oh, Brett—it's you. Stand-down" in alarm).
+        if (now - self._looked >= LOOK_EVERY or self.pending) and self.camera is not None:
             self._looked = now
             rows = self.camera.latest(now)
             neck = self.neck_settled(rows)
@@ -330,6 +332,9 @@ class SentryGuard:
                 self._act(decision, now)
                 if not self.state.active:
                     return
+        if self.pending:
+            self._speak(self.pending.popleft())
+            return
         with self.session._lock:
             quiet = self.state.quiet_down(now)
             jab = self.state.jab_due(now)
@@ -339,7 +344,6 @@ class SentryGuard:
             self.trace.emit('sentry', status='watching', event_id=self.state.event.event_id)
         elif jab:
             self.pending.append(('sentry_jab', self.state.event.event_id))
-        self._alert_due(now)
 
     def _act(self, decision, now):
         kind = decision.kind
@@ -371,9 +375,6 @@ class SentryGuard:
                 threading.Thread(target=self.recorder.finish, args=({'ended': 'intruders_left',
                                  'heard': list(event.heard)},), name='r3x-sentry-video', daemon=True).start()
             self.trace.emit('sentry', status='all_clear', event_id=event.event_id)
-            # A tripped alert never sent (nobody stayed long enough to be photographed) still goes.
-            if self._push and not self._push.get('sent') and self._push['event_id'] == event.event_id:
-                self._push['due'] = now
 
     def _trip(self, reason, bearing, heard=None):
         now = self.clock()
@@ -381,6 +382,7 @@ class SentryGuard:
             event = self.state.trip(reason, now, uuid4().hex)
             if heard:
                 event.heard.append(heard.strip()[:300])
+                event.exchange.append(('intruder', heard.strip()[:300]))
                 event.last_heard = now
         self.trace.emit('sentry', status='tripped', event_id=event.event_id, reason=reason, bearing_deg=bearing,
                         audio_alerts=self.state.plan.audio_alerts)
@@ -390,8 +392,12 @@ class SentryGuard:
         self._body_wake.set()
         if self.output.leds is not None:
             self.output.leds.flash(FLASH_SECONDS)
-        self._push = {'event_id': event.event_id, 'due': now + rules.PUSH_DELAY_SECONDS, 'sent': False,
-                      'reason': reason, 'wall': event.wall_at}
+        with self.lock:
+            self._push = {'event_id': event.event_id, 'sent': False, 'reason': reason, 'wall': event.wall_at}
+        # Its own timer: the alert goes 10 s after the trip even while he talks (October 22: 22 s, behind a line).
+        timer = threading.Timer(self.push_delay, self._alert, args=(event.event_id,))
+        timer.daemon = True
+        timer.start()
         if self.state.plan.audio_alerts:
             self.pending.append(('sentry_alarm', event.event_id))
 
@@ -431,15 +437,20 @@ class SentryGuard:
             if event is None or event.event_id != event_id or self.state.phase != 'alarm':
                 return
             if kind == 'sentry_alarm':
+                if self._known_now():
+                    return
                 self._say([self._clip(rules.ALERT, Cancellation())], Cancellation(), event_id + ':alert')
-            note, person = (rules.ALARM_NOTE if kind == 'sentry_alarm' else rules.JAB_NOTE), None
+                event.exchange.append(('rex', rules.ALERT))
+            if self._known_now():   # Recognized while the cry played: no alarm line for them.
+                return
+            note, person = None, None
             valid = lambda: (self.state.phase == 'alarm' and self.state.event is not None and
                              self.state.event.event_id == event_id and not self.session.closed)
         self.notes[opportunity_id] = note
         faces = tuple(self.camera.latest(self.clock())) if self.camera is not None else ()
         opportunity = Opportunity(opportunity_id, self.session.session_id, self.clock(), None, person, faces,
                                   self.session._latest_speech, False, kind,
-                                  scene_images=() if kind == 'sentry_stand_down' else self._view())
+                                  scene_images=() if kind == 'sentry_stand_down' else self._intruder_picture())
         delivery = None
         try:
             delivery = self.session.process_opportunity(opportunity, self.session.revision, valid)
@@ -457,35 +468,64 @@ class SentryGuard:
         event = self.state.event
         if event is not None:
             event.last_said = self.clock()
+            if delivery is not None and delivery.completed_text:
+                event.exchange.append(('rex', ' '.join(delivery.completed_text)))
 
-    def _view(self):
-        """A sharp picture of whoever is in front of him for the roast, or nothing."""
+    def _known_now(self):
+        """Someone he knows is in view right now: stand down (True) instead of raising the alarm at them."""
+        if self.camera is None:
+            return False
+        now = self.clock()
+        with self.session._lock:
+            person = self.state.known_in_view(self.camera.latest(now), now, self.known)
+        if person:
+            self._stand_down(person, 'face')
+        return bool(person)
+
+    def _intruder_picture(self):
+        """A picture of the intruder alone, cropped from his eyes' latest view around the biggest face he
+        does not recognize (head and shoulders down to the waist), or nothing when nobody is in view.
+        October 22: given the whole room, the roast was about the telescope."""
         if self.camera is None:
             return ()
+        now = self.clock()
+        from .sentry import face_ok
+        strangers = [r for r in self.camera.latest(now) if face_ok(r, now) and not r.get('identity')]
+        frame = getattr(getattr(self.camera, 'hub', None), 'peek', lambda: None)()
+        if not strangers or frame is None or not -.5 <= now - frame.at <= 1.5:   # Taken just now, or a moment ago.
+            return ()
+        x, y, w, h = max(strangers, key=lambda r: r['box'][2] * r['box'][3])['box']
+        x0, y0 = max(0., x - 1.5 * w), max(0., y - .6 * h)
+        x1, y1 = min(1., x + 2.5 * w), min(1., y + 5. * h)
         try:
-            from .looking import fresh_look
-            image = fresh_look(self.camera, self.clock() - .5, timeout=1.5, steady=.3)
-            return (image,) if image is not None else ()
+            if self.crop is None:
+                from .objects import crop_image as crop
+            else:
+                crop = self.crop
+            return (crop(frame, [x0, y0, x1 - x0, y1 - y0]),)
         except Exception as exc:
             self.trace.emit('sentry', status='look_failed', error_type=type(exc).__name__)
             return ()
 
     def reply_context(self, opportunity):
-        """What the conversation model is told when it speaks for the guard: {'context', 'note',
-        'images'}, or None for ordinary conversation."""
+        """What the conversation model is given when it speaks for the guard, or None for ordinary
+        conversation: {'context', 'note', 'images', 'messages'}. The guard's lines see only their brief,
+        this intrusion's exchange and the intruder (messages replaces the conversation history)."""
         kind = opportunity.kind if opportunity is not None else None
-        if kind in rules.SENTRY_KINDS:
-            note = self.notes.get(opportunity.event_id)
-            if kind == 'sentry_stand_down':
-                return {'context': {'phase': 'off', 'stood_down': True}, 'note': note, 'images': ()}
-            images = tuple(opportunity.scene_images)
-            return {'context': self.state.context(self.clock()), 'note': (note or '') + ('' if images else rules.NO_PICTURE),
-                    'images': images}
-        if opportunity is None and self.state.phase == 'alarm':
-            images = self._view()
-            return {'context': self.state.context(self.clock()),
-                    'note': rules.ANSWER_NOTE + ('' if images else rules.NO_PICTURE), 'images': images}
-        return None
+        if kind == 'sentry_stand_down':
+            # Back to himself: ordinary context, plus what just happened.
+            return {'context': {'phase': 'off', 'stood_down': True}, 'note': self.notes.get(opportunity.event_id),
+                    'images': ()}
+        event = self.state.event
+        if kind in rules.SENTRY_KINDS and event is not None:
+            images, line = tuple(opportunity.scene_images), kind
+        elif opportunity is None and self.state.phase == 'alarm' and event is not None:
+            images, line = self._intruder_picture(), 'answer'
+        else:
+            return None
+        messages = rules.alarm_messages(line, event, bool(images))
+        return {'context': self.state.context(self.clock(), intruder_in_view=bool(images)),
+                'note': messages[0]['content'], 'images': images, 'messages': messages}
 
     # Hearing -------------------------------------------------------------------------
     def hear(self, capture, transcript, perceived):
@@ -543,12 +583,14 @@ class SentryGuard:
         return False   # 'answer': the intruder gets an answer from the conversation owner.
 
     # Phone alert ---------------------------------------------------------------------
-    def _alert_due(self, now):
-        push = self._push
-        if not push or push['sent'] or now < push['due']:
-            return
-        event = self.state.event if self.state.event and self.state.event.event_id == push['event_id'] else None
-        push['sent'] = True
+    def _alert(self, event_id):
+        """The alert for this intrusion, from its timer, unless someone he knows stood him down first."""
+        with self.lock:
+            push = self._push
+            if not push or push['sent'] or push['event_id'] != event_id:
+                return
+            push['sent'] = True
+        event = self.state.event if self.state.event and self.state.event.event_id == event_id else None
         photo = self.recorder.photo() if self.recorder is not None else None
         if photo and self.recorder is not None:
             self.recorder.save_photo(photo)

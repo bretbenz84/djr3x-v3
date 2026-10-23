@@ -410,6 +410,7 @@ class GuardTests(MemoryFixture):
         self.guard = SentryGuard(self.session, self.output, self.trace, camera=self.camera,
                                  canned=lambda text, cancel: b'\0\0' * 32, recorder=self.recorder, push=self.push,
                                  shutdown=self.shutdowns.append)
+        self.guard.push_delay = .05   # The alert's own timer, in real time.
         self.addCleanup(self.guard.close)
 
     def on_guard(self, audio=True, ends_at=None, requester=None):
@@ -469,17 +470,19 @@ class GuardTests(MemoryFixture):
         self.assertEqual(self.brain.calls, 1)
         self.assertIn(rules.ALERT, self.spoken())
         snapshot = self.brain.snapshots[-1]
-        self.assertEqual(snapshot.context['sentry']['intrusion'], 'face')
+        self.assertEqual(snapshot.context['sentry']['noticed_by'], 'their face')
         self.assertEqual(grounded_tools(snapshot.context), [])
-        self.assertTrue(any('SENTRY MODE ALARM' in str(m.get('content')) for m in snapshot.messages))
-        self.watch([face(0.)], 10.)
-        self.assertTrue(self.push.event.wait(2))
+        self.assertTrue(snapshot.messages[0]['content'].startswith('SENTRY MODE.'))
+        self.assertEqual(snapshot.messages[1:], ({'role': 'assistant', 'content': rules.ALERT},))
+        self.assertTrue(self.push.event.wait(2))   # Its own timer: not held up by the line.
         title, message, photo, _ = self.push.sent[0]
         self.assertEqual((title, photo), ('Rex: sentry mode triggered', b'jpeg'))
         self.assertIn('does not recognize is in view', message)
         self.assertIn('photo', self.recorder.calls)
-        self.watch([face(0.)], 30.)          # Nobody answers: one more jab, about every 30 s.
+        self.watch([face(0.)], 40.)          # Nobody answers: one more jab, about every 30 s.
         self.assertEqual(self.brain.calls, 2)
+        jab = self.brain.snapshots[-1].messages   # It sees its own earlier lines, so it does not repeat them.
+        self.assertEqual([m['role'] for m in jab], ['developer', 'assistant', 'assistant'])
         self.watch([face(0.)], 90.)          # Two minutes of talk, then silent watching.
         self.assertEqual(self.state.sentry.phase, 'watching')
         calls = self.brain.calls
@@ -490,6 +493,7 @@ class GuardTests(MemoryFixture):
 
     def test_a_known_face_stands_him_down_and_a_false_alarm_sends_no_alert(self):
         bret = self.introduce('Bret')
+        self.guard.push_delay = 10.
         self.on_guard()
         self.watch([face(0.)], 6.5)          # Too far to recognize: the alarm goes off...
         self.watch([face(0., identity=bret, width=120)], 1.)   # ...then he sees who it is.
@@ -522,12 +526,57 @@ class GuardTests(MemoryFixture):
                                         SimpleNamespace(voice=observation(A))))
         self.assertEqual((self.state.sentry.phase, self.shutdowns, self.brain.calls), ('off', ['voice'], 0))
 
-    def test_without_a_fresh_picture_the_roast_does_not_describe_them(self):
+    def test_without_a_picture_the_roast_does_not_describe_them(self):
         self.on_guard()
-        self.watch([face(0.)], 7.)           # FakeCamera has no frames for a sharp look.
-        notes = [str(m.get('content')) for m in self.brain.snapshots[-1].messages if m.get('role') == 'developer']
-        self.assertTrue(any(rules.NO_PICTURE.strip() in n for n in notes))
+        self.watch([face(0.)], 7.)           # FakeCamera has no frames to crop.
+        self.assertIn(rules.UNSEEN, self.brain.snapshots[-1].messages[0]['content'])
         self.assertEqual(self.brain.snapshots[-1].images, ())
+
+    def test_the_guard_speaks_as_a_guard_not_from_the_earlier_conversation(self):
+        # October 22 live run: given ordinary Rex's history and context, the alarm roasted the telescope.
+        self.session.history.append({'role': 'user', 'content': 'Check out my new telescope.'})
+        self.on_guard()
+        self.assertTrue(self.guard.hear(self.capture(), Transcript('Is anybody home right now?', -.01, True), None))
+        self.watch([], .5)
+        snapshot = self.brain.snapshots[-1]
+        self.assertEqual(set(snapshot.context), {'sentry', 'trigger', 'state_revision'})
+        self.assertNotIn('telescope', ' '.join(str(m.get('content')) for m in snapshot.messages[1:]))
+        self.assertEqual(snapshot.messages[1:], ({'role': 'user', 'content': 'Is anybody home right now?'},
+                                                 {'role': 'assistant', 'content': rules.ALERT}))
+        self.assertIn(rules.UNSEEN, snapshot.messages[0]['content'])   # Heard, not seen.
+        # The intruder answers: the reply sees the whole exchange and their words last.
+        self.assertFalse(self.guard.hear(self.capture(), Transcript('I am just here for the snacks, robot.', -.01, True), None))
+        self.session.process_turn(self.capture(), Transcript('I am just here for the snacks, robot.', -.01, True), 0, observation(B))
+        answer = self.brain.snapshots[-1]
+        self.assertEqual(answer.messages[-1], {'role': 'user', 'content': 'I am just here for the snacks, robot.'})
+        self.assertEqual([m['role'] for m in answer.messages], ['developer', 'user', 'assistant', 'assistant', 'user'])
+        self.assertEqual(grounded_tools(answer.context), [])
+
+    def test_recognized_before_the_roast_he_stands_down_instead(self):
+        # October 22 live run: recognized 0.6 s before the roast, he said "Oh, Brett—it's you. Stand-down" in alarm.
+        bret = self.introduce('Bret')
+        self.on_guard()
+        self.assertTrue(self.guard.hear(self.capture(), Transcript('Hey, Rex. How are you doing?', -.01, True), None))
+        self.camera.rows = [face(self.trace.at, identity=bret)]
+        self.guard.tick(self.trace.at)
+        self.assertEqual(self.state.sentry.phase, 'off')
+        self.assertNotIn(rules.ALERT, self.spoken())
+        self.assertIn('SENTRY MODE IS OVER', str(self.brain.snapshots[-1].messages))
+
+    def test_the_picture_is_cropped_to_the_stranger(self):
+        from r3x.vision import Frame
+        crops = []
+        self.camera.hub = SimpleNamespace(peek=lambda: Frame('f', 'cam', 's', time.monotonic(), 4, 4, bytes(48)))
+        self.guard.crop = lambda frame, box: crops.append(box) or SimpleNamespace(data_url='data:image/png;base64,AA',
+                                                                                  frame_id='f', at=frame.at, detail='low')
+        self.guard.clock = time.monotonic
+        self.camera.rows = [face(time.monotonic(), x=.45)]
+        self.assertEqual(len(self.guard._intruder_picture()), 1)
+        x, y, w, h = crops[0]
+        self.assertAlmostEqual(x, .3)
+        self.assertAlmostEqual(w, .4)   # Head and shoulders, not the room.
+        self.camera.rows = []
+        self.assertEqual(self.guard._intruder_picture(), ())
 
     def test_silent_mode_records_and_alerts_without_a_word(self):
         self.on_guard(audio=False)

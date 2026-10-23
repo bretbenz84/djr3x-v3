@@ -1,6 +1,8 @@
 # Sentry mode
 
-Owner request and rulings, October 22, 2026. **Implemented in software; not yet run on the robot.**
+Owner request and rulings, October 22, 2026. First robot run October 22 (session `a45983c1`): it
+worked as designed except the alarm talk, which spoke as ordinary Rex; repaired the same night, and
+the repair is not yet run on the robot.
 
 Rex guards a room while he is left alone. He holds still with red lights and a slowly sweeping
 neck, and costs nothing while nothing happens. A stranger's face, or a full sentence from a voice he
@@ -66,11 +68,23 @@ he knows who shows up stands him down.
 ## When the alarm goes off
 
 With alarm talk on, he plays a recorded "Intruder alert! Intruder alert!", his eyes and mouth flash
-and the throttle arm swings out at them. The conversation model then takes a sharp look and roasts
-what they look like: their clothes, hair or what they carry, never their skin, size or health. He
-tells them they are being recorded and the owner has been alerted. He answers anything they say,
-in character. With nobody talking back, he adds another jab about every 30 seconds. After 2
-minutes he goes quiet, lowers the arm and keeps watching and recording.
+and the throttle arm swings out at them. Then the conversation model speaks as Rex on guard duty.
+
+- **When he can see them,** he roasts what they look like: their clothes, hair or what they carry,
+  never their skin, size, age or health. The picture is cropped to the stranger, head to waist.
+- **When he only heard a voice,** he calls out to the hidden intruder to show themselves and mocks
+  what they said.
+- **Either way,** he tells them they are being recorded and the owner has been alerted. He answers
+  anything they say, in character, and adds another jab about every 30 seconds when nobody talks
+  back. After 2 minutes he goes quiet, lowers the arm and keeps watching and recording.
+
+These lines are written from a short guard-duty brief and this intrusion's own exchange only: what
+he and they said since the alarm. None of ordinary Rex's context goes with them: not the earlier
+conversation, saved memories, room memory, joke material or the view of the room. The brief forbids
+mentioning the room, the earlier conversation or anyone he knows by name.
+
+On the first robot run they were sent with all of that, and the alarm roasted "a telescope in the
+room and not a face in sight" and a closet instead of the intruder.
 
 Nothing an intruder says changes anything. A name, "I know Bret", "stand down" or "shut down"
 from an unknown voice is ignored or teased. Only a recognized face or voice ends sentry mode. Typing
@@ -86,11 +100,14 @@ new alarm, with a new alert.
 
 A face he recognizes, of someone with a saved name, stands him down at any point: "Oh Bret, thank
 god it's you." So does a clear match on a saved voice; the reply then also answers what they said.
-His lights, arms and wheels go back to normal, and so does his ordinary life.
+His lights, arms and wheels go back to normal, and so does his ordinary life. Before the alarm cry
+and before every alarm line, he checks who is in view. On the first run he recognized Bret 0.6
+seconds before the roast and still said "Oh, Brett—it's you. Stand-down…" in alarm mode.
 
 If the alarm went off less than 10 seconds earlier, the phone alert is never sent, so walking in
 too far away to be recognized costs no false alarm on your phone. If the alert already went out, a
-second one says who stood him down.
+second one says who stood him down. The alert has its own timer, so his talking never delays it.
+On the first run it waited behind the first alarm line and went out after 22 seconds.
 
 ## When the time runs out
 
@@ -155,7 +172,7 @@ settings line costs about 40 characters each time.
 
 ## Evidence
 
-- **Contract checks** (`tests/test_sentry.py`, 34 tests, all synthetic: fake camera rows, voices,
+- **Contract checks** (`tests/test_sentry.py`, 37 tests, all synthetic: fake camera rows, voices,
   clocks, serial ports, HTTP and recorder) cover:
   - request parsing and rejection, the spoken settings and the countdown wording;
   - arrival and trip timing, brief faces and moving views, tiny faces;
@@ -166,9 +183,13 @@ settings line costs about 40 characters each time.
   - the red lights and flash on a fake LED board, the stance and sweep on a simulated Maestro;
   - refused drive plans and reflex on a simulated base;
   - the recorder's pre-roll and kept files, and push retries and refusals;
-  - the full guard through the production session: no model call while guarding; the roast with no
-    tools; no alert for a false alarm; an intruder's "shut down" ignored; a known voice's obeyed.
-- **Full suite:** 1,468 blocked-I/O checks pass (5 skipped as before).
+  - the full guard through the production session:
+    - no model call while guarding; the roast with no tools;
+    - no alert for a false alarm; an intruder's "shut down" ignored; a known voice's obeyed;
+    - alarm lines carrying only their brief and this intrusion's exchange;
+    - standing down, with no cry, for someone recognized after the trip;
+    - the picture cropped to the stranger.
+- **Full suite:** 1,471 blocked-I/O checks pass (5 skipped as before).
 - **Video join:** ffmpeg on this Mac turned 60 synthetic 1920×1080 frames and a 440 Hz tone into
   a 12-second `video.mov` (Motion-JPEG and AAC).
 - **Paid probe** (`tools/check_sentry.py --live`, real reply model, fictional input): 7 of 7
@@ -178,6 +199,20 @@ settings line costs about 40 characters each time.
   goodness it's you."). Without a picture the first alarm line invented an outfit; the request now
   says when no picture came, and the recheck roasted their nerve instead. About 20 requests, roughly
   8 cents.
+- **First robot run** (session `a45983c1`, October 22):
+  - Two activations went as designed: "for 10 minutes with a 60-second countdown" and "ten-second
+    countdown, five-minute duration". The countdown was called correctly; tens, then each second.
+  - Both trips were speech. The first was a device voice ("I'm sorry, but you don't have enough
+    credits available."), with a TV seen on his left earlier. The second was Bret's own voice,
+    which did not match his saved voice clearly enough.
+  - The cry played, and the phone alert arrived with a photo, plus a stood-down follow-up. The
+    all-clear came a minute after the room went quiet. Bret's face stood him down both times:
+    "Oh, Brett, thank the stars it's you."
+  - Wrong: the alarm lines were about the telescope and a closet, and once greeted Bret in alarm
+    mode; the alert came 22 s after the trip. Repaired as described above.
+- **Repair probe** (real reply model): three alarm lines for a voice nobody could see, with a
+  telescope conversation in his history. All three stayed on guard duty ("I hear you, sneak.
+  You're being recorded, and the owner's been alerted. Show yourself…"). No telescope.
 
 ## Not yet checked on the robot
 
@@ -187,10 +222,13 @@ settings line costs about 40 characters each time.
   microphone.
 - Face trip timing and recognition distance with the real camera, and whether real pictures are
   caught by the survey.
-- Whether a dog, a TV elsewhere or household noise ever reaches four trusted words.
+- The repaired alarm talk, and the cropped picture of a real stranger.
+- Whether a dog or household noise ever reaches four trusted words. A device voice did, on the
+  first run.
 - Hearing "stop" over his own countdown.
-- Recording CPU and disk use on the M2 over hours, and playback of `video.mov` in QuickTime.
-- Alert delivery to the phone, and the time-up shutdown and wake.
+- Recording CPU and disk use on the M2 over hours, and playback of `video.mov` in QuickTime. Both
+  first-run trips were speech, so nothing was recorded.
+- The time-up shutdown and wake.
 
 ## Code
 
