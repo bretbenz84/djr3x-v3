@@ -130,6 +130,8 @@ class Session:
         self.session_id, self.brain, self.output, self.trace = session_id, brain, output, trace
         self.agency_planner = None
         self.on_shutdown = None   # The runtime's exit, for a shut_down the conversation owner chose.
+        self.sentry = None        # sentry_guard.SentryGuard, when sentry mode can run (camera present).
+        self.on_sentry = None     # Starts the guard after a sentry_mode request was accepted.
         self.revision = 0
         self.history = TurnHistory()
         self._lock = threading.RLock()
@@ -774,6 +776,10 @@ class Session:
         action_outcome = None
         impression = None
         shutdown_requested = False
+        sentry_requested = None   # The checked sentry_mode plan, started once this turn ends.
+        from .sentry import SENTRY_KINDS
+        sentry_kind = bool(opportunity and opportunity.kind in SENTRY_KINDS)   # Speaking for the guard.
+        sentry_reply = None
         try:
             with self._lock:
                 if self.closed or source_session != self.session_id or submitted_revision != self.revision:
@@ -786,12 +792,12 @@ class Session:
                 self._proactive_delivery = delivery if opportunity else None
                 self._audience_bound_output = False
                 self._capture_end = opportunity.speech_marker if opportunity else float("inf")
-                if opportunity and self.state and self.state.initiative.floor_held(self.trace.clock()):
+                if opportunity and not sentry_kind and self.state and self.state.initiative.floor_held(self.trace.clock()):
                     cancel.check()
                     delivery.status,delivery.medium = 'suppressed','none'
                     self.trace.emit('proactive_deferred',event_id=opportunity.event_id,reason='human_floor_held')
                     return delivery
-                if opportunity and self.state and not planning_only:
+                if opportunity and self.state and not planning_only and not sentry_kind:
                     self.state.initiative.attempted(opportunity)
                     opportunity_attempted = True
                 if opportunity and self._latest_speech!=opportunity.speech_marker: cancel.event.set()
@@ -820,7 +826,7 @@ class Session:
                 with self._lock:
                     cancel.check()
                     if opportunity:
-                        if self.state.initiative.quiet:
+                        if self.state.initiative.quiet and not sentry_kind:   # An alarm is not chiming in.
                             raise ProviderFailure('InitiativeQuietRequested')
                         context = self.state.opportunity_context(opportunity,advance_memory_cursor=not planning_only)
                     else:
@@ -840,6 +846,10 @@ class Session:
                 if not opportunity:
                     self.trace.emit("speaker_evidence",turn_id=turn_id,**context["speaker"],
                                     namespace=observation.namespace,window_consistency=observation.consistency)
+            if self.state and self.sentry is not None:
+                sentry_reply = self.sentry.reply_context(opportunity)
+                if sentry_reply:
+                    context['sentry'] = sentry_reply['context']
             if self.brain is None:
                 delivery.status = "observed"  # Frozen acoustic replay through the same state path.
                 delivery.medium = "none"
@@ -878,7 +888,9 @@ class Session:
                             "faces":context['faces']}
                 if opportunity.kind=='visual_arrival': evidence['arrival']=context['visual_arrival']
                 if opportunity.kind=='pet_arrival': evidence['pet']=context['pet_arrival']
-                if not planning_only: self.history.append({'role':'developer','content':
+                if not planning_only and sentry_kind: self.history.append({'role':'developer','content':
+                    str((sentry_reply or {}).get('note') or 'Sentry mode.')+' Observation: '+json.dumps(evidence)})
+                elif not planning_only: self.history.append({'role':'developer','content':
                     ('Startup greeting: a stable person is visible and no human has spoken in this run. '
                      'Say a brief hello now in your own words, by name when you know them, or optionally invite an unknown '
                      'person to share their name. A restart is not a first meeting: personal_memory.earlier_greetings says '
@@ -912,6 +924,8 @@ class Session:
                     "speech_ended_at":capture.speech_ended_at,"transcript_trusted":transcript.trusted,
                     "reply_timing":context.get('reply_timing'),
                     "faces":context["faces"]},ensure_ascii=False)})
+                if sentry_reply and sentry_reply.get('note'):
+                    self.history.append({'role':'developer','content':sentry_reply['note']})
             if not opportunity: self.history.append({"role": "user", "content": transcript.text})
             # A newer capture can arrive while the previous ASR result waits in
             # the queue. Retain its source/history, but do not answer it belatedly.
@@ -1024,6 +1038,8 @@ class Session:
                     context['weather_available'] = True
                 if not opportunity and getattr(self.state, 'systems_status', None) is not None:
                     context['systems_status_available'] = True
+                if not opportunity and self.sentry is not None and not self.sentry.active:
+                    context['sentry_available'] = True
             if self.state:
                 from . import conversation_memory
                 context["personal_memory"] = conversation_memory.context(
@@ -1081,7 +1097,7 @@ class Session:
                 cancel.guard = memory_audience_valid
             from .conversation_intent import audience as intent_audience
             request_audience = intent_audience(context)
-            if (self.state and self.agency_planner and opportunity
+            if (self.state and self.agency_planner and opportunity and not sentry_kind
                     and opportunity.kind not in {'visual_arrival', 'pet_arrival', 'unseen_presence'}):
                 # Arrivals are greeted directly (people first); the runtime then hands the
                 # person to a new goal. Every other opportunity advances Rex's own goal.
@@ -1163,6 +1179,10 @@ class Session:
             # Rex's own beats are checked for repeats before speaking, so they never stream.
             stream_tool_text = bool(not opportunity and self.state is not None and not self.state.initiative.silent
                                     and context.get('photo_inspection', {}).get('intent') != 'teach')
+            if sentry_reply:
+                # The guard's lines see the intruder (sentry mode): one fresh picture, nothing else visual.
+                scene_images = tuple(sentry_reply.get('images') or ())
+                context.pop('scene_description', None)
             snapshot = Snapshot(self.session_id, turn_id, self.revision, self.history_messages(),
                                 context.get("speaker",{}).get("person_id") or "unresolved",
                                 context, self.state is not None, images=scene_images,
@@ -2030,6 +2050,15 @@ class Session:
                 elif result.outcome=='ok' and call.name=='wait_for':
                     delivery.status, delivery.medium = 'suppressed', 'none'
                     self.trace.emit('reply_suppressed', turn_id=turn_id, reason='beat_waiting:'+str(call.arguments.get('when')))
+                elif result.outcome=='ok' and call.name=='sentry_mode':
+                    # The guard speaks the settings and the countdown itself, from the checked plan.
+                    from dataclasses import asdict
+                    import json
+                    sentry_requested = (result.data, (context.get('speaker') or {}).get('speaker_id'))
+                    delivery.status, delivery.medium = 'suppressed', 'none'
+                    self.history.extend((
+                        {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps(call.arguments)},
+                        {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
                 elif result.outcome=='ok' and call.name=='shut_down':
                     # October 13: "I need you to shut down" lowered the visor and he claimed he
                     # could not power off; only the exact words "shut down" reached the fast path.
@@ -2354,7 +2383,7 @@ class Session:
                     heard = ' '.join(delivery.completed_text)
                     self.state.present.rex_said(heard, self.trace.clock(), own_initiative=opportunity is not None,
                                                 answering=(context.get('speaker') or {}).get('speaker_id') or self._memory_subject)
-                    if self.joke_room is not None:
+                    if self.joke_room is not None and not context.get('sentry'):   # No paid writer for the guard.
                         self._joke_followup(heard, context, opportunity, transcript, turn_id, calls, setback[0])
             if self.state and (schedule_proposal is not None or invitation_proposal is not None):
                 with self._lock:
@@ -2396,4 +2425,9 @@ class Session:
             self._processing.release()
         if shutdown_requested and self.on_shutdown and not self.closed:
             self.on_shutdown(turn_id)   # After the goodbye played (or was cut short).
+        if sentry_requested and self.on_sentry and not self.closed:
+            try:
+                self.on_sentry(sentry_requested[0], turn_id, sentry_requested[1])
+            except Exception as exc:
+                self.trace.emit('sentry', status='start_failed', turn_id=turn_id, error_type=type(exc).__name__)
         return delivery

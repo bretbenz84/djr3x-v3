@@ -195,6 +195,20 @@ class OutputOwner:
             cancel.check()
             return self.robot.execute_pose(name,cancel,request_id,**({} if hold_pose else {'hold_pose':False}))
 
+    def sentry_motion(self, move, cancel, wait=0.):
+        """A sentry body move (robot_servos.sentry_*), never while talking motion or another move owns
+        the servos. Returns its receipt, or None when the motion resource stayed busy."""
+        if self.robot is None:
+            raise ProviderFailure('RobotPoseUnavailable')
+        acquired = self._motion_lock.acquire(timeout=wait) if wait else self._motion_lock.acquire(blocking=False)
+        if not acquired:
+            return None
+        try:
+            cancel.check()
+            return move(self.robot, cancel)
+        finally:
+            self._motion_lock.release()
+
     def execute_attention(self, intent, cancel):
         if self.attention is None:
             raise ProviderFailure('AttentionUnavailable')

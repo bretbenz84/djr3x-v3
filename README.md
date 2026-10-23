@@ -64,6 +64,14 @@ it or reads its data.
   tells Rex which room he is in. In an unfamiliar room he asks what it is and learns it
   when told, remembers which rooms he has moved between, and may set off to explore. V2's
   three taught rooms are imported. Not yet run on the robot ([details](docs/ROOM_RECOGNITION.md)).
+- **Sentry mode (October 22).** "Activate sentry mode until 7pm" (or for an hour, silent, with a 60
+  second activation): a spoken countdown, then red lights, still arms, a slowly sweeping neck and
+  locked wheels, with no paid calls while nothing happens.
+  - A stranger's face held a few seconds, or a full sentence from an unknown voice, sets off the
+    alarm: he roasts the intruders for about two minutes, records video and sends a phone alert with
+    a photo (ntfy).
+  - Someone he knows by face or voice stands him down. When the time runs out he shuts down.
+  - Not yet run on the robot ([details and phone setup](docs/SENTRY_MODE.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080.
 - **Body (Pololu Maestro, 14 servos).**
@@ -194,6 +202,7 @@ models on its own.
 | [Drive base](docs/DRIVE_BASE_INTEGRATION.md) | Wheels, radar, safety gates, vision seek and floor-run repairs. |
 | [Servo integration](docs/SERVO_INTEGRATION.md) | Choreography, talking and idle motion, poses, microphone hold. |
 | [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |
+| [Sentry mode](docs/SENTRY_MODE.md) | Guarding a room alone: what trips and stands him down, recordings, phone alerts and their setup. |
 | [Room recognition](docs/ROOM_RECOGNITION.md) | Which room, asking and learning rooms, connections, exploring, the V2 import. |
 | [Voice impressions](docs/IMPERSONATION.md) | The `impersonate` tool, reference voices, the local cloning engine, checks and open acceptance. |
 | [Dashboard](docs/GUI.md) | `live --gui`: V2's PySide6 window in V3, manual servo override and joystick driving through the owners. |

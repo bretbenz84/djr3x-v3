@@ -19,6 +19,11 @@ COLORS = {'neutral':(0,180,255), 'happy':(0,255,100), 'excited':(255,200,0),
 PATTERNS = (*COLORS, 'sparkle', 'blink')
 # Light steps a requested movement sequence may include, e.g. "... and blink your eyes".
 LIGHT_STEPS = {'blink': 'blink', **{'lights_'+p: p for p in PATTERNS if p != 'blink'}}
+# Sentry mode (owner, October 22): eyes, mouth and chest held red for as long as he guards. The mouth
+# glows at this steady level between lines, and speech keeps the same red.
+GUARD_LEVEL = 140
+AWAKE_EYES = (255,200,0)   # Warm gold, the eyes of an ordinary awake Rex.
+FLASH_SECONDS = .25        # The alarm flash: eyes and mouth on and off this often.
 
 
 @dataclass(frozen=True)
@@ -69,9 +74,13 @@ class LEDs:
         self.stop_event = threading.Event()
         self.worker = None
         self.fade_at = None
-        self.eye_color = (255,200,0)
+        self.eye_color = AWAKE_EYES
         self.mouth = 'neutral'            # Emotion of the running mouth animation.
         self.chest_only = False           # The running animation leaves the head as it is.
+        self.guarding = False             # Sentry mode's held red (guard).
+        self.flash_until = float('-inf')  # The alarm's flashing, until then.
+        self._flash_on = True
+        self._flash_at = float('-inf')
         self.speak_sent, self.speak_sends = float('-inf'), 0
         self.trace = None
         self.on_command = []              # Observers (zone, command) of each command written; the dashboard mirror.
@@ -114,7 +123,7 @@ class LEDs:
         with self.lock:
             self._both('PRIDE:0')  # Clear an inherited firmware overlay.
             self._send('head','ACTIVE')
-            self._send('head','EYE:255,200,0')
+            self._send('head','EYE:'+','.join(map(str,AWAKE_EYES)))
             self._send('chest','STARTUP')
             self.state = 'ready'
             if self.trace: self.trace.emit('led_lifecycle',kind='startup',status='commands_sent',evidence='display_unverified')
@@ -149,11 +158,20 @@ class LEDs:
                 self.speak_sent, self.speak_sends = now, self.speak_sends+1
                 self.last_level, self.last_sent = -1, float('-inf')
             pcm,at = self.sample
-            level = 180 if self.demo else 0
+            level = (GUARD_LEVEL if self.guarding else 180) if self.demo else 0
             if self.speaking and pcm and 0 <= now-at < .2:
                 samples = array('h',pcm[:len(pcm)//2*2])
                 if sys.byteorder != 'little': samples.byteswap()
                 level = min(255,int(math.sqrt(sum(v*v for v in samples)/len(samples))/32768*800))
+            if now < self.flash_until:
+                if now-self._flash_at >= FLASH_SECONDS:
+                    self._flash_on, self._flash_at = not self._flash_on, now
+                    self._send('head','EYE:'+(','.join(map(str,self.eye_color)) if self._flash_on else '0,0,0'))
+                if not self.speaking:
+                    level = 255 if self._flash_on else 0
+            elif not self._flash_on:
+                self._flash_on = True   # The flash is over: the eyes come back on.
+                self._send('head','EYE:'+','.join(map(str,self.eye_color)))
             if abs(level-self.last_level)>=8 or now-self.last_sent>=.5:
                 self._send('head',f'SPEAK_LEVEL:{level}')
                 self.last_level,self.last_sent = level,now
@@ -197,10 +215,47 @@ class LEDs:
                     self._send('head',restore)
                     self.version += 1
 
+    def guard(self, on):
+        """Sentry mode on: eyes, mouth and chest red until it ends (speech stays red). Off: the
+        ordinary awake lights. Returns the version, like begin."""
+        with self.lock:
+            if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
+            self.version += 1
+            self.guarding, self.flash_until, self._flash_on = on, float('-inf'), True
+            if on:
+                self.speaking, self.demo, self.chest_only = False, True, False
+                self.last_level, self.last_sent = -1, float('-inf')
+                self.eye_color, self.mouth = COLORS['angry'], 'angry'
+                self._send('head','EYE:'+','.join(map(str,self.eye_color)))
+                self._send('head','SPEAK:angry')
+                self.speak_sent, self.speak_sends = self.clock(), 1
+                self._send('chest','SPEAK:angry')
+            else:
+                self.speaking = self.demo = False
+                self.eye_color = AWAKE_EYES
+                self._send('head','SPEAK_LEVEL:0')
+                for index in range(3):
+                    self._send('head','SPEAK_STOP')
+                    if index<2: self.wait(.025)
+                self._send('head','ACTIVE')
+                self._send('head','EYE:'+','.join(map(str,self.eye_color)))
+                self._send('chest','SPEAK_STOP')
+            if self.trace: self.trace.emit('led_lifecycle',kind='sentry_on' if on else 'sentry_off',
+                                           status='commands_sent',evidence='display_unverified')
+            return self.version
+
+    def flash(self, seconds):
+        """The alarm: while guarding, the red eyes and mouth flash on and off for this long."""
+        with self.lock:
+            if self.state == 'ready' and self.guarding:
+                self.flash_until = self.clock() + seconds
+
     def begin(self, pattern='neutral', *, speaking=False, request=None):
         with self.lock:
             if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
             if pattern not in PATTERNS or pattern=='blink': raise ProviderFailure('UnknownLEDPattern')
+            if self.guarding:
+                pattern = 'angry'   # Sentry mode: every line in red.
             if pattern=='sparkle' and 'chest' not in self.devices:
                 raise ProviderFailure('ChestLEDUnavailable')
             if request and (request.version!=self.version or self.clock()>=request.expires_at):
@@ -235,6 +290,12 @@ class LEDs:
         with self.lock:
             if token != self.version or self.state != 'ready':
                 return 'failed' if self.state=='faulted' else 'superseded'
+            if self.guarding:
+                # Back to the held red glow between lines; the chest stays red.
+                self.speaking, self.demo = False, True
+                self.last_level, self.last_sent = -1, float('-inf')
+                self.version += 1
+                return 'commands_sent'
             self.speaking = self.demo = False
             if not self.chest_only:
                 self._send('head','SPEAK_LEVEL:0')

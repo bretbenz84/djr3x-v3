@@ -428,6 +428,9 @@ class DriveBase:
         self._turn_moved = 0.   # Metres driven inside the current step's turns (banks, back-ups).
         self.trace = None
         self.reflex_allowed = lambda: True
+        # A reason the wheels must not move at all (sentry mode, owner October 22), or None. Every
+        # plan, his own or asked for, and the back-off reflex are refused while it holds.
+        self.hold = lambda: None
         self._lock = threading.Lock()
         self._threads = []
         self._reflex = reflex
@@ -682,6 +685,9 @@ class DriveBase:
         now = self.clock() if now is None else now
         if self.state != 'ready':
             return False, 'drive_not_ready'
+        held = self.hold()
+        if held:
+            return False, held
         if self.link.failure:
             return False, 'drive_link_failed'
         telemetry, _ = self.link.snapshot()

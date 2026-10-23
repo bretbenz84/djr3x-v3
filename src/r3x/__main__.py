@@ -33,7 +33,7 @@ def main() -> int:
                               "reason":str(exc) if isinstance(exc,(ValueError,ProviderFailure)) else None}),file=sys.stderr)
             return 1
     parser = argparse.ArgumentParser(description="DJ-R3X voice-core experiment")
-    parser.add_argument("command", choices=("doctor", "boot", "live", "scenario", "report", "replay"))
+    parser.add_argument("command", choices=("doctor", "boot", "live", "scenario", "report", "replay", "push-setup", "push-test"))
     parser.add_argument("artifact", nargs="?", type=Path)
     parser.add_argument("--profile", choices=("dev-mac",), default=None)
     parser.add_argument("--config", type=Path, help="Explicit TOML settings file")
@@ -79,6 +79,39 @@ def main() -> int:
             from .trace import report
             print(json.dumps(report(args.artifact), indent=2))
             return 0
+        if args.command == "push-setup":
+            # Sentry mode's phone alerts: a private ntfy topic name, made once and kept in local/secrets.toml.
+            from .push import new_topic, valid_topic
+            from .settings import ScratchPaths, Secrets
+            root = ScratchPaths.for_project(project).root
+            topic = Secrets.load(root).ntfy_topic
+            if not topic:
+                topic = new_topic()
+                path = root / "secrets.toml"
+                existing = path.read_text() if path.exists() else ""
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(("" if not existing or existing.endswith("\n") else "\n") + f'ntfy_topic = "{topic}"\n')
+                path.chmod(0o600)
+            elif not valid_topic(topic):
+                print(json.dumps({"outcome": "failed", "reason": "ntfy_topic in local/secrets.toml is not 12-64 letters, "
+                                  "digits, - or _"}), file=sys.stderr)
+                return 1
+            print(f"Subscribe to this topic in the ntfy app (server ntfy.sh): {topic}")
+            print("Then send a test: .venv/bin/python -m r3x push-test")
+            return 0
+        if args.command == "push-test":
+            # Sentry mode's phone alert, sent once by hand to check the ntfy setup (docs/SENTRY_MODE.md).
+            from .push import Push, valid_topic
+            from .settings import ScratchPaths, Secrets
+            topic = Secrets.load(ScratchPaths.for_project(project).root).ntfy_topic
+            if not valid_topic(topic):
+                print(json.dumps({"outcome": "failed", "reason": "Set ntfy_topic in local/secrets.toml "
+                                  "(12-64 letters, digits, - or _)"}), file=sys.stderr)
+                return 1
+            result = Push(topic).send("Rex: test alert", "Sentry mode alerts will arrive here.",
+                                      priority="default", tags="robot")
+            print(json.dumps(result))
+            return 0 if result["outcome"] == "sent" else 1
         app = App(settings, project)
         if args.command == "doctor":
             app.configure_live()

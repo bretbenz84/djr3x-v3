@@ -306,12 +306,13 @@ class StartupAudio:
             self._thread.join(5.)
         return self._thread is None or not self._thread.is_alive()
 
-    def warm(self, busy=None, interval: float = 3.):
+    def warm(self, busy=None, interval: float = 3., extra=()):
         """Synthesize every boot and ready line that is not cached yet, one at a time in
         the background after startup, pausing while Rex speaks (owner, October 10: the
         cycle kept reaching uncached lines, so most launches paid a hosted round trip).
-        Once done, every later launch reads its lines from disk. Returns the thread."""
-        missing = [line for line in BOOT_LINES + READY_LINES if self.cached(line) is None]
+        Once done, every later launch reads its lines from disk. Returns the thread.
+        extra: other canned lines (sentry mode's countdown and alarm cry)."""
+        missing = [line for line in BOOT_LINES + READY_LINES + tuple(extra) if self.cached(line) is None]
         if not missing:
             return None
         def run():

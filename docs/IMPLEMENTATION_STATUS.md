@@ -21,6 +21,33 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Sentry mode — October 22
+
+Owner request: "activate sentry mode", read by the reply model ("until 7pm", "for 1 hour", "with no
+audio alerts", "silent with 60 second activation good for 9 hours") through the new `sentry_mode`
+tool. Code checks the request and keeps the clock.
+- **Countdown.** He states the settings and counts down in cached clips of his own voice. Saying
+  "stop" or "cancel" during the count calls it off.
+- **On guard.** Red lights, every arm held at rest, the head level, the neck sweeping five stops,
+  the wheels and the back-off reflex refused. No idle motion, goals, planner, joke writer or paid
+  news searches, and no hosted call at all while nothing happens.
+- **Tripping.** A face held about 3 s, unrecognized 3 s later, or a sentence of four or more trusted
+  words, trips the alarm. Faces that never move during the countdown's survey are pictures.
+- **The alarm.** A cached "Intruder alert!", the arm out, and about two minutes of roasting through
+  the one conversation owner with a sharp picture and no tools, then silent watching.
+- **Recording and alerts.** An arriving face starts a recording with 10 s of pre-roll, kept in
+  `local/sentry/recordings/`. An ntfy phone alert with a photo follows 10 s after the trip, unless a
+  known face stood him down first.
+- **Standing down.** A recognized face, or a clear saved-voice match (`SpeakerTracker.match`, read
+  only), stands him down. An intruder's words never do. When the time is up he shuts down.
+
+Checks: 34 new blocked-I/O checks (synthetic camera rows, voices, clocks, ports, HTTP); the full
+suite passes. ffmpeg joined synthetic frames and audio into a playable `video.mov` on this Mac.
+Paid probe (`tools/check_sentry.py --live`, real reply model): 7 of 7 requests read correctly, and
+the alarm and stand-down lines came out in words with no tool. **Not yet run on the robot**: lights,
+servo moves, real faces and noise, hearing a call-off over the countdown, recording load and phone
+delivery. Details and phone setup: [sentry mode](SENTRY_MODE.md).
+
 ## The visor fumbles were a missing tool — October 22 run e72ab522
 
 Owner: "the visor stuff still sucks badly". Lowering, raising and "back to normal" failed again

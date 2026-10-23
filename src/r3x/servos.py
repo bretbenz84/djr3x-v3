@@ -15,6 +15,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
+                          sentry_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
                           VISOR_RAISE_SECONDS, visor_over_eyes)
 
@@ -23,7 +24,7 @@ ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})   # The arms the drive stance 
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
 # Requests that only run once he is awake (after startup, before park).
 AWAKE_KINDS = frozenset({'talking', 'idle', 'pose', 'reflex', 'listening', 'base_park', 'base_release',
-                         'attention', 'gesture', 'operator'})
+                         'attention', 'gesture', 'operator', 'sentry'})
 # Requests whose still hold between beats is not motion. October 20 (515d71db): people answered
 # during the listening cue's 3 s hold, so 41 of 87 longer clips counted as heard while Rex moved;
 # such clips never start a new voice, and Jeremy's never did.
@@ -51,6 +52,7 @@ class ServoRequest:
     idle: IdlePhrase | None = None  # Idle: which parts move in this phrase and where the gaze points
     hold_pose: bool = True        # Human poses persist; agency poses never acquire a hold.
     side: int = 1                 # Listening cock: -1 Rex's left, 1 his right.
+    travel_seconds: float = 0.    # Sentry head moves: the curve's length (0: timed by its size).
 
 
 @dataclass(frozen=True)
@@ -329,6 +331,7 @@ class ServoOwner:
                      pose_lanes(request.pose,current,further=request.hold_pose) if request.kind == 'pose' else
                      pose_lanes(dict(request.pose),current) if request.kind == 'operator' else
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
+                     sentry_lanes(request.pose, current, request.travel_seconds) if request.kind == 'sentry' else
                      listening_lanes(current, request.side, self.rng) if request.kind == 'listening' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      lifecycle_lanes(request.kind, current, request.first_look))

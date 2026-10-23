@@ -117,6 +117,8 @@ class CoreState:
         self.places = None
         self.photo_memory = None
         self.wall_clock = time.time
+        from .sentry import Sentry
+        self.sentry = Sentry(trace.clock, lambda: self.wall_clock())   # Sentry mode's guard (October 22).
         self.faces = ()
         self.face_associations = {}
         self.face_learning = {}
@@ -690,7 +692,8 @@ class CoreState:
         faces = [public_face(f) for f in event.faces if f.get('face_epoch',0)>=self.min_face_epoch]
         people = self.store.people()
         person_ids = {p['id'] for p in people}
-        if event.kind not in {'visual_arrival','pet_arrival','conversation_lull','ambient','unseen_presence','reconsideration'}: raise ValueError('UnknownOpportunity')
+        from .sentry import SENTRY_KINDS
+        if event.kind not in {'visual_arrival','pet_arrival','conversation_lull','ambient','unseen_presence','reconsideration',*SENTRY_KINDS}: raise ValueError('UnknownOpportunity')
         if event.person_id and event.person_id not in person_ids: raise ValueError('VisualPersonNoLongerAvailable')
         if event.kind=='visual_arrival' and not any(f['track_id']==event.target_track for f in faces):
             raise ValueError('VisualTargetStale')
@@ -1130,6 +1133,16 @@ class CoreState:
         if name == 'shut_down':
             self._source_allowed(args,name)   # Only a clearly heard, non-echo request from this turn.
             return {'text':args['text']}, False
+        if name == 'sentry_mode':
+            # Owner, October 22: a clearly heard request from this turn; code works out the countdown and end.
+            self._source_allowed(args,name)
+            if not (context or {}).get('sentry_available'):raise ValueError('SentryUnavailable')
+            if self.sentry.active:raise ValueError('SentryAlreadyActive')
+            from .sentry import plan
+            chosen = plan(args, self.wall_clock())
+            return {'countdown_seconds':chosen.countdown_seconds,'ends_at':chosen.ends_at,
+                    'audio_alerts':chosen.audio_alerts,'requested_at':chosen.requested_at,
+                    'until_text':chosen.until_text,**chosen.public()}, False
         if name == "remain_silent":
             data = {"reason":args["reason"]}
             if not self.frozen and args['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:

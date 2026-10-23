@@ -175,10 +175,10 @@ class SpeakerTracker:
                 scores.append((person_id, statistics.mean(values[:3])))
         return sorted(scores, key=lambda row: row[1], reverse=True)
 
-    def observe(self, observation: VoiceObservation, at: float, profiles: dict,
-                trusted: bool = True, echo: bool = False, truncated: bool = False) -> Attribution:
+    def _profile_match(self, observation, profiles, trusted, echo, truncated):
+        """The enrolled person this clip clearly is: (vector, person_id or None, alternatives,
+        windows_clear), or an Attribution saying why no profile can be named from it."""
         p = self.policy
-        self.tracks = {key: t for key, t in self.tracks.items() if t.retained or at - t.last_at <= p.track_expiry_seconds}
         vector = unit(observation.embedding)
         if observation.namespace != self.namespace or vector is None:
             return Attribution(reason="missing_or_wrong_namespace")
@@ -205,6 +205,26 @@ class SpeakerTracker:
             windows_clear = all(r[0][1] >= threshold for r in window_ranks)
             if observation.voiced_seconds >= p.min_named_seconds:
                 person_id = ranked[0][0]
+        return vector, person_id, alternatives, windows_clear
+
+    def match(self, observation: VoiceObservation, profiles: dict, trusted: bool = True,
+              echo: bool = False, truncated: bool = False) -> tuple[str | None, str]:
+        """Who this clip clearly is among saved voices, by the same tests that name a speaker in
+        observe, without touching session tracks: (person_id, reason) or (None, reason). Sentry mode
+        (October 22) stands down for a clear match only; it never learns from what it hears."""
+        matched = self._profile_match(observation, profiles, trusted, echo, truncated)
+        if isinstance(matched, Attribution):
+            return None, matched.reason
+        return matched[1], "acoustic_match" if matched[1] else "no_clear_profile_match"
+
+    def observe(self, observation: VoiceObservation, at: float, profiles: dict,
+                trusted: bool = True, echo: bool = False, truncated: bool = False) -> Attribution:
+        p = self.policy
+        self.tracks = {key: t for key, t in self.tracks.items() if t.retained or at - t.last_at <= p.track_expiry_seconds}
+        matched = self._profile_match(observation, profiles, trusted, echo, truncated)
+        if isinstance(matched, Attribution):
+            return matched
+        vector, person_id, alternatives, windows_clear = matched
         if observation.motion:
             # Match against what is known, but servo noise never becomes a track
             # reference or a new voice group.

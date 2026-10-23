@@ -102,6 +102,7 @@ class PublicObservations:
         # Hosted web search (news.py) is optional; its JSON cache survives restarts on the same day.
         self.search,self.cache=search,cache
         self.wanted=frozenset();self.searched=(None,frozenset());self.searching=False
+        self.paused=False   # Sentry mode (October 22): no paid searches while Rex guards; free feeds go on.
 
     def start(self):
         import httpx
@@ -138,7 +139,7 @@ class PublicObservations:
             except Exception as exc:
                 if self.trace:self.trace.emit('observation_refresh',source=name.split(':')[0],outcome='failed',error_type=type(exc).__name__)
                 # Last successful evidence remains usable only until its original expiry.
-        if self.search and self.cache and not self.stop.is_set():
+        if self.search and self.cache and not self.stop.is_set() and not self.paused:
             self.refresh_searches()
 
     def _search(self,prompt,source,topic,today,limit):

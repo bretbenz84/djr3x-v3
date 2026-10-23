@@ -1131,6 +1131,30 @@ def listening_lanes(current, side, rng=None):
     return (lane,)
 
 
+# Sentry mode (owner, October 22): the arms stop moving completely, the head stays level and the neck
+# sweeps slowly from stop to stop. The stance rests the throttle arm (a held-out arm strains its servo
+# for hours; it swings out only at an intruder), lowers the poker arm and levels the head.
+SENTRY_STANCE = MappingProxyType(dict((*REST, (12, POKER_ELBOW_DOWN), (13, POKER_WRIST_STRAIGHT),
+                                       *AWAKE_ARMS, (0, NECK_CENTER), *DRIVE_HEAD)))
+SENTRY_ARM_OUT = MappingProxyType(dict(NAMED_POSES['throttle_offer']))   # The throttle arm held out at them.
+SENTRY_SECONDS_PER_DEG = .2   # A 15-degree sweep step takes about 3 s: slow, one smooth curve.
+
+
+def sentry_head(neck: int) -> dict[int, int]:
+    """The neck at this pulse with the head level and straight."""
+    return {0: max(LIMITS[0][0], min(LIMITS[0][1], int(neck))), **dict(DRIVE_HEAD)}
+
+
+def sentry_lanes(target, current, seconds):
+    """A sentry head move on one smooth curve over seconds (0: timed by its size)."""
+    if not target or set(target) - set(HEAD):
+        raise ValueError('SentryMovesHeadOnly')
+    validate_pose({**{ch: current[ch] for ch in HEAD}, **target})
+    targets = tuple(dict(target).items())
+    seconds = seconds or max(.6, SENTRY_SECONDS_PER_DEG * head_degrees(current, targets))
+    return ((replace(eased_beat(current, targets, seconds), reframes=head_reframes(current, targets)),),)
+
+
 def pose_lanes(name, current, further=True):
     if isinstance(name, dict):
         target = dict(name)

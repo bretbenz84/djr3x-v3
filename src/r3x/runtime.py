@@ -85,6 +85,7 @@ class VoiceRuntime:
         self.drive = drive
         self._initiative_gate = None
         self.speech_confirmed = False   # The forming capture has lasted like speech, or began in stillness.
+        self.sentry = None   # sentry_guard.SentryGuard: while it is on, what Rex hears goes to it first.
         session.on_shutdown = self.conversation_shutdown
 
     def conversation_shutdown(self, turn_id):
@@ -117,8 +118,17 @@ class VoiceRuntime:
             if locked: self.control_lock.release()
         self.trace.emit("input_invalidated", captured_before=self.cancel_before)
 
+    def counting_down(self):
+        """Sentry mode's countdown: his own numbers are heard too, and only a call-off word counts."""
+        sentry = getattr(self, 'sentry', None)
+        return sentry is not None and sentry.echo_allowed()
+
+    def guarding(self):
+        sentry = getattr(self, 'sentry', None)
+        return sentry is not None and sentry.active
+
     def enqueue(self, queue, item, kind):
-        if kind=='captures' and item[0].echo_risk:
+        if kind=='captures' and item[0].echo_risk and not self.counting_down():
             # Echo transitions must not masquerade as queued human work in the
             # proactive guard. Evaluation recording has already kept this PCM.
             self.trace.emit('capture_rejected',capture_id=item[0].capture_id,reason='playback_echo_risk')
@@ -205,7 +215,7 @@ class VoiceRuntime:
                 self.words_settled(capture.capture_id)
                 self.asr_busy.clear()
                 continue
-            if capture.echo_risk:
+            if capture.echo_risk and not self.counting_down():
                 self.trace.emit("capture_rejected", capture_id=capture.capture_id, reason="playback_echo_risk")
                 self.words_settled(capture.capture_id)
                 self.asr_busy.clear()
@@ -232,6 +242,8 @@ class VoiceRuntime:
                         self.trace.emit("transcript_rejected", capture_id=part.capture_id, reason="stale")
                         break
                     command = transcript.text.strip().lower().rstrip('.!?')
+                    # Sentry mode decides for itself: an intruder's "stop" or "shut down" changes nothing.
+                    guarded = self.guarding()
                     shutdown = command in SHUTDOWN_COMMANDS
                     warning = (self.drive is not None and self.drive.moving.is_set()
                                and is_collision_warning(transcript.text))
@@ -246,12 +258,12 @@ class VoiceRuntime:
                             perceived = replace(perceived, transcript=transcript)
                         self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
                                         reason='brief_sound_during_own_motion', avg_logprob=transcript.avg_logprob)
-                    if transcript.trusted and command in SHUTDOWN_COMMANDS:
+                    if transcript.trusted and command in SHUTDOWN_COMMANDS and not guarded:
                         self.trace.emit('shutdown_requested',source='voice',capture_id=part.capture_id)
                         self.stop.set()
                         self.cancel()
                         break
-                    if transcript.trusted and (is_stop_command(transcript.text) or warning):
+                    if transcript.trusted and (is_stop_command(transcript.text) or warning) and not guarded:
                         # Bypasses a busy conversational generation.
                         if warning:
                             self.trace.emit('collision_warning_stop', capture_id=part.capture_id)
@@ -259,7 +271,7 @@ class VoiceRuntime:
                         else: self.cancel()
                         break
                     else:
-                        if self.robot and transcript.trusted and transcript.text.strip() and not cued:
+                        if self.robot and transcript.trusted and transcript.text.strip() and not cued and not guarded:
                             # Show he heard it while the reply is still being thought of.
                             cued = True
                             try:
@@ -287,12 +299,19 @@ class VoiceRuntime:
             try:
                 capture, transcript, revision, perceived = self.turns.get(timeout=.05)
             except Empty:
-                self.proactive_tick()
+                if self.guarding():
+                    self.sentry.tick(self.trace.clock())   # Instead of initiative: sentry mode watches.
+                else:
+                    self.proactive_tick()
                 continue
             self.words_settled(capture.capture_id)
-            self.session.process_turn(capture, transcript, revision,
+            if self.guarding() and self.sentry.hear(capture, transcript, perceived):
+                continue
+            delivery = self.session.process_turn(capture, transcript, revision,
                 observation=perceived.voice if perceived else None, faces=perceived.faces if perceived else (),
                 latest_faces=self.camera.latest if self.camera else None)
+            if self.sentry is not None:
+                self.sentry.after_reply(delivery)
         if self.session.closed:
             self.stop.set()
 
@@ -580,7 +599,7 @@ class VoiceRuntime:
                     working = (conversation_busy or self.asr_busy.is_set() or not self.captures.empty()
                                or not self.turns.empty())
                     self.robot.before_frame(capturing=capturing or conversation_busy, calm=working, allow_idle=(
-                        not capturing
+                        not capturing and not self.guarding()   # Sentry mode: the arms stop moving completely.
                         # Only while the wheels turn: the second after a drive is not a reason to sit still.
                         and not (self.drive is not None and self.drive.moving.is_set())
                         and self.trace.clock()-self.audio_seen_at<=.5))
@@ -612,6 +631,8 @@ class VoiceRuntime:
                 # the audio device changes streams. Liveness cannot be newer than
                 # receipt; preserve original frame times for capture/attribution.
                 self.audio_seen_at = min(frame.ended_at, self.trace.clock())
+                if self.guarding():
+                    self.sentry.audio(frame)   # The last ten seconds wait for a face to arrive.
                 if self.recorder and frame.started_at>=self.started_at:
                     try:
                         path=self.recorder.record_input(frame)
@@ -716,6 +737,11 @@ class VoiceRuntime:
         self.stop.set()
         self.cancel()
         self.mic.cancel()
+        if getattr(self, 'sentry', None) is not None:
+            try:
+                self.sentry.close()   # Finishes a recording before the servos park.
+            except Exception as exc:
+                self.trace.emit('sentry', status='close_failed', error_type=type(exc).__name__)
         if self.recorder:
             try:
                 path=self.recorder.close()

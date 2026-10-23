@@ -315,7 +315,9 @@ class App:
                     trace.emit('startup_audio',status='ready_line_failed',error_type=type(exc).__name__)
                 startup_delivery = announce(self.settings,self.owner,output,trace,ready=ready)
                 mic.discard_pending()
-                self.startup_audio.warm(busy=output.active.is_set)   # Uncached lines, paced, never over speech.
+                from .sentry import canned_lines
+                # Uncached lines, paced, never over speech; sentry mode's when it can run (camera).
+                self.startup_audio.warm(busy=output.active.is_set, extra=canned_lines() if camera else ())
                 if self.drive and 'drive_base' not in active:
                     # Configured wheels that failed to start: Rex still knows he has them.
                     failure = next((r for r in self.owner.results if r.capability=='drive_base' and r.operation=='start'),None)
@@ -407,6 +409,25 @@ class App:
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
                                        lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot,
                                        drive=output.drive)
+                if camera:
+                    # Sentry mode (owner, October 22) needs the camera: faces trip and stand it down.
+                    from .push import Push, valid_topic
+                    from .sentry_guard import SentryGuard
+                    from .sentry_recording import SentryRecorder
+                    topic = Secrets.load(self.paths.root).ntfy_topic
+                    push = Push(topic, trace) if valid_topic(topic) else None
+                    if topic and push is None:
+                        trace.emit('push_notification', outcome='invalid_topic')
+                    guard = SentryGuard(session, output, trace, camera=camera, canned=self.startup_audio.speech,
+                        recorder=SentryRecorder(self.paths.root / 'sentry' / 'recordings', camera.hub.peek, trace),
+                        push=push, observations=public,
+                        shutdown=lambda reason: runtime.request_shutdown('sentry', reason=reason))
+                    session.on_sentry = guard.start
+                    runtime.sentry = guard
+                    trace.emit('sentry', status='available', push_alerts=push is not None,
+                               recordings=str(self.paths.root / 'sentry' / 'recordings'))
+                    if output.drive:
+                        output.drive.hold = guard.holding_wheels   # The wheels never move while he guards.
                 if scene:
                     scene.motion_risk = lambda: bool((output.robot and output.robot.owner.camera_moving) or
                                                      (output.drive and output.drive.motion_risk()))

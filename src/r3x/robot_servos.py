@@ -4,7 +4,7 @@ import time
 from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
-from .servo_poses import HEAD, LIMITS, pose_channels
+from .servo_poses import ARM_HOLD, HEAD, LIMITS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, pose_channels, sentry_head
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
 from .voice_reflex import VoiceReflex
@@ -229,6 +229,47 @@ class RobotServos:
                 self.trace.emit('servo_base_release', **asdict(receipt), kept_parked=sorted(keep))
         self._arm_return = threading.Thread(target=run, name='r3x-arm-return', daemon=True)
         self._arm_return.start()
+
+    # Sentry mode (owner, October 22) ---------------------------------------------------
+    def sentry_stance(self, cancel):
+        """On guard every arm stops, the throttle rests and the head is level. All of it is held,
+        with no time limit, until sentry_release; talking motion and idle leave it alone."""
+        self.idle.stop()
+        self.reflex.stop()
+        self.talking.stop()
+        receipt = self.owner.execute(ServoRequest('sentry:stance', self.owner.version, 'pose',
+                                                  self.owner.clock() + 60., pose=dict(SENTRY_STANCE)), cancel)
+        if receipt.status == 'pulses_reached':
+            self.owner.held_channels.update((*ARM_HOLD, *HEAD))
+            self.owner.hold_until_released = True
+        if self.trace:
+            self.trace.emit('servo_sentry', kind='stance', **asdict(receipt))
+        return receipt
+
+    def sentry_look(self, neck, cancel, seconds=0., request_id='sentry:look'):
+        """Turn the neck (head level) slowly to this pulse: a sweep step or a turn to an intruder."""
+        receipt = self.owner.execute(ServoRequest(request_id, self.owner.version, 'sentry',
+            self.owner.clock() + 30., pose=sentry_head(neck), travel_seconds=seconds), cancel)
+        if self.trace and receipt.status != 'pulses_reached':
+            self.trace.emit('servo_sentry', kind='look', neck=int(neck), **asdict(receipt))
+        return receipt
+
+    def sentry_arm(self, out, cancel):
+        """The throttle arm held out at an intruder, or back at rest."""
+        receipt = self.owner.execute(ServoRequest('sentry:arm-out' if out else 'sentry:arm-rest', self.owner.version,
+            'pose', self.owner.clock() + 30., pose=dict(SENTRY_ARM_OUT if out else REST)), cancel)
+        if self.trace:
+            self.trace.emit('servo_sentry', kind='arm_out' if out else 'arm_rest', **asdict(receipt))
+        return receipt
+
+    def sentry_release(self, cancel):
+        """Off guard: every hold released and ordinary life resumes."""
+        receipt = self.execute_pose('release_poses', cancel, 'sentry:release')
+        if self.trace:
+            self.trace.emit('servo_sentry', kind='release', **asdict(receipt))
+        if receipt.status == 'pulses_reached':
+            self.idle.wake()
+        return receipt
 
     def note_speech(self):
         """A person is speaking: idle movement and a listening cue stop so the rest is heard cleanly."""

@@ -705,7 +705,8 @@ class OpenAIBrain(HTTPProvider):
         # The rules themselves are in the persona's SITUATIONS section (cached); each request only
         # names which apply.
         situations = []
-        if snapshot.tools_enabled and not snapshot.continuation and snapshot.context.get('trigger') not in {'visual_arrival','conversation_lull','ambient','unseen_presence','reconsideration'}:
+        if (snapshot.tools_enabled and not snapshot.continuation and not snapshot.context.get('sentry')
+                and snapshot.context.get('trigger') not in {'visual_arrival','conversation_lull','ambient','unseen_presence','reconsideration'}):
             situations.append('ordinary_human_turn')
         if snapshot.context.get('reply_timing',{}).get('human_preceded_previous_reply'):
             situations.append('delayed_human_words')

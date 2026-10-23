@@ -119,6 +119,10 @@ class Secrets:
     openai_api_key: str = field(default="", repr=False)
     elevenlabs_api_key: str = field(default="", repr=False)
     elevenlabs_voice_id: str = field(default="", repr=False)
+    # Sentry mode's phone alerts (owner, October 22): the private ntfy topic name. Optional.
+    ntfy_topic: str = field(default="", repr=False)
+
+    OPTIONAL = frozenset({"ntfy_topic"})
 
     @classmethod
     def load(cls, root: Path) -> "Secrets":
@@ -135,7 +139,7 @@ class Secrets:
         return cls(**values)
 
     def readiness(self) -> dict[str, bool]:
-        return {f.name: bool(getattr(self, f.name).strip()) for f in fields(self)}
+        return {f.name: bool(getattr(self, f.name).strip()) for f in fields(self) if f.name not in self.OPTIONAL}
 
 
 @dataclass(frozen=True)
