@@ -229,13 +229,13 @@ def plans_noon(day):
 class VisorOverEyesTests(memory_tests.MemoryFixture):
     # Owner, October 22: closing the visor "effectively blinds him"; he should know it and joke
     # about his own dark, never about blind people.
-    def context_with_visor(self, pulses, raise_it=False):
+    def context_with_visor(self, pulses, raise_it=False, state='active'):
         from r3x.servo_poses import DRIVE_HEAD, NECK_CENTER
         from r3x.scenario import SyntheticSink
         from tests.test_voice_core import Brain
         brain = Brain('Hello.')
         output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace)
-        output.robot = SimpleNamespace(owner=SimpleNamespace(state='active', held_channels=set(),
+        output.robot = SimpleNamespace(owner=SimpleNamespace(state=state, held_channels=set(),
             commanded={0: NECK_CENTER, **dict(DRIVE_HEAD), 3: pulses}, hold_until_released=False,
             kept_arms=(), kept_channels=(), may_raise_visor=lambda: raise_it), idle=SimpleNamespace(mode=lambda: 'people'))
         session = Session('session', brain, output, self.state.trace, self.state)
@@ -244,6 +244,18 @@ class VisorOverEyesTests(memory_tests.MemoryFixture):
         session.process_turn(self.state.current[1], Transcript('Can you lower your visor?', -.01, True), 0,
                              memory_tests.observation())
         return brain.snapshots[-1].context
+
+    def test_the_pose_tool_is_offered_while_he_is_moving(self):
+        # October 22: the listening cue made the servo owner 'moving' as each request was heard, and the
+        # pose tool was offered only when 'active': 15 of 20 visor requests in three runs had no tool.
+        from r3x.semantics import grounded_tools
+        from r3x.servo_poses import VISOR_DOWN
+        context = self.context_with_visor(VISOR_DOWN, state='moving')
+        self.assertTrue(context['robot_pose_enabled'])
+        self.assertIn('visor_over_eyes', context)
+        self.assertIn('set_robot_pose', {t['name'] for t in grounded_tools(context)})
+        for asleep in ('parked', 'parking', 'faulted'):
+            self.assertFalse(self.context_with_visor(VISOR_DOWN, state=asleep)['robot_pose_enabled'])
 
     def test_a_shut_visor_tells_him_he_cannot_see(self):
         from r3x.field_guide import GUIDE

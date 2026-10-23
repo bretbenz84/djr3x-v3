@@ -943,7 +943,11 @@ class Session:
                     and self.state.voice_references is not None):
                 from . import impersonation
                 context['impersonation'] = impersonation.context(self.state, self.trace.clock())
-            context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and getattr(self.output,'robot',None) and self.output.robot.owner.state=='active')
+            # Awake: 'moving' while any motion runs, the listening cue as a person finishes above all. October 22:
+            # requiring 'active' hid the pose tool on 15 of 20 visor requests in three runs (silence, a nod saying
+            # "Down it goes", the lights, "be quiet", "the visor tool isn't available"); a pose stops those first.
+            context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and getattr(self.output,'robot',None)
+                                                 and self.output.robot.owner.state in ('active', 'moving'))
             if context['robot_pose_enabled']:
                 from .servo_poses import HEAD_POSES, HELD_PARTS, NAMED_POSES, NECK_POSES, at_pose, joint_percents, visor_over_eyes
                 owner = self.output.robot.owner

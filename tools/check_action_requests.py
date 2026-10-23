@@ -89,7 +89,7 @@ CASES = {
     'not_a_word': ((), VISOR_OPEN, False, 'Not a word until I get back.', 'silent', lambda calls: True),
     'resume_plain': ((), VISOR_OPEN, True, 'Okay, you can talk again.', 'resume', lambda calls: True),
     'resume_and_visor': ((), VISOR_DOWN, True, 'You can talk again, but you can raise your visor too.', 'resume',
-                         pose('visor_up')),
+                         pose('visor_up', 'visor_normal')),   # Back to its usual open place raises it too.
 }
 
 
@@ -132,7 +132,8 @@ def run(case, key, folder, round_=0):
                 if answered:
                     session.history.append({'role': 'assistant', 'content': answered})
             # Stand-ins: the pose and light tools are offered as on the robot, and refuse to run.
-            owner = SimpleNamespace(state='active', commanded={0: NECK_CENTER, **dict(DRIVE_HEAD), 3: visor},
+            # 'moving': on the robot the listening cue is usually running as a person finishes (October 22).
+            owner = SimpleNamespace(state='moving', commanded={0: NECK_CENTER, **dict(DRIVE_HEAD), 3: visor},
                                     held_channels={3} if visor in (VISOR_DOWN, VISOR_UP) else set(), hold_until_released=False,
                                     kept_arms=(), kept_channels=())
             output.robot = SimpleNamespace(owner=owner, idle=SimpleNamespace(mode=lambda: 'people',

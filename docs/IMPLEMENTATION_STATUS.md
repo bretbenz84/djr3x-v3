@@ -21,6 +21,19 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## The visor fumbles were a missing tool — October 22 run e72ab522
+
+Owner: "the visor stuff still sucks badly". Lowering, raising and "back to normal" failed again
+(prose saying it was done, two light sparkles for "raise it", "the visor tool isn't available"). The
+cause, across all three runs of the day: the servo owner is `moving` whenever any motion runs, above
+all the listening cue as a person finishes speaking, and the pose tool was offered only while it was
+`active`. Every visor request that arrived during the cue had no pose tool (15 of 20 in runs 1072c10a,
+0421a222 and e72ab522); every one that arrived while the cue was refused worked. The same gate hid the
+shut visor, so the "it's dark" beat was let go as `visor_open`. The earlier wording and quiet-tool
+repairs treated symptoms; the paid probe missed it because its stand-in robot was always `active`.
+Poses are now offered while the robot is awake (`active` or `moving`; a pose stops other motion first),
+and the probe's stand-in is `moving`. Paid probe, visor cases: 7 of 7. **Not yet run on the robot.**
+
 ## Seventeen repairs from run 0421a222 — October 22
 
 Owner review of the 2:37 PM run (18 min). Fast mode held (all 76 reply calls served Fast; 6 of 31
