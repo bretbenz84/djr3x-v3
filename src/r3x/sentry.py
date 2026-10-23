@@ -322,11 +322,18 @@ class Sentry:
                 'seconds_since_alarm': round(now - e.tripped_at) if e else None,
                 'talk_seconds_left': max(0, round(e.alarm_until - now)) if e else None}
 
-    def known_in_view(self, rows, now, known):
-        """Someone he knows (not whoever is leaving) in these camera rows, or None. Changes nothing."""
+    def leaving(self, person):
+        """Whoever set him on guard (or was recognized during the countdown) is taken to be on their way
+        out, and does not stand him down, only until the alarm goes off. October 22 (dc9f7480): Bret armed
+        him, stayed, and after the trip was recognized by face and voice for two minutes and ignored."""
+        return person in self.arming_people and self.phase in {'countdown', 'guarding'}
+
+    def known_in_view(self, rows, now, known, include_leaving=False):
+        """Someone he knows in these camera rows, or None; whoever is leaving counts only with
+        include_leaving. Changes nothing."""
         for row in rows:
             person = row.get('identity')
-            if person and face_ok(row, now) and known(person) and person not in self.arming_people:
+            if person and face_ok(row, now) and known(person) and (include_leaving or not self.leaving(person)):
                 return person
         return None
 
@@ -375,7 +382,7 @@ class Sentry:
             self.last_any_face = now
             person = row.get('identity')
             if person and known(person):
-                if person in self.arming_people:
+                if self.leaving(person):
                     continue   # Whoever set him on guard, still on their way out.
                 decisions.append(Decision('stand_down', person_id=person, reason='face'))
                 return decisions
@@ -408,7 +415,7 @@ class Sentry:
     def heard(self, text, trusted, person_id, now, known):
         """A transcript while guarding. person_id: a clear match on a saved voice, else None."""
         if person_id and known(person_id):
-            if person_id in self.arming_people:
+            if self.leaving(person_id):
                 return None
             return Decision('stand_down', person_id=person_id, reason='voice')
         if not trusted or words(text) < SENTENCE_WORDS:

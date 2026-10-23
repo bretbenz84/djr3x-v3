@@ -21,6 +21,22 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Sentry mode ignored the person who armed him — October 22 run dc9f7480
+
+Owner: "I activated sentry mode and triggered it, then tried to say it was me with my face in camera
+and asked him to stand down. He refused, saying I was a rouse... I can't shut him down." Bret armed
+him and stayed in the room. Whoever armed him is exempt as "leaving" until the room has been empty
+for 30 s, and the room never emptied. So after the trip his recognized face (almost every frame for
+two minutes) and four clear voice matches ("It's okay, Rex. It's me.") were ignored. "Shut down."
+in his less clearly matched voice was ignored as an intruder's. Rex stopped only when his 5 minutes
+ran out.
+- The "leaving" exemption holds only until the alarm goes off. After a trip, anyone he knows by face
+  or clear voice stands him down, the person who armed him included.
+- An exact "shut down" works with a clear voice match of someone he knows, or with someone he knows
+  in view (the person who armed him included), in any sentry phase.
+Checks: three replays of the run fail on the code that ran and pass now; 40 sentry checks and the
+full suite pass. **Not yet run on the robot.**
+
 ## Sentry mode's alarm talk spoke as ordinary Rex — October 22 run a45983c1
 
 Owner: "It in practice works exactly as designed. The problem is when he's triggered. He started

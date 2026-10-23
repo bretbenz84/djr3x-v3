@@ -558,6 +558,21 @@ class SentryGuard:
                 tracker = self.session.state.tracker
                 person, reason = tracker.match(voice, self.session.state.store.profiles(tracker.namespace),
                                                transcript.trusted, capture.echo_risk, capture.truncated)
+        if transcript.trusted and text.strip().lower().rstrip('.!?') in SHUTDOWN_COMMANDS:
+            # Someone he knows can always shut him down: a clear match on their voice, or their face in view
+            # (whoever set him on guard included). October 22 (dc9f7480): Bret, in view and recognized,
+            # said "Shut down." in a voice that did not match clearly enough, and Rex stayed on.
+            with self.session._lock:
+                seen = (self.state.known_in_view(self.camera.latest(now), now, self.known, include_leaving=True)
+                        if self.camera is not None else None)
+            by = person if person and self.known(person) else seen
+            self.trace.emit('sentry_heard', phase=phase, text=text, trusted=trusted, words=rules.words(text),
+                            voice_person_id=person, voice_reason=reason, face_person_id=seen,
+                            outcome='shutdown' if by else 'ignored')
+            if by:
+                self.end('shutdown', by)
+                self.shutdown('voice')
+            return True
         with self.session._lock:
             decision = self.state.heard(text, trusted, person, now, self.known)
         self.trace.emit('sentry_heard', phase=phase, text=text, trusted=trusted, words=rules.words(text),
@@ -565,10 +580,6 @@ class SentryGuard:
         if decision is None or decision.kind == 'ignored':
             return True
         if decision.kind == 'stand_down':
-            if text.strip().lower().rstrip('.!?') in SHUTDOWN_COMMANDS:
-                self.end('shutdown', person)   # Someone he knows told him to shut down: straight to the park.
-                self.shutdown('voice')
-                return True
             self._stand_down(person, 'voice')
             return False
         if decision.kind == 'answer':

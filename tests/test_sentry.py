@@ -123,6 +123,17 @@ class GuardRuleTests(unittest.TestCase):
         s = guarding()
         self.assertNotIn('stand_down', kinds(s.faces([face(1., identity='p-nameless')], 1., 0., KNOWN)))
 
+    def test_once_the_alarm_goes_off_the_person_who_armed_him_stands_him_down(self):
+        # October 22 (dc9f7480): Bret armed him and stayed; after the trip his face and matched voice were ignored.
+        s = guarding(requester='p-bret')
+        self.assertEqual(kinds(s.faces([face(1., identity='p-bret')], 1., 0., KNOWN)), [])   # Still leaving.
+        s.trip('speech', 2., 'e1')
+        self.assertEqual(kinds(s.faces([face(3., identity='p-bret')], 3., 0., KNOWN)), ['stand_down'])
+        s = guarding(requester='p-bret')
+        s.trip('speech', 2., 'e1')
+        self.assertEqual(s.heard("It's okay, Rex. It's me.", True, 'p-bret', 3., KNOWN).kind, 'stand_down')
+        self.assertEqual(s.known_in_view([face(3., identity='p-bret')], 3., KNOWN), 'p-bret')
+
     def test_faces_that_never_move_during_the_survey_are_pictures(self):
         s = Sentry(lambda: 0., lambda: WALL)
         s.begin(rules.SentryPlan(30, None, True, WALL))
@@ -577,6 +588,34 @@ class GuardTests(MemoryFixture):
         self.assertAlmostEqual(w, .4)   # Head and shoulders, not the room.
         self.camera.rows = []
         self.assertEqual(self.guard._intruder_picture(), ())
+
+    def test_the_person_who_armed_him_and_stayed_is_recognized_after_the_trip(self):
+        # October 22 (dc9f7480), replayed: armed by Bret, who stayed in view; a sentence tripped it; "It's okay,
+        # Rex. It's me." in his matched voice was ignored for two minutes, and so was his face.
+        bret = self.enroll('Bret', A)
+        self.on_guard(requester=bret)
+        self.camera.rows = [face(self.trace.at, identity=bret)]
+        self.assertTrue(self.guard.hear(self.capture(), Transcript('I think we gotta check out the fire alarm.', -.01, True), None))
+        self.assertEqual(self.state.sentry.phase, 'alarm')
+        self.guard.tick(self.trace.at)   # His face, before any cry or roast.
+        self.assertEqual(self.state.sentry.phase, 'off')
+        self.assertNotIn(rules.ALERT, self.spoken())
+        # The same by voice alone.
+        self.on_guard(requester=bret)
+        self.camera.rows = []
+        self.guard.hear(self.capture(), Transcript('I think we gotta check out the fire alarm.', -.01, True), None)
+        self.assertFalse(self.guard.hear(self.capture(), Transcript("It's okay, Rex. It's me.", -.01, True),
+                                         SimpleNamespace(voice=observation(A))))
+        self.assertEqual(self.state.sentry.phase, 'off')
+
+    def test_shut_down_works_for_someone_he_can_see_even_with_an_unclear_voice(self):
+        # October 22 (dc9f7480): "Shut down." from Bret, recognized in view, was ignored; he could not stop Rex.
+        bret = self.enroll('Bret', A)
+        self.on_guard(requester=bret)   # Not even tripped: whoever armed him, standing right there.
+        self.camera.rows = [face(self.trace.at, identity=bret)]
+        self.assertTrue(self.guard.hear(self.capture(), Transcript('Shut down.', -.01, True), None))
+        self.assertEqual((self.state.sentry.phase, self.shutdowns), ('off', ['voice']))
+        self.assertEqual(self.brain.calls, 0)
 
     def test_silent_mode_records_and_alerts_without_a_word(self):
         self.on_guard(audio=False)

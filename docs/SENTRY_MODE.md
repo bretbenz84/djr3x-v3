@@ -1,8 +1,13 @@
 # Sentry mode
 
-Owner request and rulings, October 22, 2026. First robot run October 22 (session `a45983c1`): it
-worked as designed except the alarm talk, which spoke as ordinary Rex; repaired the same night, and
-the repair is not yet run on the robot.
+Owner request and rulings, October 22, 2026.
+
+- **First robot run** (session `a45983c1`): worked as designed except the alarm talk, which spoke as
+  ordinary Rex. Repaired the same night.
+- **Second run** (`dc9f7480`): the alarm talk stayed on duty, but Bret, who had armed him and stayed,
+  was ignored by face and voice after the trip, and could not shut him down. Repaired too.
+
+Neither repair has run on the robot yet.
 
 Rex guards a room while he is left alone. He holds still with red lights and a slowly sweeping
 neck, and costs nothing while nothing happens. A stranger's face, or a full sentence from a voice he
@@ -65,6 +70,11 @@ Whoever was around while he armed (the person who asked, anyone recognized durin
 does not count as arriving while they leave. Once the room has been empty for 30 seconds, anyone
 he knows who shows up stands him down.
 
+That exemption ends the moment the alarm goes off: from then on, anyone he knows in view or clearly
+heard stands him down, including whoever armed him. On the second run, Bret armed him and stayed;
+after the trip his recognized face and matched voice were ignored for two minutes, and Rex called
+him a ruse.
+
 ## When the alarm goes off
 
 With alarm talk on, he plays a recorded "Intruder alert! Intruder alert!", his eyes and mouth flash
@@ -87,8 +97,12 @@ On the first robot run they were sent with all of that, and the alarm roasted "a
 room and not a face in sight" and a closet instead of the intruder.
 
 Nothing an intruder says changes anything. A name, "I know Bret", "stand down" or "shut down"
-from an unknown voice is ignored or teased. Only a recognized face or voice ends sentry mode. Typing
-`quit` in his terminal, Ctrl-C or the dashboard's Shut Down button still end the program.
+from an unknown voice is ignored or teased. Only a recognized face or voice ends sentry mode.
+
+An exact "shut down" always works when it comes from a voice he clearly matches, or while someone he
+knows is in view, even before a trip. On the second run, Bret said "Shut down." in view and
+recognized, but his voice didn't match clearly, and Rex stayed on until his time ran out. Typing
+`quit` in his terminal, Ctrl-C or the dashboard's Shut Down button also end the program.
 
 In silent mode none of this is said: the arm still swings out, and the recording and the alert
 still happen.
@@ -172,7 +186,7 @@ settings line costs about 40 characters each time.
 
 ## Evidence
 
-- **Contract checks** (`tests/test_sentry.py`, 37 tests, all synthetic: fake camera rows, voices,
+- **Contract checks** (`tests/test_sentry.py`, 40 tests, all synthetic: fake camera rows, voices,
   clocks, serial ports, HTTP and recorder) cover:
   - request parsing and rejection, the spoken settings and the countdown wording;
   - arrival and trip timing, brief faces and moving views, tiny faces;
@@ -188,8 +202,10 @@ settings line costs about 40 characters each time.
     - no alert for a false alarm; an intruder's "shut down" ignored; a known voice's obeyed;
     - alarm lines carrying only their brief and this intrusion's exchange;
     - standing down, with no cry, for someone recognized after the trip;
-    - the picture cropped to the stranger.
-- **Full suite:** 1,471 blocked-I/O checks pass (5 skipped as before).
+    - the picture cropped to the stranger;
+    - the second run replayed: whoever armed him and stayed stands him down after a trip, by face
+      or voice, and "Shut down." in view works. These three checks fail on the code that ran.
+- **Full suite:** 1,474 blocked-I/O checks pass (5 skipped as before).
 - **Video join:** ffmpeg on this Mac turned 60 synthetic 1920×1080 frames and a 440 Hz tone into
   a 12-second `video.mov` (Motion-JPEG and AAC).
 - **Paid probe** (`tools/check_sentry.py --live`, real reply model, fictional input): 7 of 7
@@ -213,6 +229,14 @@ settings line costs about 40 characters each time.
 - **Repair probe** (real reply model): three alarm lines for a voice nobody could see, with a
   telescope conversation in his history. All three stayed on guard duty ("I hear you, sneak.
   You're being recorded, and the owner's been alerted. Show yourself…"). No telescope.
+- **Second robot run** (session `dc9f7480`, October 22):
+  - Bret armed him for 5 minutes with a 10-second countdown and stayed in the room.
+  - "I think we gotta check out the fire alarm." (no clear voice match) tripped it.
+  - The alarm talk stayed on duty ("Show yourself, you suspicious little fire-safety enthusiast!").
+  - The alert arrived with a photo, and a recording was made and joined (139 s, 575 frames).
+  - Wrong: Bret was recognized in nearly every frame and matched by voice on "It's okay, Rex. It's
+    me." four times, all ignored as "leaving". "Shut down." was ignored too. He shut down only when
+    the 5 minutes ran out.
 
 ## Not yet checked on the robot
 
