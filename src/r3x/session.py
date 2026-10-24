@@ -50,6 +50,23 @@ REPEAT_RUN = 5      # Words in a row that count as repeating one of them.
 # described a telescope that was not there.
 LOOK_FAILED = ('The look failed: no picture was taken. Say plainly that you could not look just now. Do not '
                'describe, guess or confirm anything about what is there, and do not say a path is clear or blocked.')
+# October 23 (1e626e07): finding the duckling droid on the table took six asks. Two of the three look
+# tools could not move the head, and the one that could looked only when its question was filled in.
+# Every look now takes a direction; the head moves there first and the picture is taken after.
+HEAD_LOOKS = {'left': 'look_left', 'right': 'look_right', 'up': 'look_up', 'down': 'look_down'}
+LOOK_STEPS = frozenset(('look_left', 'look_right', 'look_up', 'look_down', 'look_center'))
+# Owner ruling October 23: a look a person asked for holds until he has answered from it, and about
+# this long after, even when they speak (the voice reflex waits). While he looks and answers it holds
+# for up to LOOK_ANSWER_SECONDS.
+LOOK_HOLD_SECONDS = 20.
+LOOK_ANSWER_SECONDS = 60.
+REQUESTED_LOOK_SECONDS = 600.   # "Look there again" (last_look) is offered this long after a requested look.
+LOOK_QUESTION = 'They asked: "{}". What do you see there that matters for what they asked?'
+# A yielded, unanswered piece of speech and the next piece that starts within this long are one utterance.
+FRAGMENT_JOIN_SECONDS = 5.
+# An unknown face is someone new for private memory once seen this long, at this detector confidence.
+NEWCOMER_SECONDS = 1.
+NEWCOMER_SCORE = .6
 
 
 def company_evidence(context, utterance):
@@ -155,6 +172,10 @@ class Session:
         self.proactive_hold_until = float("-inf")
         self.last_interaction_at = float("-inf")
         self.last_look_at = float("-inf")   # Latest camera look (inspection), his or asked for.
+        self._look_kept_turn = None   # The turn that pointed the head where a person asked.
+        self._fragment = None   # The words of a human turn he yielded on unanswered, to join to the next.
+        self._unanswered_turn = None   # A human turn whose reply was dropped for a reason other than more speech.
+        self._utterance = None  # This human turn's words, joined to such a fragment.
         self.last_spoken_reply = None
         self.last_trusted_speech_at = float("-inf")
         self.resolved_audio_at = float("-inf")
@@ -251,6 +272,46 @@ class Session:
                 self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='joke_material',
                                 model=getattr(getattr(self.joke_room.writer, 'capability', None), 'model', None))
 
+    def look_directions(self):
+        """Head directions a look may take before its picture: none without an awake robot head."""
+        robot = getattr(self.output, 'robot', None)
+        owner = getattr(robot, 'owner', None)
+        if owner is None or getattr(owner, 'state', None) not in ('active', 'moving') or not hasattr(robot, 'keep_requested_look'):
+            return []
+        recent = owner.requested_look and self.trace.clock() - owner.requested_look['at'] <= REQUESTED_LOOK_SECONDS
+        return [*HEAD_LOOKS, *(['last_look'] if recent else [])]
+
+    def _look_toward(self, direction, cancel, request_id, turn_id, *, requested, why):
+        """Point the head for a look and return when it arrived, or None when it did not move.
+
+        A person's look (requested) is held against the voice reflex and remembered as last_look;
+        Rex's own look is not."""
+        from dataclasses import asdict
+        robot = self.output.robot
+        earlier = robot.owner.requested_look if direction == 'last_look' else None
+        if direction == 'last_look' and not earlier:
+            return None
+        pose = dict(earlier['pose']) if earlier else HEAD_LOOKS[direction]
+        from .servo_poses import at_pose
+        if not earlier and at_pose(pose, robot.owner.commanded):
+            # Already looking that way (probe October 23: "He's white" while held left asked for left
+            # again): the look is taken from there, not swung on to the neck's limit.
+            arrived = robot.owner.head_moved_at if robot.owner.head_moved_at > float('-inf') else self.trace.clock()
+        else:
+            receipt = self.output.execute_pose(pose, cancel, request_id, hold_pose=requested)
+            self.trace.emit('robot_pose_result', turn_id=turn_id, pose=direction if earlier else pose, **asdict(receipt))
+            self.history.append({'role': 'developer', 'content': 'Robot pose controller receipt: ' +
+                                 json.dumps({'look': direction, **asdict(receipt)})})
+            if receipt.status != 'pulses_reached':
+                return None
+            arrived = receipt.at
+        where = earlier['where'] if earlier else pose.replace('_', ' ')
+        if requested:
+            robot.keep_requested_look(LOOK_ANSWER_SECONDS, where=where, why=why)
+            self._look_kept_turn = turn_id
+        self.state.present.rex_looked(where, why, self.trace.clock())
+        return arrived
+
     def _looking(self, faces, names):
         """Where Rex's head points, why, and what sits in the middle of his view and where the people
         are in it. October 14 (1662b007): his own plan tipped his head up; asked "what are you looking
@@ -272,6 +333,20 @@ class Session:
         kind, since = getattr(robot.idle, 'activity', ('following_people', float('-inf')))
         look = self.state.present.last_look
         chosen = look and now - look['at'] <= 45 and kind in {'holding_chosen_direction'}
+        # October 23 (1e626e07): held left where the owner had asked him to look, he was told "looking at
+        # the person he is with, since a couple of minutes ago" (the idle gaze's last phrase, minutes
+        # old), and nothing said the voice reflex had since swung his head back. Where the head is now
+        # comes from the servo owner: a person's look it still points at, or the move that took it away.
+        requested = getattr(owner, 'requested_look', None)
+        if requested and now - requested['at'] > REQUESTED_LOOK_SECONDS:
+            requested = None
+        there = bool(requested) and all(abs(commanded.get(ch, value) - value) <= (400 if ch == 0 else 150)
+                                        for ch, value in requested['pose'].items())
+        moved_by, moved_at = getattr(owner, 'head_moved_by', None), getattr(owner, 'head_moved_at', float('-inf'))
+        if there:
+            look, chosen, since = {'why': 'where you were asked to look (' + requested['why'] + ')'}, True, requested['at']
+        elif moved_by == 'reflex' and moved_at >= since:
+            kind, since = 'turned_to_a_voice', moved_at
         def where(x):
             return ('at the left edge of his view' if x < .15 else 'on the left of his view' if x < .38 else
                     'in the middle of his view' if x < .62 else 'on the right of his view' if x < .85 else
@@ -280,6 +355,7 @@ class Session:
         people = [f"{names.get(f.get('identity')) or 'someone'} {where(f['box'][0] + f['box'][2] / 2)}" for f in boxed]
         nearest = (names.get(boxed[0].get('identity')) or 'the person he is with') if boxed else 'the person he is with'
         why = (look['why'] if chosen and look['why'] else
+               'his head turned toward the voice of whoever spoke' if kind == 'turned_to_a_voice' else
                'a look he chose' if kind == 'holding_chosen_direction' else
                'nothing in particular: his eyes wandered off them for a moment' if kind == 'glancing_away' else
                'just looking around the room; nobody is in view' if kind == 'looking_around_the_room' else
@@ -294,7 +370,11 @@ class Session:
                    'why': why, 'people_in_his_view': people or None,
                    'in_the_middle_of_his_view': sorted(set(middle)) or None,
                    'meaning': GUIDE['right_now.rex.looking']}
-        if kind != 'following_people' and not chosen:
+        if requested and not there:
+            looking['earlier_look'] = (f"{ago(now - requested['at'])} you looked {requested['where'].removeprefix('look ')} "
+                                       f"where you were asked ({requested['why']}); your head has moved away from there "
+                                       "since. To look there again, use direction last_look.")
+        if kind not in {'following_people', 'turned_to_a_voice'} and not chosen:
             looking['if_asked'] = ('Answer the way a person would, lightly: what caught your eye ("Oh, that clock '
                                    'caught my eye") or "just stretching my neck". Never internal words such as idle '
                                    'glance, view, edge or middle, and never claim a reason you were given none of.')
@@ -334,7 +414,7 @@ class Session:
 
     def _planning_job(self, turn_id, context, planning_context, audience, capabilities, opportunity):
         """Everything the planner sees, captured now; planning itself may finish later."""
-        from .agency import evidence_catalog, recent_dialogue
+        from .agency import evidence_catalog, mentioned_lately, recent_dialogue
         from .servo_poses import POSE_COMMANDS
         agency = self.state.agency
         now = self.trace.clock()
@@ -388,6 +468,9 @@ class Session:
                                 'Seek a described thing to drive to something without a target.'},
             'current_goal': agency.context(now),
             'recent_goals': agency.goal_history(now),
+            'mentioned_lately': mentioned_lately(self.history_messages(), keep={
+                w for row in [*people.values(), *((context.get('photo_memory') or {}).get('entities') or [])]
+                for w in str(row.get('name', '')).lower().split()}),
             'engagement': agency.engagement(),
             # October 13: in long silences the planner kept riffing on the last line said;
             # interests and news never came up.
@@ -806,6 +889,7 @@ class Session:
                 self.trace.emit('agency_preparation' if planning_only else 'proactive_turn',turn_id=turn_id,event_id=opportunity.event_id,kind=opportunity.kind,
                     face_track_id=opportunity.target_track,person_id=opportunity.person_id,revision=self.revision)
             else:
+                self._utterance = None   # Set once this turn's words enter the conversation.
                 self.trace.emit("turn", turn_id=turn_id, capture_id=capture.capture_id, parent_capture_id=capture.parent_capture_id,
                             original_text=transcript.text, avg_logprob=transcript.avg_logprob,
                             trusted=transcript.trusted, speaker="unresolved", revision=self.revision)
@@ -926,7 +1010,25 @@ class Session:
                     "faces":context["faces"]},ensure_ascii=False)})
                 if sentry_reply and sentry_reply.get('note'):
                     self.history.append({'role':'developer','content':sentry_reply['note']})
-            if not opportunity: self.history.append({"role": "user", "content": transcript.text})
+            if not opportunity:
+                utterance = transcript.text
+                fragment, self._fragment = self._fragment, None
+                turns = self.history.turns
+                # Only the exchange just before this one, with nothing Rex said in it or since.
+                if (fragment and transcript.trusted and 0 <= capture.started_at - fragment['end'] <= FRAGMENT_JOIN_SECONDS
+                        and len(turns) >= 2 and turns[-2] is fragment['exchange']
+                        and all(m.get('role') in {'user', 'developer'} for m in fragment['exchange'])):
+                    # October 23 (1e626e07): "Look to your left and notice there is a." then "Duckling
+                    # droid on the counter." was answered as the second piece alone, a look straight ahead.
+                    # Owner, October 20: one reply to everything they said. The unanswered piece and this
+                    # one are one utterance; the separate source turns stay in the trace and store.
+                    del turns[-2]
+                    utterance = fragment['text'].rstrip() + ' ' + transcript.text.lstrip()
+                    context['current_utterance'] = utterance
+                    self.trace.emit('fragments_joined', turn_id=turn_id, earlier_turn_id=fragment['turn_id'],
+                                    utterance=utterance)
+                self._utterance = utterance
+                self.history.append({"role": "user", "content": utterance})
             # A newer capture can arrive while the previous ASR result waits in
             # the queue. Retain its source/history, but do not answer it belatedly.
             with self._lock:
@@ -984,6 +1086,13 @@ class Session:
                         GUIDE['visor_over_eyes (yours to raise)' if own_visor else 'visor_over_eyes']}
                 if opportunity and held - set(getattr(owner,'kept_channels',())) - ({3} if own_visor else set()):
                     context['robot_pose_enabled']=False
+            # October 23: the camera rides on his head, so a look in a direction turns the head there first.
+            # His own look never moves a head a person has pointed somewhere.
+            context['head_look_directions'] = (self.look_directions() if context.get('robot_pose_enabled') and not
+                (opportunity and getattr(self.output.robot.owner, 'holding_requested_look', lambda: False)()) else [])
+            if context.get('inspection_directions') == ['current'] and context['head_look_directions']:
+                context['inspection_directions'] = ['current', *context['head_look_directions']]
+                context['inspection_mode'] = 'head_looks'
             if self.state and not self.state.frozen and getattr(self.output,'drive',None) is not None:
                 context['drive'] = self.output.drive.context('self_initiated' if opportunity else 'requested',
                     speaker_direction=None if opportunity else (context.get('speaker') or {}).get('direction'),
@@ -1069,10 +1178,15 @@ class Session:
                 from .faces import VISIBLE_FACE_MAX_AGE
                 def fresh_faces():
                     now = self.trace.clock()
-                    # A tiny or weak detection (a portrait, a false positive) is not a newcomer.
+                    # A tiny or weak detection (a portrait, a false positive) is not a newcomer. October 23
+                    # (1e626e07): one blurry frame (detector .51, sharpness 8) dropped the reply to "There's
+                    # also a marionette puppet next to him." An unknown face counts once it has been seen
+                    # NEWCOMER_SECONDS and the detector is fairly sure of it.
                     return [f for f in latest_faces(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE
                             and f.get('face_epoch', 0) >= self.state.min_face_epoch
-                            and (f.get('identity') or (f.get('face_width_px') or 48) >= 48)]
+                            and (f.get('identity') or ((f.get('face_width_px') or 48) >= 48
+                                 and (f.get('detector_score') or 1.) >= NEWCOMER_SCORE
+                                 and f['at'] - f.get('track_first_seen', f['at'] - NEWCOMER_SECONDS) >= NEWCOMER_SECONDS))]
                 # The reply's own current-view sample: no extra camera read.
                 faces_at_start = max(len(context.get('current_view', {}).get('faces', [])), 1)
                 def memory_audience_valid():
@@ -1097,7 +1211,13 @@ class Session:
                 cancel.guard = memory_audience_valid
             from .conversation_intent import audience as intent_audience
             request_audience = intent_audience(context)
-            if (self.state and self.agency_planner and opportunity and not sentry_kind
+            # People first: a person's words he still owes an answer take the lull, not his own goal.
+            owed_answer = (opportunity is not None and not planning_only and not sentry_kind
+                           and opportunity.kind == 'reconsideration' and self._unanswered_turn is not None)
+            if owed_answer:
+                self.trace.emit('owed_answer', turn_id=turn_id, source_turn_id=self._unanswered_turn)
+                self._unanswered_turn = None
+            if (self.state and self.agency_planner and opportunity and not sentry_kind and not owed_answer
                     and opportunity.kind not in {'visual_arrival', 'pet_arrival', 'unseen_presence'}):
                 # Arrivals are greeted directly (people first); the runtime then hands the
                 # person to a new goal. Every other opportunity advances Rex's own goal.
@@ -1607,15 +1727,38 @@ class Session:
                     else:
                         delivery.status,delivery.medium='suppressed','none'
                 elif result.outcome=='ok' and call.name=='inspect_view':
-                    from dataclasses import asdict
+                    from dataclasses import asdict, replace
                     import json
                     expected_revision = result.revision
+                    # On the robot a direction turns the head; the simulation harness keeps its own directions.
+                    head_look = (inspection_request.direction if context.get('inspection_mode') == 'head_looks'
+                                 and inspection_request.direction in {*HEAD_LOOKS, 'last_look'} else None)
+                    head_arrived = None
+                    if head_look:
+                        head_arrived = self._look_toward(head_look, cancel, inspection_request.request_id + ':head', turn_id,
+                            requested=not opportunity,
+                            why=('asked to: ' + (context.get('current_utterance') or transcript.text)) if transcript is not None and not opportunity
+                                else (agency_step or {}).get('instruction') or inspection_request.question)
+                        with self._lock:
+                            self.state.attention.scene.invalidate(self.trace.clock())
+                            inspection_request = replace(inspection_request, direction='current',
+                                view_epoch=self.state.attention.scene.view_epoch,
+                                captured_after=None if head_arrived is None else head_arrived + .3)
                     expected_epoch = inspection_request.view_epoch
                     def inspection_valid():
                         with self._lock:
                             return self.state.store.revision==expected_revision and self.state.attention.scene.view_epoch==expected_epoch
                     cancel.guard = inspection_valid
-                    data, images = self.output.execute_inspection(inspection_request,cancel,inspection_valid)
+                    if head_look and head_arrived is None:
+                        data, images = {'request_id': inspection_request.request_id, 'status': 'failed', 'medium': 'controller',
+                                        'stage': 'movement', 'motion_status': 'not_completed', 'reason': 'HeadLookFailed'}, ()
+                    else:
+                        data, images = self.output.execute_inspection(inspection_request,cancel,inspection_valid)
+                    if head_look:
+                        data = {**data, 'direction': head_look, 'head_look': head_look,
+                                'motion_status': 'head_motion_finished' if head_arrived is not None else 'not_completed',
+                                'reason': data.get('reason') if data.get('status') != 'observed' else
+                                          f'Camera view captured after your head looked {head_look.replace("_", " ")}.'}
                     schedule_action_ok = data.get('status') in {'observed','simulated'} and data.get('stage') == 'complete' and bool(images)
                     self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
                     self.last_look_at = self.trace.clock()   # For his own looks: not the same thing again so soon.
@@ -1904,7 +2047,35 @@ class Session:
                             time.sleep(.02)
                     moved, last_at = True, self.trace.clock()
                     changed_channels = set()
-                    for index, step in enumerate(pose if isinstance(pose, tuple) else (pose,)):
+                    look_question = call.arguments.get('look_after')
+                    steps = pose if isinstance(pose, tuple) else (pose,)
+                    looks = [i for i, step in enumerate(steps) if isinstance(step, str) and step in LOOK_STEPS]
+                    if (looks and not opportunity and look_question is None and transcript is not None
+                            and getattr(self.output, 'inspection', None) is not None):
+                        # Owner ruling October 23: a look a person asks for always ends in a picture.
+                        # "Look left first" turned his head and he said "now we're back to searching"
+                        # without seeing anything (1e626e07).
+                        look_question = LOOK_QUESTION.format(context.get('current_utterance') or transcript.text)
+                    # The picture comes right after the last look step, before any step after it: October
+                    # 23, "look left first and then find him" became look_left, look_at_people with no
+                    # picture between them.
+                    capture_at = (looks[-1] if looks else len(steps) - 1) if look_question else None
+                    look_data, look_images = None, ()
+                    def capture_look(after):
+                        from .inspection import InspectionRequest
+                        with self._lock:
+                            self.state.attention.scene.invalidate(self.trace.clock())
+                            look = InspectionRequest(turn_id+':'+call.call_id+':look','current',look_question,
+                                self.state.attention.scene.view_epoch,self.trace.clock(),captured_after=after+.3)
+                        data, images = self.output.execute_inspection(look,cancel,lambda: True)
+                        data = {**data,'question':look_question,'source_turn_id':context.get('source_turn_id'),
+                                'after_poses':list(steps[:capture_at+1])}
+                        self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
+                        self.last_look_at = self.trace.clock()   # For his own looks: not the same thing again so soon.
+                        with self._lock:self.state.actions.observed(data)
+                        self.history.append({'role':'developer','content':'Inspection after moving: '+json.dumps(data)})
+                        return data, images
+                    for index, step in enumerate(steps):
                         suffix = f':{index}' if isinstance(pose, tuple) and len(pose) > 1 else ''
                         if isinstance(step, str) and step in LIGHT_STEPS:
                             # Lights run in sequence with the moves; the LED owner reports commands sent.
@@ -1924,14 +2095,20 @@ class Session:
                                 went_dark[0] = True
                             if moved and isinstance(step, str) and step.startswith(('look_', 'tilt_')):
                                 # Why his head is where it is, for when someone asks.
-                                self.state.present.rex_looked(step.replace('_', ' '),
-                                    (agency_step or {}).get('instruction') or
-                                    ('asked to: ' + transcript.text if transcript is not None else None),
-                                    self.trace.clock())
+                                why = ((agency_step or {}).get('instruction') or
+                                       ('asked to: ' + (context.get('current_utterance') or transcript.text) if transcript is not None else None))
+                                self.state.present.rex_looked(step.replace('_', ' '), why, self.trace.clock())
+                                if step in LOOK_STEPS and not opportunity and hasattr(self.output.robot, 'keep_requested_look'):
+                                    # A person's look holds while he answers from it (owner ruling, October 23).
+                                    self.output.robot.keep_requested_look(LOOK_ANSWER_SECONDS, where=step.replace('_', ' '), why=why)
+                                    self._look_kept_turn = turn_id
+                                elif step == 'look_at_people' and not opportunity:
+                                    self._look_kept_turn = None
                         cancel.check()
                         if not moved:
                             break
-                    look_question = call.arguments.get('look_after')
+                        if index == capture_at:
+                            look_data, look_images = capture_look(last_at)
                     with self._lock:
                         self.state.actions.motion_observed({'status':'pulses_reached' if moved else 'failed',
                             'stage':'complete','medium':'controller','changed_channels':sorted(changed_channels)})
@@ -1944,20 +2121,10 @@ class Session:
                         put_phrase(phrases,call.arguments['text'],cancel)
                     elif not look_question and not call.arguments.get('say_before'):
                         delivery.status,delivery.medium='suppressed','none'
-                    if moved and look_question:
+                    if moved and look_data is not None:
                         # September 28: "look down and tell me what you see" was answered from
                         # the old view, then a head move was made with nothing said at all.
-                        from .inspection import InspectionRequest
-                        with self._lock:
-                            self.state.attention.scene.invalidate(self.trace.clock())
-                            look = InspectionRequest(turn_id+':'+call.call_id+':look','current',look_question,
-                                self.state.attention.scene.view_epoch,self.trace.clock(),captured_after=last_at+.3)
-                        data, images = self.output.execute_inspection(look,cancel,lambda: True)
-                        data = {**data,'question':look_question,'source_turn_id':context.get('source_turn_id'),'after_poses':list(pose)}
-                        self.trace.emit('inspection_result',turn_id=turn_id,**data,image_count=len(images))
-                        self.last_look_at = self.trace.clock()   # For his own looks: not the same thing again so soon.
-                        with self._lock:self.state.actions.observed(data)
-                        self.history.append({'role':'developer','content':'Inspection after moving: '+json.dumps(data)})
+                        data, images = look_data, look_images
                         continuation = (*call.preamble,
                             {'type':'function_call','call_id':call.call_id,'name':call.name,'arguments':json.dumps(call.arguments)},
                             {'type':'function_call_output','call_id':call.call_id,'output':json.dumps({'poses':'pulses_reached','inspection':data})})
@@ -2257,6 +2424,11 @@ class Session:
                     self.trace.emit("worker_stuck", worker="output")
             if model_error:
                 delivery.status, delivery.error = "failed", model_error
+            if self._look_kept_turn == turn_id:
+                # His answer from a look a person asked for is over: the look holds about
+                # LOOK_HOLD_SECONDS more, then the voice reflex may turn him again (owner, October 23).
+                self._look_kept_turn = None
+                self.output.robot.keep_requested_look(LOOK_HOLD_SECONDS)
             # Only completed phrases enter history; no generated unheard tail.
             if worker and not worker.is_alive():
                 heard = " ".join(delivery.completed_text)
@@ -2285,10 +2457,24 @@ class Session:
                 elif transcript.trusted and delivery.status == "interrupted" and delivery.first_audio_at is None:
                     self._owed_reply = True
             if not opportunity and delivery.status == "interrupted" and delivery.first_audio_at is None and self._resumed_speech > source_end:
+                if transcript.trusted and self.history.turns and self._utterance is not None:
+                    self._fragment = {'text': self._utterance, 'end': source_end, 'turn_id': turn_id,
+                                      'exchange': self.history.turns[-1]}
                 self.history.append({"role":"developer","content":
                     "Rex yielded without speaking because microphone speech resumed after source turn " + turn_id +
                     ". The preceding user words remain part of the conversation; the next fragment may continue them. "
                     "This timing event does not establish that the voices are the same person."})
+            if (not opportunity and transcript.trusted and delivery.first_audio_at is None
+                    and cancel_reason[0] == 'private_memory_audience_changed'):
+                # October 23 (1e626e07): the reply to "There's also a marionette puppet next to him" was
+                # dropped this way and his next lull went to his own goal, so it was never answered.
+                self.history.append({"role": "developer", "content":
+                    "Rex's reply to the user's words above was dropped unheard because someone new seemed to "
+                    "come into view; nothing was said. Answer those words at the next chance, keeping private "
+                    "memories out of it if someone new is there."})
+                self._unanswered_turn = turn_id
+            elif not opportunity and (delivery.completed_text or delivery.status in {'completed', 'suppressed'}):
+                self._unanswered_turn = None
             if self.state and state_started and (opportunity or not self.state.forgotten):
                 try:
                     with self._lock:

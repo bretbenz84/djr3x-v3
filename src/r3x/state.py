@@ -35,6 +35,8 @@ INFER_BLOCKING_REASONS = frozenset({'missing_or_wrong_namespace', 'echo_mixed_or
 # A near spelling of a name counts as that person only for someone named this recently, and only
 # this close (October 18: Exodia .77 and Exotica .71 against the friend's saved spelling).
 NAME_SPELLING_SECONDS = 1800.
+# A fact about a pet ("he barks a lot") is about the pet named in this utterance or this long before.
+PET_NAMED_SECONDS = 600.
 NAME_SPELLING_RATIO = .7
 # A position a person asked for is kept this long against Rex's own moves (October 18).
 REQUESTED_POSITION_SECONDS = 120.
@@ -132,6 +134,7 @@ class CoreState:
         # Whose voice this conversation has clearly matched: {'person', 'confirmed', 'last_at'}.
         self.voice_conversation = None
         self.named_people = {}   # person_id -> when their exact name was last said or they were introduced.
+        self.named_pets = {}     # photo-memory pet id -> when a person last said its name.
         self.newcomers = {}      # person_id -> an introduced person's face and voice still being gathered.
         from .agency import AgencyPlan
         self.agency = AgencyPlan(store, trace, self.present)
@@ -219,6 +222,47 @@ class CoreState:
         if call.arguments['look_after'] is not None and not context.get('inspection_enabled'):
             raise ValueError('InspectionUnavailable')
         return tuple(poses)
+
+    def _named_pet(self, reference):
+        """The saved pet a claim's subject names, when a person said that name in the last PET_NAMED_SECONDS."""
+        if self.photo_memory is None or not isinstance(reference, str) or not reference.strip():
+            return None
+        from .photo_memory import names_subject
+        now = self.trace.clock()
+        text = self.current[2].text if self.current else ''
+        entities = self.photo_memory.data['entities']
+        for key, entity in entities.items():
+            if (entity['kind'] == 'pet' and names_subject(reference, entity['name'])
+                    and now - self.named_pets.get(key, float('-inf')) <= PET_NAMED_SECONDS
+                    # Words that name another saved pet or object are about that one, not this pet.
+                    and not any(k != key and names_subject(text, e['name']) for k, e in entities.items())):
+                return key
+        return None
+
+    def _pet_fact(self, call, entity_id):
+        """Append a person's fact about a saved pet to its photographic-memory notes."""
+        from .contracts import ToolCall
+        turn_id, capture, transcript, _, attribution = self.current
+        entity = self.photo_memory.data['entities'][entity_id]
+        args = call.arguments
+        note = (args['value'] if args['predicate'].strip().casefold() in args['value'].casefold()
+                else f"{args['predicate']}: {args['value']}")
+        edit = ToolCall(call.call_id, 'edit_object_memory', {'entity_id': entity_id, 'action': 'correct',
+                        'name': entity['name'], 'notes': note[:300], 'remove_notes': None,
+                        'source_turn_id': turn_id, 'text': 'Saved on the pet record.'})   # Never spoken.
+        source = {'turn_id': turn_id, 'session_id': capture.session_id, 'text': transcript.text,
+                  'speaker_id': attribution.person_id, 'speaker_track': attribution.track_id,
+                  'attribution_state': attribution.state, 'wall_time': self.wall_clock(),
+                  'named_recently': (entity_id,)}
+        request_id = capture.session_id + ":" + call.call_id
+        if args['source_turn_id'] != turn_id:
+            return ToolResult(request_id, 'rejected', 'SourceTurnMismatch', self.store.revision, {})
+        try:
+            data = self.photo_memory.apply(edit, source, self.trace.clock())
+        except (ValueError, OSError) as exc:
+            return ToolResult(request_id, 'rejected', str(exc), self.store.revision, {})
+        return ToolResult(request_id, 'ok', 'saved_on_pet_record', self.store.revision,
+                          {'pet': entity['name'], 'note': note[:300], 'status': data.get('status')})
 
     def _note_names_said(self, text):
         """Known people whose exact name or alias was said in this trusted utterance."""
@@ -532,6 +576,11 @@ class CoreState:
             for person_id in self._note_names_said(transcript.text):
                 if person_id in self.newcomers:   # "Talk to Jeremy": still getting to know him.
                     self.newcomers[person_id]['until'] = capture.ended_at + NEWCOMER_SECONDS
+            if self.photo_memory is not None:
+                from .photo_memory import names_subject
+                for key, entity in self.photo_memory.data['entities'].items():
+                    if entity['kind'] == 'pet' and names_subject(transcript.text, entity['name']):
+                        self.named_pets[key] = self.trace.clock()
         self.newcomers = {k: n for k, n in self.newcomers.items() if capture.ended_at <= n['until']}
         self.faces = tuple(f for f in faces if f.get("face_epoch",0)>=self.min_face_epoch)
         faces = self.faces
@@ -926,6 +975,17 @@ class CoreState:
                 cancel.check()
                 if revision != expected_revision:raise ValueError('StaleStateRevision')
                 return ToolResult(request_id,'ok','executed',revision,{'text':call.arguments['text']})
+            if call.name == 'record_claim' and call.arguments['kind'] == 'third_party':
+                pet = self._named_pet(call.arguments.get('subject_reference'))
+                if pet is not None:
+                    # October 23 (1e626e07): "He's very feisty, and he likes to bark a lot" about Max was refused
+                    # (NameDoesNotFitThatPerson) and the owner called it a programming limitation. A fact about a
+                    # saved pet goes on that pet's record, as notes, with the words of the person who said it.
+                    cancel.check()
+                    if revision != expected_revision:raise ValueError('StaleStateRevision')
+                    result = self._pet_fact(call, pet)
+                    self.trace.emit("tool_result", name=call.name, **asdict(result))
+                    return result
             if call.name in {'weather','calendar','systems_status'}:
                 # Read-only lookups: nothing is written, and a network wait never holds the store.
                 cancel.check()

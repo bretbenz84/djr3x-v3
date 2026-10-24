@@ -173,7 +173,10 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(payload["reasoning"], {"effort": "low"})
         self.assertFalse(payload["store"])
         self.assertEqual(payload["input"][0]["content"], "original")
-        self.assertNotIn("tools", payload)
+        # October 23: the same static tools on every reply request keep the cached prefix; none offered.
+        from r3x.semantics import TOOLS
+        self.assertEqual((payload["tools"], payload["tool_choice"]), (list(TOOLS), "none"))
+        self.assertEqual(payload["prompt_cache_key"], "r3x-reply")
         self.assertTrue(response.closed)
 
     def test_model_truncation_failure_and_cancellation_are_not_success(self):

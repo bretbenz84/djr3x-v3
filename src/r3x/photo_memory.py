@@ -137,7 +137,11 @@ class PhotoMemory:
         elif call.name=='edit_object_memory':
             key=a['entity_id'];entity=data['entities'].get(key)
             if entity is None:raise ValueError('UnknownPhotoEntity')
-            if not names_subject(source['text'],entity['name']):raise ValueError('PhotoSubjectNeedsExplicitName')
+            # A new note about a pet named a moment ago ("Max ..." then "he barks a lot") is allowed; a rename,
+            # a removal or forgetting still needs the name in these words.
+            recent=(a['action']=='correct' and a['name']==entity['name'] and a['remove_notes'] is None
+                    and key in source.get('named_recently',()))
+            if not names_subject(source['text'],entity['name']) and not recent:raise ValueError('PhotoSubjectNeedsExplicitName')
             if a['action']=='forget':
                 remove=[self._path(r['file']) for r in entity['references']];del data['entities'][key]
                 result={'entity_id':key,'status':'forgotten'}

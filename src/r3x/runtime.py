@@ -391,7 +391,9 @@ class VoiceRuntime:
             if event is None and present.someone_around(now, self.started_at):
                 # Then an animal coming into view: Max in someone's arms is worth a remark.
                 event = present.pet_arrival(self.session.session_id, now, self.session._latest_speech, audience)
-            if event is None:
+            # A person's words whose reply was dropped unheard (not for more speech) come next, before
+            # his own goal (October 23: the marionette line went unanswered while a goal beat ran).
+            if event is None and getattr(self.session, '_unanswered_turn', None) is None:
                 if not present.someone_around(now, self.started_at):
                     self.initiative_gate('nobody_around')
                     return

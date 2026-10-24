@@ -13,7 +13,8 @@ between phrases. The head belongs to the gaze:
   found V2's constant tracking creepy.
 - holding a direction: after the conversation model chose where to look (look_left,
   look_down, a silent look), the head stays there with small living movement until the
-  model looks back at people, someone speaks, or DIRECTION_SECONDS pass.
+  model looks back at people, someone speaks, or DIRECTION_SECONDS pass. A look a person
+  asked for stays as long as the servo owner holds it (October 23), speech included.
 
 With nobody in view it looks around the room. This aims the head only; it attributes no
 speaker and identifies nobody.
@@ -115,7 +116,7 @@ class IdleMotion:
     # Gaze ----------------------------------------------------------------
     def mode(self, now=None):
         now = self.owner.clock() if now is None else now
-        if self.gaze == 'direction' and now >= self._anchor_until:
+        if self.gaze == 'direction' and now >= self._anchor_until and not self.owner.holding_requested_look():
             self.look_at_people()
         return self.gaze
 

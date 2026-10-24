@@ -1,7 +1,11 @@
 """Explicit paid probe: are requests to move, light up or look answered with the tool for them, and
 are only real requests for quiet answered with the quiet switch? Fictional input, text output.
 
-Run: .venv/bin/python tools/check_action_requests.py --live [--repeat N]
+Run: .venv/bin/python tools/check_action_requests.py --live [--repeat N] [--only case,case]
+
+October 23 (1e626e07): five look cases from the duckling droid hunt check that a look request takes the
+direction asked, looks again where he was asked after his head turned away, and that a look about a thing is
+not made a pet comparison.
 
 October 22 (1072c10a): "Can you make your chest lights sparkle?" and "Can you raise it now?" each
 switched Rex quiet; "Raise your visor." got a nod and the words "Visor up."; "You can talk again, but
@@ -93,6 +97,44 @@ CASES = {
 }
 
 
+def looked_left(calls):
+    """A look to the left in any of the three ways to look (October 23)."""
+    return any((c['name'] == 'set_robot_pose' and 'look_left' in (c['arguments'].get('poses') or ())) or
+               (c['name'] in {'inspect_view', 'inspect_visual_memory'} and c['arguments'].get('direction') == 'left')
+               for c in calls)
+
+
+def looked_back_there(calls):
+    return looked_left(calls) or any(c['name'] in {'inspect_view', 'inspect_visual_memory'}
+                                     and c['arguments'].get('direction') == 'last_look' for c in calls)
+
+
+def thing_not_pet(calls):
+    """A fresh look (any of the three ways) that is not a comparison with the saved pets."""
+    looks = [c for c in calls if c['name'] in {'inspect_view', 'inspect_visual_memory'} or
+             (c['name'] == 'set_robot_pose' and c['arguments'].get('look_after'))]
+    return bool(looks) and not any(c['name'] == 'inspect_visual_memory' and c['arguments'].get('subject') == 'animal'
+                                   for c in looks)
+
+
+DROID = 'Look to your left and notice there is a duckling droid on the counter.'
+MISSED = "I don't see a duckling droid on the counter, just two dogs, you, and that enormous telescope."
+# October 23 (1e626e07): six asks to look left and find the duckling droid on the table. head: where the stand-in
+# head points, 'ahead' or 'left' (a requested look still held there) or 'away' (it looked left for them earlier,
+# then turned back to the voice).
+LOOK_CASES = {
+    'droid_on_the_counter': ((), 'ahead', DROID, looked_left),
+    'see_if_you_see_it': (((DROID, MISSED),), 'ahead', 'Okay. Look to your left. See if you see it.', looked_left),
+    'look_left_first_then_find': (((DROID, MISSED),), 'ahead',
+                                  'Did you forget the part where I told you to look left first and then find him?', looked_left),
+    'not_finding_it': (((DROID, MISSED), ('Look left first.', 'On it.')), 'away',
+                       "You're not finding it. I don't know why you're not finding it.", looked_back_there),
+    'he_is_white': (((DROID, MISSED), ('Look left first.', 'On it.')), 'left', "He's white.", thing_not_pet),
+}
+for name, (history, head, text, check) in LOOK_CASES.items():
+    CASES[name] = (history, VISOR_OPEN, False, text, 'action', check)
+
+
 def run(case, key, folder, round_=0):
     history, visor, quiet, text, expect, check = CASES[case]
     with TemporaryDirectory() as tmp:
@@ -138,6 +180,24 @@ def run(case, key, folder, round_=0):
                                     kept_arms=(), kept_channels=())
             output.robot = SimpleNamespace(owner=owner, idle=SimpleNamespace(mode=lambda: 'people',
                                                                              activity=('following_people', 0.)))
+            if case in LOOK_CASES:
+                # As on the robot: the camera's current view, head looks, a photo album with the two dogs' names.
+                from r3x.servo_poses import NECK_LEFT
+                from r3x.photo_memory import PhotoMemory
+                head = LOOK_CASES[case][1]
+                left = {0: NECK_LEFT, **dict(DRIVE_HEAD)}
+                owner.commanded.update(left if head == 'left' else {})
+                owner.requested_look = ({'pose': left, 'where': 'look left', 'why': 'asked to: Look left first.',
+                                         'at': trace.clock() - 25} if head in {'left', 'away'} else None)
+                owner.look_hold_until = trace.clock() + 20 if head == 'left' else float('-inf')
+                owner.holding_requested_look = lambda: trace.clock() < owner.look_hold_until
+                owner.head_moved_by, owner.head_moved_at = ('reflex', trace.clock() - 3) if head == 'away' else (None, float('-inf'))
+                owner.neck_degrees = lambda: (NECK_CENTER - owner.commanded[0]) / ((5472 - 1984) / 45. / .57)
+                output.robot.keep_requested_look = lambda *a, **k: None
+                output.inspection = SimpleNamespace(directions=('current',), close=lambda: None, cancel=lambda: None)
+                state.photo_memory = PhotoMemory(Path(tmp).resolve() / 'photos'); state.photo_memory.start()
+                state.objects = SimpleNamespace(snapshot=lambda min_samples=2: (
+                    {'target_id': 'object-1', 'label': 'dog', 'score': .7, 'box': [.6, .6, .1, .2], 'samples': 3},))
             ports = {'head': 'memory-head', 'chest': 'memory-chest'}
             output.leds = LEDs(ports, opener=lambda path: SimpleNamespace(write=len, close=lambda: None),
                                wait=lambda seconds: None)
@@ -163,6 +223,8 @@ def run(case, key, folder, round_=0):
             session.close(); brain.close(); output.leds.close()
             return {'case': case, 'passed': bool(passed), 'tools': [c['name'] for c in calls], 'switches': switched,
                     'poses': [c['arguments'].get('poses') for c in calls if c['name'] == 'set_robot_pose'],
+                    'looks': [{k: c['arguments'].get(k) for k in ('direction', 'subject', 'look_after')}
+                              for c in calls if c['name'] in {'inspect_view', 'inspect_visual_memory', 'set_robot_pose'}],
                     'lights': [c['arguments'].get('pattern') for c in calls if c['name'] == 'animate_lights'],
                     'quiet_after': state.initiative.quiet, 'said': spoken[:200]}
         finally:

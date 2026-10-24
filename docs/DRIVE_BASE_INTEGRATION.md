@@ -819,7 +819,8 @@ about 10% to 15% of its width, and "come here" afterwards reached the owner (3.5
 
 **Changes (simulated only).**
 
-- **He looks back with his head first.** The neck covers 40 degrees either side, so the
+- **He looks back with his head first.** The neck covers about 25 degrees either side
+  (October 23: measured from logged faces; 40 was believed before), so the
   body no longer swings back after a leg. He looks where the thing should be, then to the
   side it will have slid toward, then the other side; the body turns only when the thing
   lies beyond the head's reach, and once more, directly, when it is found.
@@ -1220,3 +1221,13 @@ here" after a stop still approached 3/3, "why did you do that?" still resumed th
 in 2 of 3; told-to-stay-put and voice-from-the-side unchanged at 3/3.
 Whether the board suppresses a voice under motor noise is not yet known: it needs a live
 test with the wheels running and someone saying "stop" at measured distances.
+
+## October 23: the neck's real reach
+
+Logged faces in four runs show the neck turns about 0.57 of the degrees the code assumed
+(`drive_space.NECK_PULSES_PER_DEG`; details in [implementation status](IMPLEMENTATION_STATUS.md)).
+Bearings taken with the head turned were overstated by that much, so turns toward something
+seen with a turned head overshot. Re-finding looks now go to 25 degrees (`LOOK_NECK_MAX`), the
+body turns when the thing lies beyond what the turned head sees (65 degrees, as before), and a
+missed head look at something more than 45 degrees aside turns the body toward it for one more
+look. Simulated only; not yet driven.

@@ -901,3 +901,17 @@ or arm mounting, or beam selection) is not established from the logs. When a fre
 is within 60 degrees of the voice bearing, the reflex now aims at the face; otherwise at
 the voice. "I'm over here" after a held look left was skipped as `neck_held`; a new voice
 now takes the neck back from an earlier held look. Synthetic checks only.
+
+### October 23 (run 1e626e07): looks a person asks for, and the neck's real angle
+
+- A look a person asks for (`set_robot_pose` look step, or a look tool's direction) holds until
+  he has answered from it and about 20 s after (`ServoOwner.look_hold_until`): the voice reflex
+  returns `holding_requested_look`, the idle gaze keeps the direction and his own beats cannot
+  move it. A person's `look_at_people`, `release_poses`, a drive or sentry ends it. Where it
+  pointed is kept for `last_look`.
+- Owner ruling: those looks are brisk, neck and head servos at speed 40 (lift pole unchanged).
+- The neck turns about 0.57 of V2's assumed degrees (fitted from logged faces in four runs, not
+  measured by eye). `drive_space.NECK_PULSES_PER_DEG` (camera geometry) is corrected and clamps
+  to the neck's travel; `servo_poses.NECK_PER_DEG` stays as the size unit for idle and talking
+  motion, which were tuned by eye. The "33-degree" look poses are about 19 degrees.
+Synthetic serial only; not yet run on the robot.

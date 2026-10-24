@@ -61,7 +61,9 @@ PERSON_REACH = .8         # Face range minus a front return within this may be k
 CRUISE_LOOK_S = 2.        # While rolling, a new look starts at most this often (hosted looks take 2-5 s).
 AIM_DEG = 15.             # Re-aim only past this while the path ahead is open (legs re-locate anyway).
 LOST_AFTER_S = 2.5         # Unseen this long mid-approach: stop and look for them (was 6 s, then gave up).
-LOOK_NECK_MAX = 40.        # Head looks while re-finding a person stay inside the talking gaze range.
+# Head looks while re-finding a person or thing: as far as the neck turns. October 23: it reaches about
+# 25 degrees each way, not the 40 assumed before (drive_space.NECK_PULSES_PER_DEG).
+LOOK_NECK_MAX = 25.
 MAX_REACQUIRES = 3
 VOICE_LEG_M = 2.           # With only a voice to go on, roll this far toward it looking for a face.
 # October 3 hallway run: pointed slightly into a hallway wall he refused every forward move,
@@ -1809,9 +1811,9 @@ class DriveBase:
         """Point the head (neck) degrees left of the base (0 recentres); False without servos."""
         if self.servos is None or not hasattr(self.servos, 'execute_pose'):
             return False
-        from .drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
+        from .drive_space import neck_pulse
         degrees = max(-LOOK_NECK_MAX, min(LOOK_NECK_MAX, degrees))
-        receipt = self._head({0: round(NECK_CENTER - degrees*NECK_PULSES_PER_DEG)}, cancel, 'drive-look')
+        receipt = self._head({0: neck_pulse(degrees)}, cancel, 'drive-look')
         self._view_since = self.clock() + HEAD_SETTLE_S   # A hosted look waits for the head to be still.
         return getattr(receipt, 'status', None) == 'pulses_reached'
 
@@ -2170,12 +2172,13 @@ class DriveBase:
 
         October 3: after each leg he swung his whole body back to a predicted bearing,
         looked twice at that one spot, and gave up; the predictions were off and the turns
-        overshot. The head covers 40 degrees either side at once, so the body turns only
+        overshot. The head covers LOOK_NECK_MAX either side at once, so the body turns only
         when the thing lies beyond that, and once more, directly, when it has been found."""
         description = self._sought['description']
         expected, turned = self._expected_sought(), 0.
         can_look = self.servos is not None and hasattr(self.servos, 'execute_pose')
-        if expected is not None and abs(expected) > (LOOK_NECK_MAX + 25. if can_look else 35.):
+        # Beyond what a turned head sees (its reach plus the 45 degree half view, less a margin), the body turns.
+        if expected is not None and abs(expected) > (LOOK_NECK_MAX + 40. if can_look else 35.):
             # Never back up to make room here (September 27: a hallway corner beside the
             # arms turned every re-aim into a reverse, and he looped).
             turn = self._turn(max(-120., min(120., expected)), plan, cancel, escape=False)
@@ -2207,6 +2210,14 @@ class DriveBase:
                 break
         if moved:
             self._look(0., cancel)   # Level and centred again: bearings below are base-relative.
+        if (found is None and not turned and expected is not None and abs(expected) > LOOK_NECK_MAX + 20.
+                and self._vision_calls < self._vision_budget()):
+            # October 23: the neck reaches about 25 degrees, not 40, so a thing predicted well to the side
+            # can sit just past what the turned head sees. The body turns toward it for one more look.
+            turn = self._turn(max(-120., min(120., expected)), plan, cancel, escape=False)
+            turned += turn.get('turned_deg', 0.)
+            self._sought['slack'] = 90.
+            found, why = self._locate(description, cancel, self._sought)
         return found, why, turned
 
     def _expected_sought(self):

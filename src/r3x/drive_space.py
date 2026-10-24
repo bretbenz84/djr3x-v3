@@ -24,8 +24,15 @@ MIN_TURN = 10.
 # (about 44 degrees per half frame), and face range then matched the owner's
 # 4-5 ft estimate. V2's 25 degrees came from a commanded turn that overshoots.
 HALF_FOV = 45.
-from .servo_poses import NECK_CENTER
-NECK_PULSES_PER_DEG = (5472 - 1984) / 45.  # V2 owner: neck sweeps about 90 degrees in total.
+from .servo_poses import LIMITS, NECK_CENTER
+# Neck pulses per degree the head actually turns. V2's figure (the owner's "sweeps about 90 degrees",
+# 77.5 per degree) was never measured. October 23: in runs 1e626e07, e72ab522, 0421a222 and 1072c10a,
+# a recognized face seated still moved across the picture only 0.48-0.65 (pooled 0.57) as far as a
+# neck change should move it with the IMU-checked 90 degree lens above. The neck turns about 0.57 of
+# what was assumed: its whole travel is about 51 degrees, and "look left" (8000/2944) about 19 degrees.
+# With the old figure the voice reflex aimed at Bret's face 25 degrees short and crept toward him in
+# steps. Idle and talking motion keep their own sizes (servo_poses.NECK_PER_DEG): those were tuned by eye.
+NECK_PULSES_PER_DEG = (5472 - 1984) / 45. / .57
 FACE_WIDTH = .16
 MATRIX_CLEAR = 3.5
 FRONT_MARGIN = .35      # Host stop short of a front return; firmware still stops at its zone.
@@ -397,6 +404,11 @@ def image_bearing(box, neck_deg: float = 0.) -> float:
     """Base-relative bearing, +left: camera angle plus the neck's current angle."""
     x, _, w, _ = box
     return (.5 - (x + w/2)) * 2 * HALF_FOV + neck_deg
+
+
+def neck_pulse(degrees: float) -> int:
+    """The neck pulse pointing the head this many degrees left of the base, within its travel."""
+    return max(LIMITS[0][0], min(LIMITS[0][1], round(NECK_CENTER - degrees * NECK_PULSES_PER_DEG)))
 
 
 def neck_degrees(pulse) -> float:

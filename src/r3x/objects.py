@@ -136,6 +136,17 @@ class Objects:
             out.append((crop_image(frame,target['box']),target))
         return out
 
+    def fresh_after(self,at,cancel,timeout=4.):
+        """Wait for a frame taken after `at`, when a look has just turned the head (October 23)."""
+        deadline,wall=self.clock()+timeout,time.monotonic()+timeout
+        while True:
+            cancel.check()
+            with self.lock:
+                if self.frame is not None and self.frame.at>=at:return
+            if self.stop.is_set() or self.failure or self.clock()>=deadline or time.monotonic()>=wall:
+                raise ValueError('FreshObjectViewUnavailable')
+            cancel.event.wait(.05)
+
     def inspect(self,target_id=None):
         with self.lock:
             if self.stop.is_set() or self.failure or not self.frame or not 0<=self.clock()-self.frame.at<=4:

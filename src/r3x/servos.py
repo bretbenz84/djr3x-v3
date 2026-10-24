@@ -116,6 +116,12 @@ class ServoOwner:
         self.microphone_moved_until = 0.       # Channel 7 carries the microphone array.
         self.microphone_still_since = float('-inf')  # When the array arm last stopped moving.
         self.head_moved_at = float('-inf')     # When the head last finished a view-changing move.
+        self.head_moved_by: str | None = None  # The kind of request that made that move (reflex, pose, idle...).
+        # October 23 (1e626e07): asked to look left and find the duckling droid, his head was pulled
+        # back to the speaker by the voice reflex before each look. A look a person asked for is kept
+        # until this time (the session sets it), and where it pointed is remembered to look again.
+        self.look_hold_until = float('-inf')
+        self.requested_look: dict | None = None   # {'pose': head pulses, 'where', 'why', 'at'}
         self.energized_channels: tuple[int, ...] = ()  # Channels that were off at start.
         # Dashboard manual override: only operator poses (and park/shutdown) run while set.
         self.operator = False
@@ -223,6 +229,12 @@ class ServoOwner:
         """A person shut his visor and has asked nothing newer of him for a while: he may raise it."""
         return (visor_over_eyes(self.commanded) and not self.hold_until_released
                 and self.clock() - self.pose_held_at >= VISOR_RAISE_SECONDS)
+
+    def holding_requested_look(self) -> bool:
+        return self.clock() < self.look_hold_until
+
+    def end_requested_look(self):
+        self.look_hold_until = float('-inf')
 
     def release_microphone_hold(self):
         self.microphone_hold = (0., 0.)
@@ -515,6 +527,7 @@ class ServoOwner:
                         self.microphone_still_since = self.clock()
                     if reframed:
                         self.head_moved_at = self.clock()
+                        self.head_moved_by = request.kind
                     self._motion.clear()
                 self._lock.release()
 

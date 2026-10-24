@@ -56,6 +56,18 @@ def run(session,call,snapshot,generate,cancel):
         try:
             if not state.objects:raise ValueError('ObjectCameraUnavailable')
             teaching=call.arguments['intent']=='teach'
+            direction=call.arguments.get('direction') or 'current'
+            if direction not in ('current',*snapshot.context.get('head_look_directions',())):
+                raise ValueError('MotionUnavailable')
+            if direction!='current':
+                # October 23 (1e626e07): "Look to your left and notice there is a duckling droid on the
+                # counter" got a close look where his head already pointed. A direction turns it first.
+                own=bool(snapshot.context.get('trigger'))
+                arrived=session._look_toward(direction,cancel,snapshot.turn_id+':'+call.call_id+':head',snapshot.turn_id,
+                    requested=not own,why=('asked to: '+snapshot.context.get('current_utterance','')) if not own
+                    else call.arguments['question'])
+                if arrived is None:raise ValueError('HeadLookFailed')
+                state.objects.fresh_after(arrived+.5,cancel)
             try:
                 image,target,overview=state.objects.inspect(call.arguments['target_id'])
             except ValueError as exc:
@@ -65,7 +77,10 @@ def run(session,call,snapshot,generate,cancel):
                 image,target,overview=state.objects.inspect(None)
             # October 18: with nothing chosen, every animal seen in the last few seconds gets its own
             # close crop; a pet is taught and compared from those, never from the whole room.
-            pets=[] if target.get('target_id') else list(getattr(state.objects,'pet_views',lambda:[])())
+            # October 23: only for a look about an animal. "He's white" (the duckling droid) got both
+            # dogs' crops and their saved photos, and "Oh, the white one, that's Toby."
+            animal=call.arguments.get('subject','animal')=='animal'
+            pets=[] if target.get('target_id') or not animal else list(getattr(state.objects,'pet_views',lambda:[])())
             now=session.trace.clock()
             evidence_id=album.offer(image,target,now)
             views=(overview,image) if target.get('target_id') else (image,)
@@ -78,11 +93,15 @@ def run(session,call,snapshot,generate,cancel):
             if teaching:
                 references,labels=(),[]
             else:
-                references,labels=album.references(call.arguments['entity_ids'] or None,kinds={'pet'} if pets else None)
+                chosen=call.arguments['entity_ids'] or None
+                if chosen and not animal:
+                    chosen=[e for e in chosen if (album.data['entities'].get(e) or {}).get('kind')!='pet'] or None
+                references,labels=album.references(chosen,kinds={'pet'} if pets else None if animal else {'object','room'})
                 room=PHOTO_IMAGE_LIMIT-len(views)
                 if len(references)>room:references,labels=references[:max(room,0)],labels[:max(room,0)]
             images=(*views,*references)
-            data={'outcome':'ok','intent':call.arguments['intent'],'evidence_id':evidence_id,
+            data={'outcome':'ok','intent':call.arguments['intent'],'subject':'animal' if animal else 'thing',
+                  **({'head_look':direction} if direction!='current' else {}),'evidence_id':evidence_id,
                   'evidence_ids':[row['evidence_id'] for row in labels_current],'target':target,
                   'question':call.arguments['question'],'images':[*labels_current,*labels]}
             ctx={**snapshot.context,**context(state),'photo_inspection':data}
@@ -108,6 +127,10 @@ def run(session,call,snapshot,generate,cancel):
             'in, then ask the person something about it. If it clearly is a saved pet, use its name ("Oh look, it\'s '
             'Max! How\'s he behaving tonight?"); if you are not sure, ask playfully ("Is that Max? Hey there, buddy!"). '
             'Never talk about image quality or how confident the match is.'})
+    elif data.get('outcome')=='ok' and data.get('intent')=='look' and data.get('subject')=='thing':
+        messages=(*messages,{'role':'developer','content':
+            'This look is about a thing, not an animal: answer about the thing they mean, from the current view. If '
+            'you cannot find it there, say so plainly and where you looked; do not name or describe a pet instead.'})
     elif data.get('outcome')=='ok' and data.get('intent')=='look':
         # October 13: shown Max's saved photo while Bret held him, Rex said "a small dark-colored
         # dog", then tried to save a photo to answer "you know which dog" and asked for the name.

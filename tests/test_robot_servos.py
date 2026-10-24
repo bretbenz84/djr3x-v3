@@ -104,7 +104,7 @@ class RobotServoTests(unittest.TestCase):
         self.robot.execute_pose('look_left',Cancellation(),'own-look',hold_pose=False)
         self.assertEqual(self.robot.idle.mode(),'direction')
         self.assertEqual(self.robot.owner.held_channels,set())
-        self.assertEqual(self.robot.reflex.face(20.),'started')
+        self.assertEqual(self.robot.reflex.face(-20.),'started')   # A voice on his right (look_left is ~19 degrees left).
         self.robot.reflex.stop()
         self.assertEqual(self.robot.idle.mode(),'people')
 

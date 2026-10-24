@@ -520,6 +520,8 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
 
 
 LOOK_NECK_DEG = 35.       # Idle glances stay inside the talking gaze range.
+# Motion sizes in V2's assumed neck degrees, tuned by eye on the robot. The neck actually turns about
+# 0.57 of a degree per such unit (October 23); drive_space.NECK_PULSES_PER_DEG is the camera geometry.
 NECK_PER_DEG = (5472 - 1984) / 45.
 # A head move inside these pulse deltas (about 5 degrees) leaves the camera view
 # effectively unchanged: it does not restart scene settling or arrival tracking.
@@ -983,7 +985,8 @@ def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True) 
     return lanes
 
 
-# Explicit look requests (September 28). look_left mirrors look_right about the centre:
+# Explicit look requests (September 28). October 23: the "33-degree" poses below turn the head about
+# 19 degrees (drive_space.NECK_PULSES_PER_DEG); their pulses are unchanged. look_left mirrors look_right about the centre:
 # the startup scan's 4000 is only ~19 degrees, less than a 20% joint request, so a
 # "look left" after one visibly swung right. Named look_* (not head_*) because the model
 # announced "head_right" as "Turning right." Side, up/down and the side tilt are separate
@@ -996,6 +999,7 @@ NECK_LEFT, NECK_RIGHT = 2 * NECK_CENTER - 8000, 8000
 # 33-degree pose; already there or beyond, it goes on to the neck's limit on that side.
 NECK_POSES = {'look_left': -1, 'look_right': 1}
 LOOK_PITCH, LOOK_TILT = .8, .8
+LOOK_SPEED = 40   # A person's look: twice the ordinary pose speed, still below the voice reflex's 60.
 HEAD_POSES = {
     'look_down': {'lift': 3200, 'pitch': -LOOK_PITCH}, 'look_up': {'lift': 4200, 'pitch': LOOK_PITCH},
     'look_level': {'lift': 3600, 'pitch': 0., 'tilt': 0.},
@@ -1188,5 +1192,13 @@ def pose_lanes(name, current, further=True):
     if set(POKER).issubset(target):
         lanes += (poker_lane(current, {ch: target.pop(ch) for ch in POKER}),)
     if target:
-        lanes += ((Beat(tuple(target.items()), speed=20, acceleration=5),),)
+        # Owner ruling October 23: a look a person asks for is brisk. At speed 20 the head took about
+        # 3 s to swing across, and the answer came 9-11 s after the request (1e626e07).
+        # The neck and the head servos only: the lift pole keeps its usual pace in a lane of its own.
+        if further and set(target) <= set(HEAD) and set(target) - {1}:
+            if 1 in target:
+                lanes += ((Beat(((1, target.pop(1)),), speed=20, acceleration=5),),)
+            lanes += ((Beat(tuple(target.items()), speed=LOOK_SPEED, acceleration=10),),)
+        else:
+            lanes += ((Beat(tuple(target.items()), speed=20, acceleration=5),),)
     return lanes

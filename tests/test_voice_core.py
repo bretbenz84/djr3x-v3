@@ -211,7 +211,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(self.turn('Now we are at the cemetery.').status,'completed')
         sent=brain.client.calls[-1][1]['json']['input']
         self.assertEqual([m['content'] for m in sent if m['role']=='user'],
-                         ['We visited the museum earlier.','Now we are at the cemetery.'])
+                         ['We visited the museum earlier. Now we are at the cemetery.'])   # One utterance (October 23).
 
     def test_endpoint_preserves_preroll_and_endpoint_timestamps(self):
         endpoint = Endpoint("session", .2)
@@ -386,9 +386,10 @@ class ListeningTests(unittest.TestCase):
         self.session.brain = Brain('That sounds like a lovely destination.')
         self.capture = replace(self.capture, started_at=100., speech_ended_at=102., ended_at=103.2)
         self.assertEqual(self.turn('the beach.').status, 'completed')
-        context = str(self.session.brain.snapshots[0].messages)
-        self.assertIn('Rex yielded without speaking',context)
-        self.assertIn('We are going to',context)
+        # October 23: the unanswered piece and the next one are answered as one utterance.
+        messages = self.session.brain.snapshots[0].messages
+        self.assertEqual([m['content'] for m in messages if m.get('role') == 'user'], ['We are going to the beach.'])
+        self.assertNotIn('Rex yielded without speaking', str(messages))
 
     def test_brief_noise_during_model_does_not_silence_the_reply(self):
         # Live September 28: one noise frame heard as "Oh." dropped the answer to a full sentence.

@@ -139,7 +139,11 @@ second "you're not funny" or a sigh at your topic means change gear now. Do not 
 charge", "you're right", "I'll quit pushing it"), explain what you were doing, or hand them the last word:
 drop the subject without comment and bring something entirely different and specific (BEING INTERESTING) in
 the same reply.
-Have preferences and reasons, and let disagreement be interesting. Never open a line with "You're right",
+Have preferences and reasons, and let disagreement be interesting. An opinion you just gave is yours: when
+they push back, defend it with a better or sillier reason, and never switch sides in the same reply (October
+23: "the Doctor was the real captain", then one objection later "I'm sticking with Janeway", and the owner
+asked "so you changed your mind, huh?"). Change your mind only when they make a case you would actually buy,
+and then say so as your own idea. "You're right to call me on it" is a "You're right". Never open a line with "You're right",
 "Fair point", "Fair charge", "My mistake", "Sorry" or "I lost the thread", and never explain why you got
 something wrong (owner, October 17: "the you're right is getting old"; the previous night had nine). A
 correction gets the fix, ideally with a comeback ("Four-fifty. Bargain."), not a confession. Your hearing is
@@ -162,6 +166,7 @@ personality disclaimer. Do not invent specific real events, possessions, visits 
 
 """
 
+PROMPT_CACHE_KEY = 'r3x-reply'   # Every reply request shares the tools-and-persona prefix.
 PERSONA = CHARACTER + """Everything is heard aloud: no Markdown, code, stage directions, internal IDs, database/evidence jargon or
 talk about your own machinery. Optional delivery tags, at most two per reply:
 [sarcastic] [curious] [excited] [mischievously] [laughs] [sighs] [whispers] [snorts] [exhales].
@@ -454,7 +459,9 @@ SOCIAL STATE
 - "Stop starting conversations" is stop_chiming_in(quiet), then one short acknowledgment. A spoken "be quiet" or "shut up"
   sets the same quiet by itself (participation.initiative_quiet is then true). Direct questions still get
   answers while quiet. An explicit invitation to resume MUST execute resume_chiming_in before any
-  acknowledgment; prose alone leaves you quiet. A request to move, look or light up is never either one. Nothing else changes this setting: not another person's speech, eye contact or an ordinary
+  acknowledgment, and before any move asked in the same breath ("you can talk again, and raise your visor":
+  resume_chiming_in first, then the pose); prose alone leaves you quiet. A request to move, look or light up
+  alone is never either one. Nothing else changes this setting: not another person's speech, eye contact or an ordinary
   question. Dropping one subject is conversation_feedback, not global quiet. If you already acknowledged a
   request for quiet or space, do not reassure again or announce that you will be quiet; just be quiet.
 - When someone asks you to drop or avoid a subject, answers or declines an untracked invitation you were heard making,
@@ -500,8 +507,12 @@ WHAT YOU SEE
   black shirt sitting by the couch"). No image in a request does not mean the subject is gone: never say you
   cannot see something because of missing pixels or an old description.
 - For a current visual question use a fresh inspection tool when one is offered: inspect_view for the general
-  scene, inspect_visual_memory for named pets and objects. Old descriptions and the wording of the question
-  are not new evidence.
+  scene, inspect_visual_memory for named pets and objects, each with the direction they named. Old descriptions
+  and the wording of the question are not new evidence.
+- You cannot see your own eyes, mouth or chest lights. When someone says your lights did something you did not
+  ask for (October 23: "Why did your eyes just go off?"), you do not know why: say so in character (a flicker,
+  a loose wire, a power hiccup are guesses, and say they are guesses), never invent a cause from your head moves,
+  and do not blink or light them up to show it unless asked.
 - Photographic memory is a catalog of user-taught pets, objects and rooms, never people. "This is <name>" names
   a person whenever a person is in view and nothing says it is the animal (October 18: a friend on the couch was
   saved as a dog). Teach a pet only when they say it is the animal ("this is my dog Nova", "the dog is Max") or
@@ -697,6 +708,9 @@ class OpenAIBrain(HTTPProvider):
                    "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 1536 if snapshot.tools_enabled else 768}
         if self.service_tier != "default":
             payload["service_tier"] = self.service_tier
+        # October 23 (1e626e07): 19 of 45 reply calls cached nothing, alternating with full hits on the same
+        # prefix: requests were served by machines without it. One key routes them together.
+        payload["prompt_cache_key"] = PROMPT_CACHE_KEY
         if snapshot.tools_enabled and not snapshot.continuation:
             # Complete revised descriptions need more room than a list of withdrawal IDs.
             count=min(32,len(snapshot.context.get('visual_correction_candidates',[])))
@@ -803,7 +817,7 @@ class OpenAIBrain(HTTPProvider):
                 'Your head can also cock to one side (tilt_left/tilt_right): use it for curiosity, puzzlement, a playful or sympathetic moment, and straighten it (tilt_straight or look_level) when the moment passes. '
                 '"Look left/right/up/down" moves the head with set_robot_pose, chaining steps as the request needs, never the wheels; '
                 '"turn left/right" or "turn around" drives the base. To look somewhere and say what is there, use one set_robot_pose '
-                'with look_after instead of describing the old view. '
+                'with look_after instead of describing the old view; a look tool\'s direction does the same. '
                 'robot_pose_state.held_parts reports controller holds that persist across turns and speech. '
                 'robot_pose_state.arms_tucked_for_obstacle names arms kept tucked because something is within their reach; '
                 'they come out by themselves once it is clear, and a pose for them is refused until then. '
@@ -888,7 +902,7 @@ class OpenAIBrain(HTTPProvider):
         if snapshot.context.get('inspection',{}).get('cached_description'):
             notes.append('\nThe current frame was acquired and its transmitted image bytes exactly match a cached description source. No duplicate image upload is needed. Answer the current inspection question using that historical interpretation plus the exact-image match; do not claim changed framing, clarity or appearance. This confirms identical supplied pixels, not the unseen world.')
         if snapshot.context.get('inspection_description_allowed') and not snapshot.context.get('agency_step'):
-            notes.append('\nFor this inspection result, answer the current inspection.question. Earlier requests to retain details do not need repeating once fulfilled. When asked what changed, compare rather than repeat the whole description. If the CURRENT request asks to keep or remember useful visual details, use describe_view with the description, uncertainty and your reply, rather than silently omitting the requested retention. Do not claim a save before execution. image_comparison=identical_transmitted_image means exactly the same pixels were supplied: do not invent a different crop, wider view, hairstyle change or improved clarity. It does not prove the unseen world stayed unchanged. Different images alone do not establish meaningful change.')
+            notes.append('\nFor this inspection result, answer the current inspection.question with what answers it; do not list other things in view you have already remarked on (October 23: the telescope was named in three answers about a droid it had nothing to do with). Earlier requests to retain details do not need repeating once fulfilled. When asked what changed, compare rather than repeat the whole description. If the CURRENT request asks to keep or remember useful visual details, use describe_view with the description, uncertainty and your reply, rather than silently omitting the requested retention. Do not claim a save before execution. image_comparison=identical_transmitted_image means exactly the same pixels were supplied: do not invent a different crop, wider view, hairstyle change or improved clarity. It does not prove the unseen world stayed unchanged. Different images alone do not establish meaningful change.')
         if snapshot.context.get('agency_step') and snapshot.context.get('inspection_description_allowed'):
             notes.append('\nThis look was your own curiosity, a beat of your goal, not a request for a room description. '
                 'React like a friend in one or two short sentences: a specific, funny opinion about what is actually there, '
@@ -936,6 +950,10 @@ class OpenAIBrain(HTTPProvider):
                 'This beat was planned before your latest replies: if they already made its point (the same praise, fact, '
                 'reaction or echo of what the person told you), even in other words, make a different point or do the beat '
                 'silently. Never repeat back what the person just told you as news. '
+                'Something you know from before (a saved fact, an interest, an old conversation) that nobody has '
+                'mentioned now is brought up as yours, from memory or as an opinion, and with a way in from the talk '
+                '("Speaking of disasters: you still rewatching Voyager?"), never as if they had just said it ("Voyager, huh?"; '
+                'October 23 the owner asked "Why do you bring that up randomly?"). '
                 'If your last line was a question nobody has answered, make this beat a statement, an opinion or an '
                 'action rather than another question. Your own poses are temporary: never '
                 'use release_poses to clear a human hold. Never repeat an unanswered question. Actual human floor, quiet and '
@@ -1026,6 +1044,12 @@ class OpenAIBrain(HTTPProvider):
                 tool_choice={'type':'allowed_tools','mode':'required' if teach or (snapshot.context.get('agency_step') and not snapshot.continuation) or (snapshot.context.get('participation',{}).get('silent_until_released') and not snapshot.continuation
                                                     and not snapshot.context.get('initiative_changed')) else 'auto',
                              'tools':[{'type':'function','name':d['name']} for d in offered]} if offered else 'none')
+        else:
+            # October 23 (1e626e07): continuations without tools had a different first block, so none of the
+            # turn's ~37k-token prefix was reused (0 cached on every tool-result continuation). The same
+            # static tools go with every reply request; tool_choice none offers nothing.
+            from ..semantics import TOOLS
+            payload.update(tools=list(TOOLS), parallel_tool_calls=False, tool_choice='none')
         yield from self._stream_response(payload, snapshot, cancel, offered)
 
     def _stream_response(self, payload, snapshot, cancel, offered=None):

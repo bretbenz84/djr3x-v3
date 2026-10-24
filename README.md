@@ -73,7 +73,9 @@ it or reads its data.
   - Someone he knows by face or voice stands him down. When the time runs out he shuts down.
   - Not yet run on the robot ([details and phone setup](docs/SENTRY_MODE.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
-  wide ~90° lens at 1920×1080.
+  wide ~90° lens at 1920×1080. A look someone asks for ("look left and see if you see it") turns
+  the head there first and holds it while he answers, even when they speak (October 23; not yet
+  run on the robot).
 - **Body (Pololu Maestro, 14 servos).**
   - Startup and park choreography, and talking motion driven by actual playback.
   - The moment he has understood what was said, his head cocks to one side while he

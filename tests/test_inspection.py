@@ -55,6 +55,15 @@ class InspectionTests(MemoryFixture):
         self.assertNotIn('data:image',str(self.state.trace.rows))
         self.assertFalse(self.store.claims())
 
+    def test_a_simulated_side_direction_stays_the_simulators_not_a_head_look(self):
+        # October 23: on the robot left/right turn the head; in this harness they stay its own moves.
+        self.setup_session()
+        self.brain.reply=lambda s,c: iter(['Synthetic left view.'] if s.continuation else
+                                          [ToolCall('left','inspect_view',{'direction':'left','question':'What is left?'})])
+        self.assertEqual(self.turn().status,'completed')
+        self.assertEqual(self.events,['move','settle','capture'])
+        self.assertNotIn('head_look',[r for r in self.state.trace.rows if r['event']=='inspection_result'][-1])
+
     def test_blocked_move_never_captures(self):
         self.setup_session()
         self.adapter.move=lambda r,c,d:MovementReceipt(r.request_id,r.direction,r.view_epoch,100,'blocked')

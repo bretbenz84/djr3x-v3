@@ -145,3 +145,11 @@ begins `neutral` speaking lights, plays the line and finishes them; failures are
 about 1.5 s ahead through PortAudio's buffered stream, so playback levels arrive early with
 their predicted play times; the mailbox holds 48 samples (was 8), still bounded. Synthetic
 checks only; the boot-line mouth has not been seen on hardware.
+
+## October 23: eyes resent between lines
+
+In run 1e626e07 the eyes went dark for several seconds between lines; no command had been sent
+and the Mac's log shows no USB reset of the head board, and they came back with his next line.
+The cause (an LED repaint or power dip) is not established. Between lines the eye colour is now
+resent every 3 s (`EYE_REFRESH_SECONDS`), never over a requested blink, so such a dropout heals
+within seconds. Fake ports only; not yet run on the robot.

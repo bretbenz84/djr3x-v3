@@ -261,9 +261,11 @@ class SentryGuard:
         return owner.neck_degrees()
 
     def _run_body(self):
-        from .drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
-        stops = rules.SWEEP_STOPS_DEG
-        pulse = lambda deg: NECK_CENTER - max(-45., min(45., deg)) * NECK_PULSES_PER_DEG
+        from .drive_space import neck_degrees, neck_pulse
+        # Stops beyond the neck's travel stop at its limit; each is kept as the angle actually reached,
+        # so a stop at the limit is not mistaken for a voice having turned his head.
+        stops = tuple(neck_degrees(neck_pulse(deg)) for deg in rules.SWEEP_STOPS_DEG)
+        pulse = neck_pulse
         self._move(lambda robot, cancel: robot.sentry_stance(cancel), wait=5.)
         survey_hold = max(3., self.state.plan.countdown_seconds / len(stops) - SURVEY_STEP_SECONDS) if self.state.plan else 3.
         index, step = 0, 1
@@ -283,7 +285,7 @@ class SentryGuard:
                 aim = max(-45., min(45., aim))
                 if target_deg is None or abs(aim - target_deg) > AIM_DEG:
                     if self._move(lambda robot, cancel, aim=aim: robot.sentry_look(pulse(aim), cancel, AIM_SECONDS, 'sentry:aim')):
-                        target_deg, moved_at = aim, self.clock()
+                        target_deg, moved_at = neck_degrees(pulse(aim)), self.clock()
             elif phase == 'countdown' and index < len(stops) and now - moved_at >= survey_hold:
                 if self._move(lambda robot, cancel, deg=stops[index]: robot.sentry_look(pulse(deg), cancel, SURVEY_STEP_SECONDS,
                                                                                          'sentry:survey')):

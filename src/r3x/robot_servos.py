@@ -122,12 +122,18 @@ class RobotServos:
             # interrupt: October 3, "keep your hand down and don't move it" was understood
             # and then cancelled 0.2 s later by someone else talking.
             cancel = Cancellation()
-        follow = name == 'look_at_people'
+        follow, requested = name == 'look_at_people', hold_pose
         if follow:
             # Following faces is the idle gaze's job, never a held pose. When a person asks
             # for it, their earlier held look gives way; Rex's own cannot override a hold.
             if hold_pose:
                 self.owner.held_channels.difference_update(HEAD)
+            elif self.owner.holding_requested_look():
+                # Rex's own look back does not end a look a person asked for (a goal beat's
+                # look_at_people while he searches the table for them).
+                from .servos import ServoReceipt
+                return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(),
+                                    self.owner.medium, reason='HoldingRequestedLook')
             hold_pose = False
             try:
                 aim = self.idle.face() if self.idle.face else None
@@ -139,10 +145,21 @@ class RobotServos:
             self.owner.clock()+60,pose=name,hold_pose=hold_pose),cancel)
         if receipt.status == 'pulses_reached':
             if follow or name == 'release_poses':
+                if requested:
+                    self.owner.end_requested_look()   # They asked him to look back: the search is over.
                 self.idle.look_at_people()
             else:
                 self.idle.posed(receipt.changed_channels or pose_channels(name), own=not hold_pose)
         return receipt
+
+    def keep_requested_look(self, seconds, *, where=None, why=None):
+        """A person asked him to look somewhere: the head stays there for this long (the voice
+        reflex and the idle gaze leave it), and where it points is kept to look there again."""
+        now = self.owner.clock()
+        self.owner.look_hold_until = now + seconds
+        if where is not None:
+            self.owner.requested_look = {'pose': {ch: self.owner.commanded[ch] for ch in HEAD if ch in self.owner.commanded},
+                                         'where': where, 'why': (why or '')[:200], 'at': now}
 
     def drive_look(self, pose, cancel, request_id):
         """A head move the drive owner makes to look at something mid-drive. The drive
@@ -170,6 +187,7 @@ class RobotServos:
 
     def prepare_base_motion(self, cancel):
         """Park the throttle arm and center the neck before any non-reverse base motion."""
+        self.owner.end_requested_look()   # The drive centres the head: a held look is over.
         self.idle.stop()
         self.reflex.stop()
         self.talking.stop()
@@ -234,6 +252,7 @@ class RobotServos:
     def sentry_stance(self, cancel):
         """On guard every arm stops, the throttle rests and the head is level. All of it is held,
         with no time limit, until sentry_release; talking motion and idle leave it alone."""
+        self.owner.end_requested_look()
         self.idle.stop()
         self.reflex.stop()
         self.talking.stop()

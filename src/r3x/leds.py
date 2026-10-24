@@ -24,6 +24,10 @@ LIGHT_STEPS = {'blink': 'blink', **{'lights_'+p: p for p in PATTERNS if p != 'bl
 GUARD_LEVEL = 140
 AWAKE_EYES = (255,200,0)   # Warm gold, the eyes of an ordinary awake Rex.
 FLASH_SECONDS = .25        # The alarm flash: eyes and mouth on and off this often.
+# October 23 (1e626e07): the eyes went dark for several seconds between lines with no command sent and no
+# board reset in the system log, and stayed dark until his next line set them. Between lines the eye
+# colour is sent again this often, so a dropped repaint or power dip heals within seconds.
+EYE_REFRESH_SECONDS = 3.
 
 
 @dataclass(frozen=True)
@@ -82,6 +86,8 @@ class LEDs:
         self._flash_on = True
         self._flash_at = float('-inf')
         self.speak_sent, self.speak_sends = float('-inf'), 0
+        self.eyes_sent = float('-inf')    # When the eye colour was last sent between lines.
+        self.blinking = False             # A requested blink is dark on purpose: no refresh over it.
         self.trace = None
         self.on_command = []              # Observers (zone, command) of each command written; the dashboard mirror.
 
@@ -142,9 +148,15 @@ class LEDs:
 
     def tick(self):
         with self.lock:
-            if self.state != 'ready' or not (self.speaking or self.demo):
+            if self.state != 'ready':
                 return
             now = self.clock()
+            if not (self.speaking or self.demo):
+                if ('head' in self.devices and not self.chest_only and not self.blinking
+                        and now - self.eyes_sent >= EYE_REFRESH_SECONDS):
+                    self._send('head', 'EYE:' + ','.join(map(str, self.eye_color)))
+                    self.eyes_sent = now
+                return
             while self.samples and self.samples[0][1]<=now:
                 self.sample = self.samples.popleft()
             # The head board loses serial bytes while it repaints its LEDs (V2 sends
@@ -195,6 +207,7 @@ class LEDs:
             self.version += 1
             token = self.version
             restore = 'EYE:'+','.join(map(str,self.eye_color))
+            self.blinking = True
         try:
             for _ in range(3):
                 for command,seconds in (('EYE:0,0,0',.15),(restore,.2)):
@@ -210,6 +223,7 @@ class LEDs:
             return 'commands_sent'
         finally:
             with self.lock:
+                self.blinking = False
                 # Restore an interrupted blink, but never override shutdown/new work.
                 if self.state=='ready' and token==self.version:
                     self._send('head',restore)

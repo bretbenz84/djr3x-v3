@@ -4,7 +4,7 @@ Speaker attribution is not changed here; this only aims the talking-motion ancho
 Priority: the attributed speaker's visible face, then the microphone-array bearing
 of the last utterance, then the largest visible face. Nothing to look at: None.
 """
-from .drive_space import NECK_CENTER, NECK_PULSES_PER_DEG, image_bearing
+from .drive_space import image_bearing, neck_pulse
 
 MAX_GAZE_DEG = 40.
 
@@ -20,7 +20,7 @@ def addressee_neck(faces, neck_deg, speaker_id=None, speaker_direction=None):
     else:
         return None
     bearing = max(-MAX_GAZE_DEG, min(MAX_GAZE_DEG, bearing))
-    return round(NECK_CENTER - bearing*NECK_PULSES_PER_DEG)
+    return neck_pulse(bearing)
 
 
 def face_aim(faces, neck_deg):

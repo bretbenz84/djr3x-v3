@@ -5,6 +5,9 @@ turns to face them as a reflex, taking over any earlier held look ("I'm over her
 The model can still look anywhere afterwards. The bearing is microphone-array evidence,
 never an identity; behind Rex (for example a TV in the next room) nothing moves.
 
+A look a person asked for is the exception: while the servo owner holds it (October 23),
+the reflex leaves the head where they asked it to look.
+
 The array rides on the hero arm. In session 5e97b13a it read Bret 6 degrees right while
 the camera saw his face 32-38 degrees left (the run before agreed within ~10). When a
 visible face lies near the voice's bearing, the head aims at that face instead: the
@@ -22,7 +25,7 @@ import random
 import threading
 
 from .contracts import Cancellation, ProviderFailure
-from .drive_space import NECK_CENTER, NECK_PULSES_PER_DEG, image_bearing
+from .drive_space import image_bearing, neck_pulse
 from .servo_poses import HEAD_PAIR, LIMITS, head_pose
 from .servos import ServoRequest
 
@@ -33,7 +36,7 @@ FACE_MATCH_DEG = 60.  # A visible face this close to the voice bearing is where 
 
 def voice_neck(bearing: float) -> int:
     """Neck pulse facing a +left array bearing, within the neck's calibrated travel."""
-    return max(LIMITS[0][0], min(LIMITS[0][1], round(NECK_CENTER - bearing*NECK_PULSES_PER_DEG)))
+    return neck_pulse(bearing)
 
 
 class VoiceReflex:
@@ -57,6 +60,11 @@ class VoiceReflex:
                 return 'unavailable'
             if abs(bearing) > FORWARD_DEG:
                 return 'behind'
+            if self.owner.holding_requested_look():
+                # October 23 (1e626e07): "you're not finding it" swung the head back from the table
+                # he had been asked to search. A look a person asked for holds until he has
+                # answered from it (owner ruling: about 20 s after the answer).
+                return 'holding_requested_look'
             self.on_voice()
             if self._thread is not None and self._thread.is_alive():
                 return 'already_turning'

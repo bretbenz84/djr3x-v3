@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 22, 2026. This is the consolidated
+Updated October 23, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,71 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## Looking for things, and the run's other problems — October 23 run 1e626e07
+
+Owner: "Rex struggles to turn his head to look for things when instructed." Asked six times in
+2¼ minutes to look left and find the duckling droid on the table, he found it on the sixth.
+- **One way to look.** Two of the three look tools could only photograph where the head already
+  pointed; the one that moved it looked only when its question was filled in. Every look now
+  takes a direction: `inspect_view` and `inspect_visual_memory` gain left, right, up, down and
+  `last_look` (where a person last had him look). On the robot the head turns there first and the
+  picture is taken after it arrives; already looking that way, it does not swing further.
+  `set_robot_pose` on a person's turn always ends a `look_*` step in a picture, taken right after
+  the look and before any look back ("look left first and then find him" was look_left,
+  look_at_people with no picture between).
+- **A requested look holds.** Owner ruling: until he has answered from it and about 20 s after,
+  even when they speak; the voice reflex ("You're not finding it" swung the head back) and the
+  idle gaze wait, and his own goal beats cannot move it. "Look at me" or a drive ends it. Owner
+  ruling: such looks are brisk (neck speed 40, was 20; the swing took about 3 s).
+- **He knows where his head points and why.** Held left at Bret's request he had been told
+  "looking at the person he is with, since a couple of minutes ago". The reason now comes from the
+  servo owner: the request it still points for, or the voice it turned to, with `earlier_look`
+  when the head has left a requested look.
+- **A look about a thing is not a dog check.** "He's white" (the droid) got both dogs' crops and
+  photos and "that's Toby". `inspect_visual_memory` has `subject` animal or thing; a thing look
+  gets no pet crops or pet photos.
+- **Split sentences are one.** "Look to your left and notice there is a." then "Duckling droid on
+  the counter." is answered as one utterance when the first piece was yielded unanswered and the
+  second starts within 5 s (the separate source turns stay in the trace and store).
+- **Neck calibration.** In four runs a seated face moved across the picture 0.48–0.65 (pooled
+  0.57) as far as a neck change should move it with the IMU-checked 90° lens: the neck turns about
+  0.57 of what V2's never-measured figure assumed (whole travel about 51°, "look left" about 19°).
+  The reflex aimed at Bret's face about 25° short and crept toward him. `NECK_PULSES_PER_DEG` is
+  corrected and every degree-to-pulse conversion clamps to the neck's travel; idle and talking
+  motion keep their tuned sizes. Drive re-finding looks go 25° (was a believed 40°), and a missed
+  head look at something far to the side turns the body for one more look.
+- **The lost reply.** One blurry, low-confidence frame (detector .51) counted as a newcomer and
+  dropped the reply to "There's also a marionette puppet next to him"; the owed answer then went
+  to his own telescope beat. A newcomer must be seen 1 s at .6 or better; a reply dropped for a
+  newcomer is answered at the next lull before any goal beat.
+- **The eyes.** They went dark for several seconds with no command sent and no USB reset in the
+  Mac's log, until his next line set them. Between lines the eye colour is now resent every 3 s
+  (not over a requested blink). He invented "my head reflex swung back toward your voice": he is
+  told he cannot see his own lights and to say he does not know.
+- **Pet facts.** "He's very feisty, and he likes to bark a lot" about Max was refused as a fact
+  about a person. A third-party fact naming a saved pet said in the last 10 minutes is added to
+  that pet's notes (not when the words name another pet).
+- **Content.** Saved-fact topics open as his own memory with a way in ("Voyager, huh?" got "Why do
+  you bring that up randomly?"); an opinion he just gave is defended, not reversed in the same
+  reply; words he has said in two or more recent lines (`mentioned_lately`, his own output only)
+  are spent for the planner; look answers stop listing the telescope.
+- **Cost.** Reply requests averaged 49k input tokens and 19 of 45 cached nothing. Continuations
+  now send the same static tools (tool choice none), and every reply request carries one
+  `prompt_cache_key`; one paid request confirmed the key is accepted. The cache-hit change on
+  the robot is not yet measured.
+- Speed was within the 4 s ruling: median 3.4 s to the first word, 5 of 23 over 4 s (max 4.8 s).
+
+Checks: the 1,492 blocked-I/O checks pass (18 new, mostly in `test_october23_looking.py` and
+`test_october23_repairs.py`; drive, gaze and reflex expectations moved to the measured neck).
+Paid probe `tools/check_action_requests.py` (real reply model, stand-in head): the five duckling
+cases 19 of 20 over four rounds (the miss looked left with the pose tool and a picture, now
+counted), all 27 cases 27 of 27. A first wording of the looking note dropped "You can talk again,
+but you can raise your visor too" to 1 of 8 (old code 7 of 8); with the lighter note and
+resume-first wording it is 8 of 8. Paid humor probe (`tools/check_humor.py --before HEAD`, one run of
+seven scenarios plus three more of pushback): no clear change (mean funniness 2.12 against 2.04;
+in the pushback scenario 3 retreats against 1 over four runs each, with equal funniness). **Not yet
+run on the robot**, the neck figure included; it is fitted from logged faces, not measured by eye.
 
 ## Sentry mode ignored the person who armed him — October 22 run dc9f7480
 

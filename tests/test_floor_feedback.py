@@ -6,7 +6,7 @@ import unittest
 
 from r3x.capture import Endpoint, Frame
 from r3x.contracts import Cancellation
-from r3x.drive import DrivePlan, DriveStep
+from r3x.drive import LOOK_NECK_MAX, DrivePlan, DriveStep
 from r3x.drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
 from r3x.gaze import addressee_neck
 from r3x.servo_poses import LIMITS, NECK_PER_DEG, talking_lanes
@@ -54,17 +54,19 @@ def face(x, width, identity=None):
 
 class GazeTests(unittest.TestCase):
     def test_looks_at_the_attributed_speaker_before_the_largest_face(self):
-        faces = [face(.2, .08, 'bret'), face(.8, .15, None)]   # Bret 27 degrees left; bigger stranger right.
+        faces = [face(.3, .08, 'bret'), face(.8, .15, None)]   # Bret 18 degrees left; bigger stranger right.
         neck = addressee_neck(faces, 0., 'bret')
-        self.assertAlmostEqual((NECK_CENTER - neck)/NECK_PULSES_PER_DEG, 27., delta=.5)
+        self.assertAlmostEqual((NECK_CENTER - neck)/NECK_PULSES_PER_DEG, 18., delta=.5)
         self.assertGreater(addressee_neck(faces, 0., None), NECK_CENTER)   # Largest face is to the right.
 
     def test_voice_direction_when_no_speaker_face_and_limits_when_nothing_visible(self):
-        neck = addressee_neck([], 0., 'bret', {'status': 'observed', 'bearing_deg': -30.})
-        self.assertAlmostEqual((NECK_CENTER - neck)/NECK_PULSES_PER_DEG, -30., delta=.5)
+        neck = addressee_neck([], 0., 'bret', {'status': 'observed', 'bearing_deg': -20.})
+        self.assertAlmostEqual((NECK_CENTER - neck)/NECK_PULSES_PER_DEG, -20., delta=.5)
+        # October 23: the neck turns about 25 degrees each way; a voice further round stops it there.
+        self.assertEqual(addressee_neck([], 0., 'bret', {'status': 'observed', 'bearing_deg': -30.}), LIMITS[0][1])
         self.assertIsNone(addressee_neck([], 0., None, {'status': 'ambiguous', 'bearing_deg': None}))
         far = addressee_neck([], 0., None, {'status': 'observed', 'bearing_deg': 170.})
-        self.assertAlmostEqual((NECK_CENTER - far)/NECK_PULSES_PER_DEG, 40., delta=.5)
+        self.assertEqual(far, LIMITS[0][0])
 
     def test_already_turned_neck_is_added_to_the_camera_bearing(self):
         neck = addressee_neck([face(.5, .1)], 20.)
@@ -950,7 +952,7 @@ class ReacquireAfterNudgeTests(unittest.TestCase):
         step = receipt.steps[-1]
         self.assertEqual(step['status'], 'completed', receipt)
         self.assertEqual(step['refound_by'], ['head_look'])
-        self.assertEqual(self.looks[0], 40)             # Looked left toward where he should be first.
+        self.assertGreater(self.looks[0], 0)            # Looked left toward where he should be first.
         self.assertLess(math.hypot(3.5 - fake.x, fake.y), 1.4)
 
     def test_a_body_turn_when_the_head_cannot_reach(self):
@@ -1681,7 +1683,7 @@ class LookBackTests(SeekTests):
         self.assertIsNotNone(found, why)
         self.assertAlmostEqual(found['bearing_deg'], -50., delta=4.)       # Base-relative, though seen with the head turned.
         self.assertEqual((swung, len([c for c in fake.commands if c['cmd'] == 'turn'])), (0., turns))
-        self.assertEqual(self.looks, [-40, 0])                              # Looked right, then centred again.
+        self.assertEqual(self.looks, [-LOOK_NECK_MAX, 0])                   # Looked right, then centred again.
 
     def test_when_it_is_not_where_expected_he_looks_to_the_other_side_before_giving_up(self):
         clock, fake, drive, world = self.start([('door', 'door', 3., 0.)])
@@ -1690,7 +1692,7 @@ class LookBackTests(SeekTests):
         found, why, swung = drive._find_again(plan, Cancellation(), shifted=1)
         self.assertIsNotNone(found, why)
         self.assertAlmostEqual(found['bearing_deg'], 20., delta=4.)
-        self.assertEqual(self.looks[:2], [-40, 0])                          # Right first, then the other way.
+        self.assertEqual(self.looks[:2], [-LOOK_NECK_MAX, 0])               # Right first, then the other way.
         self.assertEqual(swung, 0.)
 
     def test_far_behind_him_the_body_turns_once_then_the_head_looks(self):
@@ -1708,7 +1710,10 @@ class LookBackTests(SeekTests):
         before = len(self.calls)
         found, why, swung = drive._find_again(plan, Cancellation(), shifted=1)
         self.assertIsNone(found)
-        self.assertEqual(len(self.calls) - before, 2)                       # Two different views cover both sides.
+        # Two different head views cover both sides; then, with the neck's real 25 degree reach, the body
+        # turns toward where it should be for one more (October 23).
+        self.assertEqual(len(self.calls) - before, 3)
+        self.assertGreater(abs(swung), 40.)
         self.assertEqual(world.neck, 0.)
 
     def test_a_drive_look_starts_no_pose_hold(self):
