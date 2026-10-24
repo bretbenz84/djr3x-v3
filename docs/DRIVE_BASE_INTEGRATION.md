@@ -1250,7 +1250,8 @@ The ramp the host pushes was already gentle (0.35 m/s², 2 rad/s², below the fi
 - **Obstacle stops.** A near reading in the stop zone cut the speed ramp to zero in one
   tick and braked, then the base relaunched with the kick when the reading cleared.
 
-Firmware 0.2.10 (V2 working tree, `drive_shaping.h`; see V2_REFERENCE.md):
+Firmware 0.2.10 (`firmware/djr3x_motion/drive_shaping.h`, moved from V2 the same day;
+see V2_REFERENCE.md):
 
 - The breakaway push climbs from the running floor only while a wheel is actually
   stalled, and falls away once it moves, so he breaks loose with about the push he needs.
@@ -1268,7 +1269,8 @@ and the host. Estop, fault and comms loss still cut the motors (they coast).
 
 Checks (synthetic): a native test compiles the header and runs spin starts, stops (tracking
 and friction-stopped), a slow inside wheel, reflex stops at four speed/room pairs and one
-false frame against a toy wheel; all 39 native firmware tests pass in the V2 runner. Full
+false frame against a toy wheel; all 39 native firmware tests pass (V2 runner, then
+`tools/run_firmware_checks.py` after the move). Full
 four-flag Bluepad32 build 814,457 bytes, 90,956 globals.
 
 Deployment (owner-requested): battery meter booted out and the controller lock held while
@@ -1283,4 +1285,4 @@ with the firmware README's runbook command.
 Not yet driven. Open: the feel on the floor; whether the softer launch stalls a spin on
 carpet (the host reports `turn_stalled` after 2 s without progress); and the turn-coast
 compensation (`TURN_COAST_S`, fitted to the old push-then-brake stop), which the next run's
-turn receipts can refit. The firmware source is not yet in a pushed repository.
+turn receipts can refit.

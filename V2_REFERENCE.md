@@ -1249,6 +1249,38 @@ deceleration); `hal.cpp` uses it and `hal_drive_velocity` takes a `stopping` fla
 replaces the one-tick reflex cut with `reflex_ramp_step` and passes `stopping`; `calib.h` adds
 boost and reflex constants and retires `WHEEL_LAUNCH_CONFIRM_S`/`WHEEL_RESTALL_CONFIRM_S`;
 `hal.h`; `protocol.h` 0.2.10; README; new V2 test `test_drive_shaping.py`. No dependency
-or runtime config key added; no V2 application or data changed. The source exists only
-in the V2 working tree; nothing in either repository holds it. Evidence and outstanding live checks:
+or runtime config key added; no V2 application or data changed. The source then moved
+into v3 (next section). Evidence and outstanding live checks:
 [drive integration](docs/DRIVE_BASE_INTEGRATION.md#smooth-starts-and-stops--october-23-2026-firmware-0210).
+
+## Drive firmware moved into v3 — October 23, 2026
+
+Owner request: the drive firmware and its native tests live in this repository, V2 stays
+reference. Until now every firmware change since V2 `53cfbab` (September 25) existed only
+as uncommitted edits in the V2 working tree.
+
+Source: V2 HEAD `95f2403e78c9ef786054fa13a31bb2ac534cc29d` with uncommitted edits to
+`README.md`, `battery.cpp`, `calib.h`, `context.h`, `control.cpp`, `hal.cpp`, `hal.h`,
+`proto_io.*`, `protocol.h`, `tof.cpp`, `tof_fr_filter.h`, `tof_matrix.*` and untracked
+`drive_shaping.h`, `tof_matrix_floor.h`, i.e. firmware 0.2.10 as flashed. All 36 files of
+`firmware/djr3x_motion` copied unchanged to `firmware/djr3x_motion`; digest (SHA-256 of
+the sorted per-file SHA-256 list) `82d4815400dba0ce710e5d27e3135fe4a06e6ef641540c37726a8fdbdca53adb`
+on both sides. Afterwards only the README changed: a provenance note, V2 doc links pinned
+to that revision on GitHub, and test paths.
+
+Tests: `test_drive_shaping`, `test_gamepad_unplug` (V2 working-tree version),
+`test_tof_fr_filter`, `test_tof_fr_health`, `test_tof_fr_xtalk`, `test_tof_matrix_floor`
+and their two tracked sensor CSV fixtures moved to `firmware/tests` with paths rooted at
+`firmware/`. They compile firmware with clang++, which `run_checks.py` forbids, so
+`tools/run_firmware_checks.py` runs them: only clang++ and programs built under the temp
+directory may start; network, devices, V2 and `local/` stay blocked.
+
+Not copied: the radar ESP32 firmware (`firmware/djr3x_radar`), the bench sketch
+`firmware/tof_matrix_test`, `firmware/tools/*` and V2's protocol/system docs (the
+README links to them). V2's working tree keeps its uncommitted copy untouched.
+
+Checks: 39 native checks pass from v3. The full four-flag Bluepad32 build from v3 is
+814,457 bytes, 90,956 globals; against the flashed binary only the embedded ELF hash
+(32 bytes at 0xb0) and the trailing image checksum and digest differ, both from the
+sketch path recorded in the ELF, so the code on the board is this source. Remaining live
+validation is unchanged (previous section).

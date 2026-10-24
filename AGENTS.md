@@ -60,7 +60,9 @@ implemented. Update status and evidence when implementation actually lands.
 
 V2 is at `/Users/bbenziger/djr3x-v2`. Treat it as reference material, not a runtime
 dependency. Do not copy its config.py, requirements.txt, environment, startup chain,
-interaction handlers, or global state into v3.
+interaction handlers, or global state into v3. The drive ESP32 firmware now lives in
+v3 `firmware/djr3x_motion` (checks: `tools/run_firmware_checks.py`); edit and flash from
+there, not V2's copy. Firmware edits and flashes still need the owner's request.
 
 For each extraction, record source revision and working-tree status, behavior to
 preserve, dependencies, adaptation, focused checks, and remaining live validation

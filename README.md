@@ -88,7 +88,7 @@ it or reads its data.
   - Model-selected poses and a microphone hold for enrollment.
 - **Lights.** Head and chest startup/shutdown, speaking lights and model-selected
   animations.
-- **Wheels and radar** (V2 ESP32 firmware; owner-directed front-right radial disable October 10):
+- **Wheels and radar** (drive firmware in `firmware/djr3x_motion`, moved from V2 October 23; radar firmware still V2's):
   - The model plans turns, moves, facing and approaching people or objects, finding a
     person, and seeking things the detector cannot name ("find the door and go to it").
   - Approaches to a sought thing roll continuously while hosted vision looks run in the
@@ -147,6 +147,7 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 
 ```sh
 .venv/bin/python tools/run_checks.py                      # blocked-I/O contract checks
+.venv/bin/python tools/run_firmware_checks.py             # drive firmware, compiled natively
 .venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
 .venv/bin/python -m r3x replay local/dataset/manifest.json
 .venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl
@@ -154,6 +155,8 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 
 - `run_checks.py` blocks network, audio, serial and native libraries, and uses fake
   clocks, a simulated ESP32 and synthetic providers.
+- `run_firmware_checks.py` compiles drive-firmware headers with clang++ and runs them;
+  only the compiler and the programs it builds may start.
 - `scenario` drives the production session with scripted providers. `replay` runs real
   VAD/ASR/CAM++ on saved audio.
 - Hosted-model evaluations (for example `tools/check_drive_planning.py`) are paid, paced

@@ -295,6 +295,7 @@ The program cannot locate arbitrary copies outside its managed scratch data.
 
 ```sh
 .venv/bin/python tools/run_checks.py
+.venv/bin/python tools/run_firmware_checks.py   # drive firmware (clang++ only)
 .venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
 # Explicit paid synthetic checks; none open live devices or play sound:
 .venv/bin/python tools/check_meaning.py --variants
