@@ -142,7 +142,12 @@ def run(session,call,snapshot,generate,cancel):
     if data.get('intent')=='teach':
         # Teaching starts from the human's words and current pixels. Old model prose,
         # appearance notes and historical photos must not describe a different object.
-        ctx={k:ctx[k] for k in ('state_revision','source_turn_id','current_utterance','photo_memory','photo_inspection','trigger') if k in ctx}
+        # Owner ruling October 23 (run 8e11d468): after "This is Max" he asked "what name should I use?";
+        # the pet a person named a moment ago is passed on, since the earlier words are not.
+        entities=album.data['entities']
+        ctx['pets_just_named']=[{'entity_id':k,'name':entities[k]['name']} for k in state.recently_named_pets()]
+        ctx={k:ctx[k] for k in ('state_revision','source_turn_id','current_utterance','photo_memory','photo_inspection',
+                                'trigger','pets_just_named') if k in ctx}
         ctx['photo_memory']={**ctx['photo_memory'],'entities':[
             {k:v for k,v in entry.items() if k!='notes'} for entry in ctx['photo_memory']['entities']]}
         data['question']=ctx.get('current_utterance','')
@@ -150,7 +155,9 @@ def run(session,call,snapshot,generate,cancel):
         continuation=({'role':'developer','content':'Current photographic teaching evidence: '+json.dumps(data)+
                        ' A pet is saved from its own current pet crop (that crop\'s evidence_id), never the overview: pick '
                        'the crop of the animal they mean (held in their arms, beside them, the one they point out). '
-                       'With no pet crop, ask them to hold the animal up toward you instead of saving.'},)
+                       'With no pet crop, ask them to hold the animal up toward you instead of saving. pets_just_named '
+                       'lists saved pets they named in the last few minutes: unless these words name another, that is '
+                       'the pet they mean, so add the view to it (its entity_id and name) without asking its name again.'},)
     followup=replace(snapshot,messages=messages,context=ctx,continuation=continuation,images=images,tools_enabled=bool(images) and not ctx.get('trigger'))
     session.trace.emit('model_request',turn_id=snapshot.turn_id,primary_calls=0,purpose='photo_memory_continuation',
                        image_count=len(images),image_bytes=sum(len(i.data_url) for i in images),

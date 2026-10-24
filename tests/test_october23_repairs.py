@@ -107,6 +107,31 @@ class PetFactTests(MemoryFixture):
         self.assertNotIn('feisty', self.album.data['entities'][self.max]['notes'])
 
 
+    def another_photo(self, said_before, text):
+        from r3x.scene import encode_frame
+        from r3x.vision import Frame
+        self.begin(said_before, C)
+        self.begin(text, C)
+        other = encode_frame(Frame('other-frame', 'fake', 'session', 100., 4, 4, bytes([90, 30, 10]) * 16))[0]
+        evidence = self.album.offer(other, {'label': 'dog', 'box': [.5, .3, .1, .2], 'target_id': 'object-9'},
+                                    self.state.trace.clock())
+        call = ToolCall(uuid4().hex, 'remember_object', {'evidence_id': evidence, 'entity_id': self.max, 'name': 'Max',
+            'kind': 'pet', 'notes': 'Held up.', 'source_turn_id': self.state.current[0], 'text': 'Got another.'})
+        context = {'state_revision': self.store.revision, 'photo_memory': {'revision': self.album.data['revision']},
+                   'photo_inspection': {'evidence_id': evidence}}
+        return self.state.apply_photo(call, context, Cancellation())
+
+    def test_another_photo_of_a_pet_just_named_needs_no_name_again(self):
+        # Owner ruling October 23 (run 8e11d468): "Take another picture of him to add to the memory".
+        result = self.another_photo('No, you are wrong. This is Max.', 'Take another picture of him to add to the memory.')
+        self.assertEqual(result['outcome'], 'ok', result)
+        self.assertEqual(len(self.album.data['entities'][self.max]['references']), 2)
+
+    def test_words_naming_another_pet_never_add_a_photo_to_this_one(self):
+        result = self.another_photo('This is Max.', 'Take a picture of Toby too.')
+        self.assertEqual((result['outcome'], result['reason']), ('rejected', 'PhotoSubjectNeedsExplicitName'))
+
+
 class EyeRefreshTests(MemoryFixture):
     def test_between_lines_the_eye_colour_is_sent_again_but_never_over_a_blink(self):
         led, ports, clock = rig()

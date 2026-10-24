@@ -165,7 +165,8 @@ class CoreState:
             if not transcript.trusted or capture.echo_risk:raise ValueError('UntrustedPhotoTeaching')
             source={'turn_id':turn,'session_id':capture.session_id,'text':transcript.text,
                     'speaker_id':attribution.person_id,'speaker_track':attribution.track_id,
-                    'attribution_state':attribution.state,'wall_time':self.wall_clock()}
+                    'attribution_state':attribution.state,'wall_time':self.wall_clock(),
+                    'named_recently':self.recently_named_pets()}
             result=self.photo_memory.apply(call,source,self.trace.clock())
             return {'outcome':'ok','data':result}
         except (ValueError,OSError) as exc:
@@ -223,21 +224,26 @@ class CoreState:
             raise ValueError('InspectionUnavailable')
         return tuple(poses)
 
+    def recently_named_pets(self):
+        """Saved pets a person named in the last PET_NAMED_SECONDS, unless these words name another saved
+        pet or object. Owner ruling October 23 (run 8e11d468): "Take another picture of him" and "He also
+        has brown paws" right after "This is Max" were refused until he said the name again."""
+        if self.photo_memory is None or self.current is None:
+            return ()
+        from .photo_memory import names_subject
+        now, text = self.trace.clock(), self.current[2].text
+        entities = self.photo_memory.data['entities']
+        named_now = {k for k, e in entities.items() if names_subject(text, e['name'])}
+        return tuple(k for k, t in self.named_pets.items()
+                     if k in entities and now - t <= PET_NAMED_SECONDS and not named_now - {k})
+
     def _named_pet(self, reference):
-        """The saved pet a claim's subject names, when a person said that name in the last PET_NAMED_SECONDS."""
-        if self.photo_memory is None or not isinstance(reference, str) or not reference.strip():
+        """The recently named saved pet a claim's subject names (recently_named_pets)."""
+        if not isinstance(reference, str) or not reference.strip():
             return None
         from .photo_memory import names_subject
-        now = self.trace.clock()
-        text = self.current[2].text if self.current else ''
-        entities = self.photo_memory.data['entities']
-        for key, entity in entities.items():
-            if (entity['kind'] == 'pet' and names_subject(reference, entity['name'])
-                    and now - self.named_pets.get(key, float('-inf')) <= PET_NAMED_SECONDS
-                    # Words that name another saved pet or object are about that one, not this pet.
-                    and not any(k != key and names_subject(text, e['name']) for k, e in entities.items())):
-                return key
-        return None
+        entities = self.photo_memory.data['entities'] if self.photo_memory is not None else {}
+        return next((k for k in self.recently_named_pets() if names_subject(reference, entities[k]['name'])), None)
 
     def _pet_fact(self, call, entity_id):
         """Append a person's fact about a saved pet to its photographic-memory notes."""

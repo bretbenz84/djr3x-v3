@@ -90,8 +90,13 @@ run on the robot**, the neck figure included; it is fitted from logged faces, no
 left. And locate the desk." was one look left with a picture ("The desk is just left of the couch,
 beneath the monitor"); "What do you see on the table to the left?" after his head had turned away looked
 again with `last_look`. The voice reflex landed on the owner's face and later turns were already facing
-(no creeping). A split sentence was joined. Still open from that run: adding a photo or a detail to Max
-was refused twice because the words did not repeat his name, and Toby and Max were mixed up again.
+(no creeping). A split sentence was joined. Toby and Max were mixed up again (more close photos of
+each will help). Adding a photo or a detail to Max was refused twice because the words did not repeat
+his name. Owner ruling: a pet he just named takes the photo or detail without the name again, unless the
+words name a different pet. A pet a person named in the last 10 minutes now counts for another photo of
+it, a new note and a third-party fact, when the words name no other saved pet or object; a rename, a
+removal or forgetting still needs the name. The teaching look is told which pet was just named, so it
+no longer asks for it. The 1,495 blocked-I/O checks pass. Not yet run on the robot.
 
 ## Sentry mode ignored the person who armed him — October 22 run dc9f7480
 

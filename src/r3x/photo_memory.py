@@ -110,7 +110,11 @@ class PhotoMemory:
             raise ValueError('PhotoTeachingSourceMismatch')
         data=copy.deepcopy(self.data);created=None;remove=[]
         if call.name=='remember_object':
-            if not names_subject(source['text'],a['name']):raise ValueError('PhotoSubjectNeedsExplicitName')
+            # Another view of a pet a person named a moment ago may be added without the name again (owner
+            # ruling, October 23); a new pet or object is still named in these words.
+            again=(a['entity_id'] in source.get('named_recently',()) and
+                   (data['entities'].get(a['entity_id']) or {}).get('name')==a['name'])
+            if not names_subject(source['text'],a['name']) and not again:raise ValueError('PhotoSubjectNeedsExplicitName')
             evidence=self.evidence.get(a['evidence_id'])
             if not evidence or not 0<=now-evidence['offered_at']<=45:raise ValueError('PhotoEvidenceExpired')
             key=a['entity_id'] or uuid4().hex
@@ -137,8 +141,8 @@ class PhotoMemory:
         elif call.name=='edit_object_memory':
             key=a['entity_id'];entity=data['entities'].get(key)
             if entity is None:raise ValueError('UnknownPhotoEntity')
-            # A new note about a pet named a moment ago ("Max ..." then "he barks a lot") is allowed; a rename,
-            # a removal or forgetting still needs the name in these words.
+            # A new note about a pet a person named a moment ago ("This is Max" then "he also has brown paws")
+            # is allowed (owner ruling, October 23); a rename, a removal or forgetting needs the name in these words.
             recent=(a['action']=='correct' and a['name']==entity['name'] and a['remove_notes'] is None
                     and key in source.get('named_recently',()))
             if not names_subject(source['text'],entity['name']) and not recent:raise ValueError('PhotoSubjectNeedsExplicitName')

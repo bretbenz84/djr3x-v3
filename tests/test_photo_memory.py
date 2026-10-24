@@ -191,6 +191,11 @@ class PhotoTests(MemoryFixture):
 
     def test_details_preserved_and_other_dog_fragment_rejected_across_restart(self):
         key=self.teach()
+        toby=self.album.offer(image(),{'label':'dog','box':[.4,.3,.1,.2],'target_id':'object-2'},self.state.trace.clock())
+        self.album.apply(ToolCall('toby','remember_object',{'evidence_id':toby,'entity_id':None,'name':'Toby','kind':'pet',
+            'notes':'Other dog.','source_turn_id':'t','text':'Got it.'}),{'turn_id':'t','session_id':'s','text':'This is Toby.'},
+            self.state.trace.clock())
+        notes=lambda:self.album.data['entities'][key]['notes']
         # Replay writes through the same state and delivery path as the live run.
         def edit(utterance,notes,remove=None):
             class Edit:
@@ -204,27 +209,50 @@ class PhotoTests(MemoryFixture):
             session,receipt=self.session(Edit(),utterance);session.close();return receipt
         edit('Max is a terrier.','Terrier.')
         edit('Max has white and black fur.','White and black fur.')
-        expected=self.album.catalog()[0]['notes']
+        expected=notes()
         self.assertIn('Terrier.',expected)
         self.assertIn('White and black fur.',expected)
-        for text in ('Toby has dark black fur that.','Has gray with brown paws.','Maxx has brown paws.'):
-            receipt=edit(text,'Gray with brown paws.')
-            self.assertNotIn('Saved the detail.',receipt.completed_text)
-            self.assertEqual(self.album.catalog()[0]['notes'],expected)
+        # Words naming the other saved dog are never filed on Max.
+        receipt=edit('Toby has dark black fur that.','Gray with brown paws.')
+        self.assertNotIn('Saved the detail.',receipt.completed_text)
+        self.assertEqual(notes(),expected)
         edit('Max is not White and black fur. Max has brown and black fur.','Brown and black fur.','White and black fur.')
         receipt=edit('Max has brown fur.','Brown fur.','Terrier.')
         self.assertNotIn('Saved the detail.',receipt.completed_text)
-        self.assertIn('Terrier.',self.album.catalog()[0]['notes'])
+        self.assertIn('Terrier.',notes())
         receipt=edit('Max has brown fur.','Brown fur.','invented previous detail')
         self.assertNotIn('Saved the detail.',receipt.completed_text)
         restarted=PhotoMemory(self.album.root);restarted.start()
-        notes=restarted.catalog()[0]['notes']
-        self.assertIn('Terrier.',notes)
-        self.assertIn('Brown and black fur.',notes)
-        self.assertNotIn('White and black fur.',notes)
-        self.assertNotIn('Gray with brown paws.',notes)
+        saved=restarted.data['entities'][key]['notes']
+        self.assertIn('Terrier.',saved)
+        self.assertIn('Brown and black fur.',saved)
+        self.assertNotIn('White and black fur.',saved)
+        self.assertNotIn('Gray with brown paws.',saved)
         source=restarted.data['entities'][key]['history'][-1]['source']
         self.assertEqual(source['text'],'Max is not White and black fur. Max has brown and black fur.')
+        # Owner ruling October 23 (run 8e11d468): a detail right after Max was named is his, unnamed;
+        # removing a detail still needs his name in the words.
+        receipt=edit('He also has brown paws.','Brown paws.')
+        self.assertIn('Saved the detail.',receipt.completed_text)
+        self.assertIn('Brown paws.',notes())
+        receipt=edit('Not the brown fur.','Brown and black fur.','Brown and black fur.')
+        self.assertNotIn('Saved the detail.',receipt.completed_text)
+
+    def test_a_teaching_look_knows_the_pet_just_named(self):
+        # Owner ruling October 23 (run 8e11d468): after "This is Max" he asked "what name should I use?".
+        key=self.teach()
+        class Plain:
+            def reply(brain,snapshot,cancel):yield 'Noted.'
+        self.session(Plain(),'Max is on the couch.')[0].close()
+        seen=[]
+        class Teach:
+            def reply(brain,snapshot,cancel):
+                seen.append(snapshot)
+                yield ('Got it.' if snapshot.continuation else
+                       ToolCall('t2','inspect_visual_memory',{'intent':'teach','target_id':'object-1','entity_ids':[],
+                                'question':'Add this view.'}))
+        self.session(Teach(),'He is more of a light gray.')[0].close()
+        self.assertEqual(seen[-1].context['pets_just_named'],[{'entity_id':key,'name':'Max'}])
 
     def test_teaching_requires_save_or_explicit_defer_before_speech(self):
         for defer in (False,True):
