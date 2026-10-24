@@ -120,7 +120,7 @@ sensor; about a dozen mostly silent stand-downs; and 5–25 cm moves at a crawl.
   moving camera. V2's gamepad hand-back (4 s idle) is pushed at connect.
 - **Local reflex only.** V2's back-off: a radial-corroborated intrusion inside 25 cm
   held three 1 s ticks backs off up to 30 cm within rear room (no arm park for straight
-  reverse, per V2). The firmware keeps its reflex stop, 500 ms watchdog and 300 ms deadman.
+  reverse, per V2). The firmware keeps its reflex braking, 500 ms watchdog and 300 ms deadman.
 
 ## Limits (owner-approved September 27; self-initiated equalized October 2)
 
@@ -1231,3 +1231,56 @@ seen with a turned head overshot. Re-finding looks now go to 25 degrees (`LOOK_N
 body turns when the thing lies beyond what the turned head sees (65 degrees, as before), and a
 missed head look at something more than 45 degrees aside turns the body toward it for one more
 look. Simulated only; not yet driven.
+
+## Smooth starts and stops — October 23, 2026 (firmware 0.2.10)
+
+Owner: at 52 lb his turns were jarring and almost too fast, did not ease in, and stops were
+worse; the obstacle stops were mostly false slams. He asked for a firmware fix and a flash.
+
+The ramp the host pushes was already gentle (0.35 m/s², 2 rad/s², below the firmware's own
+1.2 and 8), but the wheel power underneath it stepped:
+
+- **Turn start.** On the first tick of a spin each wheel jumped to its breakaway duty
+  (750 of 1023 on hardwood, all 1023 on the gamepad's carpet setting) and held it until
+  0.12 s after the wheels rolled, so the spin lurched past the requested speed.
+- **Every stop.** The running floor (37% in a spin, 22% straight) stayed on until the
+  requested wheel speed fell below 1 cm/s, then the duty went to zero with the motor
+  driver enabled: a short-circuit brake. A spin's sideways tire scrub stops the base
+  almost at once when drive vanishes, so the upper body lurched.
+- **Obstacle stops.** A near reading in the stop zone cut the speed ramp to zero in one
+  tick and braked, then the base relaunched with the kick when the reading cleared.
+
+Firmware 0.2.10 (V2 working tree, `drive_shaping.h`; see V2_REFERENCE.md):
+
+- The breakaway push climbs from the running floor only while a wheel is actually
+  stalled, and falls away once it moves, so he breaks loose with about the push he needs.
+  The first tick of a hardwood spin is about 44% duty instead of 80%. A wheel that will
+  not move still reaches the full ceiling within 0.15 s.
+- While nothing commands motion, the floor, breakaway push and integral term fade to zero
+  with the ramp, and the duty never reverses. Stops taper instead of ending in a brake.
+- A block toward the direction of travel slows him at the deceleration the remaining room
+  needs, between 0.8 and 6 m/s². From 0.25 m/s at the stop line (about 12 cm) he stops in
+  about 4 cm over 0.3 s. One false frame costs a dip to about 0.19 m/s, not a stop.
+  Zones, latch, slow-zone taper and the 900 ms block grace are unchanged.
+
+Not changed: speeds, ramps, turn rate and its slow finish, gains, the gamepad, the protocol,
+and the host. Estop, fault and comms loss still cut the motors (they coast).
+
+Checks (synthetic): a native test compiles the header and runs spin starts, stops (tracking
+and friction-stopped), a slow inside wheel, reflex stops at four speed/room pairs and one
+false frame against a toy wheel; all 39 native firmware tests pass in the V2 runner. Full
+four-flag Bluepad32 build 814,457 bytes, 90,956 globals.
+
+Deployment (owner-requested): battery meter booted out and the controller lock held while
+flashing; upload hashes verified; binary SHA-256
+`7e3d4971f34ec1aae72a4c3bc8a2611640e6f714d2c8ce55bad7a6513e31b24c`, identical to the
+tested build. A hello-only read reported `0.2.10-smooth-drive`, on the charger at 14.2 V,
+IMU and compass OK, all radials and both matrices live, zone clear, wheels idle. The binary,
+flash log, that read, and a rebuilt 0.2.9 rollback (binary and source) are under ignored
+`local/firmware/`. Rollback: unpack `0.2.9-rear-matrix-rollback-source.tgz` and flash it
+with the firmware README's runbook command.
+
+Not yet driven. Open: the feel on the floor; whether the softer launch stalls a spin on
+carpet (the host reports `turn_stalled` after 2 s without progress); and the turn-coast
+compensation (`TURN_COAST_S`, fitted to the old push-then-brake stop), which the next run's
+turn receipts can refit. The firmware source is not yet in a pushed repository.

@@ -1238,3 +1238,17 @@ constants, crosstalk 0), `context.h`/`proto_io.*` (`rl_radial`/`rr_radial`,
 `test_tof_fr_xtalk.py`. No dependency added; no V2 application or data changed.
 Evidence and outstanding live checks:
 [drive integration](docs/DRIVE_BASE_INTEGRATION.md#rear-depth-matrix-and-front-right-replacement--october-19-2026).
+
+## Owner-directed smooth starts and stops — October 23, 2026
+
+Direct firmware edit, not an extraction: V2 HEAD `95f2403e78c9ef786054fa13a31bb2ac534cc29d`
+plus its existing uncommitted firmware edits (0.2.4-0.2.9), preserved. The owner reported
+jarring turns, harsh stops and false obstacle slams, and asked for a fix and a flash.
+Changed: new pure `drive_shaping.h` (ramped breakaway boost, stop fade, wheel PID, reflex
+deceleration); `hal.cpp` uses it and `hal_drive_velocity` takes a `stopping` flag; `control.cpp`
+replaces the one-tick reflex cut with `reflex_ramp_step` and passes `stopping`; `calib.h` adds
+boost and reflex constants and retires `WHEEL_LAUNCH_CONFIRM_S`/`WHEEL_RESTALL_CONFIRM_S`;
+`hal.h`; `protocol.h` 0.2.10; README; new V2 test `test_drive_shaping.py`. No dependency
+or runtime config key added; no V2 application or data changed. The source exists only
+in the V2 working tree; nothing in either repository holds it. Evidence and outstanding live checks:
+[drive integration](docs/DRIVE_BASE_INTEGRATION.md#smooth-starts-and-stops--october-23-2026-firmware-0210).
