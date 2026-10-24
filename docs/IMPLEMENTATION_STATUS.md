@@ -42,8 +42,17 @@ two minutes; the planned head tilt after it was dropped as its follow-up. Repair
   the plan's next step that followed the beat before it.
 
 Checks: 6 new in `tests/test_october24_repairs.py`; 3 old checks that asserted the two-minute hold
-now assert the 20 s rule; 1,523 blocked-I/O checks pass (5 skipped). Scripted silences do not prove the hosted model's choice. **Not yet run on
-the robot**: whether a quiet stretch now brings the "what if" and the rest of the plan's moves.
+now assert the 20 s rule; 1,523 blocked-I/O checks pass (5 skipped). Paid probe
+`tools/check_hypotheticals.py --scenario misheard` (fictional Sam, the misheard line's silence
+replayed, then three quiet minutes; fixed spoken plan, 15 s ticks), 3 runs, 27 Luna calls, about
+$0.03: Rex spoke again 35 s after the misheard line every time (one tick after the 20 s hold;
+live: four minutes), asked one "what if" in each run on the first try, all ending at the question
+mark ("What if every telescope could see through clouds, but only to show you what the sky looked
+like a thousand years ago?"), and said 4 lines in the three minutes. In 1 of 3 runs the beat after
+the misheard line was first let go as talk between others, as live; the quiet-room retry spoke.
+Later beats joked about being ignored, twice in one run (the ruling allows one jab). The probe has
+no body, so every beat is spoken. **Not yet run on the robot**: whether a quiet stretch now brings
+the "what if" and the rest of the plan's moves.
 
 ## "Do you ever think..." after a long quiet — October 23
 
