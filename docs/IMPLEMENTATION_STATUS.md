@@ -86,6 +86,13 @@ seven scenarios plus three more of pushback): no clear change (mean funniness 2.
 in the pushback scenario 3 retreats against 1 over four runs each, with equal funniness). **Not yet
 run on the robot**, the neck figure included; it is fitted from logged faces, not measured by eye.
 
+**Live, run 8e11d468 (same evening):** owner: "he looked correctly". "I would like you to look to your
+left. And locate the desk." was one look left with a picture ("The desk is just left of the couch,
+beneath the monitor"); "What do you see on the table to the left?" after his head had turned away looked
+again with `last_look`. The voice reflex landed on the owner's face and later turns were already facing
+(no creeping). A split sentence was joined. Still open from that run: adding a photo or a detail to Max
+was refused twice because the words did not repeat his name, and Toby and Max were mixed up again.
+
 ## Sentry mode ignored the person who armed him — October 22 run dc9f7480
 
 Owner: "I activated sentry mode and triggered it, then tried to say it was me with my face in camera
