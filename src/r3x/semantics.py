@@ -159,9 +159,9 @@ TOOLS = (
             'required':['action','direction','degrees','meters','target','stop_at_m','description','pace']}},
          'purpose':TEXT,'look_after':NULL_TEXT,
          'say_after':{'type':['string','null'],'description':'Spoken only after every step completed: an arrival remark such as "Here I am". Never a departure line. null for none.'}}),
-    schema("impersonate", "Perform a short voice impression: Rex speaks a few lines in another person's cloned voice through his local voice engine, then is himself again. Use it when a human explicitly asks for an impression, impersonation or imitation of themselves (\"do me\"), of a known person, or of a famous voice (requested true). You may also use it spontaneously, rarely, as a surprise cameo when someone brings up a person whose voice is listed in impersonation.famous (for example a trip to Plains, Georgia and Jimmy Carter) and impersonation.spontaneous_allowed is true (requested false); a cameo must add to the moment, never interrupt a serious one. target is self for the current speaker, allowed only when impersonation.speaker.ready is true. When someone asks you to do them and ready is false, this tool is the wrong answer even with an empty script: reply in ordinary prose that you have not heard enough of their voice yet (about six seconds of clear talk) and get them talking; nothing else is needed from them. Otherwise target is a listed people target_id or a listed famous slug (Ike is dwight-eisenhower, FDR franklin-roosevelt, JFK john-kennedy, LBJ lyndon-johnson). script is the complete parody in the target's own first-person voice, written by you; never empty and never ask them to supply a line: two or three short sentences, 25 to 35 words for a request and under 25 for a cameo (the engine renders at about real time and a longer take only means a longer wait), PG, affectionate exaggeration of a signature line, fixation, cadence or quirk, never mean. For a requested famous bit the figure reacts to a droid borrowing his voice; for a cameo the figure butts into the specific thing just discussed and never mentions droids or impressions. For a real person riff only on what they actually said this session or a saved interest: no health, bodies, family, religion, politics, money, nothing they asked you not to raise, no biography dump, and no invented facts about a stranger. No stage directions, quotation marks, delivery tags or names of the voice in script. intro is an optional short line in your own voice first: for a request a stall such as \"Okay, clearing my vocal buffers. Ahem.\" (preparing the voice takes several seconds), for a cameo your actual reply to what they said followed by a hand-off. outro is an optional line in your own voice after the bit (a bow or your reaction). null for none; never repeat the script in them. Only completed audio counts as performed, and parody is never a fact about anyone or evidence of their voice.",
+    schema("impersonate", "Perform a short voice impression: Rex speaks a few lines in another person's cloned voice through his local voice engine, then is himself again. Use it when a human explicitly asks for an impression, impersonation or imitation of themselves (\"do me\"), of a known person, or of a famous voice (requested true). You may also use it spontaneously as a surprise cameo (requested false) when impersonation.spontaneous_allowed is true and someone brings up a person whose voice you have: a famous voice (a trip to the Reagan library, Plains, Georgia and Jimmy Carter, a president in the news), someone in impersonation.people, or the speaker themself (self, when ready: their own voice butting in on what they just said). Code keeps cameos rare, so when one fits a light moment, do it; never in a serious one. On a beat of your own nobody asked: requested false, and a people target marked here is the person in the room. An impression beat (agency_step.kind impression) uses the voice it names or one offered; on a contribute beat it is offered while a cameo is allowed, for when the talk since the beat was planned handed you a voice. target is self for the current speaker, allowed only when impersonation.speaker.ready is true. When someone asks you to do them and ready is false, this tool is the wrong answer even with an empty script: reply in ordinary prose that you have not heard enough of their voice yet (about six seconds of clear talk) and get them talking; nothing else is needed from them. Otherwise target is a listed people target_id or a listed famous slug (Ike is dwight-eisenhower, FDR franklin-roosevelt, JFK john-kennedy, LBJ lyndon-johnson). script is the complete parody in the target's own first-person voice, written by you; never empty and never ask them to supply a line: two or three short sentences, 25 to 35 words for a request and under 25 for a cameo (the engine renders at about real time and a longer take only means a longer wait), PG, affectionate exaggeration of a signature line, fixation, cadence or quirk, never mean. For a requested famous bit the figure reacts to a droid borrowing his voice; for a cameo or a beat the figure butts into the specific thing being discussed (their library trip, their telescope, the news item) and never mentions droids or impressions. For a real person riff only on what they actually said this session or a saved interest: no health, bodies, family, religion, politics, money, nothing they asked you not to raise, no biography dump, and no invented facts about a stranger. No stage directions, quotation marks, delivery tags or names of the voice in script. intro is an optional short line in your own voice first: for a request a stall such as \"Okay, clearing my vocal buffers. Ahem.\" (preparing the voice takes several seconds), for a cameo your actual reply to what they said followed by a hand-off, for a beat a short setup in your own voice (the voice is ready before you speak, so no stall). outro is an optional line in your own voice after the bit (a bow or your reaction). null for none; never repeat the script in them. Only completed audio counts as performed, and parody is never a fact about anyone or evidence of their voice.",
            {"target":TEXT,"script":{"type":"string","minLength":1},"intro":NULL_TEXT,"outro":NULL_TEXT,
-            "requested":{"type":"boolean","description":"true only when a human asked for this impression in this or the immediately preceding turn; false for a spontaneous cameo."},
+            "requested":{"type":"boolean","description":"true only when a human asked for this impression in this or the immediately preceding turn; false for a spontaneous cameo or an impression beat."},
             "source_turn_id":TEXT}),
     schema("remain_silent", "End this turn without speech for an unfinished thought/thinking pause, clear external conversation/device announcements, or an uninvited fragment. Use unfinished_thought when a clause is still waiting for its action/object/destination or the speaker asks for time to think; do not ask them to finish. Use talking_to_animal when they are speaking to a pet (\"Max, why are you crying?\"): a brief aside, after which you may chime in again; other_addressee is for talking to another person. Explicit requests to stop unsolicited conversation use stop_chiming_in; addressee corrections require silence, never an acknowledgment. Listening acknowledgments and incidental coughs normally use no_response_needed; interpret meaning in context, not by word matching. Short answers authorizing an action still require the action. Complete introductions and ordinary questions normally deserve speech. Unknown speaker identity does not justify silence. No follow-up model call; no acoustic synthetic-voice claim.",
            {"reason":{"type":"string","enum":["other_addressee","talking_to_animal","device_speech","background_conversation","no_response_needed","unfinished_thought"]}}),
@@ -306,13 +306,14 @@ def grounded_tools(context):
                 definition['parameters']['properties']['reason']['enum'] = [
                     r for r in definition['parameters']['properties']['reason']['enum'] if r!='no_response_needed']
     if context.get('agency_step') and not context.get('inspection_description_allowed') and not context.get('photo_inspection'):
-        names = {'contribute': {'respond_with_intent','use_memory_opportunity','use_observation','use_visual_memory'},
+        names = {'contribute': {'respond_with_intent','use_memory_opportunity','use_observation','use_visual_memory','impersonate'},
                  'inspect': {'inspect_view'}, 'look': {'shift_attention'}, 'gesture': {'respond_with_gesture'},
-                 'pose': {'set_robot_pose','set_robot_joints'}, 'drive': {'drive_base'}}[context['agency_step']['kind']]
+                 'pose': {'set_robot_pose','set_robot_joints'}, 'drive': {'drive_base'},
+                 'impression': {'impersonate'}}[context['agency_step']['kind']]
         # A spoken beat the conversation has overtaken can be let go (October 13: stale beats
         # were recited regardless). Not a silent move, and not when nobody has spoken since it
         # was planned: the live run after that let 13 of 22 beats go and sat in silence.
-        if context['agency_step']['kind'] in {'contribute', 'gesture'} and context['agency_step'].get('people_spoke_since_planned'):
+        if context['agency_step']['kind'] in {'contribute', 'gesture', 'impression'} and context['agency_step'].get('people_spoke_since_planned'):
             names = names | {'remain_silent'}
             # Or hold it for a better moment, once (October 14 plan, step 2). Only after people
             # spoke, like letting go: a beat nobody has talked over still has its planned moment.
@@ -389,7 +390,9 @@ def grounded_tools(context):
                 definition['parameters']['properties']['room_id']['enum'] = [r['room_id'] for r in place['known_rooms']]
         if name=='impersonate':
             offered_voices = context.get('impersonation') or {}
-            if not offered_voices.get('available') or context.get('trigger'): continue
+            # Only a person's turn, or an impression beat of his own (October 23); no other lull activity.
+            if not offered_voices.get('available') or bool(context.get('trigger')) != bool(offered_voices.get('beat')): continue
+            if offered_voices.get('beat') and (context.get('agency_step') or {}).get('kind') not in {'impression', 'contribute'}: continue
             targets = ([ 'self'] if offered_voices.get('speaker',{}).get('ready') else []) + \
                       [p['target_id'] for p in offered_voices.get('people',[])] + list(offered_voices.get('famous',[]))
             if not targets: continue
@@ -469,7 +472,7 @@ def grounded_tools(context):
             if key=="face_track_id":
                 values = [context['visual_arrival']['face_track_id']] if context.get('trigger')=='visual_arrival' else faces
             if key=="track_id": values = [e["track_id"] for e in enrollments]
-            if key=="source_turn_id": values = [context["source_turn_id"]]
+            if key=="source_turn_id": values = [context.get("event_id") or context["source_turn_id"]]
             if key=="reference_id" and name=="conversation_feedback":
                 participation = context.get("participation", {})
                 values = [r["event_id"] for r in participation.get("recent_opportunities", [])
@@ -480,6 +483,9 @@ def grounded_tools(context):
                 nullable = isinstance(spec["type"],list) and "null" in spec["type"]
                 spec["enum"] = list(dict.fromkeys(values))+([None] if nullable else [])
         allowed.append(definition)
+    if (context.get('agency_step') or {}).get('kind') == 'contribute' and {d['name'] for d in allowed} == {'impersonate'}:
+        # A spoken beat may become an impression, never be forced into one.
+        allowed = []
     return allowed
 
 

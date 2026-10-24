@@ -21,6 +21,38 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Impressions of his own — October 23
+
+Owner: "If I mentioned I was going to a particular president's library, he would riff about it in
+that president's voice", in V2, and he wants it "with other people's voices too, and my own". In
+132 V3 runs there had been five requested impressions and no cameo at all.
+- **On his own beats.** The goal planner can plan an `impression` beat (a voice and the thing it
+  butts in about), and an ordinary spoken beat may become one when the talk since it was planned
+  handed him a voice. The voice is rendered before he says a word, then his setup line, the voice
+  and his reaction play straight through; a failed render says nothing. Not while nobody is
+  answering his lines.
+- **Any voice he has.** Famous voices, people he knows, and the person here in their own voice.
+  People's voices only on a private beat (someone he knows is here); a known person's voice never
+  reaches a stranger.
+- **Cameos in replies** may use the same voices, now wait with the thinking chirps after his line
+  (live takes rendered in 13-31 s), and the reply reminder names a voice just brought up as a chance
+  for one. The same-voice hour, never checked on replies before, is enforced.
+- **One budget** for cameos and beats: ten minutes apart, the same voice once an hour, four per run.
+
+Checks: 16 new blocked-I/O checks in `tests/test_impression_beats.py` (fake cloner); 1,511 pass (5
+skipped); four of them fail with the render-first path removed. Paid probe
+`tools/check_impression_beats.py` (real reply model and planner, fictional Sam known by voice, fake
+cloner and clock), four rounds while tuning the wording: the Reagan library brought a Reagan bit in 3
+of the last 6 library runs (one reply cameo, two on his own beats), e.g. "Well, Sam, enjoy Air Force
+One. I always believed a president should travel comfortably, and preferably with a pilot who knows
+where he's going." Sam's own voice was used once (round 1, a generic bit about his entrance) and
+planned once more but held because nobody was answering. One reply said "a Reagan cameo is still
+available if you want one"; the reminder now forbids that, and the next two runs had no such line.
+About $0.70 of hosted calls in all, estimated from returned usage. Also seen, not changed: replies to
+"next month I'm driving to the Reagan library" twice narrated a failed save ("I couldn't pin down
+next month"). **Not yet run on the robot**: live render time on a beat, how often the planner picks
+one with real people, and whether the chirps before a cameo feel right.
+
 ## Looking for things, and the run's other problems — October 23 run 1e626e07
 
 Owner: "Rex struggles to turn his head to look for things when instructed." Asked six times in
@@ -1740,7 +1772,7 @@ separate categories.
 | Motion-aware proactive noticing (partial implementation) | Commanded head/base motion, settling and bounded returning-view suppression are implemented. Independent subject motion, robust object continuity and unknown/manual camera movement remain future work. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
 | Room navigation | Rooms can be recognized, named and connected in software ([room recognition](ROOM_RECOGNITION.md)); it first starts live after the October 15 camera-hub fix and is unproven on the robot. Positions, a floor plan and "go to the kitchen" do not exist. |
 | Compass heading | The drive base publishes raw QMC5883L magnetometer counts; V2's calibrated, current-gated compass fusion (`hardware/compass.py`, calibration file) is not ported. V3 uses gyro yaw only. |
-| Owner-requested companion features | Jeopardy, room exploration, and the September 18 “Do you ever think” long-lull thought experiments. Voice impressions landed October 6 ([details](IMPERSONATION.md)) and interest news October 11 ([details](OBSERVATION_SOURCES.md)); lull-time impression beats are not offered. Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
+| Owner-requested companion features | Jeopardy, room exploration, and the September 18 “Do you ever think” long-lull thought experiments. Voice impressions landed October 6 ([details](IMPERSONATION.md)), impressions of his own as goal beats October 23, and interest news October 11 ([details](OBSERVATION_SOURCES.md)). Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
 | Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search and offline conversational providers remain separate future work. The dashboard's Memory Banks editor and typed input were not ported ([dashboard](GUI.md)). |
 
 Mouth-motion/active-speaker research is not an active implementation task. The user

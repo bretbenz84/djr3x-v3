@@ -56,10 +56,14 @@ it or reads its data.
 - **Voice impressions (October 6).** Ask for an impression of Jimmy Carter, of a known
   person or of yourself, and Rex writes a short parody and performs it in that cloned
   voice through the local Breeze engine, framed by lines in his own voice. Now and then,
-  when someone brings up a person whose voice he has, he slips in a short surprise cameo
-  of that person butting into the conversation. "Do me" works once Rex has heard about
-  six seconds of your clean speech; a stranger's voice lasts for the session only. Parody
-  is never stored as a fact. Live acceptance pending ([details](docs/IMPERSONATION.md)).
+  when someone brings up a person whose voice he has (a famous one, someone he knows, or
+  the speaker's own), he slips in a short surprise cameo of that person butting into the
+  conversation. Since October 23 he also does impressions on his own, as a beat of one of
+  his goals ("off to the Reagan library?" gets Reagan's opinion), with the voice rendered
+  before he speaks; both share one budget, about one every ten minutes at most. "Do me"
+  works once Rex has heard about six seconds of your clean speech; a stranger's voice lasts
+  for the session only. Parody is never stored as a fact. Live acceptance pending
+  ([details](docs/IMPERSONATION.md)).
 - **Rooms (October 11).** With `place_recognition_enabled`, V2's room model (run locally)
   tells Rex which room he is in. In an unfamiliar room he asks what it is and learns it
   when told, remembers which rooms he has moved between, and may set off to explore. V2's

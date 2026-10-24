@@ -245,7 +245,10 @@ class ReferenceStore:
 
 
 class Impressions:
-    """What Rex actually performed this run, for variety and for the cameo budget."""
+    """What Rex actually performed this run, for variety and for the cameo budget.
+
+    A cameo in a reply and an impression beat of his own (October 23) are both unrequested and
+    share the one budget."""
     def __init__(self):
         self.performed = deque(maxlen=16)
 
@@ -264,8 +267,65 @@ class Impressions:
             return False, 'same_voice_recently'
         return True, None
 
+    def wait_seconds(self, now: float):
+        """Seconds until the next unrequested impression may run: 0 now, None for no more this run."""
+        cameos = [r for r in self.performed if not r['requested']]
+        if len(cameos) >= SPONTANEOUS_MAX_PER_SESSION:
+            return None
+        return max(0, round(cameos[-1]['at'] + SPONTANEOUS_MIN_GAP_SECONDS - now)) if cameos else 0
+
     def recent(self, limit: int = 4):
         return [{'voice': r['voice'], 'script': r['script']} for r in list(self.performed)[-limit:]]
+
+
+def people_with_voices(store):
+    """(person id, name) for every supported person with enough accepted voice to clone."""
+    rows = []
+    for person in store.people():
+        if person['status'] != 'supported':
+            continue
+        _, seconds = select_clips(recording_clips(store, person['id']))
+        if seconds >= MIN_VOICED_SECONDS:
+            rows.append((person['id'], person['name']))
+    return rows
+
+
+def planner_voices(state, now: float, here=(), private: bool = False) -> dict:
+    """What the goal planner may build an impression beat on (October 23, owner: V2 riffed in a
+    president's voice about his library trip; "with other people's voices too, and my own").
+
+    People's voices are listed only for a private plan (someone Rex knows is here): a known
+    person's voice could carry their talk to whoever else is listening."""
+    allowed, reason = state.impressions.spontaneous_allowed(now)
+    return {'available_now': allowed, 'blocked_reason': reason,
+            'next_in_seconds': state.impressions.wait_seconds(now),
+            'famous': [{'voice': slug, 'name': reference.name} for slug, reference in sorted(famous_voices().items())],
+            'people': [{'voice': person_id, 'name': name, 'here': person_id in here}
+                       for person_id, name in (people_with_voices(state.store) if private else ())],
+            'recent': state.impressions.recent(),
+            'meaning': ('Voices Rex can perform in an impression beat. available_now false or next_in_seconds over a '
+                        'few minutes: plan none. people.here marks who is in the room; parody is never a fact.')}
+
+
+def beat_context(state, now: float, scope: str, here=()):
+    """The voices an impression beat may use right now, or None when it cannot run.
+
+    Nobody asked, so the cameo budget applies, voice by voice. A beat has no current speaker,
+    so there is no 'self': the person here is offered by their own id. A general-scope beat
+    gets famous voices only. The famous list stays whole, as on a person's turn, so the hosted
+    request's static block (and its cached prefix) is the same; the state owner refuses a
+    famous voice used within the hour."""
+    if not state.impressions.spontaneous_allowed(now)[0]:
+        return None
+    famous = sorted(famous_voices())
+    people = [{'target_id': person_id, 'name': name, 'here': person_id in here}
+              for person_id, name in (people_with_voices(state.store) if scope == 'audience' else ())
+              if state.impressions.spontaneous_allowed(now, 'person:' + person_id)[0]]
+    if not famous and not people:
+        return None
+    return {'available': True, 'beat': True, 'people': people, 'famous': famous,
+            'spontaneous_allowed': True, 'spontaneous_blocked_reason': None,
+            'recent': state.impressions.recent(), 'meaning': GUIDE['impersonation']}
 
 
 def speaker_readiness(state):

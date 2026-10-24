@@ -42,7 +42,8 @@ world, not input-then-react.
 (`catch_up`, `get_to_know`, `investigate`, `entertain`), a subject, a short first-person
 narrative, an objective and up to six beats. Beat kinds are contribute, gesture, pose
 (named poses, wave, `throttle_offer` to reach out, `look_after` to look and comment),
-look, inspect and drive.
+look, inspect, drive and (October 23) impression: a short bit in a cloned voice, rendered
+before he speaks ([voice impressions](IMPERSONATION.md)).
 
 **What starts one.** The runtime's idle tick, in priority order:
 

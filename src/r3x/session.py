@@ -397,6 +397,17 @@ class Session:
         wall = datetime.fromtimestamp(self.state.wall_clock())   # Local time: he has a clock.
         return self.state.present.describe(self.trace.clock(), names, rex=rex or None, wall=wall)
 
+    def _beat_voices(self, context, step):
+        """The voices one of his own beats may perform in, or None: no cloner, the cameo budget
+        spent, or nobody answering his lines (a big bit is the wrong reply to being ignored)."""
+        from .agency import IGNORED_LINES
+        if not context.get('impression_enabled') or step.get('unanswered_lines', 0) >= IGNORED_LINES:
+            return None
+        from .impersonation import beat_context
+        now = self.trace.clock()
+        here = [p['id'] for p in context.get('people', []) if self.state.present.here(p['id'], now)]
+        return beat_context(self.state, now, step['scope'], here)
+
     def _subject_person(self, context):
         """Who Rex's next goal is about: an arrival, the private-memory person, or one known face."""
         pending = self.state.agency.pending_subject or {}
@@ -496,6 +507,10 @@ class Session:
             'right_now': context.get('right_now'),
             'dialogue_use': 'Private continuity and feedback, not proof an earlier speaker is present. '
                             'Do not disclose prior personal facts to a changed audience.'}
+        if 'impression' in capabilities:
+            from .impersonation import planner_voices
+            here = [p for p in people if self.state.present.here(p, now)]
+            facts['voices'] = planner_voices(self.state, now, here, private=subject_person is not None)
         return {'turn_id': turn_id, 'facts': facts, 'evidence': evidence, 'capabilities': capabilities,
                 'audience': audience, 'subject_person': subject_person, 'revision': agency.revision, 'images': images}
 
@@ -707,6 +722,11 @@ class Session:
         Preparation starts at once so Rex's own intro covers the engine. The take is
         awaited before it is queued: a failed render gets a fixed cover line (like a
         failed movement), never a half-rendered impression or a silent turn.
+
+        An impression beat of his own (October 23) has nobody waiting, so its take is
+        rendered before he says a word and the bit plays straight through; a failed render
+        there says nothing at all. On a person's turn the thinking chirps fill any wait after
+        his line, for a cameo as for a request: live, takes needed 13-31 s to render.
         """
         from .impersonation import VoiceReference
         from .output import ClonedPhrase
@@ -714,9 +734,24 @@ class Session:
         take = self.output.cloner.prepare(data['script'],reference)
         record = {'take':take,'data':data,'status':'preparing','heard_before':len(delivery.completed_text)}
         self.trace.emit('impression_started',turn_id=turn_id,voice=data['voice'],subject=data['subject'],
-                        requested=data['requested'],words=len(data['script'].split()),script_capped=data['script_capped'])
+                        requested=data['requested'],occasion=data.get('occasion'),words=len(data['script'].split()),
+                        script_capped=data['script_capped'])
         delivery.status, delivery.medium = 'requested', 'audio'
         try:
+            if data.get('occasion') == 'beat':
+                rendered = self.output.await_take(take,cancel,filler=False)
+                record['stats'] = dict(take.stats)
+                if not rendered:
+                    record['status'] = 'failed'
+                    record['error'] = take.error
+                    self.trace.emit('impression_failed',turn_id=turn_id,voice=data['voice'],reason=take.error)
+                    delivery.status, delivery.medium = 'suppressed', 'none'
+                    return record
+                for phrase in (data['intro'], ClonedPhrase(data['script'],take,data['voice']), data['outro']):
+                    if phrase:
+                        put_phrase(phrases,phrase,cancel)
+                record['status'] = 'queued'
+                return record
             if data['intro']:
                 heard = len(delivery.completed_text)
                 put_phrase(phrases,data['intro'],cancel)
@@ -725,7 +760,7 @@ class Session:
                     if not worker.is_alive() or delivery.error:
                         raise ProviderFailure('OutputWorkerStopped')
                     time.sleep(.02)
-            rendered = self.output.await_take(take,cancel,filler=bool(data['requested']))
+            rendered = self.output.await_take(take,cancel,filler=True)
             record['stats'] = dict(take.stats)
             if not rendered:
                 record['status'] = 'failed'
@@ -744,7 +779,7 @@ class Session:
             raise
 
     def _finish_impression(self, record, delivery, turn_id):
-        """Only completed cloned audio counts as a performed impression."""
+        """Only completed cloned audio counts as a performed impression. Returns whether it was."""
         import json
         from .output import plain_text
         data = record['data']
@@ -754,17 +789,21 @@ class Session:
         performed = record['status']=='queued' and plain_text(data['script']).split() and \
             ' '.join(plain_text(data['script']).split()) in heard
         self.trace.emit('impression_done',turn_id=turn_id,voice=data['voice'],subject=data['subject'],
-                        requested=data['requested'],performed=bool(performed),status=record['status'],
+                        requested=data['requested'],occasion=data.get('occasion'),performed=bool(performed),status=record['status'],
                         reason=record.get('error'),delivery_status=delivery.status,**record.get('stats',{}))
         if performed and self.state:
             with self._lock:
                 self.state.impressions.record(data['voice'],data['subject'],data['script'],data['requested'],self.trace.clock())
+            occasion = {'requested':'requested','cameo':'spontaneous cameo','beat':'your own impression beat'}.get(
+                data.get('occasion'), 'requested' if data['requested'] else 'spontaneous cameo')
             self.history.append({'role':'developer','content':'Impression performed: the line '+json.dumps(data['script'])+
-                ' was spoken in '+data['subject']+"'s cloned voice ("+('requested' if data['requested'] else 'spontaneous cameo')+
+                ' was spoken in '+data['subject']+"'s cloned voice ("+occasion+
                 '). It is parody you performed, not something they said and not a fact about them.'})
         elif record['status']=='failed':
             self.history.append({'role':'developer','content':'The impression of '+data['subject']+
-                ' could not be rendered ('+str(record.get('error'))+'); only the cover line was spoken.'})
+                ' could not be rendered ('+str(record.get('error'))+'); '+
+                ('nothing was said.' if data.get('occasion')=='beat' else 'only the cover line was spoken.')})
+        return bool(performed)
 
     def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int, observation=None, faces=(), *, latest_faces=None) -> Delivery:
         return self._process(capture,transcript,submitted_revision,observation,faces,latest_faces=latest_faces)
@@ -1055,10 +1094,14 @@ class Session:
                 led = self.output.leds
                 context.update(led_enabled=led.state=='ready',led_version=led.version,
                     led_patterns=[p for p in PATTERNS if (p!='sparkle' or 'chest' in led.ports) and (p!='blink' or 'head' in led.ports)])
-            if (self.state and not self.state.frozen and not opportunity and getattr(self.output,'cloner',None) is not None
+            if (self.state and not self.state.frozen and getattr(self.output,'cloner',None) is not None
                     and self.state.voice_references is not None):
-                from . import impersonation
-                context['impersonation'] = impersonation.context(self.state, self.trace.clock())
+                if not opportunity:
+                    from . import impersonation
+                    context['impersonation'] = impersonation.context(self.state, self.trace.clock())
+                elif not sentry_kind:
+                    # Rex's own impression beats (October 23); the voices are looked up only when one runs.
+                    context['impression_enabled'] = True
             # Awake: 'moving' while any motion runs, the listening cue as a person finishes above all. October 22:
             # requiring 'active' hid the pose tool on 15 of 20 visor requests in three runs (silence, a nod saying
             # "Down it goes", the lights, "be quiet", "the visor tool isn't available"); a pose stops those first.
@@ -1264,11 +1307,30 @@ class Session:
                     if agency_step and agency_step.get('requires_visor_shut') and not context.get('visor_over_eyes'):
                         agency.let_go('visor_open', self.trace.clock())   # Raised again before he got to it.
                         agency_step = agency.step(self.trace.clock())
-                    while (agency_step and agency_step['kind'] == 'inspect'
-                           and self.trace.clock() - self.last_look_at < RECENT_LOOK_SECONDS):
-                        # October 22 (0421a222): "one more peek", "one last look" at the same droid on top
-                        # of four looks asked for. A closer look this soon after the last is let go.
-                        agency.let_go('looked_just_now', self.trace.clock())
+                    while agency_step:
+                        if (agency_step['kind'] == 'inspect'
+                                and self.trace.clock() - self.last_look_at < RECENT_LOOK_SECONDS):
+                            # October 22 (0421a222): "one more peek", "one last look" at the same droid on top
+                            # of four looks asked for. A closer look this soon after the last is let go.
+                            agency.let_go('looked_just_now', self.trace.clock())
+                        elif agency_step['kind'] == 'impression':
+                            # Owner, October 23: impressions of his own. The voices are offered only while
+                            # the budget allows one now (a cameo in a reply counts too); otherwise the beat
+                            # is let go before any model call, and the goal goes on.
+                            voices = self._beat_voices(context, agency_step)
+                            if voices is not None:
+                                context['impersonation'] = voices
+                                break
+                            agency.let_go('impression_unavailable', self.trace.clock())
+                        else:
+                            if agency_step['kind'] == 'contribute':
+                                # A spoken beat may become one too, when the talk since it was planned handed him a
+                                # voice (paid probe, October 23: plans written before the Reagan library came up
+                                # never held an impression beat).
+                                voices = self._beat_voices(context, agency_step)
+                                if voices is not None:
+                                    context['impersonation'] = voices
+                            break
                         agency_step = agency.step(self.trace.clock())
                     if agency_step is None:
                         delivery.status,delivery.medium='suppressed','none'
@@ -2525,7 +2587,9 @@ class Session:
                             'heard_text':' '.join(delivery.completed_text) if delivery.medium=='audio' else '',
                             'delivery_status':delivery.status,'at':self.trace.clock()})
             if impression is not None:
-                self._finish_impression(impression,delivery,turn_id)
+                performed = self._finish_impression(impression,delivery,turn_id)
+                if agency_step:
+                    action_outcome = {'kind':'impersonate','executor':{'status':'performed' if performed else impression['status']}}
             if self.state and action_started:
                 with self._lock:
                     outcome=self.state.actions.finish(delivery,self.trace.clock())

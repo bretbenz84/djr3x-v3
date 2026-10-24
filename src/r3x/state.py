@@ -892,6 +892,8 @@ class CoreState:
                 candidate=next((r for r in current if r['claim_id']==call.arguments['claim_id'] and r['claim_id'] in offered),None)
                 if not candidate:raise ValueError('MemoryOpportunityUnavailable')
                 data={'text':call.arguments['text'],'claim_id':candidate['claim_id'],'occasion':candidate['occasion']}
+            elif call.name=='impersonate':
+                data=self._beat_impression(dict(call.arguments),context)
             elif call.name=='remain_silent': data={'reason':call.arguments['reason']}
             elif call.name=='ask_face_question':
                 if call.arguments['face_track_id'] not in {f['track_id'] for f in context['faces']}:
@@ -1109,20 +1111,15 @@ class CoreState:
         is a fact or an identity: the parody is bounded, the voice comes only from
         offered targets, and a stranger's voice is this session's own clean samples."""
         from . import impersonation
-        from .output import plain_text
         turn_id,capture,transcript,observation,attribution = self.current
         self._source_allowed(args,'impersonate')
         offered = (context or {}).get('impersonation') or {}
-        if self.frozen or self.voice_references is None or not offered.get('available'):
+        if self.frozen or self.voice_references is None or not offered.get('available') or offered.get('beat'):
             raise ValueError('ImpersonationUnavailable')
         if not args['requested']:
             allowed, reason = self.impressions.spontaneous_allowed(self.trace.clock())
             if not allowed:
                 raise ValueError('SpontaneousImpressionCooldown:' + str(reason))
-        script = impersonation.cap_script(plain_text(args['script']),
-            impersonation.MAX_SCRIPT_WORDS if args['requested'] else impersonation.CAMEO_MAX_SCRIPT_WORDS)
-        if not script:
-            raise ValueError('InvalidImpressionScript')
         target = args['target']
         reference = None
         if target == 'self':
@@ -1148,14 +1145,52 @@ class CoreState:
             kind = 'famous'
         else:
             raise ValueError('ImpressionTargetNotOffered')
+        return self._impression(args, reference, kind, 'requested' if args['requested'] else 'cameo')
+
+    def _beat_impression(self, args, context):
+        """An impression beat of Rex's own (October 23): nobody asked, so the cameo budget
+        applies; the voice comes only from those offered for this beat, and there is no
+        current speaker to be 'self'."""
+        from . import impersonation
+        offered = context.get('impersonation') or {}
+        if (self.frozen or self.voice_references is None or not offered.get('beat')
+                or (context.get('agency_step') or {}).get('kind') not in {'impression', 'contribute'}):
+            raise ValueError('ImpersonationUnavailable')
+        if args['source_turn_id'] != context['event_id']:
+            raise ValueError('SourceTurnMismatch')
+        target = args['target']
+        with self.store.transaction() as conn:
+            if any(p['target_id']==target for p in offered.get('people',[])):
+                person = self._person(target)
+                if person['status']!='supported': raise ValueError('VoiceReferenceUnavailable')
+                reference = self.voice_references.person_reference(self.store,conn,person['id'],person['name'])
+                kind = 'person'
+            elif target in offered.get('famous',[]):
+                reference = impersonation.famous_voices().get(target)
+                kind = 'famous'
+            else:
+                raise ValueError('ImpressionTargetNotOffered')
+        return self._impression({**args, 'requested': False}, reference, kind, 'beat')
+
+    def _impression(self, args, reference, kind, occasion):
+        """The bounded performance for a resolved voice; nothing is performed yet."""
+        from . import impersonation
+        from .output import plain_text
         if reference is None:
             raise ValueError('VoiceReferenceUnavailable')
-        for key in ('intro','outro'):
-            if args[key] is not None and not plain_text(args[key]):
-                args[key] = None
+        if not args['requested']:
+            # Voice by voice too: the same voice once an hour, whether in a reply or a beat.
+            allowed, reason = self.impressions.spontaneous_allowed(self.trace.clock(), reference.key)
+            if not allowed:
+                raise ValueError('SpontaneousImpressionCooldown:' + str(reason))
+        script = impersonation.cap_script(plain_text(args['script']),
+            impersonation.MAX_SCRIPT_WORDS if args['requested'] else impersonation.CAMEO_MAX_SCRIPT_WORDS)
+        if not script:
+            raise ValueError('InvalidImpressionScript')
+        intro, outro = ((args[key] if args[key] is not None and plain_text(args[key]) else None) for key in ('intro','outro'))
         return {'subject':reference.name,'voice':reference.key,'target_kind':kind,'script':script,
                 'script_capped':script!=' '.join(plain_text(args['script']).split()),
-                'intro':args['intro'],'outro':args['outro'],'requested':args['requested'],
+                'intro':intro,'outro':outro,'requested':args['requested'],'occasion':occasion,
                 'reference_wav':reference.wav_path,'reference_text':reference.text,
                 'meaning':'Voice reference resolved; nothing has been performed yet.'}
 

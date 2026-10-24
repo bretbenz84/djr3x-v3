@@ -13,10 +13,22 @@ audio, the real local engine synthesizing to files, and a small paced hosted pro
   Ahem."), the V2 thinking chirps cover the render, then the parody plays in the cloned
   voice, then he takes a bow in his own voice. The model writes all three lines.
 - **Spontaneous cameos.** When someone brings up a person whose voice Rex has and the
-  moment is light, he may, rarely, reply as himself and hand over to that person butting
-  in about the specific thing discussed. Cameos are budgeted (ten minutes apart, the same
-  voice once an hour, four per run); requests are never limited. In the hosted probe the
-  model declined a cameo on the first opportunity, which is the intended default.
+  moment is light, he may reply as himself and hand over to that person butting in about
+  the specific thing discussed. Since October 23 that can be any voice he has: a famous
+  one, someone he knows, or the speaker's own. His line plays first and the thinking
+  chirps fill the wait for the voice (live takes needed 13-31 s to render).
+- **Impressions of his own (October 23).** Owner: "If I mentioned I was going to a
+  particular president's library, he would riff about it in that president's voice." The
+  goal planner may plan one `impression` beat in a goal: a voice he has and the thing it
+  butts in about ("Ronald Reagan butts in about Bret's trip to his library next month",
+  or Bret in his own voice explaining telescope mount number four). At the beat the voice
+  is rendered first, before Rex says a word, then his setup line, the voice and his
+  reaction play straight through. A failed render says nothing and the goal goes on.
+- **One budget for both.** Cameos and his own impression beats are budgeted together (ten
+  minutes apart, the same voice once an hour, four per run); requests are never limited.
+  A beat whose moment comes while the budget is spent is let go before any model call.
+  In the October 6 hosted probe the model declined a cameo on the first opportunity; in
+  132 live runs up to October 23 there were five requested impressions and no cameo.
 - **Whose voices.** Twenty-six famous clips under `assets/voices/famous`
   ([provenance](../assets/voices/README.md)); any person with a supported voice profile
   (their accepted enrollment recordings, at least six voiced seconds); and the current
@@ -41,8 +53,12 @@ audio, the real local engine synthesizing to files, and a small paced hosted pro
 
 Context offered to the model on human turns when the cloner started: `impersonation`
 with `speaker` (ready, voiced seconds on file, basis), `people`, `famous` slugs,
-`spontaneous_allowed` and `recent` performed bits. The tool is not offered during
-proactive opportunities; a lull-time impression beat is possible future work.
+`spontaneous_allowed` and `recent` performed bits. On an impression beat the same block
+has no `speaker` (nobody spoke; the person in the room is a `people` entry marked `here`),
+and lists people's voices only on a private (audience) beat, so a known person's voice
+never carries their talk to a stranger. The planner sees `voices` (famous names, people's
+voices on a private plan, whether the budget allows one now). The tool is offered on no
+other opportunity.
 
 Tool arguments: `target`, `script`, `intro`, `outro`, `requested`, `source_turn_id`.
 Scripts are capped at sentence boundaries to 40 words (requested) or 28 (cameo); more
@@ -96,13 +112,22 @@ a stall intro and a bow; the Plains, Georgia mention got an ordinary reply (no c
 empty script and then a sensible prose answer (two calls; the tool wording was tightened
 afterwards and not re-probed); the dinner question was unaffected.
 
+October 23, impressions of his own: 16 blocked-I/O checks in `tests/test_impression_beats.py`
+(planner voices, beat rendering before speech, the shared budget, a failed or stopped render saying
+nothing, people's voices only on private beats, spoken beats becoming impressions, the reply cameo
+reminder and its chirps). Paid probe `tools/check_impression_beats.py` (real reply model and
+planner, fictional Sam, fake cloner): Reagan bits in 3 of the last 6 library runs; Sam's own voice
+once in round 1. Results and limits are in [implementation status](IMPLEMENTATION_STATUS.md).
+
 ## Open acceptance and limitations
 
 - Live playback on the robot: loudness against ElevenLabs lines (both pass the same
   −20 LUFS leveler), talking motion and lights during a cloned take, the filler's feel,
   and the actual wait with the full workload resident.
-- How recognizable the voices are from the speaker, and how often spontaneous cameos
-  land rather than interrupt. Only the model's judgment and the budget gate cameos.
+- How recognizable the voices are from the speaker, and how often spontaneous cameos and
+  his own impression beats land rather than interrupt. Only the model's judgment and the
+  budget gate them. A beat's render (13-31 s live for requests) runs while he is silent; a
+  person speaking meanwhile cancels it and the beat is retried once.
 - A person's reference is rebuilt only when their accepted recordings change; it is
   deleted on forget, not when individual recordings are retired by other means.
 - Breeze's generated speech is English/Mandarin only; the engine does not speak Rex's

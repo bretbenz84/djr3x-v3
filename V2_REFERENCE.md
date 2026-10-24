@@ -43,6 +43,13 @@ Rex clone reference (`assets/voices/rex`) and the one captured person clip under
 `assets/voices/people` were not copied. Checks and remaining live validation:
 [voice impressions](docs/IMPERSONATION.md#verification).
 
+October 23 amendment (owner request: impressions of his own; no further V2 code read). Two
+preserved behaviours changed: a cameo now waits for its take with the thinking filler like a
+request (live takes rendered in 13-31 s, a long silence after his hand-off line), and the
+same-voice hour, which the reply path never checked, is enforced. Impression beats are new V3
+behaviour: the planner plans them, the take is rendered before Rex speaks, and they share the
+cameo budget.
+
 ## Authorized V2 battery menu fix — September 27, 2026
 
 Owner-approved V2 change (not an extraction): after V3 quit, V2's battery menu app

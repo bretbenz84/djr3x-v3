@@ -20,7 +20,7 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS agency_plan(
 
 FORMAT = 2  # Saved goal format; earlier step scripts are context only and never executed.
 GOAL_KINDS = ('catch_up', 'get_to_know', 'investigate', 'entertain', 'explore')
-STEP_KINDS = ('contribute', 'inspect', 'look', 'gesture', 'pose', 'drive')
+STEP_KINDS = ('contribute', 'inspect', 'look', 'gesture', 'pose', 'drive', 'impression')
 # Who is present, and for how long a person goal survives camera dropouts and face-track
 # renumbering, is decided by the shared picture of the present (present.py).
 # When each beat runs is a wake-up the planner (or the performer, deferring once) chooses
@@ -244,7 +244,7 @@ BEATS (steps)
   is there. look: silent glance. inspect: a fresh camera look, then a comment. drive: move the base (turn, move,
   approach an offered drive target, or, only when drive.vision_seek is true, seek a described thing and
   approach "sought"). Without a target or vision seek, a plain turn or move still counts: turn toward the
-  thing, roll a little that way, and look.
+  thing, roll a little that way, and look. impression: a short bit in someone else's cloned voice (IMPRESSIONS).
 - Write each instruction as a short direction, never the words: what the beat is for and its angle, in
   under 25 words. The performer writes the line at the moment it runs, after whatever people have said by
   then. No "say that ..." followed by a finished sentence, no quoted lines, no ready-made jokes or wording.
@@ -267,6 +267,25 @@ BEATS (steps)
   a question that fell flat, usually 15-30; dropped if they answered). when=pet_in_view: when an animal shows
   up. Keep things moving; long pauses read as a robot that switched off, and a beat whose moment never comes
   is simply let go.
+
+IMPRESSIONS (impression in capabilities)
+- Rex can hand over to a cloned voice from voices for a few lines: a famous figure, someone he knows
+  (voices.people), or the person in the room in their own voice (people.here true). It is one of the owner's
+  favorite things Rex does: told he was off to a president's library, Rex riffed about the trip in that
+  president's voice.
+- Plan one only when a voice and a subject were handed to you: someone brought up a listed famous figure (a
+  trip to the Reagan library, Jimmy Carter in the news, a film with a listed voice in it), or the person here told
+  you a specific plan, project or habit worth a loving send-up in their own voice (Bret explaining telescope mount
+  number four, as only Bret would). Never their arrival, greeting, mood or why they came by: with nothing like
+  that in the conversation or their saved facts, plan no impression beat. Someone known who is not here
+  (people.here false) only for something said about them in this conversation.
+- When one applies, plan it: it is one of the best things Rex does. At most one impression beat per plan, only
+  with people here to hear it, and only when voices.available_now is true and next_in_seconds is 0. Run it while the subject is still warm: early, after a short quiet. Never in a
+  serious moment; nothing about health, bodies, family, religion, politics or money, or a topic they asked Rex
+  to avoid.
+- The instruction names the voice by its id from voices and the specific thing the voice butts in about, as a
+  direction: "Ronald Reagan (ronald-reagan) butts in about Bret's trip to his library next month." The performer
+  writes the lines. scope=audience when it uses someone's own voice or their saved facts.
 
 CAPABILITIES AND LIMITS
 - Use only kinds in capabilities. The pose contract lists named commands; already_at positions are not
@@ -309,6 +328,7 @@ def capabilities_for(context):
                       ('gesture', 'gesture_enabled'), ('pose', 'robot_pose_enabled')):
         if context.get(key): result.append(kind)
     if context.get('drive', {}).get('available'): result.append('drive')
+    if context.get('impression_enabled'): result.append('impression')   # The local voice cloner is running.
     return result
 
 
@@ -891,6 +911,8 @@ class AgencyPlan:
             'pose': (action_kind in {'set_robot_pose', 'set_robot_joints'} and
                      executor.get('status') == 'pulses_reached' and bool(executor.get('changed_channels'))),
             'look': action_kind == 'shift_attention' and executor.get('outcome') in {'simulated', 'pulses_reached'},
+            # Only the cloned voice actually heard counts, not his own setup line.
+            'impression': heard and action_kind == 'impersonate' and executor.get('status') == 'performed',
         }[kind]
         if successful and kind == 'pose' and executor.get('status') == 'pulses_reached' and not achieved:
             revision_reason = 'PoseAlreadyReached'

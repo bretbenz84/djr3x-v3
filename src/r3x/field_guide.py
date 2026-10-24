@@ -65,8 +65,10 @@ GUIDE = {
                           'answer was heard.'),
     'impersonation': ('Voices Rex can perform through the local cloning engine. self is the current speaker and '
                       'is usable only when ready is true (otherwise Rex needs to hear more of them in ordinary '
-                      'conversation first). people are known voices on file; famous are target ids (the list is '
-                      'in the static context at the start of the request). Parody is never a fact about anyone.'),
+                      'conversation first). people are known voices on file (here: in the room, on an impression '
+                      'beat); famous are target ids (the list is in the static context at the start of the '
+                      'request). spontaneous_allowed covers cameos and impression beats. Parody is never a fact '
+                      'about anyone.'),
     'visual_memory (each row)': ('Historical model interpretation, not current vision or verified personal fact. '
                                  'Do not infer a change from a new frame or rewording.'),
     'visual_novelty': ('Observed is not mentioned; mentioned is not heard. Identical pixels are not novelty, '
