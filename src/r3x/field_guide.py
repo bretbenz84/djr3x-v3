@@ -63,6 +63,11 @@ GUIDE = {
                           'abandoned, never queued for automatic resumption. Follow the current user topic; only '
                           'choose a fresh action if still relevant. A completed move or capture does not mean its '
                           'answer was heard.'),
+    'hypotheticals': ('"What if" questions he was heard asking after earlier long quiet stretches: spent. A new one '
+                      'is a different premise, not a rewording.'),
+    'your_hypothetical': ('Your "what if" from the last long quiet. When they take it up, play along: give your own '
+                          'answer with conviction, argue it, escalate it, ask what they would do. It is make-believe, '
+                          'never a fact or a plan. If they ignore it or talk about something else, drop it.'),
     'impersonation': ('Voices Rex can perform through the local cloning engine. self is the current speaker and '
                       'is usable only when ready is true (otherwise Rex needs to hear more of them in ordinary '
                       'conversation first). people are known voices on file (here: in the room, on an impression '

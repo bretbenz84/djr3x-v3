@@ -416,6 +416,7 @@ class AgencyPlan:
         self.spoken = deque(maxlen=16)  # When trusted human turns ended, to tell an overtaken goal.
         self.prepared = None  # The next plan, validated and waiting for this goal's last beat.
         self.prepared_for = None  # The goal the next plan was last written for (one attempt each).
+        self.wondered_for = None  # The quiet stretch (its last human speech) that already got a "what if".
 
     @property
     def unanswered(self):
@@ -823,15 +824,16 @@ class AgencyPlan:
             if why: self._emit('agency_beat_waiting', plan_id=self.record['id'], step=self.record['cursor'], reason=why)
         return why is None
 
-    def insert_beat(self, instruction, now):
+    def insert_beat(self, instruction, now, **marks):
         """One spoken beat that comes next, ahead of the plan's own; the goal carries on after it.
-        Only for an event of his own body (October 22: the visor closing over his eyes)."""
+        For an event of his own body (October 22: the visor closing over his eyes, marked
+        requires_visor_shut) or a long quiet stretch (October 23, marked wonder)."""
         self.load()
         if not self.applicable(now): return False
         record = self.record
         record['steps'].insert(record['cursor'], {'kind': 'contribute', 'instruction': instruction, 'evidence_ids': [],
                                                   'wake': {'when': 'quiet', 'seconds': 3}, 'follows_previous': False,
-                                                  'requires_visor_shut': True})
+                                                  **marks})
         record['attempts'] = 0
         record.pop('interrupted_at', None)
         self._next_beat(now)
@@ -839,6 +841,18 @@ class AgencyPlan:
         self.save()
         self._emit('agency_beat_inserted', plan_id=record['id'], step=record['cursor'])
         return True
+
+    def long_quiet(self, now):
+        """Owner, October 23: the room has been quiet 45 s, nobody talking, Rex included. One
+        "Do you ever think..." question comes next, once per quiet stretch: the next only after
+        someone has spoken (a stretch is known by the last human speech that began it)."""
+        from .hypotheticals import INSTRUCTION
+        self.load()
+        if self.wondered_for == self.speech_at or not self.applicable(now): return False
+        self.wondered_for = self.speech_at
+        inserted = self.insert_beat(INSTRUCTION, now, wonder=True)
+        if inserted: self._emit('hypothetical_due', plan_id=self.record['id'], step=self.record['cursor'])
+        return inserted
 
     def let_go(self, reason, now):
         """The current beat's moment is gone (its precondition no longer holds)."""

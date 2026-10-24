@@ -21,6 +21,35 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## "Do you ever think..." after a long quiet — October 23
+
+Owner request (the September 18 roadmap item): when the room has gone quiet, Rex sparks it with a short
+"what if", like "what would happen if everyone won the lottery on the same day?". Owner rulings: 45 seconds
+with nobody talking, Rex included, and one question per quiet stretch (the next only after someone speaks).
+- **When.** The idle tick inserts one beat ahead of his current goal's next, marked `wonder`, once 45 s have
+  passed with no human speech and no heard line of his, and only with someone in view. His silent moves and
+  glances do not count as talking. Quiet mode, the human floor and queued speech still stop it first.
+- **What.** The beat's single generation writes it (`hypotheticals.INSTRUCTION`): one light hypothetical,
+  sometimes a twist on an interest of theirs, ending at the question mark with no answer of his own. It may
+  be let go when they are busy, upset or talking to each other. It is exempt from the rule against asking a
+  new question over his own unanswered one; it is not offered a cloned voice.
+- **Remembered.** Only a question actually heard is saved (`hypotheticals_asked`; a private one with its
+  person, removed when they are forgotten) and offered as spent next time. A reply within 3 minutes sees
+  `your_hypothetical` and may play along. Make-believe is never a fact.
+
+Checks: 6 new blocked-I/O checks in `tests/test_hypotheticals.py`; 1,517 pass (5 skipped). With the trigger
+disabled 4 fail; without the question-rule exemption 3 fail. Paid probe `tools/check_hypotheticals.py`
+(fictional Sam sits quietly in view after a short chat, answers, then sits quietly again), about $0.20:
+- With the real planner (2 runs) Rex's own beats kept talking every 15-30 s into the silence, so the first
+  stretch never reached 45 s. One question came in each second stretch, and one ran a punchline after its
+  question; the instruction now says to stop at the question mark. That probe has no body, so every planned
+  beat is spoken; on the robot many are silent moves.
+- With a fixed plan that leaves the room quiet (3 runs), 4 questions, all ending at the question mark, at
+  most one per stretch: "What if household appliances held elections—would the kettle win on turnout, or the
+  vacuum on sheer intimidation?", "What if every door in the house opened onto a different planet—where would
+  you sneak off first?". One later beat still remarked that he had not been answered.
+**Not yet run on the robot**: how often a real visit goes 45 s quiet, and whether the questions are welcome.
+
 ## Impressions of his own — October 23
 
 Owner: "If I mentioned I was going to a particular president's library, he would riff about it in
@@ -1772,7 +1801,7 @@ separate categories.
 | Motion-aware proactive noticing (partial implementation) | Commanded head/base motion, settling and bounded returning-view suppression are implemented. Independent subject motion, robust object continuity and unknown/manual camera movement remain future work. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
 | Room navigation | Rooms can be recognized, named and connected in software ([room recognition](ROOM_RECOGNITION.md)); it first starts live after the October 15 camera-hub fix and is unproven on the robot. Positions, a floor plan and "go to the kitchen" do not exist. |
 | Compass heading | The drive base publishes raw QMC5883L magnetometer counts; V2's calibrated, current-gated compass fusion (`hardware/compass.py`, calibration file) is not ported. V3 uses gyro yaw only. |
-| Owner-requested companion features | Jeopardy, room exploration, and the September 18 “Do you ever think” long-lull thought experiments. Voice impressions landed October 6 ([details](IMPERSONATION.md)), impressions of his own as goal beats October 23, and interest news October 11 ([details](OBSERVATION_SOURCES.md)). Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
+| Owner-requested companion features | Jeopardy and room exploration; the September 18 “Do you ever think” long-lull thought experiments landed October 23. Voice impressions landed October 6 ([details](IMPERSONATION.md)), impressions of his own as goal beats October 23, and interest news October 11 ([details](OBSERVATION_SOURCES.md)). Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
 | Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search and offline conversational providers remain separate future work. The dashboard's Memory Banks editor and typed input were not ported ([dashboard](GUI.md)). |
 
 Mouth-motion/active-speaker research is not an active implementation task. The user

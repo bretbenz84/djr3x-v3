@@ -139,6 +139,8 @@ class Memory:
         self.connection.executescript(places_schema)
         from .jokes import SCHEMA as jokes_schema
         self.connection.executescript(jokes_schema)
+        from .hypotheticals import SCHEMA as hypotheticals_schema
+        self.connection.executescript(hypotheticals_schema)
         self.validate_schema()
 
     def validate_schema(self):

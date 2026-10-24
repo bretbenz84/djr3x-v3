@@ -376,7 +376,7 @@ class LateOctober22Tests(memory_tests.MemoryFixture):
         self.planner.choose = lambda facts, cancel: plan_of(6)
         self.tick(100)
         goal = self.state.agency.record['id']
-        self.assertTrue(self.state.agency.insert_beat(DARK_BEAT, self.trace.at))
+        self.assertTrue(self.state.agency.insert_beat(DARK_BEAT, self.trace.at, requires_visor_shut=True))
         step = self.state.agency.step(self.trace.at)
         self.assertEqual((step['instruction'], step['requires_visor_shut']), (DARK_BEAT, True))
         self.tick(self.trace.at + 9)                 # No visor stand-in: it is not shut, so the beat is let go.

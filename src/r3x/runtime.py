@@ -399,6 +399,10 @@ class VoiceRuntime:
                     return
                 with self.session._lock:
                     agency.adopt_prepared(now)   # A plan written ahead follows the last beat at once.
+                    from .hypotheticals import QUIET_SECONDS
+                    if quiet_seconds >= QUIET_SECONDS and present.here(None, now):
+                        # One "Do you ever think..." per quiet stretch (owner, October 23), for someone in view.
+                        agency.long_quiet(now)
                 if agency.needs_plan(now):
                     if self.session.planning_active():
                         self.initiative_gate('planning_goal')

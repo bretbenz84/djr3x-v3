@@ -311,9 +311,17 @@ audience awareness, correction, topic variety, heard-remark deduplication and bo
 API spending. See the [companion-feature roadmap](FUTURE_FEATURES.md) for scope.
 This is documentation, not an instruction to implement or start new background work.
 
-## Future feature: “Do you ever think”
+## “Do you ever think” (implemented October 23)
 
-**September 18, 2026 user request — roadmap only; not implemented.**
+**Implemented October 23, 2026** (`src/r3x/hypotheticals.py`). Owner rulings: the long lull is
+45 seconds with nobody talking, Rex included (his silent moves and glances do not count), with
+someone in view; one question per quiet stretch, the next only after someone has spoken. The
+question is a beat inserted ahead of his current goal's next one, written by the beat's single
+generation; only questions actually heard are recorded and offered back as spent; a reply soon
+after sees `your_hypothetical` and may play along. Evidence: [implementation status](IMPLEMENTATION_STATUS.md).
+The September 18 request below remains the design.
+
+**September 18, 2026 user request.**
 
 After a long, genuine lull, Rex may spark conversation with a short, LLM-generated
 thought experiment or imaginative “what if” question. The aim is shared curiosity,

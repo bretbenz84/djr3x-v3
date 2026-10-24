@@ -75,6 +75,10 @@ before he speaks ([voice impressions](IMPERSONATION.md)).
    understood blocks the check and then resets the count; a plan made while ignored is the
    response and is not itself ended as ignored.
 
+**A long quiet** (owner, October 23): 45 seconds with nobody talking, Rex included, and someone in view
+insert one "Do you ever think..." beat ahead of the goal's next, once per quiet stretch
+(`hypotheticals.py`; [design](PROACTIVE_CONVERSATION.md#do-you-ever-think-implemented-october-23)).
+
 **What steers it.** Human turns no longer end the goal. The reply model sees the goal
 (`agency_plan`: objective and next beat) and may move it along when it fits. A goal about
 one person is shown only on that person's turns.

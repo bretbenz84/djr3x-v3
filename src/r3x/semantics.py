@@ -319,6 +319,8 @@ def grounded_tools(context):
             # spoke, like letting go: a beat nobody has talked over still has its planned moment.
             if not context['agency_step'].get('deferred'):
                 names = names | {'wait_for'}
+        if context['agency_step'].get('wonder'):
+            names = names | {'remain_silent'}   # A "what if" after a long quiet may be let go: they are busy or upset.
         # Owner, October 22: a visor a person shut a while ago is his to raise, on any beat.
         if context.get('visor_over_eyes', {}).get('yours_to_raise') and context.get('robot_pose_enabled'):
             names = names | {'set_robot_pose'}

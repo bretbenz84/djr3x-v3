@@ -177,6 +177,7 @@ class Session:
         self._unanswered_turn = None   # A human turn whose reply was dropped for a reason other than more speech.
         self._utterance = None  # This human turn's words, joined to such a fragment.
         self.last_spoken_reply = None
+        self.last_hypothetical = None   # His latest heard "what if" after a long quiet (October 23).
         self.last_trusted_speech_at = float("-inf")
         self.resolved_audio_at = float("-inf")
         self.motion_committed = False  # Wheels were handed a plan in the current turn.
@@ -401,7 +402,8 @@ class Session:
         """The voices one of his own beats may perform in, or None: no cloner, the cameo budget
         spent, or nobody answering his lines (a big bit is the wrong reply to being ignored)."""
         from .agency import IGNORED_LINES
-        if not context.get('impression_enabled') or step.get('unanswered_lines', 0) >= IGNORED_LINES:
+        if (not context.get('impression_enabled') or step.get('unanswered_lines', 0) >= IGNORED_LINES
+                or step.get('wonder')):
             return None
         from .impersonation import beat_context
         now = self.trace.clock()
@@ -897,6 +899,7 @@ class Session:
         setback = [False]   # A refused move, failed look or rejected tool this turn: no joke material.
         action_outcome = None
         impression = None
+        wonder_person = None   # Whose private audience a "what if" beat was asked in.
         shutdown_requested = False
         sentry_requested = None   # The checked sentry_mode plan, started once this turn ends.
         from .sentry import SENTRY_KINDS
@@ -1094,6 +1097,11 @@ class Session:
                 led = self.output.leds
                 context.update(led_enabled=led.state=='ready',led_version=led.version,
                     led_patterns=[p for p in PATTERNS if (p!='sparkle' or 'chest' in led.ports) and (p!='blink' or 'head' in led.ports)])
+            from .hypotheticals import OPEN_SECONDS
+            if (self.state and not opportunity and self.last_hypothetical
+                    and self.trace.clock() - self.last_hypothetical['at'] <= OPEN_SECONDS):
+                context['your_hypothetical'] = {'asked': self.last_hypothetical['text'],
+                                                'meaning': GUIDE['your_hypothetical']}
             if (self.state and not self.state.frozen and getattr(self.output,'cloner',None) is not None
                     and self.state.voice_references is not None):
                 if not opportunity:
@@ -1339,6 +1347,12 @@ class Session:
                 self.agency_scope=agency_step['scope']
                 cancel.check()
                 context['agency_step'] = agency_step
+                if agency_step.get('wonder'):
+                    # Owner, October 23: one "Do you ever think..." after a long quiet; what he already asked is spent.
+                    from . import hypotheticals
+                    wonder_person = (self.state.agency.record or {}).get('subject_person') if agency_step['scope'] == 'audience' else None
+                    context['hypotheticals'] = {'asked_before': hypotheticals.asked_before(self.state.store, wonder_person),
+                                                'meaning': GUIDE['hypotheticals']}
                 if agency_step['scope']=='general':
                     context['memory_opportunities'] = []
                     context['visual_memory'] = [r for r in context.get('visual_memory',[]) if r.get('audience')=='general']
@@ -1503,8 +1517,9 @@ class Session:
                     'one short thing now that follows their latest words, in your own voice.'})))
                 repeated = (self._repeats_recent_line(calls[0])
                             if len(calls) == 1 and not generated.strip() else None)
-            if (not repeated and agency_step and len(calls) == 1 and not generated.strip()
+            if (not repeated and agency_step and not agency_step.get('wonder') and len(calls) == 1 and not generated.strip()
                     and self._asks_over_open_question(calls[0])):
+                # A "what if" after 45 quiet seconds is the one new question the owner asked for (October 23).
                 # Owner ruling, September 18: after his own unanswered question Rex cracks a joke
                 # rather than asking again. October 13 probe: a beat stacked a second question.
                 self.trace.emit('agency_question_stacked', turn_id=turn_id, name=calls[0].name)
@@ -2662,11 +2677,23 @@ class Session:
             if agency_step and self.state and not agency_deferred:
                 with self._lock:
                     self.state.agency.finish(agency_step,delivery,action_outcome,self.trace.clock(),agency_revision_reason)
+                if (agency_step.get('wonder') and delivery.completed_text and delivery.medium == 'audio'
+                        and not self.state.frozen):
+                    # Only a question actually heard is spent, so the next long quiet gets a different one.
+                    from . import hypotheticals
+                    heard = ' '.join(delivery.completed_text)
+                    try:
+                        with self.state.store.transaction() as conn:
+                            hypotheticals.record(conn, wonder_person, heard, self.state.wall_clock())
+                        self.last_hypothetical = {'text': heard, 'at': self.trace.clock()}
+                        self.trace.emit('hypothetical_asked', turn_id=turn_id, text=heard)
+                    except Exception as exc:
+                        self.trace.emit('state_finalize_failed', turn_id=turn_id, error_type=type(exc).__name__)
             if went_dark[0] and self.state and not self.state.frozen:
                 # Owner, October 22: lowered, the visor blinds him and he should make light of it. Run
                 # 0421a222: told so only in the instructions, he never did. His next beat does it.
                 with self._lock:
-                    self.state.agency.insert_beat(DARK_BEAT, self.trace.clock())
+                    self.state.agency.insert_beat(DARK_BEAT, self.trace.clock(), requires_visor_shut=True)
                 if delivery.completed_text and delivery.medium == 'audio' and not self.state.frozen:
                     # October 16: a beat asked about the wine run three runs in a row; only the
                     # memory tool recorded a follow-up as asked. A heard beat built on it counts too.
