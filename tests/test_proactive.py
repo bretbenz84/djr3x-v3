@@ -160,15 +160,18 @@ class ProactiveSessionTests(MemoryFixture):
         self.assertFalse(later['visual_arrival']['startup_greeting'])
         self.assertIn('remain_silent',{t['name'] for t in grounded_tools(later)})
 
-    def test_human_floor_silence_retains_hold(self):
+    def test_human_floor_silence_holds_until_people_have_been_quiet_a_while(self):
+        # October 24 (b5ef657c): was a fixed two minutes from his own beat, with the owner alone.
+        from r3x.proactive import HUMAN_FLOOR_SECONDS
         self.begin("Hello again.")
         class Silent(Brain):
             def reply(self,snapshot,cancel):
                 yield ToolCall('quiet','remain_silent',{'reason':'background_conversation'})
         session=self.session(Silent());session.note_speech(0)
+        session.last_trusted_speech_at=self.state.trace.clock()-5
         result=session.process_opportunity(replace(event(),speech_marker=0),0,lambda:True)
         self.assertEqual(result.status,'suppressed')
-        self.assertEqual(session.proactive_hold_until,self.state.trace.clock()+120)
+        self.assertEqual(session.proactive_hold_until,session.last_trusted_speech_at+HUMAN_FLOOR_SECONDS)
 
     def test_name_question_is_pending_only_after_audio_and_other_person_can_answer(self):
         class Question(Brain):

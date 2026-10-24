@@ -48,7 +48,8 @@ it or reads its data.
   leaves, someone redirects it or a new arrival replaces it. He eases off when nobody
   answers and, with nobody seen or heard for five minutes, starts no new goals. After 45 seconds with
   nobody talking (him included) and someone in view, he asks one "Do you ever think..." question, once
-  per quiet stretch (October 23). Live acceptance is pending
+  per quiet stretch (October 23). Talk he leaves to others (to each other, a pet, a device) holds
+  his goal only until nobody has spoken for 20 seconds (October 24). Live acceptance is pending
   ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
 - **News (October 11).** BBC headlines, Sacramento weather and, once a day, about five
   web-searched stories (at most one about AI or tech) that Rex may bring up in a lull,

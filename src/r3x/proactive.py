@@ -81,6 +81,10 @@ class OpportunityCancellation(Cancellation):
 RECENT_OUTCOMES = 10      # Past opportunities the reply model sees (feedback may refer to these).
 OUTCOME_TEXT = 240        # Of each one's spoken words.
 OUTCOME_FIELDS = ('event_id', 'kind', 'status', 'heard_complete_phrases', 'target_person_id', 'response')
+# Talk not for Rex (to someone else, a pet, a device) or an unfinished thought holds his own beats
+# until nobody has spoken this long. Was a fixed two minutes; October 24 (b5ef657c): one line taken
+# as meant for someone else, with the owner alone, kept him silent and still for four minutes.
+HUMAN_FLOOR_SECONDS = 20.
 
 
 def public_outcome(row):
@@ -113,6 +117,12 @@ class Initiative:
 
     def floor_held(self, now: float) -> bool:
         return any(r['action']=='yield_floor' and now < r['expires_at'] for r in self.feedback)
+
+    def heard_people(self, at: float) -> None:
+        """Words heard while people hold the floor keep it theirs until they go quiet."""
+        for row in self.feedback:
+            if row['action'] == 'yield_floor' and row['expires_at'] > at:
+                row['expires_at'] = max(row['expires_at'], at + HUMAN_FLOOR_SECONDS)
 
     def scheduling_context(self, source):
         return {'revision': self.schedule_revision, 'source_id': source,

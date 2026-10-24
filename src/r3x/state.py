@@ -1101,9 +1101,10 @@ class CoreState:
         if action not in {'retract','floor_resolved'} and len(self.initiative.feedback)==32 and all(
                 r['action']=='topic_avoid' for r in self.initiative.feedback):
             raise ValueError('FeedbackCapacityReached')
+        from .proactive import HUMAN_FLOOR_SECONDS
         return {"id":uuid4().hex,"action":action,"reference_id":reference,"topic":topic,
                 "source_turn_id":turn_id,"source_text":transcript.text[:500],
-                "participant":participant,"at":now,"expires_at":now+120 if action=="yield_floor" else None,
+                "participant":participant,"at":now,"expires_at":now+HUMAN_FLOOR_SECONDS if action=="yield_floor" else None,
                 "text":args["text"],"reason":"conversation_feedback"},True
 
     def _impersonate(self, conn, args, context):

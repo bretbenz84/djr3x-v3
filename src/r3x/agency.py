@@ -833,7 +833,7 @@ class AgencyPlan:
         record = self.record
         record['steps'].insert(record['cursor'], {'kind': 'contribute', 'instruction': instruction, 'evidence_ids': [],
                                                   'wake': {'when': 'quiet', 'seconds': 3}, 'follows_previous': False,
-                                                  **marks})
+                                                  'inserted': True, **marks})
         record['attempts'] = 0
         record.pop('interrupted_at', None)
         self._next_beat(now)
@@ -875,6 +875,10 @@ class AgencyPlan:
         """Skip the follow-ups of a beat that never landed (October 13: the camping question was
         cut off twice, then "a proper forest trip is a strong argument..." ran out of nowhere)."""
         record, orphans = self.record, []
+        if record['cursor'] and record['steps'][record['cursor'] - 1].get('inserted'):
+            # An inserted beat has no follow-ups: those after it follow the plan's own beat before it
+            # (October 24, b5ef657c: a let-go "what if" took the planned head tilt with it).
+            return orphans
         while record['cursor'] < len(record['steps']) and record['steps'][record['cursor']].get('follows_previous'):
             orphans.append({'step': record['cursor'], 'kind': record['steps'][record['cursor']]['kind'],
                             'status': 'skipped', 'revision_reason': 'previous_beat_did_not_land',

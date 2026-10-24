@@ -19,7 +19,7 @@ LOTTERY = 'Do you ever think about what would happen if everyone won the lottery
 DOGS = 'What if dogs could talk, but only for five minutes a day?'
 
 
-class QuietStretchTests(memory_tests.MemoryFixture):
+class QuietStretchFixture(memory_tests.MemoryFixture):
     def setup_owner(self, wonder_lines=(LOTTERY, DOGS), first='Did you ever finish that bookshelf?'):
         self.trace = self.state.trace
         self.executor = Executor(); self.planner = Planner()
@@ -57,6 +57,8 @@ class QuietStretchTests(memory_tests.MemoryFixture):
     def wonders(self):
         return [s for s in self.executor.snapshots if (s.context.get('agency_step') or {}).get('wonder')]
 
+
+class QuietStretchTests(QuietStretchFixture):
     def test_forty_five_quiet_seconds_bring_one_what_if_and_no_second_until_someone_speaks(self):
         self.setup_owner()
         self.tick(100)                       # His own beat, then nothing: the follow-up waits for an answer.
@@ -97,11 +99,12 @@ class QuietStretchTests(memory_tests.MemoryFixture):
         self.assertFalse([r for r in self.trace.rows if r['event'] == 'agency_question_stacked'])
 
     def test_let_go_in_silence_it_is_not_recorded_or_asked_again_that_stretch(self):
-        self.setup_owner(wonder_lines=(None,))
+        # October 24 (b5ef657c): let go without a reason, it is asked once more; then the silence stands.
+        self.setup_owner(wonder_lines=(None, None))
         self.tick(100)
         self.tick(self.trace.at + 46)
         self.tick(self.trace.at + 60)
-        self.assertEqual(len(self.wonders()), 1)
+        self.assertEqual(len(self.wonders()), 2)
         self.assertEqual(self.store.rows('SELECT * FROM hypotheticals_asked'), [])
 
     def test_a_reply_soon_after_can_take_it_up(self):

@@ -43,7 +43,6 @@ STOPPED_LINE = "Stopped."   # Said when a spoken stop halts a drive (not for qui
 # Shutdown waits at most this long for the conversation lock, then goes ahead without it.
 SHUTDOWN_LOCK_SECONDS = .5
 LULL_FRESH_TOPIC_SECONDS = 45.   # Nobody has spoken this long: Rex's next goal opens something new.
-ANIMAL_ASIDE_HOLD_SECONDS = 20.   # Quiet after someone talks to a pet, before Rex may chime in.
 REPEAT_LINES = 6    # Rex's recent heard lines a planned beat must not repeat.
 REPEAT_RUN = 5      # Words in a row that count as repeating one of them.
 # October 16 (511ce677): after a look that took no picture he said the path was clear and
@@ -989,6 +988,7 @@ class Session:
                         speaker = context.get('speaker') or {}
                         self.state.agency.human_spoke(
                             speaker.get('person_id') if speaker.get('state') == 'supported' else None, speech_end)
+                        self.state.initiative.heard_people(speech_end)
                         self.state.present.saw_faces(context.get('faces', []), self.trace.clock())
             if not opportunity and not transcript.trusted and not self._owed_reply:
                 # Preserve the source in the trace/store, not as a conversational turn.
@@ -1504,9 +1504,11 @@ class Session:
                     calls = retry
             repeated = (self._repeats_recent_line(calls[0])
                         if agency_step and len(calls) == 1 and not generated.strip() else None)
-            if (agency_step and agency_step.get('overtaken') and agency_step['kind'] in {'contribute', 'gesture'}
-                    and len(calls) == 1 and calls[0].name == 'remain_silent' and not generated.strip()
-                    and calls[0].arguments.get('reason') == 'no_response_needed'):
+            silence = (calls[0].arguments.get('reason') if agency_step and agency_step['kind'] in {'contribute', 'gesture'}
+                       and len(calls) == 1 and calls[0].name == 'remain_silent' and not generated.strip() else None)
+            from .proactive import HUMAN_FLOOR_SECONDS
+            quiet = self.trace.clock() - self.last_trusted_speech_at
+            if silence == 'no_response_needed' and agency_step.get('overtaken'):
                 # October 22: told to speak, moved-on beats still went silent (7 of 11 in 1072c10a, 2 of 4
                 # in 0421a222). Silence needs a real reason; asked once more, then it stands.
                 from dataclasses import replace as replace_snapshot
@@ -1515,6 +1517,19 @@ class Session:
                 calls = generate(replace_snapshot(snapshot, messages=(*snapshot.messages, {'role': 'developer', 'content':
                     'Silence needs a real reason: they are talking to each other, busy, or mid-thought. Otherwise say '
                     'one short thing now that follows their latest words, in your own voice.'})))
+                repeated = (self._repeats_recent_line(calls[0])
+                            if len(calls) == 1 and not generated.strip() else None)
+            elif ((silence in {'other_addressee', 'background_conversation'} or
+                   silence == 'no_response_needed' and agency_step.get('wonder')) and quiet >= HUMAN_FLOOR_SECONDS):
+                # October 24 (b5ef657c): the "what if", due after two quiet minutes with the owner alone, was let
+                # go as talk between other people. Nobody talking is a fact of the clock, not a reading of
+                # words; asked once more, then the silence stands.
+                from dataclasses import replace as replace_snapshot
+                self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='quiet_room_silence_retry',
+                                reasoning_effort=getattr(self.brain, 'reasoning_effort', None))
+                calls = generate(replace_snapshot(snapshot, messages=(*snapshot.messages, {'role': 'developer', 'content':
+                    f'Nobody has said a word for {round(quiet)} seconds, so nobody is talking to each other now. '
+                    'Do this beat now, in your own voice; silence only if they are clearly busy or upset.'})))
                 repeated = (self._repeats_recent_line(calls[0])
                             if len(calls) == 1 and not generated.strip() else None)
             if (not repeated and agency_step and not agency_step.get('wonder') and len(calls) == 1 and not generated.strip()
@@ -2288,12 +2303,16 @@ class Session:
                     from dataclasses import asdict
                     import json
                     delivery.status, delivery.medium = "suppressed", "none"
-                    if call.name=='remain_silent' and result.data['reason']=='talking_to_animal':
-                        # October 13: "Max, why are you crying?" held Rex silent for two minutes.
-                        self.proactive_hold_until = self.trace.clock()+ANIMAL_ASIDE_HOLD_SECONDS
-                    elif call.name=='remain_silent' and result.data['reason']!='no_response_needed':
-                        self.proactive_hold_until = self.trace.clock()+120
-                        self.state.initiative.cancel_schedule('quiet_or_human_floor')
+                    if call.name=='remain_silent' and result.data['reason']!='no_response_needed':
+                        # Talk that is not for him holds his own beats until nobody has spoken for a while,
+                        # counted from the last words heard: on his own beat long after anyone spoke, nothing
+                        # is held. October 13: "Max, why are you crying?" held him two minutes; October 24
+                        # (b5ef657c): two fixed two-minute holds with the owner alone.
+                        from .proactive import HUMAN_FLOOR_SECONDS
+                        self.proactive_hold_until = max(self.proactive_hold_until,
+                                                        self.last_trusted_speech_at + HUMAN_FLOOR_SECONDS)
+                        if result.data['reason']!='talking_to_animal':
+                            self.state.initiative.cancel_schedule('quiet_or_human_floor')
                     self.history.extend((
                         {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps({**call.arguments, **({"intent_update":None} if "intent_update" in call.arguments else {}), **({"next_opportunity":None} if "next_opportunity" in call.arguments else {})})},
                         {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))

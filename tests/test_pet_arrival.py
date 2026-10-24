@@ -102,6 +102,7 @@ class AnimalAside(MemoryFixture):
             'reason': 'talking_to_animal', 'invitation_update': None, 'intent_update': None, 'next_opportunity': None})]))
         session = Session('session', brain, TextOutput(self.state.trace), self.state.trace, self.state)
         self.addCleanup(session.close)
+        self.state.trace.at = self.state.current[1].ended_at   # Their words have just ended.
         receipt = session.process_turn(self.state.current[1], Transcript('Max, why are you crying? Stop crying, Bubba.', -.01, True),
                                        0, observation())
         self.assertEqual(receipt.status, 'suppressed')

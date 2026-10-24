@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 23, 2026. This is the consolidated
+Updated October 24, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,30 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## A quiet room is not other people talking — October 24
+
+Live run `b5ef657c` (owner alone, 7 minutes): after a good start (a drive toward him, five lines),
+Rex sat silent and still for about two minutes, then two more, until the owner spoke. One reply
+("He's at the truth.", misheard) was taken as said to someone else, and that choice held all his
+own initiative for a fixed **two minutes**: no beats, no drives, no "what if". When the hold ran
+out the "what if" came, was let go as "talking to each other" in an empty room, and started another
+two minutes; the planned head tilt after it was dropped as its follow-up. Repairs:
+- **The floor goes back after 20 s of quiet.** Talk he leaves to others (to someone else, a pet, a
+  device) or an unfinished thought holds his own beats until nobody has spoken for 20 seconds,
+  counted from the last words heard (`proactive.HUMAN_FLOOR_SECONDS`, which also replaces the 20 s
+  pet-aside hold). Words heard while the floor note is held keep it with the people talking. On his
+  own beat long after anyone spoke, letting it go holds nothing. "Stop" and quiet requests are unchanged.
+- **One more ask in a quiet room.** If his own beat is let go as people talking to each other when
+  nobody has said a word for 20 s, or a "what if" is let go with no reason, the same generation is
+  asked once more (`quiet_room_silence_retry`), stating how long the room has been quiet; a second
+  silence stands. A beat at a lull soon after people's words may still stay out without a retry.
+- **An inserted beat has no follow-ups.** A "what if" or visor beat that is let go no longer drops
+  the plan's next step that followed the beat before it.
+
+Checks: 6 new in `tests/test_october24_repairs.py`; 3 old checks that asserted the two-minute hold
+now assert the 20 s rule; 1,523 blocked-I/O checks pass (5 skipped). Scripted silences do not prove the hosted model's choice. **Not yet run on
+the robot**: whether a quiet stretch now brings the "what if" and the rest of the plan's moves.
 
 ## "Do you ever think..." after a long quiet — October 23
 

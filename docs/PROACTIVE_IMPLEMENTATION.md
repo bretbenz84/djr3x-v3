@@ -153,7 +153,8 @@ No v2 extraction, data import, provider or resident model was added.
 - Existing `remain_silent` human-floor reasons preserve their semantic decision
   with a source-linked note. The scheduler and Session defer initiative while that
   note is active, even after an unrelated direct reply or history eviction. A
-  semantic completion releases it; expiry is at two minutes, not an inferred answer.
+  semantic completion releases it; expiry is at two minutes, not an inferred answer
+  (since October 24: 20 seconds after the last words heard; see IMPLEMENTATION_STATUS.md).
   This uses the existing model decision rather than a second silence classifier.
 - There are at most 32 notes and 16 delivery receipts, with excerpts bounded to
   500 source / 1,200 delivered characters. Routine feedback cannot evict an active

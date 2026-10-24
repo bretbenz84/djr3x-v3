@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from r3x.contracts import Capture, Transcript, ToolCall
 from r3x.output import TextOutput
-from r3x.proactive import Opportunity
+from r3x.proactive import HUMAN_FLOOR_SECONDS, Opportunity
 from r3x.session import Session
 from r3x.state import CoreState
 from r3x.speakers import SpeakerTracker
@@ -137,10 +137,11 @@ class FeedbackTests(MemoryFixture):
                 yield ToolCall(uuid4().hex,'remain_silent',{'reason':'other_addressee'})
         brain=FloorBrain();session=Session('session',brain,TextOutput(self.state.trace),self.state.trace,self.state)
         try:
+            heard=self.state.trace.at-1
             result=self.session_turn(session,'Sam, what happened next?')
             self.assertEqual(result.status,'suppressed');self.assertEqual(brain.calls,1)
             self.assertEqual(result.completed_text,[])
-            self.assertEqual(session.proactive_hold_until,220)
+            self.assertEqual(session.proactive_hold_until,heard+HUMAN_FLOOR_SECONDS)
         finally:session.close()
 
     def test_boundary_survives_feedback_eviction_and_capacity_rejects_without_acknowledging(self):
