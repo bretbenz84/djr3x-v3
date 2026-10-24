@@ -231,7 +231,7 @@ class DriveReceipt:
 
 
 class DriveAction:
-    """A plan queued behind earlier phrases, so before-motion speech finishes first."""
+    """A plan the output owner runs beside speech (start_drive); done is set when it is over."""
     def __init__(self, plan: DrivePlan):
         self.plan = plan
         self.receipt: DriveReceipt | None = None
@@ -438,6 +438,10 @@ class DriveBase:
         self._reflex = reflex
         self.state = 'new'
         self.moving = threading.Event()
+        # The plan (request id) whose wheels were last commanded; moving is set from a plan's start,
+        # before the arms tuck. A line meant for rolling waits for its plan here (owner, October 24).
+        self.rolled = None
+        self._plan_id = None
         self.motion_until = 0.
         self.history = deque(maxlen=6)
         self.flinch = Flinch()
@@ -911,8 +915,7 @@ class DriveBase:
         if ack is not None and not ack.get('accepted'):
             return 'refused', 'controller_refused_' + str(ack.get('reason')), None
         deadline = self.clock() + timeout
-        if self.sounds:
-            self.sounds.start('turn' if command['cmd'] == 'turn' else 'move', self._origin)
+        self._wheels_on('turn' if command['cmd'] == 'turn' else 'move', self._origin)
         try:
             while True:
                 done = self.link.done(seq)
@@ -1174,8 +1177,7 @@ class DriveBase:
         status, reason = 'completed', None
         turned = travelled = 0.
         mark, progressed_at = (0., 0.), self.clock()
-        if self.sounds:
-            self.sounds.start('turn', self._origin)
+        self._wheels_on('turn', self._origin)
         try:
             seq = self.link.send({'cmd': 'drive', 'lin': round(speed, 3), 'ang': round(sign * BANK_LEAD_ANG, 3)})
             ack = self._await_ack(seq, .5, self.wait)
@@ -1276,6 +1278,12 @@ class DriveBase:
         """Arm reach for the swing check: tucked when the servo owner parks them before any
         wheel command of this plan; V2's arms-out estimate when their position is unknown."""
         return ARMS_TUCKED if self.servos is not None and self._plan_parks else ARMS
+
+    def _wheels_on(self, kind, origin):
+        """A wheel command is going out: the whir loops while they run, and the plan is rolling."""
+        self.rolled = self._plan_id
+        if self.sounds:
+            self.sounds.start(kind, origin)
 
     def _ensure_parked(self, cancel):
         """Arm in and neck centred right before the wheels first move, not at plan start:
@@ -1412,8 +1420,7 @@ class DriveBase:
         status, reason = 'completed', None
         travelled, progressed_at, last_mark = 0., self.clock(), 0.
         self._assist(True)
-        if self.sounds:
-            self.sounds.start('move', self._origin)
+        self._wheels_on('move', self._origin)
         try:
             seq = self.link.send({'cmd': 'drive', 'lin': round(speed, 3), 'ang': 0.})
             ack = self._await_ack(seq, .5, self.wait)
@@ -1874,8 +1881,7 @@ class DriveBase:
         controller = Approach(self.clock(), 'face' if kind in {'face', 'nearest_person'} else 'object',
                               stop_at, LIMITS[plan.origin]['speed_mps'] * self._pace, budget_m)
         result, reason, last = None, None, None
-        if self.sounds:
-            self.sounds.start('move', self._origin)
+        self._wheels_on('move', self._origin)
         try:
             while result is None:
                 self._check(cancel)
@@ -2089,8 +2095,7 @@ class DriveBase:
         hold = self._heading(self._telemetry())
         speed = LIMITS[plan.origin]['speed_mps'] * self._pace
         outcome, travelled = 'distance', 0.
-        if self.sounds:
-            self.sounds.start('move', self._origin)
+        self._wheels_on('move', self._origin)
         try:
             while True:
                 self._check(cancel)
@@ -2342,8 +2347,7 @@ class DriveBase:
         future, latest, misses, outcome, travelled = None, None, 0, None, 0.
         looked_at = float('-inf')
         recheck_until = None
-        if self.sounds:
-            self.sounds.start('move', plan.origin)
+        self._wheels_on('move', plan.origin)
         try:
             while outcome is None:
                 self._check(cancel)
@@ -2597,6 +2601,7 @@ class DriveBase:
             if not ok or self.clock() >= plan.expires_at:
                 receipt.status, receipt.reason = 'refused', reason or 'StaleDrivePlan'
                 return receipt
+            self._plan_id = plan.request_id
             self.moving.set()
             self._notify(plan)
             self._vision_calls = 0   # The last sought thing persists across plans ("keep going").

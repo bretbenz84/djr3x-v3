@@ -21,6 +21,28 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## He talks while he rolls — October 24
+
+Owner: "He either talks, or rolls, but never both at the same time." In 309 saved drives (56
+robot sessions) not one second of his speech overlapped the wheels. A drive ran inside the one
+speech queue, shared the motion lock with talking motion, and its whir used the one speech sink.
+Repairs (owner's choices: speak as he sets off, visor and mouth lights only, head and arms still,
+whir quiet while he talks, short lines only, stop still heard over his voice), synthetic checks
+only, **not yet run on the robot**:
+- The drive runs beside speech: the arms tuck and the wheels start while his opening line plays.
+  More than 14 words still to say are said first, and the wheels wait (`output.ROLLING_WORDS`).
+- A new `drive_base` line, `say_while`, starts once the wheels do (the opening line was still
+  playing at plan acceptance in 238 of 336 drives, but for a median 0.9 s against a 2.8 s arm
+  tuck, so it rarely reached the rolling). A longer one is said before he moves.
+- Beside a drive only the visor talks (`ServoOwner.talk_visor`); mouth lights follow playback.
+- The whir pauses for each line and comes back while the wheels still run.
+- While the wheels run, sound captured over his own voice is checked for a stop or collision
+  warning with his own line's words set aside (`stop_heard_over`); the conversation still ignores it.
+Details and evidence: [drive base](DRIVE_BASE_INTEGRATION.md#talking-while-rolling--october-24-2026).
+1544 blocked-I/O checks pass (5 skipped), 21 new in `tests/test_talk_while_rolling.py`. Open: a live
+test of "stop" said over his voice while he rolls, how the visor-only talk looks, and how often the
+model writes a rolling line (no hosted probe was run).
+
 ## A quiet room is not other people talking — October 24
 
 Live run `b5ef657c` (owner alone, 7 minutes): after a good start (a drive toward him, five lines),
@@ -1827,7 +1849,7 @@ separate categories.
 | Future capability | Boundary of current implementation |
 | --- | --- |
 | Public installer and optional hardware configuration | Future installer built around existing `local/settings.toml`, independent optional capabilities, clear missing-device behavior, selected dependency/model downloads and optional service setup. No new settings or installer implemented. [Public-install plan](PUBLIC_INSTALL_PLAN.md) |
-| Physical motion and expression | [Servo integration](SERVO_INTEGRATION.md) includes explicit live composition and motion/enrollment guards. Physical commissioning, obstruction feedback, live manual-takeover acceptance remain. Finite model-selected physical directional looks and gestures are implemented. Explicit requested head turns, all-joint poses, addressee gaze while talking and idle face/room looks are implemented; object-grounded autonomous gaze remains pending. Base motion followed by a fresh camera question is implemented through [drive_base](DRIVE_BASE_INTEGRATION.md). |
+| Physical motion and expression | [Servo integration](SERVO_INTEGRATION.md) includes explicit live composition and motion/enrollment guards. Physical commissioning, obstruction feedback, live manual-takeover acceptance remain. Finite model-selected physical directional looks and gestures are implemented. Explicit requested head turns, all-joint poses, addressee gaze while talking and idle face/room looks are implemented; object-grounded autonomous gaze remains pending. Base motion followed by a fresh camera question is implemented through [drive_base](DRIVE_BASE_INTEGRATION.md); since October 24 he talks while he rolls (visor only; simulated, not yet run on the robot). |
 | Continuous speech/motion coordination | Playback-driven talking motion shares the servo owner; synthetic checks cover actual audio start/stop and failures. Live validation, richer V2 expression, word-level alignment and continuous gaze blending remain. |
 | Live tracked-object attention after movement | Target/version contracts exist in simulation. Physical directional looks and settled captures are implemented; tracked room-object gaze and mechanically verified arrival remain pending. Current-camera descriptions do not supply those controllers. |
 | Optional vision extensions | Adaptive image detail, general inspection-request coalescing and supported cross-session visual association are future options, not missing requirements of the completed core. Exact-image description reuse already exists. |

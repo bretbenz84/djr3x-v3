@@ -5,10 +5,11 @@ from dataclasses import replace
 import sys
 import threading
 import time
+from uuid import uuid4
 
 from .capture import Endpoint
-from .contracts import Cancellation, Cancelled, ProviderFailure
-from .session import is_collision_warning, is_quiet_command, is_stop_command
+from .contracts import Cancellation, Cancelled, Capture, ProviderFailure
+from .session import is_collision_warning, is_quiet_command, is_stop_command, stop_heard_over
 
 # Voiced time within one utterance before it yields an unheard reply. Live September 28:
 # every phantom "Oh."/"Okay." noise capture had <= 0.48 s voiced; real speech >= 0.64 s.
@@ -152,12 +153,14 @@ class VoiceRuntime:
         except Full:
             self.trace.emit("input_overflow", queue=kind, policy="reject_newest")
 
-    def _stop_peek(self, frames, speech_ended_at, revision):
-        """Transcribe a short burst heard while rolling; halt at once on a stop word."""
-        from uuid import uuid4
-        from .contracts import Capture
-        burst = Capture(uuid4().hex, self.session.session_id, b''.join(f.pcm for f in frames),
-                        frames[0].started_at, speech_ended_at, frames[-1].ended_at, motion_risk=True)
+    def _stop_peek(self, burst, revision):
+        """Transcribe sound heard while the wheels run; halt at once on a stop word.
+
+        A short burst is checked after a brief pause, and (owner, October 24: he talks while he
+        rolls) so is anything captured while he was speaking, which the conversation never hears:
+        his own line's words are set aside first."""
+        said_between = getattr(self.session.output, 'said_between', None)
+        own = said_between(burst.started_at, burst.ended_at) if said_between else ''
         def run():
             began = self.trace.clock()
             try:
@@ -165,16 +168,16 @@ class VoiceRuntime:
             except Exception as exc:
                 self.trace.emit('stop_peek', status='failed', error_type=type(exc).__name__)
                 return
-            halt = is_stop_command(transcript.text) or is_collision_warning(transcript.text)
+            halt = stop_heard_over(transcript.text, own)
             acted = (halt and revision == self.session.revision and not self.stop.is_set()
                      and self.drive.moving.is_set())
             if acted:
                 self.drive.cancel()   # Wheels first; the conversation's own stop follows.
                 self.cancel(quiet=is_quiet_command(transcript.text))
             self.trace.emit('stop_peek', status='halted' if acted else 'stop_word_late' if halt else 'not_a_stop',
-                            text=transcript.text, avg_logprob=transcript.avg_logprob,
-                            asr_seconds=round(self.trace.clock() - began, 3),
-                            after_speech_seconds=round(self.trace.clock() - speech_ended_at, 3))
+                            text=transcript.text, avg_logprob=transcript.avg_logprob, over_own_speech=bool(own),
+                            echo_risk=burst.echo_risk, asr_seconds=round(self.trace.clock() - began, 3),
+                            after_speech_seconds=round(self.trace.clock() - burst.speech_ended_at, 3))
         threading.Thread(target=run, name='r3x-stop-peek', daemon=True).start()
 
     def flush_turns(self):
@@ -709,7 +712,16 @@ class VoiceRuntime:
                         and 0 < self.endpoint.voiced <= STOP_PEEK_MAX_VOICED
                         and frame.ended_at - self.endpoint.last_speech >= STOP_PEEK_SILENCE):
                     peeked = True
-                    self._stop_peek(self.endpoint.frames, self.endpoint.last_speech, self.session.revision)
+                    burst = self.endpoint.frames
+                    self._stop_peek(Capture(uuid4().hex, self.session.session_id, b''.join(f.pcm for f in burst),
+                                            burst[0].started_at, self.endpoint.last_speech, burst[-1].ended_at,
+                                            echo_risk=any(f.echo_risk for f in burst), motion_risk=True),
+                                    self.session.revision)
+                if (capture and capture.echo_risk and not peeked and not self.counting_down()
+                        and self.drive is not None and self.drive.moving.is_set()):
+                    # Said over his own line as he rolls: the conversation rejects it as echo,
+                    # so only the stop check hears it.
+                    self._stop_peek(capture, self.session.revision)
                 if not self.endpoint.frames:
                     reflexed = False
                     peeked = False

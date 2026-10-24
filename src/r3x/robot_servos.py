@@ -113,10 +113,11 @@ class RobotServos:
                 not (self.reflex._thread and self.reflex._thread.is_alive())):
             self.owner.refresh_microphone_hold()
 
-    def execute_pose(self, name, cancel, request_id, *, hold_pose=True):
+    def execute_pose(self, name, cancel, request_id, *, hold_pose=True, beside_visor=False):
         self.idle.stop()
         self.reflex.stop()   # The model's explicit move replaces an unfinished reflex.
-        self.talking.stop()
+        if not (beside_visor and self.talking.visor_only):
+            self.talking.stop()
         if name == 'hold_arms':
             # Nothing moves and nothing is heard, so there is nothing for newer speech to
             # interrupt: October 3, "keep your hand down and don't move it" was understood
@@ -164,10 +165,11 @@ class RobotServos:
     def drive_look(self, pose, cancel, request_id):
         """A head move the drive owner makes to look at something mid-drive. The drive
         stance already holds the head, and this is nobody's requested pose: it must not
-        start the hold that keeps Rex's own movement off a person's pose for 90 seconds."""
+        start the hold that keeps Rex's own movement off a person's pose for 90 seconds.
+        A line he is saying as he rolls keeps its visor going: the look moves the head only."""
         held_at = self.owner.pose_held_at
         try:
-            return self.execute_pose(pose, cancel, request_id)
+            return self.execute_pose(pose, cancel, request_id, beside_visor=True)
         finally:
             self.owner.pose_held_at = held_at
 
@@ -186,11 +188,13 @@ class RobotServos:
         return receipt
 
     def prepare_base_motion(self, cancel):
-        """Park the throttle arm and center the neck before any non-reverse base motion."""
+        """Park the throttle arm and center the neck before any non-reverse base motion.
+        A line said as he sets off keeps its visor moving (the stance leaves the visor alone)."""
         self.owner.end_requested_look()   # The drive centres the head: a held look is over.
         self.idle.stop()
         self.reflex.stop()
-        self.talking.stop()
+        if not self.talking.visor_only:
+            self.talking.stop()
         if self._arm_return is not None:
             self._arm_return.join(15.)
             if self._arm_return.is_alive():

@@ -183,7 +183,9 @@ WHAT MAKES IT GOOD
   effect, swivel to look at something, wander to a new spot, creep up on something suspiciously, do a slow lap.
   A move needs no announcement and no stated reason: a drive, pose or look beat may be completely silent
   ("Roll a little closer to Bret and say nothing"), and silent moves between spoken beats are what make him
-  seem alive. Do not open a goal for a person who is present with a silent beat: start with something they notice.
+  seem alive. He can also talk while he rolls: a drive beat may ask for a short line on the move (a boast
+  mid-lap, a whispered aside while creeping up on something). Do not open a goal for a person who is
+  present with a silent beat: start with something they notice.
 - Varied in pace. Drive steps take a pace (slow, easy, normal). Say in the instruction when a move is a slow
   stroll, a lazy swivel or a careful creep instead of a brisk roll; not every move is the same speed.
 - Eyes. By himself Rex follows people's faces. A look_* pose or a look beat points his head where you choose,

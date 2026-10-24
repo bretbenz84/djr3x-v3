@@ -103,7 +103,10 @@ it or reads its data.
   - Safety: throttle-arm park, hero elbow and poker arm raised and head levelled while
     driving (the arms walk back to their awake poses when the wheels stop), arm-swing and
     path-clearance checks, and an immediate halt on stop.
-  - V2's motion sounds play at 50% while the wheels move.
+  - V2's motion sounds play at 50% while the wheels move, and pause while he talks.
+  - He talks while he rolls (October 24, not yet run on the robot): the wheels start while his
+    opening line plays, and a short line can be timed to the moment they do. Only the visor and
+    mouth lights move with it; a stop said over his voice still halts him.
   - He can answer questions about battery, charging, obstructions, radar bodies, tilt
     and room climate from live readings.
 - **Startup.** The startup whir plays as the servos wake, a short "please wait" line is

@@ -141,6 +141,18 @@ def is_stop_command(text: str) -> bool:
     return phrases > 0
 
 
+def stop_heard_over(text: str, own: str) -> bool:
+    """A stop phrase or collision warning in sound captured while Rex himself was speaking
+    (syntax only, like is_stop_command). Owner, October 24: he talks while he rolls, and a stop
+    must still be heard over his voice. The board cancels most of it, so his own line's words
+    are set aside and the strict rule applies to what is left: his own "whoa" never stops him."""
+    def words(value):
+        return re.findall(r"[a-z']+", value.lower().replace("’", "'"))
+    mine = set(words(own))
+    rest = ' '.join(w for w in words(text) if w not in mine)
+    return is_stop_command(rest) or (is_collision_warning(text) and not is_collision_warning(own))
+
+
 class Session:
     def __init__(self, session_id: str, brain: Brain | None, output: OutputOwner, trace, state=None):
         self.session_id, self.brain, self.output, self.trace = session_id, brain, output, trace
@@ -206,7 +218,7 @@ class Session:
         substance (October 13: "earned one smug look at the screen" twice in three minutes).
         Rex's own output is compared; nothing here interprets what a person said."""
         args = call.arguments if isinstance(call.arguments, dict) else {}
-        text = ' '.join(v for v in (args.get('say_before'), args.get('text')) if isinstance(v, str) and v.strip())
+        text = ' '.join(v for v in (args.get('say_before'), args.get('say_while'), args.get('text')) if isinstance(v, str) and v.strip())
         if not text:
             return None
         from .output import plain_text
@@ -232,7 +244,7 @@ class Session:
         """A beat's line asks a question while Rex's own last line, a question, is unanswered.
         Punctuation of Rex's own output, not a reading of anything a person said."""
         args = call.arguments if isinstance(call.arguments, dict) else {}
-        text = ' '.join(v for v in (args.get('say_before'), args.get('text')) if isinstance(v, str))
+        text = ' '.join(v for v in (args.get('say_before'), args.get('say_while'), args.get('text')) if isinstance(v, str))
         if '?' not in text:
             return False
         from .output import plain_text
@@ -1990,20 +2002,36 @@ class Session:
                             spoke = True
                             delivery.status, delivery.medium = 'requested', 'audio'
                         if result.outcome=='ok':
+                            from .output import ROLLING_WORDS, plain_text
                             if args['say_before'] and not heard_early:
                                 speak(args['say_before'])
+                            # Owner, October 24: he talks while he rolls. say_while starts once the
+                            # wheels do; one too long for that is said first and the wheels wait.
+                            rolling_line = args.get('say_while')
+                            if rolling_line and len(plain_text(rolling_line).split()) > ROLLING_WORDS:
+                                speak(rolling_line)
+                                rolling_line = None
                             drive_action = DriveAction(drive_plan)
                             drive_noted = False
-                            # Once queued, re-identified faces from the moving camera no longer
+                            # Once started, re-identified faces from the moving camera no longer
                             # invalidate a self-initiated plan; explicit stop still halts it.
                             self.motion_committed = True
-                            driving[0] = True   # Before the output worker can start it.
+                            driving[0] = True
                             try:
-                                put_phrase(phrases,drive_action,cancel)
+                                # The drive runs beside speech: the line playing goes on while the
+                                # arms tuck and the wheels start.
+                                self.output.start_drive(drive_action,phrases,cancel,turn_id)
+                                def rolled():
+                                    return getattr(self.output.drive,'rolled',None) == drive_plan.request_id
                                 while not drive_action.done.wait(.05):
                                     cancel.check()
+                                    if rolling_line and rolled():
+                                        speak(rolling_line)
+                                        rolling_line = None
                                     if not worker.is_alive():
                                         raise ProviderFailure('OutputWorkerStopped')
+                                if rolling_line and rolled():
+                                    speak(rolling_line)   # A move over before the line could start.
                             finally:
                                 driving[0] = False
                             receipt = asdict(drive_action.receipt)

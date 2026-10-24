@@ -434,6 +434,14 @@ THROTTLE_WRIST_SPEED, THROTTLE_WRIST_ACCEL = 12, 5   # The gentler wrist while t
 TALK_NECK_DEG = (3., 7.)    # Emphasis either side of the addressee (V2's 260 pulses barely read).
 
 
+def talking_visor(rng) -> tuple[Beat, ...]:
+    """The visor's lane of talking motion; alone while the wheels run (the drive stance holds the rest).
+    V2's speech floor permits visible expression instead of pinning the visor at neutral. Keep it
+    in the upper part of calibrated travel while speaking."""
+    return tuple(Beat(((3,target),),speed=45,acceleration=8,dwell=.15,wait=wait)
+                 for target, wait in zip((5612,6132,5492,5932), (rng.uniform(.1, .3), 0., 0., 0.)))
+
+
 def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = None, held=frozenset(),
                   neck: int | None = None, pitch: float | None = None, rng=None) -> tuple[tuple[Beat, ...], ...]:
     """Speech lanes around stable head anchors, not interrupted poses.
@@ -480,10 +488,7 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
         at.update(aim)
         planned += beat.seconds + beat.dwell
     head.append(eased_head_beat(at, home, dwell=.15, pace=TALK_EASE))
-    # V2's speech floor permits visible expression instead of pinning the visor
-    # at neutral. Keep it in the upper part of calibrated travel while speaking.
-    visor = tuple(Beat(((3,target),),speed=45,acceleration=8,dwell=.15,wait=wait)
-                  for target, wait in zip((5612,6132,5492,5932), (rng.uniform(.1, .3), 0., 0., 0.)))
+    visor = talking_visor(rng)
     # V2 neutral-expression elbow/wrist range, channels 4/5, not channel 7 (the
     # microphone-bearing hero-arm axis). The arm moves as a whole, as in idle.
     out, back = ((4,7100),(5,7120)), ((4,6740),(5,4880))

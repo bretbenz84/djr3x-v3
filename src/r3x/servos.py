@@ -17,7 +17,7 @@ from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
                           sentry_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
-                          VISOR_RAISE_SECONDS, visor_over_eyes)
+                          VISOR_RAISE_SECONDS, visor_over_eyes, talking_visor)
 
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
 ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})   # The arms the drive stance moved: walked back after the wheels stop.
@@ -100,6 +100,9 @@ class ServoOwner:
         self._after_drive = False
         self._arm_cancel = threading.Event()
         self._arm_wait = wait or self._arm_cancel.wait
+        self._visor_cancel = threading.Event()
+        self._visor_wait = wait or self._visor_cancel.wait
+        self.visor_talking = False   # talk_visor is moving the visor with a line beside a drive.
         self._talking_head_origin: dict[int, int] | None = None
         self._motion = threading.Event()
         self.motion_until = 0.
@@ -176,6 +179,7 @@ class ServoOwner:
     def cancel(self) -> None:
         self._cancel.set()
         self._arm_cancel.set()
+        self._visor_cancel.set()
         self.release_microphone_hold()
 
     def microphone_moving(self) -> bool:
@@ -191,7 +195,8 @@ class ServoOwner:
         return {ch for arm in self.kept_arms for ch in REACHING_ARMS[arm]}
 
     def motion_risk(self) -> bool:
-        return self._motion.is_set() or self._arm_returning or self.clock() < self.motion_until
+        return (self._motion.is_set() or self._arm_returning or self.visor_talking
+                or self.clock() < self.motion_until)
 
     @property
     def travelling(self) -> bool:
@@ -645,6 +650,83 @@ class ServoOwner:
             self._arm_returning = False
             self._returning_channels = frozenset()
 
+    def talk_visor(self, cancel: Cancellation, finished=lambda: False) -> ServoReceipt:
+        """Owner, October 24: he talks while he rolls. The drive stance holds the head and arms,
+        so the visor alone moves with the line, beside the drive's own requests (the arm park, a
+        look, the arm return).
+
+        Runs outside the single-request lock, like return_arm: the visor is held meanwhile, so
+        talking and idle lanes leave it alone, and the bus takes each wire exchange whole. It moves
+        until cancel; when finished() (the line played to its end) the visor runs on to its last
+        target, otherwise it holds where it is. A visor a person posed or shut is never moved."""
+        changed = set()
+        def receipt(status, reason=None):
+            return ServoReceipt('talk-visor', status, self.version, self.clock(), self.medium,
+                                (0,) if status == 'pulses_reached' else (), reason,
+                                changed_channels=tuple(sorted(changed)))
+        def check():
+            if self._visor_cancel.is_set():
+                raise Cancelled()
+            cancel.check()
+        if self.state not in {'active', 'moving'} or self._bus is None:
+            return receipt('rejected', 'ServoUnavailableOrParked')
+        if self.operator:
+            return receipt('rejected', 'OperatorOverride')
+        if 3 in self.held_channels or self.visor_talking:
+            return receipt('rejected', 'VisorHeld')
+        self._visor_cancel.clear()
+        self.visor_talking = True
+        self.held_channels.add(3)
+        try:
+            while True:
+                for beat in talking_visor(self.rng):
+                    if beat.wait:
+                        self._visor_wait(beat.wait)
+                    check()
+                    targets = dict(beat.targets)
+                    observed = self._bus.positions(targets)
+                    validate_pose(observed)
+                    self._profiles(motion_profiles(beat, observed))
+                    self._bus.targets(targets)
+                    changed.update(ch for ch, value in targets.items() if abs(observed[ch] - value) > 2)
+                    self.commanded.update(targets)
+                    deadline = self.clock() + 25.
+                    while abs(self._bus.positions(targets)[3] - targets[3]) > 2:
+                        check()
+                        if self.clock() >= deadline:
+                            raise ProviderFailure('ServoArrivalTimeout:ch3')
+                        self._visor_wait(.025)
+                    until = self.clock() + beat.dwell
+                    while self.clock() < until:
+                        check()
+                        self._visor_wait(min(.025, until - self.clock()))
+        except Cancelled:
+            if finished():
+                return receipt('pulses_reached')
+            try:
+                self._hold({3})
+            except Exception:
+                self.state = 'faulted'
+                return receipt('failed', 'ServoCancelHoldFailed')
+            return receipt('cancelled', 'ServoCancelled')
+        except ValueError as exc:
+            return receipt('rejected', str(exc))
+        except Exception as exc:
+            reason = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
+            if reason.startswith('ServoArrivalTimeout'):
+                try:
+                    self._hold({3})   # The link works: the visor stays where it stopped.
+                    return receipt('failed', reason)
+                except Exception:
+                    reason += ':HoldFailed'
+            self.state = 'faulted'
+            return receipt('failed', reason)
+        finally:
+            self.held_channels.discard(3)
+            self.visor_talking = False
+            self.motion_until = max(self.motion_until, self.clock() + SETTLE_SECONDS +
+                                    (COAST_SECONDS if finished() else 0.))
+
     def _profiles(self, profiles: dict[int, tuple[int, int]]) -> None:
         self._bus.profiles(profiles)
         self.profiles_sent.update(profiles)
@@ -674,8 +756,10 @@ class TalkingMotion:
         self.before_start = lambda: None
         self.after_speech = lambda: None   # A line played to its end (RobotServos: idle carries on).
         self.gaze = None   # callable -> neck pulse toward the addressee, or None
+        self.visor_only = False   # Beside a drive: only the visor moves (ServoOwner.talk_visor).
+        self._finished = False
 
-    def start(self, turn_id: str, cancel: Cancellation) -> None:
+    def start(self, turn_id: str, cancel: Cancellation, visor_only: bool = False) -> None:
         self.before_start()
         if self._thread is not None:
             raise ProviderFailure('TalkingMotionAlreadyActive')
@@ -684,6 +768,14 @@ class TalkingMotion:
             return True
         self._token = Cancellation(guard=valid)
         self.result = None
+        self.visor_only, self._finished = visor_only, False
+        if visor_only:
+            # The drive stance holds the head and arms; the line moves the visor alone.
+            def run_visor():
+                self.result = self.owner.talk_visor(self._token, lambda: self._finished)
+            self._thread = threading.Thread(target=run_visor, name='r3x-talking-visor', daemon=True)
+            self._thread.start()
+            return
         try:
             # Look toward the person being answered; talking sway centres there.
             self.owner.talking_neck = self.gaze() if self.gaze else None
@@ -710,7 +802,8 @@ class TalkingMotion:
         """finished: the line played to its end. The arms then run on instead of freezing and
         idle life takes over at once. Otherwise (interrupted, a pose, a drive) all is held."""
         talking = self._thread is not None
-        if finished and talking:
+        self._finished = finished
+        if finished and talking and not self.visor_only:
             self.owner.coasting = COAST
         try:
             self.cancel()

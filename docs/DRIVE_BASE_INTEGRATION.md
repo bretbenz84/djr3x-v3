@@ -11,8 +11,12 @@ hallway no-reverse rule. No firmware was changed.
 
 - **Planning.** One `drive_base` tool call in the ordinary reply: up to six ordered steps
   (`turn`, `move`, `face`, `approach`, `find_person`, `seek`). It carries optional
-  `say_before`/`say_after` lines, and `look_after` only when the person asked what is
+  `say_before`/`say_while`/`say_after` lines, and `look_after` only when the person asked what is
   there or the next move depends on the view.
+- **Talking while rolling (October 24; simulated only).** The drive runs beside speech: the
+  arms tuck and the wheels start while his opening line plays, and `say_while` starts once the
+  wheels do. The visor and mouth lights move with it; the head and arms keep the drive stance.
+  See [Talking while rolling](#talking-while-rolling--october-24-2026).
   - `nearest_person` is always offered and always valid: with nobody in view he looks for
     the person first (toward the last voice, radar bodies, then around). The last located
     voice is remembered as a room heading, so `speaker` stays correct as he turns.
@@ -66,8 +70,8 @@ hallway no-reverse rule. No firmware was changed.
 - **Honesty.** Receipts report firmware results, odometry and IMU heading. A stopped or
   blocked trip is reported as such, with the distance actually travelled.
 - **Sound.** V2's drive and turn whirs loop while the wheels move (50% volume; a quarter
-  of that for self-initiated moves). Blocked stops play the slow-down accent and
-  arrivals the arrival chirp.
+  of that for self-initiated moves) and pause while he talks. Blocked stops play the
+  slow-down accent and arrivals the arrival chirp (not over his voice).
 - **What the model can report.** The `systems_status` tool (October 21) reads
   `DriveBase.base_status` on request: battery percent, volts, current, charger,
   controller state, tilt and room climate (offset-corrected). `drive.clearance_m` with
@@ -1286,3 +1290,48 @@ Not yet driven. Open: the feel on the floor; whether the softer launch stalls a 
 carpet (the host reports `turn_stalled` after 2 s without progress); and the turn-coast
 compensation (`TURN_COAST_S`, fitted to the old push-then-brake stop), which the next run's
 turn receipts can refit.
+
+## Talking while rolling — October 24, 2026
+
+Owner: "He either talks, or rolls, but never both at the same time." Saved logs agreed. In 309
+drives across 56 robot sessions (September and October; real hardware, no waveforms) not one
+second of his speech overlapped the wheels: about 71 minutes of driving in silence. Median
+drive 6.5 s, p90 26.5 s, 49 over 20 s. Three things forced it: the output owner ran a drive inside
+its one speech queue, so the opening line finished first and nothing played until the drive
+returned; talking motion and the drive shared one motion lock; and the whir plays through the one
+speech sink, which plays one sound at a time. The opening line alone would not have filled the
+roll: in 238 of 336 drives it was still playing when the plan was accepted, but only for a median
+0.9 s, and the arm tuck before the first wheel command takes a median 2.8 s.
+
+Owner's choices: he speaks as he sets off, visor and mouth lights only, head and arms still, the
+whir quiet while he talks, short lines only, and a stop still heard over his voice.
+
+- **The drive runs beside speech.** `OutputOwner.start_drive` runs the plan on its own thread.
+  The arms tuck and the wheels start while the line already playing goes on. When more than
+  `ROLLING_WORDS` (14) are still to be said, they are said first and the wheels wait, as before.
+- **`say_while`.** A new optional `drive_base` line, spoken once the wheels are first commanded
+  (`DriveBase.rolled` names that plan), never for a plan that does not roll. One longer than 14
+  words is said before the wheels start. A move too short for the line to start in time hears it
+  just after. The tool tells the model to keep it to one sentence, claim no arrival, and use no
+  stop words; agency beats may ask for a line on the move.
+- **Visor only.** A line beside a drive runs `ServoOwner.talk_visor`: the visor alone, outside
+  the single-request lock like the arm return, so the tuck, drive looks and the arm return run
+  beside it. A line already playing when the drive starts gives its head and arms to the drive
+  and carries on with the visor. A visor a person posed or shut is never moved. Mouth lights
+  follow playback as before.
+- **Whir.** `MotionSounds.hush` pauses the whir for each line; it comes back afterwards if the
+  wheels still run. Accents are skipped over his voice.
+- **Stop over his voice.** Captures made while he speaks are echo and the conversation rejects
+  them. While the wheels run, the stop check now also hears them (`stop_peek` on an echo capture)
+  and short bursts during his lines. His own line's words are set aside first
+  (`stop_heard_over`), so his own "whoa" never stops him. The board's echo cancelling makes this
+  plausible: across 140 one-second windows of his own playback in the last 12 sessions, the
+  speech detector marked 1% of frames as speech, against 12.6% in windows without playback
+  (logged VAD counts, no waveforms).
+
+Checks (synthetic speech, simulated base and servo pulses): 21 new in
+`tests/test_talk_while_rolling.py`. **Not yet run on the robot or against the hosted models.**
+Open: how the visor-only talking looks while rolling; whether the model writes good rolling
+lines and how often; whether a person's "stop" over his voice is transcribed in time (a live
+test: someone says "stop" while he talks and rolls, at measured distances); and whether the
+brief whir pauses between lines sound odd.

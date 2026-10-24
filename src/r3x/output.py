@@ -1,4 +1,5 @@
 """The sole speech owner. Generated text is never a delivery receipt."""
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Empty, Full, Queue
@@ -154,6 +155,24 @@ class FillerLoop:
 
 # A look waits this long for words already playing (a lead-in is one short line).
 INSPECTION_WAIT_SECONDS = 8.
+# Owner, October 24: he talks while he rolls, in short lines only. A stop said over his voice is
+# harder to catch, so more words than this still to say when a drive starts are said first, and the
+# wheels wait for them (one short sentence: about 4 s, a metre at top speed).
+ROLLING_WORDS = 14
+# His own lines this close to a stretch of captured sound may be in it (the stop check sets them aside).
+OWN_LINE_MARGIN_S = 1.
+
+
+class SpeechMark:
+    """Queued behind speech that must be heard before a drive starts; set when reached."""
+    def __init__(self):
+        self.reached = threading.Event()
+
+
+def spoken_text(item) -> str:
+    """The words of a queued output item (a phrase, a performance, a cloned or canned line)."""
+    text = item if isinstance(item, str) else getattr(item, 'text', None)
+    return plain_text(text) if isinstance(text, str) else ''
 
 
 class OutputOwner:
@@ -172,6 +191,14 @@ class OutputOwner:
         self._motion_lock = threading.Lock()
         self.active = threading.Event()
         self.echo_until = 0.
+        # Talking motion and the drive (owner, October 24: he talks while he rolls). A line's
+        # full talking motion holds the motion resource; beside a drive only the visor moves and
+        # the drive keeps the resource.
+        self._talk_guard = threading.Lock()
+        self._talk = None          # 'full' or 'visor' while a line's talking motion runs.
+        self._driving = False
+        self._saying = None        # The output item being said now.
+        self.lines = deque(maxlen=8)   # [started, ended or None, words] of his recent lines.
 
     def execute_inspection(self, request, cancel, valid):
         if self.inspection is None:
@@ -357,38 +384,144 @@ class OutputOwner:
         if interrupt:
             interrupt()   # A stalled network read must not outlive a stop or shutdown.
 
-    def _drive(self, action, cancel, turn_id):
+    def words_ahead(self, phrases: Queue) -> int:
+        """Words still to be said before anything queued now: the line being said (all of it) and the queue."""
+        with phrases.mutex:
+            queued = list(phrases.queue)
+        return sum(len(spoken_text(item).split()) for item in (self._saying, *queued) if item is not None)
+
+    def said_between(self, start: float, end: float) -> str:
+        """Rex's own words in the lines playing (or about to) between these times."""
+        return ' '.join(words for began, ended, words in list(self.lines)
+                        if began <= end + OWN_LINE_MARGIN_S and (ended is None or ended >= start - OWN_LINE_MARGIN_S))
+
+    def start_drive(self, action, phrases: Queue, cancel: Cancellation, turn_id: str) -> None:
+        """Run a drive plan beside speech (owner, October 24: he talks while he rolls).
+
+        The arms tuck and the wheels start while the line already playing goes on, and later
+        lines play while he rolls. When more than ROLLING_WORDS are still to be said, they are
+        said first and the wheels wait, as before. action.done is set once the drive is over."""
+        mark = None
+        if self.words_ahead(phrases) > ROLLING_WORDS:
+            mark = SpeechMark()
+            put_phrase(phrases, mark, cancel)
+        threading.Thread(target=self._drive, args=(action, cancel, turn_id, mark),
+                         name='r3x-drive', daemon=True).start()
+
+    def _drive(self, action, cancel, turn_id, mark=None):
         from .drive import DriveReceipt
+        owned = False
         try:
+            if mark is not None:
+                while not mark.reached.wait(.05):
+                    cancel.check()
             if self.drive is None:
                 action.receipt = DriveReceipt(action.plan.request_id, 'failed', 'DriveUnavailable')
-            elif not self._motion_lock.acquire(timeout=5.):
-                action.receipt = DriveReceipt(action.plan.request_id, 'refused', 'MotionResourceBusy')
-            else:
-                try:
-                    action.receipt = self.drive.execute(action.plan, cancel)
-                finally:
-                    self._motion_lock.release()
+                return
+            with self._talk_guard:
+                if self._talk == 'full':
+                    # A line is playing with its full talking motion: the head and arms are the
+                    # drive's now, the visor carries the rest of the line.
+                    try:
+                        self.speech_motion.stop()
+                    except Exception as exc:
+                        self.trace.emit('talking_motion', turn_id=turn_id, status='failed', reason=type(exc).__name__)
+                    else:
+                        self._talk, owned, self._driving = None, True, True   # Its motion resource passes on.
+                        self._talk_beside_drive(turn_id, cancel)
+            if not owned:
+                owned = self._motion_lock.acquire(timeout=5.)
+                if not owned:
+                    action.receipt = DriveReceipt(action.plan.request_id, 'refused', 'MotionResourceBusy')
+                    return
+                with self._talk_guard:
+                    self._driving = True
+            action.receipt = self.drive.execute(action.plan, cancel)
+        except Cancelled:
+            action.receipt = DriveReceipt(action.plan.request_id, 'cancelled', 'stop_requested')
+        except Exception as exc:
+            action.receipt = DriveReceipt(action.plan.request_id, 'failed',
+                                          str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__)
         finally:
+            with self._talk_guard:
+                self._driving = False
+                if owned:
+                    self._motion_lock.release()
             action.done.set()
-        cancel.check()
+
+    def _talk_beside_drive(self, turn_id, cancel) -> bool:
+        """Visor-only talking motion for a line beside a drive (the caller holds _talk_guard)."""
+        try:
+            cancel.check()
+            self.speech_motion.start(turn_id, cancel, visor_only=True)
+        except Exception as exc:
+            self.trace.emit('talking_motion', turn_id=turn_id, status='failed', reason=type(exc).__name__)
+            return False
+        self._talk = 'visor'
+        return True
+
+    def _start_talking(self, turn_id, cancel) -> bool:
+        """Talking motion for a line that began playing; True when this line now owns it."""
+        if not self.speech_motion:
+            return False
+        with self._talk_guard:
+            if self._talk:
+                return False   # A worker that would not stop keeps the resource reserved.
+            if self._driving:
+                return self._talk_beside_drive(turn_id, cancel)
+            if not self._motion_lock.acquire(blocking=False):
+                return False
+            try:
+                cancel.check()
+                self.speech_motion.start(turn_id, cancel)
+            except Exception as exc:
+                self._motion_lock.release()
+                self.trace.emit('talking_motion', turn_id=turn_id, status='failed', reason=type(exc).__name__)
+                return False
+            self._talk = 'full'
+            return True
+
+    def _stop_talking(self, turn_id, finished) -> None:
+        """The line ended: its talking motion stops (finished: it played to its end)."""
+        from dataclasses import asdict
+        with self._talk_guard:
+            talk = self._talk
+            if talk is None:
+                return
+            try:
+                motion_receipt = self.speech_motion.stop(finished=finished)
+            except Exception as exc:
+                # Keep the resource reserved if the worker did not stop.
+                self.trace.emit('talking_motion', turn_id=turn_id, status='failed', reason=type(exc).__name__)
+                return
+            self._talk = None
+            if talk == 'full':
+                self._motion_lock.release()
+        if motion_receipt:
+            self.trace.emit('talking_motion', turn_id=turn_id, **asdict(motion_receipt))
 
     def run(self, phrases: Queue, cancel: Cancellation, turn_id: str, delivery: Delivery) -> None:
         performance = None
         light = None
+        sounds = getattr(self.drive, 'sounds', None)   # The wheels' whir shares this sink.
+        hushed = False
         try:
             while True:
+                self._saying = None
                 cancel.check()
                 try:
                     text = phrases.get(timeout=.05)
                 except Empty:
+                    if hushed:
+                        sounds.resume()   # Nothing more to say for now: the whir comes back.
+                        hushed = False
                     continue
                 if text is None:
                     break
-                from .drive import DriveAction
-                if isinstance(text, DriveAction):
-                    self._drive(text, cancel, turn_id)
+                if isinstance(text, SpeechMark):
+                    text.reached.set()   # Everything ahead of it was said: a waiting drive may go.
                     continue
+                self._saying = text
                 light = text if isinstance(text,LightPerformance) else None
                 if light:
                     text = light.text or ''
@@ -427,16 +560,8 @@ class OutputOwner:
                 playing, talking_lock = False, threading.Lock()
                 def start_talking():
                     nonlocal talking_started
-                    if talking_started or not self.speech_motion or not self._motion_lock.acquire(blocking=False):
-                        return
-                    try:
-                        cancel.check()
-                        self.speech_motion.start(turn_id, cancel)
-                        talking_started = True
-                    except Exception as exc:
-                        self._motion_lock.release()
-                        self.trace.emit('talking_motion', turn_id=turn_id, status='failed',
-                                        reason=type(exc).__name__)
+                    if not talking_started:
+                        talking_started = self._start_talking(turn_id, cancel)
                 gesture_worker = None
                 if performance and performance.timing == 'with_speech':
                     # October 11: finishing the gesture before asking for audio delayed
@@ -487,10 +612,16 @@ class OutputOwner:
                         playing = True
                         start_talking()
                 played_out = False   # The whole line played: talking motion winds down, not freezes.
+                if sounds and not hushed:
+                    sounds.hush()   # Owner, October 24: the whir goes quiet while he talks.
+                    hushed = True
+                line = [synthesis_at, None, plain_text(text)]
+                self.lines.append(line)   # His own words, set aside when stop is listened for over them.
                 try:
                     receipt = self.sink.play(chunks(), cancel, started)
                     played_out = not cancel.event.is_set()
                 finally:
+                    line[1] = self.trace.clock()
                     with talking_lock:
                         playing = False
                     if light_token is not None:
@@ -499,22 +630,15 @@ class OutputOwner:
                     elif light and not light_attempted:
                         self._light_result(delivery,turn_id,light.request,'cancelled','PlaybackNotStarted')
                     if talking_started:
-                        try:
-                            motion_receipt = self.speech_motion.stop(finished=played_out)
-                            if motion_receipt:
-                                from dataclasses import asdict
-                                self.trace.emit('talking_motion', turn_id=turn_id, **asdict(motion_receipt))
-                        except Exception as exc:
-                            # Keep the resource reserved if the worker did not stop.
-                            self.trace.emit('talking_motion', turn_id=turn_id, status='failed',
-                                            reason=type(exc).__name__)
-                        else:
-                            self._motion_lock.release()
+                        self._stop_talking(turn_id, played_out)
                     if first_pcm_at is not None:
                         self.echo_until = self.trace.clock() + .3
                     self.active.clear()
                     if gesture_worker is not None:
                         gesture_worker.join()
+                    if hushed and phrases.empty():
+                        sounds.resume()
+                        hushed = False
                 delivery.completed_text.append(plain_text(text))
                 delivery.completed_at = receipt.completed_at
                 delivery.underruns += receipt.underruns
@@ -547,6 +671,9 @@ class OutputOwner:
                 delivery.gestures.append(row)
                 self.trace.emit('gesture_delivery',turn_id=turn_id,**row)
             self.active.clear()
+            self._saying = None
+            if hushed:
+                sounds.resume()
             self.trace.emit("delivery", turn_id=turn_id, status=delivery.status,
                             medium=delivery.medium,
                             completed_text=" ".join(delivery.completed_text), error=delivery.error,

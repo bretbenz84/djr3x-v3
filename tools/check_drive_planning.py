@@ -105,30 +105,12 @@ class EvalOutput(TextOutput):
         return {'request_id': request.request_id, 'status': 'failed', 'medium': 'simulation',
                 'stage': 'capture', 'motion_status': 'base_motion_finished', 'reason': 'EvaluationHasNoCamera'}, ()
 
-    def run(self, phrases, cancel, turn_id, delivery):
-        from queue import Queue
-        from r3x.drive import DriveAction
-        from queue import Empty
-        passthrough = Queue()
-        while True:
-            try:
-                value = phrases.get(timeout=.05)
-            except Empty:
-                if cancel.event.is_set():
-                    delivery.status = 'interrupted'
-                    return
-                continue
-            if isinstance(value, DriveAction):
-                now = self.trace.clock()
-                value.receipt = DriveReceipt(value.plan.request_id, 'completed', None,
-                    [{'action': s.action, 'status': 'completed'} for s in value.plan.steps], now, now,
-                    medium='simulation', evidence='evaluation receipt; nothing moved')
-                value.done.set()
-                continue
-            passthrough.put(value)
-            if value is None:
-                break
-        super().run(passthrough, cancel, turn_id, delivery)
+    def start_drive(self, action, phrases, cancel, turn_id):
+        now = self.trace.clock()
+        action.receipt = DriveReceipt(action.plan.request_id, 'completed', None,
+            [{'action': s.action, 'status': 'completed'} for s in action.plan.steps], now, now,
+            medium='simulation', evidence='evaluation receipt; nothing moved')
+        action.done.set()
 
 
 def space(front=3.0, left=1.5, right=1.5, rear=1.5, front_left=None, front_center=None, front_right=None):
