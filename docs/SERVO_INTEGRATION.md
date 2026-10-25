@@ -315,7 +315,8 @@ pitches both servos. The camera reframe rule counts both head servos.
 
 *Expressions (October 10 evening; owner: "dogs cock their heads left and right when they're
 perplexed", use the freedom for more expression).* `HEAD_EXPRESSIONS` adds `perplexed`
-(cock 0.6 to one side, swing to the other, slightly down, 0.7 s each), `wiggle` (three
+(cock 0.6 to one side, swing to the other, slightly down, 0.7 s each; eased since October 24),
+`wiggle` (three
 0.35 cocks side to side; since October 24 each swing eases in and out, about 3 s in all, see
 below) and `sympathetic` (a slow 0.45 cock, slightly down, held
 1.2 s). All return the head to where it was and hold nothing. They are offered to the
@@ -333,8 +334,11 @@ acceleration 10 on both head servos, the steepest head ramp of any expression. A
 then moves on one smooth curve timed by its size, as idle and talking head moves do. The
 wiggle uses (0.35 s, 0.03 s per degree) with 0.15 s pauses: half swings about 0.56 s, full
 swings 0.77 s, 3.1 s in all (2.5 s subtle); the board ramp is acceleration 2 and speed at most
-10, under half the old peak speed. The other expressions are unchanged. Synthetic pulses
-only: how it looks and whether the creak is gone are **not yet checked on the robot**.
+10, under half the old peak speed. At the owner's request the `perplexed` double cock eases
+the same way, keeping its 0.7 s holds: 3.9 s in all (was about 3.0 s; 3.2 s subtle), board
+acceleration 1-3 (was 6) and speed at most 13 (was 25). Nod, tilt, sympathetic and surprised
+are unchanged. Synthetic pulses only: how they look and whether the creak is gone are
+**not yet checked on the robot**.
 
 **Poker arm.** Channel 6 still swings the arm. New `poker_elbow` (12: 864 µs down, 1920
 up) and `poker_wrist` (13: 496 down, 1440 straight, 2486 curled up and inward). The elbow

@@ -28,7 +28,8 @@ line played over about 1.8 s of the 2.3 s the wheels turned, and on the approach
 the visor alone talked. The owner then found the side-to-side `wiggle`, done right before
 shutdown, too rapid and creaky. It was three reversals in about 1.5 s on the steepest head ramp of
 any expression. Each swing now eases in and out on one smooth curve, like idle head moves:
-3.1 s in all, a fifth of the acceleration and under half the peak speed
+3.1 s in all, a fifth of the acceleration and under half the peak speed. At the owner's request
+the `perplexed` double head-cock eases the same way (3.9 s, holds kept)
 ([servos](SERVO_INTEGRATION.md)). Synthetic pulses only; **not yet seen on the robot**.
 
 ## He talks while he rolls — October 24

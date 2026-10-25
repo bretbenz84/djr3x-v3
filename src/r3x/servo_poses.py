@@ -569,7 +569,8 @@ POKER_TAIL_TRAIL = (.5, .8)        # The wrist arrives this much later.
 HEAD_EXPRESSIONS = {
     'nod': {'moves': ((-.3, 0., .25), (.1, 0., .25)), 'speed': 35},
     'tilt': {'moves': ((0., .6, .5),), 'speed': 20, 'side': True},                  # One cock and back.
-    'perplexed': {'moves': ((-.08, .6, .7), (-.08, -.6, .7)), 'speed': 25, 'side': True},   # The dog's double cock, looking slightly down.
+    # The dog's double cock, looking slightly down. Owner, October 24: eased like the wiggle.
+    'perplexed': {'moves': ((-.08, .6, .7), (-.08, -.6, .7)), 'ease': (.35, .03), 'side': True},
     # Playful side to side. Owner, October 24: too rapid, and it creaked (three reversals in about
     # 1.5 s on the steepest head ramp of any expression). Each swing now eases in and out: about 3 s.
     'wiggle': {'moves': ((0., .35, .15), (0., -.35, .15), (0., .35, .15)), 'ease': (.35, .03)},

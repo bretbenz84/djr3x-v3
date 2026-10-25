@@ -105,22 +105,24 @@ class PhysicalMotionTests(unittest.TestCase):
                         self.assertAlmostEqual(tilt,.45*scale,delta=.03);self.assertAlmostEqual(pitch,-.15*scale,delta=.03)
                         self.assertEqual([p[2]+128*p[3] for p in self.port.packets if p[0]==0x87 and p[1]==2][0],12)
 
-    def test_the_wiggle_eases_in_and_out_instead_of_snapping(self):
+    def test_side_to_side_cocks_ease_in_and_out_instead_of_snapping(self):
         # Owner, October 24: the side-to-side wiggle was too rapid and creaked (board acceleration
-        # 10 on both head servos, three reversals in about 1.5 s).
+        # 10 on both head servos, three reversals in about 1.5 s); the perplexed double cock
+        # (acceleration 6, speed 25) eases the same way.
         from r3x.servo_poses import expressive_lanes
         adapter=PhysicalGesture(self.robot);adapter.start()
-        before=self.port.pose.copy();self.port.packets.clear()
-        (lane,)=expressive_lanes(before,'gesture','unfocused','wiggle','normal',.5,frozenset())
-        self.assertGreater(sum(b.seconds+b.dwell for b in lane),2.5)   # About twice as long as before.
-        receipt=adapter.execute(Gesture('g','wiggle','unfocused','normal',self.clock()+30),Cancellation())
-        self.assertEqual(receipt.status,'pulses_reached')
-        self.assertEqual(self.port.pose,before)
-        ramps=[p[2]+128*p[3] for p in self.port.packets if p[0]==0x89 and p[1] in (2,11)]
-        speeds=[p[2]+128*p[3] for p in self.port.packets if p[0]==0x87 and p[1] in (2,11)]
-        self.assertEqual(len(ramps),8)                  # Four swings, both head servos each time.
-        self.assertTrue(all(1<=a<=3 for a in ramps))    # A gentle ramp, never the old 10.
-        self.assertTrue(all(s<=12 for s in speeds))     # Under half the old peak speed.
+        for primitive,swings,least in (('wiggle',4,2.5),('perplexed',3,3.5)):
+            before=self.port.pose.copy();self.port.packets.clear()
+            (lane,)=expressive_lanes(before,'gesture','unfocused',primitive,'normal',.5,frozenset())
+            self.assertGreater(sum(b.seconds+b.dwell for b in lane),least)   # Longer than before.
+            receipt=adapter.execute(Gesture('g',primitive,'unfocused','normal',self.clock()+30),Cancellation())
+            self.assertEqual(receipt.status,'pulses_reached')
+            self.assertEqual(self.port.pose,before)
+            ramps=[p[2]+128*p[3] for p in self.port.packets if p[0]==0x89 and p[1] in (2,11)]
+            speeds=[p[2]+128*p[3] for p in self.port.packets if p[0]==0x87 and p[1] in (2,11)]
+            self.assertEqual(len(ramps),2*swings,primitive)    # Every swing, both head servos each time.
+            self.assertTrue(all(1<=a<=3 for a in ramps),primitive)   # A gentle ramp, never the old 10 or 6.
+            self.assertTrue(all(s<=13 for s in speeds),primitive)    # About half the old top speed or less.
 
     def test_stale_closed_uncalibrated_and_cancelled_actions_cannot_succeed(self):
         before=len(self.port.targets)
