@@ -9,12 +9,23 @@ from r3x.state import CoreState, NEWCOMER_SECONDS
 from r3x.speakers import SpeakerTracker
 from tests.test_memory_core import MemoryFixture, observation, A, B, C, NS
 from tests.test_face_identity import FNS, face, sample
+from tests.test_speaker_presence import vec, face as recognized
 
 
-def view(start, vector=B, key=None, identity=None, resembles=None):
-    """One face row with a single clear view, as the camera gives it when its track keeps changing."""
+# October 24 (1bfce8af): Bret's saved voice is A; his voice live tonight is HOST, named at .80.
+# Jeremy's voice sounded .37 like Bret's saved voice and far less like Bret live, so it formed its
+# own track, which the old .30 ceiling never named. KIN is a guest closer still (.47); TIRED is
+# Bret's own off moment (.42), which presence took for him.
+HOST = vec(.8, 0, .6)
+JEREMY = vec(.37, .9, -.2)
+KIN = vec(.47, .8465, -.25)
+TIRED = vec(.42, .9077, -.2)
+
+
+def view(start, vector=B, key=None, identity=None, resembles=None, clear=True):
+    """One face row with a single view, as the camera gives it when its track keeps changing."""
     return {'track_id': key or 'face-' + uuid4().hex, 'at': start + 2, 'identity': identity, 'resembles': resembles,
-            'box': [.2, .2, .3, .3], 'sole_face_throughout': False, '_samples': (sample(start + 1., vector),)}
+            'box': [.2, .2, .3, .3], 'sole_face_throughout': False, '_samples': (sample(start + 1., vector, clear),)}
 
 
 class NewcomerTests(MemoryFixture):
@@ -66,6 +77,8 @@ class NewcomerTests(MemoryFixture):
         self.turn('This is Casey, say hello.', A)                 # Nobody saved: an unnamed voice.
         casey = self.introduce_other().data['person_id']
         self.turn('Hi there, nice to meet you.', B)
+        self.assertEqual(self.events('newcomer_voice_linked'), [])   # One clip can be anyone's.
+        self.turn('I live just down the street.', B)
         linked = self.events('newcomer_voice_linked')
         self.assertEqual(len(linked), 1)
         self.assertEqual(self.state.tracker.tracks[linked[0]['track_id']].person_id, casey)
@@ -77,6 +90,7 @@ class NewcomerTests(MemoryFixture):
         self.turn('This is Casey.', A)
         casey = self.introduce_other().data['person_id']
         self.turn('Hello robot, how are you doing?', B)        # The only unknown voice so far.
+        self.turn('I came over for dinner tonight.', B)
         self.assertEqual(len(self.events('newcomer_voice_linked')), 1)
         self.turn('I am a different person entirely.', C)      # One clip could be a laugh.
         self.assertEqual(self.events('newcomer_voice_unlinked'), [])
@@ -97,11 +111,13 @@ class NewcomerTests(MemoryFixture):
         self.turn('Go on, talk to Casey for a bit.', A)
         self.at += NEWCOMER_SECONDS - 100
         self.turn('Nice to meet you, little robot.', B)
+        self.turn('I came over for dinner tonight.', B)
         self.assertEqual(len(self.events('newcomer_voice_linked')), 1)
         self.turn('This is Sam.', A)
         sam = self.introduce_other('Sam').data['person_id']
         self.at += NEWCOMER_SECONDS + 1
         self.turn('Hello, I am the quiet one here.', C)
+        self.turn('I usually just listen to these two.', C)
         self.assertEqual(len(self.events('newcomer_voice_linked')), 1)
         self.assertNotIn(sam, self.state.newcomers)
 
@@ -131,6 +147,8 @@ class NewcomerTests(MemoryFixture):
         for _ in range(3):
             self.turn('Someone else walked in.', A, [view(0, C)])
         self.assertNotIn(casey, self.store.face_profiles(FNS))
+        waiting = self.events('newcomer_face_waiting')
+        self.assertEqual([w['reason'] for w in waiting], ['unlike_the_introduced_face'])   # Said once.
 
     def test_two_strangers_in_view_or_two_newcomers_save_no_face(self):
         self.enroll('Jordan', A)
@@ -154,6 +172,72 @@ class NewcomerTests(MemoryFixture):
         self.assertEqual(self.events('newcomer_voice_linked'), [])
         self.assertEqual(set(self.store.face_profiles(FNS)), set())
         self.assertEqual(set(self.store.profiles(NS)), {host})
+
+
+    def tonight(self):
+        """Bret's voice saved on an earlier night; a fresh conversation with him tonight."""
+        host = self.enroll('Bret', A)
+        self.state = CoreState(self.store, SpeakerTracker(NS), self.state.trace)
+        return host
+
+    def test_a_guest_who_sounds_somewhat_like_the_host_is_still_learned(self):
+        host = self.tonight()
+        self.turn("Why was he rolling up on me? He doesn't even know me.", JEREMY)   # Before the introduction.
+        self.turn("And now he's sitting here cockeyed at me.", JEREMY)
+        self.turn('Do you know who this is next to us?', HOST)
+        self.assertEqual(self.state.current[4].person_id, host)
+        self.turn('This is Jeremy Thomas.', HOST)
+        jeremy = self.introduce_other('Jeremy Thomas').data['person_id']
+        self.assertEqual(len(self.events('newcomer_voice_linked')), 1)   # His voice gets his name at once.
+        self.turn('I know you are self-aware, you cannot fool me.', JEREMY)
+        self.assertIn(jeremy, self.store.profiles(NS))
+        self.turn('Close your visor.', HOST)
+        self.assertEqual(self.state.current[4].person_id, host)
+        self.turn('Why did he turn his head so crazy?', JEREMY)
+        self.assertEqual(self.state.current[4].person_id, jeremy)
+
+    def test_a_voice_close_to_a_saved_one_is_not_given_to_the_guest_and_the_log_says_why_once(self):
+        self.tonight()
+        self.turn('This is Casey.', HOST)
+        casey = self.introduce_other().data['person_id']
+        for text in ('Nice to meet you, little robot.', 'I came over for dinner tonight.', 'The pasta was great.'):
+            self.turn(text, KIN)
+        self.assertEqual(self.events('newcomer_voice_linked'), [])
+        self.assertNotIn(casey, self.store.profiles(NS))
+        waiting = self.events('newcomer_voice_waiting')
+        self.assertEqual([(w['reason'], w['score']) for w in waiting], [('close_to_a_saved_voice', .47)])
+
+    def test_a_voice_presence_took_for_the_host_is_never_the_guests(self):
+        host = self.tonight()
+        alone = [recognized(host)]
+        self.state.present.saw_faces(alone, 100.)
+        for text in ("I'm getting pretty tired tonight.", "It's eleven o'clock at night already."):
+            self.turn(text, TIRED, alone, seconds=2.)
+            self.assertEqual(self.state.current[4].inferred_person_id, host)
+        self.turn('My friend Casey is coming over later.', HOST, alone)
+        casey = self.introduce_other().data['person_id']
+        self.assertEqual(self.events('newcomer_voice_linked'), [])
+        self.assertTrue(all(t.person_id != casey for t in self.state.tracker.tracks.values()))
+        self.assertEqual([w['reason'] for w in self.events('newcomer_voice_waiting')], ['taken_for_someone_saved'])
+
+    def test_a_blurry_glimpse_or_an_odd_angle_first_does_not_block_the_guests_clear_face(self):
+        host = self.enroll('Bret', A)
+        self.turn('This is Jeremy Thomas.', A)
+        jeremy = self.introduce_other('Jeremy Thomas').data['person_id']
+        # Bret's face caught blurry on a fresh camera track: the only unknown face for a moment.
+        self.turn('Say hello to him.', A, [view(0, A, clear=False)])
+        self.turn('Hello there.', JEREMY, [view(0, C)])            # Jeremy turned to one side.
+        self.assertNotIn(jeremy, self.store.face_profiles(FNS))
+        self.turn('Why was he rolling up on me?', JEREMY, [view(0, B)])
+        self.assertEqual([w['reason'] for w in self.events('newcomer_face_waiting')], ['earlier_view_replaced'])
+        self.turn('He does not know me.', JEREMY, [view(0, B), view(0, C)])   # Two unknown faces: wait.
+        self.turn('He does not know me.', JEREMY, [view(0, B), view(0, C)])
+        self.assertEqual([w['reason'] for w in self.events('newcomer_face_waiting')][1:], ['more_than_one_unknown_face'])
+        self.assertNotIn(jeremy, self.store.face_profiles(FNS))
+        self.turn('I see through it.', JEREMY, [view(0, B)])
+        self.assertEqual(self.store.face_profiles(FNS)[jeremy], [B, B])
+        self.assertNotIn(host, self.store.face_profiles(FNS))
+        self.assertTrue(self.events('face_learning_saved'))
 
 
 class ResemblanceTests(unittest.TestCase):

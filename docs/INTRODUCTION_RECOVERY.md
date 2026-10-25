@@ -60,20 +60,37 @@ camera track for 30 s while tracks lasted a median half second, and the model ha
 owner's own blurry face. Now `introduce_person` with subject=other opens a window for the visit
 (`NEWCOMER_SECONDS`, renewed whenever the name is said) while the person has no saved voice or face:
 
-- **Voice.** The one unnamed session voice with at least 1.5 voiced seconds, heard from two
-  minutes before the introduction, that is not the introducer's track and scores under .30
-  against every saved voice, becomes the person's hypothesis track and enrollment chain.
+- **Voice.** The one unnamed session voice with at least 1.5 voiced seconds on two clips, heard
+  from two minutes before the introduction, that is not the introducer's track, was not taken for
+  someone by presence or the carry, and whose pooled voice scores under .45 against every saved
+  voice (.30 until October 24), becomes the person's hypothesis track and enrollment chain.
   Another such voice heard on two clips links nothing and undoes an existing link (its clips
   stay unnamed evidence); one odd clip, such as a laugh, does not. The voice is saved only by the existing chain: three compatible turns,
   eight voiced seconds, rechecked against every other voice of the visit.
-- **Face.** Views of the one face that is neither recognized nor resembling a saved face
-  (`resembles`: .45 or more against a saved face at any point on that camera track) are pooled
-  across track changes. They must look like the
-  introduced face when it had an embedding (.45) and like each other (.6), and no saved face may
-  rival them; two views spanning 0.8 s are saved.
+- **Face.** Clear views (the learning-quality test) of the one face that is neither recognized
+  nor resembling a saved face (`resembles`: .45 or more against a saved face at any point on that
+  camera track) are pooled across track changes. They must look like the face the introduction
+  pointed at, if any, even blurry (.45), and like each other (.6), and no saved face may rival
+  them; two views spanning 0.8 s are saved. Without a face pointed at, no single view becomes the
+  reference, and a lone earlier view that nothing since matches gives way to newer ones.
 - **Target.** A face the model names that is recognized as, or resembles, someone else is
   replaced by the one stranger's face in view.
 - An objection from the newcomer does not stop gathering (owner); `forget_person` and
   `cancel_association` do.
+- `newcomer_voice_waiting` and `newcomer_face_waiting` log once why a voice or face is not
+  gathered yet.
 
 Synthetic voices and faces only; not yet run on the robot.
+
+## October 24: the first live run
+
+Run `1bfce8af` opened the window for Jeremy and saved neither. His voice formed its own track
+(17 clips, 49 voiced seconds) but sounded .37 like the owner's saved voice (clips .16–.46, as on
+October 20), over the .30 ceiling. The owner's clips score .62–.76 against the rest of his voice
+and were named at .52–.68 live, so the ceiling is now .45 on two or more pooled clips; his own
+off moments can come lower (a tired line formed a track at .30 on October 19), which is why a
+voice presence or the carry took for someone is excluded. No face was pointed at, so the face
+reference was the first unknown face after the introduction from any view, often the owner's
+blurry face on a fresh camera track or Jeremy turned aside, and four minutes of clear views never
+matched it. Only clear views count now, and only a face pointed at is a reference. Synthetic
+checks; not yet run on the robot.

@@ -41,9 +41,17 @@ def stranger(face):
     return not face.get('identity') and not face.get('resembles')
 
 
+def clear_views(face):
+    """The face's views clear enough to learn from. October 24 (1bfce8af): the owner's blurry
+    face on a fresh track, or the guest turned away, was at times the only stranger in view."""
+    return [s for s in face.get('_samples',()) if s.eligible and s.vector is not None]
+
+
 def appearance(face):
-    """The face's embedding, from its track or any of its views, for comparing later views."""
-    return face.get('_vector') or next((s.vector for s in face.get('_samples',()) if s.vector is not None), None)
+    """The face's embedding for comparing later views: a clear view, else its track's or any view's."""
+    clear = clear_views(face)
+    return clear[0].vector if clear else face.get('_vector') or next(
+        (s.vector for s in face.get('_samples',()) if s.vector is not None), None)
 
 
 def vetted_samples(samples, person_id, store):

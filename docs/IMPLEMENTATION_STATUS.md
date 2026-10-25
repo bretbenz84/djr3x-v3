@@ -21,6 +21,32 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## October 24 run: the introduced guest still went unlearned
+
+Session `1bfce8af` (11 minutes, real hardware; the owner, Jeremy, later Joy and the dog) was the first
+live run of the October 20 repair. "This is Jeremy Thomas" opened the window for his face and voice, and
+nothing was saved. Repairs ([introduction recovery](INTRODUCTION_RECOVERY.md#october-24-the-first-live-run)):
+- **His voice sounded too much like the owner's saved voice.** Jeremy's voice formed its own track (17
+  clips, 49 voiced seconds); his clips scored .16–.46 against the owner's profile (also on October 20) and
+  the first clean one .37, and the link refused anything at .30 or more. The ceiling is now .45 on at least
+  two pooled clips (`NEWCOMER_MIN_CLIPS`): the owner's clips score .62–.76 against the rest of his voice and
+  were named at .52–.68 live. His off moments come lower (a tired line made its own track at .30 on October
+  19, taken for him by presence), so a voice presence or the carry took for someone is never the guest's.
+- **A blurry glimpse became the face reference.** No face was pointed at, so the first unknown face after
+  the introduction, from any view, set the reference: often the owner's face in a blurry frame on a fresh
+  camera track, or Jeremy turned aside. Four minutes of clear views of Jeremy (up to five a turn) never
+  matched it, silently. Only clear views count now and only a face the introduction pointed at is a
+  reference; otherwise the first clear views start the pool, and a lone earlier view that nothing since
+  matches gives way.
+- **Nothing said why.** `newcomer_voice_waiting` and `newcomer_face_waiting` log once why a voice or face
+  waits (close to a saved voice, taken for someone, one clip so far, two unknown voices; unlike the
+  introduced face, more than one unknown face, an earlier view replaced).
+
+Still open: until a guest's voice is saved, presence inference and the carry treat a voice .30 or more like
+the owner's as his (Jeremy reached .46), relying on their face and company guards. Synthetic voices and
+faces, thresholds from the run's logged real-model scores; **not yet run on the robot**. 1561
+blocked-I/O checks pass (5 skipped).
+
 ## Curious about people and pets — October 24
 
 Owner, after a review of the ten runs from October 22 to 24: "Rex appears to have no curiosity. Most things are

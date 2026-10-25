@@ -58,9 +58,12 @@ NOT_NAMES = frozenset({'he', 'she', 'him', 'her', 'his', 'hers', 'they', 'them',
 NEWCOMER_SECONDS = 1800.      # The visit; saying their name again extends it.
 NEWCOMER_LOOKBACK = 120.      # A voice heard this long before the introduction can be theirs.
 NEWCOMER_MIN_SECONDS = 1.5    # Real speech on the voice (as SpeakerTracker.other_voices).
-# A voice this close to a saved one may be that person unrecognized. Other voices and the
-# television scored .19 or less against Bret's profile in every saved run (CARRY_VOICE_FLOOR).
-NEWCOMER_KNOWN_CEILING = .30
+NEWCOMER_MIN_CLIPS = 2        # One clip can be anyone's off moment: Bret's own tired line scored .30.
+# A pooled voice this close to a saved one may be that person unrecognized. Live 1bfce8af
+# (October 24): Jeremy's clips scored .16-.46 against Bret's profile (also on October 20) and his
+# first clean clip .37, so a .30 ceiling kept his voice nameless all visit. Bret's own clips score
+# .62-.76 against the rest of his voice and were named at .52-.68 live.
+NEWCOMER_KNOWN_CEILING = .45
 NEWCOMER_FACE_ANCHOR = .45    # Later views must look like the introduced face (FaceTracker.CONTINUITY).
 NEWCOMER_FACE_VIEWS = 6       # The face_references cap per person.
 # Unresolved for want of acoustic strength, not because the clip conflicts with itself or him.
@@ -136,6 +139,7 @@ class CoreState:
         self.named_people = {}   # person_id -> when their exact name was last said or they were introduced.
         self.named_pets = {}     # photo-memory pet id -> when a person last said its name.
         self.newcomers = {}      # person_id -> an introduced person's face and voice still being gathered.
+        self.voices_taken = {}   # track_id -> whom presence or the carry took this voice for.
         from .agency import AgencyPlan
         self.agency = AgencyPlan(store, trace, self.present)
         self.initiative.agency = self.agency
@@ -599,6 +603,8 @@ class CoreState:
         self.present.saw_faces(faces, self.trace.clock())
         attribution = self.infer_speaker(attribution, capture, transcript, observation, faces)
         attribution = self.carry_speaker(attribution, capture, transcript, observation, faces)
+        if attribution.inferred_person_id and attribution.track_id:
+            self.voices_taken[attribution.track_id] = attribution.inferred_person_id   # Never a newcomer's.
         self.current = (turn_id,capture,transcript,observation,attribution)
         self.face_associations = {k:v for k,v in self.face_associations.items() if any(f["track_id"]==k for f in faces)}
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
@@ -1819,6 +1825,7 @@ class CoreState:
         if name=="forget_person":
             self.initiative.forget()
             self.tracker.forget(data["person_id"])
+            self.voices_taken = {k: p for k, p in self.voices_taken.items() if p != data["person_id"]}
             self.impressions = type(self.impressions)()   # Performed parody of a forgotten person is not kept.
             if self.voice_references is not None:
                 self.voice_references.close()
@@ -1865,6 +1872,7 @@ class CoreState:
             newcomer['introducers'].add(attribution.track_id)   # The introducer's voice is never theirs.
         target = next((f for f in self.faces if f['track_id'] == data.get('face_track_id')), None)
         if newcomer['anchor'] is None and target is not None and stranger(target):
+            # The face the introduction pointed at, even blurry, keeps a different face out later.
             newcomer['anchor'] = appearance(target)
         self.trace.emit('newcomer_welcomed', person_id=person_id, gathering_voice=voice, gathering_face=face,
                         face_anchor=newcomer['anchor'] is not None)
@@ -1874,12 +1882,13 @@ class CoreState:
         """Give the one unknown voice around the name of the one person introduced and still
         without a voice (owner ruling, October 20).
 
-        Only an unnamed session voice with real speech, heard since shortly before the
-        introduction, that sounds like no saved voice and was not the introducer's. Another
+        Only an unnamed session voice with real speech on two clips, heard since shortly before
+        the introduction, that is not close to a saved voice (NEWCOMER_KNOWN_CEILING), was not the
+        introducer's and was not already taken for someone by presence or the carry. Another
         such voice heard twice, or two people waiting, links nothing and undoes a link until
         that voice has gone. The link is a hypothesis: the existing enrollment chain still needs
         three compatible turns and eight voiced seconds, rechecked against every other voice
-        of the visit, before a voice is saved."""
+        of the visit, before a voice is saved. Why nothing is linked yet goes to the log once."""
         if self.frozen or not self.newcomers:
             return
         profiles = self.store.profiles(self.tracker.namespace)
@@ -1897,14 +1906,18 @@ class CoreState:
         if chain is not None and chain != newcomer['voice_track']:
             newcomer['voice'] = False   # Their own introduction started this chain; it is not ours.
             return
-        candidates = []
+        candidates, passed = [], []
         for key, track in self.tracker.tracks.items():
             if (track.person_id is not None or key in newcomer['introducers'] or not track.references
                     or track.last_at < newcomer['since'] - NEWCOMER_LOOKBACK
-                    or track.voiced_seconds < NEWCOMER_MIN_SECONDS or self.tracker.voice_of(track, profiles)):
+                    or track.voiced_seconds < NEWCOMER_MIN_SECONDS):
                 continue
             ranked = self.tracker.rank(centroid(list(track.references)), profiles)
-            if not ranked or ranked[0][1] < NEWCOMER_KNOWN_CEILING:
+            if key in self.voices_taken:
+                passed.append((track.voiced_seconds, key, 'taken_for_someone_saved', None))
+            elif ranked and ranked[0][1] >= NEWCOMER_KNOWN_CEILING:
+                passed.append((track.voiced_seconds, key, 'close_to_a_saved_voice', round(ranked[0][1], 2)))
+            else:
                 candidates.append(key)
         def rivals(key):
             # Another voice heard on two clips or more; one odd clip (a laugh) can split a voice.
@@ -1914,11 +1927,19 @@ class CoreState:
                 self._unlink_newcomer_voice(newcomer, 'another_unknown_voice')
             return
         if not candidates:
+            if passed:
+                seconds, key, reason, score = max(passed)
+                self._newcomer_waiting(newcomer, 'voice', reason, track_id=key, score=score)
             return
         key = max(candidates, key=lambda k: self.tracker.tracks[k].voiced_seconds)
-        if rivals(key):
-            return
         track = self.tracker.tracks[key]
+        if rivals(key):
+            self._newcomer_waiting(newcomer, 'voice', 'two_unknown_voices', track_id=key)
+            return
+        if len(track.references) < NEWCOMER_MIN_CLIPS:
+            self._newcomer_waiting(newcomer, 'voice', 'one_clip_so_far', track_id=key)
+            return
+        newcomer['voice_waiting'] = None
         self.tracker.associate(key, newcomer['person_id'])
         proposal = self.evidence.get(key) or Enrollment(None, key, centroid(list(track.references)))
         proposal.person_id = newcomer['person_id']
@@ -1946,32 +1967,55 @@ class CoreState:
         newcomer['voice_track'] = None
         self.trace.emit('newcomer_voice_unlinked', person_id=newcomer['person_id'], track_id=key, reason=reason)
 
+    def _newcomer_waiting(self, newcomer, kind, reason, **data):
+        """Log once, not every turn, why an introduced person's voice or face is not gathered yet."""
+        if newcomer.get(kind + '_waiting') != reason:
+            newcomer[kind + '_waiting'] = reason
+            self.trace.emit(f'newcomer_{kind}_waiting', person_id=newcomer['person_id'], reason=reason, **data)
+
     def gather_newcomer_face(self):
         """Pool clear views of the one stranger's face in view for the one introduced person
         still without a face, across the camera's track changes (owner ruling, October 20;
         that night face tracks lasted a median half second). Views must look like the face
-        the introduction pointed at, when it had one, and like each other, and no saved
-        person may rival them; then they are saved under the introduced name."""
-        from .face_attribution import appearance, stranger, vetted_samples
+        the introduction pointed at, when it pointed at one, and like each other, and no saved
+        person may rival them; then they are saved under the introduced name.
+
+        October 24 (1bfce8af): with no face pointed at, the first unknown face after the
+        introduction, often a blurry glimpse, became the reference, and four minutes of clear
+        views of the guest were turned away without a word in the log. Now only clear views
+        count and none becomes a reference by itself: the first clear views start the pool, a
+        lone earlier view that nothing since matches (an odd angle) gives way to newer ones,
+        and why views wait is logged once."""
+        from .face_attribution import clear_views, stranger, vetted_samples
         turn, capture, transcript, observation, attribution = self.current
         waiting = [n for n in self.newcomers.values() if n['face']]
+        if len(waiting) != 1:
+            return
+        newcomer = waiting[0]
         strangers = [f for f in self.faces if stranger(f)]
-        if len(waiting) != 1 or len(strangers) != 1:
+        views = [[s for s in clear_views(f) if s.session_id == capture.session_id] for f in strangers]
+        if len(strangers) > 1 and any(views):
+            self._newcomer_waiting(newcomer, 'face', 'more_than_one_unknown_face', faces=len(strangers))
+        if len(strangers) != 1:
             return
-        newcomer, face = waiting[0], strangers[0]
-        if newcomer['anchor'] is None:
-            newcomer['anchor'] = appearance(face)
         anchor, pool = newcomer['anchor'], newcomer['pool']
-        if anchor is None:
-            return
         frames = {s.frame_id for s in pool}
-        for sample in face.get('_samples', ()):
-            if (len(pool) < NEWCOMER_FACE_VIEWS and sample.eligible and sample.vector is not None
-                    and sample.session_id == capture.session_id and sample.frame_id not in frames
-                    and cosine(sample.vector, anchor) >= NEWCOMER_FACE_ANCHOR
-                    and all(cosine(sample.vector, kept.vector) >= .6 for kept in pool)):
+        fresh = [s for s in views[0] if s.frame_id not in frames]
+        if not fresh:
+            return
+        if anchor is not None:
+            like = [s for s in fresh if cosine(s.vector, anchor) >= NEWCOMER_FACE_ANCHOR]
+            if not like:
+                self._newcomer_waiting(newcomer, 'face', 'unlike_the_introduced_face',
+                                       similarity=round(max(cosine(s.vector, anchor) for s in fresh), 2))
+                return
+            fresh = like
+        if pool and not any(all(cosine(s.vector, kept.vector) >= .6 for kept in pool) for s in fresh):
+            self._newcomer_waiting(newcomer, 'face', 'earlier_view_replaced', views=len(pool))
+            pool.clear()
+        for sample in fresh:
+            if len(pool) < NEWCOMER_FACE_VIEWS and all(cosine(sample.vector, kept.vector) >= .6 for kept in pool):
                 pool.append(sample)
-                frames.add(sample.frame_id)
         if len(pool) < 2 or max(s.at for s in pool) - min(s.at for s in pool) < .8:
             return
         samples, reason = vetted_samples(sorted(pool, key=lambda s: s.at), newcomer['person_id'], self.store)
