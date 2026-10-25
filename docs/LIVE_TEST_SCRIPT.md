@@ -229,8 +229,6 @@ covered by the thinking chirps.
 
 ### Run 2d — Speaking modes — about 10 minutes
 
-Needs the `[mode_voices]` table in `local/secrets.toml` (a mode left out keeps Rex's own voice).
-
 **Say:** "Rex, are you gay?"
 
 - [ ] A delighted, emphatic yes in full camp ("sis", "yasss"), in the pride voice.

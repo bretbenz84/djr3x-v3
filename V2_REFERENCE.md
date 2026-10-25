@@ -1317,7 +1317,7 @@ one model call) instead of V2's regex arming; the state owner keeps the modes an
 carries a mode's directive last; "stand down pride mode" is the same tool, not a command parser
 entry. The flourish is a with-speech gesture through the output owner, eased on the talking pace;
 the lights, talking motion and voice read the modes through callables. New: the owner's voices
-(the `[mode_voices]` table in ignored `local/secrets.toml`, with eleven accents added the same day), and
+(`VOICES` in `src/r3x/voice_modes.py`, with the accents added the same day), and
 sentry mode clears both modes and refuses them while it guards. Changed: V2 let both be on at
 once; the owner asked the same evening for one mode at a time. Not ported: V2's enable switches
 and timing settings (no current user choice), the emoji filter (not seen in V3 output yet).

@@ -77,8 +77,8 @@ then Arabic, Filipino, Vietnamese, Brazilian Portuguese and Dutch accents and a 
   a serious moment (the last two are the model's judgment; the five minutes are code).
 - How: the reply model calls `voice_mode` (on, off or line; V2 used a regex), and its line is spoken
   once the switch succeeds, in one model call. While a mode is on its directive rides last on every
-  reply request, his own beats included. Voices come from the `[mode_voices]` table in
-  `local/secrets.toml`; the mode switched on last speaks, and a mode without a voice keeps Rex's own.
+  reply request, his own beats included. Each mode's ElevenLabs voice is in `VOICES` in
+  `src/r3x/voice_modes.py` (the owner's choice: in the repository, not in local secrets).
 - Pride also brings V2's body: a rainbow mouth and chest (the boards' `PRIDE:1`, renewed every 3 s), a
   one-shot flourish as it comes on (head fully down, visor wide open, hero hand at the end of its
   travel, held a second, then back), hero elbow and hand swinging about twice as wide and often while

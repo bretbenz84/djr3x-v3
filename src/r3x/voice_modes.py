@@ -91,6 +91,34 @@ LINE_MODES = (*ACCENTS, 'pirate', 'dj')   # What a single line can be said in.
 OWN_LINE_MODES = (*ACCENTS, 'pirate')    # ...and what one of his own can be (never the DJ).
 MODES = ('pride', 'aave', *LINE_MODES)
 
+# The ElevenLabs voice each mode speaks in, all rendered on Rex's own speech model (owner, October 25:
+# kept in the repository, not in local secrets). The first Russian and Italian remixes sounded British
+# on eleven_v4_turbo and were replaced.
+VOICES = {
+    'pride': 'eF2drgAKWTMOimiAF03u',
+    'aave': 'nAOLYO4G1xEgd4nzgU5J',
+    'british': 'FJXsGe4vDeCxfsk9UTg3',
+    'french': '4qFYfPeMQtnnMJErnIhi',
+    'italian': 'lOihT2FRYvfv6CceCTS5',
+    'german': 'LOwP4P6wkqyV4K0OLzoR',
+    'spanish': 'Bo98BxfgAmXaygobl1Pp',
+    'russian': 'mxJM2hZPTVR0WXdIpIi8',
+    'scandinavian': 'NWuy9V74ni2jsngJb8YE',
+    'japanese': 'H2LtUDIhEAO0ibOoy52w',
+    'chinese': 'ZSEnHPACYqlDvkx4DVxz',
+    'nigerian': 'wQCHJGbYUf8V3RjXixgL',
+    'indian': 'KNZKSw9Y5K5O8wySzL85',
+    'arabic': 'bKXn9fg2ikIcnixyGUul',
+    'filipino': 'dQAvtKW97ZwOUgikVKmg',
+    'vietnamese': 'wT4XE3xP5HQAspxYTOLY',
+    'brazilian': 'pMMBPJ381GmMq6z1hz8n',
+    'dutch': 'qatbx0ZdhnmcIicVzbtu',
+    'irish': 'Xn0vTVpY0oqRFFFlZO5x',
+    'scottish': 'hfjEc1EOtgq3yY1fG1LU',
+    'pirate': 'k7Hlaw47rGJtmFyJGXPK',
+    'dj': '4IsdjOhE4SIxzyzFVxKH',
+}
+
 
 class VoiceModes:
     """Which modes are on and until when (monotonic seconds). Owned by the state owner; the lights,

@@ -121,11 +121,8 @@ class Secrets:
     elevenlabs_voice_id: str = field(default="", repr=False)
     # Sentry mode's phone alerts (owner, October 22): the private ntfy topic name. Optional.
     ntfy_topic: str = field(default="", repr=False)
-    # The [mode_voices] table: an ElevenLabs voice per speaking mode (pride, aave and the accents in
-    # voice_modes.MODES; owner, October 25). Optional: a mode without one keeps Rex's own voice.
-    mode_voices: dict = field(default_factory=dict, repr=False)
 
-    OPTIONAL = frozenset({"ntfy_topic", "mode_voices"})
+    OPTIONAL = frozenset({"ntfy_topic"})
 
     @classmethod
     def load(cls, root: Path) -> "Secrets":
@@ -135,18 +132,11 @@ class Secrets:
         values = tomllib.loads(path.read_text()) if path.exists() else {}
         if values.keys() - {f.name for f in fields(cls)}:
             raise ValueError("Unknown secret setting")
-        from .voice_modes import MODES
-        voices = values.pop("mode_voices", {})
-        if (not isinstance(voices, dict) or voices.keys() - set(MODES)
-                or not all(isinstance(v, str) for v in voices.values())):
-            raise ValueError("mode_voices maps speaking modes to voice ids")
         for f in fields(cls):
-            if f.name == "mode_voices":
-                continue
             values[f.name] = os.environ.get(f.name.upper(), values.get(f.name, ""))
             if not isinstance(values[f.name], str):
                 raise ValueError("Credentials must be strings")
-        return cls(**values, mode_voices={mode: voice.strip() for mode, voice in voices.items() if voice.strip()})
+        return cls(**values)
 
     def readiness(self) -> dict[str, bool]:
         return {f.name: bool(getattr(self, f.name).strip()) for f in fields(self) if f.name not in self.OPTIONAL}

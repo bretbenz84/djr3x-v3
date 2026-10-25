@@ -75,7 +75,8 @@ it or reads its data.
   works once Rex has heard about six seconds of your clean speech; a stranger's voice lasts
   for the session only. Parody is never stored as a fact. Live acceptance pending
   ([details](docs/IMPERSONATION.md)).
-- **Speaking modes (October 25).** Each speaks in a voice of its own, set in `local/secrets.toml`.
+- **Speaking modes (October 25).** Each speaks in an ElevenLabs voice of its own, listed in
+  `src/r3x/voice_modes.py`.
   The reply model decides when; nothing matches words.
   - **Pride and AAVE (from V2).** Ask Rex whether he is gay and he says a proud yes and goes full
     camp for ten minutes ("Yasss, sis!"), with a rainbow mouth and chest, a head-down, visor-up

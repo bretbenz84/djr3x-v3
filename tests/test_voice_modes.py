@@ -19,7 +19,7 @@ from r3x.servo_poses import (FLAIR_THROTTLE_WRIST, HEAD_PAIR, LIMITS, THROTTLE, 
                              flourish_lanes, head_pose, talking_lanes, throttle_clear, validate_pose)
 from r3x.session import Session
 from r3x.settings import Secrets
-from r3x.voice_modes import ACCENTS, LINE_SECONDS, MODE_SECONDS, MODES, VoiceModes, directive
+from r3x.voice_modes import ACCENTS, LINE_SECONDS, MODE_SECONDS, MODES, VOICES, VoiceModes, directive
 from tests.test_adapters import Client, Response
 from tests.test_context_diet import send
 from tests.test_leds import rig
@@ -254,16 +254,16 @@ class VoiceTests(unittest.TestCase):
         self.assertIn('/french-voice/', tts.client.calls[0][0][1])
         self.assertIn('/aave-voice/', self.speak(tts))                           # Then back to the mode on.
 
-    def test_mode_voices_are_optional_local_secrets(self):
+    def test_every_mode_has_its_own_voice_in_the_repository(self):
+        # Owner, October 25: the voices live in the code, not in local secrets.
+        import re
+        self.assertEqual(set(VOICES), set(MODES))
+        self.assertTrue(all(re.fullmatch(r'[A-Za-z0-9]{20}', v) for v in VOICES.values()))
+        self.assertEqual(len(set(VOICES.values())), len(VOICES))           # No two modes share a voice.
         with tempfile.TemporaryDirectory() as root:
             root = Path(root).resolve()
-            (root / 'secrets.toml').write_text('elevenlabs_voice_id = "rex"\n[mode_voices]\npride = "p"\nfrench = " f "\naave = ""\n')
-            secrets = Secrets.load(root)
-            self.assertEqual(secrets.mode_voices, {'pride': 'p', 'french': 'f'})   # Empty keeps Rex's voice.
-            self.assertNotIn('mode_voices', secrets.readiness())
-            self.assertNotIn("'p'", repr(secrets))
-            (root / 'secrets.toml').write_text('[mode_voices]\ncowboy = "x"\n')
-            with self.assertRaises(ValueError):
+            (root / 'secrets.toml').write_text('[mode_voices]\npride = "x"\n')
+            with self.assertRaises(ValueError):                              # The old local table is refused.
                 Secrets.load(root)
 
 
