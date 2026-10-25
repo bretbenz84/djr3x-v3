@@ -37,6 +37,8 @@ it or reads its data.
 - **Memory.** Source-linked personal facts, corrections and forgetting in a local SQLite
   store, cross-session exchange recall and optional source-linked shared memories
   ([details](docs/CONVERSATION_MEMORY.md)). Named pet/object photo memory (RF-DETR Nano detection).
+  Since October 25 a fact said while his own motor noise masks the voice is still kept, as a candidate
+  fact about the person he is talking with, and he never tells anyone a save failed.
 - **Initiative (goals, October 2).** People come first: anyone talking to Rex gets an
   ordinary reply, and someone who arrives is greeted (by name, with "how are you", when
   known). When nothing is happening, Rex pursues a goal of his own: catching up with a

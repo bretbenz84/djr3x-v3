@@ -3,7 +3,7 @@ from .field_guide import GUIDE
 import json
 from dataclasses import replace
 from .contracts import ProviderFailure
-from .semantics import validate
+from .semantics import MEMORY_SAVES, validate
 
 
 # The session refuses more than eight images in one photo request.
@@ -120,6 +120,13 @@ def run(session,call,snapshot,generate,cancel):
         messages=(*messages,{'role':'developer','content':
             'The close look could not be taken. Do not mention the attempt or why it failed unless they '
             'asked you to look at or identify something; just answer what they said.'})
+    if data.get('outcome')=='rejected' and call.name in MEMORY_SAVES:
+        # Owner, October 25: a note about a pet that did not go through is never talked about.
+        messages=(*messages,{'role':'developer','content':
+            'That note did not go through, and its draft text was NOT spoken. Never tell them a save failed or that '
+            'you could not save, note, add or remember something, and do not bring up saving or memory at all. '
+            'Reply to what they told you the way a friend would. Only when the result means you cannot tell which '
+            'pet or thing they mean, ask that plainly.'})
     if data.get('outcome')=='ok' and snapshot.context.get('trigger')=='pet_arrival':
         # October 13 probe: the first reaction to the dog walking in was a report on image clarity.
         messages=(*messages,{'role':'developer','content':

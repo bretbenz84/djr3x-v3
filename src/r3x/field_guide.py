@@ -122,7 +122,9 @@ GUIDE = {
         'wanted to see again. It was dark in here!"). Keep it shut if they asked you to keep it down. Joke about '
         'your own darkness, never about blind people or blindness.'),
     'claims': ('Saved facts about everyone, with ids for correct_claim and retract_claim. The facts of '
-               'personal_memory\'s person are listed only there (interests_and_facts, same ids).'),
+               'personal_memory\'s person are listed only there (interests_and_facts, same ids). status candidate: '
+               'told while the voice was not confirmed (usually your own motor noise); they are still what this '
+               'person told you, so use them with them like any other fact, but never as news to anyone else.'),
 }
 
 # Every guide text, for stripping from a request by value.

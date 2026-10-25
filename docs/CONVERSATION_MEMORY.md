@@ -216,3 +216,68 @@ A paced hosted check, real model on a synthetic temporary database, asked five
 replies quoted the 7 PM remark (about 31,500 input tokens per turn, 3.3-5.7 s wall
 time including synthetic output). Not a live microphone or held-out accuracy test.
 Private receipts: `local/validation/recall-last-night/`.
+
+## October 25: facts are kept, and a failed save is never talked about
+
+Owner, after run `a0afcf85`: "He often refuses to save memories and tells me so. This is asinine. Rex
+should be remembering story's and facts he's told about people and never talk about failing to save it."
+In that run the owner, alone with Rex, said "I hate paperwork" and "I used to get breakfast at gas stations
+every morning before high school" while Rex's own motors masked his voice (.36 and .54 against his profile).
+Both were refused (`UnknownPersonId`, `UnresolvedSelfReportSubject`) and the tool-result reply said "I
+couldn't save that dislike just now" and "I couldn't save that detail". Two tellings of how his dog Toby came
+home got a gesture and nothing saved, and "My sister's name is Jennifer" was taken as an introduction: Rex
+greeted the absent sister and began gathering a face and voice for her.
+
+Why his voice went unconfirmed: the October 16 carry keeps a clearly matched voice through motion noise
+unless there was company in the last ten minutes. A large, faint "face" at the right edge of the view
+(detector .54-.67, mostly no embedding, a new camera track each time) flickered into ten single frames, and
+each one counted as company. Repairs:
+- **A face seen in one frame is not company** (`present.followed`). It still ends the 90-second private
+  carry at once; company needs two faces the camera followed past their first frame. Replaying the run's
+  camera log, none of the 11 unconfirmed turns that company blocked would have been in company; in the
+  October 24 visit with a real guest all 60 such turns still were. Presence inference and the carry count
+  faces the same way.
+- **A fact said while the voice is unconfirmed is kept** (`CoreState._unconfirmed_self`). A self-report
+  with no confirmed speaker goes on the record of the person Rex is talking with (this conversation's
+  clearly matched voice, else the one recognized face) when the clip still sounds most like them (the
+  carry's .25 floor and margin) and nobody else was heard or recognized in ten minutes. It is a candidate
+  claim: `said_by` stays empty and the turn keeps its acoustic evidence, so it never confirms who spoke,
+  enrolls anything or replaces an accepted fact. Interests and follow-ups said that way are kept as candidate
+  facts without the news search or the follow-up. A voice like nobody here, another voice this visit or
+  another recognized person still keeps it off anyone's record. A clear speaker's own fact with the subject
+  left out is theirs.
+- **Candidate facts are part of what he knows with that person**: `personal_memory.interests_and_facts`
+  and `recall` for a subject include them, marked `status: candidate` (accepted facts carry no status
+  field). The field guide says to use them with that person, never as news to anyone else.
+- **A candidate save speaks its own reply** with no second model call, like an accepted one.
+- **A refused save is never mentioned.** The tool-result continuation after a rejected `record_claim`,
+  `remember_interest`, `remember_followup` or pet note (`edit_object_memory`) carries a developer note: the
+  draft was not spoken; never say a save failed or that he could not save, note or remember something; ask
+  only when it is unclear who or which pet they mean. The persona's "if no tool is available for it, say you
+  cannot save it" and the final-answer rule that produced the run's lines are replaced.
+- **Stories are memories.** The persona says a person's life, family, work, childhood, what they can't
+  stand and a pet's history are saved in that turn (pet history as notes), each new part of a story too,
+  and that the save is the reply when only one tool fits.
+- **A person named in a story who is not here** ("my sister's name is Jennifer") is a relationship fact
+  (`record_claim` self-report with `other_person`), not `introduce_person`.
+
+Verification: synthetic checks through the production Session and state owner
+(`tests/test_october25_memory.py`): a one-frame face is not company and the carry holds; after real company
+a masked fact is kept as his candidate, reaches his personal memory and never touches voice learning; an
+unknown voice, another voice or another recognized person keeps it off his record; a masked interest starts
+no news; refused saves and pet notes are answered without their drafts and with the note; a candidate save
+speaks in one call.
+
+Paid probe `tools/check_saving.py --live` (real reply model on fictional Sam and his dog Pepper, temporary
+database, synthetic audio; three runs per arm; the `before` arm swaps in the October 24 persona but shares
+the new code): of five lines that should be saved (two story lines about how Pepper came home, a brother's
+name, two of Sam's own lines with a masked voice after six quiet minutes), the old persona saved 7 of 15 and
+the new one 13 of 15 (stories 5/6, masked 5/6, the name 3/3). No reply talked about a save that did not go
+through (three refused lines from a voice like nobody known, one refused story line). The last run of the
+new arm: 22 model calls, 880,791 input tokens (707,663 cached), 2,265 output. Development cases, not held-out
+accuracy. Private receipts: `local/validation/saving-6bb8ed50/` (earlier rounds `saving-057cd367`, whose
+masked setup put a guest in view, and `saving-eb02b24f`, before "what they can't stand" and "each new part
+of a story" were added).
+
+Not yet run on the robot. The run left a name-only "Jennifer" person record from the mistaken introduction;
+removing it is the owner's database edit to make.

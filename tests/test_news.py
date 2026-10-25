@@ -145,8 +145,9 @@ class InterestMemoryTests(MemoryFixture):
     def test_unknown_speaker_cannot_save_an_interest(self):
         self.enroll()
         result = self.remember('Bret loves the Kings.', B)
-        self.assertEqual(result.reason, 'InterestNeedsSupportedSelfIdentity')
+        self.assertEqual(result.reason, 'UnresolvedSelfReportSubject')   # A voice like nobody here (October 25).
         self.assertFalse(self.store.rows('SELECT * FROM interests'))
+        self.assertFalse(self.store.claims(include_candidates=True))
 
     def test_retraction_and_forgetting_stop_the_interests_news(self):
         person = self.enroll()

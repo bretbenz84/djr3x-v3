@@ -58,8 +58,9 @@ class MemoryOpportunityTests(MemoryFixture):
         self.setup_person();self.begin('Bret has a birthday soon.',B)
         result=self.call('remember_followup',dict(predicate='birthday',value='September 12',kind='birthday',
             on_date='09-12',due_in_minutes=None,due_by=None,audience='group',source_turn_id=self.state.current[0]))
-        self.assertEqual(result.reason,'FollowupNeedsSupportedSelfIdentity')
+        self.assertEqual(result.reason,'UnresolvedSelfReportSubject')   # A voice like nobody here (October 25).
         self.assertFalse(self.store.rows('SELECT * FROM memory_followups'))
+        self.assertFalse(self.store.claims(include_candidates=True))
 
     def test_dates_and_restart_use_calendar_not_monotonic_capture_time(self):
         self.setup_person();self.remember('birthday','09-12')

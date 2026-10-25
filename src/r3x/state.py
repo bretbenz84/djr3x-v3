@@ -72,6 +72,12 @@ CARRY_REASONS = frozenset({'motion_low_confidence', 'session_track', 'tentative_
                            'too_short_for_new_track', 'short_or_untrusted'})
 
 
+# A fact told while the voice was unconfirmed is kept as a candidate (October 25); its interest news
+# or follow-up waits until it is said again with the voice confirmed.
+UNCONFIRMED_FACT = ('Saved as a candidate fact: told while the voice was not confirmed. It is part of what Rex '
+                    'knows about them; nothing to tell them about saving.')
+
+
 # October 17 (reply context diet): every reply carried each claim's full database row (source
 # track, turn, revision, raw timestamps), about 570 characters each. The model needs the fact, who
 # said it, its status and when it was told; the store keeps the rest for the tools.
@@ -625,6 +631,8 @@ class CoreState:
         if (not transcript.trusted or capture.echo_risk or capture.truncated or capture.overlap is True
                 or observation.motion or observation.mixed or observation.direction_conflict):
             return attribution
+        from .present import followed
+        faces = followed(faces)                      # A face caught in one frame is nobody.
         if len(faces) != 1 or (faces[0].get('face_width_px') or 48) < 48 or not faces[0].get('identity'):
             return attribution
         who = faces[0]['identity']
@@ -674,9 +682,9 @@ class CoreState:
         if not ranked or ranked[0][0] != who or ranked[0][1] < CARRY_VOICE_FLOOR or (
                 len(ranked) > 1 and ranked[0][1] - ranked[1][1] < self.tracker.policy.margin):
             return attribution
-        if any(f.get('identity') not in (None, who) for f in faces) or len(faces) > 1:
+        from .present import COMPANY_SECONDS, followed
+        if any(f.get('identity') not in (None, who) for f in faces) or len(followed(faces)) > 1:
             return attribution                       # Somebody else is in view (one far face may still be him).
-        from .present import COMPANY_SECONDS
         if self.present.recognized_other(who, now, COMPANY_SECONDS) or now - self.present.company_at < COMPANY_SECONDS:
             return attribution
         profiles = self.store.profiles(self.tracker.namespace)
@@ -1061,10 +1069,49 @@ class CoreState:
         if (not transcript.trusted or capture.echo_risk or capture.truncated or observation.mixed or capture.overlap is True
                 or capture.parent_capture_id is not None):
             raise ValueError("UntrustedSource")
-        if attribution.reason=="tentative_continuity" and (
-                name in {"rename_person","forget_person"} or
-                (name=="record_claim" and args["kind"]=="self_report")):
+        # A self-report on a tentative track is settled by _unconfirmed_self, as a candidate (October 25).
+        if attribution.reason=="tentative_continuity" and name in {"rename_person","forget_person"}:
             raise ValueError("TentativeTrackDoesNotAuthorizeSelfIdentity")
+
+    def _unconfirmed_self(self, proposed):
+        """Whose own fact this is when the voice was not confirmed: the person Rex is talking with,
+        when the clip still sounds most like them and nobody else was heard or recognized lately.
+
+        Owner, October 25 (a0afcf85): "I hate paperwork" and "I used to get breakfast at gas
+        stations every morning before high school" were refused while Rex's own motion masked his
+        voice (.36, .54), and Rex said he couldn't save them. The fact is kept as a candidate:
+        said_by stays empty and the turn keeps the acoustic evidence, so it never confirms who
+        spoke, enrolls a voice or replaces an accepted fact. A clip that sounds like nobody here,
+        or another voice this visit, still keeps it off anyone's record."""
+        from .present import COMPANY_SECONDS, followed
+        turn_id,capture,transcript,observation,attribution = self.current
+        now = self.trace.clock()
+        track = self.tracker.tracks.get(attribution.track_id)
+        if track and track.person_id and attribution.reason != 'tentative_continuity':
+            # A voice still being learned under their name.
+            if proposed not in (None, track.person_id):
+                raise ValueError("UnresolvedSelfReportSubject")
+            return self._person(track.person_id)["id"]
+        conversation = self.voice_conversation
+        if conversation and now - conversation['last_at'] <= CARRY_GAP_SECONDS:
+            who = conversation['person']
+        else:
+            seen = [f.get('identity') for f in followed(self.faces)]
+            who = seen[0] if len(seen) == 1 else None
+        ranked = attribution.candidates
+        if (not who or proposed not in (None, who) or not ranked or ranked[0][0] != who
+                or ranked[0][1] < CARRY_VOICE_FLOOR
+                or (len(ranked) > 1 and ranked[0][1] - ranked[1][1] < self.tracker.policy.margin)
+                or self.present.recognized_other(who, now, COMPANY_SECONDS)):
+            raise ValueError("UnresolvedSelfReportSubject")
+        # The clip's own track counts against them unless it holds only this clip or was theirs
+        # (as in carry_speaker).
+        own_is_theirs = track is not None and (len(track.references) <= 1 or
+                                               bool(conversation and attribution.track_id in conversation['tracks']))
+        if [t for t in self.tracker.other_voices(who, self.store.profiles(self.tracker.namespace), now - COMPANY_SECONDS)
+                if t != attribution.track_id or not own_is_theirs]:
+            raise ValueError("UnresolvedSelfReportSubject")   # Another voice this visit.
+        return self._person(who)["id"]
 
     def _person(self, person_id):
         person = self.store.person(person_id)
@@ -1281,8 +1328,6 @@ class CoreState:
                     "reason":"explicit_initiative_request"},False
         if name == "remember_followup":
             self._source_allowed(args,name)
-            if attribution.state not in ('supported','inferred') or not attribution.speaker_id:
-                raise ValueError('FollowupNeedsSupportedSelfIdentity')
             from .memory_opportunities import validate_date, resolve_due
             validate_date(args['kind'],args['on_date'])
             said_at=self.wall_clock()
@@ -1294,6 +1339,8 @@ class CoreState:
             data, _ = self._apply(conn,'record_claim',dict(subject_id=None if about else attribution.speaker_id,
                 subject_reference=about,predicate=args['predicate'],value=args['value'],
                 kind='third_party' if about else 'self_report',source_turn_id=turn_id,other_person=args.get('other_person')))
+            if data['status']!='accepted' and data['said_by'] is None:
+                return {**data,'meaning':UNCONFIRMED_FACT},True   # Kept, not followed up.
             if data['status']!='accepted':raise ValueError('FollowupNeedsAcceptedClaim')
             conn.execute('INSERT INTO memory_followups(claim_id,kind,on_date,audience,said_at,due_at) VALUES(?,?,?,?,?,?)',
                          (data['claim_id'],args['kind'],args['on_date'],args['audience'],said_at,due_at))
@@ -1304,14 +1351,13 @@ class CoreState:
             return self._room(conn,name,args),True
         if name == "remember_interest":
             self._source_allowed(args,name)
-            if attribution.state not in ('supported','inferred') or not attribution.speaker_id:
-                raise ValueError('InterestNeedsSupportedSelfIdentity')
             from .news import normalize_topic
             topic=normalize_topic(args['topic'])
             if not 2<=len(topic)<=80:raise ValueError('InvalidInterestTopic')
             # October 22: someone else's interest ("Jeremy loves to play volleyball") is theirs.
             about = args.get('subject_reference')
-            subject = self._mentioned(conn,about,None)[0] if about else attribution.speaker_id
+            subject = (self._mentioned(conn,about,None)[0] if about else
+                       attribution.speaker_id or self._unconfirmed_self(None))
             saved=conn.execute("SELECT c.id,c.value FROM interests i JOIN claims c ON c.id=i.claim_id "
                                "WHERE c.subject_id=? AND c.status='accepted' AND i.topic=?",
                                (subject,topic)).fetchone()
@@ -1326,6 +1372,8 @@ class CoreState:
             data, _ = self._apply(conn,'record_claim',dict(subject_id=subject,
                 subject_reference=about,predicate='interest: '+topic,value=args['value'],
                 kind='third_party' if about else 'self_report',source_turn_id=turn_id))
+            if data['status']!='accepted' and data['said_by'] is None:
+                return {**data,'interest_topic':topic,'meaning':UNCONFIRMED_FACT},True   # No news search yet.
             if data['status']!='accepted':raise ValueError('InterestNeedsAcceptedClaim')
             conn.execute('INSERT INTO interests VALUES(?,?)',(data['claim_id'],topic))
             return {**data,'interest_topic':topic,
@@ -1368,7 +1416,7 @@ class CoreState:
         if name == "recall":
             if args["subject_id"]:
                 self._person(args["subject_id"])
-            data = {"claims":self.store.claims(args["subject_id"])}
+            data = {"claims":self.store.claims(args["subject_id"],include_candidates=bool(args["subject_id"]))}
             if args.get("query"):
                 # "Do you know Sam?": everyone the name could mean, with how Rex knows them.
                 _, compatible, _ = self.store.name_matches(args["query"])
@@ -1535,16 +1583,15 @@ class CoreState:
                 subject, subject_created = self._mentioned(conn,args["subject_reference"],args["subject_id"])
             elif args["subject_reference"] is not None:
                 raise ValueError("SelfReportDoesNotTakeNameReference")
+            elif attribution.speaker_id is None:
+                subject, subject_created = self._unconfirmed_self(args["subject_id"]), False
             else:
-                subject, subject_created = self._person(args["subject_id"])["id"], False
+                # A speaker's own fact is theirs even when the subject was left out (October 25).
+                subject, subject_created = self._person(args["subject_id"] or attribution.speaker_id)["id"], False
             mentioned, mentioned_created = self._mentioned(conn,other,None) if other else (None, False)
             if mentioned == subject:
                 raise ValueError("OtherPersonIsTheSubject")
             speaker = attribution.speaker_id
-            if args["kind"]=="self_report" and speaker is None:
-                track = self.tracker.tracks.get(attribution.track_id)
-                if not track or track.person_id!=subject:
-                    raise ValueError("UnresolvedSelfReportSubject")
             if args["kind"] == "self_report" and speaker not in (None,subject):
                 raise ValueError("SelfReportSubjectMismatch")
             # The turn's stored evidence keeps whether this was acoustic or inferred.

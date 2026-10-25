@@ -39,10 +39,11 @@ def evidenced_subject(context):
     return who if any(p['id'] == who and p['status'] == 'supported' for p in context.get('people', [])) else None
 
 
-def contradicted(context, person):
+def contradicted(context, person, faces=None):
     """Evidence that the audience is no longer just this person: several faces at once, or
-    a face or supported voice recognized as somebody else."""
-    faces = context.get('current_view', {}).get('faces', context.get('faces', []))
+    a face or supported voice recognized as somebody else. faces overrides the view's."""
+    if faces is None:
+        faces = context.get('current_view', {}).get('faces', context.get('faces', []))
     speaker = context.get('speaker', {})
     return (len(faces) > 1 or any(f.get('identity') not in (None, person) for f in faces) or
             (speaker.get('state') == 'supported' and speaker.get('person_id') != person))
@@ -278,6 +279,8 @@ FACT_SOURCE_TEXT = 200
 
 def public_fact(row):
     out = {k: row[k] for k in FACT_FIELDS if row.get(k) is not None}
+    if row.get('status') == 'candidate':
+        out['status'] = 'candidate'   # Accepted is the default and is left out (context diet).
     if isinstance(out.get('source_text'), str) and len(out['source_text']) > FACT_SOURCE_TEXT:
         out['source_text'] = out['source_text'][:FACT_SOURCE_TEXT] + '...'
     return out
@@ -349,7 +352,9 @@ def context(store, original, session, now):
     result['recent_exchanges'] = [public_exchange(row) for row in recall(store,who,session,limit=4,now=now)['exchanges']]
     result['earlier_greetings'] = greetings(store, who, now)
     # October 16: only the newest 6 of 8 saved facts reached each reply.
-    result['interests_and_facts'] = [public_fact(told(row, now)) for row in store.claims(who, told=True)]
+    # October 25: facts told while his voice was unconfirmed are theirs too (status candidate).
+    result['interests_and_facts'] = [public_fact(told(row, now))
+                                     for row in store.claims(who, include_candidates=True, told=True)]
     # Ids only: their words are already in the history. The key still marks private memory in use.
     result['current_session_exchanges'] = store.rows('SELECT id FROM conversation_exchanges WHERE person_id=? AND session_id=? ORDER BY created_at DESC LIMIT 3',(who,session))
     result['episodes'] = store.rows('''SELECT e.id,e.summary,e.source_exchange,x.human_text,x.heard_text

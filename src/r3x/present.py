@@ -136,6 +136,19 @@ def across_view(row):
     return 'on his left' if x < .38 else 'on his right' if x > .62 else 'in the middle of his view'
 
 
+def followed(faces):
+    """The faces the camera has followed past their first frame: people, not flickers.
+
+    October 25 (a0afcf85): a large, faint "face" at the right edge of his view (detector .54-.67,
+    mostly no embedding, a new track each time) flickered into ten single frames beside the owner.
+    Each one counted as company for ten minutes, so his voice was never carried through Rex's own
+    motion noise that evening and two things he said about himself were refused. A real second
+    person stays in view: in the October 24 visit, 588 of 827 two-face frames had both faces
+    followed. A face without track timing (scripted callers) counts."""
+    return [f for f in faces or () if f.get('track_first_seen') is None or f.get('at') is None
+            or f['at'] > f['track_first_seen']]
+
+
 def line_meaning(line, answered, seconds):
     """What became of Rex's last line, in words."""
     if answered:
@@ -221,6 +234,7 @@ class Present:
         owner was alone, which is the gate for deducing his voice."""
         with self.lock:
             seen = []
+            people = {id(f) for f in followed(faces)}
             for face in faces or ():
                 at = face.get('at', now)
                 if at is None or at > now + 1:
@@ -228,7 +242,8 @@ class Present:
                 if (face.get('face_width_px') or 48) < 48:
                     continue
                 self.face_at = max(self.face_at, at)
-                seen.append(at)
+                if id(face) in people:
+                    seen.append(at)
                 if face.get('identity'):
                     self._recognize(face['identity'], at)
             if len(seen) > 1:
@@ -316,8 +331,13 @@ class Present:
         with self.lock:
             who = cm.evidenced_subject(context)
             faces = context.get('current_view', {}).get('faces', context.get('faces', []))
-            if len(faces) > 1 or (self.audience_seen and cm.contradicted(context, self.audience_seen[0])):
-                self.audience_seen, self.company_at = None, now
+            carried = self.audience_seen[0] if self.audience_seen else None
+            if len(faces) > 1 or (carried and cm.contradicted(context, carried)):
+                self.audience_seen = None
+                # Any doubt ends the carry; a face caught in one frame is not company (followed).
+                people = followed(faces)
+                if len(people) > 1 or (carried and cm.contradicted(context, carried, people)):
+                    self.company_at = now
             if who:
                 self.audience_seen = (who, now)
             context.pop('recent_audience', None)

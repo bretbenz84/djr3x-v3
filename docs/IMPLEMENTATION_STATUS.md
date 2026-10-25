@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 24, 2026. This is the consolidated
+Updated October 25, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,28 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## October 25 run: facts refused, and the refusals spoken
+
+Session `a0afcf85` (16 minutes, real hardware, the owner alone). Owner: "He often refuses to save memories
+and tells me so... Rex should be remembering story's and facts he's told about people and never talk about
+failing to save it." Two things he said about himself were refused while Rex's motors masked his voice and
+became "I couldn't save that detail"; both tellings of how Toby came home were never saved; "My sister's name
+is Jennifer" greeted the absent sister. Root cause: a faint one-frame "face" at the edge of the view counted
+as ten minutes of company, so his voice was never carried through motion noise that evening. Repairs
+([conversation memory](CONVERSATION_MEMORY.md#october-25-facts-are-kept-and-a-failed-save-is-never-talked-about)):
+one-frame faces are not company; a fact said while the voice is unconfirmed is kept as a candidate fact about
+the person he is talking with and used with them; a refused save is never mentioned; stories and a pet's
+history are saved; someone named in a story is a relationship fact, not an introduction. A paid probe on
+fictional input saved 13 of 15 expected lines (7 of 15 with the old persona) and never mentioned a refused
+save. Synthetic voices and faces for the state rules; **not yet run on the robot**. 1573 blocked-I/O checks
+pass (5 skipped).
+
+Seen in the same run and **not** repaired here: during the drive to the door (about 80 s) the owner says he
+called "stop" many times, but the speech detector registered no speech while the wheels ran (peak speech
+probability mostly under .45), so no stop reached Rex; three of Rex's own beats changed the subject to
+houseplants, pizza and mugs right after a painful story ("Why did you just talk about mugs?"). A name-only
+"Jennifer" record from the mistaken introduction remains in the database for the owner to remove.
 
 ## October 24 run: the introduced guest still went unlearned
 
