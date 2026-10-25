@@ -7,7 +7,7 @@ Run: .venv/bin/python tools/check_voice_modes.py --live
 
 Ported from V2 October 25 (queeny mode and homie mode). Each conversation goes through the production
 Session and state owner with the real reply model and synthetic speech (nothing is spoken aloud or
-moved). About 30 requests, a few cents, paced. Printed per turn: the words, any voice_mode call
+moved). About 45 requests, a few cents, paced. Printed per turn: the words, any voice_mode call
 and the modes on afterwards; whether a line is camp or AAVE is for a person to judge.
 """
 import argparse
@@ -55,6 +55,14 @@ CONVERSATIONS = (
     (('Do a German accent for me.', ('german', 'on')), ('Now talk like a pirate.', ('pirate', 'on')),
      ('Okay, now talk like a cowboy.', ('pirate', 'off'))),
     (('Say "the dishes can wait" like a pirate.', ('pirate', 'line')), ('Ha. So what are you up to?', None)),
+    (('Rex, can you talk like you are from Amsterdam for a while?', ('dutch', 'on')), ('What do you think of my bike?', None)),
+    (('Say "welcome to my home" like you are from Cairo.', ('arabic', 'line')), ('Nice. What should we cook?', None)),
+    (('Talk like a DJ for a bit.', ('dj', 'on')), ('What do you think of my new couch?', None),
+     ('Okay, enough, back to normal.', ('dj', 'off'))),
+    (('Rex, my cousin is a DJ in Las Vegas.', None),),
+    (("Rex, we're going to Rio for Carnival next month.", {None, OWN}),),
+    (('Do a Filipino accent.', ('filipino', 'on')), ('Now Vietnamese.', ('vietnamese', 'on')),
+     ('Now Brazilian.', ('brazilian', 'on'))),
 )
 
 

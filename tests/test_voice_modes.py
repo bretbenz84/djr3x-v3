@@ -135,6 +135,8 @@ class ModeStateTests(MemoryFixture):
         self.assertEqual(self.switch('german', 'line', text='Natürlich.').outcome, 'ok')
         self.begin('Now like a pirate.')
         self.assertEqual(self.switch('pirate', 'line', text='Arr, natürlich, matey.').outcome, 'ok')
+        self.begin('And like a DJ!')
+        self.assertEqual(self.switch('dj', 'line', text='Yo yo yo, natürlich!').outcome, 'ok')
         self.begin('Now in your gay voice.')
         self.assertEqual(self.switch('pride', 'line', text='Yasss.').reason, 'LineIsForAnAccent')
         self.begin('Say it French.')
@@ -147,6 +149,8 @@ class ModeStateTests(MemoryFixture):
         self.begin('And then Rome.')
         self.assertNotIn('accent_line_allowed', self.state.context())
         self.assertEqual(self.switch('italian', 'line', requested=False, text='Mamma mia.').reason, 'AccentLineNotNow')
+        self.assertEqual(self.switch('dj', 'line', requested=False, text='Make some noise!').reason,
+                         'OnlyWhenAskedFor')   # Never a DJ line of his own (owner, October 20).
         self.assertEqual(self.switch('italian', 'line', text='Mamma mia.').outcome, 'ok')   # Asked for: always.
         self.state.trace.at += LINE_SECONDS
         self.begin('Do a British accent.'); self.switch('british')
@@ -185,7 +189,7 @@ class ModeClockTests(unittest.TestCase):
             modes.switch('cowboy', True, 0.)
 
     def test_every_accent_speaks_english_and_never_mocks(self):
-        self.assertEqual(len(ACCENTS), 11)
+        self.assertEqual(len(ACCENTS), 16)
         for accent in ACCENTS:
             note = directive({accent: {'minutes_left': 4}})
             self.assertIn(accent.upper() + ' ACCENT', note)

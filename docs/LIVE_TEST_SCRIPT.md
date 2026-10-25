@@ -260,6 +260,8 @@ Needs the `[mode_voices]` table in `local/secrets.toml` (a mode left out keeps R
       his own voice again.
 - [ ] "Are you gay?" then "Now do a British accent": the British voice, no more camp or rainbow.
       "Talk like a pirate": the pirate voice. "Talk like a cowboy" then: cowboy talk in his own voice.
+- [ ] "Talk like a DJ": hype patter in the DJ voice, no offer to play music. A DJ line never comes
+      unasked.
 
 **Say:** "Say 'I love sushi' like you're from Tokyo."
 

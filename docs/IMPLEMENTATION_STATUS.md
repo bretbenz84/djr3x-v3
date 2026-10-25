@@ -53,14 +53,17 @@ the database for the owner to remove.
 Owner requests: port V2's pride mode ("queeny mode") and its African American Vernacular English mode
 ("homie mode"), each in its own ElevenLabs voice; then eleven accents (British, French, Italian, German,
 Spanish, Russian, Scandinavian, Japanese, Chinese, Nigerian, Indian) and a pirate, each in its own voice,
-in English and culturally fitting, and now and then a single line in one when the talk suggests it.
+in English and culturally fitting, and now and then a single line in one when the talk suggests it;
+then Arabic, Filipino, Vietnamese, Brazilian Portuguese and Dutch accents and a DJ.
 
 - Asked about his own sexuality ("are you gay?", "do you like men?"), Rex says a proud yes and goes full
   camp ("sis", "yasss", tea and drama) for ten minutes. Greeted "what's up my homie", he answers in AAVE
   for ten minutes, spoken for real, never as a mocking impression.
 - Asked for an accent ("do a British accent", "talk like you're from Lagos"), he speaks English as
   someone from there does (idiom, rhythm, a native word or two; never a caricature, broken English or a
-  joke at the people's expense) for ten minutes. "Talk like a pirate" is a mode of its own (arr, matey).
+  joke at the people's expense) for ten minutes. "Talk like a pirate" is a mode of its own (arr, matey),
+  and so is "talk like a DJ" (hype patter), which only ever answers a request: he never chooses a DJ
+  line himself, since the owner wants no DJ or music talk unprompted, and he still cannot play music.
 - One mode at a time (owner, the same evening): asked to be someone else, he switches to it and the
   mode before ends, pride and AAVE included, and the switching line already drops the old mode's
   words; asked to talk some way he has no mode for ("like a cowboy"), he switches the mode off and
@@ -85,7 +88,7 @@ Evidence:
 - 24 synthetic checks in `tests/test_voice_modes.py` (1612 blocked-I/O checks pass, 5 skipped): state, request, voice choice, one-line lines on
   replies and lulls, the five-minute limit, the flourish through the output owner on a pulse port,
   talking lanes and clearance, the light lease.
-- One short line was synthesized in each of the fourteen voices; all work with `eleven_v4_turbo`.
+- One short line was synthesized in each of the twenty voices; all work with `eleven_v4_turbo`.
 - `tools/check_voice_modes.py --live` (paid, fictional input, seven full runs and five short ones).
   Wording repairs on the way:
   - The first wording made him repeat its example lines ("Yasss, sis! Gay and fabulous, obviously."
@@ -106,6 +109,9 @@ Evidence:
   cowboy talk in his own voice; nothing for "is my uncle gay" or a homeboy in passing. Lines were
   fresh, and his grandmother's death got a kind answer in his own voice. He chose an accent line
   himself once in the 33-turn run before (French about Paris and Rome) and not at all in this one.
+- The added modes: 12 of 12 turns right (Dutch on and in register, an Arabic line asked for and then
+  his own voice, the DJ on, in patter and off, Filipino to Vietnamese to Brazilian with only the newest
+  on, nothing for "my cousin is a DJ in Las Vegas").
 
 **Not yet run on the robot**: the voices in conversation, the flourish, hand swings and throttle curl,
 and the rainbow on both boards are unseen; the dashboard does not mirror the rainbow. How often he

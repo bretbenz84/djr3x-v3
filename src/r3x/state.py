@@ -1085,6 +1085,9 @@ class CoreState:
         if args['mode'] not in LINE_MODES:raise ValueError('LineIsForAnAccent')
         if not (args.get('text') or '').strip():raise ValueError('AccentLineNeedsItsWords')
         requested = args.get('requested', True) is not False   # Left out: asked for.
+        from .voice_modes import OWN_LINE_MODES
+        if not requested and args['mode'] not in OWN_LINE_MODES:
+            raise ValueError('OnlyWhenAskedFor')   # The DJ (owner, October 20: no DJ talk unprompted).
         if not requested and not self.voice_modes.line_allowed(self.trace.clock()):
             raise ValueError('AccentLineNotNow')
         return {'mode':args['mode'],'switch':'line','requested':requested,'text':args['text']}

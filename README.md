@@ -81,9 +81,10 @@ it or reads its data.
     camp for ten minutes ("Yasss, sis!"), with a rainbow mouth and chest, a head-down, visor-up
     flourish as it starts and bigger hand gestures while he talks. Greet him "what's up my homie"
     and he talks in African American Vernacular English for ten minutes.
-  - **Accents.** Ask for British, French, Italian, German, Spanish, Russian, Scandinavian, Japanese,
-    Chinese, Nigerian or Indian, or a pirate, and he speaks English the way someone from there (or
-    a sea dog) does, for ten minutes. "Say that like a German" gets a single line in it, and now and
+  - **Accents and characters.** Ask for British, French, Italian, German, Spanish, Russian,
+    Scandinavian, Japanese, Chinese, Nigerian, Indian, Arabic, Filipino, Vietnamese, Brazilian or
+    Dutch, or a pirate, and he speaks English the way someone from there (or a sea dog) does, for
+    ten minutes. "Talk like a DJ" gets hype DJ patter, only ever when asked. "Say that like a German" gets a single line in it, and now and
     then, at most every five minutes and never in a serious moment, he says one line in an accent
     on his own when the talk brings up a place.
   - One mode at a time: asking for another, or to talk some way he has no mode for ("like a
