@@ -22,7 +22,8 @@ it or reads its data.
   replies with one `gpt-6-luna` call per turn and speaks through ElevenLabs. Speech is
   leveled to V2's −20 LUFS target.
   - Audible speech is never cut off except by an explicit stop phrase ("stop",
-    "shut up", "be quiet", "whoa", repeated or wrapped as in "Oh, stop!").
+    "shut up", "be quiet", "whoa", repeated or wrapped as in "Oh, stop!"), or by "Hey Rex"
+    or "Hey DJ Rex" said over him (since October 25), which cuts his line so you can talk.
   - "Be quiet", "quiet", "shut up" and "hush" also keep him from starting talk or
     movement on his own until someone invites him to talk again; "stop" pauses that for
     two minutes.

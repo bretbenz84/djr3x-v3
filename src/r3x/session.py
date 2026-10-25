@@ -46,6 +46,7 @@ QUIET_COMMANDS = frozenset({"shut up","stop talking","be quiet","quiet","hush"})
 # conversation it is ordinary speech. Syntax only, like the stop words.
 COLLISION_WARNINGS = ("going to hit", "gonna hit", "about to hit")
 STOPPED_LINE = "Stopped."   # Said when a spoken stop halts a drive (not for quiet phrases or shutdown).
+WAKE_HOLD_SECONDS = 10.    # After "Hey Rex" cuts him off, his own beats wait this long for them to speak.
 # Shutdown waits at most this long for the conversation lock, then goes ahead without it.
 SHUTDOWN_LOCK_SECONDS = .5
 LULL_FRESH_TOPIC_SECONDS = 45.   # Nobody has spoken this long: Rex's next goal opens something new.
@@ -213,6 +214,7 @@ class Session:
         self._planning_thread = None
         self._planning_cancel = Cancellation()
         self._last_cancel = None   # (reason, quiet) of the latest stop, read when a drive is cut off.
+        self._woken = None         # The reply a wake word cut off, until its history is written.
 
     def planning_active(self) -> bool:
         return self._planning_thread is not None and self._planning_thread.is_alive()
@@ -674,6 +676,22 @@ class Session:
         self.trace.emit("cancel", revision=self.revision)
         if quiet and self.state and self.state.initiative.quiet:
             self.trace.emit('initiative_quiet', source='stop_phrase')
+
+    def interrupt_speech(self, word) -> bool:
+        """Cut what he is saying so the person can talk over him (owner, October 25: "Hey Rex" or
+        "Hey DJ Rex"). Not a stop: no quiet, his goals and questions stand, nothing heard is set
+        aside. The reply's own cancellation ends its audio within one playback callback and its
+        unsaid phrases with it; a drive the reply started would end too, so the runtime never
+        calls this while the wheels run. Takes no lock: it is called from the listening loop."""
+        cancel = self._cancel
+        speaking = getattr(self.output, 'echo_risk', None)
+        if cancel is None or cancel.event.is_set() or not (speaking and speaking()):
+            return False
+        self._woken = cancel
+        cancel.event.set()
+        self.proactive_hold_until = max(self.proactive_hold_until, self.trace.clock() + WAKE_HOLD_SECONDS)
+        self.trace.emit('speech_interrupted', word=word)
+        return True
 
     def _change_initiative(self, call, snapshot, context, turn_id, cancel, went_silent):
         """Apply stop_chiming_in/resume_chiming_in now; the snapshot that answers the rest of the turn."""
@@ -2659,6 +2677,11 @@ class Session:
                 if delivery.status not in {"completed","suppressed"}:
                     self.history.append({"role": "developer", "content":
                         "The last reply was interrupted or failed. Only completed phrases above are known delivered; any partial phrase is unknown."})
+                if self._woken is cancel:
+                    self._woken = None
+                    self.history.append({"role": "developer", "content":
+                        "They said \"Hey Rex\" over you and you stopped mid-line to listen. Answer what they say next; "
+                        "do not finish or repeat the cut-off line unless they ask for it."})
             if self.state and state_started and not self.state.frozen and not self.state.forgotten:
                 try:
                     from .conversation_memory import record

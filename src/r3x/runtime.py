@@ -42,6 +42,11 @@ STOP_PEEK_SILENCE = .2         # Pause after a short burst before it is checked 
 STOP_PEEK_MAX_VOICED = 1.5     # Longer speech is a sentence, not a stop: normal endpointing.
 # His own line said a stop word this recently: a stop-word detection may be his voice heard back.
 STOP_WORD_OWN_SECONDS = 1.5
+# After "Hey Rex" cuts his line (owner, October 25), sound from this long after the word is the
+# person's, for this long or until he speaks again; the cut itself takes one playback callback.
+WAKE_CUT_SECONDS = .1
+WAKE_LISTEN_SECONDS = 3.
+WAKE_SPEAKING_AGAIN_SECONDS = .5   # Playing after this long is a new line of his.
 # While the wheels run the board turns everything down (October 25: the processed channel's quietest
 # tenth of moving seconds was -55 to -65 dBFS, a still room -47 to -52), and a "stop" from across the
 # room rarely lifts the speech detector to its usual .5. A sound this likely to be speech is taken.
@@ -59,11 +64,12 @@ SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish
 WAITING_TURNS = 8   # Transcripts kept while the conversation is busy (a long drive), beyond the queue.
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None, stop_word=None):
+    def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None, keywords=None):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
-        self.stop_word = stop_word   # adapters.stop_word.StopSpotter, fed only while the wheels run.
-        self._spotting = None        # When the current drive's listening began, or None.
+        self.keywords = keywords     # adapters.keywords.KeywordSpotter, fed every frame.
+        self._spotting = None        # When the current drive's stop listening began, or None.
         self._spot_peak = 0.
+        self._wake_at = None         # When a wake word last cut his line: later sound is the person's.
         self.endpoint = Endpoint(session.session_id, silence)
         self.perception, self.recorder = perception, recorder
         self.captures = Queue(maxsize=2)
@@ -195,37 +201,57 @@ class VoiceRuntime:
                             after_speech_seconds=round(self.trace.clock() - burst.speech_ended_at, 3))
         threading.Thread(target=run, name='r3x-stop-peek', daemon=True).start()
 
-    def _listen_for_stop(self, frame):
-        """While the wheels run, the stop word is listened for in the sound itself, beside the
-        speech detector and recognizer (adapters/stop_word.py). His own line saying a stop word
-        never stops him; sentry mode decides for itself."""
-        if self.drive is None or not self.drive.moving.is_set():
-            if self._spotting is not None:
-                # Evidence for the next live check: how close anything came while he rolled.
-                self.trace.emit('stop_word_listened', seconds=round(frame.ended_at - self._spotting, 2),
-                                peak_score=round(self._spot_peak, 3))
-                self.stop_word.reset()
-                self._spotting = None
-            return
-        if self._spotting is None:
-            self._spotting, self._spot_peak = frame.started_at, 0.
+    def _listen_for_keywords(self, frame):
+        """Spoken keywords heard in the sound itself (adapters/keywords.py), beside the speech
+        detector and recognizer. "Stop" halts the wheels while they run. "Hey Rex" or "Hey DJ Rex"
+        said over him cuts his line so the person can talk (owner, October 25); while the wheels
+        run it waits, since only a stop or a warning halts a drive. His own line saying the word
+        never counts; sentry mode decides for itself."""
+        from .adapters.keywords import WAKE_WORDS
         try:
-            score = self.stop_word.feed(frame.pcm)
+            fired = self.keywords.feed(frame.pcm)
         except Exception as exc:
-            self.trace.emit('stop_word_failed', error_type=type(exc).__name__)
-            self.stop_word = None
+            self.trace.emit('keywords_failed', error_type=type(exc).__name__)
+            self.keywords = None
             return
-        self._spot_peak = max(self._spot_peak, getattr(self.stop_word, 'last_score', None) or 0.)
-        if score is None or self.guarding() or self.stop.is_set():
+        moving = self.drive is not None and self.drive.moving.is_set()
+        if moving:
+            if self._spotting is None:
+                self._spotting, self._spot_peak = frame.started_at, 0.
+            self._spot_peak = max(self._spot_peak, (getattr(self.keywords, 'last_scores', None) or {}).get('stop', 0.))
+        elif self._spotting is not None:
+            # Evidence for the next live check: how close a stop came while he rolled.
+            self.trace.emit('stop_word_listened', seconds=round(frame.ended_at - self._spotting, 2),
+                            peak_score=round(self._spot_peak, 3))
+            self._spotting = None
+        if not fired or self.guarding() or self.stop.is_set():
             return
         said_between = getattr(self.session.output, 'said_between', None)
-        own = said_between(frame.ended_at - STOP_WORD_OWN_SECONDS, frame.ended_at) if said_between else ''
-        if re.search(r"\bstop", (own or '').lower()):   # "Stopped.", "I'll stop at the door."
-            self.trace.emit('stop_word_heard', status='his_own_line', score=round(score, 3))
-            return
-        self.drive.cancel()   # Wheels first; the conversation's own stop follows.
-        self.cancel()
-        self.trace.emit('stop_word_heard', status='halted', score=round(score, 3), echo_risk=frame.echo_risk)
+        own = (said_between(frame.ended_at - STOP_WORD_OWN_SECONDS, frame.ended_at) if said_between else '') or ''
+        if 'stop' in fired and moving:
+            if re.search(r"\bstop", own.lower()):   # "Stopped.", "I'll stop at the door."
+                self.trace.emit('stop_word_heard', status='his_own_line', score=round(fired['stop'], 3))
+            else:
+                self.drive.cancel()   # Wheels first; the conversation's own stop follows.
+                self.cancel()
+                self.trace.emit('stop_word_heard', status='halted', score=round(fired['stop'], 3),
+                                echo_risk=frame.echo_risk)
+                return
+        wake = next((w for w in fired if w in WAKE_WORDS), None)
+        echo_risk = getattr(self.session.output, 'echo_risk', None)
+        if wake is None or not (echo_risk and echo_risk()):
+            return   # Not over his voice: the words become an ordinary turn.
+        status = ('driving' if moving else 'his_own_line' if re.search(r"\brex\b", own.lower()) else
+                  'interrupted' if self.session.interrupt_speech(wake) else 'nothing_to_interrupt')
+        self.trace.emit('wake_word_heard', word=wake, status=status, score=round(fired[wake], 3))
+        if status == 'interrupted':
+            self._wake_at = frame.ended_at   # What follows is theirs, not his echo.
+            self.session.note_speech(frame.ended_at)
+            if self.robot:
+                try:
+                    self.robot.heard()   # Show he is listening.
+                except Exception as exc:
+                    self.trace.emit('listening_cue_skipped', reason='failed:' + type(exc).__name__)
 
     def flush_turns(self):
         """Move waiting transcripts into the conversation queue, in order, as room appears."""
@@ -683,6 +709,16 @@ class VoiceRuntime:
                 frame = self.mic.read()
                 if frame is None:
                     continue
+                if self._wake_at is not None:
+                    # A wake word cut his line: past the moment the sound stops, what is heard is the
+                    # person's, not his echo, until he starts another line.
+                    output = self.session.output
+                    if (frame.started_at - self._wake_at > WAKE_LISTEN_SECONDS or
+                            (getattr(output, 'active', None) is not None and output.active.is_set()
+                             and frame.started_at > self._wake_at + WAKE_SPEAKING_AGAIN_SECONDS)):
+                        self._wake_at = None
+                    elif frame.echo_risk and frame.started_at >= self._wake_at + WAKE_CUT_SECONDS:
+                        frame = replace(frame, echo_risk=False)
                 # ADC timestamps can run slightly ahead of monotonic time after
                 # the audio device changes streams. Liveness cannot be newer than
                 # receipt; preserve original frame times for capture/attribution.
@@ -724,8 +760,8 @@ class VoiceRuntime:
                 if (not speech and not frame.echo_risk and self.drive is not None and self.drive.moving.is_set()
                         and (getattr(self.vad, 'last_probability', None) or 0.) >= DRIVE_SPEECH_PROBABILITY):
                     speech = True
-                if self.stop_word is not None:
-                    self._listen_for_stop(frame)
+                if self.keywords is not None:
+                    self._listen_for_keywords(frame)
                 seconds = frame.ended_at - frame.started_at
                 run = run + seconds if speech else 0.
                 while recent and frame.ended_at - recent[0][0] > 1.:

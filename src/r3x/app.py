@@ -83,11 +83,12 @@ class App:
             if camera:
                 from .adapters.hosted import OpenAIVisualLocator
                 locator = OpenAIVisualLocator(secrets.openai_api_key)
-        stop_word = None
-        if self.drive is not None and (self.paths.root / 'models/wake/stop.onnx').is_file():
-            # The owner's stop word (October 25), listened for only while the wheels run.
-            from .adapters.stop_word import StopSpotter
-            stop_word = StopSpotter(self.paths.root / 'models/wake')
+        from .adapters.keywords import WORDS
+        keywords = None
+        if any((self.paths.root / 'models/wake' / (w + '.onnx')).is_file() for w in WORDS):
+            # The owner's keywords (October 25): "stop" while the wheels run, "Hey Rex" over his voice.
+            from .adapters.keywords import KeywordSpotter
+            keywords = KeywordSpotter(self.paths.root / 'models/wake')
         if self.settings.impersonation_enabled:
             from .adapters.breeze import VoiceCloner
             self.cloner = VoiceCloner(self.paths.root / 'models/breeze-tts-8bit', level=PCMLeveler)
@@ -95,7 +96,7 @@ class App:
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner,stop_word) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner,keywords) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -303,7 +304,7 @@ class App:
                 scene = scene if 'scene_observations' in active else None
                 objects = objects if 'objects' in active else None
                 places = places if 'places' in active else None
-                stop_word = next((p for p in optional if p.capability.name=='stop_word' and 'stop_word' in active),None)
+                keywords = next((p for p in optional if p.capability.name=='spoken_keywords' and 'spoken_keywords' in active),None)
                 output.inspection = inspection if 'current_view' in active else None
                 self.startup_audio.stop()   # Cut the filler; readiness never waits for it.
                 # The ready line gets the usual talking motion and speaking lights.
@@ -414,7 +415,7 @@ class App:
                 recorder = CaptureRecorder(self.paths.root / "recordings",session_id) if self.settings.record_evaluation else None
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
                                        lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot,
-                                       drive=output.drive,stop_word=stop_word if output.drive else None)
+                                       drive=output.drive,keywords=keywords)
                 if camera:
                     # Sentry mode (owner, October 22) needs the camera: faces trip and stand it down.
                     from .push import Push, valid_topic

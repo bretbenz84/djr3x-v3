@@ -1365,7 +1365,7 @@ this run (6 of 60 in an earlier one), never on 248 other utterances or 939 s of 
 - **An unconfident lone "Whoa" does not halt** (`stop_peek` status `unsure_whoa`); a confident
   one, or "stop" at any confidence, still does.
 - **The owner's stop word is listened for in the sound itself** while the wheels run
-  (`adapters/stop_word.py`, `StopSpotter`: .7 for two running 80 ms frames, his own recent line
+  (`adapters/keywords.py`, `KeywordSpotter`: .7 for two running 80 ms frames, his own recent line
   containing "stop" set aside, models checked against the wake manifest, `openwakeword` from
   `requirements-robot.txt`, about 1.6 ms per 80 ms frame). Each drive logs its peak score
   (`stop_word_listened`), a halt `stop_word_heard`.
@@ -1376,3 +1376,24 @@ clean voice, but cannot reproduce the board turning a voice down. **Not yet run 
 The live test still owed: the wheels running, someone saying "stop" at measured distances, with
 the board's channel 0 and its second channel recorded, to learn whether the board suppresses the
 voice and whether the second channel keeps it.
+
+## October 25: "Hey Rex" over his voice
+
+Owner: "He should normally discard speech spoken while he speaks, but... "Hey DJ Rex" or "Hey
+rex" should interrupt his speech to let me start speaking over him." V2's `Hey_DJ_Rex.onnx` and
+`Hey_rex.onnx` (byte-identical to V2 `assets/models/wake_word`, HEAD 95f2403) run in the same
+openWakeWord model as `stop.onnx`, on every frame (all three about 0.6 ms per 32 ms frame), at .5 for
+two running frames. While he speaks and the wheels are still, a wake word cuts his line through the
+reply's own cancellation (one playback callback; `Session.interrupt_speech`): no two-minute quiet,
+goals, questions and the wheels untouched, his own beats held 10 s, a listening cue, and a note in
+the history that he was cut off to listen. Sound from 0.1 s after the word is the person's, not his
+echo, for up to 3 s or until he speaks again, so words said straight after "Hey Rex" are heard.
+While the wheels run it only logs `wake_word_heard` (`driving`): a drive shares the reply's
+cancellation, and only a stop or a warning halts the wheels. His own line containing "Rex" in the
+last 1.5 s never counts. Said when he is not talking, the words are an ordinary turn.
+
+The "Hey Rex" model scored .89-1.00 on all seven of the owner's saved calls and caught 21 of 28 when
+mixed over his voice as the board hears it; it never fired on 80 saved captures of his voice or his
+cached lines (once on "Rex, let's talk about..."). No "Hey DJ Rex" was ever recorded, so that one is
+untried on the owner. Checks: `tests/test_keywords.py` (synthetic). **Not yet run on the robot.**
+

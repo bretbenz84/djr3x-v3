@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 
 from r3x.adapters.asr import QwenASR
-from r3x.adapters.stop_word import FRAMES, THRESHOLD, StopSpotter
+from r3x.adapters.keywords import WORDS, KeywordSpotter
 from r3x.contracts import Cancellation, Capture
 from r3x.runtime import DRIVE_SPEECH_PROBABILITY
 from r3x.session import is_stop_command, stop_heard_over
@@ -79,7 +79,7 @@ def main():
     vad = load_silero_vad()
     settings = Settings.load(ROOT / 'local/settings.toml')
     asr = QwenASR(ROOT / 'local/models/qwen3-asr', settings.asr_trust_logprob); asr.start()
-    spotter = StopSpotter(ROOT / 'local/models/wake'); spotter.start()
+    spotter = KeywordSpotter(ROOT / 'local/models/wake', {'stop': WORDS['stop']}); spotter.start()
 
     def detector(audio):
         vad.reset_states(); out = []
@@ -93,7 +93,7 @@ def main():
         spotter.reset(); pcm = (np.clip(audio, -1, 1) * 32767).astype('<i2').tobytes(); fired = False
         for i in range(0, len(pcm), 2 * 1280):
             began = time.perf_counter()
-            fired = spotter.feed(pcm[i:i + 2 * 1280]) is not None or fired
+            fired = 'stop' in spotter.feed(pcm[i:i + 2 * 1280]) or fired
             timings.append(time.perf_counter() - began)
         return fired
 
@@ -113,7 +113,7 @@ def main():
     arms = {
         'before October 25 (detector .5, recognizer)': lambda j: j['detector'] >= settings.vad_threshold and j['word'],
         'detector %.2f while driving, recognizer, no unsure Whoa' % DRIVE_SPEECH_PROBABILITY: heard,
-        'stop.onnx alone (%.2f x%d)' % (THRESHOLD, FRAMES): lambda j: j['spotter'],
+        'stop.onnx alone (%.2f x%d)' % WORDS['stop']: lambda j: j['spotter'],
         'all, as now': lambda j: heard(j) or j['spotter'],
     }
     rows = saved_audio()

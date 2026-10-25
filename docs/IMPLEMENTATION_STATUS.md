@@ -43,10 +43,20 @@ now counts (.3), an unconfident lone "Whoa" no longer halts, and the owner's `st
 sound itself. On saved September robot audio stops heard rose only from 28 to 29 of 60 and false halts
 fell from 3 to 1; whether the board suppresses the voice needs a live recorded test
 ([drive base](DRIVE_BASE_INTEGRATION.md#october-25-stops-still-missed-while-rolling)); 1584 blocked-I/O
-checks pass (5 skipped), 11 new in `tests/test_stop_word.py`. Not repaired: three
+checks pass (5 skipped), 11 new in `tests/test_keywords.py`. Not repaired: three
 of Rex's own beats changed the subject to houseplants, pizza and mugs right after a painful story ("Why
 did you just talk about mugs?"). A name-only "Jennifer" record from the mistaken introduction remains in
 the database for the owner to remove.
+
+## "Hey Rex" over his voice — October 25
+
+Owner: "Hey DJ Rex" or "Hey Rex" should interrupt his speech so he can talk over him. V2's two wake-word
+models run beside `stop.onnx` on every frame; while Rex speaks and the wheels are still, either one cuts his
+line within one playback callback, holds his own beats 10 s and leaves goals, questions and the wheels
+alone; what follows is heard as the person's words, not echo. While driving it waits (only stop or a
+warning halts a drive). Real models on saved audio: "Hey Rex" .89-1.00 on all seven saved calls, never on
+his own voice; "Hey DJ Rex" was never recorded. 1587 blocked-I/O checks pass (5 skipped). **Not yet run on
+the robot** ([drive base](DRIVE_BASE_INTEGRATION.md#october-25-hey-rex-over-his-voice)).
 
 ## October 24 run: the introduced guest still went unlearned
 
