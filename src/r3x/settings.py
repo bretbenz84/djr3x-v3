@@ -118,7 +118,6 @@ class Settings:
 class Secrets:
     openai_api_key: str = field(default="", repr=False)
     elevenlabs_api_key: str = field(default="", repr=False)
-    elevenlabs_voice_id: str = field(default="", repr=False)
     # Sentry mode's phone alerts (owner, October 22): the private ntfy topic name. Optional.
     ntfy_topic: str = field(default="", repr=False)
 

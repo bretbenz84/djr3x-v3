@@ -216,9 +216,9 @@ python3.11 -m venv .venv
 /Users/bbenziger/djr3x-v2/venv/bin/python -I tools/export_place_model.py --cache /Users/bbenziger/djr3x-v2/assets/models/mobileclip --out local/models/places/mobileclip-s2.onnx
 ```
 
-Credentials and the Rex voice live in ignored `local/secrets.toml`
-(`OPENAI_API_KEY`, `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` environment variables
-override them). Startup verifies model digests and never substitutes or downloads
+Credentials live in ignored `local/secrets.toml` (`OPENAI_API_KEY` and `ELEVENLABS_API_KEY`
+environment variables override them). Rex's ElevenLabs voices, his own and each speaking mode's, are
+in `src/r3x/voice_modes.py`. Startup verifies model digests and never substitutes or downloads
 models on its own.
 
 ## Data rules

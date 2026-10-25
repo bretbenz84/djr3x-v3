@@ -41,14 +41,9 @@ def main():
             parts = shlex.split(value, comments=True)
             values[key.strip()] = " ".join(parts)
     keys = literals(source / "apikeys.py", {"OPENAI_API_KEY", "ELEVENLABS_API_KEY"})
-    voice = literals(source / "config.py", {"ELEVENLABS_VOICE_ID"})
-    # A local voice override, if present, takes precedence; only this literal is read.
-    if (source / "user_config.py").is_file():
-        voice.update(literals(source / "user_config.py", {"ELEVENLABS_VOICE_ID"}))
-    keys.update(voice)
-    if not all(isinstance(keys.get(k), str) and keys[k] for k in
-               ("OPENAI_API_KEY", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID")):
-        raise SystemExit("Required literal credentials/voice selection unavailable")
+    # Rex's voice is in the repository (r3x.voice_modes.REX_VOICE, October 25), not imported.
+    if not all(isinstance(keys.get(k), str) and keys[k] for k in ("OPENAI_API_KEY", "ELEVENLABS_API_KEY")):
+        raise SystemExit("Required literal credentials unavailable")
     settings = {"profile": "dev-mac"}
     if values.get("AUDIO_DEVICE_NAME"):
         settings["input_device_name"] = values["AUDIO_DEVICE_NAME"]

@@ -254,17 +254,38 @@ class VoiceTests(unittest.TestCase):
         self.assertIn('/french-voice/', tts.client.calls[0][0][1])
         self.assertIn('/aave-voice/', self.speak(tts))                           # Then back to the mode on.
 
+    def test_russian_and_italian_speak_on_eleven_v3_and_everyone_else_on_his_model(self):
+        # Owner, October 25: those two voices sound British on v4 and right only on v3.
+        from r3x.voice_modes import MODELS, REX_VOICE
+        tts = ElevenLabsTTS('key', REX_VOICE, VOICES, MODELS)
+        def model(mode=None):
+            tts.client = Client(Response(chunks=[b'\x00\x01' * 64]))
+            list(tts.synthesize('Line.', Cancellation(), mode=mode))
+            return tts.client.calls[0][1]['json']['model_id']
+        self.assertEqual((model(), model('french')), ('eleven_v4_turbo', 'eleven_v4_turbo'))
+        self.assertEqual((model('russian'), model('italian')), ('eleven_v3', 'eleven_v3'))
+        tts.modes = lambda: ('italian',)
+        self.assertEqual(model(), 'eleven_v3')                                  # The mode on, too.
+        self.assertIn('/' + VOICES['italian'] + '/', tts.client.calls[0][0][1])
+        tts.modes = lambda: ()
+        self.assertEqual(model(), 'eleven_v4_turbo')
+        self.assertIn('/' + REX_VOICE + '/', tts.client.calls[0][0][1])
+
     def test_every_mode_has_its_own_voice_in_the_repository(self):
         # Owner, October 25: the voices live in the code, not in local secrets.
         import re
         self.assertEqual(set(VOICES), set(MODES))
         self.assertTrue(all(re.fullmatch(r'[A-Za-z0-9]{20}', v) for v in VOICES.values()))
         self.assertEqual(len(set(VOICES.values())), len(VOICES))           # No two modes share a voice.
+        from r3x.voice_modes import REX_VOICE
+        self.assertRegex(REX_VOICE, r'^[A-Za-z0-9]{20}$')
+        self.assertNotIn(REX_VOICE, VOICES.values())
         with tempfile.TemporaryDirectory() as root:
             root = Path(root).resolve()
-            (root / 'secrets.toml').write_text('[mode_voices]\npride = "x"\n')
-            with self.assertRaises(ValueError):                              # The old local table is refused.
-                Secrets.load(root)
+            for old in ('[mode_voices]\npride = "x"\n', 'elevenlabs_voice_id = "x"\n'):   # Old local entries are refused.
+                (root / 'secrets.toml').write_text(old)
+                with self.assertRaises(ValueError):
+                    Secrets.load(root)
 
 
 class SessionTests(MemoryFixture):

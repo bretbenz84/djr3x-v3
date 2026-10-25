@@ -1237,29 +1237,37 @@ class OpenAIBrain(HTTPProvider):
 class ElevenLabsTTS(HTTPProvider):
     sample_rate = 22050
 
-    def __init__(self, key: str, voice_id: str, mode_voices=None):
+    def __init__(self, key: str, voice_id: str, mode_voices=None, mode_models=None):
         super().__init__()
         self.key, self.voice_id = key, voice_id
         # Owner, October 25: each speaking mode (pride, AAVE, the accents) has a voice of its own, by
-        # mode. Empty or absent: Rex's own voice.
+        # mode, and a mode may need another speech model (Russian: eleven_v3). Absent: Rex's own.
         self.mode_voices = {mode: voice for mode, voice in (mode_voices or {}).items() if voice}
+        self.mode_models = dict(mode_models or {})
         self.modes = lambda: ()   # The mode on now; live composition reads the state owner.
         self._active = None
         self.level = None   # (sample_rate, text) -> PCM leveler; live composition supplies V2's.
         self.capability = Capability("tts", "ElevenLabs", "Rex speech synthesis",
                                      "eleven_v4_turbo", ("httpx",), ("network",))
 
-    def current_voice(self, mode: str | None = None) -> str:
-        """The line's own mode (an accent line), else the mode on now, each when it has a voice, else Rex's."""
+    def speaking_mode(self, mode: str | None = None) -> str | None:
+        """Whose voice says this line: its own mode (an accent line), else the mode on now; None for Rex."""
         modes = (mode,) if mode else tuple(self.modes())
-        return next((self.mode_voices[m] for m in modes if m in self.mode_voices), self.voice_id)
+        return next((m for m in modes if m in self.mode_voices), None)
+
+    def current_voice(self, mode: str | None = None) -> str:
+        speaking = self.speaking_mode(mode)
+        return self.mode_voices[speaking] if speaking else self.voice_id
+
+    def current_model(self, mode: str | None = None) -> str:
+        return self.mode_models.get(self.speaking_mode(mode), self.capability.model)
 
     def synthesize(self, text: str, cancel: Cancellation, mode: str | None = None):
         if self.client is None:
             raise ProviderFailure("TTSNotStarted")
         cancel.check()
         url = "https://api.elevenlabs.io/v1/text-to-speech/" + quote(self.current_voice(mode), safe="") + "/stream"
-        payload = {"text": text, "model_id": self.capability.model,
+        payload = {"text": text, "model_id": self.current_model(mode),
                    "voice_settings": {"stability": 0.5}, "seed": 1440639067}
         # V2's chosen v3 policy, kept for v4 Turbo (October 16): no previous_text, fixed natural stability/seed.
         deadline = time.monotonic() + 30

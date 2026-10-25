@@ -91,9 +91,9 @@ LINE_MODES = (*ACCENTS, 'pirate', 'dj')   # What a single line can be said in.
 OWN_LINE_MODES = (*ACCENTS, 'pirate')    # ...and what one of his own can be (never the DJ).
 MODES = ('pride', 'aave', *LINE_MODES)
 
-# The ElevenLabs voice each mode speaks in, all rendered on Rex's own speech model (owner, October 25:
-# kept in the repository, not in local secrets). The first Russian and Italian remixes sounded British
-# on eleven_v4_turbo and were replaced.
+# Every ElevenLabs voice Rex speaks in is kept in the repository, not in local secrets (owner, October 25).
+REX_VOICE = 'no5jvDWvnx2leN3dFOS7'   # His own.
+# Each mode's voice. The first Russian and Italian remixes sounded British on eleven_v4_turbo and were replaced.
 VOICES = {
     'pride': 'eF2drgAKWTMOimiAF03u',
     'aave': 'nAOLYO4G1xEgd4nzgU5J',
@@ -118,6 +118,10 @@ VOICES = {
     'pirate': 'k7Hlaw47rGJtmFyJGXPK',
     'dj': '4IsdjOhE4SIxzyzFVxKH',
 }
+# Voices that need another speech model than Rex's own. Owner, October 25: in ElevenLabs' web interface
+# the Russian voice sounds Russian only on Eleven v3, on v4 completely British; Italian too. v3 began
+# speaking about 0.6 s later in a test (0.84 s against 0.25 s).
+MODELS = {'russian': 'eleven_v3', 'italian': 'eleven_v3'}
 
 
 class VoiceModes:

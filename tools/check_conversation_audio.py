@@ -12,6 +12,7 @@ from uuid import uuid4
 from r3x.adapters.asr import QwenASR
 from r3x.adapters.audio import SileroVAD
 from r3x.adapters.hosted import ElevenLabsTTS,OpenAIBrain
+from r3x.voice_modes import REX_VOICE
 from r3x.adapters.voice import CAMPlus,NAMESPACE
 from r3x.contracts import Cancellation
 from r3x.dataset import segment,write_wav
@@ -36,7 +37,7 @@ def main():
     vad=SileroVAD(.5)
     encoder=CAMPlus(root.root/"models/campplus.onnx")
     brain=OpenAIBrain(secrets.openai_api_key)
-    tts=ElevenLabsTTS(secrets.elevenlabs_api_key,secrets.elevenlabs_voice_id)
+    tts=ElevenLabsTTS(secrets.elevenlabs_api_key,REX_VOICE)
     owner=ProviderOwner((asr,vad,encoder,brain,tts))
     trace=Trace("synthetic-conversation",folder/"session.jsonl")
     memory=Memory(folder/"synthetic.sqlite3")

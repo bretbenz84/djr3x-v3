@@ -14,6 +14,7 @@ import wave
 
 from r3x.adapters.asr import QwenASR
 from r3x.adapters.hosted import ElevenLabsTTS, OpenAIBrain
+from r3x.voice_modes import REX_VOICE
 from r3x.contracts import Cancellation, Capture, Snapshot
 from r3x.providers import ProviderOwner
 from r3x.settings import ScratchPaths, Secrets
@@ -35,7 +36,7 @@ def main():
     secrets = Secrets.load(root.root)
     asr = QwenASR(root.root / "models/qwen3-asr", -.35)
     brain = OpenAIBrain(secrets.openai_api_key)
-    tts = ElevenLabsTTS(secrets.elevenlabs_api_key, secrets.elevenlabs_voice_id)
+    tts = ElevenLabsTTS(secrets.elevenlabs_api_key, REX_VOICE)
     owner = ProviderOwner((asr, brain, tts))
     evidence = {"evidence": "real providers on synthetic saved audio", "live_hardware": False,
                 "started": time.time(), "models": [p.capability.model for p in owner.providers]}

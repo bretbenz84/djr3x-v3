@@ -35,8 +35,8 @@ class App:
         agency_planner = OpenAIAgencyPlanner(secrets.openai_api_key,self.settings.agency_planner_model)
         joke_writer = (OpenAIJokeWriter(secrets.openai_api_key,self.settings.agency_planner_model)
                        if self.settings.joke_writer_enabled else None)
-        from .voice_modes import VOICES
-        tts = ElevenLabsTTS(secrets.elevenlabs_api_key, secrets.elevenlabs_voice_id, VOICES)
+        from .voice_modes import MODELS, REX_VOICE, VOICES
+        tts = ElevenLabsTTS(secrets.elevenlabs_api_key, REX_VOICE, VOICES, MODELS)
         from .speech_level import PCMLeveler
         tts.level = PCMLeveler   # V2 per-phrase loudness leveling (numpy/scipy load on first speech).
         sink = AudioSink(self.settings.output_device_name)

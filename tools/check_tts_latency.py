@@ -17,6 +17,7 @@ from uuid import uuid4
 import wave
 
 from r3x.adapters.hosted import ElevenLabsTTS
+from r3x.voice_modes import REX_VOICE
 from r3x.contracts import Cancellation, ProviderFailure
 from r3x.settings import ScratchPaths, Secrets
 
@@ -56,13 +57,13 @@ def main():
     root = ScratchPaths.for_project(Path(__file__).resolve().parents[1])
     root.prepare()
     secrets = Secrets.load(root.root)
-    if not (secrets.elevenlabs_api_key and secrets.elevenlabs_voice_id):
+    if not secrets.elevenlabs_api_key:
         raise SystemExit("ElevenLabs key and voice ID are required (local/secrets.toml or environment).")
     folder = root.root / "validation" / ("tts-latency-" + uuid4().hex[:12])
     folder.mkdir(parents=True)
     providers = {}
     for model in MODELS:
-        tts = ElevenLabsTTS(secrets.elevenlabs_api_key, secrets.elevenlabs_voice_id)
+        tts = ElevenLabsTTS(secrets.elevenlabs_api_key, REX_VOICE)
         tts.capability = replace(tts.capability, model=model)
         tts.start()
         providers[model] = tts
