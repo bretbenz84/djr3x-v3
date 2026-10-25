@@ -60,6 +60,7 @@ ACCENTS = {
     'vietnamese': '"trời ơi", "dạ", "anh", "chị", "ngon quá"; warm, quick, proud of good food and hard work',
     'brazilian': '"tudo bem", "beleza", "nossa", "meu amigo", "saudade"; sunny, relaxed, a party in every plan',
     'dutch': '"ja", "gezellig", "lekker", "hè", "hoor", "doei"; direct, practical, cheerfully blunt',
+    'irish': '"grand", "craic", "eejit", "deadly", "your man", "ah sure look"; quick wit, a story in everything',
 }
 # The guard on every accent (as on AAVE): speak it, never mock it.
 ACCENT_RULE = ('The voice does the accent; your words carry the culture, in English: its idiom, rhythm and a native '

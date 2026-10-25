@@ -54,7 +54,7 @@ Owner requests: port V2's pride mode ("queeny mode") and its African American Ve
 ("homie mode"), each in its own ElevenLabs voice; then eleven accents (British, French, Italian, German,
 Spanish, Russian, Scandinavian, Japanese, Chinese, Nigerian, Indian) and a pirate, each in its own voice,
 in English and culturally fitting, and now and then a single line in one when the talk suggests it;
-then Arabic, Filipino, Vietnamese, Brazilian Portuguese and Dutch accents and a DJ.
+then Arabic, Filipino, Vietnamese, Brazilian Portuguese and Dutch accents and a DJ; then Irish.
 
 - Asked about his own sexuality ("are you gay?", "do you like men?"), Rex says a proud yes and goes full
   camp ("sis", "yasss", tea and drama) for ten minutes. Greeted "what's up my homie", he answers in AAVE
@@ -88,7 +88,7 @@ Evidence:
 - 24 synthetic checks in `tests/test_voice_modes.py` (1612 blocked-I/O checks pass, 5 skipped): state, request, voice choice, one-line lines on
   replies and lulls, the five-minute limit, the flourish through the output owner on a pulse port,
   talking lanes and clearance, the light lease.
-- One short line was synthesized in each of the twenty voices; all work with `eleven_v4_turbo`.
+- One short line was synthesized in each of the twenty-one voices; all work with `eleven_v4_turbo`.
 - `tools/check_voice_modes.py --live` (paid, fictional input, seven full runs and five short ones).
   Wording repairs on the way:
   - The first wording made him repeat its example lines ("Yasss, sis! Gay and fabulous, obviously."
