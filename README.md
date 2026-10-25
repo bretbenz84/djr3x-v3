@@ -83,7 +83,7 @@ it or reads its data.
     and he talks in African American Vernacular English for ten minutes.
   - **Accents and characters.** Ask for British, French, Italian, German, Spanish, Russian,
     Scandinavian, Japanese, Chinese, Nigerian, Indian, Arabic, Filipino, Vietnamese, Brazilian,
-    Dutch or Irish, or a pirate, and he speaks English the way someone from there (or a sea dog) does, for
+    Dutch, Irish or Scottish, or a pirate, and he speaks English the way someone from there (or a sea dog) does, for
     ten minutes. "Talk like a DJ" gets hype DJ patter, only ever when asked. "Say that like a German" gets a single line in it, and now and
     then, at most every five minutes and never in a serious moment, he says one line in an accent
     on his own when the talk brings up a place.

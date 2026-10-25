@@ -189,7 +189,7 @@ class ModeClockTests(unittest.TestCase):
             modes.switch('cowboy', True, 0.)
 
     def test_every_accent_speaks_english_and_never_mocks(self):
-        self.assertEqual(len(ACCENTS), 17)
+        self.assertEqual(len(ACCENTS), 18)
         for accent in ACCENTS:
             note = directive({accent: {'minutes_left': 4}})
             self.assertIn(accent.upper() + ' ACCENT', note)
