@@ -92,9 +92,10 @@ Evidence:
 - The first Russian and Italian voices (remixes designed in ElevenLabs) sounded British on Rex's
   `eleven_v4_turbo`, though the log showed both modes switched on and their voices used. The owner
   replaced the two voices; the new ones still sounded British on v4 and right on Eleven v3 in
-  ElevenLabs' web interface, so those two modes now speak on `eleven_v3` (`MODELS` in
-  `voice_modes.py`; first audio 0.58-0.66 s against 0.20 s on v4 Turbo). Every other voice, Rex's
-  own included (now `REX_VOICE` in the repository, no longer in local secrets), stays on v4 Turbo.
+  ElevenLabs' web interface, so those two modes moved to `eleven_v3`, and then, at the owner's request,
+  every mode's voice (`MODELS` in `voice_modes.py`). All 22 render on v3: first audio median 0.76 s,
+  at most 0.94 s, against 0.20 s for Rex's own voice on v4 Turbo. Rex's own voice (now `REX_VOICE` in the repository, no longer in local secrets) stays on
+  v4 Turbo.
 - `tools/check_voice_modes.py --live` (paid, fictional input, seven full runs and five short ones).
   Wording repairs on the way:
   - The first wording made him repeat its example lines ("Yasss, sis! Gay and fabulous, obviously."

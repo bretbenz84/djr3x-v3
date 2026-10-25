@@ -118,10 +118,10 @@ VOICES = {
     'pirate': 'k7Hlaw47rGJtmFyJGXPK',
     'dj': '4IsdjOhE4SIxzyzFVxKH',
 }
-# Voices that need another speech model than Rex's own. Owner, October 25: in ElevenLabs' web interface
-# the Russian voice sounds Russian only on Eleven v3, on v4 completely British; Italian too. v3 began
-# speaking about 0.6 s later in a test (0.84 s against 0.25 s).
-MODELS = {'russian': 'eleven_v3', 'italian': 'eleven_v3'}
+# The speech model each mode's voice renders on; Rex's own stays on eleven_v4_turbo. Owner, October 25:
+# in ElevenLabs' web interface the Russian voice sounds Russian only on Eleven v3, on v4 completely
+# British, and Italian too; then every custom voice to v3. v3 starts speaking about 0.4-0.6 s later.
+MODELS = dict.fromkeys(MODES, 'eleven_v3')
 
 
 class VoiceModes:
