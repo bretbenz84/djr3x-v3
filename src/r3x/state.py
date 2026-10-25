@@ -727,10 +727,12 @@ class CoreState:
         speaker_person = self.store.person(attribution.speaker_id) if attribution.speaker_id else None
         from .face_attribution import public_face
         modes = self.voice_modes.context(self.trace.clock())
+        accent_line = self.voice_modes.line_allowed(self.trace.clock()) and not self.sentry.active
         return self.note_audience({"source_turn_id":turn_id,"state_revision":self.store.revision,
                 "current_utterance":transcript.text,"calendar_date":self.calendar_today().isoformat(),
                 "participation":self.initiative.context(self.trace.clock()),
                 **({"voice_mode":modes} if modes else {}),
+                **({"accent_line_allowed":True} if accent_line else {}),
                 "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
                 "speaker":{**asdict(attribution),"speaker_id":attribution.speaker_id,
                            "display_name":speaker_person["name"] if speaker_person else None,
@@ -792,9 +794,12 @@ class CoreState:
         offered = candidates(self.store,faces,self.calendar_today(),self.memory_cursor,now=self.wall_clock())
         if advance_memory_cursor: self.memory_cursor += len(offered)
         modes = self.voice_modes.context(self.trace.clock())
+        accent_line = (self.voice_modes.line_allowed(self.trace.clock()) and not self.sentry.active
+                       and event.kind in {'conversation_lull','ambient','reconsideration'})
         return self.note_audience({'observations':cues,'calendar_date':self.calendar_today().isoformat(),'memory_opportunities':offered,'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
                 'participation':self.initiative.context(self.trace.clock()),
                 **({'voice_mode':modes} if modes else {}),   # His own lines keep a mode's delivery too.
+                **({'accent_line_allowed':True} if accent_line else {}),
                 'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
                                'quiet_seconds':event.quiet_seconds,
                                'audience':'arrival_target' if event.kind=='visual_arrival' else
@@ -918,6 +923,12 @@ class CoreState:
                 data={'text':call.arguments['text'],'claim_id':candidate['claim_id'],'occasion':candidate['occasion']}
             elif call.name=='impersonate':
                 data=self._beat_impression(dict(call.arguments),context)
+            elif call.name=='voice_mode':
+                # His own turn: only a line of his own in an accent; switching a mode answers a person.
+                if call.arguments['switch']!='line' or call.arguments.get('requested', True) is not False:
+                    raise ValueError('VoiceModeNeedsAPersonsWords')
+                data=self._accent_line(call.arguments)
+                self.voice_modes.line_at=self.trace.clock()
             elif call.name=='remain_silent': data={'reason':call.arguments['reason']}
             elif call.name=='ask_face_question':
                 if call.arguments['face_track_id'] not in {f['track_id'] for f in context['faces']}:
@@ -1067,6 +1078,16 @@ class CoreState:
         if self.systems_status is None:
             raise ValueError('SystemsStatusUnavailable')
         return self.systems_status()
+
+    def _accent_line(self, args):
+        """One line in an accent's (or the pirate's) voice (owner, October 25): asked for, or now and then his own."""
+        from .voice_modes import LINE_MODES
+        if args['mode'] not in LINE_MODES:raise ValueError('LineIsForAnAccent')
+        if not (args.get('text') or '').strip():raise ValueError('AccentLineNeedsItsWords')
+        requested = args.get('requested', True) is not False   # Left out: asked for.
+        if not requested and not self.voice_modes.line_allowed(self.trace.clock()):
+            raise ValueError('AccentLineNotNow')
+        return {'mode':args['mode'],'switch':'line','requested':requested,'text':args['text']}
 
     def _source_allowed(self, args, name):
         turn_id,capture,transcript,observation,attribution = self.current
@@ -1336,6 +1357,8 @@ class CoreState:
             # A clearly heard person's question or greeting this turn; no sentry guard in a camp voice.
             self._source_allowed(args,name)
             if self.sentry.active:raise ValueError('SentryModeActive')
+            if args['switch'] == 'line':
+                return self._accent_line(args), False
             from .voice_modes import MODE_SECONDS
             on = args['switch'] == 'on'
             return {'mode':args['mode'],'switch':args['switch'],'source_turn_id':turn_id,
@@ -1804,7 +1827,10 @@ class CoreState:
         if name in {'retract_visual','revise_visual'}:
             self.agency.clear(name)
             self.initiative.invitations.invalidate(name,erase=True)
-        if name == 'voice_mode':
+        if name == 'voice_mode' and data['switch'] == 'line':
+            if not data['requested']:
+                self.voice_modes.line_at = self.trace.clock()
+        elif name == 'voice_mode':
             self.voice_modes.switch(data['mode'], data['switch']=='on', self.trace.clock())
         if name == 'sentry_mode':
             self.voice_modes.clear()   # He guards in his own voice and red lights.

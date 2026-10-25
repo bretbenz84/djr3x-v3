@@ -20,6 +20,7 @@ OTHER_PERSON = {"type":["string","null"],"description":"Another person this fact
 from .servo_poses import GESTURE_PRIMITIVES, JOINTS, POSE_COMMANDS
 from .leds import LIGHT_STEPS
 from .personal_history import SUMMARIES as HISTORY_SUMMARIES
+from .voice_modes import MODES as VOICE_MODES, accent_list
 
 TOOLS = (
     schema('set_robot_joints', 'Move and hold any of Rex\'s fourteen physical servos, through these joints, for an explicit human request. positions contains each joint, null to leave it alone or a percentage from 0 (calibrated minimum) to 100 (maximum). These are travel percentages, not degrees. neck: low left/high right (the pan; the owner calls the head_lift pole "the neck" when he means up/down); head_lift: low lowered/high raised, level is about 20 not 50; head_pitch: 0 looks fully down, 50 level, 100 fully up (two head servos move together); head_tilt: 0 cocks the head fully to Rex\'s left, 50 straight, 100 to his right; visor: low down/high up; poker_elbow: low down/high up; poker_wrist: low down/high curled up and inward (the elbow cannot rise fully while the wrist is curled in; unsafe pairs are rejected). Other axes use calibrated low/high travel; do not invent a physical direction if unknown. Always use set_robot_pose, not this tool, for looking left/right/up/down/center, waving, the visor fully up or down, hand offering, high five, lowering/resting throttle or release. Throttle joints move together with clearance validation; unsafe combinations are rejected. Held hero_arm prevents microphone recentering and voice enrollment until release_poses. Optional text follows successful pulse arrival. Never claim visually verified motion.',
@@ -148,18 +149,40 @@ TOOLS = (
          'duration_minutes':{'type':['integer','null'],'minimum':1,'maximum':2880},
          'until':NULL_TEXT, 'audio_alerts':{'type':'boolean'}}),
     # Ported from V2 October 25 (queeny mode and homie mode): V2 switched them on with a regex.
-    schema('voice_mode', 'Switch one of your two voice modes on or off; each lasts ten minutes and changes your voice. '
+    # Accents, and a line in one now and then, the same evening (owner).
+    schema('voice_mode', 'Your speaking modes, each in a voice of its own. on switches one on for ten minutes '
+        '(asked or greeted that way again while it is on: on again, which starts its ten minutes over); off ends it '
+        'when they ask ("stand down pride mode", "talk normal again", "drop the accent"). '
         'pride: someone asks about your own sexuality ("are you gay?", "do you like men?", "are you a homosexual?", '
         '"you\'re gay, right?"): you are gay and proud of it, so on, and text is a delighted, emphatic YES already in '
         'full camp, "sis" in it, and something of the moment or the person in it. A question about someone else ("is '
-        'your uncle gay?") is not one. aave: someone greets you like family ("what\'s up my homie", "wassup homeboy", '
-        '"sup homie": a what\'s-up greeting to you calling you homie or homeboy); a homie of theirs mentioned in passing '
-        '("my homie Marcus is coming over") is not one. Then on, and text greets them back big and warm in African '
-        'American Vernacular English and answers whatever else they said. Write that line fresh every time, never a stock phrase or an earlier one of yours. '
-        'Asked or greeted that way again while it is on: on again, which starts its ten minutes over. off: '
-        'they ask you to drop it ("stand down pride mode", "talk normal again"). Only for a person\'s words this turn, '
-        'never on your own. Both may be on at once.',
-        {'mode':{'type':'string','enum':['pride','aave']},'switch':{'type':'string','enum':['on','off']},
+        'your uncle gay?") is not one. aave: someone greets YOU like family: says what\'s up, wassup or sup to you and calls '
+        'YOU homie or homeboy ("what\'s up my homie", "wassup homeboy", "sup homie"). Then on, and text greets them back '
+        'big and warm in African American Vernacular English and answers whatever else they said. Their homie or '
+        'homeboy in a sentence about someone else ("my homie Marcus is coming over", "I was out with my homeboy all '
+        'day") is not a greeting: no voice_mode, an ordinary reply. '
+        'An accent: they ask you to talk in one for a while ("do a British accent", "talk like a Frenchman", "speak '
+        'like you\'re from Lagos"): on, and text answers them in it. Always English: the voice does the accent and '
+        'your words carry the culture (its idiom, rhythm and a native word or two), affectionate, never a caricature, '
+        'broken English or a joke at the expense of the people. One mode at a time: switching one on (pride, aave '
+        'or an accent) ends whichever was on, so asked to be someone else, just switch to it; that line is already '
+        'wholly the new one, with nothing of the last ("sis", "homie" or the old accent\'s words). Asked to talk some '
+        'way you have no mode for ("talk like a cowboy", "be Yoda") while one is on: off for the mode on, and '
+        'text talks that way in your own voice. While a mode is on, simply reply in it: voice_mode is only for switching. '
+        'The accents: ' + accent_list() + '. pirate: they ask you to talk like a pirate: on, and text answers in a '
+        'salty sea dog\'s English ("arr", "ahoy", "matey", "shiver me timbers"). '
+        'line: only this one line in an accent\'s (or the pirate\'s) voice, then you are yourself again, nothing switched on: when '
+        'someone asks for one line that way ("say that like a German"), requested true; or, requested false, now and '
+        'then on your own when the talk just handed you a reason (a trip to Paris, sushi, a German car, the royal '
+        'family, a boat) and the moment is light, in the accent of that place: never two in a row and never in a serious '
+        'moment. text is that line in English, said as someone from there would say it, never translated into '
+        'their language ("the train is late" like a German is "Ja, the train is late. Again.", not "Der Zug ist '
+        'spät"). on and off are for a person\'s words this turn, never your own idea, and requested '
+        'is true for them. Write every line fresh, never a stock phrase or an earlier '
+        'one of yours.',
+        {'mode':{'type':'string','enum':list(VOICE_MODES)},'switch':{'type':'string','enum':['on','off','line']},
+         'requested':{'type':'boolean','description':'true when the words of this turn ask for it; false for a line '
+                      'of your own. A line asked for last turn was that line: this turn is yourself again.'},
          'source_turn_id':TEXT}),
     schema('drive_base', 'Physically drive the wheeled base. Use for every explicit movement request (turn around, come here, back up, spin, go look at something; "look left/right/up/down" alone is a head pose via set_robot_pose, not a turn), including stacked requests as ordered steps. When it genuinely adds something you may also move on your own: roll toward someone who arrived, turn toward a voice or radar body outside the camera view, or get a closer look at what is being discussed. Steps run in order and stop at the first incomplete step. turn: direction left or right with positive degrees; use it only when they ask you to turn or face somewhere. "Turn left", "turn to your left", "turn around" and "rotate" are this step, never a look_left head pose; after a head look, "I asked you to turn" means a wheel turn now, with no further head pose. For a requested turn the owner means about 45 degrees by "turn a little", "slight" or "a bit" (never under 30 unless he gives a number) and 90 by an unqualified turn left/right; when he says a turn was too small or too far, change the next one by a clearly visible amount. move: direction forward or backward with positive meters. "Too close", "back off", "back up", "give me some room" or "you are in my space" is a move backward of about 0.6 meters (two feet) unless they say how far, with no turn: you stay facing them. "Closer" is a move forward or an approach. face: turn toward target; "face me", "face me better" and "you are not facing me" are face target speaker (a head pose cannot do it). Only a completed face or turn receipt lets you say you are facing someone now. approach: drive toward target, stopping stop_at_m away (null: 1 m for people, 0.6 m for objects; leave it null for people unless they ask for a distance). find_person: turn until a face is visible, looking first at the optional target, then radar bodies, the voice direction and sweeps; it does not approach. Target nearest_person always works for face and approach: with nobody in view Rex first looks for the person himself (toward the last voice, radar bodies, then around), so "come here" is a single approach to nearest_person with no turn of your own before it. Target speaker is where the last located voice came from, already relative to where the base faces now; never add a turn from an angle mentioned earlier in the conversation. seek: when drive.vision_seek is true, look for something described in words (a door, a photo of a clock, the red chair) that is not an offered target: Rex takes sharp camera looks, turns toward it if found, otherwise turns about 80 degrees (direction left or right chooses which way first, null for left) and looks again, up to four looks. pace sets how fast a step turns or rolls: normal (or null) for getting somewhere, easy or slow for a stroll, a careful approach, a lazy swivel or a dramatic creep; mix paces within a plan when it suits the moment. To go to, move toward or head for the thing, follow seek with approach target sought in the same plan (seek alone only faces it); later, approach with target "sought" alone re-finds the thing named in last_sought, or give it a description. The target value is exactly the word sought. Unused fields are null. Use only offered drive.targets ids; radar bodies and speaker direction say where to look, not who. A move longer than drive.limits.step_m runs as several legs with clearance rechecked; the plan total must fit drive.limits.total_m, so for a longer request do the part that fits and say so. An approach gets around things in its way by itself: when blocked it looks at the floor and its range sensors, picks open floor to go around, then turns back to the target and checks it is still there. So approach the target directly even when path.direct_approach is blocked_early; add your own turns and moves only when the person dictates a route. look_after is null unless the person asked what is there or your next move depends on what the camera shows; then it is a natural-language question for a fresh frame after moving, such as "What is the dog doing?". Arrival needs no look: the receipt reports it. say_before is spoken before moving ("On my way"); say_while is spoken as the wheels start, while you roll (a boast, an aside, mock commentary on the trip); say_after is spoken only after every step completed ("Here I am"); any may be null; none may say you saved, learned or will remember anything. After an approach the arrival line is written once he is there, from the receipt, with say_after as your intent. Moving on your own (not asked) you never move backward: nothing behind you is visible; to give room, turn away or roll forward. On refusal or incomplete motion you receive the receipt to explain. Never claim motion, arrival or sight before a receipt. purpose is a brief internal reason, not speech.',
         {'say_before':{'type':['string','null'],'description':'Spoken first, as soon as you write it and before the plan is checked or any motion: an acknowledgment such as "On my way" or "Turning around". null for none.'},
@@ -290,7 +313,7 @@ def grounded_tools(context):
     if context.get('trigger')=='visual_arrival':
         definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
     elif context.get('trigger') in {'conversation_lull','ambient','reconsideration'}:
-        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
+        definitions = [d for d in definitions if d['name'] in {'voice_mode','respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
     elif context.get('trigger')=='pet_arrival':
         definitions = [d for d in definitions if d['name'] in {'inspect_visual_memory','respond_with_intent',
                                                                'respond_with_gesture','remain_silent'}]
@@ -326,7 +349,7 @@ def grounded_tools(context):
                 definition['parameters']['properties']['reason']['enum'] = [
                     r for r in definition['parameters']['properties']['reason']['enum'] if r!='no_response_needed']
     if context.get('agency_step') and not context.get('inspection_description_allowed') and not context.get('photo_inspection'):
-        names = {'contribute': {'respond_with_intent','use_memory_opportunity','use_observation','use_visual_memory','impersonate'},
+        names = {'contribute': {'respond_with_intent','use_memory_opportunity','use_observation','use_visual_memory','impersonate','voice_mode'},
                  'inspect': {'inspect_view'}, 'look': {'shift_attention'}, 'gesture': {'respond_with_gesture'},
                  'pose': {'set_robot_pose','set_robot_joints'}, 'drive': {'drive_base'},
                  'impression': {'impersonate'}}[context['agency_step']['kind']]
@@ -422,7 +445,8 @@ def grounded_tools(context):
         if name=='use_memory_opportunity' and (not context.get('trigger') or not context.get('memory_opportunities')):continue
         if name=='shut_down' and context.get('trigger'):continue   # Only a person's request, never his own initiative.
         if name=='sentry_mode' and (context.get('trigger') or not context.get('sentry_available')):continue
-        if name=='voice_mode' and context.get('trigger'):continue   # A person's question or greeting, never his own idea.
+        # On his own turns only a line of his own (on/off answer a person), and only when one is allowed now.
+        if name=='voice_mode' and (context.get('trigger') or context.get('agency_step')) and not context.get('accent_line_allowed'):continue
         identity_targets = context.get("identity_action_targets", {}).get(name, [])
         if name in {"rename_person", "forget_person"} and not identity_targets:
             continue
@@ -570,6 +594,8 @@ def validate(name, args):
         optional = optional | {'direction', 'subject'}   # Added October 23.
     if name == 'drive_base':
         optional = optional | {'say_while'}   # Added October 24.
+    if name == 'voice_mode':
+        optional = optional | {'requested'}   # Added with the one-line accents, October 25.
     if args.keys() - properties.keys() or properties.keys() - args.keys() - optional:
         raise ValueError("ToolFieldsMismatch")
     for key, spec in properties.items():
@@ -582,8 +608,8 @@ def validate(name, args):
         if key == 'intent_update':
             validate_update(args.get(key))
             continue
-        if key in optional and key not in args and key in {'direction', 'subject'}:
-            continue   # Left out by a scripted caller: the old meaning (current view, any subject).
+        if key in optional and key not in args and key in {'direction', 'subject', 'requested'}:
+            continue   # Left out by a scripted caller: the old meaning (current view, any subject, asked for).
         value = args.get(key) if key in optional else args[key]
         if value is None and (key == 'say_first' or isinstance(spec["type"], list) and "null" in spec["type"]):
             continue
@@ -615,9 +641,9 @@ def validate(name, args):
                         raise ValueError('InvalidDriveNumber')
                 if step['target'] is not None and (not isinstance(step['target'],str) or not 0<len(step['target'])<=120):
                     raise ValueError('InvalidDriveTarget')
-        elif name=='impersonate' and key=='requested':
+        elif name in {'impersonate','voice_mode'} and key=='requested':
             if type(value) is not bool:
-                raise ValueError('InvalidImpressionRequest')
+                raise ValueError('InvalidImpressionRequest' if name=='impersonate' else 'InvalidVoiceModeRequest')
         elif name=='impersonate' and key=='script':
             if not isinstance(value,str) or not 0<len(value.strip())<=600 or len(value.split())>70:
                 raise ValueError('InvalidImpressionScript')

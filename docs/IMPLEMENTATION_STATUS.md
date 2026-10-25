@@ -48,33 +48,68 @@ of Rex's own beats changed the subject to houseplants, pizza and mugs right afte
 did you just talk about mugs?"). A name-only "Jennifer" record from the mistaken introduction remains in
 the database for the owner to remove.
 
-## Pride and AAVE modes — October 25
+## Speaking modes — October 25
 
-Owner request: port V2's pride mode ("queeny mode") and its African American Vernacular English mode
-("homie mode"), each in its own ElevenLabs voice. Asked about his own sexuality ("are you gay?", "do you
-like men?"), Rex says a proud yes and goes full camp ("sis", "yasss", tea and drama) for ten minutes;
-greeted "what's up my homie" he answers in AAVE for ten minutes, spoken for real, never as a mocking
-impression. Asking or greeting again starts the ten minutes over, both can be on, and "stand down pride
-mode" or "talk normal again" ends one. The reply model calls `voice_mode` (V2 used a regex) and its line
-is spoken once the switch succeeds, in one model call; while a mode is on its directive rides last on
-every reply request, his own beats included, and his voice is `elevenlabs_pride_voice_id` or
-`elevenlabs_aave_voice_id` from `local/secrets.toml` (the mode switched on last speaks). Pride also
-brings V2's body: a rainbow mouth and chest (the boards' `PRIDE:1`, renewed every 3 s), a one-shot
-flourish as it comes on (head fully down, visor wide open, hero hand at the end of its travel, held a
-second, then back), hero elbow and hand swinging about twice as wide and often while he talks, and the
-throttle wrist curled. Sentry mode clears both modes and refuses them while it guards
-([V2 extraction](../V2_REFERENCE.md#pride-mode-and-aave-mode--october-25-2026)).
+Owner requests: port V2's pride mode ("queeny mode") and its African American Vernacular English mode
+("homie mode"), each in its own ElevenLabs voice; then eleven accents (British, French, Italian, German,
+Spanish, Russian, Scandinavian, Japanese, Chinese, Nigerian, Indian) and a pirate, each in its own voice,
+in English and culturally fitting, and now and then a single line in one when the talk suggests it.
 
-Evidence: 16 synthetic checks in `tests/test_voice_modes.py` (state, request, voice choice, the
-flourish through the output owner on a pulse port, talking lanes and clearance, the light lease).
-`tools/check_voice_modes.py --live` (paid, fictional input, three runs): 34 of 35 turns switched
-correctly; the first wording made him repeat its example lines ("Yasss, sis! Gay and fabulous,
-obviously." three times) and the second switched AAVE on for "My homie Marcus is coming over later.";
-after both rewordings 13 of 13, fresh lines each time, nothing for "is my uncle gay", "my brother is
-gay" or a homeboy mentioned in passing. **Not yet run on the robot**: the two voices, the flourish,
-hand swings and throttle curl, and the rainbow on both boards are unseen; the dashboard does not
-mirror the rainbow. One short line was synthesized in each voice (both work with eleven_v4_turbo).
-1604 blocked-I/O checks pass (5 skipped).
+- Asked about his own sexuality ("are you gay?", "do you like men?"), Rex says a proud yes and goes full
+  camp ("sis", "yasss", tea and drama) for ten minutes. Greeted "what's up my homie", he answers in AAVE
+  for ten minutes, spoken for real, never as a mocking impression.
+- Asked for an accent ("do a British accent", "talk like you're from Lagos"), he speaks English as
+  someone from there does (idiom, rhythm, a native word or two; never a caricature, broken English or a
+  joke at the people's expense) for ten minutes. "Talk like a pirate" is a mode of its own (arr, matey).
+- One mode at a time (owner, the same evening): asked to be someone else, he switches to it and the
+  mode before ends, pride and AAVE included, and the switching line already drops the old mode's
+  words; asked to talk some way he has no mode for ("like a cowboy"), he switches the mode off and
+  does it in his own voice.
+- Asking or greeting again starts the ten minutes over; "stand down pride mode", "talk normal again" or
+  "drop the accent" ends one. Sentry mode clears them all and refuses them while it guards.
+- One line: asked ("say that like a German") he says just that line in the accent's voice, in English
+  ("Ja, the bus is late again. Naturally.", never translated), and is himself on the next turn. On his own,
+  when the talk brings up a place or people (a Paris trip, sushi, a German car), he may say one reply or
+  one lull line in that place's accent: never while a mode is on, never two within five minutes, never in
+  a serious moment (the last two are the model's judgment; the five minutes are code).
+- How: the reply model calls `voice_mode` (on, off or line; V2 used a regex), and its line is spoken
+  once the switch succeeds, in one model call. While a mode is on its directive rides last on every
+  reply request, his own beats included. Voices come from the `[mode_voices]` table in
+  `local/secrets.toml`; the mode switched on last speaks, and a mode without a voice keeps Rex's own.
+- Pride also brings V2's body: a rainbow mouth and chest (the boards' `PRIDE:1`, renewed every 3 s), a
+  one-shot flourish as it comes on (head fully down, visor wide open, hero hand at the end of its
+  travel, held a second, then back), hero elbow and hand swinging about twice as wide and often while
+  he talks, and the throttle wrist curled ([V2 extraction](../V2_REFERENCE.md#pride-mode-and-aave-mode--october-25-2026)).
+
+Evidence:
+- 24 synthetic checks in `tests/test_voice_modes.py` (1612 blocked-I/O checks pass, 5 skipped): state, request, voice choice, one-line lines on
+  replies and lulls, the five-minute limit, the flourish through the output owner on a pulse port,
+  talking lanes and clearance, the light lease.
+- One short line was synthesized in each of the fourteen voices; all work with `eleven_v4_turbo`.
+- `tools/check_voice_modes.py --live` (paid, fictional input, seven full runs and five short ones).
+  Wording repairs on the way:
+  - The first wording made him repeat its example lines ("Yasss, sis! Gay and fabulous, obviously."
+    three times).
+  - "My homie Marcus is coming over" and "I was out with my homeboy all day" switched AAVE on.
+  - With British on, he asked for a needless British line.
+  - After a one-line Russian request he did Russian again on the next turn unasked, and asked lines
+    came out translated ("Der Zug ist verspätet", "J'adore cette chanson"). Afterwards 6 of 6
+    follow-ups were his own voice and 4 of 4 lines English with a native touch.
+  - Unaddressed statements ("We're flying to Paris next week") got no reply at all, an existing
+    behaviour this does not change; the probe now addresses Rex. Two statements addressed to
+    him ("Rex, we're flying to Paris next week") were still left unanswered as needing no reply.
+  - Switching from pride, the switching line kept camp words ("Oh, absolutely, sis... darling" in the
+    British voice; "Arrr, sis... Yasss, queen" as a pirate). With the rule in the mode's own
+    directive, 3 of 4 switches were clean and the fourth only joked about the old mode.
+- Last full run: 36 of 36 turns right. Pride then British left only British on, AAVE then Paris only
+  French, German then pirate only the pirate, and "talk like a cowboy" switched the pirate off with
+  cowboy talk in his own voice; nothing for "is my uncle gay" or a homeboy in passing. Lines were
+  fresh, and his grandmother's death got a kind answer in his own voice. He chose an accent line
+  himself once in the 33-turn run before (French about Paris and Rome) and not at all in this one.
+
+**Not yet run on the robot**: the voices in conversation, the flourish, hand swings and throttle curl,
+and the rainbow on both boards are unseen; the dashboard does not mirror the rainbow. How often he
+chooses an accent line in real conversation, and on his own goal beats, is unmeasured.
 
 ## "Hey Rex" over his voice — October 25
 

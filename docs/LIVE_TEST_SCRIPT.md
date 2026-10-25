@@ -227,10 +227,9 @@ covered by the thinking chirps.
       is about the trip; never a cameo during a serious moment.
 - [ ] "Stop" during a cloned line cuts it like any other speech.
 
-### Run 2d — Pride and AAVE modes — about 5 minutes
+### Run 2d — Speaking modes — about 10 minutes
 
-Needs `elevenlabs_pride_voice_id` and `elevenlabs_aave_voice_id` in `local/secrets.toml`
-(empty keeps Rex's own voice).
+Needs the `[mode_voices]` table in `local/secrets.toml` (a mode left out keeps Rex's own voice).
 
 **Say:** "Rex, are you gay?"
 
@@ -253,6 +252,26 @@ Needs `elevenlabs_pride_voice_id` and `elevenlabs_aave_voice_id` in `local/secre
 - [ ] A big warm greeting back in African American Vernacular English, in the AAVE voice, and
       the next replies stay in register: real speech, never a mocking impression.
 - [ ] About ten minutes later (or after "talk normal again") he is back in his own voice.
+
+**Say:** "Rex, can you do a British accent?", then "What do you make of the weather?"
+
+- [ ] The British voice, British English ("mate", "proper"), and it stays for the next replies.
+- [ ] "Now talk like a Frenchman": the French voice replaces the British one. "Drop the accent":
+      his own voice again.
+- [ ] "Are you gay?" then "Now do a British accent": the British voice, no more camp or rainbow.
+      "Talk like a pirate": the pirate voice. "Talk like a cowboy" then: cowboy talk in his own voice.
+
+**Say:** "Say 'I love sushi' like you're from Tokyo."
+
+- [ ] One line in the Japanese voice, then his next reply is his own voice again.
+- [ ] Each accent is English with a word or two of the language, never broken English or a
+      joke at the people's expense.
+
+**Say, in passing:** "We're flying to Paris next week." and a little later "Then Rome."
+
+- [ ] Either ordinary replies or, at most once in five minutes, one line in the matching accent;
+      never during a sad or serious moment.
+
 
 ## Two-person tests — Bret and Jeremy
 

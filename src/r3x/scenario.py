@@ -28,8 +28,12 @@ class ScriptedBrain:
 
 
 class SyntheticTTS:
-    def synthesize(self, text, cancel):
+    def __init__(self):
+        self.modes = []   # The speaking mode asked for each line (None: the current voice).
+
+    def synthesize(self, text, cancel, mode=None):
         cancel.check()
+        self.modes.append(mode)
         yield b"\0\0" * 32
 
 

@@ -1,4 +1,4 @@
-"""Pride mode and AAVE mode: ten minutes of a different delivery, switched by the reply model.
+"""Speaking modes: pride, AAVE and eleven accents, each in its own voice, switched by the reply model.
 
 Ported October 25 from V2's intelligence/pride.py ("queeny mode": asked whether he is gay, Rex says a
 delighted yes and goes full camp) and intelligence/homie.py (owner request, August 23: greeted "wassup
@@ -7,10 +7,14 @@ both with a regex over the transcript; here the reply model hears the question o
 calls voice_mode, and this keeps each mode's expiry for the state owner. Asked or greeted again starts
 the ten minutes over. While a mode is on, its directive rides at the end of every reply request, his
 ElevenLabs voice changes (owner, October 25), and pride also shows rainbow lights and a camp body.
+
+Accents and a pirate (owner, October 25, later): asked to talk in one, Rex switches to its voice and
+answers in that English for ten minutes; now and then he may also say a single line in one on his own
+when the talk hands him a reason, at most one every LINE_SECONDS. One mode at a time.
 """
 
-MODES = ('pride', 'aave')
 MODE_SECONDS = 600.   # V2's ten minutes, refreshed whenever the mode is switched on again.
+LINE_SECONDS = 300.   # A line in an accent of his own choosing is "a line here or there".
 
 # V2's directives (owner's second pass, August 23: full volume, no averaging it down), less the
 # instruction to always ask "the real question", which V3's reply voice now forbids (October 24).
@@ -37,6 +41,39 @@ DIRECTIVES = {
         'roast still bites, still brief, no recap and no tacked-on question.'),
 }
 
+# Accent -> what carries it in English words (the voice does the sound).
+ACCENTS = {
+    'british': '"cheers", "brilliant", "mate", "rubbish", "proper", "bloody", "fancy a cuppa"; dry understatement',
+    'french': '"mon ami", "voilà", "oh là là", "bon", "c\'est la vie", "magnifique"; joie de vivre, a little hauteur about food',
+    'italian': '"mamma mia", "allora", "bellissimo", "ciao", "dai", "perfetto"; big warmth about food and family',
+    'german': '"ja", "genau", "natürlich", "wunderbar", "Feierabend"; precise, direct, proud of good engineering',
+    'spanish': '"amigo", "claro", "mira", "vamos", "qué", "ay, Dios mío"; warm, quick, full of life',
+    'russian': '"da", "nyet", "bozhe moi", "babushka", "dacha"; deadpan, stoic, darkly funny',
+    'scandinavian': '"ja", "skål", "hygge", "lagom", "fika"; calm, modest, cheerfully blunt',
+    'japanese': '"sugoi", "ne", "-san", "itadakimasu", "yoroshiku"; polite, precise, delighted by craft',
+    'chinese': '"ni hao", "aiya", "hao de", "xie xie", "jiayou"; warm, proverb-ready, keen about good food',
+    'nigerian': '"my brother", "my sister", "abeg", "oya", "wahala", "how far?", "chai!", "sha"; big warmth and expressive flair',
+    'indian': '"yaar", "arre", "achha", "ji", "no?", "what to do"; warm, chatty, quick to call someone family',
+}
+# The guard on every accent (as on AAVE): speak it, never mock it.
+ACCENT_RULE = ('The voice does the accent; your words carry the culture, in English: its idiom, rhythm and a native '
+               'word or two, affectionate and never a caricature, broken English or a joke at the expense of the '
+               'people. Reply in it as you are; voice_mode only switches. Still Rex underneath: still brief, the roast '
+               'still bites, no recap and no tacked-on question.')
+for _accent, _touches in ACCENTS.items():
+    DIRECTIVES[_accent] = (f'{_accent.upper()} ACCENT: they asked you to talk in a {_accent.capitalize()} accent, so '
+                           f'every line is spoken as someone from there speaks English ({_touches}). ' + ACCENT_RULE)
+
+# A character rather than a place (owner, October 25, with its own voice): any line may come in it too.
+DIRECTIVES['pirate'] = (
+    'PIRATE MODE: they asked you to talk like a pirate, so every line is a salty sea dog\'s English: "arr", '
+    '"ahoy", "aye", "matey", "me hearties", "avast", "shiver me timbers", "landlubber", "Davy Jones\' locker"; '
+    'swaggering, theatrical and fun, with the sea and plunder in your metaphors. Reply in it as you are; '
+    'voice_mode only switches. Still Rex underneath: still brief, the roast still bites, no recap and no '
+    'tacked-on question.')
+LINE_MODES = (*ACCENTS, 'pirate')   # What a single line can be said in.
+MODES = ('pride', 'aave', *LINE_MODES)
+
 
 class VoiceModes:
     """Which modes are on and until when (monotonic seconds). Owned by the state owner; the lights,
@@ -44,32 +81,36 @@ class VoiceModes:
 
     def __init__(self):
         self.until = {}   # mode -> end time
-        self.since = {}   # mode -> when it was last switched on (the newest one picks the voice)
+        self.line_at = float('-inf')   # When he last chose a line in an accent himself.
 
     def switch(self, mode, on, now):
         if mode not in MODES:
             raise ValueError('UnknownVoiceMode')
         if on:
-            self.until[mode], self.since[mode] = now + MODE_SECONDS, now
+            # One mode at a time (owner, October 25): asked to be someone else, he stops being the last.
+            self.clear()
+            self.until[mode] = now + MODE_SECONDS
         else:
             self.until.pop(mode, None)
-            self.since.pop(mode, None)
 
     def clear(self):
         self.until.clear()
-        self.since.clear()
 
     def on(self, mode, now) -> bool:
         return now < self.until.get(mode, float('-inf'))
 
     def active(self, now) -> tuple[str, ...]:
-        """Modes on now, the most recently switched on last."""
-        return tuple(sorted((m for m in MODES if self.on(m, now)), key=lambda m: self.since[m]))
+        """The mode on now as a one-item tuple, or empty."""
+        return tuple(m for m in MODES if self.on(m, now))
 
     def context(self, now) -> dict | None:
         """{mode: {'minutes_left': n}} for the reply context, or None when nothing is on."""
         modes = self.active(now)
         return {m: {'minutes_left': max(1, round((self.until[m] - now) / 60))} for m in modes} or None
+
+    def line_allowed(self, now) -> bool:
+        """A line in an accent of his own: nothing on, and none of his own in the last LINE_SECONDS."""
+        return not self.active(now) and now - self.line_at >= LINE_SECONDS
 
 
 def directive(context) -> str | None:
@@ -77,6 +118,10 @@ def directive(context) -> str | None:
     modes = [m for m in MODES if m in (context or {})]
     if not modes:
         return None
-    lines = [DIRECTIVES[m] + f' (About {context[m]["minutes_left"]} more minutes; voice_mode off ends it.)'
-             for m in modes]
-    return ' '.join(lines) + (' Both are on: be both at once.' if len(lines) > 1 else '')
+    return ' '.join(DIRECTIVES[m] + f' (About {context[m]["minutes_left"]} more minutes; voice_mode off ends it. '
+                    'Asked to be someone else: switch, and that very line drops every word of this mode.)' for m in modes)
+
+
+def accent_list() -> str:
+    """The accents with their touches, for the tool description (cached with the tools)."""
+    return '; '.join(f'{name} ({touches})' for name, touches in ACCENTS.items())

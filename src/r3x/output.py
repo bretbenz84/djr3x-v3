@@ -81,6 +81,13 @@ class ClonedPhrase:
     voice: str
 
 
+@dataclass(frozen=True)
+class AccentLine:
+    """One line in a speaking mode's voice (voice_mode line, October 25); the next is his own again."""
+    text: str
+    mode: str
+
+
 class FillerLoop:
     """V2's "thinking" chirps while an impression renders: cycled short effects on the
     speech sink, started only when nothing else is playing and stopped the moment the
@@ -537,6 +544,9 @@ class OutputOwner:
                 cloned = text if isinstance(text, ClonedPhrase) else None
                 if cloned:
                     text = cloned.text
+                accent = text if isinstance(text, AccentLine) else None
+                if accent:
+                    text = accent.text
                 prerecorded = getattr(text, 'pcm', None)   # Cached canned line (startup ready line).
                 if prerecorded is not None:
                     text = text.text
@@ -551,7 +561,8 @@ class OutputOwner:
                             self.trace.emit('gesture_failed', turn_id=turn_id, reason=str(exc))
                     continue
                 self.trace.emit("speech_generated", turn_id=turn_id, text=text,
-                                **({'voice': cloned.voice} if cloned else {}))
+                                **({'voice': cloned.voice} if cloned else {}),
+                                **({'voice_mode': accent.mode} if accent else {}))
                 synthesis_at = self.trace.clock()
                 first_pcm_at = None
                 talking_started = False
@@ -581,7 +592,8 @@ class OutputOwner:
                 def chunks():
                     nonlocal first_pcm_at
                     stream = (iter((prerecorded,)) if prerecorded is not None else
-                              cloned.take.chunks(cancel) if cloned else self.tts.synthesize(text,cancel))
+                              cloned.take.chunks(cancel) if cloned else
+                              self.tts.synthesize(text,cancel,mode=accent.mode) if accent else self.tts.synthesize(text,cancel))
                     try:
                         for chunk in stream:
                             cancel.check()  # Speech may have resumed during the TTS request.

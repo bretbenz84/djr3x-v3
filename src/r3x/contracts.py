@@ -119,7 +119,8 @@ class Brain(Protocol):
 
 
 class TTS(Protocol):
-    def synthesize(self, text: str, cancel: Cancellation) -> Iterator[bytes]: ...
+    # mode: one line in a speaking mode's voice (voice_mode line); otherwise the voice of the modes on now.
+    def synthesize(self, text: str, cancel: Cancellation, mode: str | None = None) -> Iterator[bytes]: ...
 
 
 class Sink(Protocol):

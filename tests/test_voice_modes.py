@@ -1,7 +1,8 @@
-"""Pride mode and AAVE mode (ported from V2 October 25): the reply model switches them, the state owner
-keeps ten minutes, and the voice, the request, the lights and pride's body follow. Synthetic providers,
-pulse ports and serial ports only: these prove the contracts, not how the camp or AAVE lines sound,
-how the owner's chosen ElevenLabs voices sound, or the flourish and rainbow on the robot."""
+"""Speaking modes (October 25): pride and AAVE (ported from V2) and eleven accents. The reply model
+switches them or says one line in an accent, the state owner keeps ten minutes and the rarity of his own
+accent lines, and the voice, the request, the lights and pride's body follow. Synthetic providers, pulse
+ports and serial ports only: these prove the contracts, not how the lines sound, how the owner's chosen
+ElevenLabs voices sound, or the flourish and rainbow on the robot."""
 import json
 import random
 import tempfile
@@ -18,18 +19,20 @@ from r3x.servo_poses import (FLAIR_THROTTLE_WRIST, HEAD_PAIR, LIMITS, THROTTLE, 
                              flourish_lanes, head_pose, talking_lanes, throttle_clear, validate_pose)
 from r3x.session import Session
 from r3x.settings import Secrets
-from r3x.voice_modes import MODE_SECONDS, VoiceModes, directive
+from r3x.voice_modes import ACCENTS, LINE_SECONDS, MODE_SECONDS, MODES, VoiceModes, directive
 from tests.test_adapters import Client, Response
 from tests.test_context_diet import send
 from tests.test_leds import rig
 from tests.test_memory_core import MemoryFixture
+from tests import test_proactive_core
 from tests.test_physical_attention import robot_fixture
 from tests import test_attention
 
 
-def switch(mode, on=True, text=None, turn=None):
-    return lambda snapshot: ToolCall('mode', 'voice_mode', {'mode': mode, 'switch': 'on' if on else 'off',
-        'source_turn_id': turn or snapshot.context['source_turn_id'], 'text': text})
+def switch(mode, on=True, text=None, turn=None, requested=True):
+    return lambda snapshot: ToolCall('mode', 'voice_mode', {'mode': mode, 'switch': on if isinstance(on, str) else
+        'on' if on else 'off', 'requested': requested, 'source_turn_id': turn or snapshot.context.get('source_turn_id', 'x'),
+        'text': text})
 
 
 class Scripted:
@@ -44,9 +47,10 @@ class Scripted:
 
 
 class ModeStateTests(MemoryFixture):
-    def switch(self, mode, on=True, turn=None):
-        return self.call('voice_mode', {'mode': mode, 'switch': 'on' if on else 'off',
-                                        'source_turn_id': turn or self.state.current[0], 'text': None})
+    def switch(self, mode, on=True, turn=None, requested=True, text=None):
+        return self.call('voice_mode', {'mode': mode, 'switch': on if isinstance(on, str) else 'on' if on else 'off',
+                                        'requested': requested, 'source_turn_id': turn or self.state.current[0],
+                                        'text': text})
 
     def test_asked_again_starts_the_ten_minutes_over_and_off_ends_it(self):
         self.begin('Rex, are you gay?')
@@ -92,28 +96,101 @@ class ModeStateTests(MemoryFixture):
         self.begin('Are you gay?')
         self.assertEqual(self.switch('pride').reason, 'SentryModeActive')
 
-    def test_offered_for_a_persons_words_never_for_his_own_turns(self):
-        names = lambda context: {d['name'] for d in grounded_tools(context)}
+    def test_offered_for_a_persons_words_and_on_his_own_turns_only_for_an_allowed_line(self):
+        names = lambda context: {d['name'] for d in grounded_tools({'event_id': 'e', **context})}
         self.assertIn('voice_mode', names({'source_turn_id': 't'}))
         for trigger in ('conversation_lull', 'visual_arrival', 'ambient'):
             self.assertNotIn('voice_mode', names({'trigger': trigger}))
-        self.assertNotIn('voice_mode', names({'trigger': 'conversation_lull',
-                                               'agency_step': {'kind': 'contribute'}}))
+        self.assertNotIn('voice_mode', names({'trigger': 'conversation_lull', 'agency_step': {'kind': 'contribute'}}))
+        for trigger in ('conversation_lull', 'ambient', 'reconsideration'):
+            self.assertIn('voice_mode', names({'trigger': trigger, 'accent_line_allowed': True}))
+        self.assertIn('voice_mode', names({'trigger': 'conversation_lull', 'accent_line_allowed': True,
+                                           'agency_step': {'kind': 'contribute'}}))
+        self.assertNotIn('voice_mode', names({'trigger': 'visual_arrival', 'accent_line_allowed': True}))
+        self.assertNotIn('voice_mode', names({'trigger': 'conversation_lull', 'accent_line_allowed': True,
+                                              'agency_step': {'kind': 'look'}}))
+
+    def test_switching_to_someone_else_ends_whoever_he_was(self):
+        # Owner, October 25: asked to be a different identity, gay and homie modes and the rest switch off.
+        for said, mode in (('Are you gay?', 'pride'), ("What's up my homie?", 'aave'), ('Do a British accent.', 'british'),
+                           ('Now talk like a Frenchman.', 'french'), ('Are you gay, though?', 'pride')):
+            self.begin(said)
+            self.assertEqual(self.switch(mode).outcome, 'ok')
+            self.assertEqual(self.state.voice_modes.active(self.state.trace.clock()), (mode,))
+            self.assertEqual(set(self.state.context()['voice_mode']), {mode})
+            self.assertNotIn('accent_line_allowed', self.state.context())   # The voice is already changed.
+        self.begin('Now talk like a pirate.')
+        self.assertEqual(self.switch('pirate').outcome, 'ok')                      # A mode of its own too.
+        self.assertEqual(self.state.voice_modes.active(self.state.trace.clock()), ('pirate',))
+        self.begin('Okay, now talk like a cowboy.')                                # No mode for that: off.
+        self.assertEqual(self.switch('pirate', on=False).outcome, 'ok')
+        self.assertFalse(self.state.voice_modes.active(self.state.trace.clock()))
+
+    def test_a_line_he_is_asked_for_is_always_said_and_switches_nothing(self):
+        self.begin('Say that like a German.')
+        result = self.switch('german', 'line', text='Ja, genau. Wunderbar engineering.')
+        self.assertEqual((result.outcome, result.data['switch'], result.data['requested']), ('ok', 'line', True))
+        self.assertFalse(self.state.voice_modes.active(self.state.trace.clock()))
+        self.begin('Again!')
+        self.assertEqual(self.switch('german', 'line', text='Natürlich.').outcome, 'ok')
+        self.begin('Now like a pirate.')
+        self.assertEqual(self.switch('pirate', 'line', text='Arr, natürlich, matey.').outcome, 'ok')
+        self.begin('Now in your gay voice.')
+        self.assertEqual(self.switch('pride', 'line', text='Yasss.').reason, 'LineIsForAnAccent')
+        self.begin('Say it French.')
+        self.assertEqual(self.switch('french', 'line', text=None).reason, 'AccentLineNeedsItsWords')
+
+    def test_a_line_of_his_own_comes_at_most_every_five_minutes_and_not_while_a_mode_is_on(self):
+        self.begin("We're flying to Paris next week.")
+        self.assertTrue(self.state.context()['accent_line_allowed'])
+        self.assertEqual(self.switch('french', 'line', requested=False, text='Ah, Paris, mon ami!').outcome, 'ok')
+        self.begin('And then Rome.')
+        self.assertNotIn('accent_line_allowed', self.state.context())
+        self.assertEqual(self.switch('italian', 'line', requested=False, text='Mamma mia.').reason, 'AccentLineNotNow')
+        self.assertEqual(self.switch('italian', 'line', text='Mamma mia.').outcome, 'ok')   # Asked for: always.
+        self.state.trace.at += LINE_SECONDS
+        self.begin('Do a British accent.'); self.switch('british')
+        self.assertNotIn('accent_line_allowed', self.state.context())
+        self.assertEqual(self.switch('french', 'line', requested=False, text='Bon.').reason, 'AccentLineNotNow')
+        self.switch('british', on=False)
+        self.assertTrue(self.state.context()['accent_line_allowed'])
+
+    def test_his_own_turn_cannot_switch_a_mode_on(self):
+        from uuid import uuid4
+        context = {'event_id': 'e', 'state_revision': self.store.revision, 'trigger': 'conversation_lull',
+                   'accent_line_allowed': True, 'faces': []}
+        def own(**args):
+            return self.state.execute_opportunity(ToolCall(uuid4().hex, 'voice_mode', {
+                'mode': 'french', 'switch': 'line', 'requested': False, 'source_turn_id': 'x',
+                'text': 'Voilà.', **args}), context, Cancellation())
+        self.assertEqual(own(switch='on').reason, 'VoiceModeNeedsAPersonsWords')
+        self.assertEqual(own(requested=True).reason, 'VoiceModeNeedsAPersonsWords')
+        self.assertEqual(own().outcome, 'ok')
+        self.assertEqual(own().reason, 'AccentLineNotNow')
+        self.assertFalse(self.state.voice_modes.active(self.state.trace.clock()))
 
 
 class ModeClockTests(unittest.TestCase):
-    def test_the_newest_mode_is_last_and_both_can_be_on(self):
+    def test_one_mode_at_a_time_for_ten_minutes(self):
         modes = VoiceModes()
         modes.switch('aave', True, 0.)
         modes.switch('pride', True, 5.)
-        self.assertEqual(modes.active(10.), ('aave', 'pride'))
-        modes.switch('aave', True, 20.)
-        self.assertEqual(modes.active(30.), ('pride', 'aave'))
-        self.assertEqual(modes.active(5. + MODE_SECONDS), ('aave',))
-        note = directive(modes.context(30.))
-        self.assertIn('PRIDE MODE', note); self.assertIn('AAVE MODE', note); self.assertIn('Both are on', note)
+        self.assertEqual(modes.active(10.), ('pride',))
+        self.assertEqual(directive(modes.context(10.)).count(' MODE:'), 1)
+        self.assertNotIn('AAVE', directive(modes.context(10.)))
+        self.assertEqual(modes.active(5. + MODE_SECONDS), ())
+        modes.switch('german', False, 20.)                       # Off for a mode that is not on changes nothing.
+        self.assertEqual(modes.active(30.), ('pride',))
         with self.assertRaises(ValueError):
-            modes.switch('pirate', True, 0.)
+            modes.switch('cowboy', True, 0.)
+
+    def test_every_accent_speaks_english_and_never_mocks(self):
+        self.assertEqual(len(ACCENTS), 11)
+        for accent in ACCENTS:
+            note = directive({accent: {'minutes_left': 4}})
+            self.assertIn(accent.upper() + ' ACCENT', note)
+            for words in ('in English', 'never a caricature, broken English'):
+                self.assertIn(words, note)
 
 
 class RequestTests(unittest.TestCase):
@@ -139,8 +216,17 @@ class RequestTests(unittest.TestCase):
     def test_the_tool_is_in_the_fixed_tool_list(self):
         payload, _ = send({'source_turn_id': 't'})
         tool = next(t for t in payload['tools'] if t['name'] == 'voice_mode')
-        self.assertEqual(tool['parameters']['properties']['mode']['enum'], ['pride', 'aave'])
+        self.assertEqual(tool['parameters']['properties']['mode']['enum'], list(MODES))
+        self.assertEqual(tool['parameters']['properties']['switch']['enum'], ['on', 'off', 'line'])
         self.assertIn('text', tool['parameters']['required'])
+        for accent in ACCENTS:
+            self.assertIn(accent + ' (', tool['description'])
+
+    def test_his_own_accent_line_is_suggested_only_while_one_is_allowed(self):
+        payload, _ = send({'source_turn_id': 't', 'accent_line_allowed': True})
+        self.assertIn('one-line accent (voice_mode line, requested false)', payload['input'][-1]['content'])
+        payload, _ = send({'source_turn_id': 't'})
+        self.assertNotIn('one-line accent', json.dumps(payload['input']))
 
 
 class VoiceTests(unittest.TestCase):
@@ -154,19 +240,27 @@ class VoiceTests(unittest.TestCase):
         self.assertIn('/rex-voice/', self.speak(tts))
         tts.modes = lambda: ('pride',)
         self.assertIn('/pride-voice/', self.speak(tts))
-        tts.modes = lambda: ('pride', 'aave')                 # No AAVE voice configured: the newest with one.
-        self.assertIn('/pride-voice/', self.speak(tts))
+        tts.modes = lambda: ('aave',)                         # No AAVE voice configured: Rex's own.
+        self.assertIn('/rex-voice/', self.speak(tts))
         tts.mode_voices['aave'] = 'aave-voice'
         self.assertIn('/aave-voice/', self.speak(tts))
+        tts.mode_voices['french'] = 'french-voice'
+        tts.client = Client(Response(chunks=[b'\x00\x01' * 64]))
+        list(tts.synthesize('Voilà.', Cancellation(), mode='french'))            # One line in an accent.
+        self.assertIn('/french-voice/', tts.client.calls[0][0][1])
+        self.assertIn('/aave-voice/', self.speak(tts))                           # Then back to the mode on.
 
     def test_mode_voices_are_optional_local_secrets(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root).resolve()
-            (root / 'secrets.toml').write_text('elevenlabs_pride_voice_id = "p"\nelevenlabs_aave_voice_id = "a"\n')
+            (root / 'secrets.toml').write_text('elevenlabs_voice_id = "rex"\n[mode_voices]\npride = "p"\nfrench = " f "\naave = ""\n')
             secrets = Secrets.load(root)
-            self.assertEqual((secrets.elevenlabs_pride_voice_id, secrets.elevenlabs_aave_voice_id), ('p', 'a'))
-            self.assertNotIn('elevenlabs_pride_voice_id', secrets.readiness())
+            self.assertEqual(secrets.mode_voices, {'pride': 'p', 'french': 'f'})   # Empty keeps Rex's voice.
+            self.assertNotIn('mode_voices', secrets.readiness())
             self.assertNotIn("'p'", repr(secrets))
+            (root / 'secrets.toml').write_text('[mode_voices]\ncowboy = "x"\n')
+            with self.assertRaises(ValueError):
+                Secrets.load(root)
 
 
 class SessionTests(MemoryFixture):
@@ -203,6 +297,37 @@ class SessionTests(MemoryFixture):
         self.assertEqual(port.pose, before)                                   # Back where it was.
         again = self.turn('Seriously, are you gay?')
         self.assertEqual(again.gestures, [])                                  # Renewed, no second flourish.
+
+
+class AccentLineSessionTests(MemoryFixture):
+    turn = test_attention.AttentionTests.turn
+    setup_core = test_proactive_core.InitiativeCoreTests.setup_core
+    visible = test_proactive_core.InitiativeCoreTests.visible
+
+    def test_an_asked_for_line_is_said_in_that_voice_and_the_next_in_his_own(self):
+        tts = SyntheticTTS()
+        brain = Scripted(switch('british', 'line', text='Brilliant, absolutely brilliant, mate.'), 'Back to me.')
+        self.session = Session('session', brain, OutputOwner(tts, SyntheticSink(), self.state.trace), self.state.trace, self.state)
+        self.addCleanup(self.session.close)
+        result = self.turn('Say that like a Brit.')
+        self.assertEqual(result.completed_text, ['Brilliant, absolutely brilliant, mate.'])
+        self.assertEqual(len(brain.snapshots), 1)
+        self.turn('Thanks.')
+        self.assertEqual(tts.modes, ['british', None])
+        said = [r for r in self.state.trace.rows if r['event'] == 'speech_generated']
+        self.assertEqual([r.get('voice_mode') for r in said], ['british', None])
+
+    def test_his_own_lull_line_can_come_in_an_accent(self):
+        tts = SyntheticTTS()
+        brain = Scripted(lambda snapshot: switch('italian', 'line', requested=False, text='Allora, the pasta question.')(snapshot)
+                         if snapshot.context.get('trigger') else 'Pasta tonight, then.')
+        self.setup_core(brain, OutputOwner(tts, SyntheticSink(), self.state.trace))
+        self.turn('We are making pasta tonight.')
+        self.visible(108); self.runtime.proactive_tick()
+        lull = brain.snapshots[-1].context
+        self.assertTrue(lull.get('trigger') and lull.get('accent_line_allowed'))
+        self.assertEqual(tts.modes[-1], 'italian')
+        self.assertFalse(self.state.voice_modes.line_allowed(self.state.trace.clock()))
 
 
 class BodyTests(unittest.TestCase):

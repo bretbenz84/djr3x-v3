@@ -1044,6 +1044,12 @@ class OpenAIBrain(HTTPProvider):
                 voice += (' If they just brought up someone whose voice you have (impersonation: a famous voice, people, '
                           'or self when ready), a short surprise cameo with impersonate (requested false) beats a plain '
                           'answer when the moment is light. Do it or do not; never offer, announce or mention one in words.')
+            if snapshot.context.get('accent_line_allowed'):
+                # Owner, October 25: a line in an accent "here or there", as the conversation suggests.
+                voice += (' If the talk just brought up a place or people one of your accents fits (a Paris trip, sushi, '
+                          'a German car, the royals), now and then a one-line accent (voice_mode line, requested false) '
+                          'in THAT place\'s accent beats a plain line when the moment is light. Do it or do not; never '
+                          'offer or announce it.')
             if snapshot.context.get('visor_over_eyes'):
                 # October 22 (0421a222): told only in the instructions, he never noticed his own dark.
                 voice += (' Your visor is shut over your eyes right now: you see nothing. Now and then, when it fits, '
@@ -1234,23 +1240,25 @@ class ElevenLabsTTS(HTTPProvider):
     def __init__(self, key: str, voice_id: str, mode_voices=None):
         super().__init__()
         self.key, self.voice_id = key, voice_id
-        # Owner, October 25: pride and AAVE modes speak in voices of their own, by mode; while
-        # several are on, the one switched on last speaks. Empty or absent: Rex's own voice.
+        # Owner, October 25: each speaking mode (pride, AAVE, the accents) has a voice of its own, by
+        # mode. Empty or absent: Rex's own voice.
         self.mode_voices = {mode: voice for mode, voice in (mode_voices or {}).items() if voice}
-        self.modes = lambda: ()   # The modes on now, newest last; live composition reads the state owner.
+        self.modes = lambda: ()   # The mode on now; live composition reads the state owner.
         self._active = None
         self.level = None   # (sample_rate, text) -> PCM leveler; live composition supplies V2's.
         self.capability = Capability("tts", "ElevenLabs", "Rex speech synthesis",
                                      "eleven_v4_turbo", ("httpx",), ("network",))
 
-    def current_voice(self) -> str:
-        return next((self.mode_voices[m] for m in reversed(self.modes()) if m in self.mode_voices), self.voice_id)
+    def current_voice(self, mode: str | None = None) -> str:
+        """The line's own mode (an accent line), else the mode on now, each when it has a voice, else Rex's."""
+        modes = (mode,) if mode else tuple(self.modes())
+        return next((self.mode_voices[m] for m in modes if m in self.mode_voices), self.voice_id)
 
-    def synthesize(self, text: str, cancel: Cancellation):
+    def synthesize(self, text: str, cancel: Cancellation, mode: str | None = None):
         if self.client is None:
             raise ProviderFailure("TTSNotStarted")
         cancel.check()
-        url = "https://api.elevenlabs.io/v1/text-to-speech/" + quote(self.current_voice(), safe="") + "/stream"
+        url = "https://api.elevenlabs.io/v1/text-to-speech/" + quote(self.current_voice(mode), safe="") + "/stream"
         payload = {"text": text, "model_id": self.capability.model,
                    "voice_settings": {"stability": 0.5}, "seed": 1440639067}
         # V2's chosen v3 policy, kept for v4 Turbo (October 16): no previous_text, fixed natural stability/seed.

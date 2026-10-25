@@ -306,7 +306,8 @@ class DriveRuntimeTests(MemoryFixture):
         context = brain.snapshots[0].context
         self.assertEqual(context['trigger'], 'reconsideration')
         self.assertIn('radar:+150',session.agency_planner.requests[0]['evidence'])
-        self.assertEqual({d['name'] for d in grounded_tools(context)}, {'respond_with_intent'} | ({'revise_agency_plan'} if context['agency_step']['scope']=='audience' else set()))
+        self.assertEqual({d['name'] for d in grounded_tools(context)}, {'respond_with_intent'} | ({'revise_agency_plan'} if context['agency_step']['scope']=='audience' else set())
+                         | ({'voice_mode'} if context.get('accent_line_allowed') else set()))   # An accent line (October 25).
         self.state.trace.at, runtime.audio_seen_at = 230., 230.
         session.proactive_hold_until = float('-inf')
         runtime.proactive_tick()

@@ -177,8 +177,9 @@ class PlanTests(memory_tests.MemoryFixture):
         names={x['name'] for x in grounded_tools(context)}
         # Only a goal about a person can lose its premise. Nobody has spoken since it was planned,
         # so the beat is not optional (October 13: 13 of 22 beats let go, long silences).
-        self.assertEqual(names,{'respond_with_intent'} if context['agency_step']['scope']=='general'
-                         else {'respond_with_intent','revise_agency_plan'})
+        own = {'voice_mode'} if context.get('accent_line_allowed') else set()   # A line in an accent (October 25).
+        self.assertEqual(names,{'respond_with_intent'} | own if context['agency_step']['scope']=='general'
+                         else {'respond_with_intent','revise_agency_plan'} | own)
         spoke={**context,'agency_step':{**context['agency_step'],'people_spoke_since_planned':True}}
         self.assertIn('remain_silent',{x['name'] for x in grounded_tools(spoke)})
         self.assertIn('wait_for',{x['name'] for x in grounded_tools(spoke)})       # Or hold it for later, once.

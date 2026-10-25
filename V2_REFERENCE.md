@@ -1305,8 +1305,8 @@ lease in `hardware/leds_head.py`/`leds_chest.py` and the `PRIDE:{0|1}` firmware 
 `arduino/head_nano` (`72a946e4…`) and `arduino/chest_nano` (`1619abfe…`), already on the boards.
 
 Preserved: the triggers (asked about his own sexuality; greeted "what's up my homie"), a proud yes
-and a warm greeting back on the same turn, ten minutes renewed by asking or greeting again, both
-modes at once, V2's full-volume directives (minus "the real question still gets asked", which V3's
+and a warm greeting back on the same turn, ten minutes renewed by asking or greeting again, V2's
+full-volume directives (minus "the real question still gets asked", which V3's
 reply voice forbids) with AAVE's one guard against mocking parody; for pride the rainbow mouth and
 chest renewed inside the firmware's 10 s lease, the one-shot flourish (head fully down, visor wide,
 hero hand at the end of its travel, held 1 s, back), hero elbow/hand talking swings about twice as
@@ -1317,8 +1317,9 @@ one model call) instead of V2's regex arming; the state owner keeps the modes an
 carries a mode's directive last; "stand down pride mode" is the same tool, not a command parser
 entry. The flourish is a with-speech gesture through the output owner, eased on the talking pace;
 the lights, talking motion and voice read the modes through callables. New: the owner's voices
-(`elevenlabs_pride_voice_id`, `elevenlabs_aave_voice_id` in ignored `local/secrets.toml`), and
-sentry mode clears both modes and refuses them while it guards. Not ported: V2's enable switches
+(the `[mode_voices]` table in ignored `local/secrets.toml`, with eleven accents added the same day), and
+sentry mode clears both modes and refuses them while it guards. Changed: V2 let both be on at
+once; the owner asked the same evening for one mode at a time. Not ported: V2's enable switches
 and timing settings (no current user choice), the emoji filter (not seen in V3 output yet).
 
 Checks: `tests/test_voice_modes.py`, synthetic providers, pulse and serial ports. Remaining live
