@@ -21,6 +21,16 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## A slower, eased wiggle — October 24
+
+Live run `aedd9ce6` (real hardware): talking while rolling worked. In the 0.4 m roll the
+line played over about 1.8 s of the 2.3 s the wheels turned, and on the approach about 3.4 s;
+the visor alone talked. The owner then found the side-to-side `wiggle`, done right before
+shutdown, too rapid and creaky. It was three reversals in about 1.5 s on the steepest head ramp of
+any expression. Each swing now eases in and out on one smooth curve, like idle head moves:
+3.1 s in all, a fifth of the acceleration and under half the peak speed
+([servos](SERVO_INTEGRATION.md)). Synthetic pulses only; **not yet seen on the robot**.
+
 ## He talks while he rolls — October 24
 
 Owner: "He either talks, or rolls, but never both at the same time." In 309 saved drives (56

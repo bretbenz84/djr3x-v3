@@ -1330,8 +1330,11 @@ whir quiet while he talks, short lines only, and a stop still heard over his voi
   (logged VAD counts, no waveforms).
 
 Checks (synthetic speech, simulated base and servo pulses): 21 new in
-`tests/test_talk_while_rolling.py`. **Not yet run on the robot or against the hosted models.**
-Open: how the visor-only talking looks while rolling; whether the model writes good rolling
-lines and how often; whether a person's "stop" over his voice is transcribed in time (a live
-test: someone says "stop" while he talks and rolls, at measured distances); and whether the
-brief whir pauses between lines sound odd.
+`tests/test_talk_while_rolling.py`. First robot run `aedd9ce6` (October 24): the owner said it
+worked. "See? Two operations." played over about 1.8 s of a 2.3 s, 0.4 m roll, and a rolling
+line overlapped about 3.4 s of an approach; the visor alone talked (`talk-visor`), and one
+`stop_peek` over his own voice ("Oh.") was correctly not a stop. No stop was said over his voice,
+so that remains untested.
+Open: whether a person's "stop" over his voice is transcribed in time (a live test: someone
+says "stop" while he talks and rolls, at measured distances), and how often the model writes a
+rolling line (2 of 7 plans in `aedd9ce6`: one when asked to try it, one on his own).

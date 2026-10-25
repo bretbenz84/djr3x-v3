@@ -564,11 +564,15 @@ POKER_TAIL_TRAIL = (.5, .8)        # The wrist arrives this much later.
 # left and right when they're perplexed"; use the new freedom for more expression). Each is
 # a finite run of (pitch change, tilt change, dwell) from where the head is, then back to it;
 # "subtle" halves the amounts. 'side' expressions cock away from any lean already there.
+# 'ease' (least seconds, seconds per degree) moves each step on one smooth curve timed by its
+# size, like idle and talking head moves, instead of the board's fixed speed and acceleration.
 HEAD_EXPRESSIONS = {
     'nod': {'moves': ((-.3, 0., .25), (.1, 0., .25)), 'speed': 35},
     'tilt': {'moves': ((0., .6, .5),), 'speed': 20, 'side': True},                  # One cock and back.
     'perplexed': {'moves': ((-.08, .6, .7), (-.08, -.6, .7)), 'speed': 25, 'side': True},   # The dog's double cock, looking slightly down.
-    'wiggle': {'moves': ((0., .35, .12), (0., -.35, .12), (0., .35, .12)), 'speed': 50, 'acceleration': 10},  # Quick playful side to side.
+    # Playful side to side. Owner, October 24: too rapid, and it creaked (three reversals in about
+    # 1.5 s on the steepest head ramp of any expression). Each swing now eases in and out: about 3 s.
+    'wiggle': {'moves': ((0., .35, .15), (0., -.35, .15), (0., .35, .15)), 'ease': (.35, .03)},
     'sympathetic': {'moves': ((-.15, .45, 1.2),), 'speed': 12, 'acceleration': 3, 'side': True},   # Slow cock, slightly down, held.
     # The visor snaps wide open to its surprise position as the head lifts a little, holds,
     # and both ease back (owner, October 11: surprise is 1136 us).
@@ -710,10 +714,17 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
             pitch0, tilt0 = head_pose(current)
             side = (-1. if tilt0 > .2 else 1.) if spec.get('side') else 1.
             start = tuple((ch, current[ch]) for ch in HEAD_PAIR)
-            lane = tuple(Beat(tuple(head_pulses(pitch0+dp*scale, tilt0+side*dt*scale).items()),
-                              speed=spec['speed'],acceleration=spec.get('acceleration',6),dwell=dwell)
-                         for dp,dt,dwell in spec['moves'])
-            lane += (Beat(start,speed=spec['speed'],acceleration=spec.get('acceleration',6)),)
+            aims = [tuple(head_pulses(pitch0+dp*scale, tilt0+side*dt*scale).items()) for dp,dt,_ in spec['moves']]
+            if 'ease' in spec:
+                at, lane = dict(current), ()
+                for aim, (_, _, dwell) in zip(aims, spec['moves']):
+                    lane += (eased_head_beat(at, aim, dwell, pace=spec['ease']),)
+                    at.update(aim)
+                lane += (eased_head_beat(at, start, pace=spec['ease']),)
+            else:
+                lane = tuple(Beat(aim,speed=spec['speed'],acceleration=spec.get('acceleration',6),dwell=dwell)
+                             for aim,(_,_,dwell) in zip(aims, spec['moves']))
+                lane += (Beat(start,speed=spec['speed'],acceleration=spec.get('acceleration',6)),)
             if 'visor' in spec:
                 # Its own lane: the visor snaps (unlimited acceleration) while the head moves
                 # at its own pace; subtle opens it half as far beyond where it is.

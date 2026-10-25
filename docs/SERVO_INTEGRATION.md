@@ -316,7 +316,8 @@ pitches both servos. The camera reframe rule counts both head servos.
 *Expressions (October 10 evening; owner: "dogs cock their heads left and right when they're
 perplexed", use the freedom for more expression).* `HEAD_EXPRESSIONS` adds `perplexed`
 (cock 0.6 to one side, swing to the other, slightly down, 0.7 s each), `wiggle` (three
-quick 0.35 cocks side to side) and `sympathetic` (a slow 0.45 cock, slightly down, held
+0.35 cocks side to side; since October 24 each swing eases in and out, about 3 s in all, see
+below) and `sympathetic` (a slow 0.45 cock, slightly down, held
 1.2 s). All return the head to where it was and hold nothing. They are offered to the
 reply model as `respond_with_gesture` primitives (with guidance on when each fits and to
 keep most lines plain) and, apart from the plain `tilt`, as `set_robot_pose` steps for
@@ -324,6 +325,16 @@ requests and Rex's own plans. The choice stays with the conversation model: no e
 mapped to an animation. Idle life carries a little more tilt: drift ±0.06, glances away
 cock 0.1-0.25, room scans ±0.3, and while following a face the head settles into a gentle
 0.15-0.3 cock for 3-8 s every 10-25 s, then straightens.
+
+*The wiggle eases (October 24; owner: "too rapid and creaks", seen right before shutdown in
+`aedd9ce6`).* It had three reversals in about 1.5 s (1.9 s measured live) at board speed 50 and
+acceleration 10 on both head servos, the steepest head ramp of any expression. A
+`HEAD_EXPRESSIONS` entry may now carry `ease` (least seconds, seconds per degree): each step
+then moves on one smooth curve timed by its size, as idle and talking head moves do. The
+wiggle uses (0.35 s, 0.03 s per degree) with 0.15 s pauses: half swings about 0.56 s, full
+swings 0.77 s, 3.1 s in all (2.5 s subtle); the board ramp is acceleration 2 and speed at most
+10, under half the old peak speed. The other expressions are unchanged. Synthetic pulses
+only: how it looks and whether the creak is gone are **not yet checked on the robot**.
 
 **Poker arm.** Channel 6 still swings the arm. New `poker_elbow` (12: 864 µs down, 1920
 up) and `poker_wrist` (13: 496 down, 1440 straight, 2486 curled up and inward). The elbow
