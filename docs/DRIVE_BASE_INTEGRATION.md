@@ -1408,3 +1408,8 @@ Rex" scored .84-1.00 on the saved calls down to 30 dB quieter, so channel 1's lo
 problem. Each stretch of his speech now logs its peak wake scores (`wake_word_listened`, with the
 channel), and a wake word heard when he is not talking logs `not_over_his_voice`. Not yet run live.
 
+Owner, after a live run: the channel-1 change works for "Hey Rex". The stop word now does the same
+standing still: `stop.onnx` heard over his voice (channel 1) ends his speech exactly as a spoken
+"stop" does (`stop_word_heard` status `stopped_speech`); while the wheels run it still halts them.
+His own line saying "stop" never counts, and each stretch of his speech also logs its peak stop score.
+

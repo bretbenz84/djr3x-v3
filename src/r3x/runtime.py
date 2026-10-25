@@ -224,7 +224,7 @@ class VoiceRuntime:
             if self._wake_listening is None:
                 self._wake_listening = [frame.started_at, {}]
             peaks = self._wake_listening[1]
-            for word in WAKE_WORDS:
+            for word in (*WAKE_WORDS, 'stop'):
                 peaks[word] = max(peaks.get(word, 0.), scores.get(word, 0.))
         elif self._wake_listening is not None:
             # Evidence for live checks: how close a wake word came while he spoke.
@@ -247,14 +247,17 @@ class VoiceRuntime:
             return
         said_between = getattr(self.session.output, 'said_between', None)
         own = (said_between(frame.ended_at - STOP_WORD_OWN_SECONDS, frame.ended_at) if said_between else '') or ''
-        if 'stop' in fired and moving:
+        if 'stop' in fired and (moving or speaking):
+            # Owner, October 25: like "Hey Rex", a "stop" said over his voice is heard on channel 1;
+            # standing still it ends his speech exactly as a spoken stop does.
             if re.search(r"\bstop", own.lower()):   # "Stopped.", "I'll stop at the door."
                 self.trace.emit('stop_word_heard', status='his_own_line', score=round(fired['stop'], 3))
             else:
-                self.drive.cancel()   # Wheels first; the conversation's own stop follows.
+                if moving:
+                    self.drive.cancel()   # Wheels first; the conversation's own stop follows.
                 self.cancel()
-                self.trace.emit('stop_word_heard', status='halted', score=round(fired['stop'], 3),
-                                echo_risk=frame.echo_risk)
+                self.trace.emit('stop_word_heard', status='halted' if moving else 'stopped_speech',
+                                score=round(fired['stop'], 3), echo_risk=frame.echo_risk)
                 return
         wake = next((w for w in fired if w in WAKE_WORDS), None)
         if wake is None:

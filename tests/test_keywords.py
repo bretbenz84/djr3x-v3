@@ -103,7 +103,8 @@ class StopWordRuntimeTests(unittest.TestCase):
 
 class WakeWordTests(unittest.TestCase):
     """Owner, October 25: "Hey Rex" or "Hey DJ Rex" said over him cuts his line so he can listen."""
-    def speak_and_wake(self, moving=False, line='The thing about hyperdrives is that nobody reads the manual.'):
+    def speak_and_wake(self, moving=False, line='The thing about hyperdrives is that nobody reads the manual.',
+                       word='Hey_rex'):
         from r3x.contracts import Capture, Transcript as T
         trace = Trace()
         played, cut = threading.Event(), threading.Event()
@@ -146,7 +147,7 @@ class WakeWordTests(unittest.TestCase):
         class ASR:
             def transcribe(inner, capture, cancel): return T('', None, False)
         runtime = VoiceRuntime(Mic(), VAD(), ASR(), session, trace, drive=drive,
-                               keywords=Spotter(fire_at={5}, word='Hey_rex'))
+                               keywords=Spotter(fire_at={5}, word=word))
         with patch('sys.stdin.isatty', return_value=False):
             runtime.run()
         reply.join(5)
@@ -164,6 +165,14 @@ class WakeWordTests(unittest.TestCase):
         self.assertEqual(halted, [])                                  # The wheels are left alone.
         self.assertTrue(any(m.get('content', '').startswith('They said "Hey Rex" over you')
                             for m in session.history.messages()))
+
+    def test_stop_over_his_line_standing_still_ends_it_as_a_spoken_stop_does(self):
+        rows, cut, halted, session = self.speak_and_wake(word='stop')
+        heard = next(i for i, r in enumerate(rows) if r['event'] == 'stop_word_heard')
+        self.assertEqual(rows[heard]['status'], 'stopped_speech')
+        self.assertEqual(rows[heard - 1]['event'], 'input_invalidated')   # The explicit stop path.
+        self.assertTrue(any(r['event'] == 'delivery' and r['status'] == 'interrupted' for r in rows))
+        self.assertEqual(halted, [])
 
     def test_while_the_wheels_run_it_waits(self):
         rows, cut, halted, session = self.speak_and_wake(moving=True)
