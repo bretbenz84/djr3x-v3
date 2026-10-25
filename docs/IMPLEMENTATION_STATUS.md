@@ -37,11 +37,16 @@ fictional input saved 13 of 15 expected lines (7 of 15 with the old persona) and
 save. Synthetic voices and faces for the state rules; **not yet run on the robot**. 1573 blocked-I/O checks
 pass (5 skipped).
 
-Seen in the same run and **not** repaired here: during the drive to the door (about 80 s) the owner says he
-called "stop" many times, but the speech detector registered no speech while the wheels ran (peak speech
-probability mostly under .45), so no stop reached Rex; three of Rex's own beats changed the subject to
-houseplants, pizza and mugs right after a painful story ("Why did you just talk about mugs?"). A name-only
-"Jennifer" record from the mistaken introduction remains in the database for the owner to remove.
+Stops missed during the drive to the door ("an ongoing problem"): the board turns everything down
+under motor noise, and a faint "stop" is heard as "Oh." or "Ah.". While the wheels run a quieter sound
+now counts (.3), an unconfident lone "Whoa" no longer halts, and the owner's `stop.onnx` listens in the
+sound itself. On saved September robot audio stops heard rose only from 28 to 29 of 60 and false halts
+fell from 3 to 1; whether the board suppresses the voice needs a live recorded test
+([drive base](DRIVE_BASE_INTEGRATION.md#october-25-stops-still-missed-while-rolling)); 1584 blocked-I/O
+checks pass (5 skipped), 11 new in `tests/test_stop_word.py`. Not repaired: three
+of Rex's own beats changed the subject to houseplants, pizza and mugs right after a painful story ("Why
+did you just talk about mugs?"). A name-only "Jennifer" record from the mistaken introduction remains in
+the database for the owner to remove.
 
 ## October 24 run: the introduced guest still went unlearned
 

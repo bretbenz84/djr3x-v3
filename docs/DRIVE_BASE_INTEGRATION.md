@@ -1338,3 +1338,41 @@ so that remains untested.
 Open: whether a person's "stop" over his voice is transcribed in time (a live test: someone
 says "stop" while he talks and rolls, at measured distances), and how often the model writes a
 rolling line (2 of 7 plans in `aedd9ce6`: one when asked to try it, one on his own).
+
+## October 25: stops still missed while rolling
+
+Owner after run `a0afcf85`: "I told you to stop many times, and you did not stop", and "this has
+been an ongoing problem". The same complaint follows drives on October 16 (`3af18a12`, repaired
+then: a full transcript queue) and October 19 (`b4ce6464`). In `a0afcf85`, during the 80 s drive
+toward the door, two short sounds were captured and heard as "Okay." and "Ah." (the second the
+loudest moment of the drive, at full scale); nothing else opened a capture. The speech detector's
+peak stayed .2-.45 in burst after burst while the wheels ran. Across the five runs that log
+`wheels_moving`, 14% of moving seconds reached .5 against 51% standing still, and the processed
+channel's quietest tenth of moving seconds read -55 to -65 dBFS against -47 to -52 for a still,
+silent room: the board turns everything down under motor noise, as on October 19 (-43 vs -40).
+
+Saved-audio check `tools/check_stop_hearing.py --local-audio` (real Silero, Qwen3-ASR and
+openWakeWord on the September 27 robot captures, the only robot-microphone audio kept): the two
+stops said during a drive, mixed into that drive's noise 0 to -24 dB down (farther away), six
+times each. The recognizer is the main limit, not the detector: a faint "stop" becomes "Oh." or
+"Ah." once the "st" and "p" sink under the motors. A recognizer hint ("Stop") heard a stop in every
+one of 69 noise-only clips, so it is not used. Every stop word made out of noise was an unconfident
+"Whoa!". The owner's `stop.onnx` (openwakeword.com library, model 1111) scored his clean "Oh,
+stop!" .95 but his plain "Stop." only .04-.40, and over drive noise it fired on 0 of 60 mixes in
+this run (6 of 60 in an earlier one), never on 248 other utterances or 939 s of noise. Repairs:
+- **A quieter sound counts while the wheels run** (`DRIVE_SPEECH_PROBABILITY`, .3 against the
+  usual .5), so a faint stop reaches the stop check.
+- **An unconfident lone "Whoa" does not halt** (`stop_peek` status `unsure_whoa`); a confident
+  one, or "stop" at any confidence, still does.
+- **The owner's stop word is listened for in the sound itself** while the wheels run
+  (`adapters/stop_word.py`, `StopSpotter`: .7 for two running 80 ms frames, his own recent line
+  containing "stop" set aside, models checked against the wake manifest, `openwakeword` from
+  `requirements-robot.txt`, about 1.6 ms per 80 ms frame). Each drive logs its peak score
+  (`stop_word_listened`), a halt `stop_word_heard`.
+
+On that audio stops heard went from 28 to 29 of 60 and false halts from 3 to 1 (a confident
+"Whoa!" in other speech). That small gain is all the saved audio can show: mixing adds noise to a
+clean voice, but cannot reproduce the board turning a voice down. **Not yet run on the robot.**
+The live test still owed: the wheels running, someone saying "stop" at measured distances, with
+the board's channel 0 and its second channel recorded, to learn whether the board suppresses the
+voice and whether the second channel keeps it.

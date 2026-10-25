@@ -1,5 +1,6 @@
 """Live orchestration: bounded capture/ASR queues feeding the shared Session."""
 from collections import deque
+import re
 from queue import Queue, Empty, Full
 from dataclasses import replace
 import sys
@@ -39,6 +40,12 @@ SHUTDOWN_COMMANDS = frozenset({'shut down', 'shutdown', 'shut down rex'} | {
 # endpoint. Nothing else is acted on early: the full capture still becomes the turn.
 STOP_PEEK_SILENCE = .2         # Pause after a short burst before it is checked for "stop".
 STOP_PEEK_MAX_VOICED = 1.5     # Longer speech is a sentence, not a stop: normal endpointing.
+# His own line said a stop word this recently: a stop-word detection may be his voice heard back.
+STOP_WORD_OWN_SECONDS = 1.5
+# While the wheels run the board turns everything down (October 25: the processed channel's quietest
+# tenth of moving seconds was -55 to -65 dBFS, a still room -47 to -52), and a "stop" from across the
+# room rarely lifts the speech detector to its usual .5. A sound this likely to be speech is taken.
+DRIVE_SPEECH_PROBABILITY = .3
 # How long the idle tick waits for a just-started goal plan before returning to listening.
 # Hosted planning takes seconds and finishes in the background; this bounds the pause.
 PLANNING_GLANCE_SECONDS = .25
@@ -52,8 +59,11 @@ SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish
 WAITING_TURNS = 8   # Transcripts kept while the conversation is busy (a long drive), beyond the queue.
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None):
+    def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None, stop_word=None):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
+        self.stop_word = stop_word   # adapters.stop_word.StopSpotter, fed only while the wheels run.
+        self._spotting = None        # When the current drive's listening began, or None.
+        self._spot_peak = 0.
         self.endpoint = Endpoint(session.session_id, silence)
         self.perception, self.recorder = perception, recorder
         self.captures = Queue(maxsize=2)
@@ -169,16 +179,53 @@ class VoiceRuntime:
                 self.trace.emit('stop_peek', status='failed', error_type=type(exc).__name__)
                 return
             halt = stop_heard_over(transcript.text, own)
+            # October 25 (tools/check_stop_hearing.py): every stop word the recognizer made out of
+            # drive noise was an unconfident "Whoa!"; the real stops were mostly confident.
+            unsure = halt and not transcript.trusted and set(re.findall(r"[a-z]+", transcript.text.lower())) <= {'whoa', 'oh'}
+            halt = halt and not unsure
             acted = (halt and revision == self.session.revision and not self.stop.is_set()
                      and self.drive.moving.is_set())
             if acted:
                 self.drive.cancel()   # Wheels first; the conversation's own stop follows.
                 self.cancel(quiet=is_quiet_command(transcript.text))
-            self.trace.emit('stop_peek', status='halted' if acted else 'stop_word_late' if halt else 'not_a_stop',
+            self.trace.emit('stop_peek', status='halted' if acted else 'stop_word_late' if halt else
+                            'unsure_whoa' if unsure else 'not_a_stop',
                             text=transcript.text, avg_logprob=transcript.avg_logprob, over_own_speech=bool(own),
                             echo_risk=burst.echo_risk, asr_seconds=round(self.trace.clock() - began, 3),
                             after_speech_seconds=round(self.trace.clock() - burst.speech_ended_at, 3))
         threading.Thread(target=run, name='r3x-stop-peek', daemon=True).start()
+
+    def _listen_for_stop(self, frame):
+        """While the wheels run, the stop word is listened for in the sound itself, beside the
+        speech detector and recognizer (adapters/stop_word.py). His own line saying a stop word
+        never stops him; sentry mode decides for itself."""
+        if self.drive is None or not self.drive.moving.is_set():
+            if self._spotting is not None:
+                # Evidence for the next live check: how close anything came while he rolled.
+                self.trace.emit('stop_word_listened', seconds=round(frame.ended_at - self._spotting, 2),
+                                peak_score=round(self._spot_peak, 3))
+                self.stop_word.reset()
+                self._spotting = None
+            return
+        if self._spotting is None:
+            self._spotting, self._spot_peak = frame.started_at, 0.
+        try:
+            score = self.stop_word.feed(frame.pcm)
+        except Exception as exc:
+            self.trace.emit('stop_word_failed', error_type=type(exc).__name__)
+            self.stop_word = None
+            return
+        self._spot_peak = max(self._spot_peak, getattr(self.stop_word, 'last_score', None) or 0.)
+        if score is None or self.guarding() or self.stop.is_set():
+            return
+        said_between = getattr(self.session.output, 'said_between', None)
+        own = said_between(frame.ended_at - STOP_WORD_OWN_SECONDS, frame.ended_at) if said_between else ''
+        if re.search(r"\bstop", (own or '').lower()):   # "Stopped.", "I'll stop at the door."
+            self.trace.emit('stop_word_heard', status='his_own_line', score=round(score, 3))
+            return
+        self.drive.cancel()   # Wheels first; the conversation's own stop follows.
+        self.cancel()
+        self.trace.emit('stop_word_heard', status='halted', score=round(score, 3), echo_risk=frame.echo_risk)
 
     def flush_turns(self):
         """Move waiting transcripts into the conversation queue, in order, as room appears."""
@@ -674,6 +721,11 @@ class VoiceRuntime:
                     vad_fresh_at = frame.started_at
                 previous_echo = frame.echo_risk
                 speech = self.vad.is_speech(frame.pcm)
+                if (not speech and not frame.echo_risk and self.drive is not None and self.drive.moving.is_set()
+                        and (getattr(self.vad, 'last_probability', None) or 0.) >= DRIVE_SPEECH_PROBABILITY):
+                    speech = True
+                if self.stop_word is not None:
+                    self._listen_for_stop(frame)
                 seconds = frame.ended_at - frame.started_at
                 run = run + seconds if speech else 0.
                 while recent and frame.ended_at - recent[0][0] > 1.:
