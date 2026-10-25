@@ -28,6 +28,9 @@ FLASH_SECONDS = .25        # The alarm flash: eyes and mouth on and off this oft
 # board reset in the system log, and stayed dark until his next line set them. Between lines the eye
 # colour is sent again this often, so a dropped repaint or power dip heals within seconds.
 EYE_REFRESH_SECONDS = 3.
+# Pride mode (V2's rainbow overlays, ported October 25): the head firmware swirls the mouth and the chest
+# firmware runs a rainbow while PRIDE:1 is renewed within 10 s; this renews it well inside that.
+PRIDE_REFRESH_SECONDS = 3.
 
 
 @dataclass(frozen=True)
@@ -88,6 +91,8 @@ class LEDs:
         self.speak_sent, self.speak_sends = float('-inf'), 0
         self.eyes_sent = float('-inf')    # When the eye colour was last sent between lines.
         self.blinking = False             # A requested blink is dark on purpose: no refresh over it.
+        self.pride = None                 # callable -> True while pride mode is on (the state owner's voice modes).
+        self.pride_on, self.pride_sent = False, float('-inf')
         self.trace = None
         self.on_command = []              # Observers (zone, command) of each command written; the dashboard mirror.
 
@@ -151,6 +156,7 @@ class LEDs:
             if self.state != 'ready':
                 return
             now = self.clock()
+            self._pride_lease(now)
             if not (self.speaking or self.demo):
                 if ('head' in self.devices and not self.chest_only and not self.blinking
                         and now - self.eyes_sent >= EYE_REFRESH_SECONDS):
@@ -187,6 +193,16 @@ class LEDs:
             if abs(level-self.last_level)>=8 or now-self.last_sent>=.5:
                 self._send('head',f'SPEAK_LEVEL:{level}')
                 self.last_level,self.last_sent = level,now
+
+    def _pride_lease(self, now):
+        """Rainbow mouth and chest while pride mode is on; never over sentry mode's red."""
+        on = bool(self.pride and not self.guarding and self.pride())
+        if on and now - self.pride_sent >= PRIDE_REFRESH_SECONDS or on != self.pride_on:
+            self._both('PRIDE:1' if on else 'PRIDE:0')
+            if on != self.pride_on and self.trace:
+                self.trace.emit('led_lifecycle', kind='pride_on' if on else 'pride_off',
+                                status='commands_sent', evidence='display_unverified')
+            self.pride_on, self.pride_sent = on, now
 
     def _levels(self):
         while not self.stop_event.wait(.05):

@@ -1291,3 +1291,37 @@ Checks: 39 native checks pass from v3. The full four-flag Bluepad32 build from v
 (32 bytes at 0xb0) and the trailing image checksum and digest differ, both from the
 sketch path recorded in the ELF, so the code on the board is this source. Remaining live
 validation is unchanged (previous section).
+
+## Pride mode and AAVE mode — October 25, 2026
+
+Owner request: port V2's pride mode ("queeny mode") and its African American Vernacular English
+mode ("homie mode"), each in an ElevenLabs voice of its own. Source HEAD
+`95f2403e78c9ef786054fa13a31bb2ac534cc29d`; `intelligence/`, `sequences/`, `hardware/`, `config.py`
+and `arduino/` clean (only firmware and one firmware test are dirty). Read, not copied as code:
+`intelligence/pride.py` (SHA-256 `e81d18c4…`), `intelligence/homie.py` (`f2c482f8…`), the
+`pride_flourish` in `sequences/animations.py` (`64c7dec8…`), `PRIDE_WRIST` in `sequences/throttle_arm.py`
+(`c86d9c0b…`), the `PRIDE_SPEECH_*` talking motion in `hardware/servos.py` (`5266d445…`), the PRIDE
+lease in `hardware/leds_head.py`/`leds_chest.py` and the `PRIDE:{0|1}` firmware commands in
+`arduino/head_nano` (`72a946e4…`) and `arduino/chest_nano` (`1619abfe…`), already on the boards.
+
+Preserved: the triggers (asked about his own sexuality; greeted "what's up my homie"), a proud yes
+and a warm greeting back on the same turn, ten minutes renewed by asking or greeting again, both
+modes at once, V2's full-volume directives (minus "the real question still gets asked", which V3's
+reply voice forbids) with AAVE's one guard against mocking parody; for pride the rainbow mouth and
+chest renewed inside the firmware's 10 s lease, the one-shot flourish (head fully down, visor wide,
+hero hand at the end of its travel, held 1 s, back), hero elbow/hand talking swings about twice as
+wide and often, and the throttle wrist curl (9016, inside the raised clearance box).
+
+Adapted: the reply model calls a `voice_mode` tool (on/off, with its line spoken after the switch,
+one model call) instead of V2's regex arming; the state owner keeps the modes and the reply request
+carries a mode's directive last; "stand down pride mode" is the same tool, not a command parser
+entry. The flourish is a with-speech gesture through the output owner, eased on the talking pace;
+the lights, talking motion and voice read the modes through callables. New: the owner's voices
+(`elevenlabs_pride_voice_id`, `elevenlabs_aave_voice_id` in ignored `local/secrets.toml`), and
+sentry mode clears both modes and refuses them while it guards. Not ported: V2's enable switches
+and timing settings (no current user choice), the emoji filter (not seen in V3 output yet).
+
+Checks: `tests/test_voice_modes.py`, synthetic providers, pulse and serial ports. Remaining live
+validation: how the lines sound in both voices, the flourish and hand swings on the robot, the
+rainbow on both boards, and whether the model calls the tool for real questions and greetings
+and not for questions about other people.

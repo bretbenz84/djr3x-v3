@@ -1097,6 +1097,13 @@ class OpenAIBrain(HTTPProvider):
                 'Look closer only if it serves what they are talking about now; otherwise remain_silent and let this '
                 'look go. The goal goes on.' if step.get('kind') == 'inspect' else
                 'Do this move only in a way that fits what is happening now.')})
+        from ..voice_modes import directive
+        mode = directive(snapshot.context.get('voice_mode'))
+        if mode:
+            # Pride or AAVE mode (ported from V2, October 25) rides last, tool-result follow-ups included,
+            # so every line he says while it is on lands in register.
+            at = payload['input'].index(images_message) if images_message in payload['input'] else len(payload['input'])
+            payload['input'].insert(at, {'role':'developer','content':mode})
         offered = None
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             # Prompt caching matches the rendered prefix, and tool definitions precede the
@@ -1224,19 +1231,26 @@ class OpenAIBrain(HTTPProvider):
 class ElevenLabsTTS(HTTPProvider):
     sample_rate = 22050
 
-    def __init__(self, key: str, voice_id: str):
+    def __init__(self, key: str, voice_id: str, mode_voices=None):
         super().__init__()
         self.key, self.voice_id = key, voice_id
+        # Owner, October 25: pride and AAVE modes speak in voices of their own, by mode; while
+        # several are on, the one switched on last speaks. Empty or absent: Rex's own voice.
+        self.mode_voices = {mode: voice for mode, voice in (mode_voices or {}).items() if voice}
+        self.modes = lambda: ()   # The modes on now, newest last; live composition reads the state owner.
         self._active = None
         self.level = None   # (sample_rate, text) -> PCM leveler; live composition supplies V2's.
         self.capability = Capability("tts", "ElevenLabs", "Rex speech synthesis",
                                      "eleven_v4_turbo", ("httpx",), ("network",))
 
+    def current_voice(self) -> str:
+        return next((self.mode_voices[m] for m in reversed(self.modes()) if m in self.mode_voices), self.voice_id)
+
     def synthesize(self, text: str, cancel: Cancellation):
         if self.client is None:
             raise ProviderFailure("TTSNotStarted")
         cancel.check()
-        url = "https://api.elevenlabs.io/v1/text-to-speech/" + quote(self.voice_id, safe="") + "/stream"
+        url = "https://api.elevenlabs.io/v1/text-to-speech/" + quote(self.current_voice(), safe="") + "/stream"
         payload = {"text": text, "model_id": self.capability.model,
                    "voice_settings": {"stability": 0.5}, "seed": 1440639067}
         # V2's chosen v3 policy, kept for v4 Turbo (October 16): no previous_text, fixed natural stability/seed.

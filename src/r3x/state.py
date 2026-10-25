@@ -137,6 +137,8 @@ class CoreState:
         self.min_face_epoch = 0
         from .proactive import Initiative
         self.initiative = Initiative(trace)
+        from .voice_modes import VoiceModes
+        self.voice_modes = VoiceModes()   # Pride and AAVE modes (ported from V2, October 25).
         self._load_topic_boundaries()
         from .present import Present
         self.present = Present()   # Who is here, things around, the conversation clock.
@@ -724,9 +726,11 @@ class CoreState:
         track = self.tracker.tracks.get(attribution.track_id) if attribution.reason!="tentative_continuity" else None
         speaker_person = self.store.person(attribution.speaker_id) if attribution.speaker_id else None
         from .face_attribution import public_face
+        modes = self.voice_modes.context(self.trace.clock())
         return self.note_audience({"source_turn_id":turn_id,"state_revision":self.store.revision,
                 "current_utterance":transcript.text,"calendar_date":self.calendar_today().isoformat(),
                 "participation":self.initiative.context(self.trace.clock()),
+                **({"voice_mode":modes} if modes else {}),
                 "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
                 "speaker":{**asdict(attribution),"speaker_id":attribution.speaker_id,
                            "display_name":speaker_person["name"] if speaker_person else None,
@@ -787,8 +791,10 @@ class CoreState:
         from .memory_opportunities import candidates
         offered = candidates(self.store,faces,self.calendar_today(),self.memory_cursor,now=self.wall_clock())
         if advance_memory_cursor: self.memory_cursor += len(offered)
+        modes = self.voice_modes.context(self.trace.clock())
         return self.note_audience({'observations':cues,'calendar_date':self.calendar_today().isoformat(),'memory_opportunities':offered,'trigger':event.kind,'event_id':event.event_id,'state_revision':self.store.revision,
                 'participation':self.initiative.context(self.trace.clock()),
+                **({'voice_mode':modes} if modes else {}),   # His own lines keep a mode's delivery too.
                 'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
                                'quiet_seconds':event.quiet_seconds,
                                'audience':'arrival_target' if event.kind=='visual_arrival' else
@@ -1326,6 +1332,16 @@ class CoreState:
             self._source_allowed(args,name)
             return {"mode":args["mode"] if name=="stop_chiming_in" else "available","source_turn_id":turn_id,
                     "reason":"explicit_initiative_request"},False
+        if name == 'voice_mode':
+            # A clearly heard person's question or greeting this turn; no sentry guard in a camp voice.
+            self._source_allowed(args,name)
+            if self.sentry.active:raise ValueError('SentryModeActive')
+            from .voice_modes import MODE_SECONDS
+            on = args['switch'] == 'on'
+            return {'mode':args['mode'],'switch':args['switch'],'source_turn_id':turn_id,
+                    'minutes':round(MODE_SECONDS/60) if on else 0,
+                    # Pride's one-shot pose as it first comes on, as V2 threw it when the mode armed.
+                    'flourish':on and args['mode']=='pride' and not self.voice_modes.on('pride',self.trace.clock())},False
         if name == "remember_followup":
             self._source_allowed(args,name)
             from .memory_opportunities import validate_date, resolve_due
@@ -1788,6 +1804,10 @@ class CoreState:
         if name in {'retract_visual','revise_visual'}:
             self.agency.clear(name)
             self.initiative.invitations.invalidate(name,erase=True)
+        if name == 'voice_mode':
+            self.voice_modes.switch(data['mode'], data['switch']=='on', self.trace.clock())
+        if name == 'sentry_mode':
+            self.voice_modes.clear()   # He guards in his own voice and red lights.
         if name in {'stop_chiming_in','resume_chiming_in'}:
             self.initiative.quiet = data['mode'] in ('quiet','silent')
             self.initiative.silent = data['mode']=='silent'

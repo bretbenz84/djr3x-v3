@@ -75,6 +75,13 @@ it or reads its data.
   works once Rex has heard about six seconds of your clean speech; a stranger's voice lasts
   for the session only. Parody is never stored as a fact. Live acceptance pending
   ([details](docs/IMPERSONATION.md)).
+- **Pride and AAVE modes (October 25, from V2).** Ask Rex whether he is gay and he says a proud
+  yes and goes full camp for ten minutes ("Yasss, sis!"), in his pride voice, with a rainbow mouth
+  and chest, a head-down, visor-up flourish as it starts and bigger hand gestures while he talks.
+  Greet him "what's up my homie" and he talks in African American Vernacular English for ten
+  minutes, in a voice of its own. Asking or greeting again starts the ten minutes over; "stand
+  down pride mode" or "talk normal again" ends one. The reply model decides, not word matching.
+  Not yet run on the robot ([details](docs/IMPLEMENTATION_STATUS.md#pride-and-aave-modes--october-25)).
 - **Rooms (October 11).** With `place_recognition_enabled`, V2's room model (run locally)
   tells Rex which room he is in. In an unfamiliar room he asks what it is and learns it
   when told, remembers which rooms he has moved between, and may set off to explore. V2's

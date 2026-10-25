@@ -48,6 +48,34 @@ of Rex's own beats changed the subject to houseplants, pizza and mugs right afte
 did you just talk about mugs?"). A name-only "Jennifer" record from the mistaken introduction remains in
 the database for the owner to remove.
 
+## Pride and AAVE modes — October 25
+
+Owner request: port V2's pride mode ("queeny mode") and its African American Vernacular English mode
+("homie mode"), each in its own ElevenLabs voice. Asked about his own sexuality ("are you gay?", "do you
+like men?"), Rex says a proud yes and goes full camp ("sis", "yasss", tea and drama) for ten minutes;
+greeted "what's up my homie" he answers in AAVE for ten minutes, spoken for real, never as a mocking
+impression. Asking or greeting again starts the ten minutes over, both can be on, and "stand down pride
+mode" or "talk normal again" ends one. The reply model calls `voice_mode` (V2 used a regex) and its line
+is spoken once the switch succeeds, in one model call; while a mode is on its directive rides last on
+every reply request, his own beats included, and his voice is `elevenlabs_pride_voice_id` or
+`elevenlabs_aave_voice_id` from `local/secrets.toml` (the mode switched on last speaks). Pride also
+brings V2's body: a rainbow mouth and chest (the boards' `PRIDE:1`, renewed every 3 s), a one-shot
+flourish as it comes on (head fully down, visor wide open, hero hand at the end of its travel, held a
+second, then back), hero elbow and hand swinging about twice as wide and often while he talks, and the
+throttle wrist curled. Sentry mode clears both modes and refuses them while it guards
+([V2 extraction](../V2_REFERENCE.md#pride-mode-and-aave-mode--october-25-2026)).
+
+Evidence: 16 synthetic checks in `tests/test_voice_modes.py` (state, request, voice choice, the
+flourish through the output owner on a pulse port, talking lanes and clearance, the light lease).
+`tools/check_voice_modes.py --live` (paid, fictional input, three runs): 34 of 35 turns switched
+correctly; the first wording made him repeat its example lines ("Yasss, sis! Gay and fabulous,
+obviously." three times) and the second switched AAVE on for "My homie Marcus is coming over later.";
+after both rewordings 13 of 13, fresh lines each time, nothing for "is my uncle gay", "my brother is
+gay" or a homeboy mentioned in passing. **Not yet run on the robot**: the two voices, the flourish,
+hand swings and throttle curl, and the rainbow on both boards are unseen; the dashboard does not
+mirror the rainbow. One short line was synthesized in each voice (both work with eleven_v4_turbo).
+1604 blocked-I/O checks pass (5 skipped).
+
 ## "Hey Rex" over his voice — October 25
 
 Owner: "Hey DJ Rex" or "Hey Rex" should interrupt his speech so he can talk over him. V2's two wake-word

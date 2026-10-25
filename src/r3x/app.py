@@ -35,7 +35,8 @@ class App:
         agency_planner = OpenAIAgencyPlanner(secrets.openai_api_key,self.settings.agency_planner_model)
         joke_writer = (OpenAIJokeWriter(secrets.openai_api_key,self.settings.agency_planner_model)
                        if self.settings.joke_writer_enabled else None)
-        tts = ElevenLabsTTS(secrets.elevenlabs_api_key, secrets.elevenlabs_voice_id)
+        tts = ElevenLabsTTS(secrets.elevenlabs_api_key, secrets.elevenlabs_voice_id,
+                            {'pride': secrets.elevenlabs_pride_voice_id, 'aave': secrets.elevenlabs_aave_voice_id})
         from .speech_level import PCMLeveler
         tts.level = PCMLeveler   # V2 per-phrase loudness leveling (numpy/scipy load on first speech).
         sink = AudioSink(self.settings.output_device_name)
@@ -348,6 +349,15 @@ class App:
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene
+                # Pride and AAVE modes (October 25): the voice, and for pride the lights and talking body,
+                # follow the state owner's modes; reads only, nothing here switches one.
+                if hasattr(tts, 'modes'):
+                    tts.modes = lambda: state.voice_modes.active(trace.clock())
+                pride = lambda: state.voice_modes.on('pride', trace.clock())
+                if self.leds:
+                    self.leds.pride = pride
+                if self.robot:
+                    self.robot.talking.flair = pride
                 state.weather = weather if weather and 'weather_lookup' in active else None
                 if self.drive:
                     from .systems import report

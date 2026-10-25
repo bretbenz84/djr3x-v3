@@ -119,10 +119,13 @@ class Secrets:
     openai_api_key: str = field(default="", repr=False)
     elevenlabs_api_key: str = field(default="", repr=False)
     elevenlabs_voice_id: str = field(default="", repr=False)
+    # Pride and AAVE modes' own ElevenLabs voices (owner, October 25). Optional: empty keeps Rex's.
+    elevenlabs_pride_voice_id: str = field(default="", repr=False)
+    elevenlabs_aave_voice_id: str = field(default="", repr=False)
     # Sentry mode's phone alerts (owner, October 22): the private ntfy topic name. Optional.
     ntfy_topic: str = field(default="", repr=False)
 
-    OPTIONAL = frozenset({"ntfy_topic"})
+    OPTIONAL = frozenset({"ntfy_topic", "elevenlabs_pride_voice_id", "elevenlabs_aave_voice_id"})
 
     @classmethod
     def load(cls, root: Path) -> "Secrets":

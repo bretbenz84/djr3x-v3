@@ -442,8 +442,18 @@ def talking_visor(rng) -> tuple[Beat, ...]:
                  for target, wait in zip((5612,6132,5492,5932), (rng.uniform(.1, .3), 0., 0., 0.)))
 
 
+# Pride mode talks with its hands (V2's PRIDE_SPEECH_*, ported October 25): "voice going full camp
+# while the body kept its small polite gestures read as half a costume". The hero elbow and hand
+# swing about twice as wide and twice as often, and the throttle wrist holds V2's downward curl
+# (inside the clearance box where the shoulder is raised).
+FLAIR_ARM = (((4, 7380), (5, 8700)), ((4, 6450), (5, 3300)))
+FLAIR_SWING_SECONDS = (.45, .6)
+FLAIR_THROTTLE_WRIST = 2254 * 4
+
+
 def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = None, held=frozenset(),
-                  neck: int | None = None, pitch: float | None = None, rng=None) -> tuple[tuple[Beat, ...], ...]:
+                  neck: int | None = None, pitch: float | None = None, rng=None,
+                  flair: bool = False) -> tuple[tuple[Beat, ...], ...]:
     """Speech lanes around stable head anchors, not interrupted poses.
 
     pitch is where the gaze had the head pitched when the reply began (looking down at a
@@ -454,15 +464,18 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     curve, servo by servo arriving together), somewhere different each time, livelier than
     idle; the hero elbow and wrist move together on a curve; the visor, arm and throttle
     start a moment after the head instead of all at once. Channel 7 (microphone) stays fixed.
+    flair: pride mode's bigger, quicker hero arm and curled throttle wrist.
     """
     rng = rng or random.Random()
     targets = ()
+    talk = (tuple(tuple((ch, FLAIR_THROTTLE_WRIST if ch == 10 else value) for ch, value in pose) for pose in THROTTLE_TALK)
+            if flair else THROTTLE_TALK)
     if not set(THROTTLE).intersection(held):
         try:   # From the lowered rest the arm rises through the tuck first.
-            targets = tuple(tuple(stage.items()) for stage in throttle_route(current, dict(THROTTLE_TALK[0]))[:-1]) + THROTTLE_TALK
+            targets = tuple(tuple(stage.items()) for stage in throttle_route(current, dict(talk[0]))[:-1]) + talk
         except ValueError:
             raise ValueError('TalkingRouteOutsideClearance')
-        if not throttle_clear(dict(THROTTLE_TALK[0]), dict(THROTTLE_TALK[1])):
+        if not throttle_clear(dict(talk[0]), dict(talk[1])):
             raise ValueError('TalkingRouteOutsideClearance')
     origin = dict(current if head_origin is None else head_origin)
     if neck is not None:
@@ -494,6 +507,11 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     out, back = ((4,7100),(5,7120)), ((4,6740),(5,4880))
     arm = (replace(eased_beat(dict(back), out, rng.uniform(.9, 1.2), rng.uniform(.25, .4)), wait=rng.uniform(.2, .5)),
            eased_beat(dict(out), back, rng.uniform(.9, 1.2), rng.uniform(.25, .4)))
+    if flair:
+        out, back = FLAIR_ARM
+        arm = tuple(eased_beat(dict(start), end, rng.uniform(*FLAIR_SWING_SECONDS), rng.uniform(.05, .2))
+                    for start, end in ((back, out), (out, back)) * 2)
+        arm = (replace(arm[0], wait=rng.uniform(.1, .3)), *arm[1:])
     # Short pauses (were 1 s): the arm is rarely standing still when a line ends.
     throttle = tuple(Beat(p,dwell=rng.uniform(.2, .5),throttle_duration=1.7,wrist_speed=THROTTLE_WRIST_SPEED) for p in targets)
     if throttle:
@@ -732,6 +750,8 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
                 wide = round(current[3] + (spec['visor'] - current[3]) * scale)
                 extra = ((Beat(((3, wide),), speed=70, acceleration=0, dwell=spec['moves'][0][2]),
                           Beat(((3, current[3]),), speed=20, acceleration=5)),)
+        elif primitive == PRIDE_FLOURISH:
+            lane, *extra = flourish_lanes(current)
         else:
             channels = {'lift':(1,160), 'arm_emphasis':(4,200)}
             if primitive not in channels:raise ValueError('UnknownExpression')
@@ -745,6 +765,24 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
     for lane in lanes:
         for beat in lane:validate_pose(dict(beat.targets))
     return lanes
+
+
+# Pride mode's one-shot as it comes on (V2's animations.pride_flourish, ported October 25): the head
+# pitches right down while the visor opens wide and the hero hand flicks to the end of its travel, all
+# held a beat, then back to where they were. Not offered to the model as a gesture of its own.
+PRIDE_FLOURISH = 'pride_flourish'
+FLOURISH_HOLD = 1.   # V2's hold once the pose has arrived.
+
+
+def flourish_lanes(current):
+    """Head, visor and hand lanes, arriving together on the talking pace (no slam on the heavy head)."""
+    down = tuple(head_pulses(-1.).items())
+    into = eased_head_beat(current, down, FLOURISH_HOLD, pace=TALK_EASE)
+    head = (into, eased_head_beat({**current, **dict(down)}, tuple((ch, current[ch]) for ch in HEAD_PAIR), pace=TALK_EASE))
+    def there_and_back(ch, value):
+        return (eased_beat(current, ((ch, value),), into.seconds, FLOURISH_HOLD),
+                eased_beat({ch: value}, ((ch, current[ch]),), into.seconds))
+    return head, there_and_back(3, VISOR_UP), there_and_back(5, LIMITS[5][1])
 
 
 def _eased(travel, seconds, acceleration):

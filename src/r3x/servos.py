@@ -116,6 +116,7 @@ class ServoOwner:
         self.talking_neck: int | None = None  # Gaze anchor for the current reply's talking lanes.
         self.talking_pitch: float | None = None  # Head pitch (-1 down .. 1 up) the talking sway centres on this reply.
         self.gaze_pitch: float | None = None     # Pitch the idle gaze last chose (a face, a held look); None is level.
+        self.talking_flair = False   # Pride mode: this reply talks with bigger hands (servo_poses.talking_lanes).
         self.microphone_moved_until = 0.       # Channel 7 carries the microphone array.
         self.microphone_still_since = float('-inf')  # When the array arm last stopped moving.
         self.head_moved_at = float('-inf')     # When the head last finished a view-changing move.
@@ -341,7 +342,7 @@ class ServoOwner:
             current = self._bus.positions(LIMITS)
             validate_pose(current)
             lanes = (talking_lanes(current, self._talking_head_origin, self.held_channels, self.talking_neck,
-                                   self.talking_pitch, self.rng) if request.kind == 'talking' else
+                                   self.talking_pitch, self.rng, self.talking_flair) if request.kind == 'talking' else
                      idle_lanes(current,self.rng,self.held_channels,request.idle) if request.kind == 'idle' else
                      expressive_lanes(current,request.kind,request.target,request.primitive,request.intensity,
                                       request.hold_seconds,self.held_channels) if request.kind in {'attention','gesture'} else
@@ -756,6 +757,7 @@ class TalkingMotion:
         self.before_start = lambda: None
         self.after_speech = lambda: None   # A line played to its end (RobotServos: idle carries on).
         self.gaze = None   # callable -> neck pulse toward the addressee, or None
+        self.flair = None  # callable -> True while pride mode is on (the state owner's voice modes)
         self.visor_only = False   # Beside a drive: only the visor moves (ServoOwner.talk_visor).
         self._finished = False
 
@@ -782,6 +784,7 @@ class TalkingMotion:
         except Exception:
             self.owner.talking_neck = None
         self.owner.talking_pitch = self.owner.gaze_pitch   # Not wherever the last sway stopped.
+        self.owner.talking_flair = bool(self.flair and self.flair())
         def run():
             index = 0
             while not self._token.event.is_set():

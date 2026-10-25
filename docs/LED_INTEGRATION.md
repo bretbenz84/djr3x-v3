@@ -46,7 +46,10 @@ inferences about a human's feelings. The model cannot send raw serial commands,
 change ports, operate battery displays or override lifecycle shutdown. No speech
 regex selects patterns, and no additional model call is needed for these actions.
 Sleep/charge modes, arbitrary RGB controls, calendar Pride policy and V2's automatic
-reconnect/heartbeat subsystem were not imported.
+reconnect/heartbeat subsystem were not imported. Since October 25 pride mode renews the
+firmware's `PRIDE:1` rainbow mouth and chest every 3 s (the boards drop it after 10 s) and
+sends `PRIDE:0` once when the mode ends; sentry mode's red takes precedence. Not yet seen on
+the boards.
 
 CoreState validates the offered capability, pattern, state revision and request;
 the output owner rechecks state, expiry and LED generation before execution.

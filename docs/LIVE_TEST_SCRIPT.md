@@ -227,6 +227,33 @@ covered by the thinking chirps.
       is about the trip; never a cameo during a serious moment.
 - [ ] "Stop" during a cloned line cuts it like any other speech.
 
+### Run 2d — Pride and AAVE modes — about 5 minutes
+
+Needs `elevenlabs_pride_voice_id` and `elevenlabs_aave_voice_id` in `local/secrets.toml`
+(empty keeps Rex's own voice).
+
+**Say:** "Rex, are you gay?"
+
+- [ ] A delighted, emphatic yes in full camp ("sis", "yasss"), in the pride voice.
+- [ ] As the line starts: head right down, visor wide open, hero hand flicked over, held about
+      a second, then back. The mouth and chest go rainbow and stay rainbow between lines.
+- [ ] While he talks the hero arm swings wider and quicker and the throttle wrist stays curled.
+- [ ] The next few replies stay camp, in the same voice.
+
+**Say:** "Is my uncle gay?" (a question about someone else)
+
+- [ ] An ordinary answer; nothing new comes on, no second flourish.
+
+**Say:** "Stand down pride mode."
+
+- [ ] His own voice again, the rainbow goes within a few seconds, ordinary hand motion.
+
+**Say:** "What's up my homie?"
+
+- [ ] A big warm greeting back in African American Vernacular English, in the AAVE voice, and
+      the next replies stay in register: real speech, never a mocking impression.
+- [ ] About ten minutes later (or after "talk normal again") he is back in his own voice.
+
 ## Two-person tests — Bret and Jeremy
 
 **Jeremy being new is expected and useful:** this tests the real first-time visitor

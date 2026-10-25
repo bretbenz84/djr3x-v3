@@ -729,6 +729,20 @@ class Session:
                                           'state_revision': result.revision},
                        messages=(*snapshot.messages, {'role': 'developer', 'content': note}))
 
+    def _with_flourish(self, call, result, context, cancel):
+        """A spoken result's line; pride mode coming on adds V2's one-shot pose to it (head right down,
+        visor wide open, hero hand flicked over, held a beat), started as the line begins. V2 threw it
+        while the reply was generated; here the switch and its line arrive together."""
+        text = call.arguments['text']
+        if not (call.name == 'voice_mode' and result.data.get('flourish') and context.get('gesture_enabled')):
+            return text
+        from .performance import Gesture, Performance
+        def valid():
+            cancel.check()
+            return self.state.voice_modes.on('pride', self.trace.clock())
+        return Performance(text, Gesture(result.request_id + ':flourish', 'pride_flourish', 'unfocused', 'normal',
+                                         self.trace.clock() + 30), 'with_speech', valid, lambda: None)
+
     def _say_stopped(self, turn_id):
         """Confirm a spoken stop that halted the wheels. October 16 (3af18a12): told to stop
         mid-drive, nothing said he had heard. A further stop cuts this line too."""
@@ -2527,7 +2541,7 @@ class Session:
                         self.trace.emit('silent_reply_withheld', turn_id=turn_id)
                         delivery.status, delivery.medium = 'suppressed', 'none'
                     else:
-                        put_phrase(phrases,call.arguments['text'],cancel)
+                        put_phrase(phrases,self._with_flourish(call,result,context,cancel),cancel)
                 elif call.call_id in streamed and call.name in {'respond_with_intent', 'respond_with_gesture'}:
                     # Its words were already heard as they streamed; a second answer would repeat
                     # them. The rejected part (a gesture, an intention note) is simply not done.
