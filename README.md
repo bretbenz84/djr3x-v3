@@ -94,6 +94,12 @@ it or reads its data.
     cowboy"), ends the one before. Asking again starts the ten minutes over; "stand down pride
     mode" or "drop the accent" ends one.
     Not yet run on the robot ([details](docs/IMPLEMENTATION_STATUS.md#speaking-modes--october-25)).
+- **Celebrity callouts (October 25).** Tell Rex "PJ is a huge Kings fan, treat him like Kings royalty
+  whenever he shows up" (about anyone, yourself or a saved pet) and he gives them a fresh celebrity entrance
+  when they arrive, at most every three hours, and now and then a callback while they are around, in new words
+  each time. "Stop that bit" switches it off ("bring it back" restores it); "never call me that again" deletes
+  it. Since the same day, jokes about people's bodies are fair game. Not yet run on the robot
+  ([details](docs/IMPLEMENTATION_STATUS.md#celebrity-callouts-and-body-jokes--october-25)).
 - **Rooms (October 11).** With `place_recognition_enabled`, V2's room model (run locally)
   tells Rex which room he is in. In an unfamiliar room he asks what it is and learns it
   when told, remembers which rooms he has moved between, and may set off to explore. V2's

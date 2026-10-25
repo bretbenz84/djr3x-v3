@@ -161,7 +161,8 @@ blocks are actually doubtful are unmeasured until a floor run.
   included (lighter at first with someone new), when the conversation offers it, never in
   serious moments. Seven short V2 lines are style examples (see V2_REFERENCE.md); a "roast me"
   gets real bite about what they said, did, chose or own. Bodies, intelligence, identity and
-  family remain off limits; dropping a bit after a request is unchanged.
+  family remain off limits (bodies became fair game October 25, owner ruling); dropping a bit after a
+  request is unchanged.
 - **Joke record.** `jokes.joke_record` keeps bits Rex told from writer material and, through the
   new `note_bit` tool (spoken reply in its text, used only when a reaction is clear), how they
   landed: landed, flopped or asked to stop. `humor` in the context offers running gags (landed

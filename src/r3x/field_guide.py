@@ -105,6 +105,16 @@ GUIDE = {
               'sparingly, never the same way twice. bits_that_flopped: leave them alone. bits_told_lately: do '
               'not tell them again. spent_shapes: joke shapes your own lines this visit already used up; no '
               'more of them in any wording.'),
+    'callouts': ('Standing celebrity bits people asked you for (the callout tool), about someone here or a saved '
+                 'pet: treat them as famous for famous_for, playing its angles. People here gave those angles, so '
+                 'they may go where your usual joke limits do not, in the playful form given; off_limits always '
+                 'win. entrance_due true: this hello is their entrance (SITUATIONS callout_entrance). riff_now true: '
+                 'you may work one callback into a reply where it fits, never forced and never in a serious '
+                 'moment; false: leave it alone for now. earlier_lines are what you already said with it: never '
+                 'their wording or shape again. A pet entry is that saved pet, only once you know it is the one in '
+                 'view. here false: only talked about lately, not around: a callback only about what is being said of '
+                 'them. status stopped: switched off when someone asked; never use it, it is listed only for resume. '
+                 'It is your material, never a fact about them.'),
     'agency_plan': ('The goal Rex chose for himself. Answer the human first; let the reply move the goal along '
                     'only when it fits naturally. Never recite it or force it.'),
     'reconsideration': 'Invitation review metadata only; agency plans own periodic advancement.',

@@ -302,8 +302,11 @@ class Session:
             known = [f"{r.get('predicate')}: {r.get('value')} (told {r.get('told')}"
                      + (f"; {r['planned_time']})" if r.get('planned_time') else ')')
                      for r in memory.get('interests_and_facts', []) if person and memory.get('person_id') == person]
+            # Callouts with a callback due are the writer's to build on too (owner, October 25).
+            due = [{k: e[k] for k in ('about', 'famous_for', 'angles', 'off_limits')}
+                   for e in (context.get('callouts') or {}).get('here', ()) if e.get('riff_now')]
             facts = jokes.summary(self.history_messages(), context.get('right_now'),
-                                  [], context.get('humor'), known)
+                                  [], {**(context.get('humor') or {}), **({'callouts': due} if due else {})}, known)
             if self.joke_room.ask(facts, jokes.audience_key(person), self.human_turns):
                 self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='joke_material',
                                 model=getattr(getattr(self.joke_room.writer, 'capability', None), 'model', None))
@@ -1373,6 +1376,9 @@ class Session:
                 material = self.joke_room.offer(humor_audience, self.human_turns) if self.joke_room else None
                 if material and not (opportunity and opportunity.kind in {'visual_arrival', 'unseen_presence'}):
                     context['joke_material'] = material
+                # Standing celebrity bits people asked for, for whoever is around (owner, October 25).
+                offered = self.state.callout_context(context)
+                if offered: context['callouts'] = offered
             if self.state and not self.state.frozen:
                 with self._lock:
                     self.state.intent_context(context, human=not opportunity)
@@ -2600,11 +2606,19 @@ class Session:
                 else:
                     from dataclasses import asdict
                     import json
+                    offered_callouts = context.get('callouts')
+                    if result.outcome == 'ok' and isinstance(result.data.get('callout'), dict):
+                        # An introduced person's callout: heard lines are checked against it too.
+                        entry = {k: v for k, v in result.data['callout'].items() if k != 'meaning'}
+                        here = [e for e in (offered_callouts or {}).get('here', ()) if e['callout_id'] != entry['callout_id']]
+                        offered_callouts = {**(offered_callouts or {}), 'here': [*here, entry]}
                     context = self.state.context(faces)
                     refresh_current_view(context)
                     from . import conversation_memory
                     context['personal_memory'] = conversation_memory.context(
                         self.state.store,context,self.session_id,self.state.wall_clock())
+                    if offered_callouts:
+                        context['callouts'] = offered_callouts
                     if not self.state.frozen:
                         with self._lock:self.state.intent_context(context)
                     if call.name=='recall_conversations':
@@ -2885,6 +2899,14 @@ class Session:
                                                 answering=(context.get('speaker') or {}).get('speaker_id') or self._memory_subject)
                     if self.joke_room is not None and not context.get('sentry'):   # No paid writer for the guard.
                         self._joke_followup(heard, context, opportunity, transcript, turn_id, calls, setback[0])
+                    if context.get('callouts'):
+                        try:
+                            used = self.state.callout_heard(context['callouts'], heard)
+                        except Exception as exc:
+                            used = []
+                            self.trace.emit('state_finalize_failed', turn_id=turn_id, error_type=type(exc).__name__)
+                        for callout_id, kind in used:
+                            self.trace.emit('callout_heard', turn_id=turn_id, callout_id=callout_id, kind=kind)
                     if delivery.medium == 'audio' and delivery.status == 'completed':
                         self._curiosity_followup(heard, context, calls, agency_step, turn_id)
             if self.state and (schedule_proposal is not None or invitation_proposal is not None):

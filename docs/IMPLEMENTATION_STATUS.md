@@ -48,6 +48,45 @@ of Rex's own beats changed the subject to houseplants, pizza and mugs right afte
 did you just talk about mugs?"). A name-only "Jennifer" record from the mistaken introduction remains in
 the database for the owner to remove.
 
+## Celebrity callouts and body jokes — October 25
+
+Owner request: V2's celebrity callouts (Jeff Benziger of History Hunters fame, T'Joy the world's greatest
+hair stylist, PJ the major Kings fan, JT the volleyball celebrity) "made people in the room feel special",
+but V2 picked from fixed lines keyed to name spellings. Now they are added by voice through one tool,
+`callout` (`callouts.py`), and the reply model writes the words each time.
+
+- **Adding one.** Anyone can ask, about themself, someone else or a saved pet ("PJ is a huge Kings fan,
+  treat him like Kings royalty whenever he shows up"). It is filed on the person's record by id, so any of
+  their names works; someone not met yet gets a name-only record, and their first introduction is the
+  entrance. It keeps what they are famous for, up to six angles and what is off limits, and who asked. It
+  is Rex's material, never a fact about them (V2 had stored "JT, major volleyball celebrity" as JT's
+  interest).
+- **Changing and ending one.** "Also work in the cowbells" adds an angle; "no more cowbell jokes" makes it
+  off limits and drops the angle. Asked to stop, he switches it off and keeps it ("bring it back" turns it on
+  again); asked never to call them that again, he deletes it. A groan is the bit working, not a stop.
+  Forgetting a person removes callouts about them and the ones they added; forgetting a pet removes its own.
+- **Using one.** The reply context lists the callouts of people in view, speaking or talked about in the
+  last ten minutes, and of pets named lately or walking in. An arriving person (by face) or a pet walking in
+  gets an entrance in place of the usual hello, at most every three hours; a callback is offered at most every
+  fifteen minutes, counted from any heard callout line or change. Heard lines are matched to callouts by their
+  distinctive words (Rex's own output only) and the last three are shown so the wording changes. The writer's
+  room gets callouts that are due a callback. None during sentry mode. A callout's angles may go past his usual
+  joke limits; its off limits always hold.
+- **Bodies are fair game** (owner, same day: "I don't know why bodies are off limits"). The persona, the joke
+  writer, the goal planner and impressions no longer forbid jokes about people's bodies; health, intelligence,
+  identity, religion, politics, money and family keep their existing limits.
+
+Evidence: 16 checks in `tests/test_callouts.py` (made-up people, temporary stores, fake clocks, the production
+Session for an arrival). Paid probe `tools/check_callouts.py --live` (fictional input, real reply model, an unknown
+voice, synthetic speech): the first run proposed the right action on 14 of 14 turns, but "also work in the cowbells"
+and "PJ says never call him that again" were refused because PJ was out of view; after showing callouts of people
+talked about lately, "bring the Kings bit back" was refused because a stopped callout was not listed; with stopped
+ones listed, the third run applied 14 of 14 (the speaker's own callout cannot be filed for a voice Rex does not
+know, as expected). PJ's arrival and Jeff's introduction were heard as entrances. About 50 paid requests over the
+three runs; cost not measured. The "never recite off limits" wording was added after the last run and is untested.
+1635 blocked-I/O checks pass (5 skipped). **Not yet run on the robot**; whether the entrances are funny is for the
+owner's ear.
+
 ## Speaking modes — October 25
 
 Owner requests: port V2's pride mode ("queeny mode") and its African American Vernacular English mode

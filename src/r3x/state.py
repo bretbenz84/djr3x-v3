@@ -183,7 +183,10 @@ class CoreState:
             if result.get('status')=='forgotten':
                 # What he asked about a forgotten pet goes with it (curiosity.py).
                 from .curiosity import forget_pet
-                with self.store.transaction() as conn:forget_pet(conn,result['entity_id'])
+                from .callouts import forget_pet as forget_pet_callout
+                with self.store.transaction() as conn:
+                    forget_pet(conn,result['entity_id'])
+                    forget_pet_callout(conn,result['entity_id'])
             return {'outcome':'ok','data':result}
         except (ValueError,OSError) as exc:
             return {'outcome':'rejected','reason':str(exc)}
@@ -1047,6 +1050,17 @@ class CoreState:
                 if revision != expected_revision:
                     raise ValueError("StaleStateRevision")
                 data, mutation = self._apply(conn,call.name,call.arguments,context)
+                if call.name == 'introduce_person' and data.get('person_id') and not self.sentry.active:
+                    # Someone with a callout just introduced (often added before they ever came over):
+                    # this hello is their entrance (owner, October 25).
+                    from . import callouts
+                    row = conn.execute("SELECT * FROM callouts WHERE person_id=? AND status='on'",
+                                       (data['person_id'],)).fetchone()
+                    if row is not None:
+                        data['callout'] = {**callouts.entry(conn,row,self._label(conn,data['person_id']),
+                                                            self.wall_clock(),arrival=True),
+                                           'meaning':'This person has a callout: when entrance_due is true, make your '
+                                                     'hello their celebrity entrance (SITUATIONS callout_entrance).'}
                 cancel.check()
                 if mutation:
                     revision = self.store.advance(conn)
@@ -1317,6 +1331,15 @@ class CoreState:
             jokes.record(conn, capture.session_id, person, jokes.audience_key(person), args['premise'],
                          line, args['reaction'], self.wall_clock())
             return {'text':args['text'],'premise':args['premise'],'reaction':args['reaction']},True
+        if name == 'callout':
+            # Owner, October 25: anyone may add one, about themself, someone else or a saved pet.
+            self._source_allowed(args,name)
+            from . import callouts
+            kind, subject = self._callout_subject(conn,args)
+            about = (self.photo_memory.data['entities'][subject]['name'] if kind == 'pet'
+                     else self._label(conn,subject))
+            return callouts.apply(conn,kind,subject,about,args,said_by=attribution.speaker_id,turn_id=turn_id,
+                                  source_text=transcript.text,now=self.wall_clock()),True
         if name == 'impersonate':
             return self._impersonate(conn,args,context), False
         if name == 'shut_down':
@@ -1463,6 +1486,10 @@ class CoreState:
                 # "Do you know Sam?": everyone the name could mean, with how Rex knows them.
                 _, compatible, _ = self.store.name_matches(args["query"])
                 data["people"] = [self.store.acquaintance(p["id"]) for p in compatible[:3]]
+                from . import callouts
+                for person in data["people"]:
+                    callout = callouts.describe(conn, person["person_id"])   # "What's PJ's bit?"
+                    if callout: person["callout"] = callout
                 # Facts are only what was saved; the conversations hold the rest (October 16).
                 from . import conversation_memory as cm
                 who = cm.subject(context or self.context())
@@ -1767,6 +1794,76 @@ class CoreState:
             raise ValueError("MentionedPersonIsTheSpeaker")
         return person_id, created
 
+    def _callout_subject(self, conn, args):
+        """Whose callout a call means: ('person' or 'pet', id). Adding one to someone not known yet makes a
+        name-only record, like a fact about them; the other actions only find a callout that exists."""
+        from . import callouts
+        attribution = self.current[4]
+        if args['callout_id']:
+            return callouts.subject_of(conn, args['callout_id'])
+        if args['subject'] == 'speaker':
+            return 'person', attribution.speaker_id or self._unconfirmed_self(None)
+        name = args['name']
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError('CalloutNeedsAName')
+        if args['subject'] == 'pet':
+            entities = self.photo_memory.data['entities'] if self.photo_memory is not None else {}
+            pet = self._named_pet(name) or next((k for k, e in entities.items()
+                                                 if e['kind'] == 'pet' and label(e['name']) == label(name)), None)
+            if pet is None:
+                raise ValueError('NoSavedPetByThatName')
+            return 'pet', pet
+        if args['action'] == 'add':
+            try:
+                return 'person', self._mentioned(conn, name, None)[0]
+            except ValueError as exc:
+                if str(exc) != 'MentionedPersonIsTheSpeaker':
+                    raise
+                return 'person', attribution.speaker_id or attribution.person_id
+        _, compatible, _ = self.store.name_matches(name)
+        near = self.near_named(name)
+        found = callouts.with_callout(conn, list(dict.fromkeys([p['id'] for p in compatible] + ([near['id']] if near else []))))
+        if len(found) > 1:
+            raise ValueError('AmbiguousName')
+        if not found:
+            raise ValueError('NoCalloutForThem')
+        return 'person', found[0]
+
+    def callout_context(self, context):
+        """The callouts switched on for the people and pets around now, for the reply model."""
+        if self.frozen or self.sentry.active or self.store.connection is None:
+            return None
+        from . import callouts
+        people = {f['identity'] for f in context.get('faces') or () if f.get('identity')}
+        people.add((context.get('speaker') or {}).get('speaker_id'))
+        people.add((context.get('personal_memory') or {}).get('person_id'))
+        arrival = (context.get('visual_arrival') or {}).get('person_id')
+        people.add(arrival)
+        # Someone talked about lately is shown too, so "also work in the cowbells" or "never call him that
+        # again" can find their callout (hosted probe, October 25: PJ was out of view and both were lost).
+        now = self.trace.clock()
+        mentioned = {p for p, at in self.named_people.items() if now - at <= MENTION_SECONDS} - people
+        entities = self.photo_memory.data['entities'] if self.photo_memory is not None else {}
+        pets = set(self.recently_named_pets())
+        if context.get('trigger') == 'pet_arrival':
+            pets |= {k for k, e in entities.items() if e['kind'] == 'pet'}   # A look says which one it is.
+        arriving = ({arrival} if context.get('trigger') == 'visual_arrival' and arrival else
+                    pets if context.get('trigger') == 'pet_arrival' else set())
+        with self.store.lock:
+            conn = self.store.connection
+            names = {p: row[0] for p in sorted((people | mentioned) - {None})
+                     if (row := conn.execute('SELECT name FROM people WHERE id=?', (p,)).fetchone())}
+            return callouts.context(conn, names, {k: entities[k]['name'] for k in sorted(pets) if k in entities},
+                                    arriving, self.wall_clock(), away=mentioned)
+
+    def callout_heard(self, offered, line):
+        """A line of his that was heard: the offered callouts it used, kept for pacing and variety."""
+        if self.frozen or self.store.connection is None or not offered or not line:
+            return []
+        from . import callouts
+        with self.store.transaction() as conn:
+            return callouts.heard(conn, offered.get('here'), line, self.wall_clock())
+
     def _room(self, conn, name, args):
         """Room names come from what people say; the recognizer only collects views for them."""
         turn_id = self.current[0]
@@ -1837,6 +1934,9 @@ class CoreState:
             self.voice_modes.switch(data['mode'], data['switch']=='on', self.trace.clock())
         if name == 'sentry_mode':
             self.voice_modes.clear()   # He guards in his own voice and red lights.
+        if name == 'callout' and data['subject_kind'] == 'person' and data['status'] != 'removed':
+            self.named_people[self.store.rows('SELECT person_id FROM callouts WHERE id=?', (data['callout_id'],))[0]
+                              ['person_id']] = self.trace.clock()   # Just talked about: follow-ups find it.
         if name in {'stop_chiming_in','resume_chiming_in'}:
             self.initiative.quiet = data['mode'] in ('quiet','silent')
             self.initiative.silent = data['mode']=='silent'
