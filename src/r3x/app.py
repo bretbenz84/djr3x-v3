@@ -324,8 +324,11 @@ class App:
                 startup_delivery = announce(self.settings,self.owner,output,trace,ready=ready)
                 mic.discard_pending()
                 from .sentry import canned_lines
-                # Uncached lines, paced, never over speech; sentry mode's when it can run (camera).
-                self.startup_audio.warm(busy=output.active.is_set, extra=canned_lines() if camera else ())
+                from .session import CREDIT_LINES
+                # Uncached lines, paced, never over speech; sentry mode's when it can run (camera), and the
+                # out-of-credit notices, saved while the voice service still works.
+                self.startup_audio.warm(busy=output.active.is_set,
+                                        extra=tuple(CREDIT_LINES.values()) + (canned_lines() if camera else ()))
                 if self.drive and 'drive_base' not in active:
                     # Configured wheels that failed to start: Rex still knows he has them.
                     failure = next((r for r in self.owner.results if r.capability=='drive_base' and r.operation=='start'),None)
@@ -373,6 +376,7 @@ class App:
                     state.photo_memory.start()
                 perception = Perception(asr,encoder,trace,camera,direction)
                 session = Session(session_id, brain, output, trace, state=state)
+                session.canned = self.startup_audio.speech   # Saved lines, such as the out-of-credit notices.
                 if self.robot and camera:
                     from .gaze import FaceTurns, addressee_neck
                     from .faces import VISIBLE_FACE_MAX_AGE

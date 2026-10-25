@@ -125,6 +125,19 @@ Evidence:
 and the rainbow on both boards are unseen; the dashboard does not mirror the rainbow. How often he
 chooses an accent line in real conversation, and on his own goal beats, is unmeasured.
 
+## Out of credit — October 25
+
+Owner: "Can the rex program tell me when credits have run out. With a pre-written TTS." The OpenAI account
+ran dry that evening and every reply failed in silence (`credit_balance_exhausted` inside the response
+stream). Now that error, or a refused request with `insufficient_quota` (an HTTP 429 Rex used to retry
+forever), ends the turn as out of credit, and so does ElevenLabs' `quota_exceeded`. When it happens on
+a turn where someone spoke to him, he plays a saved line in his own voice saying which account to top
+up: made once and kept with the startup lines (made in his own voice whatever speaking mode is on, a
+fix for those lines too), so it needs no paid call and still plays when the voice service is the one
+out. At most every ten minutes per service; his own turns never announce it. Both lines were saved to
+the robot's line cache the same evening. Evidence: 6 synthetic checks in `tests/test_credit_notice.py`
+(fake responses shaped like the October 25 trace); not yet heard on the robot during a real outage.
+
 ## "Hey Rex" over his voice — October 25
 
 Owner: "Hey DJ Rex" or "Hey Rex" should interrupt his speech so he can talk over him. V2's two wake-word

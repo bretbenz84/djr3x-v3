@@ -27,6 +27,8 @@ it or reads its data.
   - "Be quiet", "quiet", "shut up" and "hush" also keep him from starting talk or
     movement on his own until someone invites him to talk again; "stop" pauses that for
     two minutes.
+  - Out of credit (October 25): when OpenAI or ElevenLabs has no credit left, someone speaking to him
+    gets a saved line saying which account to top up, at most every ten minutes, instead of silence.
   - Transcripts the recognizer marks unreliable are kept but never answered. These are
     usually his own motors heard as "Oh.", and since October 18 such a sound no longer cuts
     off a line he is preparing; only words do.

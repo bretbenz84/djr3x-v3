@@ -46,6 +46,15 @@ QUIET_COMMANDS = frozenset({"shut up","stop talking","be quiet","quiet","hush"})
 # conversation it is ordinary speech. Syntax only, like the stop words.
 COLLISION_WARNINGS = ("going to hit", "gonna hit", "about to hit")
 STOPPED_LINE = "Stopped."   # Said when a spoken stop halts a drive (not for quiet phrases or shutdown).
+# Owner, October 25: tell him when the credits have run out, with a saved line (it needs neither the
+# reply model nor, once saved, the voice service). Said when someone speaks to him, at most this often.
+CREDIT_LINES = {
+    'OpenAICreditExhausted': "Bad news: my OpenAI credits have run out, so I can't think of a thing to say. "
+                             "Top up the account and I'll be back.",
+    'ElevenLabsCreditExhausted': "Bad news: my ElevenLabs voice credits have run out. Top up the account "
+                                 "and I'll be back in full voice.",
+}
+CREDIT_NOTICE_SECONDS = 600.
 WAKE_HOLD_SECONDS = 10.    # After "Hey Rex" cuts him off, his own beats wait this long for them to speak.
 # Shutdown waits at most this long for the conversation lock, then goes ahead without it.
 SHUTDOWN_LOCK_SECONDS = .5
@@ -170,6 +179,8 @@ class Session:
         self.agency_planner = None
         self.on_shutdown = None   # The runtime's exit, for a shut_down the conversation owner chose.
         self.sentry = None        # sentry_guard.SentryGuard, when sentry mode can run (camera present).
+        self.canned = None        # (text, cancel) -> PCM of a saved line (StartupAudio.speech), when live.
+        self._credit_said = {}    # Out-of-credit reason -> when its saved line was last said.
         self.on_sentry = None     # Starts the guard after a sentry_mode request was accepted.
         self.revision = 0
         self.history = TurnHistory()
@@ -746,6 +757,41 @@ class Session:
             return self.state.voice_modes.on('pride', self.trace.clock())
         return Performance(text, Gesture(result.request_id + ':flourish', 'pride_flourish', 'unfocused', 'normal',
                                          self.trace.clock() + 30), 'with_speech', valid, lambda: None)
+
+    def _say_out_of_credit(self, turn_id, reason):
+        """The saved line saying a service is out of credit, at most every CREDIT_NOTICE_SECONDS."""
+        now = self.trace.clock()
+        if now - self._credit_said.get(reason, float('-inf')) < CREDIT_NOTICE_SECONDS:
+            return
+        line_cancel, said = Cancellation(), Delivery()
+        with self._lock:
+            if self.closed or self._cancel is not None:
+                return
+            self._cancel = line_cancel
+        self._credit_said[reason] = now
+        text = CREDIT_LINES[reason]
+        phrases = Queue()
+        try:
+            line = text
+            if self.canned:
+                from .startup_audio import Prerecorded
+                line = Prerecorded(text, self.canned(text, line_cancel))   # Saved at startup (warm).
+            put_phrase(phrases, line, line_cancel)
+            put_phrase(phrases, None, line_cancel)
+            self.output.run(phrases, line_cancel, turn_id + ':credit', said)
+        except Cancelled:
+            pass
+        except Exception as exc:
+            self.trace.emit('credit_notice', turn_id=turn_id, reason=reason, status='unspoken',
+                            error_type=type(exc).__name__)
+            return
+        finally:
+            with self._lock:
+                if self._cancel is line_cancel:
+                    self._cancel = None
+        self.trace.emit('credit_notice', turn_id=turn_id, reason=reason, heard=bool(said.completed_text))
+        if said.completed_text:
+            self.history.append({'role': 'assistant', 'phase': 'final_answer', 'content': ' '.join(said.completed_text)})
 
     def _say_stopped(self, turn_id):
         """Confirm a spoken stop that halted the wheels. October 16 (3af18a12): told to stop
@@ -2807,6 +2853,8 @@ class Session:
             if (halted_drive and self.revision != submitted_revision   # A stop came during this turn.
                     and self._last_cancel == ('explicit_stop', False) and not self.closed):
                 self._say_stopped(turn_id)
+            if not opportunity and delivery.error in CREDIT_LINES and not self.closed:
+                self._say_out_of_credit(turn_id, delivery.error)
             audio_at = delivery.first_audio_at
             self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, medium=delivery.medium, timings={
                 "endpoint": None if opportunity else source_end - speech_end,

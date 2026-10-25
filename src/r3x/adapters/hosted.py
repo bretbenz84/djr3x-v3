@@ -185,6 +185,29 @@ personality disclaimer. Do not invent specific real events, possessions, visits 
 
 """
 
+# The account has no credit left (owner, October 25: Rex went silent on every turn with
+# credit_balance_exhausted). Not retried; Rex says a saved line instead (Session.CREDIT_LINES).
+OPENAI_CREDIT_CODES = frozenset({'credit_balance_exhausted', 'insufficient_quota', 'billing_hard_limit_reached',
+                                 'billing_not_active'})
+
+
+def _body(response) -> bytes:
+    """A refused request's body, or nothing when it cannot be read (the status still says enough)."""
+    try:
+        return response.read() or b''
+    except Exception:
+        return b''
+
+
+def _error_code(response) -> str | None:
+    """The error code of a refused OpenAI request, read from its body (None when there is none)."""
+    try:
+        error = json.loads(_body(response)).get('error') or {}
+        return str(error.get('code') or error.get('type') or '') or None
+    except Exception:
+        return None
+
+
 PROMPT_CACHE_KEY = 'r3x-reply'   # Every reply request shares the tools-and-persona prefix.
 # The voice rides last on every reply request, where the model weighs it most (see its use below).
 # October 24 (owner: "Rex appears to have no curiosity"): his questions belong on his own turns, about
@@ -1142,6 +1165,9 @@ class OpenAIBrain(HTTPProvider):
             with self.client.stream("POST", "https://api.openai.com/v1/responses",
                                     headers={"Authorization": f"Bearer {self.key}"}, json=payload) as response:
                 if response.status_code != 200:
+                    # An HTTP 429 is usually a brief overload and retried, but not when the credit is gone.
+                    if response.status_code in (402, 429) and _error_code(response) in OPENAI_CREDIT_CODES:
+                        raise ProviderFailure("OpenAICreditExhausted")
                     raise ProviderFailure(f"OpenAIHTTP{response.status_code}")
                 for line in response.iter_lines():
                     cancel.check()
@@ -1215,12 +1241,12 @@ class OpenAIBrain(HTTPProvider):
                     elif kind=="response.output_item.done" and event.get("item",{}).get("type")=="message" and event["item"].get("phase")=="commentary":
                         preambles.append(event["item"])
                     elif kind in {"error", "response.failed", "response.incomplete"}:
+                        response_ = event.get('response') or {}
+                        detail = event.get('error') or response_.get('error') or response_.get('incomplete_details') or event
+                        code = str(detail.get('code') or detail.get('reason') or detail.get('type'))[:80]
                         if self.trace:
-                            response_ = event.get('response') or {}
-                            detail = event.get('error') or response_.get('error') or response_.get('incomplete_details') or event
-                            self.trace.emit('model_stream_error',turn_id=snapshot.turn_id,kind=kind,
-                                code=str(detail.get('code') or detail.get('reason') or detail.get('type'))[:80])
-                        raise ProviderFailure("ModelIncomplete")
+                            self.trace.emit('model_stream_error',turn_id=snapshot.turn_id,kind=kind,code=code)
+                        raise ProviderFailure("OpenAICreditExhausted" if code in OPENAI_CREDIT_CODES else "ModelIncomplete")
             if not complete:
                 raise ProviderFailure("ModelStreamTruncated")
             if calls:
@@ -1263,11 +1289,19 @@ class ElevenLabsTTS(HTTPProvider):
         return self.mode_models.get(self.speaking_mode(mode), self.capability.model)
 
     def synthesize(self, text: str, cancel: Cancellation, mode: str | None = None):
+        return self._synthesize(text, cancel, lambda: (self.current_voice(mode), self.current_model(mode)))
+
+    def synthesize_own(self, text: str, cancel: Cancellation):
+        """Rex's own voice whatever mode is on: saved lines are kept as his (startup_audio cache)."""
+        return self._synthesize(text, cancel, lambda: (self.voice_id, self.capability.model))
+
+    def _synthesize(self, text: str, cancel: Cancellation, voice):
         if self.client is None:
             raise ProviderFailure("TTSNotStarted")
         cancel.check()
-        url = "https://api.elevenlabs.io/v1/text-to-speech/" + quote(self.current_voice(mode), safe="") + "/stream"
-        payload = {"text": text, "model_id": self.current_model(mode),
+        voice_id, model = voice()
+        url = "https://api.elevenlabs.io/v1/text-to-speech/" + quote(voice_id, safe="") + "/stream"
+        payload = {"text": text, "model_id": model,
                    "voice_settings": {"stability": 0.5}, "seed": 1440639067}
         # V2's chosen v3 policy, kept for v4 Turbo (October 16): no previous_text, fixed natural stability/seed.
         deadline = time.monotonic() + 30
@@ -1279,6 +1313,9 @@ class ElevenLabsTTS(HTTPProvider):
                                     headers={"xi-api-key": self.key}, json=payload) as response:
                 self._active = response
                 if response.status_code != 200:
+                    # Out of characters: a saved line can still say so (Session.CREDIT_LINES).
+                    if response.status_code in (401, 402) and b'quota_exceeded' in _body(response):
+                        raise ProviderFailure("ElevenLabsCreditExhausted")
                     raise ProviderFailure(f"ElevenLabsHTTP{response.status_code}")
                 for chunk in response.iter_bytes(chunk_size=4096):
                     cancel.check()

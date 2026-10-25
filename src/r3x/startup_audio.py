@@ -158,7 +158,9 @@ class StartupAudio:
         if data is not None:
             return data
         path = self._cache_path(text)
-        data = b''.join(self.tts.synthesize(text, cancel))
+        # Cached under his own voice, so made in it even while a speaking mode is on (October 25).
+        own = getattr(self.tts, 'synthesize_own', None)
+        data = b''.join(own(text, cancel) if own else self.tts.synthesize(text, cancel))
         try:
             self.cache.mkdir(parents=True, exist_ok=True)
             temporary = path.with_suffix('.tmp')
