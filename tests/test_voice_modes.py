@@ -254,8 +254,8 @@ class VoiceTests(unittest.TestCase):
         self.assertIn('/french-voice/', tts.client.calls[0][0][1])
         self.assertIn('/aave-voice/', self.speak(tts))                           # Then back to the mode on.
 
-    def test_every_mode_voice_speaks_on_eleven_v3_and_rex_on_v4_turbo(self):
-        # Owner, October 25: Russian and Italian sound British on v4 and right only on v3; then all of them.
+    def test_each_mode_voice_speaks_on_the_model_the_owner_chose(self):
+        # Owner, October 25: Russian and Italian sound British on v4 and right only on v3; then he chose by ear.
         from r3x.voice_modes import MODELS, REX_VOICE
         tts = ElevenLabsTTS('key', REX_VOICE, VOICES, MODELS)
         def model(mode=None):
@@ -263,7 +263,9 @@ class VoiceTests(unittest.TestCase):
             list(tts.synthesize('Line.', Cancellation(), mode=mode))
             return tts.client.calls[0][1]['json']['model_id']
         self.assertEqual(model(), 'eleven_v4_turbo')
-        self.assertEqual({model(mode) for mode in MODES}, {'eleven_v3'})
+        v4 = {'indian', 'british', 'dutch', 'irish', 'dj', 'pride', 'aave', 'french', 'german', 'spanish', 'scandinavian'}
+        self.assertEqual({mode for mode in MODES if model(mode) == 'eleven_v4_turbo'}, v4)
+        self.assertEqual({mode for mode in MODES if model(mode) == 'eleven_v3'}, set(MODES) - v4)
         tts.modes = lambda: ('italian',)
         self.assertEqual(model(), 'eleven_v3')                                  # The mode on, too.
         self.assertIn('/' + VOICES['italian'] + '/', tts.client.calls[0][0][1])
