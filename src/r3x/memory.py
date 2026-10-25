@@ -141,6 +141,8 @@ class Memory:
         self.connection.executescript(jokes_schema)
         from .hypotheticals import SCHEMA as hypotheticals_schema
         self.connection.executescript(hypotheticals_schema)
+        from .curiosity import SCHEMA as curiosity_schema
+        self.connection.executescript(curiosity_schema)
         self.validate_schema()
 
     def validate_schema(self):

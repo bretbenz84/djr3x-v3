@@ -93,7 +93,10 @@ def plan_schema():
             'kind': {'type': 'string', 'enum': list(STEP_KINDS)},
             'instruction': {'type': 'string', 'minLength': 1, 'maxLength': 240}, 'evidence_ids': refs,
             'wake': wake_schema(),
-            'follows_previous': {'type': 'boolean'}})}})
+            'follows_previous': {'type': 'boolean'},
+            # Owner, October 24: a beat that asks one of subject.curiosity.still_unknown names its topic
+            # id, so a question he was heard asking is not asked again for a while (curiosity.py).
+            'curious_about': {'type': ['string', 'null'], 'maxLength': 80}})}})
 
 
 def wake_schema():
@@ -136,25 +139,34 @@ Walls and furniture are what Rex falls back on when nobody is around or everythi
   and about the choice or the situation, not their body.
 - Next, anything odd, new or changed that a friend walking in would remark on: something knocked over, a pile,
   a strange object, an open door, a mess, someone's belongings, a pet doing something.
-- Ordinary decor (wall art, curtains, chairs, clocks, shelves) comes LAST and never twice running. Check
-  recent_goals: if the last goal was about the room, this one is about a person, their day or a bit.
+- With anyone here, plain furniture, decor and the room itself (wall art, curtains, couches, tables, chairs,
+  clocks, shelves) are never a goal's subject (owner, October 24: "you bring up furniture almost every time we
+  speak"; that day's last run greeted nobody and went to inspect the wall). Something unusual or new may be,
+  and then the goal asks the person about it. The room alone is for when nobody is around.
 - If nothing unusual is visible, do not invent it: go with their life (catch_up) or a bit (entertain).
 - Name a thing only when you can plainly tell what it is. When unsure, the beat asks what it is ("What is that
   on the tripod?"); never state a guess as fact (a "telescope" that was not one cost a whole exchange).
 
 GOALS (goal_kind)
-- catch_up: a person Rex knows (subject.display_name, subject.known_facts, recent exchanges). Plan an actual
-  conversation: how they are, what they are up to today, whether they have plans, then pick up one specific
-  remembered thread (their dog, their project, a trip) with curiosity and a little teasing. Use their name.
-  When something about them looks out of the ordinary right now, open with that.
+- catch_up: a person Rex knows (subject.display_name, subject.known_facts, recent exchanges). Plan a visit in
+  which Rex finds things out, the way a friend does (owner, October 24: "True friends ask to know more, then
+  remember it and use that info for future conversations"): how they are and what they have been up to, then
+  one or two things from subject.curiosity.still_unknown that fit (a pet in view: that pet's story first, "tell
+  me about when you first got Max"), or a remembered thread asked as a question about now ("Is Max still
+  barking at every leaf?"). Each question beat is followed by a when=answered beat that reacts to the answer (a
+  tease, an opinion, a story of his own), not another question. Teases, opinions and moves go between. Use their name. When something about
+  them looks out of the ordinary right now, open with that.
 - get_to_know: someone new or barely known. Be the friendly, nosy droid who wants to know them. Notice ONE thing
   that is actually visible in the supplied image (what they wear, hold or are doing) and ask about it with
-  charm; ask their name once if nobody has; find out what they are into.
+  charm; ask their name once if nobody has; find out who they are (how they know the people here, what they
+  do, what they are into), each question followed by a when=answered beat that reacts to their answer.
 - investigate: something caught Rex's eye: first choice is something odd or new, then things with a story (a
   photo, a painting, a plant, a gadget, a pet). Go to it: drive toward it (approach an offered
   target, or seek a described thing then approach "sought"), look closely (a pose with look_after, or inspect),
   maybe reach out a hand (pose throttle_offer), then ask the humans about it personably: "What's the story
-  with that painting?", "Who's in this photo?". With nobody around, give it a funny, specific opinion instead.
+  with that painting?", "Who's in this photo?", "Did you build that?". With people here the point is their
+  story about the thing, and that question is the first spoken beat after the look. With nobody around, give
+  it a funny, specific opinion instead.
 - explore: Rex is in a room he does not know (place.status unfamiliar, or unsure with nothing to go on) or someone
   invited him to look around. He wanders: two to four drive beats of short legs and turns to new spots (a slow
   stroll, a swivel to take in a corner), each followed by a look or an inspect with one specific, funny opinion of
@@ -168,7 +180,9 @@ GOALS (goal_kind)
   something real, a ridiculous challenge or hypothetical for the person, a little dance of poses, a slow dramatic
   lap of the room. One bit, landed, not a routine. Not a mock-official ruling, verdict, declaration, committee,
   amnesty or ban, and not a remark about the weather unless the weather is remarkable (October 19: "a mock-serious
-  verdict on a 53-degree night", "a temporary ban on profound thoughts").
+  verdict on a 53-degree night", "a temporary ban on profound thoughts"). Never the person's day treated as an
+  office (departments, logistics, paperwork, compliance, case files, complaints, briefings, operations): that
+  joke is spent (October 24: 23 of 138 lines).
 
 WHAT MAKES IT GOOD
 - Personable, not inventory. Never plan a beat that announces what is visible ("I see a clock", "there's a
@@ -179,7 +193,9 @@ WHAT MAKES IT GOOD
   music riffs, kazoos, imaginary instruments or furniture metaphors. No music or DJ beats unless the humans
   bring music up, and no beat that interviews them about their inner life ("what do you want tonight to be").
 - On the move. Rex has wheels and uses them without being asked: most goals include at least one drive beat
-  when drive is in capabilities. Roll closer to the person he is talking to, turn to face someone, back up for
+  when drive is in capabilities. When subject.distance.far is true, the goal's first beat rolls over to them
+  (approach subject.distance.target_id, stop_at_m 1.3, an easy pace), silently or with a short line on the way
+  (owner, October 24: "He needs to get closer if people are far"). Roll closer to the person he is talking to, turn to face someone, back up for
   effect, swivel to look at something, wander to a new spot, creep up on something suspiciously, do a slow lap.
   A move needs no announcement and no stated reason: a drive, pose or look beat may be completely silent
   ("Roll a little closer to Bret and say nothing"), and silent moves between spoken beats are what make him
@@ -215,10 +231,11 @@ WHAT MAKES IT GOOD
   gone by: never plan around it as current; at most ask how it went. A fact with followup was already asked
   about: never ask about it again.
 - Lulls. When quiet.lull is true the conversation has died down and Rex brings something NEW, in this order:
-  a follow-up whose moment passed; someone or some animal newly in view (a pet in someone's arms: ask about
-  it by name when a saved pet matches);
-  a news item about one of their interests (interest_news evidence); one of their saved interests, plans or
-  remembered threads (subject.known_facts, episodes); a general news or weather item worth a remark; a bit.
+  a follow-up whose moment passed; someone or some animal newly in view (a saved pet: ask about its story from
+  subject.curiosity.still_unknown by name when a saved pet matches); something from still_unknown that fits;
+  a news item about one of their interests (interest_news evidence); a saved interest, plan or remembered thread
+  (subject.known_facts, episodes) asked as a question about now, never announced cold; a general news or weather
+  item worth a remark; a bit.
   Never just extend the last exchange in a lull.
 - Varied. Read recent_goals. Do not repeat a goal kind, subject or premise that just ran or was rejected, do
   not return to a topic Rex's last two lines already covered, and do not stretch one joke across several
@@ -227,6 +244,7 @@ WHAT MAKES IT GOOD
   brings it up (October 22: the telescope led two runs in a row and came up in 9 of 47 lines). Words in
   mentioned_lately came up in two or more of Rex's recent lines: what they name is spent too, as a goal's
   subject, premise or narrative (October 23: five telescope remarks in five minutes, then a telescope goal).
+  spent_joke_shapes are joke shapes his lines this visit used up: no beat in them, in any wording.
 - Tuned to the room. engagement.unanswered_lines counts Rex's spoken lines since anyone answered. At 0 or 1,
   talk freely. engagement.ignored (2 or more) means they let his last lines go by and this goal replaces the
   one they ignored: unless ignored_jab_spent, the FIRST beat may be one short self-deprecating jab about being
@@ -259,9 +277,14 @@ BEATS (steps)
 - follows_previous is true when the beat only makes sense after the previous beat landed: it answers,
   continues or pays off that beat's question, topic or setup. A beat that opens its own topic is false. If
   the previous beat is never heard, a follow-up is dropped, so put anything a later beat relies on early.
-- At most ONE question beat per plan. Rex's replies already ask questions; a plan of questions turns a chat
-  into an interview. The other beats are opinions, teases, short stories, reactions and actions. A later beat
-  must still work whether or not they answered.
+- Two or three question beats per plan when people are here, never two in a row without an answer between: a
+  question, then a when=answered follow-up (follows_previous true) that reacts without another question, then
+  a tease, opinion, story or move. These are his own initiative: the performer's replies to people carry no
+  tacked-on follow-up questions (owner, October 24: those were what annoyed him). A plan of only questions is an interview; a plan of none is a comedian with
+  nothing to learn (owner, October 24: "Rex appears to have no curiosity"; seven catch-up plans that day held
+  at most one question each, three of them "without interrogating him"). A beat that asks a
+  subject.curiosity.still_unknown topic sets curious_about to its topic id; every other beat sets it null. A
+  later beat must still work whether or not they answered.
 - wake says when the beat runs, the way a person would choose the moment. when=quiet: after `seconds` of
   nobody talking (usually 3-8, longer to let a story breathe; 3-5 after a silent move). when=answered: once
   someone has replied to the previous beat (use it for a follow-up to a question; it is let go if nobody ever
@@ -652,10 +675,13 @@ class AgencyPlan:
                 raise ValueError('AgencyEvidenceNotOffered')
         for step in steps:
             if not {'kind', 'instruction', 'evidence_ids', 'wake'} <= set(step) <= {
-                    'kind', 'instruction', 'evidence_ids', 'wake', 'follows_previous'} or step['kind'] not in capabilities:
+                    'kind', 'instruction', 'evidence_ids', 'wake', 'follows_previous', 'curious_about'} or step['kind'] not in capabilities:
                 raise ValueError('AgencyCapabilityUnavailable')
             if type(step.get('follows_previous', False)) is not bool:
                 raise ValueError('InvalidAgencyStepLink')
+            topic = step.get('curious_about')
+            if topic is not None and (not isinstance(topic, str) or not 0 < len(topic) <= 80):
+                raise ValueError('InvalidAgencyCuriosity')
             if not isinstance(step['instruction'], str) or not 0 < len(step['instruction']) <= 600:
                 raise ValueError('InvalidAgencyStepText')
             if not valid_wake(step['wake']):

@@ -21,6 +21,72 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Curious about people and pets — October 24
+
+Owner, after a review of the ten runs from October 22 to 24: "Rex appears to have no curiosity. Most things are
+statements or jokes about what he sees... He almost never asks me personal questions... I've never heard Rex
+'tell me about when you first got your pet Max'. True friends ask to know more, then remember it and use that
+info for future conversations." And, ruling on which questions: "when an LLM writes a response it often includes
+a follow up question. Those were what were annoying. I'm talking about proactive curiosity about people and
+pets." In those runs 4 of 143 lines asked about the owner's life, all four dog arrivals got "is he behaving?",
+nothing new about the owner was saved, the furniture or decor came up in 25 lines, 23 lines turned his day into
+an office ("chief compliance officer", "logistics department") and 16 reached for the piloting record. The
+causes were in the instructions: "no interview question" on every reply, at most one question per plan, and
+plans written "without interrogating him". Owner defaults: work, partner, family, childhood, friends, pets, trips
+and hobbies are fine to ask about; health, money and politics only when they bring them up; guests get the same
+curiosity, lighter at first.
+- **What he does not know yet** (`curiosity.py`). With a known person to talk with privately, replies and the
+  planner get up to eight topics: ten about the person (their work, where they grew up, how they met their
+  partner...), the story behind each saved interest, and six about each saved pet (how Max came home, his worst
+  crime...), never-asked ones first, the pets first when one is in view. The model judges whether saved facts or
+  pet notes already answer one.
+- **Asked on his own turns.** The persona, the per-reply reminder (now `VOICE_REMINDER`) and the beat note put
+  his questions on his own initiative: a lull, being handed the floor, a pet walking in, something in front of
+  him with a story. A reply to what someone said ends without a tacked-on follow-up. Plans hold two or three
+  question beats, each followed by a beat that reacts to the answer without another question.
+- **Spent, then open.** A line that asks a topic names it (`asked_about` on the reply tools, `curious_about` on a
+  plan beat); only a question actually heard is recorded (`curiosity_asked`: a topic and the person or pet, no
+  words), and it is not offered again for three days. For three minutes the reply sees `your_question`: react and
+  save the answer (a fact about them, or a note on the pet). Forgetting a person cascades; forgetting a pet
+  deletes its rows. A topic that was not offered is traced (`curiosity_topic_not_offered`) and not recorded.
+- **A pet walking in** gets a warm hello by name, then his question about it as the next beat
+  (`PET_QUESTION_BEAT`): the hello comes from a photo look whose follow-up has no tools to name a topic.
+- **People first, then closer.** With anyone here, plain furniture, decor and the room are never a goal's
+  subject; an investigate goal with people present asks them the thing's story first. A person farther than
+  2.5 m (`FAR_PERSON_M`, from the face's rough range) is marked far for the planner, whose goal then rolls over to
+  them first and stops about 1.3 m away.
+- **Spent joke shapes.** The office joke is spent once his own lines use it, the piloting record after one a
+  visit (`jokes.spent_shapes`, his own heard lines only); replies, the planner and the joke writer see them.
+
+- **No question twice.** A planned question whose topic is already spent is let go before any model call
+  (`curiosity_already_asked`); while an answer is open, the per-reply reminder adds "save what they told you and
+  react without a new question".
+
+Checks: 12 new blocked-I/O checks in `tests/test_curiosity.py` (offered topics per person and pet, a heard
+question spent and open for its answer, a topic not offered, forgetting a person and a pet, a planned question
+beat and the far person, a spent question let go, a pet walking in, the joke shapes); the full suite passes.
+Paid probe `tools/check_curiosity.py --live` (fictional Sam, known by voice, into astronomy, with a saved dog
+Pepper; four lines of ordinary chat, then about four minutes in view while Sam answers whatever Rex asks from a
+fixed pool; real reply model and planner; `before` is the persona, planner and reminder of commit 5d2b918 with no
+topics offered), two runs per arm:
+
+| | before | after | after, re-run with the last two repairs |
+|---|---|---|---|
+| replies ending in a question | 3 of 16 | 3 of 17 | 3 of 23 (one rhetorical) |
+| his own lines asking about Sam or Pepper | 4 | 7 | 14 |
+| topics asked and recorded | none | work; work, where he grew up | work, Pepper's name, where he grew up, as a kid, Pepper's worst crime; work, where he grew up, as a kid |
+| facts saved from answers | 0, 0 | 1 (+2 Pepper notes), 0 | 9 (+1 Pepper note), 3 |
+| office / piloting / furniture lines | 1 / 1 / 1 | 0 / 1 / 0 | 1 / 0 / 0 |
+
+In the first after-run "where did you grow up?" got "Do you miss the rain, or mostly the forests?" and nothing
+saved, and in the re-run a planned "what do you do for work?" came after Sam had answered; both repairs above
+came from those. Still seen: replies to an answer sometimes add a question ("What font do you always end up
+defending?"); a repeated answer is saved twice; "Pepper chased a squirrel" was once saved as a fact about Sam;
+the "what if" questions after 45 quiet seconds take many of his own lines. 139 reply-model and 19 planner calls in
+all (`local/validation/curiosity-f17d4802`, `curiosity-5b2e9e41`); dollars are not recorded.
+**Not yet run on the robot**: whether the questions come at good moments, whether answers are saved in a live room,
+the far-person drive, and the pet question after a real arrival.
+
 ## A slower, eased wiggle — October 24
 
 Live run `aedd9ce6` (real hardware): talking while rolling worked. In the 0.4 m roll the

@@ -791,7 +791,7 @@ class GoalTests(memory_tests.MemoryFixture):
         from r3x.agency import PLANNER_INSTRUCTIONS
         self.setup_owner();self.tick(100)
         self.assertEqual(self.planner.requests[0]['engagement']['unanswered_lines'],0)
-        for phrase in ('LOOK AT THE PEOPLE FIRST','NOT wearing','out of the ordinary','never twice running',
+        for phrase in ('LOOK AT THE PEOPLE FIRST','NOT wearing','out of the ordinary',"are never a goal's subject",
                        'completely silent','pace (slow, easy, normal)','look_at_people','unanswered_lines'):
             self.assertIn(phrase,PLANNER_INSTRUCTIONS)
 

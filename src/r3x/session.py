@@ -13,6 +13,12 @@ RECENT_LOOK_SECONDS = 120.   # An own camera look (inspect beat) waits this long
 # visor is still shut.
 DARK_BEAT = ('Your visor just shut over your eyes and you see nothing. Say one short, light line about your own '
              'sudden dark ("Oh wow, it\'s dark in here."), about you, never about blind people or blindness.')
+# Owner, October 24: "I've never heard Rex 'tell me about when you first got your pet Max'." The hello when a
+# pet walks in comes from a photo look whose follow-up has no tools, so the question about the pet is his next
+# beat, where the topic he asks is named and spent.
+PET_QUESTION_BEAT = ('The pet you just greeted is here. Ask the person one thing you do not know yet about that pet '
+                     'from curiosity.still_unknown, in your own words, with that topic id in asked_about. Skip it if '
+                     'the pet has left or they are busy with something else.')
 from .speakers import VoiceObservation
 from .history import TurnHistory
 from .output import Delivery, OutputOwner, Phrases, put_phrase
@@ -43,6 +49,10 @@ STOPPED_LINE = "Stopped."   # Said when a spoken stop halts a drive (not for qui
 # Shutdown waits at most this long for the conversation lock, then goes ahead without it.
 SHUTDOWN_LOCK_SECONDS = .5
 LULL_FRESH_TOPIC_SECONDS = 45.   # Nobody has spoken this long: Rex's next goal opens something new.
+# Owner, October 24: "He needs to get closer if people are far." A person farther than this (the face's
+# rough range) gets a goal that rolls over to them; the approach stops about 1.3 m off (October 20:
+# about 3 ft was too close).
+FAR_PERSON_M = 2.5
 REPEAT_LINES = 6    # Rex's recent heard lines a planned beat must not repeat.
 REPEAT_RUN = 5      # Words in a row that count as repeating one of them.
 # October 16 (511ce677): after a look that took no picture he said the path was clear and
@@ -189,6 +199,7 @@ class Session:
         self._utterance = None  # This human turn's words, joined to such a fragment.
         self.last_spoken_reply = None
         self.last_hypothetical = None   # His latest heard "what if" after a long quiet (October 23).
+        self.last_question = None   # His latest heard question from curiosity.still_unknown (October 24).
         self.last_trusted_speech_at = float("-inf")
         self.resolved_audio_at = float("-inf")
         self.motion_committed = False  # Wheels were handed a plan in the current turn.
@@ -283,6 +294,30 @@ class Session:
             if self.joke_room.ask(facts, jokes.audience_key(person), self.human_turns):
                 self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='joke_material',
                                 model=getattr(getattr(self.joke_room.writer, 'capability', None), 'model', None))
+
+    def _curiosity_followup(self, heard, context, calls, step, turn_id):
+        """A question he was heard asking about something he did not know yet is spent for a while, and
+        stays open for their answer (owner, October 24). The topic is the one the reply tool or the plan
+        beat named; one that was not offered is traced and ignored."""
+        from . import curiosity
+        topic = next((c.arguments.get('asked_about') for c in calls
+                      if c.name in {'respond_with_intent', 'respond_with_gesture'} and c.arguments.get('asked_about')), None)
+        if topic is None and '?' in heard:
+            topic = (step or {}).get('curious_about')   # A planned question beat that was heard as a question.
+        if not isinstance(topic, str) or self.state.frozen: return
+        row = curiosity.offered(context.get('curiosity'), topic)
+        if row is None:
+            self.trace.emit('curiosity_topic_not_offered', turn_id=turn_id, topic=topic[:80])
+            return
+        person = (context.get('personal_memory') or {}).get('person_id')
+        try:
+            with self.state.store.transaction() as conn:
+                curiosity.record(conn, row, person, self.state.wall_clock())
+        except Exception as exc:
+            self.trace.emit('state_finalize_failed', turn_id=turn_id, error_type=type(exc).__name__)
+            return
+        self.last_question = {'text': heard, 'row': row, 'person_id': person, 'at': self.trace.clock()}
+        self.trace.emit('curiosity_asked', turn_id=turn_id, topic=topic, about=row.get('about'))
 
     def look_directions(self):
         """Head directions a look may take before its picture: none without an awake robot head."""
@@ -421,6 +456,17 @@ class Session:
         here = [p['id'] for p in context.get('people', []) if self.state.present.here(p['id'], now)]
         return beat_context(self.state, now, step['scope'], here)
 
+    def _curiosity(self, context, person_id=None, pets_first=False):
+        """What he does not know yet about the person he may talk privately with and the saved pets
+        (owner, October 24: "True friends ask to know more"). Only with a known private audience:
+        their topics and interests are theirs, and a guest is not asked about the house's dogs."""
+        person = person_id or (context.get('personal_memory') or {}).get('person_id')
+        if not self.state or not person: return None
+        from . import curiosity
+        name = next((p.get('name') for p in context.get('people', []) if p.get('id') == person), None)
+        pets = [e for e in (context.get('photo_memory') or {}).get('entities', []) if e.get('kind') == 'pet']
+        return curiosity.context(self.state.store, person, name, pets, self.state.wall_clock(), pets_first=pets_first)
+
     def _subject_person(self, context):
         """Who Rex's next goal is about: an arrival, the private-memory person, or one known face."""
         pending = self.state.agency.pending_subject or {}
@@ -440,6 +486,7 @@ class Session:
         """Everything the planner sees, captured now; planning itself may finish later."""
         from .agency import evidence_catalog, mentioned_lately, recent_dialogue
         from .servo_poses import POSE_COMMANDS
+        from . import jokes
         agency = self.state.agency
         now = self.trace.clock()
         evidence = evidence_catalog(context)
@@ -457,6 +504,18 @@ class Session:
                 'recent_exchanges': memory.get('recent_exchanges', []) if same else [],
                 'episodes': [{'id': r.get('id'), 'summary': r.get('summary')} for r in memory.get('episodes', [])] if same else [],
                 'meaning': 'A known person. Saved facts are private to them: audience scope only.'}
+            targets = (context.get('drive') or {}).get('targets', [])
+            curious = self._curiosity(context, subject_person, pets_first=any(
+                t.get('kind') == 'object' and t.get('label') in {'dog', 'cat'} for t in targets))
+            if curious: subject['curiosity'] = curious
+            face = next((t for t in targets if t.get('kind') == 'face' and t.get('person_id') == subject_person), None)
+            if face and face.get('approx_range_m'):
+                # Owner, October 24: "He needs to get closer if people are far."
+                far = face['approx_range_m'] > FAR_PERSON_M
+                subject['distance'] = {'approx_m': face['approx_range_m'], 'far': far, 'target_id': face['target_id'],
+                                       'meaning': (f'Farther than about {FAR_PERSON_M:g} m: roll over to them early in the '
+                                                   'goal (approach this target), stopping about 1.3 m away.') if far else
+                                                  'Close enough to talk.'}
         elif faces:
             subject = {'person_id': None, 'unknown_visitor': True, 'visible_now': True,
                 'meaning': 'Someone Rex does not know yet. Visibility is not identity.'}
@@ -496,6 +555,7 @@ class Session:
                 w for row in [*people.values(), *((context.get('photo_memory') or {}).get('entities') or [])]
                 for w in str(row.get('name', '')).lower().split()}),
             'engagement': agency.engagement(),
+            'spent_joke_shapes': jokes.spent_shapes(self.history_messages()),
             # October 13: in long silences the planner kept riffing on the last line said;
             # interests and news never came up.
             # In a lull, what to open with, most personal first (October 13 probe: with a story
@@ -1045,8 +1105,10 @@ class Session:
                      if opportunity.kind=='visual_arrival' else
                     'An animal just came into view (see pet). React the way a friend would when the dog walks in. '
                     'When saved pets are offered, first take a look with inspect_visual_memory (intent look, that '
-                    'target, the saved pets) to see which one it is; then greet it by name and ask the person '
-                    'something about it ("Oh look, it\'s Max! How\'s he behaving tonight?"). Not a saved pet: remark on '
+                    'target, the saved pets) to see which one it is; then greet it by name with a warm, specific '
+                    'remark ("Oh look, it\'s Max, back to inspect the premises."). No question yet: your next beat asks '
+                    'about the pet. Not "how\'s he behaving?": October 22-24, four arrivals in a row got that same '
+                    'question and nothing was learned. Not a saved pet: remark on '
                     'it warmly. The detector\'s cat/dog label is unreliable; never name the species from it alone. '
                     'Name a saved pet only when the look clearly matches; when it shows only part of the animal, the '
                     'animal is at the edge of your view, or two saved pets could fit, ask which one it is instead '
@@ -1222,6 +1284,9 @@ class Session:
                 humor_person = context["personal_memory"].get('person_id')
                 humor_audience = jokes.audience_key(humor_person)
                 humor = jokes.context(self.state.store, humor_person, humor_audience, self.state.wall_clock())
+                spent = jokes.spent_shapes(self.history_messages())
+                if spent:
+                    humor = {**humor, 'spent_shapes': spent, 'meaning': GUIDE['humor']}
                 if humor: context['humor'] = humor
                 material = self.joke_room.offer(humor_audience, self.human_turns) if self.joke_room else None
                 if material and not (opportunity and opportunity.kind in {'visual_arrival', 'unseen_presence'}):
@@ -1231,6 +1296,15 @@ class Session:
                     self.state.intent_context(context, human=not opportunity)
                 from .photo_flow import context as photo_context
                 context.update(photo_context(self.state))
+                curious = self._curiosity(context, pets_first=bool(opportunity and opportunity.kind == 'pet_arrival'))
+                if curious and not context.get('sentry'): context['curiosity'] = curious
+                from .curiosity import OPEN_SECONDS as QUESTION_OPEN_SECONDS
+                if (not opportunity and self.last_question
+                        and self.trace.clock() - self.last_question['at'] <= QUESTION_OPEN_SECONDS
+                        and context['personal_memory'].get('person_id') == self.last_question['person_id']):
+                    row = self.last_question['row']
+                    context['your_question'] = {'asked': self.last_question['text'], 'about': row.get('about'),
+                                                'wanted_to_know': row.get('want_to_know'), 'meaning': GUIDE['your_question']}
             memory_subject = context.get('personal_memory',{}).get('person_id')
             memory_accessed = [any(context.get('personal_memory',{}).get(key) for key in
                                    ('recent_exchanges','earlier_greetings','interests_and_facts','episodes','current_session_exchanges'))]
@@ -1327,12 +1401,19 @@ class Session:
                     if agency_step and agency_step.get('requires_visor_shut') and not context.get('visor_over_eyes'):
                         agency.let_go('visor_open', self.trace.clock())   # Raised again before he got to it.
                         agency_step = agency.step(self.trace.clock())
+                    from . import curiosity
                     while agency_step:
                         if (agency_step['kind'] == 'inspect'
                                 and self.trace.clock() - self.last_look_at < RECENT_LOOK_SECONDS):
                             # October 22 (0421a222): "one more peek", "one last look" at the same droid on top
                             # of four looks asked for. A closer look this soon after the last is let go.
                             agency.let_go('looked_just_now', self.trace.clock())
+                        elif (agency_step.get('curious_about')
+                              and curiosity.offered(context.get('curiosity'), agency_step['curious_about']) is None):
+                            # Paid probe, October 24: a planned "what do you do for work?" came after Sam had
+                            # answered it. A question whose topic he already asked (or that is not on offer)
+                            # is let go before any model call; the goal goes on.
+                            agency.let_go('curiosity_already_asked', self.trace.clock())
                         elif agency_step['kind'] == 'impression':
                             # Owner, October 23: impressions of his own. The voices are offered only while
                             # the budget allows one now (a cameo in a reply counts too); otherwise the beat
@@ -1366,6 +1447,10 @@ class Session:
                     context['hypotheticals'] = {'asked_before': hypotheticals.asked_before(self.state.store, wonder_person),
                                                 'meaning': GUIDE['hypotheticals']}
                 if agency_step['scope']=='general':
+                    # Their own open topics are private to them; the household's pets are not.
+                    pets = [r for r in (context.get('curiosity') or {}).get('still_unknown', ()) if r.get('pet_id')]
+                    if pets: context['curiosity'] = {**context['curiosity'], 'still_unknown': pets}
+                    else: context.pop('curiosity', None)
                     context['memory_opportunities'] = []
                     context['visual_memory'] = [r for r in context.get('visual_memory',[]) if r.get('audience')=='general']
                 if agency_step['goal_kind'] not in {'get_to_know','investigate','explore'}:
@@ -2704,6 +2789,8 @@ class Session:
                                                 answering=(context.get('speaker') or {}).get('speaker_id') or self._memory_subject)
                     if self.joke_room is not None and not context.get('sentry'):   # No paid writer for the guard.
                         self._joke_followup(heard, context, opportunity, transcript, turn_id, calls, setback[0])
+                    if delivery.medium == 'audio' and delivery.status == 'completed':
+                        self._curiosity_followup(heard, context, calls, agency_step, turn_id)
             if self.state and (schedule_proposal is not None or invitation_proposal is not None):
                 with self._lock:
                     valid = (schedule_accepted and schedule_action_ok and not self.closed and not cancel.event.is_set()
@@ -2736,6 +2823,11 @@ class Session:
                         self.trace.emit('hypothetical_asked', turn_id=turn_id, text=heard)
                     except Exception as exc:
                         self.trace.emit('state_finalize_failed', turn_id=turn_id, error_type=type(exc).__name__)
+            if (opportunity is not None and opportunity.kind == 'pet_arrival' and delivery.completed_text
+                    and delivery.medium == 'audio' and self.state and not self.state.frozen
+                    and any(r.get('pet_id') for r in (context.get('curiosity') or {}).get('still_unknown', ()))):
+                with self._lock:
+                    self.state.agency.insert_beat(PET_QUESTION_BEAT, self.trace.clock(), pet_question=True)
             if went_dark[0] and self.state and not self.state.frozen:
                 # Owner, October 22: lowered, the visor blinds him and he should make light of it. Run
                 # 0421a222: told so only in the instructions, he never did. His next beat does it.

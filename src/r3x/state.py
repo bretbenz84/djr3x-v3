@@ -168,6 +168,10 @@ class CoreState:
                     'attribution_state':attribution.state,'wall_time':self.wall_clock(),
                     'named_recently':self.recently_named_pets()}
             result=self.photo_memory.apply(call,source,self.trace.clock())
+            if result.get('status')=='forgotten':
+                # What he asked about a forgotten pet goes with it (curiosity.py).
+                from .curiosity import forget_pet
+                with self.store.transaction() as conn:forget_pet(conn,result['entity_id'])
             return {'outcome':'ok','data':result}
         except (ValueError,OSError) as exc:
             return {'outcome':'rejected','reason':str(exc)}

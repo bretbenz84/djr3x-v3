@@ -43,7 +43,12 @@ it or reads its data.
   known person from saved facts, getting to know a stranger, investigating something in
   the room (drive over, reach out, look closely, ask about it) or livening up a dead
   moment. GPT-5.6 Terra plans each goal once, in the background, from the conversation,
-  saved facts and one camera frame; GPT-6 Luna performs one beat per lull. Conversation
+  saved facts and one camera frame; GPT-6 Luna performs one beat per lull. Since October 24 he is
+  curious on his own turns: he is offered what he does not know yet about the person he is with and
+  each saved pet (their work, where they grew up, how Max came home), asks about one when the moment
+  fits, saves the answer and does not ask it again for a few days. A pet walking in gets a hello, then
+  his question about it; someone far away gets a goal that rolls over to them. His replies to what
+  people say end without a tacked-on follow-up question ([details](docs/IMPLEMENTATION_STATUS.md#curious-about-people-and-pets--october-24)). Conversation
   steers a goal instead of discarding it; it ends when its beats are used, its person
   leaves, someone redirects it or a new arrival replaces it. He eases off when nobody
   answers and, with nobody seen or heard for five minutes, starts no new goals. After 45 seconds with

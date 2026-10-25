@@ -69,7 +69,7 @@ class PetArrivalTurn(MemoryFixture):
                     yield ToolCall('look', 'inspect_visual_memory', {'intent': 'look', 'target_id': 'object-dog',
                         'entity_ids': ['max-id'], 'question': 'Which saved pet is this?'})
                 else:
-                    yield "Oh look, it's Max! How's he behaving tonight?"
+                    yield "Oh look, it's Max, back to inspect the premises."
         trace = self.state.trace
         session = Session('session', Brain(), TextOutput(trace), trace, self.state)
         self.addCleanup(session.close)
@@ -86,7 +86,7 @@ class PetArrivalTurn(MemoryFixture):
         runtime.arrivals.seen['bret']['used'] = True   # Bret was already greeted.
         trace.at = runtime.audio_seen_at = 200
         result = runtime.proactive_tick()
-        self.assertEqual(result.completed_text, ["Oh look, it's Max! How's he behaving tonight?"])
+        self.assertEqual(result.completed_text, ["Oh look, it's Max, back to inspect the premises."])
         self.assertEqual(seen[0].context['pet_arrival']['saved_pets'], [{'entity_id': 'max-id', 'name': 'Max'}])
         self.assertEqual(len(seen[1].images), 2)          # The view and the dog, compared with Max.
 
