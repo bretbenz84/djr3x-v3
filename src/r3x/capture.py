@@ -13,6 +13,9 @@ class Frame:
     ended_at: float
     echo_risk: bool = False
     motion_risk: bool = False
+    # The reSpeaker Flex's channel 1 (its ASR output: echo-cancelled and beamformed, no AGC and no
+    # ducking while Rex plays), for the keyword spotter only; channel 0 stays the listening channel.
+    beam_pcm: bytes | None = None
 
 
 class Endpoint:

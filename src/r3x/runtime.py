@@ -70,6 +70,7 @@ class VoiceRuntime:
         self._spotting = None        # When the current drive's stop listening began, or None.
         self._spot_peak = 0.
         self._wake_at = None         # When a wake word last cut his line: later sound is the person's.
+        self._wake_listening = None  # [began, {word: peak score}] while he speaks.
         self.endpoint = Endpoint(session.session_id, silence)
         self.perception, self.recorder = perception, recorder
         self.captures = Queue(maxsize=2)
@@ -209,11 +210,29 @@ class VoiceRuntime:
         never counts; sentry mode decides for itself."""
         from .adapters.keywords import WAKE_WORDS
         try:
-            fired = self.keywords.feed(frame.pcm)
+            # October 25: on channel 0 the board ducks a voice about 20 dB while he plays (V2's Flex
+            # measurements), and "Hey Rex" shouted over him never fired; channel 1 is not ducked.
+            fired = self.keywords.feed(frame.beam_pcm or frame.pcm)
         except Exception as exc:
             self.trace.emit('keywords_failed', error_type=type(exc).__name__)
             self.keywords = None
             return
+        echo_risk = getattr(self.session.output, 'echo_risk', None)
+        speaking = bool(echo_risk and echo_risk())
+        scores = getattr(self.keywords, 'last_scores', None) or {}
+        if speaking:
+            if self._wake_listening is None:
+                self._wake_listening = [frame.started_at, {}]
+            peaks = self._wake_listening[1]
+            for word in WAKE_WORDS:
+                peaks[word] = max(peaks.get(word, 0.), scores.get(word, 0.))
+        elif self._wake_listening is not None:
+            # Evidence for live checks: how close a wake word came while he spoke.
+            began, peaks = self._wake_listening
+            self.trace.emit('wake_word_listened', seconds=round(frame.ended_at - began, 2),
+                            channel=1 if frame.beam_pcm is not None else 0,
+                            peaks={w: round(v, 3) for w, v in sorted(peaks.items())})
+            self._wake_listening = None
         moving = self.drive is not None and self.drive.moving.is_set()
         if moving:
             if self._spotting is None:
@@ -238,9 +257,11 @@ class VoiceRuntime:
                                 echo_risk=frame.echo_risk)
                 return
         wake = next((w for w in fired if w in WAKE_WORDS), None)
-        echo_risk = getattr(self.session.output, 'echo_risk', None)
-        if wake is None or not (echo_risk and echo_risk()):
-            return   # Not over his voice: the words become an ordinary turn.
+        if wake is None:
+            return
+        if not speaking:   # Not over his voice: the words become an ordinary turn.
+            self.trace.emit('wake_word_heard', word=wake, status='not_over_his_voice', score=round(fired[wake], 3))
+            return
         status = ('driving' if moving else 'his_own_line' if re.search(r"\brex\b", own.lower()) else
                   'interrupted' if self.session.interrupt_speech(wake) else 'nothing_to_interrupt')
         self.trace.emit('wake_word_heard', word=wake, status=status, score=round(fired[wake], 3))

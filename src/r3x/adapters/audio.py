@@ -10,9 +10,9 @@ from ..contracts import Cancellation, Cancelled, Playback, ProviderFailure
 from ..providers import Capability
 
 
-def selected_pcm(data, channels: int, gain: float) -> bytes:
-    """Select channel zero, never average raw capsules into processed audio."""
-    if channels == 1 and gain == 1:
+def selected_pcm(data, channels: int, gain: float, channel: int = 0) -> bytes:
+    """Select one channel (zero by default), never average raw capsules into processed audio."""
+    if channels == 1 and gain == 1 and channel == 0:
         return bytes(data)
     import sys
     samples = array('h')
@@ -21,7 +21,7 @@ def selected_pcm(data, channels: int, gain: float) -> bytes:
         samples.byteswap()
     if len(samples) % channels:
         raise ValueError('IncompleteInterleavedFrame')
-    mono = array('h', (max(-32768, min(32767, round(v * gain))) for v in samples[::channels]))
+    mono = array('h', (max(-32768, min(32767, round(v * gain))) for v in samples[channel::channels]))
     if sys.byteorder != 'little':
         mono.byteswap()
     return mono.tobytes()
@@ -88,7 +88,8 @@ class Microphone:
             # callback/GIL delay must not become a false gap in captured PCM.
             began = timing.inputBufferAdcTime + self.clock_offset
             frame = Frame(selected_pcm(data, self.channels, self.settings.input_gain), began, began + count / 16000,
-                          not self.settings.echo_isolated and self.echo_risk(), self.motion_risk())
+                          not self.settings.echo_isolated and self.echo_risk(), self.motion_risk(),
+                          selected_pcm(data, self.channels, self.settings.input_gain, 1) if self.channels > 1 else None)
             try:
                 self.frames.put_nowait(frame)
             except Full:

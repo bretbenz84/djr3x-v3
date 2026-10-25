@@ -1397,3 +1397,14 @@ mixed over his voice as the board hears it; it never fired on 80 saved captures 
 cached lines (once on "Rex, let's talk about..."). No "Hey DJ Rex" was ever recorded, so that one is
 untried on the owner. Checks: `tests/test_keywords.py` (synthetic). **Not yet run on the robot.**
 
+Owner's live test, runs `ffaa244f` and `1ef35235`: "Hey Rex", shouted over him, never fired; the
+spotter started and was fed, and nothing was logged. It listened to channel 0, the board's
+Conference output, which V2 measured ducking about 20 dB while Rex plays (residual-echo
+suppression and AGC; V2 `docs/respeaker_flex_xvf3800.md`). V2 itself never ran wake words during
+his speech (`WAKE_WORD_ALLOW_DURING_TTS=false`). The spotter (stop and both wake words) now
+listens to channel 1, the board's ASR output (echo-cancelled and beamformed, no AGC, not ducked;
+`Frame.beam_pcm`), at the same 1.5 input gain; everything else still listens to channel 0. "Hey
+Rex" scored .84-1.00 on the saved calls down to 30 dB quieter, so channel 1's lower level is not a
+problem. Each stretch of his speech now logs its peak wake scores (`wake_word_listened`, with the
+channel), and a wake word heard when he is not talking logs `not_over_his_voice`. Not yet run live.
+

@@ -9,7 +9,9 @@ to the existing conversation owner. No V2 runtime imports or data dependencies.
 **only channel 0**: Conference output with hardware AEC, beamforming, noise
 suppression and AGC. No mixing with raw capsules. Input and output must resolve
 to the same named XVF3800 device so playback follows its echo-reference path.
-`input_gain = 1.5` restores V2's saturating host gain. Standard input defaults to
+`input_gain = 1.5` restores V2's saturating host gain. Since October 25 channel 1 (ASR output: AEC
+and beamforming, no AGC, not ducked while Rex plays) also rides along on each frame for the keyword
+spotter alone ("stop", "Hey Rex"); channel 0 still carries all listening. Standard input defaults to
 unity gain. Mode/channel/gain are logged and retained in capture provenance.
 The robot's local settings enable this mode and direction. Existing V3 VAD,
 endpoint and preroll settings remain unchanged to isolate this integration.
