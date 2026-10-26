@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 25, 2026. This is the consolidated
+Updated October 26, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,37 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## October 25 run: the first callout test — October 26
+
+Session `c5ad0deb` (the owner adding V2's callouts by voice). Saved right: P.J., Max and the owner's boss.
+Repaired ([callouts](#celebrity-callouts-and-body-jokes--october-25)):
+
+- **Jeff Benziger's callout went on the owner's record.** The owner's surname alone, "Benziger", is one of his
+  saved names, so "Jeff Benziger" fitted him. A name sharing a word with someone's name beside a plainly
+  different one (Jeff and Brett) is now somebody else; only a near spelling ("Sammy" for "Sam") is still asked
+  about. This applied to facts as well as callouts. The wrong callout was deleted from the database (backup
+  `local/core.before-callout-jeff-fix-20261026.sqlite3`).
+- **Exudica's was refused.** "Exodia" was heard and the model used her saved spelling, which counted as a name
+  nobody said. The saved spelling of a name heard a little differently now counts as said; passed as heard, a
+  near spelling of a saved person is asked about ("Do you mean Exudica?") instead of making a second person.
+  "T'Joy" now matches her saved "Tjoy", and "P.J." matches "PJ".
+- **Jeremy's was never processed.** A half-second "Oh." (0.54 s voiced, his own motors; the yield bar is 0.5 s)
+  cancelled the reply to the request, and the reply he still owed treated the sound as nothing to answer. Now,
+  when the sound that cut in is untrusted, the owed reply answers their words as that turn, so a save from it
+  works, and the exchange is kept with their words.
+- **The sister's became a plain fact.** "Treat her like a celebrity when you meet her" is now steered to the
+  callout tool in both tool descriptions.
+- **Lines about others counted as callbacks.** A heard line now counts for a callout only with the person's or
+  pet's name and one of its words, or two of its words.
+- In the paid probe, "stop the Kings royalty thing" deleted the bit twice; the delete action is now named
+  `delete_forever`.
+
+Evidence: 22 checks in `tests/test_callouts.py`, including a replay of the swallowed request through the
+production Session. Paid probe `tools/check_callouts.py --live` (fictional input, real reply model): 18 of 18
+after the repairs. Earlier runs the same day gave 15 of 17 and 15 of 18 and drove the near-spelling question and
+the rename. Once, setting up T'Joy's, Rex still said "faith is strictly off the joke list" aloud. 1646 blocked-I/O
+checks pass (5 skipped). **Not yet run on the robot.**
 
 ## October 25 run: frozen servos and the first impression's stall — October 26
 

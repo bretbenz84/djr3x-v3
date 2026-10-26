@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from .contracts import ToolResult
 from .enrollment import Enrollment
-from .memory import CLAIM_INSERT, label, name_words
+from .memory import CLAIM_INSERT, label, name_key, name_words
 from .semantics import validate
 
 
@@ -552,6 +552,12 @@ class CoreState:
         if self.pending:
             self.trace.emit("pending_cancelled", enrollments=0, question=True)
         self.pending = None
+
+    def resume(self, current):
+        """Make an earlier trusted turn current again, so the reply it is owed is that turn's: its words, its
+        speaker evidence and its source for any save. Used only when the turn that yielded it was an
+        untrusted sound (Session, October 26); that sound's own source stays stored and is never answered."""
+        self.current = current
 
     def begin(self, turn_id, capture, transcript, observation, faces=()):
         if not self._restored and not self.frozen:
@@ -1745,13 +1751,24 @@ class CoreState:
             "SELECT text,evidence FROM turns WHERE session_id=? AND id<>? AND created_at BETWEEN ? AND ? ORDER BY created_at DESC LIMIT 40",
             (capture.session_id,turn_id,capture.ended_at-MENTION_SECONDS,capture.ended_at))
             if json.loads(r["evidence"]).get("trusted") and not json.loads(r["evidence"]).get("echo_risk")]
-        wanted = [w.casefold() for w in words]
+        wanted = [name_key(w) for w in words]
+        # The saved spelling of a name said a little differently counts as said (October 26: "Exodia" was
+        # heard, the model used her saved "Exudica", and her callout was refused as a name nobody said).
+        saved = "".join(wanted) if self.store.resolve(reference) else None
+        from difflib import SequenceMatcher
         for text in heard:
             said = name_words(text)
             for i in range(len(said)-len(wanted)+1):
                 window = said[i:i+len(wanted)]
                 # A name is written as one: "my partner" or "the boss" are not names.
-                if [w.casefold() for w in window]==wanted and all(w[:1].isupper() for w in window):
+                if not all(w[:1].isupper() for w in window):
+                    continue
+                keys = [name_key(w) for w in window]
+                if keys == wanted:
+                    return True
+                heard_as = "".join(keys)
+                if (saved and len(saved) >= 4 and heard_as[:1] == saved[:1]
+                        and SequenceMatcher(None, heard_as, saved).ratio() >= NAME_SPELLING_RATIO):
                     return True
         return False
 
@@ -1785,6 +1802,10 @@ class CoreState:
             raise ValueError("PossiblySameAsAKnownPerson")
         elif (near := self.near_named(name_text)) is not None:
             person_id = near["id"]
+        elif (spelled := self._spelled_like(name_text)) is not None:
+            # October 26 probe: "Exodia" (as heard) made a second person beside the saved Exudica. A near
+            # spelling of someone not named lately is asked about, never assumed and never a new record.
+            raise ValueError("PossiblySameAsAKnownPerson:" + spelled["name"])
         else:
             if self.photo_memory is not None and any(e['kind']=='pet' and label(e['name'])==label(name_text)
                                                      for e in self.photo_memory.catalog()):
@@ -1793,6 +1814,18 @@ class CoreState:
         if person_id in (self.current[4].speaker_id, self.current[4].person_id):
             raise ValueError("MentionedPersonIsTheSpeaker")
         return person_id, created
+
+    def _spelled_like(self, reference):
+        """The one saved person whose name this is a near spelling of, by the near_named test but whenever
+        they were last named; None when nobody or several fit."""
+        from difflib import SequenceMatcher
+        heard = "".join(name_key(w) for w in name_words(reference or ""))
+        if len(heard) < 4 or heard in NOT_NAMES:
+            return None
+        fits = [p for p in self.store.people() if any(
+            (known := "".join(name_key(w) for w in name_words(n))) and known[0] == heard[0] and len(known) >= 4
+            and SequenceMatcher(None, known, heard).ratio() >= NAME_SPELLING_RATIO for n in (p["name"], *p["aliases"]))]
+        return fits[0] if len(fits) == 1 else None
 
     def _callout_subject(self, conn, args):
         """Whose callout a call means: ('person' or 'pet', id). Adding one to someone not known yet makes a

@@ -13,7 +13,9 @@ import unittest
 from r3x.adapters.hosted import PERSONA
 from r3x.agency import PLANNER_INSTRUCTIONS
 from r3x.callouts import ENTRANCE_GAP_SECONDS, RIFF_SECONDS
-from r3x.contracts import ToolCall
+from uuid import uuid4
+
+from r3x.contracts import Capture, ToolCall, Transcript
 from r3x.field_guide import GUIDE
 from r3x.jokes import WRITER_INSTRUCTIONS
 from r3x.output import OutputOwner
@@ -23,7 +25,8 @@ from r3x.semantics import TOOLS, grounded_tools
 from r3x.session import Session
 from tests import test_photo_memory as photo_tests
 from tests.test_context_diet import send
-from tests.test_memory_core import C, MemoryFixture
+from r3x.state import NAME_SPELLING_SECONDS
+from tests.test_memory_core import C, MemoryFixture, observation
 from tests.test_proactive import event
 from tests.test_voice_core import Brain
 
@@ -97,7 +100,7 @@ class CalloutStateTests(CalloutFixture):
         self.assertEqual(self.callout('resume', callout_id=callout_id).data['status'], 'on')
         self.assertEqual(seen(), ['PJ'])
         self.begin('Never call him that again.')
-        self.assertEqual(self.callout('remove', callout_id=callout_id).data['status'], 'removed')
+        self.assertEqual(self.callout('delete_forever', callout_id=callout_id).data['status'], 'removed')
         self.assertEqual((self.store.rows('SELECT * FROM callouts'), seen()), ([], []))
         self.begin('Stop calling PJ that.')
         self.assertEqual(self.callout('stop', name='PJ').reason, 'NoCalloutForThem')
@@ -203,6 +206,121 @@ class CalloutStateTests(CalloutFixture):
         self.assertEqual(result.data['person_id'], self.person('Jeff'))
         self.assertEqual((result.data['callout']['famous_for'], result.data['callout']['entrance_due']),
                          ('History Hunters fame', True))
+
+
+class LiveTestRepairTests(CalloutFixture):
+    """The owner's first live test, October 25 (c5ad0deb): Jeff's callout went on the owner's record, Exudica's
+    was refused as a name nobody said, and lines about others were counted as PJ's and Max's callbacks."""
+
+    def test_the_owners_dad_is_not_the_owner_because_they_share_a_surname(self):
+        bret = self.enroll('Brett Benziger')
+        with self.store.transaction() as conn:   # As on the robot: his surname alone is one of his names.
+            conn.execute('UPDATE people SET aliases=? WHERE id=?', (json.dumps(['Brett', 'Benziger']), bret))
+        self.begin('My dad, Jeff Benziger, is famous for his YouTube channel called History Hunters.', C)
+        result = self.callout('add', name='Jeff Benziger', famous_for='History Hunters celebrity')
+        self.assertEqual((result.outcome, result.data['about']), ('ok', 'Jeff Benziger'), result)
+        self.assertNotEqual(self.store.rows('SELECT person_id FROM callouts')[0]['person_id'], bret)
+        self.assertEqual([p['id'] for p in self.store.name_matches('Benziger')[1]], [bret, self.person('Jeff Benziger')])
+        self.assertEqual([p['id'] for p in self.store.name_matches('Brett')[1]], [bret])
+
+    def test_her_saved_spelling_is_accepted_for_the_name_that_was_heard(self):
+        self.enroll('Bret')
+        self.begin('This is Exudica.')
+        self.call('introduce_person', {'name': 'Exudica', 'aliases': ['Tjoy'], 'subject': 'other', 'person_id': None,
+                                       'face_track_id': None})
+        exudica = self.person('Exudica')
+        self.state.trace.at += NAME_SPELLING_SECONDS + 1                      # A different conversation.
+        self.begin("Exodia is the world's greatest hairstylist. Give her the celebrity treatment.")
+        result = self.callout('add', name='Exudica', famous_for="the world's greatest hairstylist")
+        self.assertEqual((result.outcome, result.data['about']), ('ok', 'Exudica'), result)
+        self.assertEqual(self.store.rows('SELECT person_id FROM callouts')[0]['person_id'], exudica)
+        self.assertEqual([p['id'] for p in self.store.name_matches("T'Joy")[1]], [exudica])   # Saved as Tjoy.
+
+        self.at += 601                                                         # Ten minutes on, a word that is
+        self.begin('Exotic, that is the word.')                                # not close enough to her name.
+        self.assertFalse(self.state._named_recently('Exudica'))
+
+    def test_a_near_spelling_passed_as_heard_is_asked_about_then_filed_on_her(self):
+        # October 26 probe: "Exodia" as heard made a second person beside the saved Exudica.
+        self.enroll('Bret')
+        self.begin('This is Exudica.')
+        self.call('introduce_person', {'name': 'Exudica', 'aliases': ['Tjoy'], 'subject': 'other', 'person_id': None,
+                                       'face_track_id': None})
+        self.state.trace.at += NAME_SPELLING_SECONDS + 1
+        self.begin("Exodia is the world's greatest hairstylist. Give her the celebrity treatment.")
+        self.assertEqual(self.callout('add', name='Exodia', famous_for="the world's greatest hairstylist").reason,
+                         'PossiblySameAsAKnownPerson:Exudica')
+        self.assertEqual(self.store.resolve('Exodia'), [])
+        self.begin('Yes, that is her.')
+        self.assertEqual(self.callout('add', name='Exudica', famous_for="the world's greatest hairstylist").data['about'],
+                         'Exudica')
+
+    def test_initials_with_or_without_periods_are_one_name(self):
+        self.enroll('Bret')
+        self.begin('P.J. is a major Kings fan. Treat him like Sacramento Kings royalty.')
+        self.callout('add', name='P.J.', famous_for='Sacramento Kings royalty')
+        self.begin('Also, PJ loves cowbells.')
+        self.assertEqual(self.callout('change', name='PJ', angles=['cowbells']).data['about'], 'P.J.')
+
+    def test_a_line_counts_for_a_callout_only_with_their_name_or_two_of_its_words(self):
+        self.enroll('Bret')
+        self.begin('P.J. is Kings royalty and Max is the most spoiled dog in Sacramento.')
+        album = PhotoMemory(Path(self.temp.name).resolve() / 'photos'); album.start()
+        self.state.photo_memory = album
+        album.data['entities']['max-id'] = {'name': 'Max', 'kind': 'pet', 'notes': '', 'references': [], 'history': []}
+        self.begin('P.J. is Kings royalty and Max is the most spoiled dog in Sacramento.')
+        self.callout('add', name='P.J.', famous_for='Sacramento Kings royalty',
+                     angles=['Sacramento Kings fandom', 'the beam', 'courtside-level devotion'])
+        self.callout('add', subject='pet', name='Max', famous_for="Sacramento's most pampered dog",
+                     angles=['red-carpet arrivals', 'royal-level attention', 'spoiled-dog privileges'])
+        self.clock += RIFF_SECONDS
+        offered = self.state.callout_context({'faces': [{'identity': self.person('P.J.')}]})
+        kind = {e['about']: e['callout_id'] for e in offered['here']}
+        heard = lambda line: [c for c, _ in self.state.callout_heard(offered, line)]
+        self.assertEqual(heard('Daniel Segal, programmer extraordinaire! Fifteen years as your boss and still somehow '
+                               'keeping you pointed at the right screen, now that is celebrity-level patience.'), [])
+        self.assertEqual(heard('Max gets the red carpet treatment, though with those brown paws he will leave royal '
+                               'paw prints all over it.'), [kind['Max']])
+        self.assertEqual(heard('PJ! The beam is practically lit just from your entrance.'), [kind['P.J.']])
+
+
+class NoiseAfterRequestTests(MemoryFixture):
+    """October 25 (c5ad0deb): the owner's request yielded to a half-second "Oh." (his own motors), and the
+    reply he still owed answered the sound with silence; the request was never saved."""
+
+    def turn(self, session, text, start, trusted=True):
+        capture = Capture(uuid4().hex, session.session_id, bytes(96000), start, start + 3, start + 3,
+                          voiced_intervals=((0., 3.),))
+        return session.process_turn(capture, Transcript(text, -.01 if trusted else -.75, trusted), 0, observation(), ())
+
+    def test_the_reply_he_owes_answers_their_words_not_the_noise_and_saves_from_them(self):
+        self.enroll('Bret')
+        request = 'Jeremy Thomas is a major volleyball celebrity. Make a big deal of him.'
+        class Yields:
+            snapshots = []
+            def reply(inner, snapshot, cancel):
+                inner.snapshots.append(snapshot)
+                if len(inner.snapshots) == 1:
+                    session.note_speech(200.)   # A sound right after: the reply yields unheard.
+                    cancel.check()
+                yield ToolCall('add', 'callout', {'action': 'add', 'callout_id': None, 'subject': 'person',
+                    'name': 'Jeremy Thomas', 'famous_for': 'major volleyball celebrity', 'angles': [], 'off_limits': [],
+                    'source_turn_id': snapshot.context['source_turn_id'], 'text': 'Jeremy Thomas, volleyball royalty.'})
+        brain = Yields()
+        session = Session('session', brain, OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace),
+                          self.state.trace, self.state)
+        self.addCleanup(session.close)
+        self.assertEqual(self.turn(session, request, 196.).status, 'interrupted')
+        result = self.turn(session, 'Oh.', 199.5, trusted=False)
+        self.assertEqual(result.completed_text, ['Jeremy Thomas, volleyball royalty.'])
+        last = brain.snapshots[-1]
+        self.assertEqual(last.context['current_utterance'], request)
+        self.assertEqual([m['content'] for m in last.messages if m.get('role') == 'user'][-1], request)
+        self.assertNotIn('Oh.', [m['content'] for m in last.messages if m.get('role') == 'user'])
+        self.assertEqual(self.store.rows('SELECT famous_for FROM callouts')[0]['famous_for'], 'major volleyball celebrity')
+        self.assertTrue(any(r['event'] == 'owed_reply_after_noise' for r in self.state.trace.rows))
+        exchanges = self.store.rows("SELECT human_text,heard_text FROM conversation_exchanges WHERE heard_text<>''")
+        self.assertEqual(exchanges, [{'human_text': request, 'heard_text': 'Jeremy Thomas, volleyball royalty.'}])
 
 
 class PetCalloutForgetTests(MemoryFixture):

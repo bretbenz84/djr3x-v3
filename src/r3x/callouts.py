@@ -23,6 +23,7 @@ import re
 from uuid import uuid4
 
 from .field_guide import GUIDE
+from .memory import name_key, name_words
 from .present import ago
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS callouts(
@@ -35,7 +36,7 @@ CREATE TABLE IF NOT EXISTS callout_lines(
     kind TEXT NOT NULL, line TEXT NOT NULL, said_at REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS callout_lines_at ON callout_lines(callout_id, said_at);"""
 
-ACTIONS = ('add', 'change', 'stop', 'resume', 'remove')
+ACTIONS = ('add', 'change', 'stop', 'resume', 'delete_forever')
 # An entrance at most this often, so someone who lives here is not announced every time they walk
 # back in. V2 greeted each special person once a run.
 ENTRANCE_GAP_SECONDS = 3 * 3600.
@@ -69,9 +70,14 @@ def _keys(text):
     return keys
 
 
-def uses(line, entry):
-    """Whether a heard line of Rex's used this callout: a distinctive word of its claim to fame or an angle."""
-    return bool(_keys(line) & _keys(' '.join([entry['famous_for'], *entry['angles']])))
+def uses(line, entry, names=()):
+    """Whether a heard line of Rex's used this callout: a distinctive word of its claim to fame or an angle
+    beside one of their names, or two such words. October 25 (c5ad0deb): one word alone counted lines
+    about others ("celebrity-level patience" for Daniel was a riff for PJ and Max), holding back theirs."""
+    shared = _keys(line) & _keys(' '.join([entry['famous_for'], *entry['angles']]))
+    said = {name_key(w) for w in name_words(line)}
+    named = any(name_key(w) in said for n in names for w in name_words(n) if len(name_key(w)) >= 2)
+    return len(shared) >= 2 or bool(shared) and named
 
 
 def _text(value, limit, reason):
@@ -101,7 +107,7 @@ def _row(conn, subject_kind, subject_id):
 
 
 def apply(conn, subject_kind, subject_id, about, args, *, said_by, turn_id, source_text, now):
-    """Add, change, stop, resume or remove the callout of one person or saved pet."""
+    """Add, change, stop, resume or delete the callout of one person or saved pet."""
     action = args['action']
     if action not in ACTIONS:
         raise ValueError('InvalidCalloutAction')
@@ -220,7 +226,12 @@ def heard(conn, offered, line, now):
     """Record the offered callouts a heard line of Rex's used: (callout_id, kind) for each."""
     used = []
     for item in offered or ():
-        if item.get('status') == 'stopped' or not uses(line, item) or not conn.execute('SELECT 1 FROM callouts WHERE id=?', (item['callout_id'],)).fetchone():
+        row = conn.execute('SELECT person_id FROM callouts WHERE id=?', (item['callout_id'],)).fetchone()
+        if item.get('status') == 'stopped' or row is None:
+            continue
+        person = row['person_id'] and conn.execute('SELECT name,aliases FROM people WHERE id=?', (row['person_id'],)).fetchone()
+        names = [person['name'], *json.loads(person['aliases'])] if person else [item['about']]
+        if not uses(line, item, names):
             continue
         kind = 'entrance' if item.get('entrance_due') else 'riff'
         conn.execute('INSERT INTO callout_lines VALUES(?,?,?,?)', (item['callout_id'], kind, line[:400], now))

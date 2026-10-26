@@ -14,9 +14,27 @@ def label(value: str) -> str:
 
 
 def name_words(text: str) -> list[str]:
-    """Words for comparing a spoken name with stored names; a possessive 's is not part of the name."""
-    words = "".join(c if c.isalnum() or c in "'’" else " " for c in unicodedata.normalize("NFKC", text)).split()
+    """Words for comparing a spoken name with stored names; a possessive 's is not part of the name.
+    Periods are dropped, so the transcriber's "P.J." is the same name as "PJ" (October 26)."""
+    words = "".join(c if c.isalnum() or c in "'’" else "" if c == "." else " "
+                    for c in unicodedata.normalize("NFKC", text)).split()
     return [w[:-2] if len(w) > 2 and w[-2:] in {"'s", "’s"} else w.strip("'’") for w in words if w.strip("'’")]
+
+
+def name_key(word: str) -> str:
+    """One name word for comparison: "T'Joy" and "Tjoy" are the same name (October 26: the owner's
+    friend is saved as Tjoy, and an apostrophe made her somebody new)."""
+    return word.casefold().replace("'", "").replace("’", "")
+
+
+def name_label(value: str) -> str:
+    return " ".join(name_key(w) for w in name_words(value))
+
+
+# A word that differs between two names that share another word is a near spelling at this score or
+# more ("Sammy" for "Sam" .75; "Exodia" for "Exudica" .77); below it, a different name ("Jeff" and
+# "Brett" .22). The same score as CoreState's NAME_SPELLING_RATIO.
+NEAR_SPELLING = .7
 
 
 CLAIM_INSERT = ("INSERT INTO claims(id,subject_id,predicate,value,said_by,source_track,source_turn,kind,status,"
@@ -217,8 +235,9 @@ class Memory:
         return {**rows[0],"aliases":json.loads(rows[0]["aliases"])} if rows else None
 
     def resolve(self, reference):
-        target = label(reference)
-        return [p for p in self.people() if target in {label(p["name"]), *(label(a) for a in p["aliases"])}]
+        target = name_label(reference)
+        return [p for p in self.people() if target and
+                target in {name_label(p["name"]), *(name_label(a) for a in p["aliases"])}]
 
     def name_matches(self, reference):
         """Known people a spoken name may refer to: (exact, compatible, overlapping).
@@ -226,11 +245,21 @@ class Memory:
         Compatible means one name's words contain the other's ("Sam Rivera" and "Sam").
         Overlapping shares a word without either containing the other ("Sammy Rivera" and
         "Sam Rivera"): possibly the same person, so it is asked about, never merged.
+        A shared word beside a plainly different one is somebody else, whatever their other names
+        (October 26: "Jeff Benziger", the owner's dad, fitted the owner through his saved surname
+        alone, "Benziger", and the dad's callout went on the owner's record). Only a near spelling
+        of the differing word keeps them possibly the same.
         """
-        words = {w.casefold() for w in name_words(reference)}
+        from difflib import SequenceMatcher
+        words = {name_key(w) for w in name_words(reference)}
         exact, compatible, overlapping = self.resolve(reference) if words else [], [], []
         for person in self.people() if words else []:
-            names = [{w.casefold() for w in name_words(n)} for n in (person["name"], *person["aliases"])]
+            names = [{name_key(w) for w in name_words(n)} for n in (person["name"], *person["aliases"])]
+            different = any(n & words and not (n <= words or words <= n) and not any(
+                SequenceMatcher(None, a, b).ratio() >= NEAR_SPELLING for a in n - words for b in words - n)
+                for n in names)
+            if different and person not in exact:
+                continue
             if any(n and (n <= words or words <= n) for n in names):
                 compatible.append(person)
             elif any(n & words for n in names):

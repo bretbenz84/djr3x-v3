@@ -1061,6 +1061,7 @@ class Session:
         from .sentry import SENTRY_KINDS
         sentry_kind = bool(opportunity and opportunity.kind in SENTRY_KINDS)   # Speaking for the guard.
         sentry_reply = None
+        noise_after = None   # A yielded request this untrusted sound came right after: it is answered instead.
         try:
             with self._lock:
                 if self.closed or source_session != self.session_id or submitted_revision != self.revision:
@@ -1115,6 +1116,18 @@ class Session:
                         observation = observation or VoiceObservation(self.state.tracker.namespace)
                         attribution = self.state.begin(turn_id,capture,transcript,observation,faces)
                         context = self.state.context(faces)
+                        owed = self._fragment
+                        if (not transcript.trusted and self._owed_reply and owed and owed.get('current')
+                                and 0 <= capture.started_at - owed['end'] <= FRAGMENT_JOIN_SECONDS
+                                and self.history.turns and self.history.turns[-1] is owed['exchange']
+                                and all(m.get('role') in {'user', 'developer'} for m in owed['exchange'])):
+                            # October 25 (c5ad0deb): "Jeremy Thomas is a major volleyball celebrity..." yielded to a
+                            # half-second "Oh." (0.54 s voiced, his own motors, untrusted), and the reply he owed
+                            # took the sound as the thing to answer and stayed silent; the request was never
+                            # saved. A noise is not words: the owed reply answers what they said, as that turn.
+                            self.state.resume(owed['current'])
+                            context = self.state.context(faces)
+                            noise_after = owed
                         if self.last_spoken_reply:
                             context['reply_timing'] = {
                                 **self.last_spoken_reply,
@@ -1205,8 +1218,8 @@ class Session:
             elif self.state:
                 import json
                 self.history.append({"role":"developer","content":"Evidence for the immediately following utterance: "+json.dumps({
-                    "speaker":context["speaker"],"source_turn_id":turn_id,
-                    "speech_ended_at":capture.speech_ended_at,"transcript_trusted":transcript.trusted,
+                    "speaker":context["speaker"],"source_turn_id":noise_after['turn_id'] if noise_after else turn_id,
+                    "speech_ended_at":capture.speech_ended_at,"transcript_trusted":transcript.trusted or bool(noise_after),
                     "reply_timing":context.get('reply_timing'),
                     "faces":context["faces"]},ensure_ascii=False)})
                 if sentry_reply and sentry_reply.get('note'):
@@ -1215,8 +1228,15 @@ class Session:
                 utterance = transcript.text
                 fragment, self._fragment = self._fragment, None
                 turns = self.history.turns
+                if noise_after:
+                    # Their words, once, in place of the sound; the yielded exchange is this one.
+                    del turns[-2]
+                    utterance = noise_after['text']
+                    context['current_utterance'] = utterance
+                    self.trace.emit('owed_reply_after_noise', turn_id=turn_id, earlier_turn_id=noise_after['turn_id'],
+                                    noise=transcript.text)
                 # Only the exchange just before this one, with nothing Rex said in it or since.
-                if (fragment and transcript.trusted and 0 <= capture.started_at - fragment['end'] <= FRAGMENT_JOIN_SECONDS
+                elif (fragment and transcript.trusted and 0 <= capture.started_at - fragment['end'] <= FRAGMENT_JOIN_SECONDS
                         and len(turns) >= 2 and turns[-2] is fragment['exchange']
                         and all(m.get('role') in {'user', 'developer'} for m in fragment['exchange'])):
                     # October 23 (1e626e07): "Look to your left and notice there is a." then "Duckling
@@ -2763,7 +2783,9 @@ class Session:
             if self.state and state_started and not self.state.frozen and not self.state.forgotten:
                 try:
                     from .conversation_memory import record
-                    receipt = record(self.state.store, turn_id, self.session_id, archive_context, capture, transcript,
+                    # After a noise, the exchange kept is their words and his answer to them.
+                    said = noise_after['current'][1:3] if noise_after else (capture, transcript)
+                    receipt = record(self.state.store, turn_id, self.session_id, archive_context, *said,
                                      delivery, self.state.wall_clock())
                     self.trace.emit('conversation_memory_record', turn_id=turn_id, **receipt)
                 except Exception as exc:
@@ -2776,7 +2798,8 @@ class Session:
             if not opportunity and delivery.status == "interrupted" and delivery.first_audio_at is None and self._resumed_speech > source_end:
                 if transcript.trusted and self.history.turns and self._utterance is not None:
                     self._fragment = {'text': self._utterance, 'end': source_end, 'turn_id': turn_id,
-                                      'exchange': self.history.turns[-1]}
+                                      'exchange': self.history.turns[-1],
+                                      'current': self.state.current if self.state else None}
                 self.history.append({"role":"developer","content":
                     "Rex yielded without speaking because microphone speech resumed after source turn " + turn_id +
                     ". The preceding user words remain part of the conversation; the next fragment may continue them. "

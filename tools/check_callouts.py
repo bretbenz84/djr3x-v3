@@ -1,5 +1,5 @@
 """Explicit paid probe: does the real reply model set up a callout when someone asks Rex to treat a person or
-a saved pet like a celebrity, change, stop, resume and remove one when asked, leave plain facts and a groan
+a saved pet like a celebrity, change, stop, resume and delete one when asked, leave plain facts and a groan
 alone, and use one as an arrival's entrance and an introduction's hello? Fictional input.
 
 Run: .venv/bin/python tools/check_callouts.py --live
@@ -35,7 +35,7 @@ CONVERSATIONS = (
      ('Ha, very funny.', None),
      ('Okay Rex, stop the Kings royalty thing with PJ.', ('stop', 'person')),
      ('Actually, bring the Kings bit back.', ('resume', 'person')),
-     ('PJ says never call him that again.', ('remove', 'person'))),
+     ('PJ says never call him that again.', ('delete_forever', 'person'))),
     (("My dad Jeff Benziger is famous for his YouTube show History Hunters. Make a big deal of him whenever "
       "he comes over.", ('add', 'person')),
      ('Rex, this is my dad, Jeff.', None)),
@@ -45,6 +45,17 @@ CONVERSATIONS = (
     (('Max is the most spoiled dog in Sacramento. Give him the red carpet every time he walks in.', ('add', 'pet')),),
     (('My friend PJ loves the Sacramento Kings.', None),),
     (('JT used to play a lot of volleyball in college.', None),),
+    # The owner's live test, October 25 (c5ad0deb): a callout asked for alongside a fact, a saved name heard with
+    # another spelling, and a relative sharing the owner's surname.
+    (('My sister Jennifer is the cutest, sweetest person you will ever meet. Treat her like a celebrity when you '
+      'meet her.', ('add', 'person')),),
+    ({'people': (('Exudica', ['Tjoy']),)},
+     ("Exodia is the world's greatest hairstylist. Give her the celebrity treatment. Legendary blowouts, emergency "
+      "bang repair.", ('add', 'person')),
+     ("Yes, that's her.", ('add', 'person'))),   # When he asked whether Exodia is the saved Exudica.
+    ({'people': (('Brett Benziger', ['Brett', 'Benziger']),)},
+     ('My dad, Jeff Benziger, is famous for his YouTube channel called History Hunters. Whenever he comes over, '
+      'treat him like a celebrity.', ('add', 'person')),),
 )
 
 
@@ -59,6 +70,11 @@ def conversation(key, folder, lines):
     album.data['entities']['max-id'] = {'name': 'Max', 'kind': 'pet', 'notes': 'Small dark dog.', 'references': [],
                                         'history': []}
     rig.state.photo_memory = album
+    if isinstance(lines[0], dict):   # People Rex already knows in this conversation's store.
+        with rig.store.transaction() as conn:
+            for name, aliases in lines[0]['people']:
+                rig.store.add_person(conn, name, list(aliases), None)
+        lines = lines[1:]
     rows = []
     try:
         for said, expected in lines:
@@ -76,13 +92,18 @@ def conversation(key, folder, lines):
                         for r in rig.rows[mark:] if r['event'] == 'tool_result' and r.get('name') == 'callout']
             got = (calls[0]['action'], 'callout_id' if calls[0]['callout_id'] else calls[0]['subject']) if calls else None
             # The probe's voice is one Rex does not know, so a callout of the speaker's own cannot be filed.
+            # A near spelling of a saved name is asked about first (October 26); its answer files it.
             applied = bool(outcomes) and (outcomes[0] == 'ok' or expected == ('add', 'speaker')
-                                          and outcomes[0] == 'rejected:UnresolvedSelfReportSubject')
+                                          and outcomes[0] == 'rejected:UnresolvedSelfReportSubject'
+                                          or outcomes[0].startswith('rejected:PossiblySameAsAKnownPerson:'))
             ok = (got is None if expected is None else
                   got is not None and got[0] == expected[0] and (got[1] == expected[1] or got[1] == 'callout_id')
                   and applied)
             others = [r.get('name') for r in rig.rows[mark:] if r['event'] == 'tool_proposed' and r.get('name') != 'callout']
-            rows.append({'said': said, 'ok': ok, 'expected': expected, 'callout': calls[0] if calls else None,
+            filed_as = [r['data'].get('about') for r in rig.rows[mark:] if r['event'] == 'tool_result'
+                        and r.get('name') == 'callout' and r.get('outcome') == 'ok']
+            rows.append({'said': said, 'ok': ok, 'expected': expected, 'filed_as': filed_as[0] if filed_as else None,
+                         'callout': calls[0] if calls else None,
                          'outcome': outcomes[0] if outcomes else None, 'other_tools': others,
                          # A heard line that used a callout, as the state owner recorded it (entrance or riff).
                          'callout_heard': [r['kind'] for r in rig.rows[mark:] if r['event'] == 'callout_heard'],
