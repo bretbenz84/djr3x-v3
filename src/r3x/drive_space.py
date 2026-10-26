@@ -38,7 +38,8 @@ MATRIX_CLEAR = 3.5
 FRONT_MARGIN = .35      # Host stop short of a front return; firmware still stops at its zone.
 # Approaching a person: knees/chair legs may be this close, never closer. Was 0.22 m until
 # October 3, when he stopped 21 cm from the owner's knees: "you're a little too close to me".
-PERSON_MARGIN = .32
+# 0.32 m until October 25: approaches to Jeremy ended with feet or legs a foot away.
+PERSON_MARGIN = .45
 # October 5 hallway run: guarded legs stopped at 0.22 m on the 22.5 degree radial while he
 # was angled a dozen degrees into a 1.2 m hallway's wall, and the firmware alone did not
 # straighten him. In tight space the host now steers a slow crawl (drive.py _crawl); a

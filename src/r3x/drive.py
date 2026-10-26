@@ -163,8 +163,16 @@ TURN_COAST_FROM_DEG = 12.
 # only. Unverified on the robot: confirm the slow turn does not stall on carpet.
 PACE = {'slow': .6, 'easy': .8, 'normal': 1., None: 1.}
 # Owner feedback: 4-5 ft was too far (September 27); 0.8 m by face left him at a seated
-# person's knees, "a little too close" (October 3).
-DEFAULT_STOP_AT = {'face': 1., 'nearest_person': 1., 'object': .6, 'radar_body': .9, 'voice_direction': .9}
+# person's knees, "a little too close" (October 3); about 3 ft was still too close for
+# Jeremy (October 20). Owner, October 25: "4 ft is ideal". Every person kind stops there:
+# a voice or radar start keeps its stop for the face approach it hands over to.
+DEFAULT_STOP_AT = {'face': 1.2, 'nearest_person': 1.2, 'object': .6, 'radar_body': 1.2, 'voice_direction': 1.2}
+# Owner, October 25: a roll toward someone held one speed and then stopped late, which
+# looked threatening. Streamed rolls toward a person or thing now speed up at EASE_IN and
+# plan their slow-down at EASE_OUT (from about 0.45 m out at full speed). Halts, stop
+# words and reflexes keep the firmware's firmer ramp. Unverified on the robot.
+EASE_IN = .1    # m/s²: 0.04 to 0.25 m/s takes about 2 s and 0.3 m.
+EASE_OUT = .07  # m/s²
 # Pushed at every connect; config can only lower firmware hard caps.
 CONFIG = {'max_lin': .25, 'max_ang': round(math.radians(60), 3), 'accel_lin': .35, 'accel_ang': 2.,
           'stop_zone_m': .15, 'slow_zone_m': .6, 'default_turn_rate': TURN_RATE,
@@ -363,7 +371,10 @@ class Approach:
             remaining = budget
         if self.max_travel - self.travel - .03 <= .02:
             return 0., 0., 'distance_limit', 'distance limit reached before the target'
-        lin = min(self.speed, max(.04, math.sqrt(2*self.accel*max(0., remaining))),
+        # Whichever stop comes first (the person, knees or furniture, the distance limit)
+        # is eased into; the linear terms still bound the last few centimetres.
+        room = min(remaining, budget, self.max_travel - self.travel - .03)
+        lin = min(self.speed, max(.04, math.sqrt(2*EASE_OUT*max(0., room))),
                   max(0., budget)/.6, max(0., self.max_travel - self.travel - .03)/.6)
         clear = front >= 1. and all(v is not None and v >= .4 for v in (space['left_m'], space['right_m']))
         if not clear:
@@ -375,6 +386,21 @@ class Approach:
             # Firmware adds hallway avoidance; steer only after a clear corridor persists.
             ang = max(-.25, min(.25, math.radians(target['bearing_deg'])*1.2))
         return lin, ang, None, 'approaching'
+
+
+class Ease:
+    """Gradual speed-up for a streamed roll: each command rises at most EASE_IN per second
+    above the last one sent or the measured speed, whichever is higher, so a roll that
+    resumes or takes over from another keeps going instead of dropping to a crawl."""
+    def __init__(self):
+        self.sent, self.at = 0., None
+
+    def __call__(self, now, lin, speed_now):
+        base = max(self.sent, speed_now)
+        if lin > base:
+            lin = min(lin, max(.04, base + (EASE_IN * (now - self.at) if self.at is not None else 0.)))
+        self.sent, self.at = lin, now
+        return lin
 
 
 class Radar:
@@ -1881,6 +1907,7 @@ class DriveBase:
         controller = Approach(self.clock(), 'face' if kind in {'face', 'nearest_person'} else 'object',
                               stop_at, LIMITS[plan.origin]['speed_mps'] * self._pace, budget_m)
         result, reason, last = None, None, None
+        ease = Ease()
         self._wheels_on('move', self._origin)
         try:
             while result is None:
@@ -1904,7 +1931,8 @@ class DriveBase:
                                             self._at[1] + current['range_m']*math.sin(math.radians(last['heading'])))
                 space = self.space(now)
                 lin, ang, result, reason = controller.step(now, telemetry, space, current)
-                lin = min(lin, max(.05, controller.speed * self._caution(space)))
+                lin = ease(now, min(lin, max(.05, controller.speed * self._caution(space))),
+                           max(0., float((telemetry.get('odom') or {}).get('lin', 0))))
                 if current is not None:
                     # Near the target the firmware must slow him, not steer him off it.
                     self._assist(not self._near_target(space, current['bearing_deg'], current.get('range_m'), stop_at))
@@ -2095,6 +2123,7 @@ class DriveBase:
         hold = self._heading(self._telemetry())
         speed = LIMITS[plan.origin]['speed_mps'] * self._pace
         outcome, travelled = 'distance', 0.
+        ease = Ease()
         self._wheels_on('move', self._origin)
         try:
             while True:
@@ -2121,8 +2150,10 @@ class DriveBase:
                     break
                 heading = self._heading(telemetry)
                 ang = 0. if hold is None or heading is None else max(-.2, min(.2, math.radians(wrap(hold - heading))*1.2))
-                lin = max(.05, min(speed * self._caution(self.space(now)), math.sqrt(2*CONFIG['accel_lin']*max(0., room)),
+                lin = max(.05, min(speed * self._caution(self.space(now)),
+                                   math.sqrt(2*EASE_OUT*max(0., min(room, distance_m - travelled))),
                                    (distance_m - travelled)/.6))
+                lin = ease(now, lin, speed_now)
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                 self.wait(.15)
         finally:

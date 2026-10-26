@@ -246,7 +246,7 @@ curiosity, lighter at first.
 - **People first, then closer.** With anyone here, plain furniture, decor and the room are never a goal's
   subject; an investigate goal with people present asks them the thing's story first. A person farther than
   2.5 m (`FAR_PERSON_M`, from the face's rough range) is marked far for the planner, whose goal then rolls over to
-  them first and stops about 1.3 m away.
+  them first and stops about 1.2 m (4 ft) away.
 - **Spent joke shapes.** The office joke is spent once his own lines use it, the piloting record after one a
   visit (`jokes.spent_shapes`, his own heard lines only); replies, the planner and the joke writer see them.
 

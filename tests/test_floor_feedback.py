@@ -95,8 +95,8 @@ class SeatedApproachTests(unittest.TestCase):
         plan = DrivePlan('p', (DriveStep('approach', target='face-1'),), 'requested', 'come here', targets, clock()+60)
         receipt = drive.execute(plan, Cancellation())
         distance = math.hypot(2.2 - fake.x, fake.y)
-        self.assertLess(distance, 1.25, receipt)   # V2-style radial personal distance stopped at ~1.4 m.
-        self.assertGreater(distance, .95, receipt)  # And not at the knees: the default is 1 m by face (October 3).
+        self.assertLess(distance, 1.35, receipt)   # V2-style radial personal distance stopped at ~1.4 m.
+        self.assertGreater(distance, 1.15, receipt)  # And not at the knees: the default is 1.2 m by face (October 25).
         self.assertGreater(world.front_obstacle(), .15)
         self.assertIn('clearance_at_stop_m', receipt.steps[0])
 
@@ -1813,7 +1813,7 @@ class WithinReachTests(unittest.TestCase):
         # October 3: 1.0, 1.2 and 0.9 m from the person were each reported as not making it.
         clock, fake, drive, world = self.start()
         world.people.append(('face-1', None, 3., 0.))
-        world.objects.append(('table', 'table', 2.4, 0.))          # Its near edge stops him about 1.2 m from the face.
+        world.objects.append(('table', 'table', 2.2, 0.))          # Its near edge stops him about 1.4 m from the face.
         fake.tof.update(lf=300, lb=300, rf=300, rb=300)
         settle()
         plan = DrivePlan('p', (DriveStep('approach', target='face-1'),), 'requested', 'come here',
@@ -1822,7 +1822,7 @@ class WithinReachTests(unittest.TestCase):
         step = receipt.steps[0]
         self.assertEqual(step['status'], 'completed', receipt)
         self.assertIn('within reach', step['reason'])
-        self.assertLessEqual(step['final_approx_range_m'], 1.3)
+        self.assertLessEqual(step['final_approx_range_m'], 1.5)
 
     def test_a_long_approach_is_given_time_to_finish(self):
         clock, fake, drive, world = self.start()

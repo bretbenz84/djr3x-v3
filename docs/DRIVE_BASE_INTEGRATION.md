@@ -1413,3 +1413,27 @@ standing still: `stop.onnx` heard over his voice (channel 1) ends his speech exa
 "stop" does (`stop_word_heard` status `stopped_speech`); while the wheels run it still halts them.
 His own line saying "stop" never counts, and each stretch of his speech also logs its peak stop score.
 
+
+## October 25: four feet away, eased in and out
+
+Owner: Rex gets too close; "4 ft is ideal". Logged person approaches since October 18 stopped
+0.8-1.3 m from the face by his estimate, often with feet or legs 0.30-0.41 m from his front. Jeremy's
+two on October 20 ended about 0.8 and 0.9 m by face ("Back up, bro"). Person approaches now stop
+1.2 m from the face (`DEFAULT_STOP_AT`, every person kind: one started from a voice or a radar body
+used to keep 0.9 m for the face it handed over to) and keep his front at least 0.45 m from knees and
+feet (`PERSON_MARGIN`, was 0.32). The far-person goal and the tool text say 1.2 m.
+
+Owner: the roll "feels like constant velocity and then slows down to stop"; a gradual speed-up and
+an early slow-down would look less threatening. The host commanded full speed at once (the firmware
+ramp reached it in 0.7 s) and planned the slow-down at 0.35 m/s², so slowing began about 9 cm before
+the stop. Streamed rolls toward a person or a thing (`Approach`, and the roll toward a voice) now
+rise at most 0.1 m/s² from 0.04 m/s (`EASE_IN`, `drive.Ease`: about 2 s and 0.3 m to full speed,
+continuing from his measured speed when one roll hands over to another) and plan every stop at
+0.07 m/s² (`EASE_OUT`: from about 0.45 m out at full speed, about 2.5 s), whichever stop comes
+first: the face, knees or furniture, or the distance limit. Halts, stop words and the reflex keep
+the firmware's 0.35 m/s² ramp. Plain moves, turns and detour legs are unchanged. In simulation a
+2.6 m "come here" now stops 1.27 m from the face and takes about 7.5 s.
+
+Checks (simulated base): `tests/test_drive.py` (gradual rise, slowing well before the stop, the
+4 ft stop), `tests/test_floor_feedback.py` (seated knees, table within reach). **Not yet run on the
+robot:** whether 0.04 m/s still breaks away on carpet, and whether 4 ft by the face estimate is 4 ft.

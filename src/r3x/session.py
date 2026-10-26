@@ -60,7 +60,7 @@ WAKE_HOLD_SECONDS = 10.    # After "Hey Rex" cuts him off, his own beats wait th
 SHUTDOWN_LOCK_SECONDS = .5
 LULL_FRESH_TOPIC_SECONDS = 45.   # Nobody has spoken this long: Rex's next goal opens something new.
 # Owner, October 24: "He needs to get closer if people are far." A person farther than this (the face's
-# rough range) gets a goal that rolls over to them; the approach stops about 1.3 m off (October 20:
+# rough range) gets a goal that rolls over to them; the approach stops about 1.2 m (4 ft) off (October 20:
 # about 3 ft was too close).
 FAR_PERSON_M = 2.5
 REPEAT_LINES = 6    # Rex's recent heard lines a planned beat must not repeat.
@@ -530,7 +530,7 @@ class Session:
                 far = face['approx_range_m'] > FAR_PERSON_M
                 subject['distance'] = {'approx_m': face['approx_range_m'], 'far': far, 'target_id': face['target_id'],
                                        'meaning': (f'Farther than about {FAR_PERSON_M:g} m: roll over to them early in the '
-                                                   'goal (approach this target), stopping about 1.3 m away.') if far else
+                                                   'goal (approach this target), stopping about 1.2 m away.') if far else
                                                   'Close enough to talk.'}
         elif faces:
             subject = {'person_id': None, 'unknown_visitor': True, 'visible_now': True,

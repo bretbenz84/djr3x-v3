@@ -588,10 +588,29 @@ class DriveOwnerTests(unittest.TestCase):
         receipt = self.drive.execute(plan(DriveStep('approach', target='face-1'), targets=targets), Cancellation())
         self.assertEqual(receipt.status, 'completed', receipt)
         distance = math.hypot(2.6 - self.fake.x, self.fake.y)
-        self.assertGreater(distance, .85)
-        self.assertLess(distance, 1.35)
+        self.assertGreater(distance, 1.1)   # About 4 ft (owner, October 25).
+        self.assertLess(distance, 1.45)
         self.assertEqual(self.fake.commands[-1]['cmd'], 'stop')
         self.assertTrue(all(c['lin'] <= .25 for c in self.fake.commands if c['cmd'] == 'drive'))
+
+    def test_person_approach_speeds_up_gradually_and_slows_early(self):
+        # Owner, October 25: one speed and then a late stop looked threatening.
+        self.start()
+        self.world.people.append(('face-1', 'person-1', 3.5, 0.))
+        targets = {'face-1': {'target_id': 'face-1', 'kind': 'face', 'person_id': 'person-1'}}
+        rolled, handle = [], self.fake.handle
+        def recording(command):
+            handle(command)
+            if command['cmd'] == 'drive' and command['lin'] > 0:
+                rolled.append((self.fake.x, command['lin']))
+        self.fake.handle = recording
+        receipt = self.drive.execute(plan(DriveStep('approach', target='face-1'), targets=targets), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertLessEqual(rolled[0][1], .05)             # Sets off slowly,
+        self.assertLess(max(b - a for (_, a), (_, b) in zip(rolled, rolled[1:])), .03)   # never jumps up,
+        full = [x for x, lin in rolled if lin >= .24]
+        self.assertGreater(full[0], .2)                     # reaches full speed only after rolling a while,
+        self.assertGreater(self.fake.x - full[-1], .3)      # and starts slowing well before he stops.
 
     def test_object_approach_arrives_at_the_front_standoff_not_a_collision(self):
         self.start()
