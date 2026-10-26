@@ -11,7 +11,7 @@ from uuid import uuid4
 from .contracts import ToolResult
 from .enrollment import Enrollment
 from .memory import CLAIM_INSERT, label, name_key, name_words
-from .semantics import validate
+from .semantics import GAME_TOOLS, validate
 
 
 # Saved-voice growth from recognized speech (owner, October 13: evidence builds over time).
@@ -86,6 +86,11 @@ CLAIM_FIELDS = ('id', 'subject_id', 'said_by', 'predicate', 'value', 'kind', 'st
 PERSON_FIELDS = ('id', 'name', 'aliases', 'status')
 
 
+def voice_onset(capture):
+    """When the voice in a capture began (its pre-roll of quiet left out)."""
+    return capture.started_at + (capture.voiced_intervals[0][0] if capture.voiced_intervals else 0.)
+
+
 def public_claim(row, now):
     from .conversation_memory import told
     row = told(row, now)
@@ -139,6 +144,8 @@ class CoreState:
         self.initiative = Initiative(trace)
         from .voice_modes import VoiceModes
         self.voice_modes = VoiceModes()   # Pride and AAVE modes (ported from V2, October 25).
+        from .jeopardy import Jeopardy
+        self.jeopardy = Jeopardy(trace.clock)   # V2's Jeopardy, hosted by Rex (owner, October 26).
         self._load_topic_boundaries()
         from .present import Present
         self.present = Present()   # Who is here, things around, the conversation clock.
@@ -552,6 +559,7 @@ class CoreState:
         if self.pending:
             self.trace.emit("pending_cancelled", enrollments=0, question=True)
         self.pending = None
+        self.jeopardy.hold(self.trace.clock())   # A stop pauses the answer clock until someone carries on.
 
     def resume(self, current):
         """Make an earlier trusted turn current again, so the reply it is owed is that turn's: its words, its
@@ -737,7 +745,9 @@ class CoreState:
         from .face_attribution import public_face
         modes = self.voice_modes.context(self.trace.clock())
         accent_line = self.voice_modes.line_allowed(self.trace.clock()) and not self.sentry.active
+        game = self.jeopardy.context(self.trace.clock(), voice_onset(capture)) if self.jeopardy.active else None
         return self.note_audience({"source_turn_id":turn_id,"state_revision":self.store.revision,
+                **({"jeopardy":game} if game else {}),
                 "current_utterance":transcript.text,"calendar_date":self.calendar_today().isoformat(),
                 "participation":self.initiative.context(self.trace.clock()),
                 **({"voice_mode":modes} if modes else {}),
@@ -1361,6 +1371,18 @@ class CoreState:
             return {'countdown_seconds':chosen.countdown_seconds,'ends_at':chosen.ends_at,
                     'audio_alerts':chosen.audio_alerts,'requested_at':chosen.requested_at,
                     'until_text':chosen.until_text,**chosen.public()}, False
+        if name in GAME_TOOLS:
+            # Owner, October 26: the move is checked against the game here and takes effect once committed.
+            if self.sentry.active:raise ValueError('SentryModeActive')
+            people = {}
+            for spoken in args.get('players') or ():
+                # Display and gaze only, never an identity claim: one exact or one compatible known name.
+                exact, compatible, _ = self.store.name_matches(spoken)
+                match = exact if len(exact) == 1 else compatible if not exact and len(compatible) == 1 else []
+                people[' '.join(str(spoken).split())] = match[0]['id'] if match else None
+            parts = self.jeopardy.plan(name, args, speaker_at=voice_onset(capture), people=people,
+                                       trusted=transcript.trusted)
+            return {'parts':parts,'text':args.get('text')}, False
         if name == "remain_silent":
             data = {"reason":args["reason"]}
             if not self.frozen and args['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:
@@ -1930,6 +1952,8 @@ class CoreState:
                 'meaning':'The room, every saved view of it and its connections are deleted.'}
 
     def _after(self,name,data):
+        if name in GAME_TOOLS:
+            self.jeopardy.commit()
         if name == 'name_room' and self.places:
             self.places.learn(data['room_id'],data['name'],data['created'])
         if name == 'correct_room' and self.places:

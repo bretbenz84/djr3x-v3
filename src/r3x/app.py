@@ -248,6 +248,8 @@ class App:
                 self.drive.on_motion.append(places.note_motion)   # Between slower settled samples too.
         inspection = next((p for p in optional if p.capability.name=='current_view'),None)
         output = OutputOwner(tts, sink, trace,inspection=inspection)
+        from .output import MusicBed
+        output.bed = MusicBed(sink, trace)   # Jeopardy's think music under the room (October 26).
         if self.leds:
             self.leds.trace = trace
             sink.on_pcm = self.leds.pcm
@@ -394,7 +396,9 @@ class App:
                         current = state.current
                         speaker = current[4].person_id if current else None
                         direction = getattr(current[3], 'direction', None) if current else None
-                        return addressee_neck(faces, self.robot.owner.neck_degrees(), speaker, direction)
+                        # In a game he talks to the player whose turn it is (V2's player gaze), when he knows their face.
+                        player = state.jeopardy.gaze_person() if state.jeopardy.active else None
+                        return addressee_neck(faces, self.robot.owner.neck_degrees(), player or speaker, direction)
                     self.robot.talking.gaze = gaze
                     def idle_face():
                         now = trace.clock()
@@ -404,6 +408,9 @@ class App:
                         # the gaze for a few seconds; aiming only, never attribution.
                         speaker = ((current[4].speaker_id, current[1].ended_at)
                                    if current and current[4].speaker_id else None)
+                        player = state.jeopardy.gaze_person() if state.jeopardy.active else None
+                        if player:
+                            speaker = (player, now)   # The player whose turn it is draws his eyes (V2).
                         return turns(faces, self.robot.owner.neck_degrees(), speaker)
                     self.robot.idle.face = idle_face
                     def reflex_faces():
@@ -465,6 +472,8 @@ class App:
                     output.drive.on_motion.append(lambda plan: runtime.arrivals.note_base_motion(
                         trace.clock(), allow_new=bool(plan and plan.allow_new_arrivals)))
                 if feed is not None:
+                    # The board is on screen: categories are read once per board, then only when asked (owner, October 26).
+                    state.jeopardy.screen = True
                     from .gui.feed import LiveParts
                     feed.attach(LiveParts(runtime=runtime, settings=self.settings, owner=self.owner, memory=memory,
                         camera=camera, objects=objects, places=places, robot=output.robot, leds=output.leds,

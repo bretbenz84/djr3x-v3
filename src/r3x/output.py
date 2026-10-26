@@ -82,6 +82,64 @@ class ClonedPhrase:
 
 
 @dataclass(frozen=True)
+class Sound:
+    """A sound effect played between lines (Jeopardy's stings and Final music, October 26). Not words: it is
+    never heard text. While it plays the microphone is gated as for his speech, so it is not taken for a person."""
+    name: str
+    pcm: bytes
+
+
+class MusicBed:
+    """A looping clip under the room: Jeopardy's think music while players answer (October 26). It plays on
+    the speech sink without gating the microphone, so answers are still heard, and the output owner stops it
+    before anything else plays (one stream at a time). stop(wait=False) is safe from the listening loop."""
+    PIECE = 1024
+
+    def __init__(self, sink, trace=None):
+        self.sink, self.trace = sink, trace
+        self._thread = None
+        self._stop = threading.Event()
+        self._cancel = Cancellation()
+
+    @property
+    def playing(self) -> bool:
+        return self._thread is not None and self._thread.is_alive() and not self._stop.is_set()
+
+    def start(self, pcm: bytes) -> bool:
+        if self.playing or not pcm:
+            return False
+        self.stop()
+        self._stop, self._cancel = threading.Event(), Cancellation()
+        stop, cancel = self._stop, self._cancel
+        def pieces():
+            while not stop.is_set():
+                for i in range(0, len(pcm), self.PIECE):
+                    if stop.is_set():
+                        return
+                    yield pcm[i:i + self.PIECE]
+        def run():
+            try:
+                self.sink.play(pieces(), cancel, lambda at: None, visualize=False)
+            except Cancelled:
+                pass
+            except Exception as exc:   # Music never fails the game.
+                if self.trace:
+                    self.trace.emit('music_bed_failed', error_type=type(exc).__name__)
+        self._thread = threading.Thread(target=run, name='r3x-music-bed', daemon=True)
+        self._thread.start()
+        return True
+
+    def stop(self, wait=True) -> None:
+        thread = self._thread
+        self._stop.set()
+        self._cancel.event.set()
+        if thread is not None and wait:
+            thread.join(1.)
+            if not thread.is_alive():
+                self._thread = None
+
+
+@dataclass(frozen=True)
 class AccentLine:
     """One line in a speaking mode's voice (voice_mode line, October 25); the next is his own again."""
     text: str
@@ -206,6 +264,7 @@ class OutputOwner:
         self._driving = False
         self._saying = None        # The output item being said now.
         self.lines = deque(maxlen=8)   # [started, ended or None, words] of his recent lines.
+        self.bed = None            # MusicBed under the room (Jeopardy), stopped before anything plays.
 
     def execute_inspection(self, request, cancel, valid):
         if self.inspection is None:
@@ -507,6 +566,26 @@ class OutputOwner:
         if motion_receipt:
             self.trace.emit('talking_motion', turn_id=turn_id, **asdict(motion_receipt))
 
+    def _play_sound(self, sound: Sound, cancel: Cancellation, turn_id: str) -> None:
+        """A sound effect: the room's microphone is gated while it plays, as for his speech."""
+        if self.bed is not None:
+            self.bed.stop()
+        def pieces():
+            for i in range(0, len(sound.pcm), 4096):
+                cancel.check()
+                if i == 0:
+                    self.active.set()
+                yield sound.pcm[i:i + 4096]
+        played = False
+        try:
+            self.sink.play(pieces(), cancel, lambda at: None, visualize=False)
+            played = not cancel.event.is_set()
+        finally:
+            self.echo_until = self.trace.clock() + .3
+            self.active.clear()
+            self.trace.emit('sound_played', turn_id=turn_id, sound=sound.name, completed=played,
+                            seconds=round(len(sound.pcm) / 2 / 22050, 2))
+
     def run(self, phrases: Queue, cancel: Cancellation, turn_id: str, delivery: Delivery) -> None:
         performance = None
         light = None
@@ -527,6 +606,12 @@ class OutputOwner:
                     break
                 if isinstance(text, SpeechMark):
                     text.reached.set()   # Everything ahead of it was said: a waiting drive may go.
+                    continue
+                if isinstance(text, Sound):
+                    if sounds and not hushed:
+                        sounds.hush()
+                        hushed = True
+                    self._play_sound(text, cancel, turn_id)
                     continue
                 self._saying = text
                 light = text if isinstance(text,LightPerformance) else None
@@ -624,6 +709,8 @@ class OutputOwner:
                         playing = True
                         start_talking()
                 played_out = False   # The whole line played: talking motion winds down, not freezes.
+                if self.bed is not None:
+                    self.bed.stop()   # One stream at a time: the think music gives way to him.
                 if sounds and not hushed:
                     sounds.hush()   # Owner, October 24: the whir goes quiet while he talks.
                     hushed = True
@@ -726,6 +813,9 @@ class TextOutput:
                     continue
                 if value is None:
                     break
+                if isinstance(value, Sound):
+                    self.trace.emit("sound_played", turn_id=turn_id, sound=value.name, completed=False, medium="text")
+                    continue
                 delivery.completed_text.append(plain_text(value))
                 self.trace.emit("text_reply",turn_id=turn_id,text=plain_text(value),audio_played=False)
             if delivery.status != "suppressed":

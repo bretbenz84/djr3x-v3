@@ -82,8 +82,11 @@ the board.
     300 ms deadman stops the base if nothing arrives.
   - Release, STOP, closing the console and shutdown end manual mode and return the arms.
 
+While a Jeopardy game is on, the window shows V2's game page instead (October 26; see
+[Jeopardy](JEOPARDY.md#the-dashboard)), without V2's second 3D droid.
+
 Not ported: Pause and Sleep (V3 has spoken quiet mode and no sleep state), Memory Banks,
-typed input, the Jeopardy page, V2's pose skeleton and occlusion-zone overlay, and the
+typed input, V2's pose skeleton and occlusion-zone overlay, and the
 optical-flow face-box smoother.
 
 ## Structure

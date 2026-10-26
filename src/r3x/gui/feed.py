@@ -315,6 +315,10 @@ class DashboardFeed:
         snap['lights'] = self.lights.snapshot()
         snap['drive'] = self._drive(parts, now)
         snap['devices'] = self._devices(parts)
+        try:   # The Jeopardy board (October 26), copied under the game's own lock.
+            snap['jeopardy'] = runtime.session.state.jeopardy.snapshot() if runtime is not None else {}
+        except AttributeError:
+            snap['jeopardy'] = {}
         return snap
 
     def _camera(self, parts, now):

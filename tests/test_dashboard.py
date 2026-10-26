@@ -82,6 +82,16 @@ class FeedTranscriptTests(unittest.TestCase):
         self.feed.attach(LiveParts(runtime=Runtime()))
         self.assertEqual(requested, ['dashboard'])
 
+    def test_the_jeopardy_board_reaches_the_window_through_the_feed(self):
+        from types import SimpleNamespace
+        board = {'phase': 'selecting', 'active': True, 'players': [{'name': 'Bret', 'score': 200, 'up': True}]}
+        game = SimpleNamespace(snapshot=lambda: board)
+        state = SimpleNamespace(jeopardy=game, initiative=SimpleNamespace(quiet=False))
+        self.feed.attach(LiveParts(runtime=SimpleNamespace(session=SimpleNamespace(state=state))))
+        self.assertEqual(self.feed.snapshot()['jeopardy'], board)
+        self.feed.parts.runtime = None
+        self.assertEqual(self.feed.snapshot()['jeopardy'], {})
+
     def test_shutdown_row_detaches_owners_and_notifies_the_window(self):
         closed = []
         self.feed.on_closed.append(lambda: closed.append(True))

@@ -1145,6 +1145,12 @@ class OpenAIBrain(HTTPProvider):
             # so every line he says while it is on lands in register.
             at = payload['input'].index(images_message) if images_message in payload['input'] else len(payload['input'])
             payload['input'].insert(at, {'role':'developer','content':mode})
+        from ..jeopardy import directive as game_directive
+        game = game_directive(snapshot.context)
+        if game:
+            # A Jeopardy game is on (owner, October 26): how to host it rides last, follow-ups included.
+            at = payload['input'].index(images_message) if images_message in payload['input'] else len(payload['input'])
+            payload['input'].insert(at, {'role':'developer','content':game})
         offered = None
         if snapshot.tools_enabled and (not snapshot.continuation or snapshot.context.get('inspection_description_allowed') or snapshot.context.get('photo_inspection')):
             # Prompt caching matches the rendered prefix, and tool definitions precede the

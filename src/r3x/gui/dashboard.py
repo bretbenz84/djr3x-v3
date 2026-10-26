@@ -2,8 +2,9 @@
 
 Layout as in V2: a landscape camera panel above the Systems tabs (Actuators, Scene,
 Logs), the live 3D droid in the centre and the transcript on the right, with the state
-badge, device lights, pack power and Stop / Shut Down in the top bar. V2's Pause, Sleep,
-Memory Banks, typed input and Jeopardy page are not part of this port.
+badge, device lights, pack power and Stop / Shut Down in the top bar. While a Jeopardy game is on the
+window shows V2's game page instead (October 26: the owner's table plays on the Mac mirrored to a TV).
+V2's Pause, Sleep, Memory Banks and typed input are not part of this port.
 """
 
 from __future__ import annotations
@@ -13,11 +14,12 @@ from typing import Any
 
 from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtWidgets import (QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QPushButton,
-                               QSizePolicy, QSplitter, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
+                               QSizePolicy, QSplitter, QStackedWidget, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
 
 from ..servo_poses import JOINT_RANGES, joint_percents
 from . import theme
 from .avatar import RexAvatar
+from .jeopardy import JeopardyPanel
 from .logs import LogPanel
 from .motivator import MotivatorControlDialog
 from .theme import HoloPanel as ChromePanel, ServoGauge
@@ -25,6 +27,7 @@ from .transcript import ConversationPanel
 from .vision import VisionPanel
 
 POLL_HZ = 20   # V2 GUI_FPS
+GAME_OVER_SECONDS = 25.   # The final scores stay on the game page this long after a game ends.
 DEVICE_COLORS = {'disabled': '#5b6b7d', 'connected': '#45d85e', 'offline': '#ff6b5e', 'starting': '#f0c45a'}
 BADGES = {'starting': ('STARTING', '#f0c45a'), 'listening': ('LISTENING', '#45d85e'),
           'thinking': ('THINKING', '#5396ff'), 'speaking': ('SPEAKING', '#ff9b21'),
@@ -199,7 +202,13 @@ class DashboardWindow(QMainWindow):
         shell.addWidget(columns, 1)
         shell.addLayout(footer)
 
-        self.setCentralWidget(root)
+        self._console = root
+        self.jeopardy = JeopardyPanel()
+        self._pages = QStackedWidget()
+        self._pages.addWidget(root)
+        self._pages.addWidget(self.jeopardy)
+        self._game_seen_at = None
+        self.setCentralWidget(self._pages)
         self.setStyleSheet(theme.STYLE + theme.REBEL_STYLE)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -250,6 +259,7 @@ class DashboardWindow(QMainWindow):
 
     def _tick(self) -> None:
         snapshot = self._feed.snapshot()
+        self._show_game(snapshot)
         self.vision.set_snapshot(snapshot)
         self.scene.set_snapshot(snapshot)
         self.avatar.set_snapshot(snapshot)
@@ -281,6 +291,20 @@ class DashboardWindow(QMainWindow):
         if worker_done and (self._closing or status != 'failed'):
             self._timer.stop()
             self.close()   # A failed boot stays readable until the operator closes the window.
+
+    def _show_game(self, snapshot) -> None:
+        """The game page while a Jeopardy game is on, and its final scores for a while after (V2)."""
+        import time
+        game = snapshot.get('jeopardy') or {}
+        now = time.monotonic()
+        if game.get('active'):
+            self._game_seen_at = now
+        showing = bool(game) and self._game_seen_at is not None and now - self._game_seen_at <= GAME_OVER_SECONDS
+        page = self.jeopardy if showing else self._console
+        if self._pages.currentWidget() is not page:
+            self._pages.setCurrentWidget(page)
+        if showing:
+            self.jeopardy.set_snapshot(snapshot)
 
     def _set_label(self, key, label, text, color, plain=False):
         if self._last.get(key) != (text, color):

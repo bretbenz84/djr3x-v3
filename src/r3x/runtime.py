@@ -72,6 +72,8 @@ class VoiceRuntime:
         self._wake_at = None         # When a wake word last cut his line: later sound is the person's.
         self._wake_listening = None  # [began, {word: peak score}] while he speaks.
         self.endpoint = Endpoint(session.session_id, silence)
+        self.silence = silence       # The usual end-of-speech pause (a Jeopardy clue allows a longer one).
+        self._music_off_for = None   # The Jeopardy answer whose think music a voice stopped (not restarted).
         self.perception, self.recorder = perception, recorder
         self.captures = Queue(maxsize=2)
         # Captures and turns on their way that may be words for Rex: confirmed speech, and a
@@ -402,7 +404,10 @@ class VoiceRuntime:
             except Empty:
                 if self.guarding():
                     self.sentry.tick(self.trace.clock())   # Instead of initiative: sentry mode watches.
+                elif self.gaming():
+                    self.game_tick()   # A game's clock instead of his own goals (owner, October 26).
                 else:
+                    self.endpoint.silence = self.silence
                     self.proactive_tick()
                 continue
             self.words_settled(capture.capture_id)
@@ -415,6 +420,47 @@ class VoiceRuntime:
                 self.sentry.after_reply(delivery)
         if self.session.closed:
             self.stop.set()
+
+    def gaming(self):
+        state = self.session.state
+        return state is not None and state.jeopardy.active
+
+    def speech_in_flight(self):
+        """Words that may still become a turn: being spoken, waiting for recognition or for the conversation."""
+        return bool(self.asr_busy.is_set() or not self.captures.empty() or not self.turns.empty()
+                    or self.waiting_turns or (self.speech_confirmed and self.endpoint.frames))
+
+    def game_tick(self):
+        """Jeopardy's clock and music while a game is on (owner, October 26)."""
+        game = self.session.state.jeopardy
+        from .jeopardy import ANSWER_PAUSE_SECONDS
+        # "What is... Paris?": a clue allows a thinking pause inside the response (V2: 1.1 s).
+        self.endpoint.silence = max(self.silence, ANSWER_PAUSE_SECONDS) if game.answering() else self.silence
+        in_flight = self.speech_in_flight()
+        self.session.game_tick(self.trace.clock(), in_flight)
+        output = self.session.output
+        bed = getattr(output, 'bed', None)
+        if bed is None or not self.gaming():
+            return
+        attempt = game.attempt_id()
+        want = (game.window_open(self.trace.clock()) and not in_flight and not output.active.is_set()
+                and attempt != self._music_off_for)
+        if want and not bed.playing:
+            pcm = game.sound('theme')
+            if pcm and bed.start(pcm):
+                self.trace.emit('jeopardy_music', status='playing', attempt_id=attempt)
+        elif not want and bed.playing:
+            bed.stop(wait=False)
+            self.trace.emit('jeopardy_music', status='stopped', attempt_id=attempt)
+
+    def voice_over_music(self):
+        """Someone is answering: the think music stops for them and stays off for this clue (the board turns
+        a voice down while anything plays; V2 measured about 20 dB)."""
+        bed = getattr(self.session.output, 'bed', None)
+        if bed is not None and bed.playing:
+            bed.stop(wait=False)
+            self._music_off_for = self.session.state.jeopardy.attempt_id() if self.session.state else None
+            self.trace.emit('jeopardy_music', status='stopped_for_voice', attempt_id=self._music_off_for)
 
     def observe_visual(self, now):
         if self.camera:
@@ -806,6 +852,7 @@ class VoiceRuntime:
                     # the capture still becomes a turn, and a spoken stop still halts.
                     voiced = (self.endpoint.voiced if self.endpoint.frames else 0.) + frame.ended_at - frame.started_at
                     self.session.note_speech(frame.ended_at, sustained=voiced >= YIELD_VOICED_SECONDS)
+                    self.voice_over_music()
                     if self.robot and direction and not reflexed and voiced >= REFLEX_VOICED_SECONDS:
                         began = self.endpoint.frames[0].started_at if self.endpoint.frames else frame.started_at
                         evidence = direction.during(began, frame.ended_at)

@@ -21,6 +21,27 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Jeopardy — October 26
+
+Owner request: port V2's Jeopardy: forgiving of words transcribed wrong, responses required to be phrased
+as a question (a right answer said plainly counts as wrong), anyone's voice answering for the player whose
+turn it is, the reply model judging, and the board on the dashboard (the table plays on the Mac mirrored to
+an Apple TV), with the categories read far less often when it is on screen.
+
+- "Let's play Jeopardy": V2's clue bank (`assets/jeopardy/clues.tsv`), music and stings
+  (`assets/audio/jeopardy/`), up to four players, Daily Doubles, Double Jeopardy, Final Jeopardy, one
+  rebound per clue, overturning the last ruling, skipping an unplayable clue. With the board on screen
+  the categories are read once per board and then only when asked.
+- Code keeps the board, turns, clock, wagers and scores (`src/r3x/jeopardy.py`) and reads every clue; the
+  reply model makes every move through five game tools, one call per move, with a lean request (the game
+  and the turn only). The answer clock starts once the clue was heard; time's up needs no model call.
+- The dashboard switches to V2's game page during a game (`src/r3x/gui/jeopardy.py`).
+- Evidence: 29 synthetic checks in `tests/test_jeopardy.py` and one in `tests/test_dashboard.py`;
+  `tools/check_jeopardy_judging.py --live` (paid, fictional transcripts, Fast tier): after six rounds of
+  repairs 65 of 68 judged as intended, no right answer refused, no wrong one credited, no table talk ruled
+  on, and 13 of 14 held-out sound-alikes; about $0.0012 a ruling, model time median 2.2 s (longest 5.4 s).
+- Not yet played on the robot. [Details, open items](JEOPARDY.md).
+
 ## Name spellings and the owner's name — October 26
 
 Owner request: "Exodia" should always become Exudica, and "Brett" Bret. `transcript_corrections` in
@@ -2183,7 +2204,7 @@ separate categories.
 | Motion-aware proactive noticing (partial implementation) | Commanded head/base motion, settling and bounded returning-view suppression are implemented. Independent subject motion, robust object continuity and unknown/manual camera movement remain future work. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
 | Room navigation | Rooms can be recognized, named and connected in software ([room recognition](ROOM_RECOGNITION.md)); it first starts live after the October 15 camera-hub fix and is unproven on the robot. Positions, a floor plan and "go to the kitchen" do not exist. |
 | Compass heading | The drive base publishes raw QMC5883L magnetometer counts; V2's calibrated, current-gated compass fusion (`hardware/compass.py`, calibration file) is not ported. V3 uses gyro yaw only. |
-| Owner-requested companion features | Jeopardy and room exploration; the September 18 “Do you ever think” long-lull thought experiments landed October 23. Voice impressions landed October 6 ([details](IMPERSONATION.md)), impressions of his own as goal beats October 23, and interest news October 11 ([details](OBSERVATION_SOURCES.md)). Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
+| Owner-requested companion features | Jeopardy landed October 26 ([details](JEOPARDY.md)); room exploration; the September 18 “Do you ever think” long-lull thought experiments landed October 23. Voice impressions landed October 6 ([details](IMPERSONATION.md)), impressions of his own as goal beats October 23, and interest news October 11 ([details](OBSERVATION_SOURCES.md)). Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
 | Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search and offline conversational providers remain separate future work. The dashboard's Memory Banks editor and typed input were not ported ([dashboard](GUI.md)). |
 
 Mouth-motion/active-speaker research is not an active implementation task. The user

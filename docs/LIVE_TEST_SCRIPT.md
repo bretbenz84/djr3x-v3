@@ -272,6 +272,43 @@ covered by the thinking chirps.
 - [ ] Either ordinary replies or, at most once in five minutes, one line in the matching accent;
       never during a sad or serious moment.
 
+### Run 2e — Jeopardy, one person playing every seat — about 20 minutes
+
+Start with `--gui` and the window on the Apple TV, at the usual distance and volume
+([details](JEOPARDY.md)).
+
+**Say:** "Rex, let's play Jeopardy."
+
+- [ ] The intro sting, then he asks who is playing. "Me, Jeff and Jeremy": the board sting, the
+      categories read once, "Remember: phrase your response as a question", and your first pick.
+- [ ] The window switches to the board; the categories light up as he reads them.
+
+**Pick a square loosely** ("history for two hundred", a category half-said).
+
+- [ ] The clue is read word for word (with the board on screen, without the category and value), then
+      the quiet thinking music and the countdown bar.
+- [ ] Start answering: the music stops at once and stays off for that clue.
+
+**Answer, one clue at a time:** "What is ...?" right; the right answer said plainly; a wrong answer;
+"I don't know"; a name said sloppily ("who is day cart?" style); a long thinking pause inside
+"What is... Paris?"; a remark to someone else or the dog; "what's the score?".
+
+- [ ] Right: the ding, a few words, the money. Plainly said: wrong, with "for not phrasing it as a
+      question", and nobody else gets it. Wrong: the buzz, the money taken, the next player's turn.
+      "I don't know": nothing taken. The sloppy name: right. The pause: one response, not two.
+- [ ] The remark to someone else and the score question: no ruling and no money lost.
+- [ ] Let one clock run out: time's up, then the next player, then the correct response read as a
+      question. Note any wait over about 3 s between your last word and the ding or buzz.
+- [ ] "Rex, that was right!" after a misheard ruling: the ruling reversed and the score fixed.
+- [ ] "Stop" during a clue: he stops and the clock waits; "say that again" re-reads it.
+
+**Daily Double, "next round", "final Jeopardy".**
+
+- [ ] The Daily Double sting, a wager ("make it a true Daily Double"), the clue; no second player.
+- [ ] Double Jeopardy at doubled values; then Final Jeopardy: wagers lowest score first, the clue,
+      thirty seconds of think music, responses in turn with no hint of right or wrong, then the reveal,
+      final scores, the winner and the outro. The window shows the final scores, then the console.
+
 
 ## Two-person tests — Bret and Jeremy
 

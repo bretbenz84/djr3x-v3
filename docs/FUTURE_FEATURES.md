@@ -11,7 +11,7 @@ These additions follow the core reliability/cost work and applicable
 
 | Feature | Intended V3 experience | Integration boundary |
 | --- | --- | --- |
-| Existing Jeopardy game | Bring back the familiar game, including its useful rules, scoring and presentation. Rex can host naturally and handle questions, interruptions and resumption. | Reuse V2's game knowledge and proven behavior; explicit game state owns scores, answer windows and progression. One conversation/output owner handles language and actual delivery. Do not transplant an independent conversation loop. |
+| Existing Jeopardy game | **Implemented October 26, 2026** ([Jeopardy](JEOPARDY.md)): V2's rules, clue bank, sounds and board, hosted through the one conversation and output owners, with the reply model judging responses. | Live play on the robot and the board on the Apple TV remain open; a game does not survive a restart. |
 | On-device voice-cloning / impersonation bits | **Implemented October 6, 2026** ([voice impressions](IMPERSONATION.md)): requested impressions of famous voices, known people and the current speaker, and rare spontaneous cameos, all chosen and written by the conversation model through the `impersonate` tool and spoken by the local Breeze engine. | Live acceptance on the robot (playback quality, time to first cloned audio under the full workload, how often cameos land) remains open. Parody stays distinct from facts, original voice samples and identity evidence. |
 | Room exploration | Rex can look around, investigate unfamiliar things and build useful remembered observations about his surroundings. | **Implemented October 11, 2026** ([room recognition](ROOM_RECOGNITION.md)): V2's place model recognizes rooms, Rex asks and learns unfamiliar ones, remembers which rooms connect, and an `explore` goal drives and looks around. Live acceptance pending; navigation between rooms is not built. |
 | Autonomous motion | Eventually choose purposeful movement as part of attention, exploration and social interaction, beyond explicit drive commands. | September 27: bounded LLM-selected base plans, vision seek of described things, radar priors and self-initiated moves are implemented and floor-tested ([drive base](DRIVE_BASE_INTEGRATION.md)). Roaming, navigation, mapping, localization and compass heading still do not exist. |
@@ -44,7 +44,7 @@ V3 already has proactive arrival/lull opportunities, quiet/resume, memory
 opportunities, sourced general news/weather and scene inputs. Their live social
 quality remains under evaluation. Interest news (October 11) covers the first part of the personalization above;
 learning interests from feedback and choosing topics beyond news remain future work.
-Jeopardy remains a future integration (room exploration landed October 11) (local impressions landed October 6);
+Jeopardy landed October 26, room exploration October 11 and local impressions October 6;
 bounded purposeful base motion is implemented and in floor testing. Motion-aware noticing is also still the documented
 [future idea](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues).
 

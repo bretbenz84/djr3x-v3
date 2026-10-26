@@ -1292,6 +1292,44 @@ Checks: 39 native checks pass from v3. The full four-flag Bluepad32 build from v
 sketch path recorded in the ELF, so the code on the board is this source. Remaining live
 validation is unchanged (previous section).
 
+## Jeopardy — October 26, 2026
+
+Owner request: port V2's Jeopardy, forgiving of transcription errors, with responses required to be
+phrased as a question, anyone's voice answering for the player whose turn it is, the reply model judging,
+and the dashboard board. Source HEAD `95f2403e78c9ef786054fa13a31bb2ac534cc29d`; `features/`, `gui/`,
+`assets/`, `config.py` and the Jeopardy tests clean (only firmware and firmware/gamepad tests are dirty).
+Read: `features/jeopardy.py` (SHA-256 `238b9223…`), the Jeopardy half of `features/games.py`
+(`f1fd8294…`), `gui/jeopardy_panel.py` (`23259883…`), `docs/jeopardy_live_reliability_review.md`
+(`11ad01df…`), `tests/test_jeopardy_answers.py` (`f35ce0e9…`) and the `JEOPARDY_*` settings in
+`config.py`. Copied: `assets/jeopardy/clues.tsv` (`fbac511d…`, unchanged) and the nine
+`assets/audio/jeopardy/*.mp3` clips (`cc03b24a…` board, `ad4a7ac4…` Daily Double, `b8d21e27…` Final
+music, `db48ae77…` wrong, `49c04857…` intro, `fb271429…` outro, `c1cabad5…` right, `20248a72…` theme,
+`08fa8db3…` time's up), converted with `afconvert` to 22,050 Hz mono 16-bit WAVs under
+`assets/audio/jeopardy/`.
+
+Preserved: boards of six categories from one air date and round, V2's clue filter, Double Jeopardy at
+doubled values, a Daily Double when the data has none; the 12 s answer clock, speech under way at the
+buzzer judged first (10 s ceiling), one rebound, unclear decodes asked again twice without a penalty,
+non-responses never ruled on; Daily Double and Final Jeopardy wagers and order (lowest score first,
+players at zero ride along); the scoreboard every fourth ruling, the category read-back curve without a
+screen, the once-per-round "next round" offer; music at 0.22 and stings at 0.75, the Daily Double sting cut
+to 6 s; the category speech expansions and the correct response read back as a question; any voice
+answering for the open turn, with roster names used only for display and gaze; the dashboard page.
+
+Adapted: the reply model makes every move through five game tools and judges responses (V2's fuzzy,
+Soundex and CMUdict matchers and its regex lanes for picks, wagers, board questions, table talk and
+passes are not ported, per AGENTS.md); moves are planned on a copy and committed by the state owner; the
+clock starts on a heard clue (V2 review, item 2); attempts are bound to their clue so a late or stale
+ruling is refused (item 1); the same answer rules for every phase including Final (item 5); roster names
+deduplicated by person (item 7); overturning the last ruling and skipping an unplayable clue (item 10);
+Clue Crew demonstrations filtered (item 9); the think music stops at the first voice instead of
+resuming; the dashboard page without V2's 3D droid. New: question form required (owner, October 26),
+categories read once per board with the board on screen. Not ported: V2's stop-confirmation code (the
+model asks), its voice-enrollment roster step (already retired in V2), session persistence (V2 had none).
+
+Checks: `tests/test_jeopardy.py` (synthetic). Remaining live validation: a game on the robot, answers
+heard over the music, clip volumes, the board on the Apple TV, ruling time under the full workload.
+
 ## Pride mode and AAVE mode — October 25, 2026
 
 Owner request: port V2's pride mode ("queeny mode") and its African American Vernacular English

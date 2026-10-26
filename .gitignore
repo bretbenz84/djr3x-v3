@@ -245,5 +245,7 @@ __marimo__/
 !/assets/audio/operator/*.wav
 # Thinking-filler effects copied from V2 (sound effects, not recordings of people)
 !/assets/audio/effects/*.wav
+# Jeopardy music and stings copied from V2 (owner, October 26: commit them; not recordings of people)
+!/assets/audio/jeopardy/*.wav
 # Public famous-voice reference clips for impressions (see assets/voices/README.md)
 !/assets/voices/famous/*.wav

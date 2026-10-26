@@ -1,0 +1,153 @@
+# Jeopardy
+
+Status, October 26, 2026: **implemented in software, not yet played on the robot.** Owner request: port
+V2's Jeopardy, keep what made it fun and forgiving, require responses phrased as a question, let anyone's
+voice answer for the player whose turn it is, let Rex's reply model judge the answers now that replies
+are faster, and include the board on the dashboard (the table plays with the Mac mirrored to an Apple TV),
+with far fewer category read-backs when the board is on screen.
+
+## How a game goes
+
+- **Starting.** "Let's play Jeopardy" plays V2's intro sting. Rex asks who is playing unless they already
+  said ("me, Jeff and Jeremy"). Up to four players. "Me" is the speaker when Rex knows their voice;
+  otherwise he asks for the name. A name that fits one known person is linked to them for the board and
+  for where Rex looks, never as a claim about who is speaking; a guest plays under the name given and no
+  person record is made.
+- **The board.** A real board from V2's clue bank (6 categories of one air date and round), the board
+  sting, and the categories read once. Then "Remember: phrase your response as a question" and the first
+  pick.
+- **Picking.** Loose is fine: "history for two hundred", "same category, six hundred", "the four hundred
+  in pop culture", a category name the recognizer mangled. If two categories fit equally, Rex asks which.
+  Anyone may say it for the player whose pick it is.
+- **The clue.** Code reads it word for word. Without a screen the square comes first ("U.S. CITIES for
+  $400."); with the board on screen just the clue. The answer clock (12 s, V2's) starts only once the clue
+  has been heard to its end; a clue cut off is read once more, and a spoken "stop" holds the clock until
+  someone carries on ("say that again"). While the clock runs, V2's thinking music plays quietly and the
+  end-of-speech pause lengthens to 1 s for "What is... Paris?".
+- **Ruling.** Anyone's response counts for the player whose turn it is. The right or wrong sting plays
+  the moment Rex has ruled, then a few words of his own, then code's facts ("$400 to Jeff, who has
+  $1,200").
+  - Forgiving about what speech recognition does: sound-alikes (knight/night, symbol/cymbal), garbled
+    names ("day cart" for Descartes), years and regnal numbers said as words, a surname alone, filler.
+  - Strict about substance: a different answer, a broader category, half of a two-part answer, two
+    guesses ("Paris or London") or a negated one are wrong; a self-correction counts as the last answer.
+  - Question form required: "what is / who's / where are / is it" and the like; an opener the recognizer
+    cut short ("is Paris") still counts. The right answer said plainly counts as wrong (owner ruling,
+    October 26) and nobody else gets that clue, since the answer was said aloud.
+  - "I don't know" or "pass" costs nothing. A response Rex cannot make out ("the Percy crab") is asked
+    again, twice, with no penalty, then counts as a pass. Words the recognizer itself was unsure of,
+    which Rex otherwise never answers, still reach the ruling while a clue is open: they never cost
+    money and are asked for again unless plainly right.
+  - Talk that is not a response (people to each other, the dog, "this board is rigged", "what's the
+    score?") is never ruled on; the clock waits while Rex answers and keeps running otherwise.
+- **After a clue.** A right answer keeps the board for that player. A wrong one gives the next player one
+  rebound (V2's limit); then the correct response is read as a question and the pick passes on from
+  whoever chose the square. Time's up works the same way and needs no model call. Every fourth ruling
+  reads the whole scoreboard. Without a screen the remaining categories follow each of the first four
+  squares, then every third (V2's curve); with the board on screen, only when someone asks. After six
+  squares Rex mentions once that "next round" deals the next board.
+- **Daily Double.** The sting (cut to 6 s), the wager (from $5 up to the player's score or the round's top
+  value; "everything" or "a true Daily Double" is all in), then the clue. It belongs to its picker: no
+  rebound, and the picker keeps the board.
+- **Double Jeopardy and Final Jeopardy.** When the board is empty (or on "next round"), Double
+  Jeopardy at doubled values, trailing player first. Then Final Jeopardy: the category, wagers lowest
+  score first (players at $0 or less play for pride), the clue, V2's 30-second think music, then each
+  response in turn. Rex never says whether one was right until the reveal, which settles the wagers,
+  reads the final scores, crowns the winner and plays the outro.
+- **Fixing a bad ruling.** "Rex, that was right!" lets him overturn his last ruling once; scores, a moot
+  rebound and the pick follow. A clue that cannot work aloud (it needs a picture or a sound) can be
+  skipped with no score change.
+- **Ending.** "Let's stop playing" (Rex checks they mean it unless it is clear), the end of Final
+  Jeopardy, or ten minutes with nobody heard. During a game his goals, greetings, news, curiosity
+  questions, impressions and the joke writer pause, and he does not drive; his head turns to the player
+  whose turn it is when he recognizes their face.
+
+## The dashboard
+
+With `live --gui` the window switches to V2's game page while a game is on and back 25 s after it ends:
+the board (categories light up one by one as Rex reads them), the open clue large with a countdown bar,
+the Daily Double and Final Jeopardy cards, the last ruling and what Rex heard, the four player podiums
+with scores, and the final scores. V2's 3D droid in the side column is left out: a second Qt Quick 3D view
+would double the render cost on the robot's Mac.
+
+## How it works
+
+- **Game state** (`src/r3x/jeopardy.py`): the board from `assets/jeopardy/clues.tsv` (read when a game
+  starts, about 0.1 s), turns, attempts, the clock, wagers, scores and a record of every ruling. Each move
+  is planned on a copy and takes effect only when the state owner commits the tool call, so a turn cut
+  off by a stop changes nothing nobody heard. A move returns what to deliver in order: sounds, Rex's own
+  words, code's lines and the line whose hearing starts the clock.
+- **The reply model decides the moves** through five tools: `jeopardy_setup`, `jeopardy_pick`,
+  `jeopardy_wager`, `jeopardy_ruling` and `jeopardy_control` (repeat the clue, read the board, next round,
+  Final Jeopardy, skip a clue, overturn the last ruling, end the game). The judging rules live in
+  `jeopardy_ruling`'s description, part of the cached prompt. A ruling answers, in order: were the words an
+  attempt at the clue at all; what was meant (the recognizer's spelling of a sound-alike fixed); a few words
+  weighing it against the correct response; does it sound the same as the correct response; was it phrased
+  as a question; and the verdict on the answer alone. Code applies the owner's rules from those answers:
+  not an attempt changes nothing, a sound-alike is right, and the right answer said plainly counts as
+  wrong. Each of these came from a failure in the paid probe (below). If Rex goes silent on someone's words
+  while a clue is open (other than a cut-off "What is..."), he is asked once more whether that was a
+  response; that is the one case with a second model call. Each moment offers only its own moves plus
+  silence and shutdown. One model call per move; no separate judge call, no word matching. None of V2's
+  matchers (fuzzy ratios, Soundex, CMUdict) or its regex lanes for picks, wagers, scores and table talk
+  came over: the model hears those.
+- **A lean request.** While a game is on, the request shows the game and the turn only (no memories,
+  goals, jokes, curiosity or camera notes), and a short hosting note rides last.
+- **Code's own clock** runs from the conversation loop in place of his initiative: time's up, the
+  unheard clue read again, a game nobody plays ending. Speech still under way at the buzzer is judged
+  first, for up to 10 s.
+- **Sounds.** V2's nine clips are 22,050 Hz mono WAVs in `assets/audio/jeopardy/`. Stings play between
+  lines through the one output owner, with the microphone gated like his speech. The thinking music is a
+  low-volume loop (V2's 0.22 gain) that leaves the microphone open; it stops the moment someone starts
+  talking and stays off for that clue, because the board turns a voice down by about 20 dB while anything
+  plays (V2's Flex measurement).
+
+## Checks and evidence
+
+- `tests/test_jeopardy.py` (synthetic clues, scripted model, fake clocks and sinks): rules, rebounds,
+  Daily Doubles, both rounds and Final Jeopardy, the clock (unheard clue, speech at the buzzer, pauses,
+  stop), uncommitted moves, the state owner's checks, the session's order of sounds and lines, time's up
+  without a model call, the lean request, the runtime's clock, music and longer pause, and the output
+  owner's sounds and music.
+- `tools/check_jeopardy_judging.py --live` (paid, fictional input): about 60 responses through the real
+  reply model. Results are below.
+- Not yet: a game on the robot, whether answers are heard over the thinking music and stings, the clip
+  volumes beside Rex's voice, the dashboard on the Apple TV, and how long rulings take with the full
+  workload.
+
+### Paid judging check
+
+`tools/check_jeopardy_judging.py --live`, October 26, fictional typed transcripts through the production
+Session and state owner, the real reply model on the Fast tier as on the robot, 68 responses per run
+(30 right, 26 wrong, 7 not responses, the rest phrasing, passes and unclear ones). About $0.0012 per ruling
+(most of each request is cached), so a full game's rulings cost roughly 8-10 cents; the seven runs and the
+held-out run cost about 60 cents together.
+
+| Run | Change before it | Right | Right refused | Wrong credited | Talk ruled on |
+| --- | --- | --- | --- | --- | --- |
+| 2 | One verdict carrying phrasing too | 59/68 | 4 of 30 | 1 of 26 | 3 of 7 |
+| 3 | Judge by sound, with examples | 62/68 | 1 | 2 | 3 (two cost money) |
+| 4 | "Was this an attempt at all?" first | 57/68 | 2 | 5 ("Who is Ford?" for Nixon) | 1 |
+| 5 | A written comparison first (normal effort; medium effort scored the same and was slower) | 60/68 | 4 | 1 | 0 |
+| 6 | The attempt flag reworded; "(2 of)" answers spelled out | 62/68 | 3 | 2 | 0 |
+| 7 | A separate "does it sound the same?" | **65/68** | **0** | **0** | **0** |
+
+Run 1 stopped early on a harness error. Run 7's misses: "Who is Kareem?" (wrong) was taken as not an
+attempt (no money, the clock ran on), and "our Kansas" for Arkansas and "the Percy crab" were ruled wrong.
+The probe's sound-alikes had by then become the instructions' own examples, so 14 held-out responses named
+nowhere in them followed: 13 right, no wrong answer credited; "What is a corn?" for an acorn was refused
+(real-word sound-alikes are the hardest; "that was right!" overturns it). The same probe varied by several
+cases from run to run with nothing changed, so single cases are noise; the counts are the evidence.
+
+Model time per ruling in run 7 (request to the finished ruling): median 2.2 s, 90% within 2.7 s, longest
+5.4 s. Add the 1 s end-of-speech pause and about 0.4 s of recognition: the right or wrong sound should come
+about 3.5-4 s after someone stops talking. Not yet measured in a game.
+
+## Not done
+
+- Resume after a restart (V2 had none either); a game lives only in memory.
+- In Final Jeopardy responses are spoken in turn, so later players hear earlier ones.
+- An answer shouted while Rex is still talking is not heard (the microphone is gated while he speaks);
+  "stop" and "Hey Rex" still cut him off.
+- A bare one-word answer that is a stop word ("Freeze!", "Quiet!") acts as a stop; the question form
+  ("What is freeze?") avoids it.

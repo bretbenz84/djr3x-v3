@@ -261,6 +261,95 @@ TOOLS += (schema('wait_for',
     'in view. Once per beat; a beat whose moment never comes is let go without a word. Nothing is said now.',
     {'when':{'type':'string','enum':['quiet','answered','unanswered','pet_in_view']},
      'seconds':{'type':'integer','minimum':3,'maximum':180},'reason':TEXT}),)
+# Owner, October 26: V2's Jeopardy, hosted by Rex. Code keeps the board, turns, clock and scores
+# (jeopardy.py) and reads every clue; these are the moves the reply model hears people make.
+GAME_TEXT = {'type': ['string', 'null'], 'description': 'Your own words, said before code says the facts (scores, '
+             'the clue, whose turn). One short line, game-show energy, or null. Never read or paraphrase a clue, and '
+             'never say the correct response, an amount, a total or whose turn is next: code says those.'}
+TOOLS += (
+    schema('jeopardy_setup', 'Start a game of Jeopardy when someone asks to play it, or set who is playing. players: '
+           'one to four people, first names as said ("me" is the speaker: speaker.display_name when known; when you do '
+           'not know a name, ask instead of guessing; never invent one). An empty list starts the game and asks who is '
+           'playing: say so in text. Once the names are in, code deals the board, reads the categories and says who '
+           'picks first. During a game, call it again with the full new list to add or drop players between squares '
+           '(scores are kept). text: your intro or roster line.',
+           {'players': {'type': 'array', 'items': TEXT, 'maxItems': 6}, 'text': GAME_TEXT}),
+    schema('jeopardy_pick', 'The square a player chose ("history for two hundred", "same category for 600", "the '
+           'four hundred in pop culture"). category_id: the jeopardy.board category they mean; match it loosely, as '
+           'speech recognition hears names ("popery" is POTPOURRI, "U.S. cities" is U.S. CITIES); "same category" is '
+           'jeopardy.last_category. If two categories fit equally, ask which instead of picking. value: a dollar value '
+           'still in values_left for it ("for a hundred" is 100). Anyone may say it for the player whose pick it is. '
+           'Code then reads the clue (or the Daily Double). text: an optional quip of a few words before the clue, or '
+           'null; when jeopardy.board_on_screen, never repeat the category or value aloud.',
+           {'category_id': TEXT, 'value': {'type': 'integer'}, 'text': GAME_TEXT}),
+    schema('jeopardy_wager', 'The wager for jeopardy.wager (a Daily Double or Final Jeopardy), from their words: '
+           'digits or words ("five hundred"), "everything", "all in" or "a true Daily Double" is max, "the minimum" '
+           'is min; a self-correction counts as the last amount ("five hundred, no, two hundred" is 200). It must be '
+           'within min and max; when they named no amount or it is unclear, ask instead. text: an optional short line; '
+           'code then reads the clue.',
+           {'amount': {'type': 'integer'}, 'text': GAME_TEXT}),
+    schema('jeopardy_ruling', 'Rule on an attempt at a response to the open clue (jeopardy.clue), right or wrong, for '
+           'the player answering it: anyone in the room may say it for them, and voice never decides. HOW IT WAS '
+           'HEARD: the words came through speech recognition, which spells sounds, not meaning. Say the response '
+           'aloud in your head and judge the SOUND: a response that sounds like the correct response IS the correct '
+           'response, even when the recognizer wrote other words ("night" for knight, "symbols" for cymbals, "shack" '
+           'for Shaq, "day cart" for Descartes, "our Kansas" for Arkansas, "van go" for van Gogh). Years and numbers '
+           'said as words, regnal numbers ("Henry the eighth"), singular/plural, articles, filler and extra words never '
+           'matter, and a person\'s surname alone is enough. WRONG: a different person, place or thing (Kansas for '
+           'Arkansas: the sound differs), a broader category, two different guesses ("Paris or London"), a negated '
+           'answer, or too few parts: parts joined by "and" or "&" are all needed, and "any two of: a, b, c" needs two '
+           'of them, so naming one is wrong. A self-correction counts as the final answer ("Paris, no, London" is London). '
+           'Parentheses in correct_response mark optional words. Judge facts as of when the clue aired. verdict '
+           'judges the answer alone, phrasing aside: correct, wrong_answer, pass (only "I don\'t know", "pass", "no '
+           'idea" and the like; a complaint or remark is not a pass), or unclear (only when the words are too broken '
+           'to tell which answer was meant, or a name differs in its first sound, "Dixon" for Nixon; they are asked to '
+           'repeat it, with no penalty). question_form says whether '
+           'it was phrased as a question; code applies the phrasing rule (the right answer said plainly counts as '
+           'wrong, and nobody else gets the clue). NOT A RESPONSE, never ruled on: talk to each other or a pet, a '
+           'complaint, a question about the board or the score (answer it in a few words), a question opener cut off '
+           'before any answer ("What is...": remain_silent, unfinished_thought). When '
+           'jeopardy.clue.response_began_before_this_turn is true the words belonged to the turn before: remain_silent. '
+           'When transcript_trusted is false the recognizer was unsure: rule unclear unless they are plainly the right '
+           'answer. heard: the response as they meant it, the recognizer\'s spelling of a sound-alike fixed ("Who is '
+           'Shack?" is "Who is Shaq?"). text: your reaction, under 12 words, said right after the right or wrong sound; '
+           'when the answer was right but question_form is false, it says it had to be a question; for unclear, ask '
+           'them to say it again.',
+           {'attempt_id': TEXT,
+            'response': {'type': 'boolean', 'description': 'Are these words an attempt to answer the clue? In '
+                         'Jeopardy the answer is phrased as a question, so "What are the 49ers?", "Who is Poe?" or "What '
+                         'is a night?" IS an attempt, naming the 49ers, Poe or a night; so is a bare answer ("Paris"), '
+                         'a wrong one, or "I don\'t know" / "pass". false only for words that answer nothing: talk to '
+                         'each other or a pet, a complaint ("this board is rigged"), asking someone ("Jeff, do you know '
+                         'this one?"), a question about the board or the score. false changes nothing in the game: no '
+                         'money, no turn lost, and the clock runs on. Decide this first.'},
+            'heard': TEXT,
+            'comparison': {'type': 'string', 'description': 'A few words weighing heard against correct_response '
+                           'before you rule: what it names and whether it sounds the same ("night, said aloud, is '
+                           'knight: same", "Ford vs Nixon: a different person", "pepper is only half of salt and '
+                           'pepper", "names nothing yet", "Washington is Denzel Washington\'s surname: enough").'},
+            'sounds_like_correct': {'type': 'boolean', 'description': 'Said aloud, does heard\'s answer sound the same '
+                                    'as correct_response, whatever the spelling? Ignore what the written words mean. '
+                                    'true: "a night" / "a knight", "symbols" / "cymbals", "shack" / "Shaq", "day cart" '
+                                    '/ "Descartes". false: "Kansas" / "Arkansas", "Ford" / "Nixon", "pepper" / "salt and '
+                                    'pepper". true makes the answer right (owner rule from V2: sound-alikes count).'},
+            'question_form': {'type': 'boolean', 'description': 'Is the response as said phrased as a question? true '
+                              'for "What is Paris?", "Who\'s Poe?", "Is it gold?" and an opener the recognizer cut short '
+                              '("is Paris", "s Paris"); false for a bare answer ("Paris.", "Day cart.", "Um, I think '
+                              'it\'s Paris.").'},
+            'verdict': {'type': 'string', 'enum': ['correct', 'wrong_answer', 'pass', 'unclear']}, 'text': GAME_TEXT}),
+    schema('jeopardy_control', 'Run the game when they ask. repeat_clue: hear the clue again (also when it was cut '
+           'off or a stop paused the clock and they want to carry on); the clock starts over. read_board: what is left '
+           'on the board, when someone asks. next_round: deal the next round now (Double Jeopardy, or Final Jeopardy '
+           'from Double Jeopardy). final_jeopardy: straight to Final Jeopardy. skip_clue: the clue is unplayable (it '
+           'needs a picture, sound or video, or makes no sense read aloud); no score changes. overturn_last: someone '
+           'appeals jeopardy.last_ruling and the appeal is fair (a right answer you misheard, or a wrong one you '
+           'credited); judge it like a ruling, and be forgiving about what the recognizer may have mangled. '
+           'end_game: they want to stop playing (ask "you sure?" first unless they are clear about it). text: your '
+           'words; code says the facts.',
+           {'action': {'type': 'string', 'enum': ['repeat_clue', 'read_board', 'next_round', 'final_jeopardy',
+            'skip_clue', 'overturn_last', 'end_game']}, 'text': GAME_TEXT}),
+)
+GAME_TOOLS = frozenset({'jeopardy_setup', 'jeopardy_pick', 'jeopardy_wager', 'jeopardy_ruling', 'jeopardy_control'})
 TOOLS += (schema('revise_agency_plan',
     'End your current goal because this beat no longer fits: its person left or refused it, its premise or evidence is gone, or its capability is unavailable. A fresh goal is planned and this lull gets one improvised beat. State the concrete reason for the next plan.',
     {'reason':TEXT}),)
@@ -338,6 +427,16 @@ def grounded_tools(context):
     import copy
     if context.get('sentry'):
         return []   # Speaking for the guard (sentry mode): words only, no tool.
+    if context.get('jeopardy'):
+        # A game is on (owner, October 26): its moves for this moment, silence and shutdown, nothing else.
+        if context.get('initiative_changed') in {'quiet', 'silent'}:
+            return []
+        from .jeopardy import ground, offered
+        names = offered(context['jeopardy'])
+        definitions = copy.deepcopy([d for d in TOOLS if d['name'] in names])
+        for definition in definitions:
+            ground(definition, context['jeopardy'])
+        return definitions
     definitions = copy.deepcopy(TOOLS)
     if context.get('trigger')=='visual_arrival':
         definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
@@ -474,6 +573,8 @@ def grounded_tools(context):
         if name=='use_memory_opportunity' and (not context.get('trigger') or not context.get('memory_opportunities')):continue
         if name=='shut_down' and context.get('trigger'):continue   # Only a person's request, never his own initiative.
         if name=='sentry_mode' and (context.get('trigger') or not context.get('sentry_available')):continue
+        # No game is on: only a person's request starts one.
+        if name in GAME_TOOLS and (name != 'jeopardy_setup' or context.get('trigger')):continue
         # On his own turns only a line of his own (on/off answer a person), and only when one is allowed now.
         if name=='voice_mode' and (context.get('trigger') or context.get('agency_step')) and not context.get('accent_line_allowed'):continue
         identity_targets = context.get("identity_action_targets", {}).get(name, [])
@@ -685,6 +786,10 @@ def validate(name, args):
                 raise ValueError('InvalidSentryNumber:'+key)
         elif name=='sentry_mode' and key=='audio_alerts':
             if type(value) is not bool:raise ValueError('InvalidSentryAudioAlerts')
+        elif name=='jeopardy_ruling' and key in {'question_form','response','sounds_like_correct'}:
+            if type(value) is not bool:raise ValueError('InvalidRulingFlag')
+        elif name in {'jeopardy_pick','jeopardy_wager'} and key in {'value','amount'}:
+            if type(value) is not int or not 0 <= value <= 1_000_000:raise ValueError('InvalidJeopardyAmount')
         elif name=='remember_followup' and key=='due_in_minutes':
             if type(value) is not int:raise ValueError('InvalidFollowupDueMinutes')   # Range: resolve_due.
         elif name=='revise_visual' and key=='revisions':

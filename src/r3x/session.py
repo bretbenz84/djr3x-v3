@@ -823,6 +823,90 @@ class Session:
             self.history.append({'role': 'developer', 'content':
                 'Rex said the line above because he was told to stop while driving; the wheels stopped.'})
 
+    def _game_parts(self, parts, text, phrases, cancel):
+        """Queue a game move in order (sounds, his words, code's facts, the clue); returns the line whose
+        hearing starts the answer clock, or None."""
+        from .output import Sound
+        opening = None
+        for kind, value in parts:
+            if kind == 'model':
+                if isinstance(text, str) and text.strip():
+                    put_phrase(phrases, text, cancel)
+            elif kind == 'sound':
+                pcm = self.state.jeopardy.sound(value)
+                if pcm:
+                    put_phrase(phrases, Sound(value, pcm), cancel)
+                else:
+                    self.trace.emit('sound_missing', sound=value)
+            else:
+                put_phrase(phrases, value, cancel)
+                if kind == 'open':
+                    opening = value
+        return opening
+
+    def _game_delivered(self, opening, delivery, paused):
+        """The answer clock starts only once the clue (or a rebound's call) was heard to its end; a clock this
+        turn paused runs on (V2 review, September 7: a clue nobody heard left a clock running)."""
+        from .output import plain_text
+        with self._lock:
+            game = self.state.jeopardy
+            if opening is not None:
+                heard = plain_text(opening) in delivery.completed_text
+                if heard:
+                    game.heard(opening, self.trace.clock())
+                self.trace.emit('jeopardy_clue', heard=heard, status=delivery.status)
+            if paused:
+                game.resume(self.trace.clock())
+
+    def game_tick(self, now: float, speech_in_flight: bool):
+        """The game's own clock, in place of his initiative: time's up, a cut-off clue said again, or a game
+        nobody is playing any more (owner, October 26). Code's lines only, no model call."""
+        if self.state is None or not self.state.jeopardy.active or self.closed:
+            return None
+        if not self._processing.acquire(blocking=False):
+            return None
+        line_cancel, said = Cancellation(), Delivery()
+        opening = None
+        try:
+            with self._lock:
+                if self._cancel is not None:
+                    return None
+                parts = self.state.jeopardy.tick(now, speech_in_flight)
+                if parts is None:
+                    return None
+                # Committed: what is said now is what the game did, so speech starting meanwhile does not
+                # cut it before it is heard (a stop still does).
+                self._capture_end = float('inf')
+                if not parts:
+                    self.trace.emit('jeopardy', status='ended', reason='nobody_playing')
+                    self.history.append({'role': 'developer', 'content':
+                        'The Jeopardy game ended by itself: nobody had spoken for ten minutes.'})
+                    return None
+                self._cancel = line_cancel
+            turn_id = 'jeopardy-' + uuid4().hex[:12]
+            self.trace.emit('jeopardy_tick', turn_id=turn_id, parts=parts)
+            phrases = Queue()
+            try:
+                opening = self._game_parts(parts, None, phrases, line_cancel)
+                put_phrase(phrases, None, line_cancel)
+                self.output.run(phrases, line_cancel, turn_id, said)
+            except Cancelled:
+                pass
+            except Exception as exc:
+                self.trace.emit('jeopardy_tick_failed', turn_id=turn_id, error_type=type(exc).__name__)
+            finally:
+                with self._lock:
+                    if self._cancel is line_cancel:
+                        self._cancel = None
+            if opening is not None:
+                self._game_delivered(opening, said, False)
+            if said.completed_text:
+                self.history.append({'role': 'assistant', 'phase': 'final_answer', 'content': ' '.join(said.completed_text)})
+            self.last_interaction_at = self.trace.clock()
+            return said
+        finally:
+            self._processing.release()
+
     def note_speech(self, ended_at: float, sustained: bool = True) -> None:
         """Yield an unheard reply to resumed, non-echo microphone speech.
 
@@ -1062,6 +1146,11 @@ class Session:
         sentry_kind = bool(opportunity and opportunity.kind in SENTRY_KINDS)   # Speaking for the guard.
         sentry_reply = None
         noise_after = None   # A yielded request this untrusted sound came right after: it is answered instead.
+        # Jeopardy (owner, October 26): a game on when the turn began, its clock paused while Rex handles the
+        # turn, and the line whose hearing starts the answer clock.
+        game_on = bool(self.state is not None and not opportunity and self.state.jeopardy.active)
+        game_paused = False
+        game_open = None
         try:
             with self._lock:
                 if self.closed or source_session != self.session_id or submitted_revision != self.revision:
@@ -1114,6 +1203,11 @@ class Session:
                         context = self.state.opportunity_context(opportunity,advance_memory_cursor=not planning_only)
                     else:
                         observation = observation or VoiceObservation(self.state.tracker.namespace)
+                        if game_on:
+                            self.state.jeopardy.pause(self.trace.clock())
+                            game_paused = True
+                            if transcript.trusted:
+                                self.state.jeopardy.heard_people(speech_end)
                         attribution = self.state.begin(turn_id,capture,transcript,observation,faces)
                         context = self.state.context(faces)
                         owed = self._fragment
@@ -1160,8 +1254,11 @@ class Session:
                             speaker.get('person_id') if speaker.get('state') == 'supported' else None, speech_end)
                         self.state.initiative.heard_people(speech_end)
                         self.state.present.saw_faces(context.get('faces', []), self.trace.clock())
-            if not opportunity and not transcript.trusted and not self._owed_reply:
-                # Preserve the source in the trace/store, not as a conversational turn.
+            if (not opportunity and not transcript.trusted and not self._owed_reply
+                    and not (game_on and self.state.jeopardy.answering())):
+                # Preserve the source in the trace/store, not as a conversational turn. A Jeopardy response
+                # recognized unclearly still reaches the ruling, marked so, and is asked for again
+                # (owner, October 26: a lost answer is the old game's complaint; degrade, never discard).
                 # Rejected audio cannot displace real dialogue or postpone the next lull.
                 delivery.status, delivery.medium = 'suppressed', 'none'
                 self.trace.emit('untrusted_not_answered', turn_id=turn_id, capture_id=capture.capture_id)
@@ -1283,7 +1380,7 @@ class Session:
                                                 'meaning': GUIDE['your_hypothetical']}
             if (self.state and not self.state.frozen and getattr(self.output,'cloner',None) is not None
                     and self.state.voice_references is not None):
-                if not opportunity:
+                if not opportunity and not game_on:
                     from . import impersonation
                     context['impersonation'] = impersonation.context(self.state, self.trace.clock())
                 elif not sentry_kind:
@@ -1393,7 +1490,7 @@ class Session:
                 if spent:
                     humor = {**humor, 'spent_shapes': spent, 'meaning': GUIDE['humor']}
                 if humor: context['humor'] = humor
-                material = self.joke_room.offer(humor_audience, self.human_turns) if self.joke_room else None
+                material = self.joke_room.offer(humor_audience, self.human_turns) if self.joke_room and not game_on else None
                 if material and not (opportunity and opportunity.kind in {'visual_arrival', 'unseen_presence'}):
                     context['joke_material'] = material
                 # Standing celebrity bits people asked for, for whoever is around (owner, October 25).
@@ -1405,7 +1502,7 @@ class Session:
                 from .photo_flow import context as photo_context
                 context.update(photo_context(self.state))
                 curious = self._curiosity(context, pets_first=bool(opportunity and opportunity.kind == 'pet_arrival'))
-                if curious and not context.get('sentry'): context['curiosity'] = curious
+                if curious and not context.get('sentry') and not game_on: context['curiosity'] = curious
                 from .curiosity import OPEN_SECONDS as QUESTION_OPEN_SECONDS
                 if (not opportunity and self.last_question
                         and self.trace.clock() - self.last_question['at'] <= QUESTION_OPEN_SECONDS
@@ -1569,7 +1666,7 @@ class Session:
                     context.pop('scene_description', None)
                     context['observations'] = [c for c in context.get('observations', []) if c.get('kind') != 'scene']
                 self.trace.emit('agency_step_started',turn_id=turn_id,**agency_step)
-            elif self.state and self.agency_planner and not opportunity:
+            elif self.state and self.agency_planner and not opportunity and not game_on:
                 # The goal Rex chose steers this reply only when it fits; the human comes first.
                 speaker = context.get('speaker') or {}
                 context['agency_plan'] = self.state.agency.summary(self.trace.clock(),
@@ -1581,6 +1678,10 @@ class Session:
             stream_tool_text = bool(not opportunity and self.state is not None and not self.state.initiative.silent
                                     and context.get('photo_inspection', {}).get('intent') != 'teach')
             messages, shown = self.history_messages(), context
+            if context.get('jeopardy'):
+                # A game turn sees the game and the turn only: no goals, memories or jokes (owner, October 26).
+                from .jeopardy import request_view
+                shown = request_view(context)
             if sentry_reply:
                 # The guard's lines see the intruder (sentry mode): one picture of them, nothing else visual.
                 scene_images = tuple(sentry_reply.get('images') or ())
@@ -1707,6 +1808,18 @@ class Session:
                     'lights. If lights are not what they asked for, use the tool for what they did ask instead.'})))
                 if retry or generated.strip():
                     calls = retry
+            if (game_on and len(calls) == 1 and calls[0].name == 'remain_silent' and not generated.strip()
+                    and calls[0].arguments.get('reason') != 'unfinished_thought' and self.state.jeopardy.answering()):
+                # October 26 (paid probe): "Who is Descartes?" got silence (no_response_needed), "Who is Hawthorne?"
+                # too (background_conversation), and the clock would have run out on them. Words while a clue is
+                # open are asked about once; then the silence stands.
+                from dataclasses import replace as replace_snapshot
+                self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='jeopardy_silence_retry',
+                                reasoning_effort=getattr(self.brain, 'reasoning_effort', None))
+                calls = generate(replace_snapshot(snapshot, messages=(*snapshot.messages, {'role': 'developer', 'content':
+                    'A clue is open and someone just spoke. If their words were any attempt at a response, right or '
+                    'wrong, rule on it now with jeopardy_ruling. Stay silent only if the words were not meant as a '
+                    'response (talk to someone else or a pet, an unfinished thought).'})))
             repeated = (self._repeats_recent_line(calls[0])
                         if agency_step and len(calls) == 1 and not generated.strip() else None)
             silence = (calls[0].arguments.get('reason') if agency_step and agency_step['kind'] in {'contribute', 'gesture'}
@@ -1822,7 +1935,7 @@ class Session:
                 call = calls[0]
                 if call.name == 'revise_agency_plan':
                     raise ProviderFailure('AgencyRevisionRecoveryLimit')
-                from .semantics import MEMORY_SAVES, SCHEDULE_TOOLS, SPOKEN_RESULT_TOOLS
+                from .semantics import GAME_TOOLS, MEMORY_SAVES, SCHEDULE_TOOLS, SPOKEN_RESULT_TOOLS
                 if call.name in SCHEDULE_TOOLS and call.arguments.get('next_opportunity') is not None:
                     from dataclasses import replace
                     try:
@@ -2602,6 +2715,15 @@ class Session:
                 elif result.outcome=="ok" and call.name in {"ask_question","ask_face_question"}:
                     question = result.data
                     put_phrase(phrases,question["question"],cancel)
+                elif result.outcome=='ok' and call.name in GAME_TOOLS:
+                    from dataclasses import asdict
+                    import json
+                    self.history.extend((
+                        {"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":json.dumps(call.arguments)},
+                        {"type":"function_call_output","call_id":call.call_id,"output":json.dumps(asdict(result))}))
+                    game_open = self._game_parts(result.data['parts'], result.data.get('text'), phrases, cancel)
+                    self.trace.emit('jeopardy_move', turn_id=turn_id, name=call.name, arguments=dict(call.arguments),
+                                    parts=result.data['parts'])
                 elif (result.outcome=='ok' and call.name in SPOKEN_RESULT_TOOLS and isinstance(call.arguments.get('text'),str)
                       and call.arguments['text'].strip()):
                     # The reply came with the tool and the executor succeeded: no second model call
@@ -2657,6 +2779,9 @@ class Session:
                         self.history.append({"role":"developer","content":"A person was forgotten. Do not reuse previous personal context."})
                     if result.outcome != 'ok':
                         setback[0] = True
+                    if context.get('jeopardy'):
+                        from .jeopardy import request_view
+                        context = request_view(context)
                     followup = Snapshot(self.session_id,turn_id,self.revision,self.history_messages(),
                                         snapshot.speaker,context,False,continuation)
                     if streamed.get(call.call_id, '').strip():
@@ -2756,6 +2881,8 @@ class Session:
                     self.trace.emit("worker_stuck", worker="output")
             if model_error:
                 delivery.status, delivery.error = "failed", model_error
+            if self.state is not None and (game_open is not None or game_paused):
+                self._game_delivered(game_open, delivery, game_paused)
             if self._look_kept_turn == turn_id:
                 # His answer from a look a person asked for is over: the look holds about
                 # LOOK_HOLD_SECONDS more, then the voice reflex may turn him again (owner, October 23).
@@ -2920,7 +3047,8 @@ class Session:
                     heard = ' '.join(delivery.completed_text)
                     self.state.present.rex_said(heard, self.trace.clock(), own_initiative=opportunity is not None,
                                                 answering=(context.get('speaker') or {}).get('speaker_id') or self._memory_subject)
-                    if self.joke_room is not None and not context.get('sentry'):   # No paid writer for the guard.
+                    playing = self.state.jeopardy.active or bool(context.get('jeopardy'))
+                    if self.joke_room is not None and not context.get('sentry') and not playing:   # No paid writer for the guard or a game.
                         self._joke_followup(heard, context, opportunity, transcript, turn_id, calls, setback[0])
                     if context.get('callouts'):
                         try:
@@ -2930,7 +3058,7 @@ class Session:
                             self.trace.emit('state_finalize_failed', turn_id=turn_id, error_type=type(exc).__name__)
                         for callout_id, kind in used:
                             self.trace.emit('callout_heard', turn_id=turn_id, callout_id=callout_id, kind=kind)
-                    if delivery.medium == 'audio' and delivery.status == 'completed':
+                    if delivery.medium == 'audio' and delivery.status == 'completed' and not playing:
                         self._curiosity_followup(heard, context, calls, agency_step, turn_id)
             if self.state and (schedule_proposal is not None or invitation_proposal is not None):
                 with self._lock:

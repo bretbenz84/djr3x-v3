@@ -94,6 +94,14 @@ it or reads its data.
     cowboy"), ends the one before. Asking again starts the ten minutes over; "stand down pride
     mode" or "drop the accent" ends one.
     Not yet run on the robot ([details](docs/IMPLEMENTATION_STATUS.md#speaking-modes--october-25)).
+- **Jeopardy (October 26).** V2's game, hosted by Rex: "let's play Jeopardy" and up to four players. Real
+  boards from V2's clue bank, V2's music and stings, Daily Doubles, Double Jeopardy and Final Jeopardy.
+  Anyone's voice answers for the player whose turn it is. Rex's reply model judges each response,
+  forgiving of sound-alikes and garbled names but not of a different answer, and responses must be
+  phrased as a question. A wrong answer gives the next player one rebound; "that was right!" can
+  overturn a ruling. With `--gui` the dashboard shows the board (made for the Apple TV); then the
+  categories are read once per board and again only when asked. Not yet played on the robot
+  ([details](docs/JEOPARDY.md)).
 - **Celebrity callouts (October 25).** Tell Rex "PJ is a huge Kings fan, treat him like Kings royalty
   whenever he shows up" (about anyone, yourself or a saved pet) and he gives them a fresh celebrity entrance
   when they arrive, at most every three hours, and now and then a callback while they are around, in new words
@@ -234,8 +242,9 @@ models on its own.
 - Everything private is under ignored `local/`: settings, credentials, the store
   (`local/core.sqlite3`), recordings, voiceprints, visual memory, caches and session
   traces. Never commit or publish it.
-- Bundled audio (`assets/audio/startup`, `assets/audio/motion`, `assets/audio/effects`) is
-  V2's sound effects converted to WAV. It contains no personal recordings. The famous
+- Bundled audio (`assets/audio/startup`, `assets/audio/motion`, `assets/audio/effects`,
+  `assets/audio/jeopardy`) is V2's sound effects converted to WAV, and `assets/jeopardy/clues.tsv` is V2's
+  clue bank. They contain no personal recordings. The famous
   reference voices in `assets/voices/famous` are public clips ([provenance](assets/voices/README.md));
   references to people Rex knows are derived under `local/` and never tracked.
 - No V2 personal data has been imported. Any import makes independent copies with a
@@ -251,6 +260,7 @@ models on its own.
 | [Drive base](docs/DRIVE_BASE_INTEGRATION.md) | Wheels, radar, safety gates, vision seek and floor-run repairs. |
 | [Servo integration](docs/SERVO_INTEGRATION.md) | Choreography, talking and idle motion, poses, microphone hold. |
 | [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |
+| [Jeopardy](docs/JEOPARDY.md) | The game: rules, judging, the clock, sounds, the dashboard board, checks. |
 | [Sentry mode](docs/SENTRY_MODE.md) | Guarding a room alone: what trips and stands him down, recordings, phone alerts and their setup. |
 | [Room recognition](docs/ROOM_RECOGNITION.md) | Which room, asking and learning rooms, connections, exploring, the V2 import. |
 | [Voice impressions](docs/IMPERSONATION.md) | The `impersonate` tool, reference voices, the local cloning engine, checks and open acceptance. |
