@@ -30,7 +30,10 @@ and ordinary lines (optionally a second person), with Rex's microphone path and 
 running; nothing moves. Offline on the owner's saved clips (real models, this M2): median 0.068 s a line
 against 0.014 s, slowest 0.83 s against 0.16 s, +66 MB memory; short pieces under 1 s were closer to the
 owner than any famous voice 16 of 16 times against 12 of 16. Voice analysis runs before transcription, so
-the extra time adds to the reply wait. **Not yet run live.** [Trial and how to run it](VOICE_ENCODER_TRIAL.md).
+the extra time adds to the reply wait. Live on the robot (the owner alone, camera running): ordinary sentences
+0.319 s against 0.064 s; all 9 of his lines of 1 s or more named by both; under 1 s it picked him over every
+other print 17 of 18 times against 14, but Rex names nobody from under 1 s, and with today's thresholds a YouTube
+voice reached his naming score. Recommendation: keep CAM++. [Trial and how to run it](VOICE_ENCODER_TRIAL.md).
 
 ## Jeopardy — October 26
 

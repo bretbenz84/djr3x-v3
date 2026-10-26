@@ -65,9 +65,35 @@ six as the print, plus the first 0.6 s and 1.2 s of each other clip. No micropho
   the second person; its accuracy figures are meaningless (the "guest" was several famous voices).
   The camera load path and the real microphone were not exercised.
 
+## Live run on the robot (October 26, run `4bf966b2`)
+
+The owner alone through the ReSpeaker, camera face detection running, 36 of his lines; for the second
+person a YouTube video played through a speaker gave one 9.7 s line before the rest was skipped, so
+that voice served only as a same-room rival print.
+
+| | CAM++ | ERes2NetV2 |
+|---|---|---|
+| time per line, median / 1 in 10 / slowest | 0.010 / 0.084 / 0.169 s | 0.041 / 0.419 / 0.851 s |
+| ordinary sentence (2–4 s of speech), median | 0.064 s | 0.319 s |
+| CPU time per line, median (camera's share removed) | 0.028 s | 0.083 s |
+| memory to load and first use | +103 MB | +166 MB |
+| his lines of 1 s or more, named correctly | 9 of 9 | 9 of 9 |
+| his lines under 1 s closer to him than to every other print | 14 of 18 | 17 of 18 |
+| same, as AUC | 0.98 | 0.99 |
+| YouTube pieces of 1 s or more scoring .50 or more against his print | 0 of 17 (highest .46) | 3 of 17 (highest .52) |
+
+- 21 of the 30 test lines were under 1 s; three ("What", "I don't know", "Woot!") had too little
+  speech for either model, and none was named by either, because Rex never names from under 1 s.
+- ERes2NetV2 scores every voice higher, other people included, so Rex's thresholds (set for CAM++)
+  would name a stranger as the owner; with a threshold high enough to prevent that, how many of his
+  short lines it would accept is not settled by this run (it depends on which rivals set the bar).
+- The whole Mac was 18% busy while listening (30% at most); either model uses two cores while it runs.
+- Conclusion: no naming gain under today's rules, an uncertain short-line gain, and about a quarter
+  second more wait on every ordinary sentence. Recommendation (not yet the owner's ruling): keep CAM++.
+
 ## Open
 
-- The live run on the robot, ideally with a second person.
+- A live run with a real second person, if the trial is picked up again (`live` again; `saved` re-scores).
 - Real short utterances: the pieces above are cut from clean, longer lines.
 - If adopted: thresholds calibrated for ERes2NetV2, re-embedding saved voices from their original
   audio under the new namespace, and the cost of long lines (fewer windows is one option).
