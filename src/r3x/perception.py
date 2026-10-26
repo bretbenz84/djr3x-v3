@@ -47,7 +47,8 @@ class Perception:
     def analyze(self, capture, cancel: Cancellation, voice=None, voice_seconds=None):
         began = self.trace.clock()
         transcript = self.asr.transcribe(capture, cancel)
-        self.trace.emit("transcript", capture_id=capture.capture_id, original_text=transcript.text,
+        self.trace.emit("transcript", capture_id=capture.capture_id, original_text=transcript.heard_as or transcript.text,
+            **({"corrected_text": transcript.text} if transcript.heard_as else {}),
             avg_logprob=transcript.avg_logprob, trusted=transcript.trusted,
             asr_seconds=self.trace.clock()-began, queue_seconds=max(0.,began-capture.ended_at))
         cancel.check()

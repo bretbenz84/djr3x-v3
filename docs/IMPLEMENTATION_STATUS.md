@@ -21,6 +21,18 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Name spellings and the owner's name — October 26
+
+Owner request: "Exodia" should always become Exudica, and "Brett" Bret. `transcript_corrections` in
+settings (`spelling.py`) replaces each listed whole word, in any case, in every transcript from the
+recognizer, live and in replay, before Rex reads it; the session log keeps what was heard
+(`original_text`, with `corrected_text` beside it). Spelling only: it decides no speaker, person or fact.
+The owner's two entries are in `local/settings.toml`. In the database his record is now "Bret Benziger"
+(other name "Bret"), and the 768 stored mentions of "Brett" (his and Rex's words in conversations, facts,
+the joke record, plans, cached results) now read "Bret" (backup
+`local/core.before-bret-rename-20261026.sqlite3`). Session logs are left as they were. 4 checks in
+`tests/test_spelling.py` (pure text, a fake recognizer); not yet run on the robot.
+
 ## October 25 run: the first callout test — October 26
 
 Session `c5ad0deb` (the owner adding V2's callouts by voice). Saved right: P.J., Max and the owner's boss.

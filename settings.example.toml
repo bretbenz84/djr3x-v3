@@ -135,3 +135,9 @@ reply_service_tier = "fast"
 # Writer's room: after a reply the planner model may write two or three optional joke angles
 # that the next reply can use. Never delays a reply; at most every 45 s and 30 calls an hour.
 joke_writer_enabled = true
+
+# Spelling fixes for names the recognizer gets wrong (owner, October 26). Each whole word, in any
+# case, is replaced in every transcript before Rex reads it; the session log keeps what was heard.
+# Spelling only: never who spoke or who is meant. At most 32. Keep this table last in the file.
+# [transcript_corrections]
+# "Kaitlin" = "Caitlyn"

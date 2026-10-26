@@ -29,7 +29,8 @@ class App:
         from .adapters.voice import CAMPlus
         from .adapters.camera import Camera
         secrets = Secrets.load(self.paths.root)
-        asr = QwenASR(self.paths.root / "models/qwen3-asr", self.settings.asr_trust_logprob)
+        asr = QwenASR(self.paths.root / "models/qwen3-asr", self.settings.asr_trust_logprob,
+                      self.settings.transcript_corrections)
         vad = SileroVAD(self.settings.vad_threshold)
         brain = OpenAIBrain(secrets.openai_api_key, self.settings.reply_service_tier)
         agency_planner = OpenAIAgencyPlanner(secrets.openai_api_key,self.settings.agency_planner_model)

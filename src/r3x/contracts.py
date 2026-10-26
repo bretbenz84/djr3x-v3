@@ -59,6 +59,7 @@ class Transcript:
     text: str
     avg_logprob: float | None
     trusted: bool
+    heard_as: str | None = None   # What the recognizer wrote, when the owner's spelling fixes changed it.
 
 
 @dataclass(frozen=True)

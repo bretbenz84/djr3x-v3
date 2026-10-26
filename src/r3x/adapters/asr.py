@@ -7,11 +7,13 @@ import time
 from ..contracts import Capture, Cancellation, ProviderFailure, Transcript
 from ..providers import Capability
 from ..mlx_schedule import MLX_LOCK
+from ..spelling import compile_table, correct
 
 
 class QwenASR:
-    def __init__(self, model_path: Path, trust_floor: float):
+    def __init__(self, model_path: Path, trust_floor: float, corrections=None):
         self.model_path, self.trust_floor = model_path, trust_floor
+        self.corrections = compile_table(corrections or {})
         self.model = None
         self.lock = threading.Lock()
         self.capability = Capability("asr", "mlx-audio", "batch transcription with quality evidence",
@@ -64,4 +66,5 @@ class QwenASR:
             mean = sum(probabilities) / len(probabilities) if probabilities else None
             trusted = (mean is not None and len(probabilities) == len(tokens) and
                        mean >= self.trust_floor and len(tokens) < 256 and not capture.truncated)
-            return Transcript(text, mean, trusted)
+            fixed = correct(text, self.corrections)   # The owner's name spellings (October 26).
+            return Transcript(fixed, mean, trusted, text if fixed != text else None)

@@ -60,7 +60,7 @@ def run(manifest,root,settings,with_brain=False,oracle=False):
     directory = root/"validation"/run_id
     directory.mkdir(parents=True,mode=0o700)
     trace = Trace(run_id,directory/"session.jsonl")
-    asr = QwenASR(root/"models/qwen3-asr",settings.asr_trust_logprob)
+    asr = QwenASR(root/"models/qwen3-asr",settings.asr_trust_logprob,settings.transcript_corrections)
     encoder = CAMPlus(root/"models/campplus.onnx")
     vad = SileroVAD(settings.vad_threshold)
     brain = OpenAIBrain(Secrets.load(root).openai_api_key) if with_brain else None
