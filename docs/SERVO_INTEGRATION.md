@@ -6,6 +6,31 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 26: a send that "times out" no longer freezes every servo
+
+Run `c5ad0deb` (October 25, 7:32 PM): five minutes in, every servo froze until shutdown and the
+park at "shut down" was refused (`ServoParkUnavailableAfterFault`). An idle move's send raised
+`SerialTimeoutException` at the moment the impression voice was loading; the microphone lost
+0.43 s at the same instant. The voice load held the interpreter 0.4 s (see
+[impressions](IMPERSONATION.md)), and pyserial 3.5 checks its 100 ms write deadline after the
+bytes have gone out, so a stalled thread reports a timeout for a send the board received. The
+same happened October 17 (`2b044e51`) as the voice unloaded at shutdown. Afterwards the board
+answered in 0.3 ms with no error flags, still holding the run's last pulses (no reset or power
+loss); the operator park then completed.
+
+- A send timeout or a short reply (`LINK_HICCUPS`) now asks the board for every channel (three
+  tries, 0.2 s apart). If it answers, the moving joints are held where it says they are and Rex
+  carries on: awake moves stay `active`; a startup, park or shutdown is left `stopped`, so a
+  fresh park still runs; nothing sent leaves the earlier state. Nothing is resent. The receipt
+  says `SerialTimeoutException:BoardAnswered`, or `:NoAnswer` when the board is gone, which
+  faults as before. This covers requests, the arm return, the talking visor and the microphone
+  recentre.
+- A position query that fails part-way drops any late reply (50 ms, then the input buffer is
+  cleared) before another thread may use the wire; otherwise the next query reads that reply
+  as its own (checked: the head lift read as the neck's 5472).
+
+Synthetic checks (simulated board) only; not yet run on the robot.
+
 ## October 21 (last): a smaller poker sway while talking
 
 Owner: the poker arm moved too much while he talked. Its talking sway (full idle size at 0.6

@@ -110,7 +110,12 @@ class App:
         if self.robot:
             self.robot.on_startup = self.startup_audio.motion_started
             self.robot.on_shutdown = self.startup_audio.shutdown_started   # Power-down clip over the park.
-        self.owner = ProviderOwner((tts,sink,self.startup_audio) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(p for p in self.live_components if p not in (tts,sink)))
+        # The voice cloner builds its text tokenizer at start, holding the interpreter about
+        # 0.4 s (October 25): it starts before the microphone, so no heard audio is lost to it.
+        started = [p for p in self.live_components if p not in (tts,sink,self.cloner)]
+        if self.cloner:
+            started.insert(started.index(mic), self.cloner)
+        self.owner = ProviderOwner((tts,sink,self.startup_audio) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(started))
 
     def readiness(self):
         missing = []

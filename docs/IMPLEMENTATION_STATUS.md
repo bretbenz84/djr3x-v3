@@ -21,6 +21,18 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## October 25 run: frozen servos and the first impression's stall — October 26
+
+Session `c5ad0deb`: five minutes in every servo froze until shutdown and the park was refused.
+Not the board (it answered at once, no error flags, still holding the run's last pulses); loading
+the impression voice held the interpreter 0.43 s, a servo send reported a timeout it had not
+had, and that locked every servo out. A send timeout now asks the board, and if it answers Rex
+holds the moving joints and carries on ([servo integration](SERVO_INTEGRATION.md)). The voice's
+text tokenizer, the 0.4 s hold, is built at start before the microphone opens; the first
+impression's load now holds at most 29 ms ([impressions](IMPERSONATION.md)). Synthetic servo
+checks; real-model timing on this Mac; not yet run on the robot. 1640 of 1641 blocked-I/O checks
+pass; `test_sentry` fails the same way without this change.
+
 ## October 25 run: facts refused, and the refusals spoken
 
 Session `a0afcf85` (16 minutes, real hardware, the owner alone). Owner: "He often refuses to save memories

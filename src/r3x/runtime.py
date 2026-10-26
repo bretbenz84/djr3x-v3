@@ -722,8 +722,14 @@ class VoiceRuntime:
                                     threads=threading.active_count())
                     next_resources = now+30
                     cloner = getattr(self.session.output,'cloner',None)
-                    if cloner is not None:
-                        cloner.release_idle()   # A voice engine nobody used for ten minutes gives its memory back.
+                    output_active = getattr(self.session.output,'active',None)
+                    # A voice engine nobody used for ten minutes gives its memory back. That holds
+                    # the interpreter about 0.1 s (October 25), so only while nobody is being heard
+                    # and he is neither speaking nor working on a turn; a later check does it.
+                    if cloner is not None and not (self.endpoint.frames or not self.captures.empty()
+                            or not self.turns.empty() or self.session._processing.locked()
+                            or (output_active is not None and output_active.is_set())):
+                        cloner.release_idle()
                 if sys.stdin.isatty() and select.select([sys.stdin], [], [], 0)[0]:
                     command = sys.stdin.readline().strip().lower()
                     if command in {"quit", "exit", "shut down", "shutdown"}:

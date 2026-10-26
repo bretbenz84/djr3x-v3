@@ -49,7 +49,7 @@ audio, the real local engine synthesizing to files, and a small paced hosted pro
 | Conversation model | Decides that an impression fits, picks the offered target, writes the script, intro and outro in one `impersonate` call. No separate script call, no regex parsing of who to imitate, no roster scan of utterances. |
 | State owner | Validates source trust, offered targets, the cameo budget and the word cap; resolves the target to a reference clip (famous file, derived person reference, session track reference). Writes nothing persistent except the derived person reference's artifact rows. |
 | Output owner | Plays intro, cloned take and outro through the same sink, speaking lights, talking motion and echo gate; waits for the take with the filler; the fixed cover line ("my impression module just blew a fuse") on a failed render. |
-| Voice cloner (`adapters/breeze.py`) | Breeze TTS 2 8-bit via mlx-audio 0.5.1, loaded by absolute path with Hugging Face access scoped off. Prepares each take completely before playback; never streams a half-rendered take, never discards audio on underruns. Loads on first use, unloads after ten idle minutes. Shares the process-wide MLX lock with Qwen3-ASR (one evaluation at a time, per generated chunk). |
+| Voice cloner (`adapters/breeze.py`) | Breeze TTS 2 8-bit via mlx-audio 0.5.1, loaded by absolute path with Hugging Face access scoped off. Prepares each take completely before playback; never streams a half-rendered take, never discards audio on underruns. Builds the text tokenizer at start (before the microphone opens) and keeps it; loads the model on first use, unloads it after ten idle minutes in a quiet moment. Shares the process-wide MLX lock with Qwen3-ASR (one evaluation at a time, per generated chunk). |
 
 Context offered to the model on human turns when the cloner started: `impersonation`
 with `speaker` (ready, voiced seconds on file, basis), `people`, `famous` slugs,
@@ -118,6 +118,28 @@ nothing, people's voices only on private beats, spoken beats becoming impression
 reminder and its chirps). Paid probe `tools/check_impression_beats.py` (real reply model and
 planner, fictional Sam, fake cloner): Reagan bits in 3 of the last 6 library runs; Sam's own voice
 once in round 1. Results and limits are in [implementation status](IMPLEMENTATION_STATUS.md).
+
+## October 26: the first impression no longer freezes Rex
+
+Run `c5ad0deb`: the first impression of the run never played. Loading the voice held the
+interpreter for 0.43 s, so the microphone lost that much audio, the turn was dropped as stale
+(`audio_stale`) and a servo send reported a timeout that froze every servo
+([servo integration](SERVO_INTEGRATION.md)). Measured on this Mac with the real model and a
+2 ms heartbeat thread: mlx-audio's load took 3.45 s with holds of 419 ms; all of it was its
+post-load hook parsing the 33 MB `tokenizer.json` (262,158 tokens; `tokenizers` does not release
+the interpreter). The weights themselves load with no hold over 0.1 s.
+
+- `VoiceCloner.start()` builds that tokenizer exactly as the hook does (one 0.4 s hold), and the
+  cloner now starts before the microphone. The model load attaches it instead of parsing again.
+  It stays resident (about 0.4 GB) across idle unloads; the 4.6 GB of weights still go.
+- Measured after: start 0.9 s (402 ms hold); first impression load 0.54 s (longest hold 29 ms);
+  a 3.6 s take rendered with holds under 60 ms.
+- Unloading hands 4.6 GB back in one 0.10-0.13 s hold. The `gc.collect()` after it freed nothing
+  (MLX memory was already released) and held another 40-50 ms; it is gone. The ten-minute
+  unload waits until nobody is being heard and he is neither speaking nor working on a turn.
+
+Real model on saved text and a famous clip, no speaker; startup time and memory with the
+full live workload are not yet measured on the robot.
 
 ## Open acceptance and limitations
 

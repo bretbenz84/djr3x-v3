@@ -5,8 +5,11 @@ Opening is explicit; composition must confirm operator-console handoff first.
 from __future__ import annotations
 from typing import Protocol
 import threading
+import time
 from ..contracts import ProviderFailure
 from ..servo_poses import THROTTLE, validate_pose
+
+LATE_REPLY_SECONDS = .05   # A failed query's answer can still be on its way back over USB.
 
 
 def open_serial(path: str) -> Port:
@@ -47,13 +50,28 @@ class Maestro:
     def positions(self, channels) -> dict[int, int]:
         result = {}
         with self._wire:
-            for ch in channels:
-                self._write(bytes((0x90, ch)))
-                data = self.port.read(2)
-                if len(data) != 2:
-                    raise ProviderFailure('MaestroShortRead')
-                result[ch] = int.from_bytes(data, 'little')
+            try:
+                for ch in channels:
+                    self._write(bytes((0x90, ch)))
+                    data = self.port.read(2)
+                    if len(data) != 2:
+                        raise ProviderFailure('MaestroShortRead')
+                    result[ch] = int.from_bytes(data, 'little')
+            except Exception:
+                self._drop_late_reply()
+                raise
         return result
+
+    def _drop_late_reply(self) -> None:
+        """A query that failed part-way may still be answered. Its bytes are dropped before the
+        wire is let go, or the next query would read them as its own reply."""
+        time.sleep(LATE_REPLY_SECONDS)
+        try:
+            reset = getattr(self.port, 'reset_input_buffer', None)
+            if reset:
+                reset()
+        except Exception:
+            pass   # The original failure is what the owner judges.
 
     def profiles(self, profiles: dict[int, tuple[int, int]]) -> None:
         for ch, (speed, acceleration) in profiles.items():

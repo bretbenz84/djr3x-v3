@@ -435,6 +435,33 @@ class ListeningTests(unittest.TestCase):
         self.assertFalse(any(speech[:15]))  # Under 0.5 s voiced.
         self.assertTrue(all(speech[15:]))
 
+    def test_the_voice_engine_gives_its_memory_back_only_in_a_quiet_moment(self):
+        # October 25: handing the impression voice's 4.6 GB back holds the interpreter about 0.1 s.
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        self.setup_core()
+        output, trace = self.session.output, self.trace
+        released = []
+        output.cloner = SimpleNamespace(release_idle=lambda: released.append((trace.at, output.active.is_set())))
+        steps = [(200., True), (231., False)]   # Speaking at the first check, quiet at the next.
+        trace.at = 200.
+        output.active.set()
+        class Mic:
+            dropped = status_errors = 0
+            def read(inner):
+                if not steps: runtime.stop.set(); return None
+                trace.at, speaking = steps.pop(0)
+                output.active.set() if speaking else output.active.clear()
+                return Frame(bytes(1024), trace.at-.032, trace.at)
+            def cancel(inner): pass
+        class VAD:
+            def reset(inner): pass
+            def is_speech(inner, pcm): return False
+        runtime = VoiceRuntime(Mic(), VAD(), None, self.session, self.trace)
+        with patch('sys.stdin.isatty', return_value=False):
+            runtime.run()
+        self.assertEqual(released, [(231., False)])
+
     def test_resuming_during_tts_prevents_first_pcm(self):
         outer = self
         class ResumingTTS:

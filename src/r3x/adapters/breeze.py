@@ -5,7 +5,8 @@ parody script plus a reference clip into one complete, leveled 22,050 Hz PCM tak
 the speech sink. Rex's own voice stays ElevenLabs; this engine never speaks on its own
 and never replaces that voice.
 
-Lifecycle: start() verifies the prepared snapshot without loading it. The model loads
+Lifecycle: start() verifies the prepared snapshot and builds the text tokenizer (see
+text_tokenizer), without loading the model. The model loads
 on the first impression (behind Rex's intro line and the thinking filler), stays
 resident while impressions keep coming, and is released after ten idle minutes so the
 M2's 16 GB is not held for a party trick that happens twice an evening. Every Metal
@@ -14,6 +15,7 @@ evaluate concurrently. Takes are prepared completely before playback (V2's impre
 policy): a cloned take is never streamed into the room while generation might still
 fall behind, and an underrun never discards remaining audio.
 """
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -80,6 +82,55 @@ def trim_edges(audio, rate: int, threshold: float = .004, window_ms: float = 20.
     return audio[max(0, first - pad):min(audio.size, last + pad)]
 
 
+@contextmanager
+def offline():
+    """Hugging Face network access scoped off while Breeze files load (V2 policy)."""
+    saved = {k: os.environ.get(k) for k in ('HF_HUB_OFFLINE', 'TRANSFORMERS_OFFLINE')}
+    os.environ['HF_HUB_OFFLINE'] = os.environ['TRANSFORMERS_OFFLINE'] = '1'
+    try:
+        yield
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def text_tokenizer(model_dir: Path):
+    """The text tokenizer exactly as mlx-audio 0.5.1's Breeze post_load_hook builds it.
+
+    October 25 (c5ad0deb): parsing the 33 MB tokenizer.json holds the interpreter for about
+    0.4 s (tokenizers does not release it). Inside the first impression's load that cost the
+    microphone 0.43 s of audio, made the impression's turn stale and made a servo send report a
+    timeout. The cloner builds it once at start, before the microphone opens, and keeps it
+    (about 0.4 GB) across idle unloads; the weights load without holds over 0.1 s."""
+    from transformers import PreTrainedTokenizerFast
+    config = json.loads((model_dir / 'tokenizer_config.json').read_text())
+    for key in ('tokenizer_class', 'model_max_length', 'clean_up_tokenization_spaces', 'added_tokens_decoder'):
+        config.pop(key, None)
+    return PreTrainedTokenizerFast(tokenizer_file=str(model_dir / 'tokenizer.json'), **config)
+
+
+def load_with_tokenizer(model_dir: Path, tokenizer):
+    """mlx-audio 0.5.1's load_model with the text tokenizer already built.
+
+    Its post_load_hook is swapped for this one load (only the cloner loads Breeze, under its
+    lock): the start-time tokenizer is attached and the codec loads as the original hook does."""
+    from mlx_audio.tts.models.breeze_tts.breeze_tts import Model
+    from mlx_audio.tts.utils import load_model
+    original = Model.__dict__['post_load_hook']
+    def attach(cls, model, model_path):
+        model.tokenizer = tokenizer
+        model.audio_tokenizer = cls._load_audio_tokenizer(Path(model_path) / 'audio_tokenizer')
+        return model
+    Model.post_load_hook = classmethod(attach)
+    try:
+        return load_model(str(model_dir))
+    finally:
+        Model.post_load_hook = original
+
+
 def token_cap(text: str) -> int:
     duration = max(2., len(text.split()) / 2.6) * DURATION_SLACK
     return max(1, min(MAX_TOKENS, int(duration * 12.5)))
@@ -136,6 +187,7 @@ class VoiceCloner:
         self.model_dir = Path(model_dir)
         self.level = level       # (sample_rate, text) -> PCM leveler; live composition supplies V2's.
         self.model = None
+        self.tokenizer = None             # Built at start, kept across idle unloads (text_tokenizer).
         self.lock = threading.Lock()      # Load/unload and generation are serialized.
         self.trace = None
         self.started = False
@@ -143,8 +195,9 @@ class VoiceCloner:
         self.loaded_at = None
         self.capability = Capability('voice_cloner', 'Breeze TTS 2 (mlx-audio)',
             'cloned-voice impressions chosen by the conversation model', MODEL_ID + '@' + MODEL_REVISION[:8],
-            ('mlx-audio', 'mlx', 'numpy', 'scipy'), (str(self.model_dir), 'Metal GPU, about 4.6 GB while loaded'),
-            required=False, startup='verify prepared snapshot; load on first impression',
+            ('mlx-audio', 'mlx', 'numpy', 'scipy', 'transformers'),
+            (str(self.model_dir), 'Metal GPU, about 4.6 GB while loaded', 'text tokenizer, about 0.4 GB from start'),
+            required=False, startup='verify prepared snapshot; build the text tokenizer; load on first impression',
             shutdown='close takes; unload after 10 idle minutes or at close')
 
     def _emit(self, event, **data):
@@ -183,6 +236,8 @@ class VoiceCloner:
         reason = self.unavailable_reason()
         if reason:
             raise ProviderFailure(reason)
+        with offline():
+            self.tokenizer = text_tokenizer(self.model_dir)
         self.started = True
 
     def cancel(self):
@@ -191,26 +246,18 @@ class VoiceCloner:
     def close(self):
         self.started = False
         self._unload('close')
+        self.tokenizer = None
 
     def _load(self):
         """Load by absolute path with Hugging Face network access scoped off (V2 policy)."""
-        saved = {k: os.environ.get(k) for k in ('HF_HUB_OFFLINE', 'TRANSFORMERS_OFFLINE')}
-        os.environ['HF_HUB_OFFLINE'] = os.environ['TRANSFORMERS_OFFLINE'] = '1'
         began = time.monotonic()
-        try:
-            from mlx_audio.tts.utils import load_model
+        with offline():
             from .breeze_fast_depth import enable_fast_depth
             with MLX_LOCK:
                 enable_fast_depth()
-                model = load_model(str(self.model_dir))
+                model = load_with_tokenizer(self.model_dir, self.tokenizer)
                 import mlx.core as mx
                 mx.synchronize()
-        finally:
-            for key, value in saved.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
         self.model = model
         self.loaded_at = time.monotonic()
         seconds = self.loaded_at - began
@@ -222,14 +269,15 @@ class VoiceCloner:
             if self.model is None:
                 return
             with MLX_LOCK:
+                # The weights go to MLX's cache the moment the model is dropped; handing the
+                # 4.6 GB back holds the interpreter 0.10-0.13 s (measured October 25). A
+                # gc.collect() after it freed nothing more and held it another 40-50 ms.
                 self.model = None
                 try:
                     import mlx.core as mx
                     mx.clear_cache()
                 except Exception:
                     pass
-            import gc
-            gc.collect()
         self._emit('voice_cloner_unloaded', reason=reason)
 
     def release_idle(self, now=None):

@@ -4,6 +4,7 @@ from queue import Queue
 import threading
 import unittest
 
+from r3x.adapters.maestro import Maestro
 from r3x.contracts import Cancellation, Playback, ProviderFailure
 from r3x.output import Delivery, OutputOwner
 from r3x.servo_poses import AWAKE_ARMS, HEAD_PARK, NECK_PER_DEG, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
@@ -17,6 +18,10 @@ class Clock:
     def wait(self, seconds): self.now += seconds
 
 
+class SerialTimeoutException(OSError):
+    """Named as pyserial's; the owner judges failures by their type name."""
+
+
 class PulsePort:
     def __init__(self):
         self.pose = dict(UNPOWERED_REST)
@@ -26,6 +31,8 @@ class PulsePort:
         self.stall = False
         self.short_write = False
         self.short_read = False
+        self.timeout_on = ()          # Opcodes whose next write goes out, then reports a timeout (pyserial).
+        self.silent_after_timeout = False   # The board stops answering after that timeout.
         self.on_target = lambda: None
         self.period_reads = 0   # Reads before a target reaches an off channel (the 20 ms period).
         self._pending = {}
@@ -43,6 +50,10 @@ class PulsePort:
                 self._pending, self._lag = {**self._pending, **target}, self.period_reads
             elif not self.stall: self.pose.update(target)
             self.on_target()
+        if packet[0] in self.timeout_on:
+            self.timeout_on = ()
+            self.short_read = self.silent_after_timeout
+            raise SerialTimeoutException('Write timeout')
         return len(packet)
 
     def read(self, count):
@@ -217,6 +228,65 @@ class ServoTests(unittest.TestCase):
         self.assertTrue(result.reason.startswith('ServoArrivalTimeout:ch'), result.reason)
         self.assertLess(self.clock(), 27.)
         self.assertEqual(self.owner.state, 'faulted')
+
+    def test_a_send_timeout_with_the_board_answering_carries_on_and_still_parks(self):
+        # October 25 (c5ad0deb): a 0.4 s stall made one idle send report a write timeout; every
+        # later move was refused and shutdown could not park, while the board was fine.
+        self.owner.start()
+        self.execute()
+        self.port.timeout_on = (0x84, 0x9F)
+        result = self.execute('talking')
+        self.assertEqual((result.status, result.reason), ('failed', 'SerialTimeoutException:BoardAnswered'))
+        self.assertEqual(self.owner.state, 'active')
+        self.assertEqual(self.execute('talking').status, 'pulses_reached')
+        self.assertEqual(self.execute('shutdown').status, 'pulses_reached')
+        for ch, value in HEAD_PARK + PARK:
+            self.assertEqual(self.port.pose[ch], value)
+
+    def test_a_send_timeout_with_the_board_silent_faults_without_retry(self):
+        self.owner.start()
+        self.execute()
+        self.port.timeout_on, self.port.silent_after_timeout = (0x84, 0x9F), True
+        result = self.execute('talking')
+        self.assertEqual((result.status, result.reason), ('failed', 'SerialTimeoutException:NoAnswer'))
+        self.assertEqual(self.owner.state, 'faulted')
+        before = len(self.port.targets)
+        self.assertEqual(self.execute('shutdown').status, 'rejected')
+        self.assertEqual(len(self.port.targets), before)
+
+    def test_a_query_timeout_before_anything_moves_leaves_the_wake_to_run(self):
+        self.owner.start()
+        self.port.timeout_on = (0x90,)
+        result = self.execute()
+        self.assertEqual((result.status, result.reason), ('failed', 'SerialTimeoutException:BoardAnswered'))
+        self.assertEqual(self.port.targets, [])
+        self.assertEqual(self.owner.state, 'ready')
+        self.assertEqual(self.execute().status, 'pulses_reached')
+
+    def test_a_late_reply_to_a_failed_query_is_not_read_as_the_next_answer(self):
+        class BufferedPort:
+            """USB serial: replies wait in an input buffer; a timed-out query is still answered."""
+            def __init__(self):
+                self.pose, self.buffer, self.timeout_next = dict(UNPOWERED_REST), bytearray(), False
+            def write(self, packet):
+                if packet[0] == 0x90:
+                    self.buffer += self.pose[packet[1]].to_bytes(2, 'little')
+                if self.timeout_next:
+                    self.timeout_next = False
+                    raise SerialTimeoutException('Write timeout')
+                return len(packet)
+            def read(self, count):
+                data = bytes(self.buffer[:count])
+                del self.buffer[:count]
+                return data
+            def reset_input_buffer(self): self.buffer.clear()
+            def close(self): pass
+        port = BufferedPort()
+        bus = Maestro(port)
+        port.timeout_next = True
+        with self.assertRaises(SerialTimeoutException):
+            bus.positions([0])
+        self.assertEqual(bus.positions([1, 2]), {1: port.pose[1], 2: port.pose[2]})
 
     def test_profiles_precede_targets_and_throttle_targets_are_atomic(self):
         self.owner.start()

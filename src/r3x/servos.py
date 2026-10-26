@@ -35,6 +35,11 @@ SETTLE_SECONDS = .5   # Motion risk lasts this long after the servos stop.
 # are still held); motion risk covers that run.
 COAST = frozenset({3, 4, 5, 6, *THROTTLE, *POKER})
 COAST_SECONDS = 2.
+# October 25 (c5ad0deb): loading the impression voice held the interpreter for 0.4 s. An idle
+# move's send then raised a write timeout (pyserial checks its deadline after the bytes have
+# gone out) and every later servo move was refused, the shutdown park included; the board was
+# fine. A send timeout or a short reply is a hiccup when the board answers every channel again.
+LINK_HICCUPS = frozenset({'SerialTimeoutException', 'MaestroShortRead'})
 
 
 @dataclass(frozen=True)
@@ -292,8 +297,15 @@ class ServoOwner:
             self.motion_until = now + 1.5
             self.microphone_still_since = now
             self.microphone_hold = (now+1.5, now+30.)
-        except Exception:
+        except Exception as exc:
             self.release_microphone_hold()
+            reason = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
+            if self._link_hiccup(reason).endswith(':BoardAnswered'):
+                try:
+                    self._hold({7})   # No lease this time; later moves still run.
+                    return
+                except Exception:
+                    pass
             self.state = 'faulted'
             raise
         finally:
@@ -320,6 +332,7 @@ class ServoOwner:
                                 changed_channels=tuple(sorted(changed)))
         if not self._lock.acquire(blocking=False):
             return receipt('rejected', 'ServoBusy')
+        previous = self.state
         touched = set()
         accepted = False
         reframed = False
@@ -507,15 +520,20 @@ class ServoOwner:
         except Exception as exc:
             self.state = 'faulted'
             # A working link can hold on timeout. A failed link is never retried.
-            reason = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
-            if reason.split(':')[0] in {'ServoArrivalTimeout', 'ServoRequestExpired', 'ThrottleRouteChanged'}:
+            reason = self._link_hiccup(str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__)
+            hiccup = reason.endswith(':BoardAnswered')
+            if hiccup or reason.split(':')[0] in {'ServoArrivalTimeout', 'ServoRequestExpired', 'ThrottleRouteChanged'}:
                 try:
                     self._hold(touched)
-                    if request.kind in AWAKE_KINDS:
+                    if hiccup and not accepted:
+                        self.state = previous   # Nothing was sent: as before the request.
+                    elif request.kind in AWAKE_KINDS:
                         # October 15 (24279950): one hero-elbow timeout refused every servo move
                         # until restart. The hold just went over the wire, so the link works: the
                         # joint stays where it stopped and the rest of him carries on.
                         self.state = 'active'
+                    elif hiccup:
+                        self.state = 'stopped'   # A fresh park (shutdown's) still runs.
                 except Exception:
                     reason += ':HoldFailed'
             return receipt('failed', reason)
@@ -630,8 +648,8 @@ class ServoOwner:
         except ValueError as exc:
             return receipt('rejected', str(exc))
         except Exception as exc:
-            reason = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
-            if reason.split(':')[0] in {'ServoArrivalTimeout', 'ThrottleRouteChanged'}:
+            reason = self._link_hiccup(str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__)
+            if reason.endswith(':BoardAnswered') or reason.split(':')[0] in {'ServoArrivalTimeout', 'ThrottleRouteChanged'}:
                 try:
                     self._hold(set(self._returning_channels))
                     # The link works (the hold went out): the arm stays where it stopped and is
@@ -713,8 +731,8 @@ class ServoOwner:
         except ValueError as exc:
             return receipt('rejected', str(exc))
         except Exception as exc:
-            reason = str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
-            if reason.startswith('ServoArrivalTimeout'):
+            reason = self._link_hiccup(str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__)
+            if reason.startswith('ServoArrivalTimeout') or reason.endswith(':BoardAnswered'):
                 try:
                     self._hold({3})   # The link works: the visor stays where it stopped.
                     return receipt('failed', reason)
@@ -731,6 +749,22 @@ class ServoOwner:
     def _profiles(self, profiles: dict[int, tuple[int, int]]) -> None:
         self._bus.profiles(profiles)
         self.profiles_sent.update(profiles)
+
+    def _link_hiccup(self, reason: str) -> str:
+        """Name a send timeout or short reply by whether the board then answers every channel.
+
+        Three tries a fifth of a second apart ride out a stall still under way. Nothing is
+        resent: the caller holds the joints that were moving where the board says they are."""
+        if reason not in LINK_HICCUPS or self._bus is None:
+            return reason
+        for attempt in range(3):
+            try:
+                validate_pose(self._bus.positions(LIMITS))
+                return reason + ':BoardAnswered'
+            except Exception:
+                if attempt < 2:
+                    self.wait(.2)
+        return reason + ':NoAnswer'
 
     def _hold(self, channels: set[int]) -> None:
         if channels and self._bus:
