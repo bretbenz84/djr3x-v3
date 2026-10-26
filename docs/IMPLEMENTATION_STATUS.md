@@ -29,9 +29,12 @@ the impression voice held the interpreter 0.43 s, a servo send reported a timeou
 had, and that locked every servo out. A send timeout now asks the board, and if it answers Rex
 holds the moving joints and carries on ([servo integration](SERVO_INTEGRATION.md)). The voice's
 text tokenizer, the 0.4 s hold, is built at start before the microphone opens; the first
-impression's load now holds at most 29 ms ([impressions](IMPERSONATION.md)). Synthetic servo
-checks; real-model timing on this Mac; not yet run on the robot. 1640 of 1641 blocked-I/O checks
-pass; `test_sentry` fails the same way without this change.
+impression's load now holds at most 29 ms ([impressions](IMPERSONATION.md)). Owner: keeping the
+voice loaded is fine, so it no longer unloads after ten idle minutes. Synthetic servo checks;
+real-model timing on this Mac; not yet run on the robot. A sentry check had failed since 1:33 AM
+October 26: its plans start at a fixed test time (12:33 AM that day) but the guard read the real
+clock, so an hour's guard was already over. The guard now reads the test time; the sentry code
+was right. 1640 blocked-I/O checks pass.
 
 ## October 25 run: facts refused, and the refusals spoken
 

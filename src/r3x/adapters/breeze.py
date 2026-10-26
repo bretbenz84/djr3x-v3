@@ -7,9 +7,9 @@ and never replaces that voice.
 
 Lifecycle: start() verifies the prepared snapshot and builds the text tokenizer (see
 text_tokenizer), without loading the model. The model loads
-on the first impression (behind Rex's intro line and the thinking filler), stays
-resident while impressions keep coming, and is released after ten idle minutes so the
-M2's 16 GB is not held for a party trick that happens twice an evening. Every Metal
+on the first impression (behind Rex's intro line and the thinking filler) and stays
+resident until close (owner, October 26: keeping it loaded is fine; the ten-minute idle
+release is retired, and with it a 0.1 s interpreter hold mid-run). Every Metal
 step takes the shared MLX lock (see mlx_schedule) so transcription and cloning never
 evaluate concurrently. Takes are prepared completely before playback (V2's impression
 policy): a cloned take is never streamed into the room while generation might still
@@ -36,7 +36,6 @@ REQUIRED_FILES = ('config.json', 'tokenizer.json', 'tokenizer_config.json', 'mod
 WEIGHT_BYTES = {'model.safetensors': 3885721536, 'audio_tokenizer/model.safetensors': 682293092}
 WEIGHT_SHA256 = {'model.safetensors': 'd7a82315bcc59c3057f13bb85100743c7cd40692e38145fb255d6c1f0bf447bc',
                  'audio_tokenizer/model.safetensors': '836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258'}
-IDLE_UNLOAD_SECONDS = 600.
 PREPARE_TIMEOUT_SECONDS = 60.   # V2 waited 45 s; the base M2 renders at about 1.5x real time plus load.
 # V2's bench settings: steadier sampling, early codec-loop penalty, bounded length.
 TEMPERATURE = .7
@@ -104,7 +103,7 @@ def text_tokenizer(model_dir: Path):
     0.4 s (tokenizers does not release it). Inside the first impression's load that cost the
     microphone 0.43 s of audio, made the impression's turn stale and made a servo send report a
     timeout. The cloner builds it once at start, before the microphone opens, and keeps it
-    (about 0.4 GB) across idle unloads; the weights load without holds over 0.1 s."""
+    (about 0.4 GB); the weights load without holds over 0.1 s."""
     from transformers import PreTrainedTokenizerFast
     config = json.loads((model_dir / 'tokenizer_config.json').read_text())
     for key in ('tokenizer_class', 'model_max_length', 'clean_up_tokenization_spaces', 'added_tokens_decoder'):
@@ -187,18 +186,17 @@ class VoiceCloner:
         self.model_dir = Path(model_dir)
         self.level = level       # (sample_rate, text) -> PCM leveler; live composition supplies V2's.
         self.model = None
-        self.tokenizer = None             # Built at start, kept across idle unloads (text_tokenizer).
+        self.tokenizer = None             # Built at start, kept until close (text_tokenizer).
         self.lock = threading.Lock()      # Load/unload and generation are serialized.
         self.trace = None
         self.started = False
-        self.last_used_at = float('-inf')
         self.loaded_at = None
         self.capability = Capability('voice_cloner', 'Breeze TTS 2 (mlx-audio)',
             'cloned-voice impressions chosen by the conversation model', MODEL_ID + '@' + MODEL_REVISION[:8],
             ('mlx-audio', 'mlx', 'numpy', 'scipy', 'transformers'),
             (str(self.model_dir), 'Metal GPU, about 4.6 GB while loaded', 'text tokenizer, about 0.4 GB from start'),
             required=False, startup='verify prepared snapshot; build the text tokenizer; load on first impression',
-            shutdown='close takes; unload after 10 idle minutes or at close')
+            shutdown='close takes; unload at close')
 
     def _emit(self, event, **data):
         if self.trace:
@@ -280,12 +278,6 @@ class VoiceCloner:
                     pass
         self._emit('voice_cloner_unloaded', reason=reason)
 
-    def release_idle(self, now=None):
-        """Called from the runtime's periodic tick; unloads a model nobody has used lately."""
-        now = time.monotonic() if now is None else now
-        if self.model is not None and now - self.last_used_at >= IDLE_UNLOAD_SECONDS and not self.lock.locked():
-            self._unload('idle')
-
     def prepare(self, text: str, reference) -> Take:
         if not self.started:
             raise ProviderFailure('VoiceClonerNotStarted')
@@ -298,7 +290,6 @@ class VoiceCloner:
         import numpy as np
         stats = {}
         with self.lock:
-            self.last_used_at = time.monotonic()
             if self.model is None:
                 stats['load_seconds'] = round(self._load(), 2)
             began = time.monotonic()
@@ -339,7 +330,6 @@ class VoiceCloner:
                         mx.clear_cache()   # Generation scratch (about 2 GB measured) goes back; weights stay.
                     except Exception:
                         pass
-            self.last_used_at = time.monotonic()
         audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
         pcm = convert_pcm(audio, take.text, self.level)
         stats.update(synthesis_seconds=round(time.monotonic() - began, 2),

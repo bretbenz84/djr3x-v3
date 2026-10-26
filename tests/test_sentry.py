@@ -413,6 +413,9 @@ class GuardTests(MemoryFixture):
     def setUp(self):
         super().setUp()
         self.trace = self.state.trace
+        # Plans are made at WALL (12:33 AM, October 26, 2026). The guard read the real clock, so
+        # from 1:33 AM that day an hour's plan was already over and the guard timed out at once.
+        self.state.sentry.wall_clock = lambda: WALL
         self.brain = ScriptedBrain()
         self.output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.trace)
         self.session = Session('session', self.brain, self.output, self.trace, self.state)

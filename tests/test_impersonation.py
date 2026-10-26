@@ -61,9 +61,6 @@ class FakeCloner:
         self.takes.append(take)
         return take
 
-    def release_idle(self, now=None):
-        pass
-
 
 def impersonate(snapshot, target='jimmy-carter', requested=True, intro='Okay, clearing my vocal buffers. Ahem.',
                 outro='Thank you, thank you. You are too kind.', script=SCRIPT):

@@ -49,7 +49,7 @@ audio, the real local engine synthesizing to files, and a small paced hosted pro
 | Conversation model | Decides that an impression fits, picks the offered target, writes the script, intro and outro in one `impersonate` call. No separate script call, no regex parsing of who to imitate, no roster scan of utterances. |
 | State owner | Validates source trust, offered targets, the cameo budget and the word cap; resolves the target to a reference clip (famous file, derived person reference, session track reference). Writes nothing persistent except the derived person reference's artifact rows. |
 | Output owner | Plays intro, cloned take and outro through the same sink, speaking lights, talking motion and echo gate; waits for the take with the filler; the fixed cover line ("my impression module just blew a fuse") on a failed render. |
-| Voice cloner (`adapters/breeze.py`) | Breeze TTS 2 8-bit via mlx-audio 0.5.1, loaded by absolute path with Hugging Face access scoped off. Prepares each take completely before playback; never streams a half-rendered take, never discards audio on underruns. Builds the text tokenizer at start (before the microphone opens) and keeps it; loads the model on first use, unloads it after ten idle minutes in a quiet moment. Shares the process-wide MLX lock with Qwen3-ASR (one evaluation at a time, per generated chunk). |
+| Voice cloner (`adapters/breeze.py`) | Breeze TTS 2 8-bit via mlx-audio 0.5.1, loaded by absolute path with Hugging Face access scoped off. Prepares each take completely before playback; never streams a half-rendered take, never discards audio on underruns. Builds the text tokenizer at start (before the microphone opens); loads the model on first use and keeps both until shutdown (owner, October 26: no idle unload). Shares the process-wide MLX lock with Qwen3-ASR (one evaluation at a time, per generated chunk). |
 
 Context offered to the model on human turns when the cloner started: `impersonation`
 with `speaker` (ready, voiced seconds on file, basis), `people`, `famous` slugs,
@@ -131,12 +131,13 @@ the interpreter). The weights themselves load with no hold over 0.1 s.
 
 - `VoiceCloner.start()` builds that tokenizer exactly as the hook does (one 0.4 s hold), and the
   cloner now starts before the microphone. The model load attaches it instead of parsing again.
-  It stays resident (about 0.4 GB) across idle unloads; the 4.6 GB of weights still go.
+  It stays resident (about 0.4 GB).
 - Measured after: start 0.9 s (402 ms hold); first impression load 0.54 s (longest hold 29 ms);
   a 3.6 s take rendered with holds under 60 ms.
 - Unloading hands 4.6 GB back in one 0.10-0.13 s hold. The `gc.collect()` after it freed nothing
-  (MLX memory was already released) and held another 40-50 ms; it is gone. The ten-minute
-  unload waits until nobody is being heard and he is neither speaking nor working on a turn.
+  (MLX memory was already released) and held another 40-50 ms; it is gone. Owner, later the
+  same day: keeping the voice loaded is fine, so the ten-minute idle unload is retired. Once
+  the first impression has loaded it, about 5 GB stay resident until shutdown, the only unload.
 
 Real model on saved text and a famous clip, no speaker; startup time and memory with the
 full live workload are not yet measured on the robot.
