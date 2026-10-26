@@ -13,17 +13,21 @@ NAMESPACE = "campplus:aa3cfc16963a:16k-fbank80-globalmean:192:v1"
 
 
 class CAMPlus:
+    # The model is a class property so an evaluation can load a 3D-Speaker encoder with the
+    # same features and windows under its own digest and namespace (tools/check_voice_encoders.py).
+    title, sha256, namespace = "CAM++ ONNX", MODEL_SHA256, NAMESPACE
+
     def __init__(self, path: Path):
         self.path, self.session = path, None
         self.lock = threading.Lock()
-        self.capability = Capability("voice_encoder", "CAM++ ONNX", "acoustic tracks and enrollment",
-            NAMESPACE, ("onnxruntime", "torch", "torchaudio", "numpy"), (str(path), "CPU:2 threads"))
+        self.capability = Capability("voice_encoder", self.title, "acoustic tracks and enrollment",
+            self.namespace, ("onnxruntime", "torch", "torchaudio", "numpy"), (str(path), "CPU:2 threads"))
 
     def start(self):
         import onnxruntime as ort
         if self.path.resolve() != self.path or not self.path.is_file():
             raise ProviderFailure("VoiceModelMissingOrLinked")
-        if hashlib.sha256(self.path.read_bytes()).hexdigest() != MODEL_SHA256:
+        if hashlib.sha256(self.path.read_bytes()).hexdigest() != self.sha256:
             raise ProviderFailure("VoiceModelDigestMismatch")
         options = ort.SessionOptions()
         options.intra_op_num_threads, options.inter_op_num_threads = 2, 1
@@ -75,11 +79,11 @@ class CAMPlus:
         if capture.sample_rate != 16000 or len(capture.pcm) % 2:
             raise ProviderFailure("VoicePCMContract")
         if capture.echo_risk or capture.overlap is True:
-            return VoiceObservation(NAMESPACE, mixed=capture.overlap is True, reason="echo_or_labeled_overlap")
+            return VoiceObservation(self.namespace, mixed=capture.overlap is True, reason="echo_or_labeled_overlap")
         intervals = capture.voiced_intervals
         voiced = sum(end-start for start, end in intervals)
         if not intervals:
-            return VoiceObservation(NAMESPACE, reason="voiced_intervals_missing")
+            return VoiceObservation(self.namespace, reason="voiced_intervals_missing")
         begin, end = intervals[0][0], intervals[-1][1]
         length = end-begin
         starts = [begin] if length <= 2 else [begin + i*(length-2)/min(7, max(1, int(length-1)))
@@ -95,8 +99,8 @@ class CAMPlus:
             if embedding:
                 windows.append((start, finish, embedding))
         if not windows:
-            return VoiceObservation(NAMESPACE, voiced_seconds=voiced, reason="no_usable_windows")
+            return VoiceObservation(self.namespace, voiced_seconds=voiced, reason="no_usable_windows")
         similarity, change = window_consistency(windows)
-        return VoiceObservation(NAMESPACE, centroid([w[2] for w in windows]), tuple(windows), voiced,
+        return VoiceObservation(self.namespace, centroid([w[2] for w in windows]), tuple(windows), voiced,
                                 similarity, mixed=change,
                                 reason="coherent_window_groups" if change else "pooled_window_consistency")

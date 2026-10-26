@@ -263,6 +263,7 @@ models on its own.
 | [Jeopardy](docs/JEOPARDY.md) | The game: rules, judging, the clock, sounds, the dashboard board, checks. |
 | [Sentry mode](docs/SENTRY_MODE.md) | Guarding a room alone: what trips and stands him down, recordings, phone alerts and their setup. |
 | [Room recognition](docs/ROOM_RECOGNITION.md) | Which room, asking and learning rooms, connections, exploring, the V2 import. |
+| [Voice encoder trial](docs/VOICE_ENCODER_TRIAL.md) | ERes2NetV2 against CAM++ for voice ID: the live test, how to run it, offline results. |
 | [Voice impressions](docs/IMPERSONATION.md) | The `impersonate` tool, reference voices, the local cloning engine, checks and open acceptance. |
 | [Dashboard](docs/GUI.md) | `live --gui`: V2's PySide6 window in V3, manual servo override and joystick driving through the owners. |
 | [Operator services](docs/OPERATOR_CUTOVER.md) | Wake supervisor, menu-bar apps, auto-update, rollback. |

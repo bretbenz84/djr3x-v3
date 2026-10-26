@@ -21,6 +21,17 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Voice encoder trial: ERes2NetV2 against CAM++ — October 26
+
+Owner request: try ERes2NetV2, said to be better on short utterances, in place of CAM++, and measure its
+CPU on the robot. An evaluation only: Rex still uses CAM++. `tools/check_voice_encoders.py live` makes a
+voice print with each encoder from the same read sentences, then times and scores both on prompted short
+and ordinary lines (optionally a second person), with Rex's microphone path and the camera's face detection
+running; nothing moves. Offline on the owner's saved clips (real models, this M2): median 0.068 s a line
+against 0.014 s, slowest 0.83 s against 0.16 s, +66 MB memory; short pieces under 1 s were closer to the
+owner than any famous voice 16 of 16 times against 12 of 16. Voice analysis runs before transcription, so
+the extra time adds to the reply wait. **Not yet run live.** [Trial and how to run it](VOICE_ENCODER_TRIAL.md).
+
 ## Jeopardy — October 26
 
 Owner request: port V2's Jeopardy: forgiving of words transcribed wrong, responses required to be phrased
