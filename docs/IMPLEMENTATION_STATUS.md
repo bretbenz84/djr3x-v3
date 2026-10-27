@@ -52,7 +52,7 @@ hear as a voice not be sent to the reply model.
   - CED-Tiny scored all 43 motor sounds under 0.5, against 35 for YAMNet and 20 for MarbleNet v2.0.
   - It held back all five non-voices the recognizer had trusted.
   - It kept the owner's 10 labelled lines.
-  - It holds back 3 of 112 unlistened lines.
+  - It holds back 3 of 112 unlistened lines; the owner then heard coughs or TV, then motor noise, in all three.
   - It takes a median 6.5–8.5 ms per capture and adds about 44 MB.
 - **Not yet run on the robot.** The 0.5 line was chosen on these September clips.
   [Evidence and how to run it](VOICE_CHECK.md).

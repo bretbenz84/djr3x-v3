@@ -32,7 +32,7 @@ The owner listened to the 60 doubtful clips among the 172 saved September 20 and
 - 1 was Rex's movement sound effect;
 - 10 were the owner speaking.
 
-The other 112 trusted lines are unlistened.
+Nobody has listened to the other 112 trusted lines; the 3 the check holds back were labelled afterwards.
 
 | Score under 0.5 | Motor sounds | Owner's lines |
 |---|---|---|
@@ -45,8 +45,9 @@ The other 112 trusted lines are unlistened.
 - **What Rex's rule held back** (`tools/check_voice_check.py saved --labels`):
   - every non-voice the recognizer had trusted: 3 motor sounds, Max's bark and the movement sound
     effect. In September two of those motor sounds got a reply ("All right.").
-  - 3 unlistened lines, scoring 0.25–0.31: "How do you like the show?", "First, you check out." and
-    "Cough. Cough. Cough."
+  - 3 more lines, scoring 0.25–0.31: "How do you like the show?", "First, you check out." and
+    "Cough. Cough. Cough." The owner then listened: each was coughs or TV noise followed by motor noise.
+  - So of the 63 clips the owner listened to, it held back 8, and every one was not a voice.
 - **What it kept.** All 10 of the owner's lines are still answered.
 - **Cost.** Median 6.5–8.5 ms a capture (slowest 24 ms) on two threads, and about 44 MB of memory.
 
@@ -67,7 +68,6 @@ The research comparison is private, in `local/reports/Sound models better than Y
   is ever held back.
 - **Tuned on the same clips.** The 0.5 line was chosen on these clips, with 10 labelled lines.
 - **Old audio.** All of it is September audio, from before continuous idle motion.
-- **Three unchecked lines.** The three unlistened lines it holds back still need someone to listen.
 - **The moving flag ends too early.** Five motor sounds came while Rex was logged as still: the flag
   ends 0.5 s after the servo controller's last pulse. Not changed here.
 
