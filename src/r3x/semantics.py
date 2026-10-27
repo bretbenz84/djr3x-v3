@@ -279,9 +279,9 @@ TOOLS += (
            'speech recognition hears names ("popery" is POTPOURRI, "U.S. cities" is U.S. CITIES); "same category" is '
            'jeopardy.last_category. If two categories fit equally, ask which instead of picking. value: a dollar value '
            'still in values_left for it ("for a hundred" is 100). Anyone may say it for the player whose pick it is. '
-           'Code then reads the clue (or the Daily Double). text: an optional quip of a few words before the clue, or '
-           'null; when jeopardy.board_on_screen, never repeat the category or value aloud.',
-           {'category_id': TEXT, 'value': {'type': 'integer'}, 'text': GAME_TEXT}),
+           'Code then reads the clue (or the Daily Double) at once: you add no words of your own before it (owner, '
+           'October 26: no riff on the category they chose).',
+           {'category_id': TEXT, 'value': {'type': 'integer'}}),
     schema('jeopardy_wager', 'The wager for jeopardy.wager (a Daily Double or Final Jeopardy), from their words: '
            'digits or words ("five hundred"), "everything", "all in" or "a true Daily Double" is max, "the minimum" '
            'is min; a self-correction counts as the last amount ("five hundred, no, two hundred" is 200). It must be '

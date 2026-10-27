@@ -571,13 +571,13 @@ class Jeopardy:
             top = max(score, 1000 * g.round)   # Show rules: up to your score, or the round's top value.
             g.wager, g.phase = {'player': g.picker, 'min': DD_MIN_WAGER, 'max': top}, 'wager'
             name = g.players[g.picker].name
-            return [['sound', 'daily_double'], ['model', None],
+            return [['sound', 'daily_double'],
                     ['say', f"It's a Daily Double! {name}, you have {money(score)}. Wager anything from "
                             f"${DD_MIN_WAGER} to ${top:,}."]]
         g.phase = 'answering'
         line = self._clue_line(clue)
         g.attempt = self._new_attempt(g.picker, 'clue', line)
-        return [['model', None], ['open', line]]
+        return [['open', line]]   # Straight to the clue: no words of his own about the category (owner, October 26).
 
     def _wager(self, args) -> list:
         g = self.game

@@ -20,7 +20,7 @@ from r3x.jeopardy import (ANSWER_PAUSE_SECONDS, ANSWER_SECONDS, ECHO_TAIL_SECOND
 from r3x.output import Delivery, MusicBed, OutputOwner, Sound, TextOutput, put_phrase
 from r3x.runtime import VoiceRuntime
 from r3x.scenario import SyntheticSink, SyntheticTTS
-from r3x.semantics import grounded_tools, validate
+from r3x.semantics import TOOLS, grounded_tools, validate
 from r3x.session import Session
 from tests.test_memory_core import MemoryFixture
 
@@ -73,7 +73,7 @@ class GameTests(unittest.TestCase):
     def square(self, category_name, value):
         board = self.game.context(self.clock())['board']
         cid = next(c['category_id'] for c in board if c['category'] == category_name)
-        return self.move('jeopardy_pick', {'category_id': cid, 'value': value, 'text': None})
+        return self.move('jeopardy_pick', {'category_id': cid, 'value': value})
 
     def opened(self, parts):
         line = next(v for k, v in parts if k == 'open')
@@ -222,10 +222,10 @@ class GameTests(unittest.TestCase):
     def test_a_planned_move_that_never_commits_changes_nothing(self):
         self.start('Bret', 'Jeff')
         before = json.dumps(self.game.snapshot())
-        self.game.plan('jeopardy_pick', {'category_id': 'c1', 'value': 200, 'text': None})   # The turn was stopped.
+        self.game.plan('jeopardy_pick', {'category_id': 'c1', 'value': 200})   # The turn was stopped.
         self.assertEqual(json.dumps(self.game.snapshot()), before)
         with self.assertRaises(ValueError):
-            self.game.plan('jeopardy_pick', {'category_id': 'c1', 'value': 300, 'text': None})
+            self.game.plan('jeopardy_pick', {'category_id': 'c1', 'value': 300})
         self.game.commit()
         self.assertEqual(json.dumps(self.game.snapshot()), before)
 
@@ -386,7 +386,7 @@ class StateTests(MemoryFixture):
         self.assertEqual(offered['jeopardy_pick']['parameters']['properties']['category_id']['enum'],
                          [c['category_id'] for c in context['jeopardy']['board']])
         board = context['jeopardy']['board'][0]
-        self.call('jeopardy_pick', {'category_id': board['category_id'], 'value': 200, 'text': None})
+        self.call('jeopardy_pick', {'category_id': board['category_id'], 'value': 200})
         self.begin('What is a whale?')
         context = self.state.context()
         offered = {d['name']: d for d in grounded_tools(context)}
@@ -407,10 +407,10 @@ class StateTests(MemoryFixture):
         self.assertEqual(self.store.people()[0]['name'], 'Bret Benziger')    # No person is made for a guest.
         self.assertEqual(len(self.store.people()), 1)
         before = json.dumps(self.state.jeopardy.snapshot())
-        refused = self.call('jeopardy_pick', {'category_id': 'c9', 'value': 200, 'text': None})
+        refused = self.call('jeopardy_pick', {'category_id': 'c9', 'value': 200})
         self.assertEqual((refused.outcome, refused.reason), ('rejected', 'UnknownCategory'))
         self.assertEqual(json.dumps(self.state.jeopardy.snapshot()), before)
-        refused = self.call('jeopardy_pick', {'category_id': 'c1', 'value': '200', 'text': None})
+        refused = self.call('jeopardy_pick', {'category_id': 'c1', 'value': '200'})
         self.assertEqual(refused.reason, 'InvalidJeopardyAmount')
 
     def test_a_spoken_stop_holds_the_clock(self):
@@ -418,7 +418,7 @@ class StateTests(MemoryFixture):
         self.call('jeopardy_setup', {'players': ['Casey'], 'text': None})
         self.begin('First one.')
         board = self.state.context()['jeopardy']['board'][0]
-        parts = self.call('jeopardy_pick', {'category_id': board['category_id'], 'value': 200, 'text': None}).data['parts']
+        parts = self.call('jeopardy_pick', {'category_id': board['category_id'], 'value': 200}).data['parts']
         self.state.jeopardy.heard(parts[-1][1], self.state.trace.clock())
         self.state.cancel()
         self.assertTrue(self.state.jeopardy.game.held)
@@ -435,9 +435,9 @@ class Scripted:
         yield reply(snapshot) if callable(reply) else reply
 
 
-def pick_first(value=200, text=None):
+def pick_first(value=200):
     return lambda s: ToolCall(uuid4().hex, 'jeopardy_pick', {'category_id': s.context['jeopardy']['board'][0]['category_id'],
-                                                             'value': value, 'text': text})
+                                                             'value': value})
 
 
 def ruling(verdict, text=None, form=True):
@@ -481,9 +481,9 @@ class SessionTests(MemoryFixture):
         return self.session_.process_turn(Capture(uuid4().hex, 'session', bytes(1024), now - 2, now - 1, now - .5),
                                           Transcript(text, -.01, True), self.session_.revision)
 
-    def test_a_move_plays_its_sounds_then_his_words_then_the_facts_and_the_clock_starts_once_the_clue_is_heard(self):
+    def test_a_move_plays_its_sounds_then_his_words_then_the_facts_and_a_pick_goes_straight_to_the_clue_whose_hearing_starts_the_clock(self):
         brain = Scripted(lambda s: ToolCall('c1', 'jeopardy_setup', {'players': ['Bret', 'Casey'], 'text': "Let's play!"}),
-                         pick_first(text='Bold choice.'), ruling('correct', 'Nailed it.'))
+                         pick_first(), ruling('correct', 'Nailed it.'))
         self.session(brain)
         first = self.turn("Let's play Jeopardy, me and Casey. I'm Bret.")
         self.assertEqual(first.completed_text[0], "Let's play!")
@@ -492,7 +492,9 @@ class SessionTests(MemoryFixture):
         self.assertTrue(all(p['gated'] for p in self.sink.played if not p['visualize']))   # Not heard as a person.
         clue = self.turn('Category one for two hundred.')
         name = brain.snapshots[1].context['jeopardy']['board'][0]['category']
-        self.assertEqual(clue.completed_text, ['Bold choice.', f'{name} for $200. Clue {name[4:]} for 200 dollars.'])
+        self.assertEqual(clue.completed_text, [f'{name} for $200. Clue {name[4:]} for 200 dollars.'])   # No riff first.
+        pick = next(t for t in TOOLS if t['name'] == 'jeopardy_pick')
+        self.assertNotIn('text', pick['parameters']['properties'])   # Nothing of his own to say on a pick.
         game = self.state.jeopardy.context(self.state.trace.clock())['clue']
         self.assertTrue(game['clock'].startswith('running'))
         right = self.turn('What is answer A1 200?')
@@ -615,7 +617,7 @@ class RuntimeTests(MemoryFixture):
         game = self.state.jeopardy
         self.begin('Jeopardy for Casey.')
         game.plan('jeopardy_setup', {'players': ['Casey'], 'text': None}); game.commit()
-        line = game.plan('jeopardy_pick', {'category_id': 'c1', 'value': 200, 'text': None})[-1][1]
+        line = game.plan('jeopardy_pick', {'category_id': 'c1', 'value': 200})[-1][1]
         game.commit()
         game.heard(line, self.state.trace.clock())
 

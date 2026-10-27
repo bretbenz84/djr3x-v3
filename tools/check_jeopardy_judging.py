@@ -118,7 +118,7 @@ def case(key, folder, name, clue, said, acceptable, effort=None):
         game.commit()
         # A square that is not a Daily Double (its wager would come first).
         category = next(c for c in game.game.board if 400 in c['clues'] and not c['clues'][400].daily_double)
-        game.plan('jeopardy_pick', {'category_id': category['id'], 'value': 400, 'text': None})
+        game.plan('jeopardy_pick', {'category_id': category['id'], 'value': 400})
         game.commit()
         category, text, response = clue
         g = game.game

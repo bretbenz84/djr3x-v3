@@ -71,7 +71,8 @@ an Apple TV), with the categories read far less often when it is on screen.
   `tools/check_jeopardy_judging.py --live` (paid, fictional transcripts, Fast tier): after six rounds of
   repairs 65 of 68 judged as intended, no right answer refused, no wrong one credited, no table talk ruled
   on, and 13 of 14 held-out sound-alikes; about $0.0012 a ruling, model time median 2.2 s (longest 5.4 s).
-- Not yet played on the robot. [Details, open items](JEOPARDY.md).
+- One partial game on the robot (October 26); afterwards picks go straight to the clue with no words of
+  Rex's own. [Details, open items](JEOPARDY.md).
 
 ## Name spellings and the owner's name — October 26
 

@@ -1,6 +1,6 @@
 # Jeopardy
 
-Status, October 26, 2026: **implemented in software, not yet played on the robot.** Owner request: port
+Status, October 26, 2026: **implemented in software; one partial game on the robot (one player, two clues).** Owner request: port
 V2's Jeopardy, keep what made it fun and forgiving, require responses phrased as a question, let anyone's
 voice answer for the player whose turn it is, let Rex's reply model judge the answers now that replies
 are faster, and include the board on the dashboard (the table plays with the Mac mirrored to an Apple TV),
@@ -18,7 +18,8 @@ with far fewer category read-backs when the board is on screen.
   pick.
 - **Picking.** Loose is fine: "history for two hundred", "same category, six hundred", "the four hundred
   in pop culture", a category name the recognizer mangled. If two categories fit equally, Rex asks which.
-  Anyone may say it for the player whose pick it is.
+  Anyone may say it for the player whose pick it is. Rex goes straight to the clue with no words of his
+  own (owner, October 26, after the first game: he had riffed on each category before reading the clue).
 - **The clue.** Code reads it word for word. Without a screen the square comes first ("U.S. CITIES for
   $400."); with the board on screen just the clue. The answer clock (12 s, V2's) starts only once the clue
   has been heard to its end; a clue cut off is read once more, and a spoken "stop" holds the clock until
@@ -111,9 +112,12 @@ would double the render cost on the robot's Mac.
   owner's sounds and music.
 - `tools/check_jeopardy_judging.py --live` (paid, fictional input): about 60 responses through the real
   reply model. Results are below.
-- Not yet: a game on the robot, whether answers are heard over the thinking music and stings, the clip
-  volumes beside Rex's voice, the dashboard on the Apple TV, and how long rulings take with the full
-  workload.
+- First game on the robot (October 26, partial, without the dashboard): two picks, one ruling, one time's
+  up. The wrong-answer buzz began 3.5 s after the response ended (1 s end-of-speech pause, 0.4 s
+  recognition, 1.8 s model). Rex riffed on the category before each clue, which the owner did not want;
+  picks now carry no words of his.
+- Not yet: a full game, several players, whether answers are heard over the thinking music and stings,
+  the clip volumes beside Rex's voice, and the dashboard on the Apple TV.
 
 ### Paid judging check
 
