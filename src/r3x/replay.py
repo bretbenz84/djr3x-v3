@@ -63,8 +63,12 @@ def run(manifest,root,settings,with_brain=False,oracle=False):
     asr = QwenASR(root/"models/qwen3-asr",settings.asr_trust_logprob,settings.transcript_corrections)
     encoder = CAMPlus(root/"models/campplus.onnx")
     vad = SileroVAD(settings.vad_threshold)
+    turn = None
+    if settings.smart_turn_enabled:
+        from .adapters.turn import MODEL_FILE, SmartTurn
+        turn = SmartTurn(root/MODEL_FILE)
     brain = OpenAIBrain(Secrets.load(root).openai_api_key) if with_brain else None
-    owner = ProviderOwner((asr,encoder,vad)+((brain,) if with_brain else ()))
+    owner = ProviderOwner((asr,encoder,vad)+((turn,) if turn else ())+((brain,) if with_brain else ()))
     evaluation = Evaluation(memory.profiles(NAMESPACE))
     sessions = {}
     session = None
@@ -88,7 +92,7 @@ def run(manifest,root,settings,with_brain=False,oracle=False):
             pcm = read_wav(manifest.parent/clip["file"])
             sessions["offset"] += len(pcm)/32000+1.
             captures = [oracle_capture(pcm,clip,session.session_id,offset)] if oracle else segment(
-                pcm,session.session_id,vad,settings.end_silence_seconds,offset,clip["device"])
+                pcm,session.session_id,vad,settings.end_silence_seconds,offset,clip["device"],turn and turn.finished)
             count = 0
             try:
                 for capture in captures:

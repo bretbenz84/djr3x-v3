@@ -21,6 +21,23 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Turn detection: Smart Turn v3.2 next to Silero — October 26
+
+Owner request: add Smart Turn v3.2, which judges from the audio whether someone has finished, and see
+whether the 0.5 s end-of-speech silence can be shortened. With `smart_turn_enabled` (default off, the
+owner's choice), a pause of 0.2 s is judged on everything said so far, and speech at least 70% likely
+finished ends there. Otherwise Rex waits the full `end_silence_seconds`, which then becomes the longest
+wait. Rex's own voice, Jeopardy answers and speech while the wheels run are never judged; a failed
+check falls back to silence.
+Replay and the check tool use the same endpoint. Real models on 163 saved September robot turns (the
+owner alone, 1.2 s endpoint, so pauses intact): 158 ended at the check, and the mean wait after the last
+word fell from 0.512 s to 0.233 s (0.258 s with a 1.0 s longest wait). Pieces rose from 193 to 221:
+10 turns split between sentences, 3 inside one, and 8 had a stray sound split off (6 marked unreliable,
+2 a clear "Yeah."). Checks took a median 21 ms; the model adds 41 MB. Recommendation: on, with a 1.0 s
+longest wait. **Not yet run on the robot**; group talk is untested.
+[Evidence and how to run it](TURN_DETECTION.md). 1692 blocked-I/O checks pass (6 skipped), 12 new in
+`tests/test_turn_detection.py`.
+
 ## Voice encoder trial: ERes2NetV2 against CAM++ — October 26
 
 Owner request: try ERes2NetV2, said to be better on short utterances, in place of CAM++, and measure its

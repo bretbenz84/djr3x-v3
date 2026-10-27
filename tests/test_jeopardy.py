@@ -625,6 +625,7 @@ class RuntimeTests(MemoryFixture):
         self.assertTrue(runtime.gaming())
         runtime.game_tick()
         self.assertEqual(runtime.endpoint.silence, ANSWER_PAUSE_SECONDS)
+        self.assertFalse(runtime.endpoint.early)   # Smart Turn never ends "What is..." at a short pause.
         bed = runtime.session.output.bed
         self.assertTrue(bed.playing)
         runtime.voice_over_music()                 # Someone starts answering.

@@ -73,7 +73,7 @@ class CaptureRecorder:
         item = {"id":capture.capture_id,"file":path.name,"sha256":hashlib.sha256(path.read_bytes()).hexdigest(),
                 "session":capture.session_id,"device":capture.device,"condition":"unlabeled",
                 "split":"unreviewed","segments":[],"resolvable":None,"overlap":None,
-                "capture_evidence":{"motion_risk":capture.motion_risk,"echo_risk":capture.echo_risk,"truncated":capture.truncated,
+                "capture_evidence":{"motion_risk":capture.motion_risk,"echo_risk":capture.echo_risk,"truncated":capture.truncated,"ended_by":capture.ended_by,
                     "voiced_intervals":capture.voiced_intervals,"started_at":capture.started_at}}
         with (self.root/"unreviewed.jsonl").open("a") as handle:
             handle.write(json.dumps(item)+"\n")
@@ -118,9 +118,9 @@ def load_manifest(path):
     return data,hashlib.sha256(raw).hexdigest()
 
 
-def segment(pcm,session_id,vad,silence=1.2,offset=0.,device="saved_audio"):
-    """The same Endpoint and VAD as the live microphone, including final silence."""
-    endpoint = Endpoint(session_id,silence)
+def segment(pcm,session_id,vad,silence=1.2,offset=0.,device="saved_audio",turn=None):
+    """The same Endpoint, VAD and turn judge (Smart Turn, when on) as the live microphone, including final silence."""
+    endpoint = Endpoint(session_id,silence,turn)
     vad.reset()
     padded = pcm + b"\0\0"*int((silence+.064)*16000)
     for n in range(0,len(padded),1024):

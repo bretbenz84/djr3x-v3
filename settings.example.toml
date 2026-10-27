@@ -29,6 +29,9 @@ vad_threshold = 0.5
 # 95 replies were started and thrown away in two runs; 0.7 s covered a thinking pause). Speech
 # that resumes before the reply is audible cancels it; the model can wait on unfinished thoughts.
 end_silence_seconds = 0.5
+# Smart Turn v3.2 ends finished-sounding speech after 0.2 s of silence (models/smart-turn; see
+# docs/TURN_DETECTION.md). Fetch the model with: .venv/bin/python tools/check_turn_detection.py prepare
+smart_turn_enabled = false
 # Qwen quality flag only, valid -5..0. This is not speaker identity confidence.
 asr_trust_logprob = -0.35
 

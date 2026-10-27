@@ -64,14 +64,15 @@ SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish
 WAITING_TURNS = 8   # Transcripts kept while the conversation is busy (a long drive), beyond the queue.
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None, keywords=None):
+    def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None, keywords=None, turn=None):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
+        self.turn = turn             # adapters.turn.SmartTurn: a short pause can end a finished-sounding turn.
         self.keywords = keywords     # adapters.keywords.KeywordSpotter, fed every frame.
         self._spotting = None        # When the current drive's stop listening began, or None.
         self._spot_peak = 0.
         self._wake_at = None         # When a wake word last cut his line: later sound is the person's.
         self._wake_listening = None  # [began, {word: peak score}] while he speaks.
-        self.endpoint = Endpoint(session.session_id, silence)
+        self.endpoint = Endpoint(session.session_id, silence, self.turn_check if turn else None)
         self.silence = silence       # The usual end-of-speech pause (a Jeopardy clue allows a longer one).
         self._music_off_for = None   # The Jeopardy answer whose think music a voice stopped (not restarted).
         self.perception, self.recorder = perception, recorder
@@ -298,6 +299,23 @@ class VoiceRuntime:
     def words_settled(self, capture_id):
         with self.words_lock: self.words_pending.discard(capture_id)
 
+    def turn_check(self, pcm):
+        """Smart Turn on the capture so far, from the listening loop; None when it cannot judge.
+
+        Not while the wheels run: that speech waits for the drive's end anyway (owner, October 16),
+        and a short burst then gets its own stop check at the same 0.2 s, which an early end would skip."""
+        if self.drive is not None and self.drive.moving.is_set():
+            return None
+        began = time.perf_counter()
+        try:
+            probability = self.turn.finished(pcm)
+        except Exception as exc:
+            self.trace.emit("provider_failed", capability="turn_detection", error_type=type(exc).__name__)
+            return None
+        self.trace.emit("turn_check", probability=round(probability, 3), seconds=round(time.perf_counter()-began, 4),
+                        audio_seconds=round(len(pcm)/32000, 2))
+        return probability
+
     def words_on_the_way(self):
         """Whether queued or half-recognized audio may still be words for Rex."""
         with self.words_lock: return bool(self.words_pending)
@@ -407,7 +425,7 @@ class VoiceRuntime:
                 elif self.gaming():
                     self.game_tick()   # A game's clock instead of his own goals (owner, October 26).
                 else:
-                    self.endpoint.silence = self.silence
+                    self.endpoint.silence, self.endpoint.early = self.silence, True
                     self.proactive_tick()
                 continue
             self.words_settled(capture.capture_id)
@@ -436,6 +454,7 @@ class VoiceRuntime:
         from .jeopardy import ANSWER_PAUSE_SECONDS
         # "What is... Paris?": a clue allows a thinking pause inside the response (V2: 1.1 s).
         self.endpoint.silence = max(self.silence, ANSWER_PAUSE_SECONDS) if game.answering() else self.silence
+        self.endpoint.early = not game.answering()   # "What is..." must not end at a short pause.
         in_flight = self.speech_in_flight()
         self.session.game_tick(self.trace.clock(), in_flight)
         output = self.session.output
@@ -894,7 +913,7 @@ class VoiceRuntime:
                         started_at=capture.started_at, ended_at=capture.ended_at,
                         speech_ended_at=capture.speech_ended_at, truncated=capture.truncated,
                         echo_risk=capture.echo_risk, motion_risk=capture.motion_risk,
-                        self_noise_risk=capture.self_noise_risk, pcm_bytes=len(capture.pcm),
+                        self_noise_risk=capture.self_noise_risk, pcm_bytes=len(capture.pcm), ended_by=capture.ended_by,
                         vad_voiced_seconds=sum(b-a for a,b in capture.voiced_intervals),
                         robot_microphone_hold=capture.robot_microphone_hold)
                     self.enqueue(self.captures, (capture, self.session.revision), "captures")

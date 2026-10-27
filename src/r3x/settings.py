@@ -23,6 +23,10 @@ class Settings:
     echo_isolated: bool = False
     vad_threshold: float = 0.5
     end_silence_seconds: float = 0.5   # Owner, October 17 (0.35 split three-person talk).
+    # Smart Turn v3.2 (local, models/smart-turn): at 0.2 s of silence it judges from the audio whether the
+    # speaker finished; finished-sounding speech ends there, the rest waits end_silence_seconds. Off until
+    # the owner chooses (October 26); docs/TURN_DETECTION.md.
+    smart_turn_enabled: bool = False
     asr_trust_logprob: float = -0.35
     camera_enabled: bool = False
     camera_device_name: str = ""
@@ -77,7 +81,7 @@ class Settings:
                 raise ValueError('Hardware port must be an explicit macOS /dev/cu. device')
         if self.input_device_index is not None and (type(self.input_device_index) is not int or self.input_device_index < 0):
             raise ValueError("input_device_index must be a nonnegative integer")
-        for name in ("echo_isolated","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","news_search_enabled","direction_enabled","object_memory_enabled","place_recognition_enabled","impersonation_enabled","joke_writer_enabled"):
+        for name in ("echo_isolated","smart_turn_enabled","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","news_search_enabled","direction_enabled","object_memory_enabled","place_recognition_enabled","impersonation_enabled","joke_writer_enabled"):
             if type(getattr(self,name)) is not bool:
                 raise ValueError(f"{name} must be boolean")
         from .observations import https_url
