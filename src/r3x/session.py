@@ -1255,13 +1255,15 @@ class Session:
                         self.state.initiative.heard_people(speech_end)
                         self.state.present.saw_faces(context.get('faces', []), self.trace.clock())
             if (not opportunity and not transcript.trusted and not self._owed_reply
-                    and not (game_on and self.state.jeopardy.answering())):
+                    and not (game_on and self.state.jeopardy.answering() and not transcript.not_a_voice)):
                 # Preserve the source in the trace/store, not as a conversational turn. A Jeopardy response
                 # recognized unclearly still reaches the ruling, marked so, and is asked for again
-                # (owner, October 26: a lost answer is the old game's complaint; degrade, never discard).
+                # (owner, October 26: a lost answer is the old game's complaint; degrade, never discard),
+                # but a sound the voice check found was not a voice does not (owner, same day).
                 # Rejected audio cannot displace real dialogue or postpone the next lull.
                 delivery.status, delivery.medium = 'suppressed', 'none'
-                self.trace.emit('untrusted_not_answered', turn_id=turn_id, capture_id=capture.capture_id)
+                self.trace.emit('untrusted_not_answered', turn_id=turn_id, capture_id=capture.capture_id,
+                                **({'not_a_voice': True} if transcript.not_a_voice else {}))
                 return delivery
             if not opportunity and transcript.trusted and self.state:
                 with self._lock:

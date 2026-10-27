@@ -556,6 +556,26 @@ class SessionTests(MemoryFixture):
                                    Transcript('Oh.', -.9, False), self.session_.revision)
         self.assertEqual(len(brain.snapshots), 3)                          # Outside a game: never answered.
 
+    def test_a_sound_that_is_not_a_voice_never_reaches_a_ruling(self):
+        # Owner, October 26: the voice check keeps his motors and coughs out of rulings, while an
+        # unclear real answer still reaches one (the test above).
+        brain = Scripted(lambda s: ToolCall('c1', 'jeopardy_setup', {'players': ['Casey'], 'text': None}), pick_first(),
+                         ruling('correct', 'Yes!'))
+        self.session(brain)
+        self.turn('Jeopardy for Casey.')
+        self.turn('First square.')
+        self.state.trace.at += 3
+        now = self.state.trace.at
+        said = self.session_.process_turn(Capture(uuid4().hex, 'session', bytes(1024), now - 1.5, now - 1, now - .5),
+                                          Transcript('Oh.', -.9, False, not_a_voice=True), self.session_.revision)
+        self.assertEqual((said.status, len(brain.snapshots)), ('suppressed', 2))   # No ruling, no model call.
+        self.assertTrue(any(r['event'] == 'untrusted_not_answered' and r.get('not_a_voice')
+                            for r in self.state.trace.rows))
+        self.assertEqual(self.state.jeopardy.context(self.state.trace.clock())['players'][0]['score'], 0)
+        self.assertTrue(self.state.jeopardy.window_open(self.state.trace.clock()))   # Casey can still answer.
+        right = self.turn('What is the hollow?')
+        self.assertEqual((len(brain.snapshots), right.completed_text[0]), (3, 'Yes!'))
+
     def test_silence_on_words_during_an_open_clue_is_asked_about_once_unless_they_were_shaky(self):
         silent = ToolCall('s', 'remain_silent', {'reason': 'background_conversation'})
         thinking = ToolCall('t', 'remain_silent', {'reason': 'unfinished_thought'})

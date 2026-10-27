@@ -6,14 +6,18 @@ saved robot audio. The owner turned it on the same day; it has not run on the ro
 
 ## What it does
 
-- **What gets checked.** A trusted transcript of a capture with under 1 s of detected voice
-  (`VOICE_CHECK_MAX_VOICED`) is scored by CED-Tiny. The score is the highest of AudioSet's "Speech",
+- **What gets checked.** A transcript of a capture with under 1 s of detected voice
+  (`VOICE_CHECK_MAX_VOICED`) is scored by CED-Tiny, whether or not the recognizer trusted it. The score is the highest of AudioSet's "Speech",
   "Conversation" and "Narration, monologue".
-- **Below 0.5** (`NOT_SPEECH_SCORE`), the transcript is marked unreliable. It stays in the trace and
-  history, but Rex never answers it, shows no listening cue, and does not interrupt a beat for it.
-  The trace records `voice_check` (score, time) and `transcript_distrusted` with reason `not_a_voice`.
-- **It applies whether or not Rex is moving.** The October 3 motion rule still runs first, and a sound it
-  already distrusts is not scored again.
+- **Below 0.5** (`NOT_SPEECH_SCORE`), the transcript is marked unreliable and not a voice. It stays in
+  the trace, but Rex never answers it, shows no listening cue, and does not interrupt a beat for it.
+  The trace records `voice_check` (score, verdict, time), `transcript_distrusted` with reason
+  `not_a_voice` when the recognizer had trusted it, and `untrusted_not_answered` with `not_a_voice`.
+- **Kept out of Jeopardy rulings** (owner, same day). An unclear answer during a clue still reaches the
+  ruling and is asked for again, but a sound that is not a voice does not: no model call, no lost retry,
+  and the player's clock runs on.
+- **It applies whether or not Rex is moving.** The October 3 motion rule still runs first. A sound it
+  already distrusts is scored too, only to keep it out of a ruling.
 - **Never checked:** stop and shutdown commands, collision warnings, and longer speech. A failed check
   leaves the usual trust in place.
 - **The model:** CED-Tiny (Xiaomi, Apache-2.0 weights), the sherpa-onnx export `model.onnx`

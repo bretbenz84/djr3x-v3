@@ -47,7 +47,8 @@ hear as a voice not be sent to the reply model.
 - **What changed.** With `voice_check_enabled` (off by default; the owner turned it on), a trusted
   transcript of a capture with under 1 s of detected voice is scored by CED-Tiny. Under 0.5, it is kept
   but never answered, whether Rex is moving or not. Stops, shutdown, warnings and longer speech are not
-  checked, and a failed check changes nothing.
+  checked, and a failed check changes nothing. The same day the owner kept such sounds out of Jeopardy
+  rulings too; an unclear real answer still reaches one.
 - **Evidence** (real models on saved audio):
   - CED-Tiny scored all 43 motor sounds under 0.5, against 35 for YAMNet and 20 for MarbleNet v2.0.
   - It held back all five non-voices the recognizer had trusted.
@@ -56,8 +57,8 @@ hear as a voice not be sent to the reply model.
   - It takes a median 6.5–8.5 ms per capture and adds about 44 MB.
 - **Not yet run on the robot.** The 0.5 line was chosen on these September clips.
   [Evidence and how to run it](VOICE_CHECK.md).
-- **Checks.** 8 new in `tests/test_voice_check.py`. The affected modules pass (114 tests); the full
-  suite was not run.
+- **Checks.** 8 new in `tests/test_voice_check.py`, 1 in `tests/test_jeopardy.py`. The affected
+  modules pass (161 tests); the full suite was not run.
 
 ## Voice encoder trial: ERes2NetV2 against CAM++ — October 26
 

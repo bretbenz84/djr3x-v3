@@ -38,7 +38,8 @@ with far fewer category read-backs when the board is on screen.
   - "I don't know" or "pass" costs nothing. A response Rex cannot make out ("the Percy crab") is asked
     again, twice, with no penalty, then counts as a pass. Words the recognizer itself was unsure of,
     which Rex otherwise never answers, still reach the ruling while a clue is open: they never cost
-    money and are asked for again unless plainly right.
+    money and are asked for again unless plainly right. A brief sound the voice check finds is not a
+    voice (his motors, a cough) never reaches a ruling (owner, October 26; [voice check](VOICE_CHECK.md)).
   - Talk that is not a response (people to each other, the dog, "this board is rigged", "what's the
     score?") is never ruled on; the clock waits while Rex answers and keeps running otherwise.
 - **After a clue.** A right answer keeps the board for that player. A wrong one gives the next player one

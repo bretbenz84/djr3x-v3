@@ -331,6 +331,7 @@ class VoiceRuntime:
             self.trace.emit("provider_failed", capability="voice_check", error_type=type(exc).__name__)
             return None
         self.trace.emit("voice_check", capture_id=capture.capture_id, score=round(score, 3),
+                        verdict="voice" if score >= NOT_SPEECH_SCORE else "not_a_voice",
                         seconds=round(time.perf_counter()-began, 4))
         return score
 
@@ -399,18 +400,21 @@ class VoiceRuntime:
                             perceived = replace(perceived, transcript=transcript)
                         self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
                                         reason='brief_sound_during_own_motion', avg_logprob=transcript.avg_logprob)
-                    if (self.voice_check is not None and brief and transcript.trusted and not shutdown
+                    if (self.voice_check is not None and brief and transcript.text.strip() and not shutdown
                             and not warning and not is_stop_command(transcript.text)):
+                        # Trusted or not: an unclear sound during a Jeopardy answer still reaches the
+                        # ruling unless it is not a voice at all (owner, October 26).
                         if voice is ...:
                             voice = self.voice_score(capture)
                         if voice is not None and voice < NOT_SPEECH_SCORE:
-                            # Kept in the trace and history like any unreliable transcript, but no
-                            # reply, listening cue or interrupted beat for a sound that is not a voice.
-                            transcript = replace(transcript, trusted=False)
+                            # Kept in the trace like any unreliable transcript, but no reply, listening
+                            # cue, interrupted beat or game ruling for a sound that is not a voice.
+                            if transcript.trusted:
+                                self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
+                                                reason='not_a_voice', voice_score=round(voice, 3))
+                            transcript = replace(transcript, trusted=False, not_a_voice=True)
                             if perceived:
                                 perceived = replace(perceived, transcript=transcript)
-                            self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
-                                            reason='not_a_voice', voice_score=round(voice, 3))
                     if transcript.trusted and command in SHUTDOWN_COMMANDS and not guarded:
                         self.trace.emit('shutdown_requested',source='voice',capture_id=part.capture_id)
                         self.stop.set()

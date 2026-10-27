@@ -63,6 +63,7 @@ class Transcript:
     avg_logprob: float | None
     trusted: bool
     heard_as: str | None = None   # What the recognizer wrote, when the owner's spelling fixes changed it.
+    not_a_voice: bool = False     # The voice check did not hear a human voice in the sound (docs/VOICE_CHECK.md).
 
 
 @dataclass(frozen=True)

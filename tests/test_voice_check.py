@@ -41,7 +41,7 @@ class VoiceCheckRuntimeTests(unittest.TestCase):
         self.assertEqual(self.session.brain.calls, 0)    # Not sent to the reply model.
         self.assertEqual(self.heard, [])                 # No listening cue either.
         self.assertTrue(any(r['event'] == 'untrusted_not_answered' for r in self.trace_rows))
-        self.assertEqual([r['score'] for r in self.checks()], [.03])
+        self.assertEqual([(r['score'], r['verdict']) for r in self.checks()], [(.03, 'not_a_voice')])
         self.assertIn('Okay.', [r.get('original_text') for r in self.trace_rows if r['event'] == 'transcript'])
 
     def test_a_brief_word_that_is_a_voice_is_answered_as_before(self):
@@ -66,11 +66,15 @@ class VoiceCheckRuntimeTests(unittest.TestCase):
         self.assertTrue(any(r['event'] == 'provider_failed' and r['capability'] == 'voice_check' for r in self.trace_rows))
         self.assertEqual(self.session.brain.calls, 1)
 
-    def test_a_sound_already_distrusted_by_his_own_motion_is_not_checked_again(self):
-        self.run_checked([(True, 3, True), (False, 50, True)], [Transcript('Okay.', -.25, True)], .9)
-        self.assertEqual(self.judge.heard, [])
+    def test_a_sound_his_own_motion_made_doubtful_is_still_checked_for_the_game(self):
+        # Already unreliable, so never answered; the verdict only decides whether a Jeopardy
+        # ruling may still hear it (owner, October 26).
+        self.run_checked([(True, 3, True), (False, 50, True)], [Transcript('Okay.', -.25, True)], .04)
+        self.assertEqual([r['verdict'] for r in self.checks()], ['not_a_voice'])
         self.assertEqual([r['reason'] for r in self.trace_rows if r['event'] == 'transcript_distrusted'],
                          ['brief_sound_during_own_motion'])
+        self.assertTrue(any(r['event'] == 'untrusted_not_answered' and r.get('not_a_voice') for r in self.trace_rows))
+        self.assertEqual(self.session.brain.calls, 0)
 
 
 class VoiceCheckAdapterTests(unittest.TestCase):
