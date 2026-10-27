@@ -37,6 +37,9 @@ smart_turn_enabled = false
 # (models/ced-tiny; see docs/VOICE_CHECK.md). Fetch the model with:
 # .venv/bin/python tools/check_voice_check.py prepare     Owner, October 26: on.
 voice_check_enabled = false
+# The same model listens to the room all the time and logs doorbells, knocks, dogs and alarms with a short
+# clip each (local/room-sounds), with no reaction (docs/ROOM_SOUNDS.md). Owner, October 26: on.
+room_sounds_enabled = false
 # Qwen quality flag only, valid -5..0. This is not speaker identity confidence.
 asr_trust_logprob = -0.35
 

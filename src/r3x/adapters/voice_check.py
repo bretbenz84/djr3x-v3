@@ -28,7 +28,7 @@ class VoiceCheck:
         self.path, self.session, self.front_end = path, None, None
         self.lock = threading.Lock()
         self.capability = Capability("voice_check", "CED-Tiny ONNX",
-            "whether a brief sound holds a human voice", "ced-tiny:" + MODEL_SHA256[:12],
+            "whether a brief sound holds a human voice; household sounds in the room", "ced-tiny:" + MODEL_SHA256[:12],
             ("onnxruntime", "torch", "torchaudio", "numpy"), (str(path), "CPU:2 threads"), required=False)
 
     def start(self):
@@ -63,8 +63,8 @@ class VoiceCheck:
         with self.lock:
             self.session = self.front_end = None
 
-    def voice(self, pcm: bytes) -> float:
-        """How sure the model is that the sound holds a human voice, 0 to 1."""
+    def tags(self, pcm: bytes):
+        """All 527 AudioSet scores for the sound, each 0 to 1 (room_sounds.py reads household sounds)."""
         with self.lock:
             if self.session is None:
                 raise ProviderFailure("VoiceCheckNotStarted")
@@ -74,4 +74,9 @@ class VoiceCheck:
             result = self.session.run(None, {"feats": self.front_end(audio).astype(np.float32)})[0].reshape(-1)
         if len(result) != CLASSES or not np.all((result >= 0.) & (result <= 1.)):
             raise ProviderFailure("InvalidVoiceProbability")
+        return result
+
+    def voice(self, pcm: bytes) -> float:
+        """How sure the model is that the sound holds a human voice, 0 to 1."""
+        result = self.tags(pcm)
         return float(max(result[i] for i in VOICE_CLASSES))

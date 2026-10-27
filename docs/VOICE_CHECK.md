@@ -61,8 +61,8 @@ Nobody has listened to the other 112 trusted lines; the 3 the check holds back w
   7 of the owner's sampled lines.
 - **MarbleNet v2.0** was fooled by the motors (median peak 0.56) and by Rex's movement sound effect (0.95).
 - **Doorbell and dog alerts** are not part of this. At 0.35, CED-Tiny's dog class raised 1 true and
-  3 false alarms and missed a quiet bark. Household sounds need recordings from this house, and the
-  feature freeze applies.
+  3 false alarms and missed a quiet bark. The owner then had the same model log household sounds, with
+  no reactions, to count false alarms: [room sounds](ROOM_SOUNDS.md).
 
 The research comparison is private, in `local/reports/Sound models better than YAMNet.md`.
 

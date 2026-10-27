@@ -32,6 +32,10 @@ class Settings:
     # but never answered. Off by default (it needs the downloaded model); the owner turned it on October 26.
     # docs/VOICE_CHECK.md.
     voice_check_enabled: bool = False
+    # Room sounds (local, the same CED-Tiny model): Rex listens all the time and logs doorbells, knocks, dogs
+    # and alarms with a short clip each, and does nothing else with them. Off by default; the owner turned it
+    # on October 26 to count false alarms. docs/ROOM_SOUNDS.md.
+    room_sounds_enabled: bool = False
     asr_trust_logprob: float = -0.35
     camera_enabled: bool = False
     camera_device_name: str = ""
@@ -86,7 +90,7 @@ class Settings:
                 raise ValueError('Hardware port must be an explicit macOS /dev/cu. device')
         if self.input_device_index is not None and (type(self.input_device_index) is not int or self.input_device_index < 0):
             raise ValueError("input_device_index must be a nonnegative integer")
-        for name in ("echo_isolated","smart_turn_enabled","voice_check_enabled","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","news_search_enabled","direction_enabled","object_memory_enabled","place_recognition_enabled","impersonation_enabled","joke_writer_enabled"):
+        for name in ("echo_isolated","smart_turn_enabled","voice_check_enabled","room_sounds_enabled","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","news_search_enabled","direction_enabled","object_memory_enabled","place_recognition_enabled","impersonation_enabled","joke_writer_enabled"):
             if type(getattr(self,name)) is not bool:
                 raise ValueError(f"{name} must be boolean")
         from .observations import https_url

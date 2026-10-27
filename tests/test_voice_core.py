@@ -498,7 +498,7 @@ class VoiceReflexRuntimeTests(unittest.TestCase):
 class SelfNoiseRuntimeTests(unittest.TestCase):
     """October 3 run 30ec1b04: Rex's own servo noise was heard as "Okay." and "Oh."; each
     froze his idle movement, several cancelled his own beats and two cost a reply call."""
-    def run_frames(self, parts, transcripts, voice_check=None):
+    def run_frames(self, parts, transcripts, voice_check=None, room_sounds=None):
         from unittest.mock import patch
         from types import SimpleNamespace
         import time
@@ -543,6 +543,11 @@ class SelfNoiseRuntimeTests(unittest.TestCase):
         original = session.note_speech
         session.note_speech = lambda at, sustained=True: (self.yielded.append(at), original(at, sustained))
         runtime = VoiceRuntime(Mic(), VAD(), ASR(), session, trace, robot=Robot(), voice_check=voice_check)
+        if room_sounds is not None:
+            trace.session_id = 'session'
+            room_sounds.trace = trace
+            room_sounds.start()
+            runtime.room_sounds = room_sounds
         with patch('sys.stdin.isatty', return_value=False):
             runtime.run()
         self.session, self.trace_rows = session, trace.rows

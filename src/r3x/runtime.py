@@ -113,6 +113,7 @@ class VoiceRuntime:
         self._initiative_gate = None
         self.speech_confirmed = False   # The forming capture has lasted like speech, or began in stillness.
         self.sentry = None   # sentry_guard.SentryGuard: while it is on, what Rex hears goes to it first.
+        self.room_sounds = None   # room_sounds.RoomSounds: hears every frame, logs household sounds, never acts.
         session.on_shutdown = self.conversation_shutdown
 
     def conversation_shutdown(self, turn_id):
@@ -850,6 +851,10 @@ class VoiceRuntime:
                 self.audio_seen_at = min(frame.ended_at, self.trace.clock())
                 if self.guarding():
                     self.sentry.audio(frame)   # The last ten seconds wait for a face to arrive.
+                if self.room_sounds is not None:
+                    bed = getattr(self.session.output, 'bed', None)
+                    self.room_sounds.feed(frame, rex_sound=bool(bed is not None and bed.playing),
+                                          wheels=self.drive is not None and self.drive.moving.is_set())
                 if self.recorder and frame.started_at>=self.started_at:
                     try:
                         path=self.recorder.record_input(frame)

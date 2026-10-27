@@ -41,6 +41,9 @@ it or reads its data.
     audio that held back all of his motor sounds the recognizer had trusted, Max's bark and his own sound
     effect, and kept every line the owner had listened to; not yet run on the robot
     ([details](docs/VOICE_CHECK.md)).
+  - Room sounds (owner, October 26): the same model listens to the room all the time and logs
+    doorbells, knocks, dogs and alarms, each with a short clip, so false alarms can be counted. He does
+    not react to them yet. Not yet run on the robot ([details](docs/ROOM_SOUNDS.md)).
 - **Who is speaking.** CAM++ voice tracks, natural introductions and enrollment, and
   face recognition (SCRFD-10G + EdgeFace-S). Speaker, visible face, microphone direction
   and addressee stay separate.

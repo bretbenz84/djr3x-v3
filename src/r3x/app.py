@@ -38,10 +38,13 @@ class App:
         if self.settings.smart_turn_enabled:
             from .adapters.turn import SmartTurn
             turn = SmartTurn(self.paths.root / TURN_MODEL)
-        voice_check = None
-        if self.settings.voice_check_enabled:
+        voice_check = room_sounds = None
+        if self.settings.voice_check_enabled or self.settings.room_sounds_enabled:
             from .adapters.voice_check import VoiceCheck
-            voice_check = VoiceCheck(self.paths.root / VOICE_CHECK_MODEL)
+            voice_check = VoiceCheck(self.paths.root / VOICE_CHECK_MODEL)   # One CED-Tiny for both.
+        if self.settings.room_sounds_enabled:
+            from .room_sounds import RoomSounds
+            room_sounds = RoomSounds(voice_check, self.paths.root / 'room-sounds')
         brain = OpenAIBrain(secrets.openai_api_key, self.settings.reply_service_tier)
         agency_planner = OpenAIAgencyPlanner(secrets.openai_api_key,self.settings.agency_planner_model)
         joke_writer = (OpenAIJokeWriter(secrets.openai_api_key,self.settings.agency_planner_model)
@@ -108,7 +111,7 @@ class App:
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner,keywords,turn,voice_check) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner,keywords,turn,voice_check,room_sounds) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -123,8 +126,8 @@ class App:
             self.robot.on_shutdown = self.startup_audio.shutdown_started   # Power-down clip over the park.
         # The voice cloner builds its text tokenizer at start, holding the interpreter about
         # 0.4 s (October 25): it starts before the microphone, so no heard audio is lost to it.
-        started = [p for p in self.live_components if p not in (tts,sink,self.cloner,turn,voice_check)]
-        for checker in (turn, voice_check):
+        started = [p for p in self.live_components if p not in (tts,sink,self.cloner,turn,voice_check,room_sounds)]
+        for checker in (turn, voice_check, room_sounds):
             if checker:
                 started.insert(started.index(mic), checker)   # Ready before anything is heard.
         if self.cloner:
@@ -148,7 +151,8 @@ class App:
                 missing.append("voice_model_file")
             if self.settings.smart_turn_enabled and not (self.paths.root / TURN_MODEL).is_file():
                 missing.append("turn_model_file")
-            if self.settings.voice_check_enabled and not (self.paths.root / VOICE_CHECK_MODEL).is_file():
+            if ((self.settings.voice_check_enabled or self.settings.room_sounds_enabled)
+                    and not (self.paths.root / VOICE_CHECK_MODEL).is_file()):
                 missing.append("voice_check_model_file")
             if self.settings.camera_enabled:
                 import shutil
@@ -250,7 +254,8 @@ class App:
         scene = next((p for p in optional if p.capability.name=='scene_observations'),None)
         objects = next((p for p in optional if p.capability.name=='objects'),None)
         places = next((p for p in optional if p.capability.name=='places'),None)
-        for provider in (public,scene,objects,places):
+        room_sounds = next((p for p in optional if p.capability.name=='room_sounds'),None)
+        for provider in (public,scene,objects,places,room_sounds):
             if provider:provider.trace=trace
         if camera:
             camera.trace = trace
@@ -332,7 +337,8 @@ class App:
                 places = places if 'places' in active else None
                 keywords = next((p for p in optional if p.capability.name=='spoken_keywords' and 'spoken_keywords' in active),None)
                 turn = next((p for p in optional if p.capability.name=='turn_detection'),None)
-                voice_check = next((p for p in optional if p.capability.name=='voice_check' and 'voice_check' in active),None)
+                voice_check = next((p for p in optional if p.capability.name=='voice_check' and 'voice_check' in active
+                                    and self.settings.voice_check_enabled),None)
                 output.inspection = inspection if 'current_view' in active else None
                 self.startup_audio.stop()   # Cut the filler; readiness never waits for it.
                 # The ready line gets the usual talking motion and speaking lights.
@@ -462,6 +468,8 @@ class App:
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
                                        lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot,
                                        drive=output.drive,keywords=keywords,turn=turn,voice_check=voice_check)
+                if room_sounds is not None and 'room_sounds' in active:
+                    runtime.room_sounds = room_sounds   # Logged only: nothing it hears reaches the conversation.
                 if camera:
                     # Sentry mode (owner, October 22) needs the camera: faces trip and stand it down.
                     from .push import Push, valid_topic

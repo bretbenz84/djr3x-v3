@@ -60,6 +60,27 @@ hear as a voice not be sent to the reply model.
 - **Checks.** 8 new in `tests/test_voice_check.py`, 1 in `tests/test_jeopardy.py`. The affected
   modules pass (161 tests); the full suite was not run.
 
+## Room sounds: doorbells, knocks, dogs and alarms, logged only — October 26
+
+Owner request: run CED-Tiny on the room all the time and log any doorbell, knock, dog or alarm, with no
+reactions, to measure false alarms.
+
+- **What changed.** With `room_sounds_enabled` (off by default; the owner turned it on), the voice
+  check's model scores the last 2 s of the room every second on its own thread. A kind scoring 0.3 or
+  more is logged as a `room_sound` event, with what Rex was doing and a clip of up to 12 s in
+  `local/room-sounds`. Nothing reaches the conversation or his movement.
+  `tools/check_room_sounds.py` turns the log into a numbered folder to listen to, and the owner's
+  labels into real and false alarms at each score.
+- **Evidence** (real model on saved audio): the owner's 63 labelled clips, with real room sound between
+  them, went through the listener.
+  - It logged Max's clear bark at 0.64.
+  - It logged three false dog alarms at 0.41–0.44: a motor sound, the owner talking, and TV and coughs.
+  - It missed his quiet bark and logged nothing else.
+  - A look takes a median 5.4 ms. No doorbell, knock or alarm has ever been recorded here.
+- **Not yet run on the robot.** [Details](ROOM_SOUNDS.md).
+- **Checks.** 17 new in `tests/test_room_sounds.py`. With `tests/test_voice_check.py` and
+  `tests/test_voice_core.py`, 61 pass; the full suite was not run.
+
 ## Voice encoder trial: ERes2NetV2 against CAM++ — October 26
 
 Owner request: try ERes2NetV2, said to be better on short utterances, in place of CAM++, and measure its
