@@ -92,7 +92,8 @@ class Sound:
 class MusicBed:
     """A looping clip under the room: Jeopardy's think music while players answer (October 26). It plays on
     the speech sink without gating the microphone, so answers are still heard, and the output owner stops it
-    before anything else plays (one stream at a time). stop(wait=False) is safe from the listening loop."""
+    before anything else plays (one stream at a time). stop(wait=False) is safe from the listening loop.
+    start(pcm, at) begins at a byte offset, so a clip stopped for his line can pick up where it was."""
     PIECE = 1024
 
     def __init__(self, sink, trace=None):
@@ -100,23 +101,29 @@ class MusicBed:
         self._thread = None
         self._stop = threading.Event()
         self._cancel = Cancellation()
+        self.position = 0   # Offset of the piece last handed to the sink (a little ahead of what is heard).
 
     @property
     def playing(self) -> bool:
         return self._thread is not None and self._thread.is_alive() and not self._stop.is_set()
 
-    def start(self, pcm: bytes) -> bool:
+    def start(self, pcm: bytes, at: int = 0) -> bool:
         if self.playing or not pcm:
             return False
         self.stop()
         self._stop, self._cancel = threading.Event(), Cancellation()
         stop, cancel = self._stop, self._cancel
+        at -= at % 2   # Whole 16-bit samples.
+        self.position = first = at if 0 <= at < len(pcm) else 0
         def pieces():
+            nonlocal first
             while not stop.is_set():
-                for i in range(0, len(pcm), self.PIECE):
+                for i in range(first, len(pcm), self.PIECE):
                     if stop.is_set():
                         return
+                    self.position = i
                     yield pcm[i:i + self.PIECE]
+                first = 0
         def run():
             try:
                 self.sink.play(pieces(), cancel, lambda at: None, visualize=False)

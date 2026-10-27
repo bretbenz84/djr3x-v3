@@ -23,8 +23,8 @@ with far fewer category read-backs when the board is on screen.
 - **The clue.** Code reads it word for word. Without a screen the square comes first ("U.S. CITIES for
   $400."); with the board on screen just the clue. The answer clock (12 s, V2's) starts only once the clue
   has been heard to its end; a clue cut off is read once more, and a spoken "stop" holds the clock until
-  someone carries on ("say that again"). While the clock runs, V2's thinking music plays quietly and the
-  end-of-speech pause lengthens to 1 s for "What is... Paris?".
+  someone carries on ("say that again"). From then until the ruling V2's thinking music plays quietly
+  (the clip is 30.7 s, the wait 12 s) and the end-of-speech pause lengthens to 1 s for "What is... Paris?".
 - **Ruling.** Anyone's response counts for the player whose turn it is. The right or wrong sting plays
   the moment Rex has ruled, then a few words of his own, then code's facts ("$400 to Jeff, who has
   $1,200").
@@ -101,7 +101,9 @@ would double the render cost on the robot's Mac.
   lines through the one output owner, with the microphone gated like his speech. The thinking music is a
   low-volume loop (V2's 0.22 gain) that leaves the microphone open; it stops the moment someone starts
   talking and stays off for that clue, because the board turns a voice down by about 20 dB while anything
-  plays (V2's Flex measurement).
+  plays (V2's Flex measurement). Rex weighing a sound or remark he then lets pass does not stop it; when
+  he speaks mid-clue it gives way and then picks up where it was, under half a second on (owner, October 26,
+  after the first game: it had stopped and started again from the top around a stray "Okay.").
 
 ## Checks and evidence
 
@@ -115,7 +117,9 @@ would double the render cost on the robot's Mac.
 - First game on the robot (October 26, partial, without the dashboard): two picks, one ruling, one time's
   up. The wrong-answer buzz began 3.5 s after the response ended (1 s end-of-speech pause, 0.4 s
   recognition, 1.8 s model). Rex riffed on the category before each clue, which the owner did not want;
-  picks now carry no words of his.
+  picks now carry no words of his. On the second clue a brief sound while his head servos moved was heard
+  as "Okay." (untrusted, no usable voice); the think music stopped while he weighed it (two model calls,
+  about 4 s, the clock waiting) and restarted from the top. It now plays on through such a turn.
 - Not yet: a full game, several players, whether answers are heard over the thinking music and stings,
   the clip volumes beside Rex's voice, and the dashboard on the Apple TV.
 

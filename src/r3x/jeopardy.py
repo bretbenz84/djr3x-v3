@@ -291,6 +291,13 @@ class Jeopardy:
         a = self.game.attempt if self.active else None
         return bool(a and a.deadline is not None and not self.game.held and self.game.phase == 'answering')
 
+    def clue_waiting(self) -> bool:
+        """A heard clue still waits for its response, its clock running or waiting while Rex handles a turn.
+        The think music plays through all of it (owner, October 26: it had stopped and started again from the
+        top around a sound he let pass)."""
+        a = self.game.attempt if self.active else None
+        return bool(a and a.opened_at is not None and not self.game.held and self.game.phase == 'answering')
+
     def attempt_id(self) -> str | None:
         return self.game.attempt.attempt_id if self.active and self.game.attempt else None
 

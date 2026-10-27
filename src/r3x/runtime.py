@@ -75,6 +75,7 @@ class VoiceRuntime:
         self.endpoint = Endpoint(session.session_id, silence, self.turn_check if turn else None)
         self.silence = silence       # The usual end-of-speech pause (a Jeopardy clue allows a longer one).
         self._music_off_for = None   # The Jeopardy answer whose think music a voice stopped (not restarted).
+        self._music_for = None       # The answer the think music last played for (it resumes there).
         self.perception, self.recorder = perception, recorder
         self.captures = Queue(maxsize=2)
         # Captures and turns on their way that may be words for Rex: confirmed speech, and a
@@ -462,12 +463,14 @@ class VoiceRuntime:
         if bed is None or not self.gaming():
             return
         attempt = game.attempt_id()
-        want = (game.window_open(self.trace.clock()) and not in_flight and not output.active.is_set()
-                and attempt != self._music_off_for)
-        if want and not bed.playing:
+        # A turn being weighed does not stop it; only a voice, his own line or the end of the wait does.
+        want = game.clue_waiting() and attempt != self._music_off_for
+        if want and not bed.playing and not in_flight and not output.active.is_set():
             pcm = game.sound('theme')
-            if pcm and bed.start(pcm):
-                self.trace.emit('jeopardy_music', status='playing', attempt_id=attempt)
+            at = bed.position if attempt == self._music_for else 0   # After his line mid-clue it picks up.
+            if pcm and bed.start(pcm, at):
+                self._music_for = attempt
+                self.trace.emit('jeopardy_music', status='playing', attempt_id=attempt, resumed=bool(at))
         elif not want and bed.playing:
             bed.stop(wait=False)
             self.trace.emit('jeopardy_music', status='stopped', attempt_id=attempt)

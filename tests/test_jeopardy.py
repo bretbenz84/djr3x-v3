@@ -639,6 +639,32 @@ class RuntimeTests(MemoryFixture):
         self.assertFalse(runtime.gaming())
 
 
+    def test_the_think_music_plays_through_a_turn_he_lets_pass_and_picks_up_after_his_line(self):
+        runtime = self.runtime()
+        self.open_clue()
+        game, bed = self.state.jeopardy, runtime.session.output.bed
+        runtime.game_tick()
+        self.assertTrue(bed.playing)
+        game.pause(self.state.trace.clock())      # A stray "Okay." is being weighed: the clock waits for him,
+        runtime.speech_in_flight = lambda: True
+        runtime.game_tick()
+        self.assertTrue(bed.playing)              # and the music plays on (first robot game, October 26).
+        for _ in range(1000):
+            if bed.position >= 64 * MusicBed.PIECE:
+                break
+            threading.Event().wait(.002)
+        bed.stop()                                # The output owner stops it for his line.
+        where = bed.position
+        runtime.speech_in_flight = lambda: False
+        game.resume(self.state.trace.clock())
+        runtime.game_tick()
+        self.assertTrue(bed.playing)
+        self.assertGreaterEqual(bed.position, where)   # Picked up where it was, not from the top.
+        played = [r for r in self.state.trace.rows if r['event'] == 'jeopardy_music']
+        self.assertEqual([(r['status'], r.get('resumed')) for r in played], [('playing', False), ('playing', True)])
+        bed.stop()
+
+
 class SlowSink:
     """Plays until cancelled, like a looping bed on the real sink."""
     def play(self, chunks, cancel, on_start, visualize=True):
