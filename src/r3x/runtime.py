@@ -404,7 +404,10 @@ class VoiceRuntime:
                         self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
                                         reason='brief_sound_during_own_motion', avg_logprob=transcript.avg_logprob)
                     if (self.voice_check is not None and brief and transcript.text.strip() and not shutdown
-                            and not warning and not is_stop_command(transcript.text)):
+                            and not warning and not is_stop_command(transcript.text)
+                            and not (capture.channel and transcript.trusted)):
+                        # Channel 1 (a Jeopardy answer, boosted, no noise suppression) is not what the check
+                        # learned: it scored clear "Pass." .09-.3 (October 27); words heard clearly there stand.
                         # Trusted or not: an unclear sound during a Jeopardy answer still reaches the
                         # ruling unless it is not a voice at all (owner, October 26).
                         if voice is ...:

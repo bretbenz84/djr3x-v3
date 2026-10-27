@@ -850,6 +850,18 @@ class Jeopardy:
             if action == 'next_round' and g.round == 1:
                 return [['model', None], ['say', self._scores_line()]] + self._deal(2)
             return [['model', None]] + self._begin_final('')
+        if action == 'wrong_square':
+            # October 27: "It's fantastic for six hundred" opened IN THE AFRICAN COUNTRY; "skip" then lost it.
+            if g.clue is None or g.phase not in {'answering', 'wager'} or g.tried or g.final:
+                raise ValueError('NoSquareToPutBack')
+            category = next((c for c in g.board if c['name'] == g.clue.category), None)
+            if category is None:
+                raise ValueError('NoSquareToPutBack')
+            g.clue.wagered = None
+            category['clues'][g.clue.value] = g.clue
+            g.picker, g.clue, g.attempt, g.wager, g.phase = g.clue_picker, None, None, None, 'selecting'
+            g.played -= 1
+            return [['model', None], ['say', f'Back on the board. {g.players[g.picker].name}, your pick.']]
         if action == 'skip_clue':
             if g.clue is None or g.phase not in {'answering', 'wager'}:
                 raise ValueError('NoClueOpen')
@@ -1001,6 +1013,8 @@ def ground(definition: dict, game: dict) -> None:
     props = definition['parameters']['properties']
     if definition['name'] == 'jeopardy_pick':
         props['category_id']['enum'] = [c['category_id'] for c in game.get('board', ()) if c['values_left']]
+    if definition['name'] == 'jeopardy_control' and game.get('phase') not in {'answering', 'wager'}:
+        props['action']['enum'] = [a for a in props['action']['enum'] if a != 'wrong_square']
     if definition['name'] == 'jeopardy_control' and game.get('phase') != 'selecting':
         # Between squares only: the board, the next round, Final Jeopardy (FinishThisSquareFirst otherwise).
         props['action']['enum'] = [a for a in props['action']['enum']

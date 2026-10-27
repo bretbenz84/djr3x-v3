@@ -176,6 +176,22 @@ about 3.5-4 s after someone stops talking. Not yet measured in a game.
     Jeremy. The setup tool now says names in a row are separate people.
   - **"United Kingdom" ruled wrong** for "Britain (or England)" (overturned on appeal). The judging rules
     now say another name for the same thing (official, short, nickname) is right.
+- Fourth game (`0c8be385`, October 27, three players, about 48 squares): the music fix held, but the robot
+  froze again at the end of the round when "Hey Rex" cut his score reading (likely the start of a score
+  correction): the same microphone stall, so it is any sound cut off mid-play, not the music. Changed:
+  - **Every cut-off line now stops like a finished one** (the sink ends the stream on a silent buffer
+    instead of aborting it), for stop words, "Hey Rex" and the music alike.
+  - **"Pass." was thrown out** four times as "not a voice" (scores .09-.3 on channel 1), so the clock ran
+    out on players who had passed. Words recognized clearly on channel 1 now skip the voice check.
+  - **"It's fantastic" opened IN THE AFRICAN COUNTRY** twice; picks now prefer the category that shares
+    their words, and "that's the wrong category" puts the square back (`wrong_square`) for the real pick.
+  - **"Skip." skipped the clue** (off the board, no rebound) when the player meant pass; a player's skip
+    or pass is now a pass ruling, and skip_clue is only for a clue that cannot be played aloud.
+  - **"Because he's an ally."**, said before the clue, was refused as a ruling and Rex announced "That
+    ruling didn't stick; the clue is still open." Such refusals are now silent.
+  - Not changed: rulings took longer than in the probe (sting about 3.5-4.5 s after speech, his words 5-7
+    s), one request took over 12 s, and "Two hundred." between squares (channel 0) was also judged not a
+    voice (.45).
 - Boards repeat: the clue file has 97 complete opening boards (44 for Double Jeopardy), each game draws
   one at random and nothing remembers earlier games; the second robot game drew the first one's board.
 - Resume after a restart (V2 had none either); a game lives only in memory.

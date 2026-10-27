@@ -2746,6 +2746,12 @@ class Session:
                         delivery.status, delivery.medium = 'suppressed', 'none'
                     else:
                         put_phrase(phrases,self._mode_phrase(call,result,context,cancel),cancel)
+                elif (call.name == 'jeopardy_ruling' and result.outcome != 'ok'
+                      and result.reason in {'ResponseBeganBeforeThisTurn', 'ClueAlreadySettled'}):
+                    # Words from before the clue, or about one already settled, are not ruled on and he says
+                    # nothing about it (October 27: "That ruling didn't stick; the clue is still open.").
+                    self.trace.emit('jeopardy_ruling_refused', turn_id=turn_id, reason=result.reason)
+                    delivery.status, delivery.medium = 'suppressed', 'none'
                 elif call.call_id in streamed and call.name in {'respond_with_intent', 'respond_with_gesture'}:
                     # Its words were already heard as they streamed; a second answer would repeat
                     # them. The rejected part (a gesture, an intention note) is simply not done.

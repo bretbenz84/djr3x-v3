@@ -280,7 +280,9 @@ TOOLS += (
     schema('jeopardy_pick', 'The square a player chose ("history for two hundred", "same category for 600", "the '
            'four hundred in pop culture"). category_id: the jeopardy.board category they mean; match it loosely, as '
            'speech recognition hears names ("popery" is POTPOURRI, "U.S. cities" is U.S. CITIES); "same category" is '
-           'jeopardy.last_category. If two categories fit equally, ask which instead of picking. value: a dollar value '
+           'jeopardy.last_category. Prefer the category that shares their words over one that only sounds alike as a '
+           'whole ("it\'s fantastic" is IT\'S SLANG-TASTIC, not IN THE AFRICAN COUNTRY). If two categories fit '
+           'equally, ask which instead of picking. value: a dollar value '
            'still in values_left for it ("for a hundred" is 100). Anyone may say it for the player whose pick it is. '
            'Code then reads the clue (or the Daily Double) at once: you add no words of your own before it (owner, '
            'October 26: no riff on the category they chose).',
@@ -347,13 +349,16 @@ TOOLS += (
            'off or a stop paused the clock and they want to carry on); the clock starts over. read_board: what is left '
            'on the board, only between squares and only when someone asks what is left (a clue that is open is never '
            'the moment). next_round: deal the next round now (Double Jeopardy, or Final Jeopardy '
-           'from Double Jeopardy). final_jeopardy: straight to Final Jeopardy. skip_clue: the clue is unplayable (it '
-           'needs a picture, sound or video, or makes no sense read aloud); no score changes. overturn_last: someone '
+           'from Double Jeopardy). final_jeopardy: straight to Final Jeopardy. skip_clue: only when the clue itself cannot '
+           'be played aloud (it needs a picture, sound or video, or makes no sense read aloud); no score changes. A '
+           'player saying "skip" or "pass" is passing: jeopardy_ruling with verdict pass. wrong_square: Rex opened a '
+           'square they did not pick ("that\'s the wrong category"); it goes back on the board and the same player '
+           'picks again, before anyone has answered it; then make their real pick with jeopardy_pick. overturn_last: someone '
            'appeals jeopardy.last_ruling and the appeal is fair (a right answer you misheard, or a wrong one you '
            'credited); judge it like a ruling, and be forgiving about what the recognizer may have mangled. '
            'end_game: they want to stop playing (ask "you sure?" first unless they are clear about it). text: your '
            'words; code says the facts.',
-           {'action': {'type': 'string', 'enum': ['repeat_clue', 'read_board', 'next_round', 'final_jeopardy',
+           {'action': {'type': 'string', 'enum': ['repeat_clue', 'read_board', 'next_round', 'final_jeopardy', 'wrong_square',
             'skip_clue', 'overturn_last', 'end_game']}, 'text': GAME_TEXT}),
 )
 GAME_TOOLS = frozenset({'jeopardy_setup', 'jeopardy_pick', 'jeopardy_wager', 'jeopardy_ruling', 'jeopardy_control'})

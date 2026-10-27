@@ -320,6 +320,7 @@ class AudioSink:
             raise ProviderFailure("PlaybackNotStarted")
         queue = Queue(maxsize=16)  # <1.5 sec at 4096 bytes/block.
         eof = threading.Event()
+        ending = threading.Event()   # The line is over early (an error): stop at the next callback.
         finished = threading.Event()
         drained = threading.Event()
         pending = b""
@@ -333,8 +334,12 @@ class AudioSink:
             nonlocal pending, frames, underruns, started_at, last_callback
             last_callback = self.clock()
             outdata[:] = b"\0" * len(outdata)
-            if cancel.event.is_set():
-                raise self.sd.CallbackAbort
+            if cancel.event.is_set() or ending.is_set():
+                # A stop, not an abort: the stream ends on this silent buffer the way a finished line
+                # does. Aborting a running stream silenced the board's microphone (September 27, AUHAL
+                # -50; October 26-27, Jeopardy: after the think music and after "Hey Rex" cut his line,
+                # the input went silent, its restart hung and Rex froze, servos and all).
+                raise self.sd.CallbackStop
             if status.output_underflow:
                 underruns += 1
             wanted = count * 2
@@ -419,7 +424,10 @@ class AudioSink:
                 announce()
             finally:
                 if self.stream:
-                    self.stream.abort()  # Already drained on successful completion.
+                    ending.set()
+                    if not finished.is_set():
+                        finished.wait(.5)   # A stopped line ends at its next callback (above).
+                    self.stream.abort()  # Already stopped; only a stalled stream is still running here.
                     self.stream.close()
                     self.stream = None
                 close = getattr(chunks, "close", None)
