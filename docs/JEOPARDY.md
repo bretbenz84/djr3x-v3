@@ -87,8 +87,8 @@ would double the render cost on the robot's Mac.
   as a question; and the verdict on the answer alone. Code applies the owner's rules from those answers:
   not an attempt changes nothing, a sound-alike is right, and the right answer said plainly counts as
   wrong. Each of these came from a failure in the paid probe (below). If Rex goes silent on someone's words
-  while a clue is open (other than a cut-off "What is..."), he is asked once more whether that was a
-  response; that is the one case with a second model call. Each moment offers only its own moves plus
+  while a clue is open (other than a cut-off "What is..." or words the recognizer was unsure of), he is
+  asked once more whether that was a response; that is the one case with a second model call. Each moment offers only its own moves plus
   silence and shutdown. One model call per move; no separate judge call, no word matching. None of V2's
   matchers (fuzzy ratios, Soundex, CMUdict) or its regex lanes for picks, wagers, scores and table talk
   came over: the model hears those.
@@ -119,7 +119,7 @@ would double the render cost on the robot's Mac.
   recognition, 1.8 s model). Rex riffed on the category before each clue, which the owner did not want;
   picks now carry no words of his. On the second clue a brief sound while his head servos moved was heard
   as "Okay." (untrusted, no usable voice); the think music stopped while he weighed it (two model calls,
-  about 4 s, the clock waiting) and restarted from the top. It now plays on through such a turn.
+  about 4 s, the clock waiting) and restarted from the top. It now plays on through such a turn, and words the recognizer was unsure of get no second call.
 - Not yet: a full game, several players, whether answers are heard over the thinking music and stings,
   the clip volumes beside Rex's voice, and the dashboard on the Apple TV.
 

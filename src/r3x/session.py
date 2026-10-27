@@ -1809,10 +1809,12 @@ class Session:
                 if retry or generated.strip():
                     calls = retry
             if (game_on and len(calls) == 1 and calls[0].name == 'remain_silent' and not generated.strip()
-                    and calls[0].arguments.get('reason') != 'unfinished_thought' and self.state.jeopardy.answering()):
+                    and calls[0].arguments.get('reason') != 'unfinished_thought' and self.state.jeopardy.answering()
+                    and (transcript.trusted or noise_after)):
                 # October 26 (paid probe): "Who is Descartes?" got silence (no_response_needed), "Who is Hawthorne?"
                 # too (background_conversation), and the clock would have run out on them. Words while a clue is
-                # open are asked about once; then the silence stands.
+                # open are asked about once; then the silence stands. Words the recognizer was unsure of are not
+                # asked about again (owner, October 26: a servo sound heard as "Okay." took a second call).
                 from dataclasses import replace as replace_snapshot
                 self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='jeopardy_silence_retry',
                                 reasoning_effort=getattr(self.brain, 'reasoning_effort', None))

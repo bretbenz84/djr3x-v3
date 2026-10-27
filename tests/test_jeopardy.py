@@ -475,11 +475,11 @@ class SessionTests(MemoryFixture):
         self.addCleanup(self.session_.close)
         return self.session_
 
-    def turn(self, text):
+    def turn(self, text, trusted=True):
         self.state.trace.at += 5
         now = self.state.trace.at
         return self.session_.process_turn(Capture(uuid4().hex, 'session', bytes(1024), now - 2, now - 1, now - .5),
-                                          Transcript(text, -.01, True), self.session_.revision)
+                                          Transcript(text, -.01 if trusted else -.94, trusted), self.session_.revision)
 
     def test_a_move_plays_its_sounds_then_his_words_then_the_facts_and_a_pick_goes_straight_to_the_clue_whose_hearing_starts_the_clock(self):
         brain = Scripted(lambda s: ToolCall('c1', 'jeopardy_setup', {'players': ['Bret', 'Casey'], 'text': "Let's play!"}),
@@ -556,21 +556,23 @@ class SessionTests(MemoryFixture):
                                    Transcript('Oh.', -.9, False), self.session_.revision)
         self.assertEqual(len(brain.snapshots), 3)                          # Outside a game: never answered.
 
-    def test_silence_on_words_during_an_open_clue_is_asked_about_once(self):
+    def test_silence_on_words_during_an_open_clue_is_asked_about_once_unless_they_were_shaky(self):
         silent = ToolCall('s', 'remain_silent', {'reason': 'background_conversation'})
         thinking = ToolCall('t', 'remain_silent', {'reason': 'unfinished_thought'})
         brain = Scripted(lambda s: ToolCall('c1', 'jeopardy_setup', {'players': ['Casey'], 'text': None}), pick_first(),
-                         thinking, silent, ruling('correct', 'Yes!'), silent, silent)
+                         thinking, silent, silent, ruling('correct', 'Yes!'), silent, silent)
         self.session(brain)
         self.turn('Jeopardy for Casey.')
         self.turn('First square.')
         self.turn('What is...')
         self.assertEqual(len(brain.snapshots), 3)          # Mid-thought: silence at once.
+        self.turn('Okay.', trusted=False)
+        self.assertEqual(len(brain.snapshots), 4)          # A shaky sound: silence at once (first robot game).
         right = self.turn('Who is Descartes?')
-        self.assertEqual(len(brain.snapshots), 5)          # Paid probe, October 26: right answers got silence.
+        self.assertEqual(len(brain.snapshots), 6)          # Paid probe, October 26: right answers got silence.
         self.assertEqual(right.completed_text[0], 'Yes!')
         self.turn('Ok.')                                    # Outside an open clue, silence stands at once.
-        self.assertEqual(len(brain.snapshots), 6)
+        self.assertEqual(len(brain.snapshots), 7)
 
     def test_game_turns_leave_out_the_joke_writer_and_goals(self):
         class Room:
