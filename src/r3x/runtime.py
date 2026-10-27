@@ -29,6 +29,10 @@ CONFIRM_RUN_SECONDS = .25      # Continuous voiced time that confirms speech dur
 CONFIRM_RECENT_SECONDS = .4    # Or this much voiced time within the last second.
 SUSPECT_OPEN_SECONDS = 3.5     # A suspected capture open this long gets a still moment to end.
 SELF_NOISE_LOGPROB = -.1       # Trust floor for a suspected capture (the usual floor is lower).
+# Owner, October 26: a brief sound that CED-Tiny does not hear as a voice is kept but never answered,
+# moving or not (his motors, coughs, Max). Longer speech is not checked. docs/VOICE_CHECK.md.
+VOICE_CHECK_MAX_VOICED = 1.    # Detected voice under this many seconds makes a sound brief.
+NOT_SPEECH_SCORE = .5          # CED-Tiny's voice score below this is not a voice.
 # The exact spoken shutdown, with his name as recognition often hears it (October 22, 0421a222:
 # "Red shut down." was taken as words for someone else and he stayed on).
 SHUTDOWN_COMMANDS = frozenset({'shut down', 'shutdown', 'shut down rex'} | {
@@ -64,9 +68,10 @@ SHUTDOWN_WORKER_SECONDS = 2.   # How long shutdown lets signalled workers finish
 WAITING_TURNS = 8   # Transcripts kept while the conversation is busy (a long drive), beyond the queue.
 
 class VoiceRuntime:
-    def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None, keywords=None, turn=None):
+    def __init__(self, mic, vad, asr, session, trace, silence=0.7, perception=None, recorder=None, *, lull_seconds=8.0, observations=None, scene_observer=None, robot=None, drive=None, keywords=None, turn=None, voice_check=None):
         self.mic, self.vad, self.asr, self.session, self.trace = mic, vad, asr, session, trace
         self.turn = turn             # adapters.turn.SmartTurn: a short pause can end a finished-sounding turn.
+        self.voice_check = voice_check   # adapters.voice_check.VoiceCheck: whether a brief sound is a voice.
         self.keywords = keywords     # adapters.keywords.KeywordSpotter, fed every frame.
         self._spotting = None        # When the current drive's stop listening began, or None.
         self._spot_peak = 0.
@@ -317,6 +322,18 @@ class VoiceRuntime:
                         audio_seconds=round(len(pcm)/32000, 2))
         return probability
 
+    def voice_score(self, capture):
+        """CED-Tiny's score that a brief capture holds a human voice; None when it cannot judge."""
+        began = time.perf_counter()
+        try:
+            score = self.voice_check.voice(capture.pcm)
+        except Exception as exc:
+            self.trace.emit("provider_failed", capability="voice_check", error_type=type(exc).__name__)
+            return None
+        self.trace.emit("voice_check", capture_id=capture.capture_id, score=round(score, 3),
+                        seconds=round(time.perf_counter()-began, 4))
+        return score
+
     def words_on_the_way(self):
         """Whether queued or half-recognized audio may still be words for Rex."""
         with self.words_lock: return bool(self.words_pending)
@@ -352,6 +369,8 @@ class VoiceRuntime:
             try:
                 perceived_turns = self.perception.analyze_many(capture,self.asr_cancel) if self.perception else (None,)
                 cued = False   # One listening cue per capture, however many turns it splits into.
+                voice = ...    # The capture's voice score, judged at most once (None: could not judge).
+                brief = sum(b-a for a, b in capture.voiced_intervals) < VOICE_CHECK_MAX_VOICED
                 for perceived in perceived_turns:
                     part = perceived.capture if perceived else capture
                     transcript = perceived.transcript if perceived else self.asr.transcribe(part, self.asr_cancel)
@@ -380,6 +399,18 @@ class VoiceRuntime:
                             perceived = replace(perceived, transcript=transcript)
                         self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
                                         reason='brief_sound_during_own_motion', avg_logprob=transcript.avg_logprob)
+                    if (self.voice_check is not None and brief and transcript.trusted and not shutdown
+                            and not warning and not is_stop_command(transcript.text)):
+                        if voice is ...:
+                            voice = self.voice_score(capture)
+                        if voice is not None and voice < NOT_SPEECH_SCORE:
+                            # Kept in the trace and history like any unreliable transcript, but no
+                            # reply, listening cue or interrupted beat for a sound that is not a voice.
+                            transcript = replace(transcript, trusted=False)
+                            if perceived:
+                                perceived = replace(perceived, transcript=transcript)
+                            self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
+                                            reason='not_a_voice', voice_score=round(voice, 3))
                     if transcript.trusted and command in SHUTDOWN_COMMANDS and not guarded:
                         self.trace.emit('shutdown_requested',source='voice',capture_id=part.capture_id)
                         self.stop.set()

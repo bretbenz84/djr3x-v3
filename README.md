@@ -36,7 +36,11 @@ it or reads its data.
     gets a saved line saying which account to top up, at most every ten minutes, instead of silence.
   - Transcripts the recognizer marks unreliable are kept but never answered. These are
     usually his own motors heard as "Oh.", and since October 18 such a sound no longer cuts
-    off a line he is preparing; only words do.
+    off a line he is preparing; only words do. Since October 26 (owner), a brief sound that CED-Tiny
+    (local, about 8 ms) does not hear as a human voice is treated the same way, moving or not. On saved
+    audio that held back all of his motor sounds the recognizer had trusted, Max's bark and his own sound
+    effect, and kept every line the owner had listened to; not yet run on the robot
+    ([details](docs/VOICE_CHECK.md)).
 - **Who is speaking.** CAM++ voice tracks, natural introductions and enrollment, and
   face recognition (SCRFD-10G + EdgeFace-S). Speaker, visible face, microphone direction
   and addressee stay separate.

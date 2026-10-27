@@ -33,6 +33,10 @@ end_silence_seconds = 0.5
 # docs/TURN_DETECTION.md). Fetch the model with: .venv/bin/python tools/check_turn_detection.py prepare
 # Owner, October 26: on, with end_silence_seconds = 1.0 as the longest wait for unfinished-sounding speech.
 smart_turn_enabled = false
+# CED-Tiny checks brief sounds: one it does not hear as a human voice is kept but never answered
+# (models/ced-tiny; see docs/VOICE_CHECK.md). Fetch the model with:
+# .venv/bin/python tools/check_voice_check.py prepare     Owner, October 26: on.
+voice_check_enabled = false
 # Qwen quality flag only, valid -5..0. This is not speaker identity confidence.
 asr_trust_logprob = -0.35
 

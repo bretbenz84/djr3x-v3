@@ -38,6 +38,27 @@ longest wait. **Not yet run on the robot**; group talk is untested.
 [Evidence and how to run it](TURN_DETECTION.md). 1692 blocked-I/O checks pass (6 skipped), 12 new in
 `tests/test_turn_detection.py`.
 
+## Voice check: CED-Tiny on brief sounds — October 26
+
+The owner listened to 60 doubtful saved clips. 43 were Rex's motors; the others were coughs, the TV,
+Max, his movement sound effect and the owner himself. He asked that a sound a stronger model does not
+hear as a voice not be sent to the reply model.
+
+- **What changed.** With `voice_check_enabled` (off by default; the owner turned it on), a trusted
+  transcript of a capture with under 1 s of detected voice is scored by CED-Tiny. Under 0.5, it is kept
+  but never answered, whether Rex is moving or not. Stops, shutdown, warnings and longer speech are not
+  checked, and a failed check changes nothing.
+- **Evidence** (real models on saved audio):
+  - CED-Tiny scored all 43 motor sounds under 0.5, against 35 for YAMNet and 20 for MarbleNet v2.0.
+  - It held back all five non-voices the recognizer had trusted.
+  - It kept the owner's 10 labelled lines.
+  - It holds back 3 of 112 unlistened lines.
+  - It takes a median 6.5–8.5 ms per capture and adds about 44 MB.
+- **Not yet run on the robot.** The 0.5 line was chosen on these September clips.
+  [Evidence and how to run it](VOICE_CHECK.md).
+- **Checks.** 8 new in `tests/test_voice_check.py`. The affected modules pass (114 tests); the full
+  suite was not run.
+
 ## Voice encoder trial: ERes2NetV2 against CAM++ — October 26
 
 Owner request: try ERes2NetV2, said to be better on short utterances, in place of CAM++, and measure its
