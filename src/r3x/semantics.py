@@ -268,7 +268,9 @@ GAME_TEXT = {'type': ['string', 'null'], 'description': 'Your own words, said be
              'never say the correct response, an amount, a total or whose turn is next: code says those.'}
 TOOLS += (
     schema('jeopardy_setup', 'Start a game of Jeopardy when someone asks to play it, or set who is playing. players: '
-           'one to four people, first names as said ("me" is the speaker: speaker.display_name when known; when you do '
+           'one to four people, one entry per person: names said in a row are separate people even without "and" '
+           'between them ("Bret Exudica and Jeremy" is Bret, Exudica and Jeremy), unless the room knows those words as '
+           'one person\'s first and last name; first names as said ("me" is the speaker: speaker.display_name when known; when you do '
            'not know a name, ask for it instead of guessing; never invent one, and never put "me" or another pronoun '
            'in the list, which code refuses). An empty list starts the game, and code then asks who is playing, so '
            'your text is a short intro that does not ask. Once the names are in, code deals the board, reads the categories and says who '
@@ -296,7 +298,10 @@ TOOLS += (
            'response, even when the recognizer wrote other words ("night" for knight, "symbols" for cymbals, "shack" '
            'for Shaq, "day cart" for Descartes, "our Kansas" for Arkansas, "van go" for van Gogh). Years and numbers '
            'said as words, regnal numbers ("Henry the eighth"), singular/plural, articles, filler and extra words never '
-           'matter, and a person\'s surname alone is enough. WRONG: a different person, place or thing (Kansas for '
+           'matter, and a person\'s surname alone is enough. Another name for the same thing is right: a full or official '
+           'name, a common short form, a nickname or the name it is better known by ("the United Kingdom" or "the '
+           'UK" for Britain (or England), "JFK" for John F. Kennedy, "Holland" for the Netherlands). WRONG: a different '
+           'person, place or thing (Kansas for '
            'Arkansas: the sound differs), a broader category, two different guesses ("Paris or London"), a negated '
            'answer, or too few parts: parts joined by "and" or "&" are all needed, and "any two of: a, b, c" needs two '
            'of them, so naming one is wrong. A self-correction counts as the final answer ("Paris, no, London" is London). '
@@ -340,7 +345,8 @@ TOOLS += (
             'verdict': {'type': 'string', 'enum': ['correct', 'wrong_answer', 'pass', 'unclear']}, 'text': GAME_TEXT}),
     schema('jeopardy_control', 'Run the game when they ask. repeat_clue: hear the clue again (also when it was cut '
            'off or a stop paused the clock and they want to carry on); the clock starts over. read_board: what is left '
-           'on the board, when someone asks. next_round: deal the next round now (Double Jeopardy, or Final Jeopardy '
+           'on the board, only between squares and only when someone asks what is left (a clue that is open is never '
+           'the moment). next_round: deal the next round now (Double Jeopardy, or Final Jeopardy '
            'from Double Jeopardy). final_jeopardy: straight to Final Jeopardy. skip_clue: the clue is unplayable (it '
            'needs a picture, sound or video, or makes no sense read aloud); no score changes. overturn_last: someone '
            'appeals jeopardy.last_ruling and the appeal is fair (a right answer you misheard, or a wrong one you '

@@ -137,13 +137,20 @@ class MusicBed:
         return True
 
     def stop(self, wait=True) -> None:
+        """The clip ends where it is and the stream drains its last fraction of a second and stops the way
+        every line does. Cutting it off mid-stream is how the board's microphone went silent (September 27,
+        AUHAL -50) and, on the third Jeopardy game (October 26), its restart hung and Rex froze, servos and
+        all; the cut-off is kept only for a stream that does not drain within a second."""
         thread = self._thread
         self._stop.set()
-        self._cancel.event.set()
-        if thread is not None and wait:
+        if thread is None or not wait:
+            return
+        thread.join(1.)
+        if thread.is_alive():
+            self._cancel.event.set()
             thread.join(1.)
-            if not thread.is_alive():
-                self._thread = None
+        if not thread.is_alive():
+            self._thread = None
 
 
 @dataclass(frozen=True)

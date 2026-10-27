@@ -1513,7 +1513,9 @@ class Session:
                     context['your_question'] = {'asked': self.last_question['text'], 'about': row.get('about'),
                                                 'wanted_to_know': row.get('want_to_know'), 'meaning': GUIDE['your_question']}
             memory_subject = context.get('personal_memory',{}).get('person_id')
-            memory_accessed = [any(context.get('personal_memory',{}).get(key) for key in
+            # A game turn's request leaves private memory out (request_view), so a face coming or going never
+            # cancels it (October 26, third game: "Exzunica and Jeremy." was dropped that way).
+            memory_accessed = [not game_on and any(context.get('personal_memory',{}).get(key) for key in
                                    ('recent_exchanges','earlier_greetings','interests_and_facts','episodes','current_session_exchanges'))]
             self._audience_bound_output = bool(memory_subject and memory_accessed[0])
             self._memory_subject = memory_subject

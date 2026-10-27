@@ -839,6 +839,9 @@ class Jeopardy:
         if action == 'read_board':
             if not g.board or g.round == 3:
                 raise ValueError('NoBoard')
+            if g.phase != 'selecting':
+                # October 26 (third game): a garbled "Make moves." mid-clue read out the whole board, twice.
+                raise ValueError('FinishThisSquareFirst')
             return [['model', None], ['say', self._board_readout()]] + (
                 [['say', f'{g.players[g.picker].name}, your pick.']] if g.phase == 'selecting' else [])
         if action in {'next_round', 'final_jeopardy'}:
@@ -998,5 +1001,10 @@ def ground(definition: dict, game: dict) -> None:
     props = definition['parameters']['properties']
     if definition['name'] == 'jeopardy_pick':
         props['category_id']['enum'] = [c['category_id'] for c in game.get('board', ()) if c['values_left']]
+    if definition['name'] == 'jeopardy_control' and game.get('phase') != 'selecting':
+        # Between squares only: the board, the next round, Final Jeopardy (FinishThisSquareFirst otherwise).
+        props['action']['enum'] = [a for a in props['action']['enum']
+                                   if a not in {'read_board', 'next_round', 'final_jeopardy'}
+                                   or (a != 'read_board' and game.get('phase') == 'players')]
     if definition['name'] == 'jeopardy_ruling' and game.get('clue'):
         props['attempt_id']['enum'] = [game['clue']['attempt_id']]

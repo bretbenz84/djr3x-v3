@@ -159,10 +159,23 @@ about 3.5-4 s after someone stops talking. Not yet measured in a game.
 
 ## Not done
 
-- Answers under the think music on channel 1 are not yet tried on the robot. Second robot game (October
-  26, three players, dashboard on): on the usual channel the room read -40 to -50 dB under the music instead
-  of the usual -27 to -32, only fragments came through ("But.", "I."), the voice check rejected them and
-  time ran out. Each answer heard on channel 1 logs `channel` and `beam_gain` on its `capture` event.
+- Second robot game (October 26, three players, dashboard on): on the usual channel the room read -40 to
+  -50 dB under the music instead of the usual -27 to -32, only fragments came through, and time ran out.
+  Third game (`ff7fdce4`, three players): answers on channel 1 came through (mosquito, potato, Taj Mahal,
+  each ruled within about 3 s), with `beam_gain` at its 16x ceiling throughout, so channel 1 sits at least
+  24 dB below channel 0. Four failures, each since changed and not yet replayed on the robot:
+  - **Freeze.** Stopping the think music for a voice cut its stream off mid-play; the board's microphone
+    went silent, its automatic restart hung, and his time's-up line, his idle motion and shutdown all waited
+    behind it. The music now ends by draining like any line; the cut-off is only for a stream that will not.
+  - **Board read mid-clue.** A garbled "Make moves." during a rebound read out every remaining square,
+    and "Nobody asked you what's on the board" read it again. The board, the next round and Final
+    Jeopardy are now offered (and accepted) only between squares.
+  - **Players lost.** A lone "Bret." was too brief for the voice check; "Exzunica and Jeremy." was cancelled
+    because a face changed, by the guard that keeps private memory from a new audience, which a game turn
+    never carries (now skipped in a game); and "Exudica. Bret Exudica and Jeremy." seated only Exudica and
+    Jeremy. The setup tool now says names in a row are separate people.
+  - **"United Kingdom" ruled wrong** for "Britain (or England)" (overturned on appeal). The judging rules
+    now say another name for the same thing (official, short, nickname) is right.
 - Boards repeat: the clue file has 97 complete opening boards (44 for Double Jeopardy), each game draws
   one at random and nothing remembers earlier games; the second robot game drew the first one's board.
 - Resume after a restart (V2 had none either); a game lives only in memory.
