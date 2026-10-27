@@ -91,6 +91,27 @@ that voice served only as a same-room rival print.
 - Conclusion: no naming gain under today's rules, an uncertain short-line gain, and about a quarter
   second more wait on every ordinary sentence. Recommendation (not yet the owner's ruling): keep CAM++.
 
+## Where live naming is lost (log review, October 26)
+
+Owner: in the dashboard Rex "doesn't even know me half the time". From the last 40 session logs,
+clearly heard lines of 1 s or more while the camera saw only his face in every frame: 126 lines,
+71 named by voice and 13 credited by face or the carry (67%). The 42 others:
+
+- **22 while Rex was moving** (servo or wheel motion over at least 30% of the speech, which on these
+  lines covered 87 of 126). Moving lines need .55 and presence never applies to them; the carry needs two
+  clear matches first. Scores .18–.55; 17 were .40 or more.
+- **15 with an ambiguous microphone direction**: the main direction held under 70% of the speech energy,
+  often from one or two stray readings (−2° with 5 readings against 90° with 1). Such a line is never
+  matched at all, and presence and the carry are blocked too.
+- 5 for track reasons.
+
+Re-scoring the September 27 floor-day recordings against the print made in the live test (62 lines with
+no other face in view): still lines, both models above 99% of other-voice pieces on 38 of 38. Moving
+lines, CAM++ 21 of 24 at that bar (.39) but 8 of 24 at Rex's moving threshold of .55; ERes2NetV2 19 of
+24 at its own bar (.51). Under motion the threshold costs more than the model; a new model does not
+recover these lines. The other voices are famous recordings and one YouTube line; no second person was
+recorded under motion, so the wrong-person rate there is unmeasured.
+
 ## Open
 
 - A live run with a real second person, if the trial is picked up again (`live` again; `saved` re-scores).
