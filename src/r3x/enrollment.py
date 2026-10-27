@@ -21,7 +21,7 @@ class Enrollment:
 
     def add(self, capture, transcript, observation, attribution, turn_id):
         self.last_reason = "quality_or_attribution_not_eligible"
-        if (capture.robot_microphone_hold is False or
+        if (capture.robot_microphone_hold is False or capture.channel != 0 or
                 attribution.track_id != self.track_id or not attribution.learning_eligible or
                 not transcript.trusted or capture.echo_risk or capture.truncated or capture.parent_capture_id is not None or
                 capture.overlap is True or observation.mixed or observation.direction_conflict or

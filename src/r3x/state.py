@@ -607,6 +607,7 @@ class CoreState:
         if self.pending and capture.ended_at-self.pending["delivered_at"] > 120:
             self.pending = None
         if (capture.motion_risk or capture.parent_capture_id is not None or capture.robot_microphone_hold is False or
+                capture.channel != 0 or
                 (self.require_microphone_hold and capture.robot_microphone_hold is not True)):
             attribution = replace(attribution,learning_eligible=False)
         self.current = (turn_id,capture,transcript,observation,attribution)
@@ -1578,7 +1579,7 @@ class CoreState:
                 raise ValueError("AmbiguousName")
             fresh_track = False
             introduction_attribution = attribution
-            voice_usable = (capture.robot_microphone_hold is not False and
+            voice_usable = (capture.robot_microphone_hold is not False and capture.channel == 0 and
                             (not self.require_microphone_hold or capture.robot_microphone_hold is True) and
                             observation.embedding is not None and
                             observation.namespace == self.tracker.namespace and
@@ -2400,6 +2401,8 @@ class CoreState:
             why = 'another_voice_too_close'
         elif capture.robot_microphone_hold is False or (self.require_microphone_hold and capture.robot_microphone_hold is not True):
             why = 'microphone_not_settled'
+        elif capture.channel != 0:
+            why = 'heard_on_answer_channel'   # Channel 1, a Jeopardy answer under the music.
         elif self.voice_grown.get(person_id, 0) >= VOICE_GROWTH_PER_SESSION:
             why = 'enough_new_clips_this_run'
         else:
@@ -2435,7 +2438,8 @@ class CoreState:
         if self.frozen:
             return
         turn_id,capture,transcript,observation,attribution = self.current
-        if capture.robot_microphone_hold is False or (self.require_microphone_hold and capture.robot_microphone_hold is not True):
+        if (capture.robot_microphone_hold is False or capture.channel != 0 or
+                (self.require_microphone_hold and capture.robot_microphone_hold is not True)):
             return
         proposal = self.enrollments.get(attribution.track_id)
         if proposal:

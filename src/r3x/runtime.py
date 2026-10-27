@@ -8,7 +8,7 @@ import threading
 import time
 from uuid import uuid4
 
-from .capture import Endpoint
+from .capture import BeamGain, Endpoint
 from .contracts import Cancellation, Cancelled, Capture, ProviderFailure
 from .session import is_collision_warning, is_quiet_command, is_stop_command, stop_heard_over
 
@@ -81,6 +81,8 @@ class VoiceRuntime:
         self.silence = silence       # The usual end-of-speech pause (a Jeopardy clue allows a longer one).
         self._music_off_for = None   # The Jeopardy answer whose think music a voice stopped (not restarted).
         self._music_for = None       # The answer the think music last played for (it resumes there).
+        self.beam_gain = BeamGain()  # Channel 1 up to channel 0's level, for answers under the music.
+        self._answer_beam = False    # The utterance being heard is on channel 1.
         self.perception, self.recorder = perception, recorder
         self.captures = Queue(maxsize=2)
         # Captures and turns on their way that may be words for Rex: confirmed speech, and a
@@ -511,9 +513,28 @@ class VoiceRuntime:
             bed.stop(wait=False)
             self.trace.emit('jeopardy_music', status='stopped', attempt_id=attempt)
 
+    def _music_playing(self) -> bool:
+        bed = getattr(self.session.output, 'bed', None)
+        return bool(bed is not None and bed.playing)
+
+    def _listening_frame(self, frame):
+        """The audio Rex listens to. While a heard Jeopardy clue waits for its response it is the board's
+        channel 1 (echo-cancelled, not turned down while sound plays), as for "stop" and "Hey Rex": on
+        channel 0 the think music turned answers down about 20 dB and none came through (owner, October 26,
+        second robot game). An utterance stays on the channel it began on."""
+        if not self.endpoint.frames:
+            game = self.session.state.jeopardy if self.session.state is not None else None
+            beam = bool(frame.beam_pcm is not None and game is not None and game.clue_waiting())
+            if beam != self._answer_beam and self.vad is not None:
+                self.vad.reset()   # Silero's state belongs to the channel it was hearing.
+            self._answer_beam = beam
+        if self._answer_beam and frame.beam_pcm is not None:
+            return replace(frame, pcm=self.beam_gain.apply(frame.beam_pcm))
+        return frame
+
     def voice_over_music(self):
-        """Someone is answering: the think music stops for them and stays off for this clue (the board turns
-        a voice down while anything plays; V2 measured about 20 dB)."""
+        """Someone is answering: the think music stops for them and stays off for this clue, so what is
+        left of the music under their answer does not reach recognition."""
         bed = getattr(self.session.output, 'bed', None)
         if bed is not None and bed.playing:
             bed.stop(wait=False)
@@ -879,6 +900,7 @@ class VoiceRuntime:
                 # (September 27: live 2 speech frames where a fresh model found 30).
                 # Reset when playback ends and every 4 s of quiet with nothing pending;
                 # the 1 s pre-roll keeps any onset the fresh state has to re-learn.
+                frame = self._listening_frame(frame)
                 if (previous_echo and not frame.echo_risk) or (not self.endpoint.frames and
                         vad_fresh_at is not None and frame.started_at - vad_fresh_at >= 4.):
                     self.vad.reset()
@@ -887,6 +909,8 @@ class VoiceRuntime:
                     vad_fresh_at = frame.started_at
                 previous_echo = frame.echo_risk
                 speech = self.vad.is_speech(frame.pcm)
+                if speech and not self._answer_beam and not frame.echo_risk and not self._music_playing():
+                    self.beam_gain.observe(frame)   # Both channels hear the same voice, neither turned down.
                 if (not speech and not frame.echo_risk and self.drive is not None and self.drive.moving.is_set()
                         and (getattr(self.vad, 'last_probability', None) or 0.) >= DRIVE_SPEECH_PROBABILITY):
                     speech = True
@@ -946,8 +970,9 @@ class VoiceRuntime:
                     peeked = False
                     self.speech_confirmed = False
                 if capture:
-                    capture = replace(capture,device=getattr(self.mic,"source_device",getattr(self.mic,"device_name","configured_microphone")),
-                                      self_noise_risk=not confirmed)
+                    device = getattr(self.mic,"source_device",getattr(self.mic,"device_name","configured_microphone"))
+                    capture = replace(capture,self_noise_risk=not confirmed,channel=1 if self._answer_beam else 0,
+                                      device=device.replace('channel=0', 'channel=1') if self._answer_beam else device)
                     if self.robot:
                         capture = replace(capture,robot_microphone_hold=self.robot.capture_held(capture))
                     if self.recorder:
@@ -958,7 +983,8 @@ class VoiceRuntime:
                         echo_risk=capture.echo_risk, motion_risk=capture.motion_risk,
                         self_noise_risk=capture.self_noise_risk, pcm_bytes=len(capture.pcm), ended_by=capture.ended_by,
                         vad_voiced_seconds=sum(b-a for a,b in capture.voiced_intervals),
-                        robot_microphone_hold=capture.robot_microphone_hold)
+                        robot_microphone_hold=capture.robot_microphone_hold,
+                        **({'channel': 1, 'beam_gain': round(self.beam_gain.gain, 2)} if capture.channel else {}))
                     self.enqueue(self.captures, (capture, self.session.revision), "captures")
         except KeyboardInterrupt:
             pass

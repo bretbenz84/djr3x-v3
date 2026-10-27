@@ -55,6 +55,9 @@ class Capture:
     # What ended it: "silence" (the full end-of-speech pause), "finished" (Smart Turn heard a finished
     # turn at a short pause), "truncated" (20 s) or "playback_boundary" (Rex's playback began or ended).
     ended_by: str = "silence"
+    # The board output it was heard on: 1 is the reSpeaker's ASR output, used while a Jeopardy clue
+    # waits under the think music (October 26). Never learned from: voices are kept from channel 0.
+    channel: int = 0
 
 
 @dataclass(frozen=True)

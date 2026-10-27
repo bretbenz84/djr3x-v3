@@ -1,6 +1,10 @@
 """Pure endpointing over timestamped, VAD-labeled PCM blocks."""
+from array import array
 from collections import deque
 from dataclasses import dataclass
+import math
+import statistics
+import sys
 from uuid import uuid4
 
 from .contracts import Capture
@@ -24,6 +28,51 @@ class Frame:
     # The reSpeaker Flex's channel 1 (its ASR output: echo-cancelled and beamformed, no AGC and no
     # ducking while Rex plays), for the keyword spotter only; channel 0 stays the listening channel.
     beam_pcm: bytes | None = None
+
+
+def _samples(pcm: bytes) -> array:
+    samples = array('h')
+    samples.frombytes(pcm)
+    if sys.byteorder != 'little':
+        samples.byteswap()
+    return samples
+
+
+def rms(pcm: bytes) -> float:
+    samples = _samples(pcm)
+    return math.sqrt(sum(v * v for v in samples) / len(samples)) if samples else 0.
+
+
+class BeamGain:
+    """Brings channel 1 (no AGC) up to channel 0's speech level for the stretches Rex listens on it (a
+    Jeopardy clue under the think music, October 26). Learned while nothing plays, when channel 0 is not
+    turned down: the median ratio of the two channels' levels over the latest speech frames."""
+    UNMEASURED = 4.     # About 12 dB until speech has been heard on both channels (not yet measured).
+    LEAST, MOST = .25, 16.
+    QUIET = 30.         # RMS below this is the floor, not a voice to compare.
+
+    def __init__(self, keep: int = 300):
+        self.ratios = deque(maxlen=keep)
+
+    def observe(self, frame) -> None:
+        if frame.beam_pcm is None:
+            return
+        main, beam = rms(frame.pcm), rms(frame.beam_pcm)
+        if main > self.QUIET and beam > self.QUIET:
+            self.ratios.append(main / beam)
+
+    @property
+    def gain(self) -> float:
+        if len(self.ratios) < 20:
+            return self.UNMEASURED
+        return min(self.MOST, max(self.LEAST, statistics.median(self.ratios)))
+
+    def apply(self, pcm: bytes) -> bytes:
+        gain = self.gain
+        out = array('h', (max(-32768, min(32767, round(v * gain))) for v in _samples(pcm)))
+        if sys.byteorder != 'little':
+            out.byteswap()
+        return out.tobytes()
 
 
 class Endpoint:

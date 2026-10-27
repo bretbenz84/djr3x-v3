@@ -102,9 +102,12 @@ would double the render cost on the robot's Mac.
   first, for up to 10 s.
 - **Sounds.** V2's nine clips are 22,050 Hz mono WAVs in `assets/audio/jeopardy/`. Stings play between
   lines through the one output owner, with the microphone gated like his speech. The thinking music is a
-  low-volume loop (V2's 0.22 gain) that leaves the microphone open; it stops the moment someone starts
-  talking and stays off for that clue, because the board turns a voice down by about 20 dB while anything
-  plays (V2's Flex measurement). Rex weighing a sound or remark he then lets pass does not stop it; when
+  low-volume loop (V2's 0.22 gain) that leaves the microphone open. The board's usual channel turns a voice
+  down about 20 dB while anything plays (V2's Flex measurement), so from the moment a clue has been heard
+  until its ruling Rex listens on channel 1 (echo-cancelled, not turned down), as he does for "stop" and
+  "Hey Rex", brought up to the usual channel's level by a ratio learned from speech heard on both while
+  nothing plays (until then about 12 dB). Those answers never teach his voice memory. The music stops once
+  someone is talking and stays off for that clue, so less of it reaches recognition. Rex weighing a sound or remark he then lets pass does not stop it; when
   he speaks mid-clue it gives way and then picks up where it was, under half a second on (owner, October 26,
   after the first game: it had stopped and started again from the top around a stray "Okay.").
 
@@ -156,11 +159,10 @@ about 3.5-4 s after someone stops talking. Not yet measured in a game.
 
 ## Not done
 
-- **Answers are not heard while the think music plays** (second robot game, October 26, three players,
-  dashboard on): the board's listening channel turns voices down about 20 dB while anything plays, so
-  the room read -40 to -50 dB instead of the usual -27 to -32; only fragments came through ("But.",
-  "I."), the voice check rejected them, and time ran out. Channel 1 (echo-cancelled, not turned down),
-  which already hears "stop" and "Hey Rex" over his voice, is the candidate for answers under the music.
+- Answers under the think music on channel 1 are not yet tried on the robot. Second robot game (October
+  26, three players, dashboard on): on the usual channel the room read -40 to -50 dB under the music instead
+  of the usual -27 to -32, only fragments came through ("But.", "I."), the voice check rejected them and
+  time ran out. Each answer heard on channel 1 logs `channel` and `beam_gain` on its `capture` event.
 - Boards repeat: the clue file has 97 complete opening boards (44 for Double Jeopardy), each game draws
   one at random and nothing remembers earlier games; the second robot game drew the first one's board.
 - Resume after a restart (V2 had none either); a game lives only in memory.
