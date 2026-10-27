@@ -22,10 +22,11 @@ class Settings:
     radar_port: str = ""  # V2 ESP32-S3 radar ring; requires drive_port.
     echo_isolated: bool = False
     vad_threshold: float = 0.5
-    end_silence_seconds: float = 0.5   # Owner, October 17 (0.35 split three-person talk).
+    end_silence_seconds: float = 0.5   # Owner, October 17 (0.35 split three-person talk); 1.0 with Smart Turn.
     # Smart Turn v3.2 (local, models/smart-turn): at 0.2 s of silence it judges from the audio whether the
-    # speaker finished; finished-sounding speech ends there, the rest waits end_silence_seconds. Off until
-    # the owner chooses (October 26); docs/TURN_DETECTION.md.
+    # speaker finished; finished-sounding speech ends there, the rest waits end_silence_seconds. Off by
+    # default (it needs the downloaded model); the owner turned it on October 26 with a 1.0 s longest wait.
+    # docs/TURN_DETECTION.md.
     smart_turn_enabled: bool = False
     asr_trust_logprob: float = -0.35
     camera_enabled: bool = False

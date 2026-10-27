@@ -2,7 +2,8 @@
 
 October 26, 2026. Owner request: add Smart Turn v3.2 beside Silero, so Rex knows when a sentence
 has ended, and find out whether the 0.5 s end-of-speech silence can be shortened. **Implemented
-and checked on saved robot audio; off until the owner turns it on, and not yet run on the robot.**
+and checked on saved robot audio. The owner turned it on the same day, with a 1.0 s longest wait;
+not yet run on the robot.**
 
 ## What it does
 
@@ -71,9 +72,10 @@ its own answer afterwards. Voice ID sees shorter pieces, and Rex never names any
   66 ms fp32). A third-party CoreML conversion claims 3.5 ms on an M5 Pro, but needs `coremltools`,
   a new dependency, to save about 17 ms.
 
-## Recommendation and open
+## Owner's choice and open
 
-Recommendation (owner's choice pending): turn it on and raise the longest wait to 1.0 s. The
+Owner, October 26: on, with the longest wait raised to 1.0 s (`smart_turn_enabled = true`,
+`end_silence_seconds = 1.0` in the robot's local settings). The
 average wait after the last word falls from 0.512 s to 0.258 s, and mid-thought pauses of up to
 a second stay in one piece. The 7 of 163 turns that sounded unfinished at their end waited 1.0 s.
 

@@ -22,8 +22,9 @@ it or reads its data.
   replies with one `gpt-6-luna` call per turn and speaks through ElevenLabs. Speech is
   leveled to V2's −20 LUFS target.
   - Speech ends after 0.5 s of silence. Since October 26, Smart Turn v3.2 (local, 21 ms a check) can
-    end finished-sounding speech after 0.2 s instead. It is off until the owner chooses; on saved robot
-    audio it ended 158 of 163 turns early and split 22 into more pieces
+    end finished-sounding speech after 0.2 s instead. The owner turned it on that day, with 1.0 s as the
+    longest wait for speech that sounds unfinished. On saved robot audio it ended 158 of 163 turns early
+    and split 22 into more pieces; not yet run on the robot
     ([details](docs/TURN_DETECTION.md)).
   - Audible speech is never cut off except by an explicit stop phrase ("stop",
     "shut up", "be quiet", "whoa", repeated or wrapped as in "Oh, stop!"), or by "Hey Rex"
