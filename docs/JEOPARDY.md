@@ -8,9 +8,11 @@ with far fewer category read-backs when the board is on screen.
 
 ## How a game goes
 
-- **Starting.** "Let's play Jeopardy" plays V2's intro sting. Rex asks who is playing unless they already
-  said ("me, Jeff and Jeremy"). Up to four players. "Me" is the speaker when Rex knows their voice;
-  otherwise he asks for the name. A name that fits one known person is linked to them for the board and
+- **Starting.** "Let's play Jeopardy" plays V2's intro sting. Unless they already said who is playing ("me,
+  Jeff and Jeremy"), code asks after his line ("Who's playing? Tell me everyone's name."; October 26: his
+  own line had not asked). Up to four players. "Me" is the speaker when Rex knows their voice; otherwise
+  he asks for the name, and code refuses "me" or another pronoun as a player's name (October 26: "Can I
+  join?" from a new voice seated a player called "Me"). A name that fits one known person is linked to them for the board and
   for where Rex looks, never as a claim about who is speaking; a guest plays under the name given and no
   person record is made.
 - **The board.** A real board from V2's clue bank (6 categories of one air date and round), the board
@@ -154,6 +156,13 @@ about 3.5-4 s after someone stops talking. Not yet measured in a game.
 
 ## Not done
 
+- **Answers are not heard while the think music plays** (second robot game, October 26, three players,
+  dashboard on): the board's listening channel turns voices down about 20 dB while anything plays, so
+  the room read -40 to -50 dB instead of the usual -27 to -32; only fragments came through ("But.",
+  "I."), the voice check rejected them, and time ran out. Channel 1 (echo-cancelled, not turned down),
+  which already hears "stop" and "Hey Rex" over his voice, is the candidate for answers under the music.
+- Boards repeat: the clue file has 97 complete opening boards (44 for Double Jeopardy), each game draws
+  one at random and nothing remembers earlier games; the second robot game drew the first one's board.
 - Resume after a restart (V2 had none either); a game lives only in memory.
 - In Final Jeopardy responses are spoken in turn, so later players hear earlier ones.
 - An answer shouted while Rex is still talking is not heard (the microphone is gated while he speaks);

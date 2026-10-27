@@ -35,6 +35,8 @@ ANSWER_PAUSE_SECONDS = 1.     # End-of-speech pause while a clue is open: "What 
 ECHO_TAIL_SECONDS = .3        # The microphone opens this long after Rex's line (output echo tail).
 IDLE_END_SECONDS = 600.       # Nobody heard this long: the game ends by itself.
 MAX_PLAYERS = 4
+WHO_IS_PLAYING = "Who's playing? Tell me everyone's name."
+PRONOUNS = frozenset({'me', 'myself', 'i', 'you', 'him', 'her', 'them', 'us', 'we', 'he', 'she', 'they'})   # Not names.
 MAX_REBOUNDS = 1              # V2 owner tuning, August 26: one second chance, not lap-the-table.
 UNCLEAR_RETRIES = 2           # "Say that again" without a penalty, then it counts as a pass.
 DD_MIN_WAGER = 5
@@ -531,6 +533,9 @@ class Jeopardy:
         wanted = [' '.join(str(n).split()) for n in args.get('players') or [] if str(n).strip()]
         if len(wanted) > MAX_PLAYERS:
             raise ValueError('AtMostFourPlayers')
+        if any(name.casefold().strip('.,!?') in PRONOUNS for name in wanted):
+            # October 26: "Can I join?" from an unknown voice seated a player called "Me"; he asks the name.
+            raise ValueError('PlayerNameIsAPronoun')
         roster, seen = [], set()
         for name in wanted:
             person = people.get(name)
@@ -543,7 +548,8 @@ class Jeopardy:
             self.game = Game(last_heard_at=self.clock())
             parts = [['sound', 'intro'], ['model', None]]
             if not roster:
-                return parts
+                # Code asks, not his line (October 26: "let's see whether your confidence survives" never asked).
+                return parts + [['say', WHO_IS_PLAYING]]
             self.game.players = roster
             return parts + self._first_board()
         g = self.game

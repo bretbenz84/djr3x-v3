@@ -269,8 +269,9 @@ GAME_TEXT = {'type': ['string', 'null'], 'description': 'Your own words, said be
 TOOLS += (
     schema('jeopardy_setup', 'Start a game of Jeopardy when someone asks to play it, or set who is playing. players: '
            'one to four people, first names as said ("me" is the speaker: speaker.display_name when known; when you do '
-           'not know a name, ask instead of guessing; never invent one). An empty list starts the game and asks who is '
-           'playing: say so in text. Once the names are in, code deals the board, reads the categories and says who '
+           'not know a name, ask for it instead of guessing; never invent one, and never put "me" or another pronoun '
+           'in the list, which code refuses). An empty list starts the game, and code then asks who is playing, so '
+           'your text is a short intro that does not ask. Once the names are in, code deals the board, reads the categories and says who '
            'picks first. During a game, call it again with the full new list to add or drop players between squares '
            '(scores are kept). text: your intro or roster line.',
            {'players': {'type': 'array', 'items': TEXT, 'maxItems': 6}, 'text': GAME_TEXT}),

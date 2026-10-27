@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from r3x.contracts import Cancellation, Cancelled, Capture, Playback, ToolCall, Transcript
-from r3x.jeopardy import (ANSWER_PAUSE_SECONDS, ANSWER_SECONDS, ECHO_TAIL_SECONDS, IDLE_END_SECONDS,
+from r3x.jeopardy import (WHO_IS_PLAYING, ANSWER_PAUSE_SECONDS, ANSWER_SECONDS, ECHO_TAIL_SECONDS, IDLE_END_SECONDS,
                           SPEECH_GRACE_SECONDS, ClueBank, Jeopardy, as_question, directive, request_view,
                           speak_category, valid_clue)
 from r3x.output import Delivery, MusicBed, OutputOwner, Sound, TextOutput, put_phrase
@@ -93,7 +93,7 @@ class GameTests(unittest.TestCase):
 
     def test_a_named_roster_deals_the_board_and_the_phrasing_rule_comes_before_the_first_pick(self):
         opened = self.start()
-        self.assertEqual(opened, [['sound', 'intro'], ['model', None]])     # "Let's play" first asks who is playing.
+        self.assertEqual(opened, [['sound', 'intro'], ['model', None], ['say', WHO_IS_PLAYING]])   # Code asks, not his line.
         self.assertEqual(self.game.context(self.clock())['phase'], 'players')
         parts = self.move('jeopardy_setup', {'players': ['Bret', 'Jeff'], 'text': None})
         self.assertEqual(parts[1], ['sound', 'board'])
@@ -111,6 +111,9 @@ class GameTests(unittest.TestCase):
         with self.assertRaises(ValueError) as refused:
             game.plan('jeopardy_setup', {'players': ['A', 'B', 'C', 'D', 'E'], 'text': None})
         self.assertEqual(str(refused.exception), 'AtMostFourPlayers')
+        with self.assertRaises(ValueError) as refused:
+            self.game.plan('jeopardy_setup', {'players': ['Jeremy', 'me'], 'text': None})   # "Can I join?", unknown voice.
+        self.assertEqual(str(refused.exception), 'PlayerNameIsAPronoun')
 
     def test_the_clock_starts_only_once_the_clue_is_heard_and_a_cut_off_clue_is_read_once_more(self):
         self.start('Bret', 'Jeff')
