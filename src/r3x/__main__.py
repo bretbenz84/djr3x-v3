@@ -44,6 +44,7 @@ def main() -> int:
     parser.add_argument("--oracle-segments",action="store_true",help="Use human timing labels for encoder diagnostics, not production accuracy")
     args = parser.parse_args()
     app = None
+    exit_code = 1   # How a retained-worker exit ends: the wedge code when the microphone stalled.
     try:
         # Package is installed editable in this checkout's dedicated environment.
         project = Path(__file__).resolve().parents[2]
@@ -137,6 +138,7 @@ def main() -> int:
         print(json.dumps({"outcome": "failed", "error_type": type(exc).__name__,
                           "reason": str(exc) if isinstance(exc, (ProviderFailure,ValueError)) else None}), file=sys.stderr)
         if args.command == "live" and isinstance(exc, ProviderFailure) and str(exc) == "MicrophoneStalled":
+            exit_code = MIC_WEDGE_EXIT_CODE
             return MIC_WEDGE_EXIT_CODE   # The supervisor relaunches after a short settle.
         return 1
     finally:
@@ -146,7 +148,7 @@ def main() -> int:
             # A worker that never stopped would hold the exit (October 12 ended in a crash
             # at exit). The hardware is parked and the trace closed (worker_stuck names it).
             sys.stdout.flush(); sys.stderr.flush()
-            os._exit(1)
+            os._exit(exit_code)
 
 
 if __name__ == "__main__":

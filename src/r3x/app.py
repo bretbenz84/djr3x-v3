@@ -509,10 +509,11 @@ class App:
                 runtime.run()
                 success = True
         finally:
-            if runtime and (any(w.is_alive() for w in runtime.workers) or
+            if runtime and (any(w.is_alive() for w in runtime.workers) or getattr(runtime.mic, 'wedged', False) or
                             (runtime.session.output_worker is not None and runtime.session.output_worker.is_alive())):
                 # Do not unload native models under an unfinished worker, but still stop the
                 # wheels, park the servos and fade the lights: they never wait on those workers.
+                # A wedged microphone takes this path too: closing the sound system can hang with it.
                 if self.robot:
                     self.robot.on_shutdown = lambda: None   # A stuck output worker may still own the speaker.
                 self.owner.close_only({'drive_base','radar','robot_servos','robot_leds'})

@@ -189,6 +189,8 @@ about 3.5-4 s after someone stops talking. Not yet measured in a game.
     or pass is now a pass ruling, and skip_clue is only for a clue that cannot be played aloud.
   - **"Because he's an ally."**, said before the clue, was refused as a ruling and Rex announced "That
     ruling didn't stick; the clue is still open." Such refusals are now silent.
+  - **A microphone that stalls anyway can no longer freeze him**: its reopen runs on its own thread, and
+    if that hangs or fails he parks and exits as a wedged microphone (the supervisor relaunches him).
   - Not changed: rulings took longer than in the probe (sting about 3.5-4.5 s after speech, his words 5-7
     s), one request took over 12 s, and "Two hundred." between squares (channel 0) was also judged not a
     voice (.45).

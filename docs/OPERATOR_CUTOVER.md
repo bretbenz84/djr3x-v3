@@ -36,7 +36,10 @@ state, throttle sequences and measurements are in `local/operator/`.
     chest meter, the servo menu reconnected.
 - A wedged microphone makes V3 exit with code 86. The supervisor then relaunches Rex
   after 2 s, at most 3 times in 10 minutes. "Shut down" and other exits return to
-  wake-word listening.
+  wake-word listening. Since October 27 the one reopen of a silent input runs on its own
+  thread: if it has not finished in 5 s, fails, or the input stalls again within 30 s, the
+  run ends as a wedge (wheels stopped, servos parked, lights faded, the sound system left
+  untouched) instead of hanging, as it did twice in Jeopardy on October 26-27.
 
 ## Automatic updates
 

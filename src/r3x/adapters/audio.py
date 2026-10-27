@@ -44,6 +44,11 @@ def resolve_device(devices, name: str, index: int | None, kind: str):
     return None  # Explicit documented default: system playback device.
 
 
+# A reopen of a silent input that has not finished by then is wedged inside CoreAudio (October 27: the
+# reopen after a cut-off line never returned, and the listening loop, his speech and his servos waited on it).
+RESTART_SECONDS = 5.
+
+
 class Microphone:
     def __init__(self, settings, echo_risk, clock=time.monotonic):
         self.settings, self.echo_risk, self.clock = settings, echo_risk, clock
@@ -56,6 +61,9 @@ class Microphone:
         self.status_errors = 0
         self.last_callback = 0.
         self.stopped = threading.Event()
+        self._restarting = None      # The thread reopening a silent input stream.
+        self._restart_failure = None
+        self.wedged = False          # The input stalled for good: shutdown leaves the sound system alone.
         self.device_name = settings.input_device_name or "configured_index"
         self.trace = None
         self.motion_risk = lambda: False
@@ -118,30 +126,54 @@ class Microphone:
     def read(self):
         if self.stopped.is_set():
             raise Cancelled()
+        restarting = self._restarting
+        if restarting is not None:
+            if restarting.is_alive() and self.clock() - self.restarted_at > RESTART_SECONDS:
+                self.wedged = True
+                if self.trace:
+                    self.trace.emit('microphone_restart_hung', seconds=round(self.clock() - self.restarted_at, 1))
+                raise ProviderFailure("MicrophoneStalled")
+            if not restarting.is_alive():
+                self._restarting = None
+                if self._restart_failure is not None:
+                    self.wedged = True
+                    if self.trace:
+                        self.trace.emit('microphone_restart_failed', error_type=type(self._restart_failure).__name__)
+                    raise ProviderFailure("MicrophoneStalled")
         try:
             return self.frames.get(timeout=.1)
         except Empty:
-            if self.clock() - self.last_callback > 3:
+            if self._restarting is None and self.clock() - self.last_callback > 3:
                 # September 27: a CoreAudio error (AUHAL -50) as a playback stream was
-                # force-stopped left the input silent and ended the run. Reopen once.
+                # force-stopped left the input silent and ended the run. Reopen once, on a
+                # thread of its own: the reopen itself can hang (October 27).
                 if self.clock() - self.restarted_at < 30:
+                    self.wedged = True
                     raise ProviderFailure("MicrophoneStalled")
                 self.restarted_at = self.clock()
                 if self.trace:
                     self.trace.emit('microphone_restarted', silent_seconds=self.clock()-self.last_callback)
-                try:
-                    if self.stream:
-                        self.stream.abort()
-                        self.stream.close()
-                finally:
-                    self.stream = None
-                self.start()
+                old, self.stream = self.stream, None
+                def reopen():
+                    try:
+                        if old:
+                            old.abort()
+                            old.close()
+                        self.start()
+                    except Exception as exc:
+                        self._restart_failure = exc
+                self._restart_failure = None
+                self._restarting = threading.Thread(target=reopen, name='r3x-mic-reopen', daemon=True)
+                self._restarting.start()
             return None
 
     def cancel(self):
         self.stopped.set()
 
     def close(self):
+        if self.wedged or (self._restarting is not None and self._restarting.is_alive()):
+            self.stream = None   # Left to the process exit: closing a wedged stream can hang too.
+            return
         if self.stream:
             self.stream.abort()
             self.stream.close()

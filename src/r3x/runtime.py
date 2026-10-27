@@ -812,6 +812,7 @@ class VoiceRuntime:
         vad_fresh_at = None
         direction = getattr(self.perception, 'direction', None)
         reflexed = False
+        failure = None
         peeked = False           # This utterance was already checked for a stop while rolling.
         run = 0.                 # Continuous voiced time ending at the latest frame.
         from collections import deque
@@ -993,11 +994,18 @@ class VoiceRuntime:
             pass
         except Exception as exc:
             # A stalled microphone or device error ends the run: record why.
+            failure = exc
             self.trace.emit('runtime_failed', error_type=type(exc).__name__,
                             reason=str(exc) if isinstance(exc, ProviderFailure) else None)
             raise
         finally:
-            self.close()
+            try:
+                self.close()
+            except ProviderFailure:
+                # Workers stuck behind a wedged sound system: the original failure (a stalled
+                # microphone) still decides how the process ends, so the supervisor relaunches.
+                if failure is None:
+                    raise
 
     def close(self):
         self.stop.set()
