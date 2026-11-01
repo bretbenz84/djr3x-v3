@@ -106,6 +106,26 @@ def company_evidence(context, utterance):
     return {'people_around': people, **({'rex_named': named} if named is not None else {})}
 
 
+def familiar_hello(context, familiar=None):
+    """The greeting's own note, in concrete words, of the time apart and what is worn out. The note is
+    written before the picture of the present, so the caller passes the familiar part.
+
+    October 31 paid probe: with these only in the picture and the persona, 5 of 6 hellos still opened on
+    the workshop telescope in view (local/validation/familiar-greetings-4b7fd35e)."""
+    last = (context.get('visual_arrival') or {}).get('last_visit')
+    familiar = familiar or (context.get('right_now') or {}).get('familiar') or {}
+    worn = (familiar.get('talked_about') or {}).get('worn_out') or []
+    note = ''
+    if last:
+        note += (f"You last saw them {last['last_here']} ({last['absence']}); here on {last['days_here_lately']}. "
+                 'Let that time apart lead the hello, in words you have not used before. ')
+    if worn:
+        note += 'Worn out lately, so not in this hello in any words: ' + ', '.join(worn[:8]) + '. '
+    if (familiar.get('view') or {}).get('this_view') == 'everyday':
+        note += 'This is your everyday view: leave the room and the things always in it out of the hello. '
+    return note
+
+
 def context_sizes(context, top=12):
     """Characters each part of the request context would take, largest first, for the trace.
     October 17: the reply context was about a third of each call's tokens and nothing said
@@ -311,6 +331,20 @@ class Session:
                 self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='joke_material',
                                 model=getattr(getattr(self.joke_room.writer, 'capability', None), 'model', None))
 
+    def _talked_about(self, heard, context, turn_id):
+        """The words of a heard line of his, counted across days so what he keeps saying wears out
+        (owner, October 31: the telescope at every start). Names of people and pets are never spent."""
+        from . import familiarity
+        from .output import plain_text
+        album = self.state.photo_memory.catalog() if getattr(self.state, 'photo_memory', None) else ()
+        keep = {w for row in [*self.state.store.people(), *album] for w in str(row.get('name') or '').lower().split()}
+        try:
+            with self.state.store.transaction() as conn:
+                familiarity.record(conn, plain_text(heard), (context.get('personal_memory') or {}).get('person_id'),
+                                   self.state.wall_clock(), keep)
+        except Exception as exc:
+            self.trace.emit('state_finalize_failed', turn_id=turn_id, error_type=type(exc).__name__)
+
     def _curiosity_followup(self, heard, context, calls, step, turn_id):
         """A question he was heard asking about something he did not know yet is spent for a while, and
         stays open for their answer (owner, October 24). The topic is the one the reply tool or the plan
@@ -458,7 +492,22 @@ class Session:
             rex['holding_arms_until_told'] = True
         from datetime import datetime
         wall = datetime.fromtimestamp(self.state.wall_clock())   # Local time: he has a clock.
-        return self.state.present.describe(self.trace.clock(), names, rex=rex or None, wall=wall)
+        picture = self.state.present.describe(self.trace.clock(), names, rex=rex or None, wall=wall)
+        familiar = self._familiar(here=[p['person_id'] for p in picture['people_here']])
+        if familiar:
+            picture['familiar'] = familiar
+        return picture
+
+    def _familiar(self, context=None, here=None):
+        """What he keeps saying (with the people here) and how often he sees this view, across days
+        (owner, October 31). Without a picture yet, the people here are the recognized faces in context."""
+        from . import familiarity
+        if here is None:
+            here = [f.get('identity') for f in (context or {}).get('faces', ())]
+            here.append(((context or {}).get('visual_arrival') or {}).get('person_id'))
+        places = getattr(self.state, 'places', None)
+        return familiarity.familiar(familiarity.context(self.state.store, here, self.state.wall_clock()),
+                                    places.view_context() if places is not None and hasattr(places, 'view_context') else None)
 
     def _beat_voices(self, context, step):
         """The voices one of his own beats may perform in, or None: no cloner, the cameo budget
@@ -500,7 +549,7 @@ class Session:
 
     def _planning_job(self, turn_id, context, planning_context, audience, capabilities, opportunity):
         """Everything the planner sees, captured now; planning itself may finish later."""
-        from .agency import evidence_catalog, mentioned_lately, recent_dialogue
+        from .agency import evidence_catalog, recent_dialogue
         from .servo_poses import POSE_COMMANDS
         from . import jokes
         agency = self.state.agency
@@ -567,9 +616,6 @@ class Session:
                                 'Seek a described thing to drive to something without a target.'},
             'current_goal': agency.context(now),
             'recent_goals': agency.goal_history(now),
-            'mentioned_lately': mentioned_lately(self.history_messages(), keep={
-                w for row in [*people.values(), *((context.get('photo_memory') or {}).get('entities') or [])]
-                for w in str(row.get('name', '')).lower().split()}),
             'engagement': agency.engagement(),
             'spent_joke_shapes': jokes.spent_shapes(self.history_messages()),
             # October 13: in long silences the planner kept riffing on the last line said;
@@ -1290,6 +1336,7 @@ class Session:
                      'Say a brief hello now in your own words, by name when you know them, or optionally invite an unknown '
                      'person to share their name. A restart is not a first meeting: personal_memory.earlier_greetings says '
                      'when you last greeted them and what you said; greet a return like a return and never reuse that wording. '
+                     + familiar_hello(context, self._familiar(context))
                      if context.get('visual_arrival',{}).get('startup_greeting') else
                     'Proactive opportunity; nobody spoke and no face is visible, but the base radar reports a moving body '
                     'outside the camera view (see drive.targets). Nobody has been identified. You may turn to look with '
@@ -1298,7 +1345,7 @@ class Session:
                     'Someone just came into view (see arrival). Greet them now, briefly and warmly, in your own words: '
                     'by name in a way that fits this visit when you know them (personal_memory.earlier_greetings: greet '
                     'a return like a return and never reuse that wording), or a hello and a name question when you do not. '
-                    'This is a greeting, not a reply to the earlier conversation. '
+                    'This is a greeting, not a reply to the earlier conversation. ' + familiar_hello(context, self._familiar(context))
                      if opportunity.kind=='visual_arrival' else
                     'An animal just came into view (see pet). React the way a friend would when the dog walks in. '
                     'When saved pets are offered, first take a look with inspect_visual_memory (intent look, that '
@@ -3062,6 +3109,8 @@ class Session:
                     playing = self.state.jeopardy.active or bool(context.get('jeopardy'))
                     if self.joke_room is not None and not context.get('sentry') and not playing:   # No paid writer for the guard or a game.
                         self._joke_followup(heard, context, opportunity, transcript, turn_id, calls, setback[0])
+                    if not context.get('sentry') and not playing and not self.state.frozen:
+                        self._talked_about(heard, context, turn_id)
                     if context.get('callouts'):
                         try:
                             used = self.state.callout_heard(context['callouts'], heard)

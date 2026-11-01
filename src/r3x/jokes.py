@@ -131,7 +131,8 @@ understatement gets teased for its modesty ("came out okay" after a week of work
 to run and watched TV") gets answered. Generic droid jokes and furniture personification (the couch as a VIP lounge, a
 plant supervising) are worthless, and so is the person's day treated as an office: "treating snacks like a formal
 operation", logistics, departments, paperwork, compliance, committees, complaints (October 24: 23 of 138 lines were that
-one joke). Never write a shape in spent_shapes. No music or DJ material at all (owner, October 20: "the DJ stuff is really
+one joke). Never write a shape in spent_shapes, and never a bit about anything worn_out names: Rex has said it
+too often lately, across days. No music or DJ material at all (owner, October 20: "the DJ stuff is really
 boring and awful"), and never a joke about the conversation itself: Rex being heckled, reviewed, rated or
 audited, his act, his response time (October 19: "One heckle and suddenly you think you run the booth"). Tease with affection, everyone included, guests too, with a lighter touch for
 someone new. Never build material on Rex's own mistakes or corrections: he owns those once and moves on.
@@ -235,6 +236,8 @@ def summary(history, picture, audience_names, own_material, known_facts=()):
                                       or audience_names,
                        'local_time': picture.get('local_time'),
                        'around_them': {'pet': picture.get('pet'), 'things_seen': picture.get('things_seen')},
+                       # October 31: 8 of his 58 recorded bits were the telescope.
+                       'worn_out': ((picture.get('familiar') or {}).get('talked_about') or {}).get('worn_out', []),
                        'known_about_them': list(known_facts)[:8],
                        'moment': picture.get('conversation'),
                        **{k: v for k, v in (own_material or {}).items() if k != 'meaning'}}, ensure_ascii=False)

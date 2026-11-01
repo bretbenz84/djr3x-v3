@@ -36,6 +36,9 @@ CREATE INDEX IF NOT EXISTS place_embeddings_place ON place_embeddings(place_id, 
 CREATE TABLE IF NOT EXISTS place_links(
  a TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE, b TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE,
  transitions INTEGER NOT NULL, last_at REAL NOT NULL, PRIMARY KEY(a, b));
+CREATE TABLE IF NOT EXISTS place_views(
+ id TEXT PRIMARY KEY, namespace TEXT NOT NULL, vector BLOB NOT NULL, day TEXT NOT NULL, captured_at REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS place_views_at ON place_views(namespace, captured_at);
 """
 
 # V2 config values (PLACE_*), measured on this robot in July 2026.
@@ -62,6 +65,22 @@ REFRESH = (.70, .78)
 MAX_EMBEDDINGS = 15
 LINK_WINDOW = 15 * 60.      # Two rooms count as connected when he goes from one to the other this quickly.
 
+# How many days he has seen a view like this one, with no room name needed (owner, October 31: the
+# workshop and its telescope greeted as new at every start; room names are flaky). Unlabelled samples
+# of what he saw, at most one every two minutes while the wheels are still, plus the room galleries'
+# views, each counted on its local day. October 31, real fingerprints from this robot: two different
+# rooms' saved views reach .81 at most, so a stored view at V2's confident bar is the same view.
+VIEW_SAME = CONFIDENT
+VIEW_DUPLICATE = .92        # Already stored today: not stored again.
+VIEW_CHECK = 10.            # Seconds between familiarity checks.
+VIEW_SAMPLE = 120.          # Seconds between stored samples.
+VIEW_PER_DAY = 40
+VIEW_WINDOW_DAYS = 14
+VIEW_EVERYDAY_DAYS = 4      # Seen on this many of the last fourteen days: his everyday surroundings.
+VIEW_YOUNG_DAYS = 3         # With samples from fewer days than this, "new" means nothing yet.
+VIEW_FRESH = 30.            # An older check (camera gone, driving) says nothing.
+VIEW_KEPT_DAYS = 30
+
 RECOGNIZED, UNSURE, UNFAMILIAR, LEARNING, NO_ROOMS, STARTING = (
     'recognized', 'unsure', 'unfamiliar', 'learning', 'no_rooms_known', 'starting')
 
@@ -76,6 +95,11 @@ def unit(values):
 
 def dot(a, b):
     return math.fsum(map(mul, a, b))
+
+
+def day_of(wall):
+    from datetime import datetime
+    return datetime.fromtimestamp(wall).date().isoformat()
 
 
 def _separation(a, b):
@@ -109,6 +133,10 @@ class Places:
         self.learning = None         # {'place_id','name','started','vectors','headings','last','created'}
         self.last_learning = None    # outcome of the last enrollment, for an honest reply
         self.started = False
+        self.views = []              # (vector, day, captured_at): stored samples and gallery views
+        self.view = None             # {'days', 'best', 'at'}: the latest familiarity check
+        self.view_checked = self.view_stored = float('-inf')
+        self.run_began = None        # Wall clock at start: this run's own samples never make a view familiar.
 
     # Lifecycle ---------------------------------------------------------------------------
     def start(self):
@@ -157,6 +185,13 @@ class Places:
                 if len(vector) == 512: self.vectors.append((r['id'], r['place_id'], vector, r['captured_at']))
             if self.current and self.current['place_id'] not in self.rooms:
                 self.current = None; self.history.clear()
+            if self.run_began is None: self.run_began = self.wall_clock()
+            since = self.wall_clock() - VIEW_KEPT_DAYS * 86400
+            self.views = [(v, day_of(at), at) for _, _, v, at in self.vectors if at >= since]
+            for r in self.store.rows('SELECT vector,day,captured_at FROM place_views WHERE namespace=? AND captured_at>=? '
+                                     'ORDER BY captured_at', (self.namespace, since)):
+                vector = array('f'); vector.frombytes(r['vector'])
+                if len(vector) == 512: self.views.append((vector, r['day'], r['captured_at']))
             self.started = True
 
     def _scores(self, q):
@@ -229,7 +264,50 @@ class Places:
                 REFRESH[0] <= scores[0][2] <= REFRESH[1] and scores[0][2] - scores[1][2] >= MARGIN):
             self._store_vector(scores[0][0], q, heading, 'refresh'); self.load()
         self._update(scores, status, now)
+        if moving is not True: self._note_view(q, now)
         return status
+
+    # Everyday views --------------------------------------------------------------------------
+    def _note_view(self, q, now):
+        """How many earlier days (this run excluded) held a view like this one; now and then keep a sample."""
+        if now - self.view_checked < VIEW_CHECK: return
+        self.view_checked = now
+        wall = self.wall_clock(); today = day_of(wall)
+        since = wall - VIEW_WINDOW_DAYS * 86400
+        days, best, stored_today, kept_today = set(), 0., 0., 0
+        for vector, day, at in self.views:
+            if day == today and at >= self.run_began:
+                kept_today += 1
+                stored_today = max(stored_today, dot(q, vector))
+                continue
+            if at < since: continue
+            similarity = dot(q, vector)
+            best = max(best, similarity)
+            if similarity >= VIEW_SAME: days.add(day)
+        before = self.view_kind()
+        self.view = {'days': len(days), 'best': round(best, 3), 'at': now}
+        if self.trace and self.view_kind() != before:
+            self.trace.emit('view_familiarity', kind=self.view_kind(), days=len(days), best=round(best, 3))
+        if wall - self.view_stored >= VIEW_SAMPLE and stored_today < VIEW_DUPLICATE and kept_today < VIEW_PER_DAY:
+            self.view_stored = wall
+            row = (uuid4().hex, self.namespace, array('f', q).tobytes(), today, wall)
+            with self.store.transaction() as c:
+                c.execute('INSERT INTO place_views VALUES(?,?,?,?,?)', row)
+                c.execute('DELETE FROM place_views WHERE captured_at<?', (wall - VIEW_KEPT_DAYS * 86400,))
+            self.views.append((array('f', q), today, wall))
+
+    def view_kind(self):
+        if self.view is None: return None
+        if self.view['days'] >= VIEW_EVERYDAY_DAYS: return 'everyday'
+        if self.view['days']: return 'seen_before'
+        return 'new' if len({day for _, day, at in self.views if at < self.run_began}) >= VIEW_YOUNG_DAYS else None
+
+    def view_context(self):
+        """How familiar the view in front of him is, in words, or None (no recent check, or too little history)."""
+        with self.lock:
+            kind = self.view_kind()
+            if kind is None or self.clock() - self.view['at'] > VIEW_FRESH: return None
+            return {'this_view': kind, 'seen_on': f"{self.view['days']} of the last {VIEW_WINDOW_DAYS} days"}
 
     def _update(self, scores, status, now):
         confident = status == RECOGNIZED

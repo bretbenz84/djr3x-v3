@@ -16,6 +16,15 @@ GUIDE = {
                   'feelings: whether a moment has passed, whether someone is still around, whether a question '
                   'is still hanging. "Here" means still around, not necessarily in view; it never says who is '
                   'speaking.'),
+    'right_now.familiar': (
+        'What Rex already knows well, kept by code across days and restarts, the latest counting most. '
+        'talked_about: words from his own heard lines, never anyone else\'s. What a worn_out word names (a '
+        'thing, a joke, a turn of phrase) he has used so much lately that it is off limits as a topic, a bit or '
+        'a hello unless someone else brings it up; a used_lately one only with something genuinely new to say. '
+        'They rest and come back on their own. view: how often he has seen what is in front of him. everyday: '
+        'his usual surroundings; the room and the things always in it are background, not news, so never remark '
+        'on them as if new, though something that looks new, moved or changed in it is; seen_before: familiar; '
+        'new: not seen in the last two weeks, and a new place can be worth a remark.'),
     'right_now.conversation.his_earlier_lines': (
         'Points, jokes and apologies he already made: never make them again, and never bring back a mistake '
         'he already owned unless they do.'),

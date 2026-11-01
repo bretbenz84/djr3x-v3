@@ -21,6 +21,51 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Familiarity: what he keeps saying, everyday views and time apart — October 31
+
+Owner: "Each time I turn him on he greets me and comments on the telescope in the room. There is no sense
+of novelty or familiarity", "we almost need a recency bias as well", and "Someone rex sees 20 minutes apart
+vs 20 days apart has no current avenue of expression." October 21–29 logs: the telescope was in about 50 of
+his heard lines and opened 8 of 35 runs, and "back already?" or "back again" opened 7. Every guard against
+repeating himself forgot at a restart, and a guest seen only in company left no record of when.
+- **What he keeps saying** (`familiarity.py`). Code counts the words of his own heard lines per day: never a
+  person's words, never names of people or pets, nothing during Jeopardy or sentry mode. Each line's weight
+  halves every two and a half days. A word from two or more lines still weighing 1.5 is *worn out*: off
+  limits unless someone else brings it up. Above 0.4 it is *used lately*: only with something new. Two lines
+  rest about six days, nine about two weeks. A line said to a private audience is offered only while they are
+  here and is deleted with them. Code counts rather than the model tagging because 21 of the 52 telescope lines
+  were plain prose with no reply tool. Replaces the planner's within-run `mentioned_lately`. Replayed on the
+  October 14–29 logs, the list before each of the last four workshop runs held "telescope".
+- **Everyday views** (`places.py`): how many of the last fourteen days he saw a view like the one in front of
+  him, from the room model's fingerprints with no room name. Four or more is everyday. Details in
+  [room recognition](ROOM_RECOGNITION.md).
+- **Time apart** (`state.py`, `visits`): when each recognized person's visit began and was last in evidence,
+  kept across runs for everyone. A greeting gets `last_visit`: how long ago, what kind of absence (barely
+  gone, the same day, a day, a few days, a while, a long time from two weeks), and on how many of the last
+  fourteen days they came by. No record means nothing is offered.
+- **Where it shows.** `right_now.familiar` reaches replies, beats, the planner and the joke writer. A greeting's
+  own note names the time apart, the worn-out words and an everyday view. The persona's quoted "Back
+  already?" examples, which had become the formula, are gone. No extra model calls; a greeting request grows
+  by 580–880 characters in the probe below, an ordinary reply by the familiar part alone (70–210).
+- **Checks:** 15 new blocked-I/O checks in `tests/test_familiarity.py` (synthetic voices, faces and
+  fingerprints, fake clocks, temporary stores), one retired with `mentioned_lately`. Full suite: 1,726 pass,
+  6 skipped; the one error, a Jeopardy board check, fails the same way on the previous commit.
+- **Paid probe** `tools/check_familiar_greetings.py --live`: fictional Sam beside a drawn telescope, real
+  reply model, temporary store, 8 startup greetings per arm, judged blind
+  (`local/validation/familiar-greetings-ddf6cf2f`).
+  - Time apart that fits the real gap: 1 of 8 before, 7 of 8 after.
+  - Room remarks: 4 before, 2 after.
+  - The telescope: 6 before, 5 after. Two of those 5 came after 20 days, when it has rested and is allowed.
+  - Reused openings: 2 and 2.
+  - One greeting per arm was lost to an older rejection: an intention citing evidence not offered
+    (`WorkingInterestEvidenceNotOffered`), seen once live, October 1.
+  - About 43,000 uncached input tokens per greeting; dollars not recorded.
+  - Earlier rounds found the greeting note written before the picture of the present existed, so it lacked
+    the worn-out words and the view (fixed, with a check), and a before arm that still saw the time apart
+    (fixed).
+- **Open:** the picture in front of him still pulls the telescope into some hellos. **Not yet run on the
+  robot**; `view_familiarity` events will show whether .80 separates the same view from another.
+
 ## Room recognition on the robot, reviewed — October 31
 
 The docs still called room recognition untried on the robot. It has run there since October 16

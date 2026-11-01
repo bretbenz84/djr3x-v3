@@ -574,6 +574,7 @@ class VoiceRuntime:
             initiative = self.session.state.initiative
             agency = self.session.state.agency
             present.saw_faces(self.arrivals.faces, now)
+            self.session.state.note_visits(now)
             quiet_seconds = min(now-self.started_at, now-self.session.last_trusted_speech_at,
                                 now-self.session.last_interaction_at)
             audience, audience_key = self.arrivals.audience_snapshot(now)

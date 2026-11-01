@@ -149,6 +149,8 @@ class CoreState:
         self._load_topic_boundaries()
         from .present import Present
         self.present = Present()   # Who is here, things around, the conversation clock.
+        self._visits_noted = float('-inf')
+        self._visit_ids = {}       # person_id -> (visit began, monotonic; its visits row id)
         # Whose voice this conversation has clearly matched: {'person', 'confirmed', 'last_at'}.
         self.voice_conversation = None
         self.named_people = {}   # person_id -> when their exact name was last said or they were introduced.
@@ -782,6 +784,38 @@ class CoreState:
         """The private audience for the memory gate, kept by the picture of the present."""
         return self.present.note_audience(context, self.trace.clock())
 
+    def note_visits(self, now=None):
+        """Keep, across runs, when each recognized person's visit began and when they were last in evidence
+        (owner, October 31: someone seen 20 minutes apart and 20 days apart got the same hello)."""
+        from . import familiarity
+        now = self.trace.clock() if now is None else now
+        if self.frozen or now - self._visits_noted < familiarity.VISIT_NOTE_SECONDS: return
+        self._visits_noted = now
+        wall = self.wall_clock()
+        with self.present.lock:
+            seen = {p: (self.present.visit_since.get(p, at), at) for p, at in self.present.recognized.items()
+                    if now - at <= familiarity.VISIT_NOTE_SECONDS}
+        rows = []
+        for person, (since, at) in seen.items():
+            visit = self._visit_ids.get(person)
+            if visit is None or visit[0] != since:
+                visit = self._visit_ids[person] = (since, uuid4().hex)
+            rows.append((visit[1], person, wall - (now - since), wall - (now - at)))
+        if not rows: return
+        try:
+            with self.store.transaction() as conn:
+                familiarity.note_visits(conn, rows, wall)
+        except Exception as exc:   # Someone forgotten meanwhile; the next note retries the rest.
+            self.trace.emit('visits_note_failed', error_type=type(exc).__name__)
+
+    def last_visit(self, person_id):
+        """For a greeting: when Rex last saw them before this visit, and how often they come by."""
+        from . import familiarity
+        now, wall = self.trace.clock(), self.wall_clock()
+        with self.present.lock:
+            since = self.present.visit_since.get(person_id, now)
+        return familiarity.last_visit(self.store, person_id, wall - (now - since), wall)
+
     def opportunity_context(self, event, *, advance_memory_cursor=True):
         """No acoustic observation/source turn is fabricated for an opportunity."""
         from .face_attribution import public_face
@@ -826,6 +860,7 @@ class CoreState:
                                           'nobody_visible' if not faces else 'visible_group'},
                 **({'visual_arrival':{'face_track_id':event.target_track,'person_id':event.person_id,
                                      'returning_this_session':event.returning,
+                                     **({'last_visit':last} if (last := event.person_id and self.last_visit(event.person_id)) else {}),
                                      'startup_greeting':self.conversation_source is None and not event.returning
                                          and not any(r['heard_complete_phrases'] for r in self.initiative.outcomes)}} if event.kind=='visual_arrival' else {}),
                 **({'pet_arrival':{'target_id':event.target_track,
@@ -2093,6 +2128,7 @@ class CoreState:
             self.attention.scene.invalidate(self.trace.clock())
             self.forgotten = True
             self.present.forget(data["person_id"])
+            self._visit_ids.pop(data["person_id"], None)   # Their visits rows went with them (cascade).
             from .speakers import VoiceObservation,Attribution
             self.current = (turn_id,replace(capture,pcm=b""),transcript,
                             VoiceObservation(observation.namespace),Attribution(reason="person_forgotten"))

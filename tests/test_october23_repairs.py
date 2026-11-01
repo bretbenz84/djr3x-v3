@@ -1,11 +1,11 @@
-"""October 23 run 1e626e07, the repairs besides looking: a dropped reply, the eyes, pet facts and repeats.
+"""October 23 run 1e626e07, the repairs besides looking: a dropped reply, the eyes and pet facts
+(repeats moved to test_familiarity.py, October 31).
 
 Synthetic faces, fake LED ports, scripted model calls and temporary stores only."""
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
-from r3x.agency import mentioned_lately
 from r3x.contracts import Cancellation, Capture, ToolCall, Transcript
 from r3x.leds import EYE_REFRESH_SECONDS
 from r3x.output import OutputOwner, TextOutput
@@ -147,14 +147,3 @@ class EyeRefreshTests(MemoryFixture):
         led.blinking = True
         clock.wait(EYE_REFRESH_SECONDS); led.tick()
         self.assertEqual(len(eyes()), start + 2)                        # A requested blink stays dark.
-
-
-class RepeatTests(MemoryFixture):
-    def test_things_he_keeps_naming_are_listed_for_the_planner_but_not_the_people_or_pets(self):
-        said = ["I don't see a duckling droid on the counter, just two dogs, you, and that enormous telescope.",
-                'I see the telescope and two dogs on the couch, though, Brett.',
-                "It's not in view from here, Brett: just the couch, the dogs, and the telescope."]
-        words = mentioned_lately([{'role': 'assistant', 'content': line} for line in said], keep={'brett'})
-        self.assertEqual(words[0], 'telescope')
-        self.assertIn('couch', words)
-        self.assertNotIn('brett', words)

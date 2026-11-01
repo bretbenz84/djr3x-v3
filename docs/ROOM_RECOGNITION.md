@@ -38,6 +38,17 @@ bedroom, even standing still, and how often he names the right room is unmeasure
   opinion, with at most one early "what room is this?" The planner chooses it; it is not a
   separate mode and it never takes over the conversation.
 
+- **Everyday views (October 31).** The same fingerprints, with no room name, tell how many of the
+  last fourteen days he has seen a view like the one in front of him: four or more is *everyday*
+  (his usual surroundings, not news), one to three *seen before*, none *new* once there are three
+  days of history. A sample is kept at most every two minutes while the wheels are still, not again
+  when that view is already stored today, and for 30 days; the rooms' saved views count on the days
+  they were captured. A stored view at .80 or more is the same view (October 31: two different rooms'
+  saved views reach .81 at most). This run's own samples never make a view familiar. It adds no model;
+  matching 620 stored views (a full fourteen days) took a median 15 ms on the robot's M2 (synthetic vectors, model idle), once every 10 s. Not yet run on the robot; `view_familiarity` events log each
+  change with the best similarity, to check the .80 line.
+  [Familiarity](IMPLEMENTATION_STATUS.md#familiarity-what-he-keeps-saying-everyday-views-and-time-apart--october-31).
+
 ## Kept from V2
 
 V2 thresholds measured on this robot in July: a confident call needs ≥0.80 and a 0.04 lead

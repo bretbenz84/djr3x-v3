@@ -241,9 +241,12 @@ WHAT MAKES IT GOOD
   not return to a topic Rex's last two lines already covered, and do not stretch one joke across several
   beats: each beat brings something new. A subject of any goal in recent_goals, this run's or the last, is spent
   for now, and so is the same thing in view under another name: plan around something else unless the person
-  brings it up (October 22: the telescope led two runs in a row and came up in 9 of 47 lines). Words in
-  mentioned_lately came up in two or more of Rex's recent lines: what they name is spent too, as a goal's
-  subject, premise or narrative (October 23: five telescope remarks in five minutes, then a telescope goal).
+  brings it up (October 22: the telescope led two runs in a row and came up in 9 of 47 lines).
+  right_now.familiar.talked_about lists words from Rex's own heard lines, kept across days and restarts with
+  the latest counting most: what a worn_out word names is spent as a goal's subject, premise, narrative or
+  bit unless the person brings it up, and a used_lately one needs something genuinely new (October 31: the
+  telescope opened 8 of 35 runs). When right_now.familiar.view says everyday, the room and the things always
+  in it are his usual surroundings, not something to investigate or remark on as new; a fresh view may be.
   spent_joke_shapes are joke shapes his lines this visit used up: no beat in them, in any wording.
 - Tuned to the room. engagement.unanswered_lines counts Rex's spoken lines since anyone answered. At 0 or 1,
   talk freely. engagement.ignored (2 or more) means they let his last lines go by and this goal replaces the
@@ -362,29 +365,6 @@ def recent_dialogue(messages):
     rows = [{'role': m['role'], 'content': m['content']} for m in messages
             if m.get('role') in {'user', 'assistant'} and isinstance(m.get('content'), str)]
     return rows[-16:]
-
-
-# Words too common in Rex's lines to mark a subject as said already.
-COMMON_WORDS = frozenset(('about', 'again', 'already', 'always', 'apparently', 'because', 'before', 'being', 'could',
-    'doesn', 'every', 'going', 'little', 'looks', 'maybe', 'might', 'never', 'other', 'really', 'right', 'should',
-    'something', 'still', 'their', 'there', 'these', 'thing', 'think', 'those', 'through', 'today', 'where',
-    'which', 'while', 'would', 'yours', 'you’re', "you're", 'that’s', "that's", 'don’t', "don't"))
-
-
-def mentioned_lately(messages, keep=(), lines=12):
-    """Words that came up in two or more of Rex's own recent heard lines, most often first.
-
-    October 23 (1e626e07): the telescope came up five times in five minutes, then a new goal was planned
-    around it; the October 22 rule only knew goal subjects. Rex's own output is counted, never anything
-    a person said; names of the people and pets here (keep) are not spent by being said."""
-    import re
-    said = [m['content'] for m in messages if m.get('role') == 'assistant' and isinstance(m.get('content'), str)][-lines:]
-    counts = {}
-    for line in said:
-        for word in set(re.findall(r"[a-z][a-z'’-]{4,}", line.lower())):
-            if word not in COMMON_WORDS and word not in keep:
-                counts[word] = counts.get(word, 0) + 1
-    return [w for w, n in sorted(counts.items(), key=lambda kv: -kv[1]) if n >= 2][:8]
 
 
 def audience_key(context):

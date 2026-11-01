@@ -46,6 +46,14 @@ supplies the same fact and the model chooses the words: a return is greeted as o
 an earlier greeting's wording is not reused. Synthetic checks only; variety is **not yet
 observed live**.
 
+October 31 (owner: "Someone rex sees 20 minutes apart vs 20 days apart has no current avenue of
+expression"): a greeting also gets `visual_arrival.last_visit`, when Rex last saw that person before this
+visit and on how many of the last fourteen days they came by, in words. The state owner keeps visits (when
+each recognized person's visit began and was last in evidence, every 30 s, for a year) across runs, for
+guests as well as the owner; until visits exist, the conversation record stands in. With no record nothing
+is offered, so he never claims a first meeting or a long absence from a gap in his records. Forgetting a
+person removes their visits.
+
 The model can call:
 
 - `recall_conversations`: topic words plus an optional named period
