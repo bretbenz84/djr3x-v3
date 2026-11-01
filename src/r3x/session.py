@@ -115,13 +115,21 @@ def familiar_hello(context, familiar=None):
     last = (context.get('visual_arrival') or {}).get('last_visit')
     familiar = familiar or (context.get('right_now') or {}).get('familiar') or {}
     worn = (familiar.get('talked_about') or {}).get('worn_out') or []
+    woke = familiar.get('woke_up')
     note = ''
+    if woke:   # Owner, October 31: "If I woke up in a new room I'd want to know why I switched places."
+        slept_in = f" in the {woke['went_to_sleep_in']}" if woke.get('went_to_sleep_in') else ''
+        now_in = f" (this looks like the {woke['now_in']})" if woke.get('now_in') else ''
+        note += (f"You were switched off{slept_in} {woke['went_to_sleep']} and just woke up somewhere else{now_in}. "
+                 'You do not know how or why you were moved: that is the news, so lead with it, wonder about it and '
+                 'ask, in your own words. The place itself may be familiar; it is the move that is new. ')
     if last:
         note += (f"You last saw them {last['last_here']} ({last['absence']}); here on {last['days_here_lately']}. "
-                 'Let that time apart lead the hello, in words you have not used before. ')
+                 + ('Let that time apart show in the hello too. ' if woke else
+                    'Let that time apart lead the hello, in words you have not used before. '))
     if worn:
         note += 'Worn out lately, so not in this hello in any words: ' + ', '.join(worn[:8]) + '. '
-    if (familiar.get('view') or {}).get('this_view') == 'everyday':
+    if (familiar.get('view') or {}).get('this_view') == 'everyday' and not woke:
         note += 'This is your everyday view: leave the room and the things always in it out of the hello. '
     return note
 
@@ -507,7 +515,8 @@ class Session:
             here.append(((context or {}).get('visual_arrival') or {}).get('person_id'))
         places = getattr(self.state, 'places', None)
         return familiarity.familiar(familiarity.context(self.state.store, here, self.state.wall_clock()),
-                                    places.view_context() if places is not None and hasattr(places, 'view_context') else None)
+                                    places.view_context() if places is not None and hasattr(places, 'view_context') else None,
+                                    places.woke_context() if places is not None and hasattr(places, 'woke_context') else None)
 
     def _beat_voices(self, context, step):
         """The voices one of his own beats may perform in, or None: no cloner, the cameo budget

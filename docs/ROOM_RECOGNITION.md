@@ -48,6 +48,16 @@ bedroom, even standing still, and how often he names the right room is unmeasure
   matching 620 stored views (a full fourteen days) took a median 15 ms on the robot's M2 (synthetic vectors, model idle), once every 10 s. Not yet run on the robot; `view_familiarity` events log each
   change with the best similarity, to check the .80 line.
   [Familiarity](IMPLEMENTATION_STATUS.md#familiarity-what-he-keeps-saying-everyday-views-and-time-apart--october-31).
+- **Waking up somewhere else (October 31).** Owner: "If I woke up in a new room I'd want to know why I
+  switched places." Every familiarity check (every 10 s while the wheels are still) also keeps that view, the
+  last 12 in all, with the room he believed he was in. The next start compares its first minute with them:
+  - One at .80 or more: he woke where he went to sleep.
+  - Four frames in a row under .70 against all of them: he was moved while off. For ten minutes his picture
+    of the moment says when he was switched off, in which room if known, and which room this looks like, and
+    the hello leads with wondering how and why.
+  - Anything between, or a drive before deciding, claims nothing. The place itself can still be familiar.
+  The .70 line is from October 31's fingerprints (two different rooms' views mostly .47–.70 apart). Not yet run
+  on the robot; `woke_up` events log each verdict with its best similarity.
 
 ## Kept from V2
 

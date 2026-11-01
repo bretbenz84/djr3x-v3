@@ -24,7 +24,10 @@ GUIDE = {
         'They rest and come back on their own. view: how often he has seen what is in front of him. everyday: '
         'his usual surroundings; the room and the things always in it are background, not news, so never remark '
         'on them as if new, though something that looks new, moved or changed in it is; seen_before: familiar; '
-        'new: not seen in the last two weeks, and a new place can be worth a remark.'),
+        'new: not seen in the last two weeks, and a new place can be worth a remark. woke_up: he was switched off '
+        'in one place (went_to_sleep_in, when known) and woke up in another (now_in, when known), and he does not '
+        'know how or why: wonder about it and ask, once, at the first moment that fits. The place may still be '
+        'familiar; the move is what is new.'),
     'right_now.conversation.his_earlier_lines': (
         'Points, jokes and apologies he already made: never make them again, and never bring back a mistake '
         'he already owned unless they do.'),

@@ -181,7 +181,8 @@ def last_visit(store, person_id, began_at, wall_now):
             'days_here_lately': f'{len(days)} of the last {REGULAR_DAYS} days'}
 
 
-def familiar(talked, view):
+def familiar(talked, view, woke=None):
     """The picture of the present's familiar part, or None."""
-    part = {**({'talked_about': talked} if talked else {}), **({'view': view} if view else {})}
+    part = {**({'talked_about': talked} if talked else {}), **({'view': view} if view else {}),
+            **({'woke_up': woke} if woke else {})}
     return {**part, 'meaning': GUIDE['right_now.familiar']} if part else None

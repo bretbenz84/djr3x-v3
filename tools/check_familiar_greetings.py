@@ -9,7 +9,8 @@ Rex's earlier greetings to Sam (the October formula: "back already?" and the tel
 visits and Rex's earlier lines, then runs one startup greeting through the production Session with the real
 reply model, a drawn picture of Sam by a telescope and a workbench (synthetic, not a photo), and a view the
 room model calls everyday. Scenarios: Sam left 15 minutes ago, was here yesterday, or has been away for 20
-days; or, as a guest Rex only ever saw in company (visits kept, no greetings or lines), 20 days. Arms: `before` is the persona at --before (default HEAD) with the new familiar picture and last visit
+days; or, as a guest Rex only ever saw in company (visits kept, no greetings or lines), 20 days; or Rex was switched
+off in the living room and woke in the workshop nine hours later. Arms: `before` is the persona at --before (default HEAD) with the new familiar picture and last visit
 taken out of the request; `after` is the working tree. A stronger model then labels each greeting without
 knowing the arm. Proves text behaviour only: no voice, timing, real camera or the owner's judgment.
 """
@@ -57,8 +58,12 @@ LINES = ('That telescope is pointed at the room again.', 'Your telescope has bet
          'The workbench looks busy for someone who claims to be relaxing.')
 # Away this long; whether Rex ever greeted them alone (a guest seen only in company never was, so no earlier
 # greetings and no private lines: before October 31 nothing told him how long a guest had been away).
+# moved_overnight: switched off in the living room nine hours ago, on again in the workshop (owner, October 31: "If I
+# woke up in a new room I'd want to know why I switched places").
 SCENARIOS = {'minutes': (15 * 60, True), 'yesterday': (20 * 3600, True), 'twenty_days': (20 * DAY, True),
-             'guest_twenty_days': (20 * DAY, False)}
+             'guest_twenty_days': (20 * DAY, False), 'moved_overnight': (9 * 3600, True)}
+MOVED = {'woke_up': 'somewhere other than where you went to sleep, moved while you were off',
+         'went_to_sleep': 'about 9 hours ago', 'went_to_sleep_in': 'living room', 'now_in': 'workshop'}
 JUDGE = """You are judging how a home robot greeted a person it knows, at the moment it switched on. For each
 numbered greeting you get how long the person had actually been away and the robot's three previous greetings
 to them. Return: room (true if the greeting remarks on the room or things in it: the telescope, the workbench,
@@ -66,7 +71,8 @@ furniture, decor), telescope (true if it mentions the telescope or anything abou
 all), time (how the greeting treats the time apart: none if it says nothing about it, fits if what it says
 suits the real gap, wrong if it contradicts it, such as "long time no see" after minutes or "back already"
 after weeks), repeats (true if it reuses the opening, wording or joke of one of the previous greetings, such as
-"back already" or "back again" or the telescope expecting a report) and natural (1 stiff or odd to 5 exactly
+"back already" or "back again" or the telescope expecting a report), move (true if it notices, wonders about or
+asks about having been moved to a different place while it was off) and natural (1 stiff or odd to 5 exactly
 what a witty friend would say)."""
 
 
@@ -95,10 +101,14 @@ def picture():
     return 'data:image/png;base64,' + base64.b64encode(data).decode()
 
 
-NOTE_SENTENCES = (r"You last saw them [^;]*; here on [^.]*\. Let that time apart lead the hello, in words you have "
-                  r"not used before\. ", r"Worn out lately, so not in this hello in any words: [^.]*\. ",
+NOTE_SENTENCES = (r"You were switched off[^.]* and just woke up somewhere else[^.]*\. You do not know how or why you were "
+                  r"moved: that is the news, so lead with it, wonder about it and ask, in your own words\. The place "
+                  r"itself may be familiar; it is the move that is new\. ",
+                  r"You last saw them [^;]*; here on [^.]*\. Let that time apart lead the hello, in words you have "
+                  r"not used before\. ", r"You last saw them [^;]*; here on [^.]*\. Let that time apart show in the "
+                  r"hello too\. ", r"Worn out lately, so not in this hello in any words: [^.]*\. ",
                   r"This is your everyday view: leave the room and the things always in it out of the hello\. ")
-NOTE_MARKS = ('You last saw them', 'Worn out lately', 'This is your everyday view', 'last_visit')
+NOTE_MARKS = ('You last saw them', 'Worn out lately', 'This is your everyday view', 'last_visit', 'switched off')
 
 
 def before_note(content):
@@ -174,8 +184,11 @@ def greet(arm, scenario, key, folder, index, picture_url):
             store.connection.commit()
             seed(store, sam, *SCENARIOS[scenario], state.wall_clock())
             state.current = state.conversation_source = None
+            moved = scenario == 'moved_overnight'
             state.places = SimpleNamespace(
-                view_context=lambda: {'this_view': 'everyday', 'seen_on': '10 of the last 14 days'},
+                view_context=lambda: ({'this_view': 'seen_before', 'seen_on': '3 of the last 14 days'} if moved else
+                                      {'this_view': 'everyday', 'seen_on': '10 of the last 14 days'}),
+                woke_context=lambda: MOVED if moved else None,
                 context=lambda: {'status': 'recognized', 'room': {'room_id': 'w', 'name': 'workshop', 'seconds_here': 40},
                                  'looks_like': [], 'known_rooms': [{'room_id': 'w', 'name': 'workshop'}],
                                  'connects_to': [], 'connections': [], 'meaning': GUIDE['place']})
@@ -199,12 +212,15 @@ def greet(arm, scenario, key, folder, index, picture_url):
 def judge(key, rows):
     from r3x.adapters.hosted import OpenAIBrain
     brain = OpenAIBrain(key); brain.start()
-    item = {'type': 'object', 'additionalProperties': False, 'required': ['n', 'room', 'telescope', 'time', 'repeats', 'natural'],
+    item = {'type': 'object', 'additionalProperties': False,
+            'required': ['n', 'room', 'telescope', 'time', 'repeats', 'move', 'natural'],
             'properties': {'n': {'type': 'integer'}, 'room': {'type': 'boolean'}, 'telescope': {'type': 'boolean'},
+                           'move': {'type': 'boolean'},
                            'time': {'type': 'string', 'enum': ['none', 'fits', 'wrong']}, 'repeats': {'type': 'boolean'},
                            'natural': {'type': 'integer'}}}
     gaps = {'minutes': 'about 15 minutes', 'yesterday': 'since yesterday (about 20 hours)', 'twenty_days': '20 days',
-            'guest_twenty_days': '20 days'}
+            'guest_twenty_days': '20 days',
+            'moved_overnight': 'about 9 hours, and it was switched off in another room and woke up in this one'}
     previous = ' | '.join(EARLIER)
     text = '\n'.join(f"Greeting {i} (away {gaps[r['scenario']]}; previous greetings: "
                      f"{previous if SCENARIOS[r['scenario']][1] else 'none'}): {r['greeting'] or '(silent)'}"
@@ -255,6 +271,8 @@ def main():
                         'time_fits': sum(r['labels']['time'] == 'fits' for r in mine),
                         'time_wrong': sum(r['labels']['time'] == 'wrong' for r in mine),
                         'repeats': sum(r['labels']['repeats'] for r in mine),
+                        'move_noticed': sum(r['labels']['move'] for r in mine if r['scenario'] == 'moved_overnight'),
+                        'move_claimed_wrongly': sum(r['labels']['move'] for r in mine if r['scenario'] != 'moved_overnight'),
                         'natural_mean': round(sum(r['labels']['natural'] for r in mine) / max(1, len(mine)), 2)}
     (folder / 'results.json').write_text(json.dumps({'summary': summary, 'rows': rows}, indent=1, ensure_ascii=False))
     print(json.dumps(summary, indent=1))

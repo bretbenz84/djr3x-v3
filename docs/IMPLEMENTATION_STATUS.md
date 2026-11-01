@@ -43,12 +43,17 @@ repeating himself forgot at a restart, and a guest seen only in company left no 
   kept across runs for everyone. A greeting gets `last_visit`: how long ago, what kind of absence (barely
   gone, the same day, a day, a few days, a while, a long time from two weeks), and on how many of the last
   fourteen days they came by. No record means nothing is offered.
+- **Waking up somewhere else** (`places.py`, owner, same day: "If I woke up in a new room I'd want to know
+  why I switched places"). The last views of each run are kept. At the next start, a view clearly unlike all
+  of them means he was moved while off. For ten minutes his picture of the moment says so: when he was switched
+  off, in which room if known, and which room this looks like. The hello leads with wondering how and why, so
+  a familiar room is not news but the move is. Details in [room recognition](ROOM_RECOGNITION.md).
 - **Where it shows.** `right_now.familiar` reaches replies, beats, the planner and the joke writer. A greeting's
   own note names the time apart, the worn-out words and an everyday view. The persona's quoted "Back
   already?" examples, which had become the formula, are gone. No extra model calls; a greeting request grows
   by 580–880 characters in the probe below, an ordinary reply by the familiar part alone (70–210).
-- **Checks:** 15 new blocked-I/O checks in `tests/test_familiarity.py` (synthetic voices, faces and
-  fingerprints, fake clocks, temporary stores), one retired with `mentioned_lately`. Full suite: 1,726 pass,
+- **Checks:** 19 new blocked-I/O checks in `tests/test_familiarity.py` (synthetic voices, faces and
+  fingerprints, fake clocks, temporary stores), one retired with `mentioned_lately`. Full suite: 1,730 pass,
   6 skipped; the one error, a Jeopardy board check, fails the same way on the previous commit.
 - **Paid probe** `tools/check_familiar_greetings.py --live`: fictional Sam beside a drawn telescope, real
   reply model, temporary store, 8 startup greetings per arm, judged blind
@@ -59,6 +64,10 @@ repeating himself forgot at a restart, and a guest seen only in company left no 
   - Reused openings: 2 and 2.
   - One greeting per arm was lost to an older rejection: an intention citing evidence not offered
     (`WorkingInterestEvidenceNotOffered`), seen once live, October 1.
+  - Moved overnight (switched off in the living room, on in the workshop nine hours later; 2 per arm,
+    `familiar-greetings-7260c41d`): the move noticed 0 of 2 before, 2 of 2 after ("I woke up in the workshop
+    instead of the living room—who relocated the pilot while I was offline?"). No move claimed in the
+    15-minute control (0 of 2 per arm).
   - About 43,000 uncached input tokens per greeting; dollars not recorded.
   - Earlier rounds found the greeting note written before the picture of the present existed, so it lacked
     the worn-out words and the view (fixed, with a check), and a before arm that still saw the time apart

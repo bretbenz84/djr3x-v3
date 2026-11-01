@@ -78,8 +78,9 @@ it or reads its data.
   own heard lines with the latest counting most, so something he keeps bringing up (the workshop telescope
   opened 8 of 35 runs) is off limits for days and comes back once it has rested. A view he has seen on four
   of the last fourteen days is everyday: its usual things are home, not news. A greeting is told how long it
-  has been and how often they come by, so twenty minutes and twenty days sound different. No extra model
-  calls. Not yet run on the robot ([details](docs/IMPLEMENTATION_STATUS.md#familiarity-what-he-keeps-saying-everyday-views-and-time-apart--october-31)).
+  has been and how often they come by, so twenty minutes and twenty days sound different. Switched off in
+  one place and on in another, he notices the move and wonders aloud how he got there, even in a room he
+  knows. No extra model calls. Not yet run on the robot ([details](docs/IMPLEMENTATION_STATUS.md#familiarity-what-he-keeps-saying-everyday-views-and-time-apart--october-31)).
 - **News (October 11).** BBC headlines, Sacramento weather and, once a day, about five
   web-searched stories (at most one about AI or tech) that Rex may bring up in a lull,
   stating when each event happens. Interests people tell him about themselves are saved

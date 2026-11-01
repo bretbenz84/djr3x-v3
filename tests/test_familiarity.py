@@ -15,7 +15,7 @@ from r3x.speakers import SpeakerTracker
 from r3x.state import CoreState
 from tests import test_memory_core as memory_tests
 from tests.test_curiosity import Brain, CuriosityFixture, say
-from tests.test_places import PlaceFixture, KITCHEN, near, unit
+from tests.test_places import PlaceFixture, HALL, KITCHEN, near, unit
 from tests.test_proactive import event, face
 from tests.test_voice_core import Trace
 
@@ -111,6 +111,67 @@ class ArrivalNoteTests(CuriosityFixture):
         self.assertIn('You last saw them about 20 days ago (a long time: two weeks or more)', note)
         self.assertIn('Worn out lately, so not in this hello in any words: telescope', note)
         self.assertIn('This is your everyday view', note)
+
+
+class WakeNoteTests(CuriosityFixture):
+    def test_a_move_while_off_leads_the_hello_and_the_room_is_not_left_out(self):
+        bret = self.enroll('Bret')
+        moved = {'woke_up': 'somewhere other than where you went to sleep, moved while you were off',
+                 'went_to_sleep': 'about 3 hours ago', 'went_to_sleep_in': 'workshop', 'now_in': 'living room'}
+        self.state.places = SimpleNamespace(view_context=lambda: {'this_view': 'everyday', 'seen_on': '9 of the last 14 days'},
+                                            woke_context=lambda: moved, context=lambda: {'status': 'recognized'})
+        self.state.current = self.state.conversation_source = None
+        self.start('Bret, who moved me?')
+        self.trace.at += 400
+        self.state.present.saw_faces([face(self.trace.at, bret)], self.trace.at)
+        self.session.process_opportunity(event(bret, at=self.trace.at), self.session.revision, lambda: True)
+        snapshot = self.brain.snapshots[0]
+        note = next(m['content'] for m in snapshot.messages if 'Startup greeting' in str(m.get('content')))
+        self.assertIn('You were switched off in the workshop about 3 hours ago and just woke up somewhere else '
+                      '(this looks like the living room)', note)
+        self.assertNotIn('everyday view', note)       # The move is the news, not something to leave out.
+        self.assertEqual(familiar(snapshot)['woke_up'], moved)
+
+
+class WakeTests(PlaceFixture):
+    restart = lambda self, days=1: ViewTests.restart(self, days)
+    look = lambda self, vector, seconds: ViewTests.look(self, vector, seconds)
+
+    def test_waking_somewhere_else_is_noticed_and_waking_where_he_slept_is_not(self):
+        kitchen, hall = self.room('kitchen', KITCHEN), self.room('hallway', HALL)
+        self.restart(0)
+        self.look(near(KITCHEN, 1), 60)                       # Switched off in the kitchen...
+        self.restart(3 / 24)                                  # ...and on again three hours later, in the hallway.
+        self.look(near(HALL, 2), 15)
+        self.assertEqual(self.places.woke_context(), {
+            'woke_up': 'somewhere other than where you went to sleep, moved while you were off',
+            'went_to_sleep': 'about 3 hours ago', 'went_to_sleep_in': 'kitchen', 'now_in': 'hallway'})
+        self.clock.now += 600
+        self.assertIsNone(self.places.woke_context())         # Ten minutes on, it is old news.
+        self.restart(1 / 24)                                  # Off and on again where he last was: nothing to say.
+        self.look(near(HALL, 3), 15)
+        self.assertEqual(self.places.woke['verdict'], 'same_place')
+        self.assertIsNone(self.places.woke_context())
+
+    def test_an_unclear_view_or_a_drive_first_claims_nothing(self):
+        desk = unit(11)
+        self.restart(0)
+        self.look(desk, 60)
+        self.restart(1 / 24)
+        self.look(near(desk, 4, .53), 90)                    # About .75 alike: maybe the light, maybe not.
+        self.assertEqual(self.places.woke['verdict'], 'unsure')
+        self.assertIsNone(self.places.woke_context())
+        self.restart(1 / 24)
+        self.places.note_motion()                            # He drove off before deciding.
+        self.look(unit(12), 15)
+        self.assertEqual(self.places.woke['verdict'], 'drove')
+        self.assertIsNone(self.places.woke_context())
+
+    def test_a_first_run_with_nothing_kept_says_nothing(self):
+        self.restart(0)
+        self.look(unit(13), 30)
+        self.assertIsNone(self.places.woke)
+        self.assertIsNone(self.places.woke_context())
 
 
 class ViewTests(PlaceFixture):

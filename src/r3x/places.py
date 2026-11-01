@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS place_links(
 CREATE TABLE IF NOT EXISTS place_views(
  id TEXT PRIMARY KEY, namespace TEXT NOT NULL, vector BLOB NOT NULL, day TEXT NOT NULL, captured_at REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS place_views_at ON place_views(namespace, captured_at);
+CREATE TABLE IF NOT EXISTS place_last_views(
+ id TEXT PRIMARY KEY, namespace TEXT NOT NULL, vector BLOB NOT NULL, captured_at REAL NOT NULL, room_id TEXT);
 """
 
 # V2 config values (PLACE_*), measured on this robot in July 2026.
@@ -80,6 +82,17 @@ VIEW_EVERYDAY_DAYS = 4      # Seen on this many of the last fourteen days: his e
 VIEW_YOUNG_DAYS = 3         # With samples from fewer days than this, "new" means nothing yet.
 VIEW_FRESH = 30.            # An older check (camera gone, driving) says nothing.
 VIEW_KEPT_DAYS = 30
+
+# Waking up somewhere else (owner, October 31: "If I woke up in a new room I'd want to know why I switched
+# places"). The views of his last couple of minutes awake are kept; the next start compares its first minute
+# with them. One at the same-view bar means he woke where he went to sleep. Four frames in a row unlike all of
+# them mean he was moved while off: on October 31's real fingerprints two different rooms' views were mostly
+# .47-.70 apart. Anything between, or a drive before deciding, claims nothing.
+LAST_VIEWS = 12
+WAKE_WINDOW = 60.
+WAKE_FRAMES = 4
+WOKE_MOVED = .70
+WOKE_SHOWN = 600.           # The move stays in his picture of the moment this long.
 
 RECOGNIZED, UNSURE, UNFAMILIAR, LEARNING, NO_ROOMS, STARTING = (
     'recognized', 'unsure', 'unfamiliar', 'learning', 'no_rooms_known', 'starting')
@@ -137,6 +150,11 @@ class Places:
         self.view = None             # {'days', 'best', 'at'}: the latest familiarity check
         self.view_checked = self.view_stored = float('-inf')
         self.run_began = None        # Wall clock at start: this run's own samples never make a view familiar.
+        self.run_clock = None        # The same moment on the monotonic clock.
+        self.slept = None            # {'views', 'ended_at', 'room_id'}: the previous run's last views
+        self.woke = None             # {'verdict', 'best', 'at'} once decided
+        self.unlike = 0              # Frames in a row unlike every view he went to sleep with
+        self.drove = False           # The wheels moved this run
 
     # Lifecycle ---------------------------------------------------------------------------
     def start(self):
@@ -163,7 +181,7 @@ class Places:
 
     def note_motion(self, *_):
         """The base started a move (drive owner callback): a room change is now possible."""
-        with self.lock: self.moved = True
+        with self.lock: self.moved = self.drove = True
 
     def cancel(self): self.stop.set()
 
@@ -185,7 +203,13 @@ class Places:
                 if len(vector) == 512: self.vectors.append((r['id'], r['place_id'], vector, r['captured_at']))
             if self.current and self.current['place_id'] not in self.rooms:
                 self.current = None; self.history.clear()
-            if self.run_began is None: self.run_began = self.wall_clock()
+            if self.run_began is None:
+                self.run_began, self.run_clock = self.wall_clock(), self.clock()
+                rows = self.store.rows('SELECT vector,captured_at,room_id FROM place_last_views WHERE namespace=? '
+                                       'ORDER BY captured_at', (self.namespace,))
+                views = [array('f', r['vector']) for r in rows]
+                if rows and all(len(v) == 512 for v in views):
+                    self.slept = {'views': views, 'ended_at': rows[-1]['captured_at'], 'room_id': rows[-1]['room_id']}
             since = self.wall_clock() - VIEW_KEPT_DAYS * 86400
             self.views = [(v, day_of(at), at) for _, _, v, at in self.vectors if at >= since]
             for r in self.store.rows('SELECT vector,day,captured_at FROM place_views WHERE namespace=? AND captured_at>=? '
@@ -264,8 +288,38 @@ class Places:
                 REFRESH[0] <= scores[0][2] <= REFRESH[1] and scores[0][2] - scores[1][2] >= MARGIN):
             self._store_vector(scores[0][0], q, heading, 'refresh'); self.load()
         self._update(scores, status, now)
+        if moving is True: self.drove = True
+        self._woke_check(q, now)
         if moving is not True: self._note_view(q, now)
         return status
+
+    # Waking up somewhere else ------------------------------------------------------------------
+    def _woke_check(self, q, now):
+        """In the first minute: did he wake where he went to sleep, or was he moved while off?"""
+        if self.slept is None or self.woke is not None: return
+        best = max(dot(q, v) for v in self.slept['views'])
+        if self.drove: verdict = 'drove'                     # He went somewhere himself: not a wake question.
+        elif best >= VIEW_SAME: verdict = 'same_place'
+        elif best < WOKE_MOVED and self.unlike + 1 >= WAKE_FRAMES: verdict = 'moved'
+        elif now - self.run_clock > WAKE_WINDOW: verdict = 'unsure'
+        else:
+            self.unlike = self.unlike + 1 if best < WOKE_MOVED else 0
+            return
+        self.woke = {'verdict': verdict, 'best': round(best, 3), 'at': now}
+        if self.trace:
+            self.trace.emit('woke_up', verdict=verdict, best=round(best, 3), asleep_seconds=round(self.run_began - self.slept['ended_at']),
+                            went_to_sleep_in=self.rooms.get(self.slept.get('room_id')))
+
+    def woke_context(self):
+        """Woken somewhere other than where he went to sleep, in words, for the first ten minutes; else None."""
+        with self.lock:
+            if not self.woke or self.woke['verdict'] != 'moved' or self.clock() - self.run_clock > WOKE_SHOWN: return None
+            from .conversation_memory import gap
+            out = {'woke_up': 'somewhere other than where you went to sleep, moved while you were off',
+                   'went_to_sleep': gap(self.run_began - self.slept['ended_at'])}
+            if self.rooms.get(self.slept.get('room_id')): out['went_to_sleep_in'] = self.rooms[self.slept['room_id']]
+            if self.current: out['now_in'] = self.current['name']
+            return out
 
     # Everyday views --------------------------------------------------------------------------
     def _note_view(self, q, now):
@@ -284,6 +338,11 @@ class Places:
             similarity = dot(q, vector)
             best = max(best, similarity)
             if similarity >= VIEW_SAME: days.add(day)
+        with self.store.transaction() as c:   # The last couple of minutes awake, for the next start.
+            c.execute('INSERT INTO place_last_views VALUES(?,?,?,?,?)', (uuid4().hex, self.namespace, array('f', q).tobytes(),
+                      wall, self.current['place_id'] if self.current else None))
+            c.execute('DELETE FROM place_last_views WHERE namespace=? AND id NOT IN (SELECT id FROM place_last_views '
+                      'WHERE namespace=? ORDER BY captured_at DESC LIMIT ?)', (self.namespace, self.namespace, LAST_VIEWS))
         before = self.view_kind()
         self.view = {'days': len(days), 'best': round(best, 3), 'at': now}
         if self.trace and self.view_kind() != before:
