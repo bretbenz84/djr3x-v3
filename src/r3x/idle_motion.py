@@ -101,6 +101,11 @@ class IdleMotion:
         self._scan_at = float('-inf')
         self._scan_neck = NECK_CENTER       # Where the last room look pointed.
         self._face_at = float('-inf')
+        # A face it was following when idle paused (talking, listening, work) is not lost while idle could
+        # not watch: the wait starts again when it takes the head back. October 31 (f6d5a0b7): one frame
+        # without Bret's face right after a line sent the head off on a room look, "nobody in view".
+        self._paused_at = float('-inf')
+        self._watching_since = float('-inf')
         self._cock = 0.                    # A gentle attentive head cock while following a face...
         self._cock_until = float('-inf')   # ...held until then...
         self._cock_at = float('-inf')      # ...and next begun then.
@@ -216,7 +221,7 @@ class IdleMotion:
             tilt = (self._cock if now < self._cock_until else 0.) + rng.uniform(-.05, .05)
             pitch += rng.uniform(-.04, .04)   # A living nod and lean around the framing, never a fixed stare.
             return look(neck, level[1] + rng.randint(-110, 110), pitch, tilt), 0.
-        if aim is not None or now - self._face_at <= FACE_LOST_SECONDS:
+        if aim is not None or now - max(self._face_at, self._watching_since) <= FACE_LOST_SECONDS:
             return (), 0.          # Waiting for a fresh look at them.
         # Nobody in view: look around the room now and then (V2's scan leaned downward,
         # where seated people are), drifting in place between looks.
@@ -258,6 +263,7 @@ class IdleMotion:
                 return
             now = self.owner.clock()
             self._spoke_at, self._allowed, self._resume = now, True, now
+            self._resumed(now)
             # The throttle finishes the talking move it is on, then goes straight on (October 21:
             # waiting for it to arrive first still read as stopping the moment he stopped).
             for part, after in (('hero', 0.), ('throttle', 0.), ('poker', .1), ('visor', .3)):
@@ -328,7 +334,13 @@ class IdleMotion:
             if self._thread.is_alive():
                 raise ProviderFailure('IdleMotionStillActive')
             self._thread = None
+        if self._allowed:
+            self._paused_at = self.owner.clock()
         self._allowed = False
+
+    def _resumed(self, now):
+        if self._face_at > float('-inf') and self._face_at >= self._paused_at - FACE_LOST_SECONDS:
+            self._watching_since = now
 
     def stop(self):
         with self._lock:
@@ -385,6 +397,7 @@ class IdleMotion:
             if not self._allowed:
                 self._allowed = True
                 self._resume = now + self.rng.uniform(.6, 1.2)
+                self._resumed(now)
             self._start(now, calm)
 
     def _start(self, now, calm):

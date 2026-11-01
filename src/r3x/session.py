@@ -22,6 +22,7 @@ PET_QUESTION_BEAT = ('The pet you just greeted is here. Ask the person one thing
 from .speakers import VoiceObservation
 from .history import TurnHistory
 from .output import Delivery, OutputOwner, Phrases, put_phrase
+from .servos import LOOK_HOLD_SECONDS
 
 # Syntax-only emergency controls; the only way to cut off audible speech.
 STOP_COMMANDS = frozenset({"stop","cancel","halt","whoa","freeze","shut up","stop talking","be quiet","quiet","hush",
@@ -75,9 +76,8 @@ LOOK_FAILED = ('The look failed: no picture was taken. Say plainly that you coul
 HEAD_LOOKS = {'left': 'look_left', 'right': 'look_right', 'up': 'look_up', 'down': 'look_down'}
 LOOK_STEPS = frozenset(('look_left', 'look_right', 'look_up', 'look_down', 'look_center'))
 # Owner ruling October 23: a look a person asked for holds until he has answered from it, and about
-# this long after, even when they speak (the voice reflex waits). While he looks and answers it holds
-# for up to LOOK_ANSWER_SECONDS.
-LOOK_HOLD_SECONDS = 20.
+# LOOK_HOLD_SECONDS after, even when they speak (the voice reflex waits); then the head is free again
+# (October 31). While he looks and answers it holds for up to LOOK_ANSWER_SECONDS.
 LOOK_ANSWER_SECONDS = 60.
 REQUESTED_LOOK_SECONDS = 600.   # "Look there again" (last_look) is offered this long after a requested look.
 LOOK_QUESTION = 'They asked: "{}". What do you see there that matters for what they asked?'
@@ -234,6 +234,7 @@ class Session:
         self.last_interaction_at = float("-inf")
         self.last_look_at = float("-inf")   # Latest camera look (inspection), his or asked for.
         self._look_kept_turn = None   # The turn that pointed the head where a person asked.
+        self._look_kept_after = LOOK_HOLD_SECONDS   # How long that look holds once he has answered.
         self._fragment = None   # The words of a human turn he yielded on unanswered, to join to the next.
         self._unanswered_turn = None   # A human turn whose reply was dropped for a reason other than more speech.
         self._utterance = None  # This human turn's words, joined to such a fragment.
@@ -413,7 +414,7 @@ class Session:
         where = earlier['where'] if earlier else pose.replace('_', ' ')
         if requested:
             robot.keep_requested_look(LOOK_ANSWER_SECONDS, where=where, why=why)
-            self._look_kept_turn = turn_id
+            self._look_kept_turn, self._look_kept_after = turn_id, LOOK_HOLD_SECONDS
         self.state.present.rex_looked(where, why, self.trace.clock())
         return arrived
 
@@ -459,11 +460,17 @@ class Session:
         boxed = sorted((f for f in faces if f.get('box')), key=lambda f: abs(f['box'][0] + f['box'][2] / 2 - .5))
         people = [f"{names.get(f.get('identity')) or 'someone'} {where(f['box'][0] + f['box'][2] / 2)}" for f in boxed]
         nearest = (names.get(boxed[0].get('identity')) or 'the person he is with') if boxed else 'the person he is with'
+        if (kind == 'following_people' and not chosen and boxed
+                and where(boxed[0]['box'][0] + boxed[0]['box'][2] / 2) != 'in the middle of his view'):
+            # October 31 (f6d5a0b7): his head had wandered off to the left of Bret, who sat at the edge of
+            # his view; told "looking at Bret Benziger", he answered "what are you looking at?" with "you".
+            # He looks at what is in the middle of his view, not at whoever is somewhere in sight.
+            kind = 'glancing_away'
         why = (look['why'] if chosen and look['why'] else
                'his head turned toward the voice of whoever spoke' if kind == 'turned_to_a_voice' else
                'a look he chose' if kind == 'holding_chosen_direction' else
-               'nothing in particular: his eyes wandered off them for a moment' if kind == 'glancing_away' else
-               'just looking around the room; nobody is in view' if kind == 'looking_around_the_room' else
+               f'nothing in particular: his eyes wandered off {nearest if boxed else "them"} for a moment' if kind == 'glancing_away' else
+               'just looking around the room' + ('' if boxed else '; nobody is in view') if kind == 'looking_around_the_room' else
                f'looking at {nearest}')
         middle = []
         objects = getattr(self.state, 'objects', None)
@@ -481,8 +488,9 @@ class Session:
                                        "since. To look there again, use direction last_look.")
         if kind not in {'following_people', 'turned_to_a_voice'} and not chosen:
             looking['if_asked'] = ('Answer the way a person would, lightly: what caught your eye ("Oh, that clock '
-                                   'caught my eye") or "just stretching my neck". Never internal words such as idle '
-                                   'glance, view, edge or middle, and never claim a reason you were given none of.')
+                                   'caught my eye") or "just stretching my neck". What you look at is what is straight '
+                                   'ahead of your head, never someone off to the side of your sight. Never internal words '
+                                   'such as idle glance, view, edge or middle, and never claim a reason you were given none of.')
         return looking
 
     def _right_now(self, faces=()):
@@ -2216,6 +2224,14 @@ class Session:
                             inspection_request = replace(inspection_request, direction='current',
                                 view_epoch=self.state.attention.scene.view_epoch,
                                 captured_after=None if head_arrived is None else head_arrived + .3)
+                    elif (not opportunity and inspection_request.direction == 'current'
+                          and hasattr(getattr(self.output, 'robot', None), 'keep_view')):
+                        # "What are you looking at?" is answered from where his head points, and it stays
+                        # there while he answers (October 31, f6d5a0b7: he turned to Bret and said "you").
+                        # A look a person asked for that was already holding keeps its time after.
+                        kept = self.output.robot.owner.holding_requested_look()
+                        self.output.robot.keep_view(LOOK_ANSWER_SECONDS)
+                        self._look_kept_turn, self._look_kept_after = turn_id, LOOK_HOLD_SECONDS if kept else 0.
                     expected_epoch = inspection_request.view_epoch
                     def inspection_valid():
                         with self._lock:
@@ -2517,6 +2533,7 @@ class Session:
                     # The model chains steps from the request's wording; each runs once
                     # the previous one's pulses arrive, and the first failure stops the rest.
                     from .leds import LIGHT_STEPS, LightPerformance, LightRequest
+                    from .servo_poses import HEAD, pose_channels
                     if call.arguments.get('say_before'):
                         # Live September 28: "On it." arrived after a long sequence. Speak the
                         # acknowledgment first, then move once it has played (talking motion
@@ -2589,9 +2606,15 @@ class Session:
                                 if step in LOOK_STEPS and not opportunity and hasattr(self.output.robot, 'keep_requested_look'):
                                     # A person's look holds while he answers from it (owner ruling, October 23).
                                     self.output.robot.keep_requested_look(LOOK_ANSWER_SECONDS, where=step.replace('_', ' '), why=why)
-                                    self._look_kept_turn = turn_id
+                                    self._look_kept_turn, self._look_kept_after = turn_id, LOOK_HOLD_SECONDS
                                 elif step == 'look_at_people' and not opportunity:
                                     self._look_kept_turn = None
+                            if (moved and not opportunity and not (isinstance(step, str) and step in LOOK_STEPS)
+                                    and set(pose_channels(step)) & set(HEAD) and hasattr(self.output.robot, 'keep_requested_look')):
+                                # Any other head pose a person asks for (a cock, level, the neck pole) holds the
+                                # same way, then the head is his again (October 31).
+                                self.output.robot.keep_requested_look(LOOK_ANSWER_SECONDS)
+                                self._look_kept_turn, self._look_kept_after = turn_id, LOOK_HOLD_SECONDS
                         cancel.check()
                         if not moved:
                             break
@@ -2953,9 +2976,10 @@ class Session:
                 self._game_delivered(game_open, delivery, game_paused)
             if self._look_kept_turn == turn_id:
                 # His answer from a look a person asked for is over: the look holds about
-                # LOOK_HOLD_SECONDS more, then the voice reflex may turn him again (owner, October 23).
+                # LOOK_HOLD_SECONDS more, then the voice reflex may turn him again (owner, October 23)
+                # and talking and idle move his head again (October 31).
                 self._look_kept_turn = None
-                self.output.robot.keep_requested_look(LOOK_HOLD_SECONDS)
+                self.output.robot.keep_requested_look(self._look_kept_after)
             # Only completed phrases enter history; no generated unheard tail.
             if worker and not worker.is_alive():
                 heard = " ".join(delivery.completed_text)

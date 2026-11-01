@@ -6,6 +6,23 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## October 31: a person's head pose lets go, and an arm dance
+
+Run `f6d5a0b7`. A person's `look_*`, `tilt_*`, `look_level`, `neck_*` or head joint request put the head
+channels in `held_channels` until `release_poses`, so talking and idle never moved the head again on their own.
+`ServoOwner.hold_look` now records those channels in `look_channels` with at least `LOOK_HOLD_SECONDS` (20 s) on
+`look_hold_until`, which the session extends while he answers; once it passes, `release_expired_look` (each frame,
+`RobotServos.before_frame`) drops them and the idle gaze returns to people. Drive looks and the drive stance are
+unchanged, and arm and visor holds still wait for `release_poses`. `RobotServos.keep_view` holds the head where
+it points while he answers "what are you looking at?".
+
+`arm_dance` (a one-shot `GESTURES` step) runs three lanes: the hero elbow and wrist swing between pride mode's
+`FLAIR_ARM` poses seven times at 0.5 s; the throttle takes its clearance route to `throttle_high_five`, pumps four
+times between it and `THROTTLE_IDLE[1]` at 0.8 s, and routes back; the poker swing, elbow and wrist alternate two
+high/low poses inside the elbow ceiling at 0.7 s, routed in and out. Every arm ends where it started; channel 7
+does not move. From rest the throttle shoulder never goes below rest (4200) nor the elbow below 7720. Synthetic
+only (simulated board); physical clearance of these moves is unseen.
+
 ## October 26: a send that "times out" no longer freezes every servo
 
 Run `c5ad0deb` (October 25, 7:32 PM): five minutes in, every servo froze until shutdown and the

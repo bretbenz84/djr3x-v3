@@ -105,6 +105,8 @@ class RobotServos:
 
     def before_frame(self, *, allow_idle=False, capturing=False, calm=False):
         self.idle.trace = self.reflex.trace = self.trace
+        if self.owner.release_expired_look():
+            self.idle.look_at_people()   # A person's look is over: the head follows people again.
         if self.owner.operator:
             self.idle.tick(False)
             return
@@ -150,8 +152,20 @@ class RobotServos:
                     self.owner.end_requested_look()   # They asked him to look back: the search is over.
                 self.idle.look_at_people()
             else:
+                if requested:
+                    self.owner.hold_look(pose_channels(name))   # A person's head pose lasts as their look does.
                 self.idle.posed(receipt.changed_channels or pose_channels(name), own=not hold_pose)
         return receipt
+
+    def keep_view(self, seconds):
+        """A person asked what he sees where his head already points: it stays there while he answers.
+        October 31 (f6d5a0b7): asked what he was looking at, he turned to Bret as he answered "you"."""
+        if self.owner.state not in ('active', 'moving'):
+            return
+        self.idle.stop()
+        self.reflex.stop()
+        self.talking.stop()
+        self.owner.hold_look(HEAD, seconds)
 
     def keep_requested_look(self, seconds, *, where=None, why=None):
         """A person asked him to look somewhere: the head stays there for this long (the voice
@@ -167,11 +181,12 @@ class RobotServos:
         stance already holds the head, and this is nobody's requested pose: it must not
         start the hold that keeps Rex's own movement off a person's pose for 90 seconds.
         A line he is saying as he rolls keeps its visor going: the look moves the head only."""
-        held_at = self.owner.pose_held_at
+        held_at, look = self.owner.pose_held_at, (self.owner.look_hold_until, set(self.owner.look_channels))
         try:
             return self.execute_pose(pose, cancel, request_id, beside_visor=True)
         finally:
             self.owner.pose_held_at = held_at
+            self.owner.look_hold_until, self.owner.look_channels = look
 
     def execute_expression(self, request, cancel):
         self.idle.stop()

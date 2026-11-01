@@ -1080,7 +1080,7 @@ NAMED_POSES = {
 # One-shot gestures run and return to where they started; nothing is held afterwards. The
 # head expressions (not the plain one-cock 'tilt', which tilt_left/tilt_right cover as held
 # looks) are also steps people can ask for and Rex can plan.
-GESTURES = ('wave', 'nod', 'perplexed', 'wiggle', 'sympathetic', 'surprised')
+GESTURES = ('wave', 'arm_dance', 'nod', 'perplexed', 'wiggle', 'sympathetic', 'surprised')
 # Owner request October 3: the model chooses between following faces and looking where it
 # decides. look_at_people resumes following faces; any look_* step holds that direction.
 GAZE = ('look_at_people',)
@@ -1157,6 +1157,61 @@ def wave_lanes(current):
     return (tuple(lane),)
 
 
+# Owner, October 31 (f6d5a0b7): "Can you do a little dance with your arms?" got the head's wiggle, and
+# asked again he chained throttle_offer, which reaches forward and down: the hand ran into something on
+# the floor, and "put your arm back up" chose it again and pushed further down. The dance moves all three
+# arms to a beat through poses talking and idle already use: the hero hand swings wide (pride mode's
+# flair), the poker arm sways high and low, and the throttle hand pumps between the raised high five and
+# a talking pose, never lower. Each arm then goes back to where it was; nothing is held, and the
+# microphone arm (7) stays still.
+DANCE_BEATS = 4
+DANCE_SWING_SECONDS = .5
+DANCE_THROTTLE = (NAMED_POSES['throttle_high_five'], THROTTLE_IDLE[1])
+DANCE_POKER = ({6: 6600, 12: 6800, 13: 3000}, {6: 5400, 12: 5600, 13: 4500})   # The hand flicks against the elbow.
+DANCE_POKER_SECONDS = .7
+
+
+def _poker_stages(start, target):
+    """Clear poker elbow/wrist stages from start to target, the swing (6) moving with the first."""
+    stages = [dict(stage) for stage in poker_route(start, target)]
+    stages[0][6] = target[6]
+    return stages
+
+
+def arm_dance_lanes(current):
+    """A few seconds of dancing arms, then each arm back where it started."""
+    hero_start = tuple((ch, current[ch]) for ch in (4, 5))
+    at, hero = dict(current), []
+    for i in range(DANCE_BEATS * 2 - 1):
+        aim = FLAIR_ARM[i % 2]
+        hero.append(eased_beat(at, aim, DANCE_SWING_SECONDS))
+        at.update(aim)
+    hero.append(eased_beat(at, hero_start, DANCE_SWING_SECONDS))
+    throttle_start = {ch: current[ch] for ch in THROTTLE}
+    stages = throttle_route(current, dict(DANCE_THROTTLE[0]))
+    stages += [dict(DANCE_THROTTLE[i % 2]) for i in range(1, DANCE_BEATS + 1)]
+    stages += throttle_route(stages[-1], throttle_start)
+    previous = throttle_start
+    for stage in stages:
+        if not throttle_clear(previous, stage):
+            raise ValueError('ThrottleRouteOutsideClearance')
+        previous = stage
+    throttle = tuple(Beat(tuple(stage.items()), throttle_duration=.8, dwell=.05) for stage in stages)
+    poker_start = {ch: current[ch] for ch in (6, *POKER)}
+    stages = _poker_stages(poker_start, DANCE_POKER[0])
+    stages += [dict(DANCE_POKER[i % 2]) for i in range(1, DANCE_BEATS)]
+    stages += _poker_stages(stages[-1], poker_start)
+    at, poker = dict(current), []
+    for stage in stages:
+        poker.append(eased_beat(at, tuple(stage.items()), DANCE_POKER_SECONDS))
+        at.update(stage)
+    lanes = (tuple(hero), throttle, tuple(poker))
+    for lane in lanes:
+        for beat in lane:
+            validate_pose(dict(beat.targets))
+    return lanes
+
+
 def reflex_lanes(target):
     """Voice reflex: the neck alone, quicker than an idle glance, nothing held."""
     if set(target) != {0}: raise ValueError('ReflexMovesNeckOnly')
@@ -1223,6 +1278,8 @@ def pose_lanes(name, current, further=True):
         validate_pose(target)
     elif name == 'wave':
         return wave_lanes(current)
+    elif name == 'arm_dance':
+        return arm_dance_lanes(current)
     elif name in GESTURES:
         return expressive_lanes(current, 'gesture', 'unfocused', name, 'normal', .5, frozenset())
     elif name == 'look_at_people':

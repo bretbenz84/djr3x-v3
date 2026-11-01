@@ -540,6 +540,25 @@ class IdleTests(unittest.TestCase):
         self.idle.face=lambda:{**face,'neck':7000,'at':self.clock()-1.}
         self.assertEqual(self.idle._head(self.clock(),False)[0],())
 
+    def test_a_face_he_was_following_is_not_lost_while_he_talked(self):
+        # Owner, October 31 (f6d5a0b7): one frame without Bret's face right after a line sent the head off
+        # on a room look, "nobody in view", with Bret sitting right there.
+        from r3x.idle_motion import FACE_LOST_SECONDS
+        self.execute('startup');self.clock.wait(.5)
+        seen=[True]
+        self.idle.face=lambda:{'neck':4000,'y':.4,'at':self.clock()} if seen[0] else None
+        self.idle.after_speech()
+        self.assertTrue(self.idle._head(self.clock(),False)[0])       # Following him...
+        self.idle.stop()                                               # ...then a line of his, 8 s long.
+        self.clock.wait(8.)
+        seen[0]=False                                                  # The first frame after has no face.
+        self.idle.after_speech()
+        self.assertEqual(self.idle._head(self.clock(),False)[0],())
+        self.assertEqual(self.idle.activity[0],'following_people')
+        self.clock.wait(FACE_LOST_SECONDS+.1)                          # Gone that long: he looks around.
+        self.assertTrue(self.idle._head(self.clock(),False)[0])
+        self.assertEqual(self.idle.activity[0],'looking_around_the_room')
+
     def test_looks_around_the_room_when_nobody_is_in_view(self):
         self.execute('startup')
         looks=[]

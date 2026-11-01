@@ -21,6 +21,34 @@ fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 
+## Where he looks, a look that let go, and an arm dance — October 31 run f6d5a0b7
+
+Owner, after a run: his gaze drifted, and asked what he was looking at he turned to Bret and said "you"; after
+"look to your left, and then up" his head never went back to normal motion; and asked to dance with his arms he
+did not, then lowered an arm into something on the floor and, told to raise it, pushed it further down.
+- **What he looks at.** Right after a line, one camera frame without Bret's face sent the idle gaze off on a
+  room look ("nobody in view") with Bret at the edge of the picture. A face it was following before a pause
+  (talking, listening) now gets the usual 4 s to show up again before he looks around. His own sense of where he
+  looks said "looking at Bret Benziger" because the gaze's label said following; it now says so only when the face
+  is in the middle of his view, and otherwise tells him what he looks at is what is straight ahead of his head.
+  `inspect_view` says the middle of the picture is his gaze. Asked about where his head already points, it stays
+  there while he answers instead of swinging to the speaker, and is free again when he finishes.
+- **A look lets go.** A person's head pose was held like an arm pose, until "release": the head stayed up and
+  left for 41 s, through his answer and on. Any head pose a person asks for (looks, cocks, level, the neck pole)
+  now holds while he answers and about 20 s after (the October 23 ruling), then talking, idle and the voice
+  reflex move the head again; arm and visor poses still hold until released.
+- **Arms.** "Dance with your arms" got the head's wiggle, then `throttle_offer`, whose hand reaches forward and
+  down; the "Whoa" stop worked, but "put your arm back up" chose `throttle_offer` again. A new `arm_dance` step
+  moves all three arms to a beat for about five seconds (the hero hand's wide swing, the poker arm swaying high and
+  low, the throttle hand pumping between the high five and a talking pose, never lower than its rest), then puts
+  each arm back where it was and holds nothing. The pose tool now describes the throttle poses by where the hand
+  goes: `throttle_high_five` raises it, `throttle_offer` reaches forward and down and is only for offering a hand.
+- **Evidence.** Synthetic: new session, servo and idle checks (`test_october31_repairs.py`). Paid probes:
+  `check_action_requests.py` 31 of 31 with four new arm cases (dance twice, arm back up after the offer, raise your
+  hands); `check_looking.py`'s new drifted-head case answered "The clock caught my eye". Not yet run on the robot:
+  how the dance looks, whether its throttle and poker moves clear the body, and the head letting go.
+- **Not changed.** `throttle_offer` itself, and nothing checks the floor in front before the hand reaches down.
+
 ## Familiarity: what he keeps saying, everyday views and time apart — October 31
 
 Owner: "Each time I turn him on he greets me and comments on the telescope in the room. There is no sense

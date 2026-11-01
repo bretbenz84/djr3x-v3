@@ -4,10 +4,11 @@ looks (right_now.rex.looking), in the words of someone seeing, not a camera? Fic
 Run: .venv/bin/python tools/check_looking.py --live
 
 October 14 (1662b007): his head tipped up during his own beat; asked "what are you looking at?" he
-took a fresh look and recited "a man in a black shirt ... I don't see a pet in this frame". Three
+took a fresh look and recited "a man in a black shirt ... I don't see a pet in this frame". Four
 cases go through the production Session with the real reply model, a stand-in robot head and
 synthetic audio: an idle glance with a clock in the middle of his view, a look he chose for a
-reason, and following the person's face. Printed: each answer, whether it says frame/image/camera,
+reason, following the person's face, and (October 31) a head that wandered off them while the gaze still
+said it was following them. Printed: each answer, whether it says frame/image/camera,
 and whether it asked for a new look.
 """
 import argparse
@@ -35,16 +36,20 @@ from r3x.state import CoreState
 from r3x.trace import Trace
 
 NS, VOICE = 'synthetic-looking:3', (1., 0., 0.)
+# name: (idle activity, neck degrees left, reason he chose the look, where the person's face sits across his view)
 CASES = {
-    'idle_glance': ('glancing_away', -30., None),
-    'chosen_look': ('holding_chosen_direction', 0., 'Briefly look upward while letting the astronomy detour go.'),
-    'following': ('following_people', -4., None),
+    'idle_glance': ('glancing_away', -30., None, .08),
+    'chosen_look': ('holding_chosen_direction', 0., 'Briefly look upward while letting the astronomy detour go.', .08),
+    'following': ('following_people', -4., None, .48),
+    # October 31 (f6d5a0b7): his head had wandered left of Bret, who sat at the right edge of his view, while the
+    # idle gaze still said it was following him; he answered "you" and turned to face him.
+    'drifted_off_them': ('following_people', 20., None, .86),
 }
 CAMERA_WORDS = ('frame', 'image', 'camera', 'picture', 'shot')
 
 
 def run(case, key, folder):
-    activity, neck, reason = CASES[case]
+    activity, neck, reason, x = CASES[case]
     with TemporaryDirectory() as tmp:
         store = Memory(Path(tmp).resolve() / 'core.sqlite3'); store.start()
         try:
@@ -78,7 +83,6 @@ def run(case, key, folder):
             state.objects = SimpleNamespace(snapshot=lambda min_samples=2: (clock_row,))
             if reason:
                 state.present.rex_looked('up', reason, trace.clock())
-            x = .08 if activity != 'following_people' else .48
             def faces(now):
                 return [{'track_id': 'face-sam', 'identity': sam, 'face_epoch': 0, 'at': now - .2,
                          'box': [x, .55, .07, .1], 'face_width_px': 120, 'position': 'left', 'evidence': 'face_match'}]

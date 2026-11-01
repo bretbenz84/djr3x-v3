@@ -263,10 +263,14 @@ class VoiceReflexTests(unittest.TestCase):
         self.assertEqual(self.port.pose[0], before)
 
     def test_new_voice_takes_over_an_earlier_held_look(self):
-        # Live September 28: after a held look left, "I'm over here" left the head away.
+        # Live September 28: after a held look left, "I'm over here" left the head away. Since October 23
+        # a person's look holds against the reflex while it lasts; an earlier one gives way.
         from r3x.contracts import Cancellation
+        from r3x.servos import LOOK_HOLD_SECONDS
         self.assertEqual(self.robot.execute_pose('look_right', Cancellation(), 'look').status, 'pulses_reached')
         self.assertIn(0, self.robot.owner.held_channels)
+        self.assertEqual(self.robot.reflex.face(25.), 'holding_requested_look')
+        self.clock.wait(LOOK_HOLD_SECONDS + 1)
         self.assertEqual(self.robot.reflex.face(25.), 'started'); self.settle()
         self.assertEqual(self.port.pose[0], self.voice_neck(25.))
         self.assertNotIn(0, self.robot.owner.held_channels)

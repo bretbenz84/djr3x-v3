@@ -144,8 +144,10 @@ it or reads its data.
   - Not yet run on the robot ([details and phone setup](docs/SENTRY_MODE.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080. A look someone asks for ("look left and see if you see it") turns
-  the head there first and holds it while he answers, even when they speak (October 23; not yet
-  run on the robot).
+  the head there first and holds it while he answers, even when they speak (October 23); about 20 s
+  after his answer his head moves normally again (October 31). Asked what he is looking at, he answers
+  about what is straight ahead of his head, not someone at the side of his view, and keeps his head
+  there while he answers (October 31; not yet run on the robot).
 - **Body (Pololu Maestro, 14 servos).**
   - Startup and park choreography, and talking motion driven by actual playback.
   - The moment he has understood what was said, his head cocks to one side while he
@@ -155,7 +157,8 @@ it or reads its data.
   - Idle life: slow, staggered movement of one to three parts at a time whenever he
     is not talking; the head follows the nearest face with glances away, or holds a
     direction the model chose (October 3; not yet run on the robot).
-  - Model-selected poses and a microphone hold for enrollment.
+  - Model-selected poses and a microphone hold for enrollment. "Dance with your arms" gets a short dance
+    of all three arms that keeps the hands up and ends where it began (October 31; not yet run on the robot).
 - **Lights.** Head and chest startup/shutdown, speaking lights and model-selected
   animations.
 - **Wheels and radar** (drive firmware in `firmware/djr3x_motion`, moved from V2 October 23; radar firmware still V2's):

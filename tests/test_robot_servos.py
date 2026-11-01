@@ -93,7 +93,7 @@ class RobotServoTests(unittest.TestCase):
         self.assertEqual(self.robot.owner.held_channels,{0})
         self.assertEqual(self.robot.idle.mode(),'direction')
         own=self.robot.execute_pose('look_at_people',Cancellation(),'own',hold_pose=False)
-        self.assertEqual((own.status,own.reason),('rejected','AgencyCannotOverrideHeldPose'))
+        self.assertEqual((own.status,own.reason),('rejected','HoldingRequestedLook'))
         self.assertEqual(self.robot.idle.mode(),'direction')                    # His own cannot override it.
         asked=self.robot.execute_pose('look_at_people',Cancellation(),'asked')
         self.assertEqual(asked.status,'pulses_reached')
@@ -107,6 +107,25 @@ class RobotServoTests(unittest.TestCase):
         self.assertEqual(self.robot.reflex.face(-20.),'started')   # A voice on his right (look_left is ~19 degrees left).
         self.robot.reflex.stop()
         self.assertEqual(self.robot.idle.mode(),'people')
+
+    def test_a_persons_head_pose_lasts_as_their_look_does_while_arm_poses_hold(self):
+        # Owner, October 31 (f6d5a0b7): asked to look left and up, the head stayed there through his
+        # answer and on until "resume normal operations". It is now his again once the look is over.
+        from r3x.servo_poses import HEAD
+        from r3x.servos import LOOK_HOLD_SECONDS
+        self.robot.start()
+        for pose in ('look_left','look_up','tilt_right','throttle_high_five'):
+            self.assertEqual(self.robot.execute_pose(pose,Cancellation(),pose).status,'pulses_reached')
+        self.assertEqual(self.robot.idle.mode(),'direction')
+        self.assertTrue(set(HEAD)<=self.robot.owner.held_channels)
+        self.clock.wait(LOOK_HOLD_SECONDS-1)
+        self.robot.before_frame()
+        self.assertTrue(set(HEAD)<=self.robot.owner.held_channels)      # Still their look.
+        self.clock.wait(2)
+        self.robot.before_frame()
+        self.assertEqual(self.robot.owner.held_channels,{8,9,10})        # The head is free; the raised hand holds.
+        self.assertEqual(self.robot.idle.mode(),'people')
+        self.assertFalse(self.robot.owner.look_channels)
 
     def test_direction_invalidation_only_when_the_microphone_arm_moves(self):
         from r3x.contracts import Cancellation

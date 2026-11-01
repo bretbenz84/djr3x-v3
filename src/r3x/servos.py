@@ -22,6 +22,11 @@ from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes,
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
 ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})   # The arms the drive stance moved: walked back after the wheels stop.
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
+# Owner ruling October 23: a look a person asked for holds until he has answered from it, and about
+# this long after, even when they speak. October 31 (f6d5a0b7): asked to look left and up, his head
+# stayed there 41 s, through his answer and on, until "resume normal operations": a person's head pose
+# was held like an arm pose, until released. The head is now held only while their look lasts.
+LOOK_HOLD_SECONDS = 20.
 # Requests that only run once he is awake (after startup, before park).
 AWAKE_KINDS = frozenset({'talking', 'idle', 'pose', 'reflex', 'listening', 'base_park', 'base_release',
                          'attention', 'gesture', 'operator', 'sentry'})
@@ -131,6 +136,7 @@ class ServoOwner:
         # until this time (the session sets it), and where it pointed is remembered to look again.
         self.look_hold_until = float('-inf')
         self.requested_look: dict | None = None   # {'pose': head pulses, 'where', 'why', 'at'}
+        self.look_channels: set[int] = set()      # Head channels held only while that look lasts.
         self.energized_channels: tuple[int, ...] = ()  # Channels that were off at start.
         # Dashboard manual override: only operator poses (and park/shutdown) run while set.
         self.operator = False
@@ -244,8 +250,27 @@ class ServoOwner:
     def holding_requested_look(self) -> bool:
         return self.clock() < self.look_hold_until
 
+    def hold_look(self, channels, seconds=LOOK_HOLD_SECONDS):
+        """A person pointed his head (or asked about where it points): these head channels stay
+        held, against talking, idle and his own moves, while the look lasts and no longer."""
+        channels = set(channels) & set(HEAD)
+        if not channels or self._base_held:   # The drive stance already holds the head.
+            return
+        self.held_channels.update(channels)
+        self.look_channels |= channels
+        self.look_hold_until = max(self.look_hold_until, self.clock() + seconds)
+
+    def release_expired_look(self) -> bool:
+        """The look is over: its head channels go back to the gaze, talking and idle."""
+        if not self.look_channels or self.holding_requested_look() or self._base_held:
+            return False
+        self.held_channels.difference_update(self.look_channels)
+        self.look_channels = set()
+        return True
+
     def end_requested_look(self):
         self.look_hold_until = float('-inf')
+        self.release_expired_look()
 
     def release_microphone_hold(self):
         self.microphone_hold = (0., 0.)

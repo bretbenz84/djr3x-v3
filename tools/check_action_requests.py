@@ -3,6 +3,9 @@ are only real requests for quiet answered with the quiet switch? Fictional input
 
 Run: .venv/bin/python tools/check_action_requests.py --live [--repeat N] [--only case,case]
 
+October 31 (f6d5a0b7): four arm cases check that a dance with the arms is arm_dance and that raising an arm or
+the hands never uses throttle_offer, whose hand reaches forward and down.
+
 October 23 (1e626e07): five look cases from the duckling droid hunt check that a look request takes the
 direction asked, looks again where he was asked after his head turned away, and that a look about a thing is
 not made a pet comparison.
@@ -97,6 +100,36 @@ CASES = {
 }
 
 
+def arm_poses(calls):
+    return [p for c in calls if c['name'] == 'set_robot_pose' for p in (c['arguments'].get('poses') or ())]
+
+
+def danced(calls):
+    return 'arm_dance' in arm_poses(calls) and 'throttle_offer' not in arm_poses(calls)
+
+
+def hand_up(calls):
+    return bool({'throttle_high_five', 'throttle_rest'} & set(arm_poses(calls))) and 'throttle_offer' not in arm_poses(calls)
+
+
+def hands_up(calls):
+    return 'throttle_high_five' in arm_poses(calls) and 'throttle_offer' not in arm_poses(calls)
+
+
+DANCE = 'Can you do a little dance with your arms?'
+# October 31 (f6d5a0b7): the dance got the head's wiggle, then throttle_offer, whose hand reaches forward and down
+# into something on the floor; "put your arm back up" chose throttle_offer again and pushed it further down.
+CASES.update({
+    'arm_dance': ((), VISOR_OPEN, False, DANCE, 'action', danced),
+    'arm_dance_again': (((DANCE, "On it. Let's see if these arms have rhythm."),), VISOR_OPEN, False,
+                        "You didn't really do a dance with your arms.", 'action', danced),
+    'arm_back_up': (((DANCE, 'Ah, demanding choreography. Fine, watch the arms.'), ('Whoa.', '')), VISOR_OPEN, False,
+                    'Put your arm back up.', 'action', hand_up),
+    'raise_your_hands': ((), VISOR_OPEN, False, 'Raise your hands.', 'action', hands_up),
+})
+ARMS = {'arm_back_up': 'throttle_offer'}   # Where the throttle arm stands before the request.
+
+
 def looked_left(calls):
     """A look to the left in any of the three ways to look (October 23)."""
     return any((c['name'] == 'set_robot_pose' and 'look_left' in (c['arguments'].get('poses') or ())) or
@@ -178,6 +211,9 @@ def run(case, key, folder, round_=0):
             owner = SimpleNamespace(state='moving', commanded={0: NECK_CENTER, **dict(DRIVE_HEAD), 3: visor},
                                     held_channels={3} if visor in (VISOR_DOWN, VISOR_UP) else set(), hold_until_released=False,
                                     kept_arms=(), kept_channels=())
+            if case in ARMS:
+                from r3x.servo_poses import NAMED_POSES
+                owner.commanded.update(NAMED_POSES[ARMS[case]])
             output.robot = SimpleNamespace(owner=owner, idle=SimpleNamespace(mode=lambda: 'people',
                                                                              activity=('following_people', 0.)))
             if case in LOOK_CASES:
