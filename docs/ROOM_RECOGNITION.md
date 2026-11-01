@@ -6,6 +6,10 @@ model, import V2's taught rooms, "mapping" means rooms plus which rooms connect 
 navigation), and exploring through Rex's existing goals.
 [Extraction record](../V2_REFERENCE.md#room-recognition--october-11-2026).
 
+**Status, October 31:** on the robot since October 16. He confuses the living room and the
+bedroom, even standing still, and how often he names the right room is unmeasured
+([robot runs](#on-the-robot-october-1629)).
+
 ## What Rex does
 
 - **Knows the room.** About every 1.5 s, one camera frame becomes a 512-number
@@ -101,6 +105,39 @@ All of these are *unsure*, below the 0.80 confident bar. A likely but unconfirme
 the wide-angle lens fitted September 27. Expect Rex to ask, or offer a guess, the first time
 in each room. Telling him adds fresh views that make the room recognizable.
 
+By October 29 none of the imported views remained (see below).
+
+## On the robot (October 16–29)
+
+Reviewed October 31 from the session logs and the store, read only. Nothing records which room he
+was really in, so accuracy is not measured.
+
+- **Running.** After the October 15 camera-hub fix, 48 runs logged 7,527 room readings: 42%
+  confident, 56% unsure, 2% matching nothing. No run reached *unfamiliar*, so he never asked on
+  his own what a room was. Rooms came up only when someone asked.
+- **Taught by voice.** October 16 (`03bc4e1f`): the owner drove him around and said "This is the
+  bedroom", then the dining room and the living room. Each was learned with 8 views. The bedroom
+  was new; the two imported rooms had been scoring unsure. The new dining-room views resembled the
+  living room at .90, which is noted but not refused (as V2 did). October 17 (`76184646`): asked
+  which room he was in, he could not tell; told "living room", he learned it again.
+- **Answers.** October 22 (`1072c10a`): asked, he said the workshop. October 24 (`bc2ec5d9`): his
+  startup hello said he had "the living-room shift covered" two seconds before the camera settled
+  on the workshop, and the owner corrected him.
+- **Living room and bedroom confused while standing still.** In the October 26–27 Jeopardy run
+  (`0c8be385`, 31 minutes, the wheels never moved) his room changed 20 times between the two,
+  sometimes 4 s apart, with the top two scores often under .03 apart. Both rooms took two new
+  views from that one spot. Each change was also saved as a connection: the living room–bedroom
+  link reads 23 trips, most of them from this run. Without wheel motion, a change should take
+  the 10-reading carried rule and not count as a connection, so the recognizer was being told he
+  might be moving. Why is not yet established.
+- **Saved views drifted.** Each room keeps its newest 15 views. By October 29 no imported view
+  remained, and only the dining room kept any of its taught views. Everything else had been added
+  automatically while he believed he was in that room, the way V2 saw one room's views creep into
+  another's. That may explain the confusion above; it is not established.
+- **Connections saved:** living room–bedroom 23, living room–dining room 6, dining room–bedroom 2.
+- **Exploring.** One explore goal was planned with recognition running (October 16, `3af18a12`),
+  for a room he was unsure of.
+
 ## Checks
 
 - **Synthetic:** 13 contract checks in `tests/test_places.py` with fake encoder, clock and
@@ -111,8 +148,9 @@ in each room. Telling him adds fresh views that make the room recognizable.
   - naming, learning, failure and connections
   - corrections and cascades, tool availability, the import reader and preprocessing
 - **Real model on saved frames:** the parity and scoring above.
-- **Not done:** a live run (camera conversation, asking, naming, exploring by wheel) and
-  accuracy across rooms, lighting and people. The import reader was checked on a synthetic
-  database; the real import was run once.
+- **Real hardware:** the robot runs above (recognizing, naming, answering, connections).
+- **Not done:** accuracy against the room he is really in, across lighting and people; Rex
+  asking about an unfamiliar room on his own; an explore goal driven to the end. The import
+  reader was checked on a synthetic database; the real import was run once.
 
 Enable with `place_recognition_enabled = true` (requires `--camera` and the model file).

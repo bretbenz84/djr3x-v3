@@ -123,7 +123,9 @@ it or reads its data.
 - **Rooms (October 11).** With `place_recognition_enabled`, V2's room model (run locally)
   tells Rex which room he is in. In an unfamiliar room he asks what it is and learns it
   when told, remembers which rooms he has moved between, and may set off to explore. V2's
-  three taught rooms are imported. Not yet run on the robot ([details](docs/ROOM_RECOGNITION.md)).
+  three taught rooms were imported and the owner taught a bedroom. On the robot since October 16:
+  confident on 42% of readings, and he confuses the living room and the bedroom even standing
+  still ([details](docs/ROOM_RECOGNITION.md)).
 - **Sentry mode (October 22).** "Activate sentry mode until 7pm" (or for an hour, silent, with a 60
   second activation): a spoken countdown, then red lights, still arms, a slowly sweeping neck and
   locked wheels, with no paid calls while nothing happens.

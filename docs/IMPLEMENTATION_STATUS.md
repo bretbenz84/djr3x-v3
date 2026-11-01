@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 26, 2026. This is the consolidated
+Updated October 31, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,19 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## Room recognition on the robot, reviewed — October 31
+
+The docs still called room recognition untried on the robot. It has run there since October 16
+(48 runs, 7,527 readings: 42% confident, 56% unsure, 2% matching nothing). The owner taught the
+bedroom by voice and re-taught the dining and living rooms on October 16. Asked, Rex named the
+workshop on October 22. Open problems, found in the logs and not repaired:
+- In the October 26–27 Jeopardy run, with the wheels still, his room switched 20 times between
+  the living room and the bedroom, and every switch was saved as a connection between them.
+- The rooms' saved views have all been replaced by views added automatically.
+- He never asked about an unfamiliar room on his own.
+Which room he was really in is not recorded, so accuracy is unmeasured. Review only, no code
+changed. [Details](ROOM_RECOGNITION.md#on-the-robot-october-1629).
 
 ## Turn detection: Smart Turn v3.2 next to Silero — October 26
 
@@ -2277,7 +2290,7 @@ separate categories.
 | Live tracked-object attention after movement | Target/version contracts exist in simulation. Physical directional looks and settled captures are implemented; tracked room-object gaze and mechanically verified arrival remain pending. Current-camera descriptions do not supply those controllers. |
 | Optional vision extensions | Adaptive image detail, general inspection-request coalescing and supported cross-session visual association are future options, not missing requirements of the completed core. Exact-image description reuse already exists. |
 | Motion-aware proactive noticing (partial implementation) | Commanded head/base motion, settling and bounded returning-view suppression are implemented. Independent subject motion, robust object continuity and unknown/manual camera movement remain future work. [September 17 direction](PROACTIVE_CONVERSATION.md#future-idea-motion-and-new-arrivals-as-attention-cues) |
-| Room navigation | Rooms can be recognized, named and connected in software ([room recognition](ROOM_RECOGNITION.md)); it first starts live after the October 15 camera-hub fix and is unproven on the robot. Positions, a floor plan and "go to the kitchen" do not exist. |
+| Room navigation | Rooms can be recognized, named and connected in software ([room recognition](ROOM_RECOGNITION.md)); it has run on the robot since October 16, confuses the living room and the bedroom, and its accuracy is unmeasured. Positions, a floor plan and "go to the kitchen" do not exist. |
 | Compass heading | The drive base publishes raw QMC5883L magnetometer counts; V2's calibrated, current-gated compass fusion (`hardware/compass.py`, calibration file) is not ported. V3 uses gyro yaw only. |
 | Owner-requested companion features | Jeopardy landed October 26 ([details](JEOPARDY.md)); room exploration; the September 18 “Do you ever think” long-lull thought experiments landed October 23. Voice impressions landed October 6 ([details](IMPERSONATION.md)), impressions of his own as goal beats October 23, and interest news October 11 ([details](OBSERVATION_SOURCES.md)). Purposeful motion is implemented in software ([drive base](DRIVE_BASE_INTEGRATION.md)); room recognition and an explore goal landed October 11 ([rooms](ROOM_RECOGNITION.md)); maps and localization are not. General news/proactive inputs already exist; these extensions remain future work. [Feature roadmap](FUTURE_FEATURES.md) |
 | Wider roadmap | Games, physical LEDs, richer relationship/biography systems, semantic memory search and offline conversational providers remain separate future work. The dashboard's Memory Banks editor and typed input were not ported ([dashboard](GUI.md)). |

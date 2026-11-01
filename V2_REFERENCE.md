@@ -1168,6 +1168,11 @@ Data: `tools/import_v2_places.py` copied V2's three rooms (dining room, workshop
 with new IDs, `import_ref` and the mapping in `imports`. Details and limits:
 [room recognition](docs/ROOM_RECOGNITION.md).
 
+Live, reviewed October 31: running on the robot since October 16. Automatic refreshes have
+replaced every imported view, and the living room and bedroom were confused while the robot
+stood still. Accuracy against labelled rooms remains unmeasured
+([robot runs](docs/ROOM_RECOGNITION.md#on-the-robot-october-1629)).
+
 ## Humor style examples — October 14, 2026
 
 Step 4 of the [improvement plan](docs/IMPROVEMENT_PLAN.md) (owner: V2 "joked more, roasted
