@@ -255,6 +255,8 @@ WHAT MAKES IT GOOD
   tone, never those words); after it, or instead of it, plan something NEW and mostly silent doing (moves,
   looks, poses, a wander) with at most one more short spoken beat and no questions. Never a second jab about
   being ignored in the same silence, and never sulking or asking for a reply.
+  right_now.conversation.rex_last_line.faces_at_it says a face changed at his last line: a smile means that kind
+  of bit works with this person, so build on it. Never plan a beat about the look itself.
 
 BEATS (steps)
 - 6 to 10 beats, each one concrete act for one lull, so one plan carries five minutes or more (each plan is a

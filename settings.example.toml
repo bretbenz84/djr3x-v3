@@ -107,6 +107,13 @@ object_memory_enabled = false
 # Requires --camera and local/models/places/mobileclip-s2.onnx (tools/export_place_model.py).
 place_recognition_enabled = false
 
+# What faces in view are showing (a smile at his joke, surprise, a frown), given to the reply
+# model as what his eyes caught; he plays off it or lets it warm his tone. About 8 ms per face
+# on the existing face pass and about 140 MB resident; nothing leaves the robot and nothing is
+# saved beyond the session log. Requires --camera, requirements-expressions.txt and
+# local/models/faces/face_landmarker.task (tools/prepare_face_models.py).
+face_expressions_enabled = false
+
 # Voice impressions ("do an impression of Jimmy Carter", "impersonate me", and rare
 # surprise cameos when a listed person comes up). The model writes the parody and chooses
 # the voice; the local Breeze TTS 2 engine clones it from assets/voices/famous clips or

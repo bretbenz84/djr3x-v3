@@ -128,6 +128,9 @@ it or reads its data.
   each time. "Stop that bit" switches it off ("bring it back" restores it); "never call me that again" deletes
   it. Since the same day, jokes about people's bodies are fair game. Not yet run on the robot
   ([details](docs/IMPLEMENTATION_STATUS.md#celebrity-callouts-and-body-jokes--october-25)).
+- **What faces show (November 3).** With `face_expressions_enabled`, Rex sees a smile at his joke and his next
+  line knows it landed; also surprise and frowns. Local, about 8 ms a face, and nothing is saved. Checked on saved
+  pictures and a robot clip, not yet run live ([details](docs/FACE_EXPRESSIONS.md)).
 - **Rooms (October 11).** With `place_recognition_enabled`, V2's room model (run locally)
   tells Rex which room he is in. In an unfamiliar room he asks what it is and learns it
   when told, remembers which rooms he has moved between, and may set off to explore. V2's
@@ -250,8 +253,10 @@ python3.11 -m venv .venv
 .venv/bin/python -m pip install -r requirements-build.txt
 .venv/bin/python -m pip install -r requirements-live.txt
 .venv/bin/python -m pip install --no-build-isolation --no-deps -e .
+.venv/bin/python -m pip install --no-deps -r requirements-expressions.txt   # Only for face_expressions_enabled
 .venv/bin/python tools/prepare_core_models.py      # pinned public CAM++ assets
 .venv/bin/python tools/prepare_face_models.py      # face models from the offline cache
+.venv/bin/python tools/prepare_face_models.py --landmarker /Users/bbenziger/djr3x-v2/assets/models/face/face_landmarker.task   # adds the expression model
 .venv/bin/python tools/prepare_voice_cloning.py    # Breeze TTS 2 8-bit for impressions (about 4.6 GB; --source DIR copies a local snapshot)
 # Room recognition: export V2's MobileCLIP-S2 with any Python that has torch, open_clip and onnx
 /Users/bbenziger/djr3x-v2/venv/bin/python -I tools/export_place_model.py --cache /Users/bbenziger/djr3x-v2/assets/models/mobileclip --out local/models/places/mobileclip-s2.onnx

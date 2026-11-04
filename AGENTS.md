@@ -49,6 +49,8 @@ implemented. Update status and evidence when implementation actually lands.
   saved voice) and pools views of the one face that is neither recognized nor resembling a
   saved face. Another unknown voice heard twice undoes the link; the voice still completes only through
   the enrollment chain. A newcomer's objection does not stop it; forgetting does.
+- What a face shows (owner ruling, November 3) is for the conversation only: it reaches the picture of the
+  present and the reply, never speaker attribution, enrollment, identity, presence or saved memory.
 - Personal facts retain source turns, speaker attribution, subject, and status.
   An uncertain speaker does not silently become the mentioned person.
 - Ordinary replies retain one primary model generation. Do not add a mandatory

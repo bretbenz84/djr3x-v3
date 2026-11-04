@@ -67,22 +67,26 @@ class FaceTracker:
     MARGIN = .10
     CONTINUITY = .45
 
-    def __init__(self):
+    def __init__(self, expressions=None):
         self.tracks = {}
         self.history = deque(maxlen=64)
         self.sample_history = deque()
         self.sample_bytes = 0
         self.epoch = 0
         self.last_at = float('-inf')
+        self.expressions = expressions   # expressions.ExpressionWatch: what faces show, kept apart from who they are.
 
     def clear(self):
         self.epoch += 1
+        if self.expressions is not None:
+            self.expressions.clear()
         self.tracks.clear()
         self.history.clear()
         self.sample_history.clear()
         self.sample_bytes = 0
 
-    def update(self, boxes, at, samples=None, profiles=None):
+    def update(self, boxes, at, samples=None, profiles=None, readings=None):
+        """readings: one blendshape dict or None per box, when the expression reader is on."""
         if at <= self.last_at: return ()
         self.last_at = at
         while self.sample_history and at-self.sample_history[0][1].at>32:
@@ -139,7 +143,10 @@ class FaceTracker:
                     dict(ranked).get(track.identity,-1)<.4): track.identity = None
             self.tracks[key] = track
             center = box[0]+box[2]/2
-            seen.append({'track_id':key,'face_epoch':self.epoch,'box':list(box),'at':at,'track_first_seen':track.first_seen,
+            look = {}
+            if self.expressions is not None and readings is not None:
+                look = self.expressions.observe(box,track.identity,readings[index],at)
+            seen.append({**look,'track_id':key,'face_epoch':self.epoch,'box':list(box),'at':at,'track_first_seen':track.first_seen,
                 'position':'left' if center<.33 else 'right' if center>.67 else 'center',
                 'identity':track.identity,'evidence':'face_match' if track.identity else 'face_unresolved',
                 # Too weak to name, close enough on this track that it is not a stranger's face.

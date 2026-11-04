@@ -3138,7 +3138,8 @@ class Session:
                     # What was actually heard, for the conversation clock in the picture of the present.
                     heard = ' '.join(delivery.completed_text)
                     self.state.present.rex_said(heard, self.trace.clock(), own_initiative=opportunity is not None,
-                                                answering=(context.get('speaker') or {}).get('speaker_id') or self._memory_subject)
+                                                answering=(context.get('speaker') or {}).get('speaker_id') or self._memory_subject,
+                                                started=delivery.first_audio_at)
                     playing = self.state.jeopardy.active or bool(context.get('jeopardy'))
                     if self.joke_room is not None and not context.get('sentry') and not playing:   # No paid writer for the guard or a game.
                         self._joke_followup(heard, context, opportunity, transcript, turn_id, calls, setback[0])

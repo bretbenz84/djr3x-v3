@@ -63,6 +63,17 @@ RECENT_LINES = 6
 # The person Rex answered, recognized this recently, was spoken with: the same run showed a
 # greeting prepared for the owner 74 s in, after they had already talked.
 ENGAGED_SECONDS = 10.
+# What a face shows (owner, November 3: V2's smile awareness). A smile is a moment, not a standing
+# fact: a look stays in the picture this long after it was last seen (V2 kept a reaction 90 s), and
+# only until he has spoken one heard line with it in front of him.
+LOOK_KEEP_SECONDS = 60.
+LOOK_STILL_SECONDS = 1.5    # Seen this recently, the face is still showing it.
+# A look that begins while his line plays or this soon after it is about that line (V2's window).
+AFTER_LINE_SECONDS = 5.
+# At most this often is he told to let a smile show (V2's smile cooldown); between, it is just a fact.
+OWN_A_SMILE_SECONDS = 75.
+LOOK_NOW = {'smile': 'smiling', 'surprise': 'looking surprised', 'frown': 'frowning'}
+LOOK_PAST = {'smile': 'smiled', 'surprise': 'looked surprised', 'frown': 'frowned'}
 
 
 def ago(seconds):
@@ -218,6 +229,9 @@ class Present:
         self.last_look = None    # {'where', 'why', 'at'}: the last look Rex chose, and why.
         self.unanswered = 0      # Rex's own heard lines since a human last spoke.
         self.concessions = deque(maxlen=12)   # When his heard lines opened with a concession.
+        self.looks = {}          # moment id -> what one face showed: see saw_expressions.
+        self.smile_owned_at = float('-inf')   # When a heard line was last told to own a smile.
+        self.smile_offered = False            # The line being written has been told to.
 
     # People ------------------------------------------------------------------
     def _recognize(self, person, at):
@@ -248,6 +262,39 @@ class Present:
                     self._recognize(face['identity'], at)
             if len(seen) > 1:
                 self.company_at = max(self.company_at, max(seen))
+            self.saw_expressions(faces, now)
+
+    def saw_expressions(self, faces, now):
+        """The looks on faces in view, every camera pass and at each turn. For the picture only:
+        no attribution, presence or memory reads them. A smile at his line is a response, so it
+        also clears the count of lines nobody answered (being ignored is about silence and blank
+        faces; a person grinning at him is neither)."""
+        with self.lock:
+            for face in faces or ():
+                moment = face.get('expression_moment')
+                if not moment or (face.get('face_width_px') or 48) < 48:
+                    continue
+                at = face.get('at', now)
+                row = self.looks.get(moment)
+                if row is None:
+                    row = self.looks[moment] = {'look': face['expression'], 'since': face['expression_since'],
+                                                'at': at, 'person': None, 'unprompted': False,
+                                                'shown': False, 'spent': False}
+                row['at'] = max(row['at'], at)
+                row['person'] = face.get('identity') or row['person']
+                row['unprompted'] = row['unprompted'] or bool(face.get('expression_unprompted'))
+            self.looks = {k: r for k, r in self.looks.items() if now - r['at'] <= LOOK_KEEP_SECONDS}
+            self._smile_answers()
+
+    def _at_last_line(self, row):
+        """Did this look begin while his last line played, or just after? A face already showing
+        it when he started is not reacting (V2's rule)."""
+        line = self.last_rex
+        return bool(line) and line['started'] <= row['since'] <= line['at'] + AFTER_LINE_SECONDS
+
+    def _smile_answers(self):
+        if self.unanswered and any(r['look'] == 'smile' and self._at_last_line(r) for r in self.looks.values()):
+            self.unanswered = 0
 
     def heard(self, person_id, at):
         """Trusted human speech; person_id only for a supported voice. Rex's lines are answered."""
@@ -318,6 +365,7 @@ class Present:
         with self.lock:
             for table in (self.recognized, self.visit_since, self.spoke, self.engaged):
                 table.pop(person_id, None)
+            self.looks = {k: r for k, r in self.looks.items() if r['person'] != person_id}
             self.audience_seen = None   # A fresh recognition is needed after any forget.
             if self.last_human and self.last_human.get('person_id') == person_id:
                 self.last_human = {**self.last_human, 'person_id': None}
@@ -369,18 +417,24 @@ class Present:
             return self.pets.take(session_id, now, speech_marker, faces)
 
     # Conversation clock --------------------------------------------------------
-    def rex_said(self, text, at, *, own_initiative=False, answering=None):
+    def rex_said(self, text, at, *, own_initiative=False, answering=None, started=None):
         """A line of Rex's that was actually heard (complete audible delivery). `answering` is
         the person the line was for (the identified speaker, else the private audience): they
         have been spoken with. October 17 review: marking everyone recognized within a few
-        seconds would have kept a known guest who walked in mid-reply from ever being greeted."""
+        seconds would have kept a known guest who walked in mid-reply from ever being greeted.
+        `started` is when its audio began; looks in front of him as he wrote it are now used."""
         from .output import plain_text
         text = plain_text(text or '').strip()
         if not text:
             return
         with self.lock:
             self.last_rex = {'text': text[:300], 'at': at, 'question': text.endswith('?'),
-                             'own_initiative': own_initiative}
+                             'own_initiative': own_initiative, 'started': at if started is None else started}
+            if self.smile_offered:
+                self.smile_owned_at, self.smile_offered = at, False
+            for row in self.looks.values():
+                row['spent'] = row['spent'] or row['shown']
+            self._smile_answers()
             self.recent_rex.append({'text': text[:200], 'at': at})
             if conceded(text):
                 self.concessions.append(at)
@@ -395,8 +449,31 @@ class Present:
     def beat_heard(self):
         with self.lock:
             self.unanswered += 1
+            self._smile_answers()
 
     # The picture -----------------------------------------------------------------
+    def _looks_now(self, now, names):
+        """(faces reacting to his last line, other looks worth knowing). Each is shown until a
+        heard line of his has had it in front of him, whether or not he used it: one beat to
+        enjoy it, then it is just warmth (V2's reaction awareness, owner August 5)."""
+        reactions, others = [], []
+        for row in sorted(self.looks.values(), key=lambda r: r['since']):
+            if row['spent'] or now - row['at'] > LOOK_KEEP_SECONDS:
+                continue
+            who = names.get(row['person']) or 'someone'
+            still = now - row['at'] <= LOOK_STILL_SECONDS
+            if self._at_last_line(row):
+                entry = {'who': who, 'look': LOOK_PAST[row['look']]}
+                if entry not in reactions:
+                    reactions.append(entry)
+            elif row['unprompted']:
+                others.append({'who': who, 'look': (LOOK_NOW if still else LOOK_PAST)[row['look']],
+                               'since' if still else 'when': ago(now - row['since'])})
+            else:
+                continue
+            row['shown'] = True
+        return reactions, others
+
     def describe(self, now, names=None, *, rex=None, wall=None):
         """Rex's sense of the moment in words. Names are display data for recognized people;
         wall is the local wall-clock datetime."""
@@ -429,6 +506,14 @@ class Present:
                 answered = spoke is not None and spoke > line['at']
                 conversation['rex_last_line'] = {'text': line['text'], 'said': ago(now - line['at']),
                     'what_became_of_it': line_meaning(line, answered, now - line['at'])}
+            reactions, looks = self._looks_now(now, names)
+            if reactions and self.last_rex:
+                conversation['rex_last_line']['faces_at_it'] = reactions
+            smile = next((f['who'] for f in reactions if f['look'] == LOOK_PAST['smile']), None)
+            smiling_now = next((f['who'] for f in looks if f['look'] == LOOK_NOW['smile']), None)
+            self.smile_offered = bool(smile or smiling_now) and now - self.smile_owned_at >= OWN_A_SMILE_SECONDS
+            if self.smile_offered:
+                conversation['own_it'] = {'who': smile or smiling_now, 'at_your_line': bool(smile)}
             conversation['quiet'] = quiet_meaning(quiet)
             recent = [at for at in self.concessions if now - at <= CONCESSION_SECONDS]
             if recent:
@@ -452,6 +537,8 @@ class Present:
                        'things_seen': things,
                        'conversation': conversation,
                        'meaning': GUIDE['right_now']}
+            if looks:
+                picture['expressions'] = {'faces': looks, 'meaning': GUIDE['right_now.expressions']}
             if rex:
                 picture['rex'] = rex
             return picture

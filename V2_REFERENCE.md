@@ -1369,3 +1369,26 @@ Checks: `tests/test_voice_modes.py`, synthetic providers, pulse and serial ports
 validation: how the lines sound in both voices, the flourish and hand swings on the robot, the
 rainbow on both boards, and whether the model calls the tool for real questions and greetings
 and not for questions about other people.
+
+## Smile and expression awareness — November 3, 2026
+
+Owner request. Source HEAD `95f2403`; the working tree has uncommitted firmware and drive changes, none in the
+files used here (`vision/face_expression.py`, `intelligence/reaction_awareness.py`, the smile paths of
+`intelligence/consciousness.py` and `llm.py`, `config.py` defaults, `assets/models/face/face_landmarker.task`,
+SHA-256 `64184e22…`, copied to ignored `local/models/faces/`). No V2 code imported or changed at runtime.
+
+Preserved: MediaPipe Face Landmarker blendshapes at the same version (0.10.35); a look fires on a rise above that
+face's resting level as well as an absolute floor, with V2's constants restated for 2 Hz; V2's higher bar for
+unprompted reactions, five-second window after a line and 75-second cooldown; a face already smiling did not react
+to him; the first-person awareness of the owner's August 5 ask, spent on his next heard line whether used or not.
+
+Adapted: reads a crop of each SCRFD face in image mode, instead of the whole frame in video mode, so faces at
+conversational distance read and each reading belongs to one face without box guessing. Looks go in the picture of the present,
+not world state; no `consciousness` watch, no canned lines, no separate proactive path, no new speech trigger. A smile
+at his line clears the unanswered count. Installed with `--no-deps` so mediapipe's `opencv-contrib-python` does not
+overwrite the pinned `opencv-python`.
+
+Not ported: the furrowed brow (a resting browDown read a median .56 on the robot's footage), the active-speaker hook
+(forbidden: mouth motion is no speaker evidence), disposition memory of a person's usual face, the diary hook and the
+giddy body mood. Checks and remaining live validation: [what faces show](docs/FACE_EXPRESSIONS.md).
+

@@ -40,6 +40,9 @@ an emotion from a face, or make them reassure Rex that he is not bothering them.
 Use expressed meaning and conversational context; emotional interpretations remain
 uncertain and revisable. Warmth and delight can include attentive companionship.
 
+Owner ruling, November 3: Rex may see what a face shows (a smile at his joke, surprise, a frown) and play off
+it; see [what faces show](FACE_EXPRESSIONS.md). A look is what a face shows, not a diagnosis, and words outrank it.
+
 Both excessive chatter and missed welcome openings are failures. Silence is a valid
 choice, not the universal optimization target. Visible presence permits considering
 an invitation; it does not prove attention or oblige anyone to answer.
@@ -147,8 +150,8 @@ following are proposed context responsibilities, not a new parallel world model:
 
 Code records observations, timestamps and outcomes. The conversational model owns
 their semantic interpretation. Do not recreate a regex energy/addressee classifier,
-infer private emotional states from appearance, or turn session judgments into
-durable biography. Interpretations retain supporting source IDs and can expire or
+infer private emotional states from appearance (a visible look is evidence of the look only), or turn session
+judgments into durable biography. Interpretations retain supporting source IDs and can expire or
 be corrected; they never grant acoustic identity or enrollment permission.
 
 ## One opportunity and decision path

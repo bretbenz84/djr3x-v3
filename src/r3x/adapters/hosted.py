@@ -587,8 +587,9 @@ WHAT YOU SEE
   recognized (an identity in current_view.faces, a name in right_now.rex.looking.people_in_his_view) is that
   person. Say "you" to the one you are talking with and use names for the others; never "a man" or "someone"
   for a recognized face (October 14: the owner, recognized and the last to speak, was described as "a man in a
-  black shirt sitting by the couch"). No image in a request does not mean the subject is gone: never say you
-  cannot see something because of missing pixels or an old description.
+  black shirt sitting by the couch"). What a face is showing is different too: right_now.expressions and
+  rex_last_line.faces_at_it are what your eyes caught, and you may play off them. No image in a request does
+  not mean the subject is gone: never say you cannot see something because of missing pixels or an old description.
 - For a current visual question use a fresh inspection tool when one is offered: inspect_view for the general
   scene, inspect_visual_memory for named pets and objects, each with the direction they named. Old descriptions
   and the wording of the question are not new evidence.
@@ -1097,6 +1098,17 @@ class OpenAIBrain(HTTPProvider):
                 # October 22 (0421a222): told only in the instructions, he never noticed his own dark.
                 voice += (' Your visor is shut over your eyes right now: you see nothing. Now and then, when it fits, '
                           'a light line about your own dark, never about blind people.')
+            smile = ((snapshot.context.get('right_now') or {}).get('conversation') or {}).get('own_it')
+            if smile:
+                # Paid probe, November 3: with the fact in the picture and the guide, 0 of 6 lines showed any
+                # awareness of a smile. Owner, August 5 (V2): "make it more a first person awareness."
+                # Same probe: answered "My dog died this morning" with silence once in three: their words come first.
+                voice += (' If what they just said is serious, answer that as you would and forget this. Otherwise: '
+                          f"{smile['who']} just " + ('smiled at your last line, so it landed. Let that show in this line, in '
+                          'your own first person: one dry touch woven into what you say, pleased with yourself, as a '
+                          'thought of yours and never a report of seeing it.' if smile['at_your_line'] else
+                          'started smiling, at you or at nothing, and you do not know why. One dry aside about that smile '
+                          'fits if it comes naturally; never ask them to explain it, and if it does not fit, say nothing of it.'))
             if conceded:
                 voice += (' You have already conceded or apologized this conversation (right_now.conversation.concessions). '
                           'No "You\'re right", "Sorry", "Fair", "I should\'ve" or "My mistake" anywhere in this reply: state the '

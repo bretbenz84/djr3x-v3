@@ -83,6 +83,8 @@ The user reports frequent RF-DETR mistakes. It is not selected for v3; object
 model comparison is deferred. Face gaze-loop timing (0.08 s) must not be reported
 as the face recognizer's measured execution rate. Avoid transplanting v2 fallback
 chains, world-state globals, or expression/mouth processing.
+(November 3, owner request: [expression reading](FACE_EXPRESSIONS.md) landed as a separate path with no
+say in attribution; mouth motion stays out of attribution entirely.)
 
 ## Shared visual pipeline design
 

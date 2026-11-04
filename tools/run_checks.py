@@ -15,7 +15,7 @@ from tools.check_io_policy import check_mutation
 
 BLOCKED_MODULES = {
     "sounddevice", "pyaudio", "serial", "cv2", "torch", "torchaudio",
-    "mlx", "mlx_audio", "silero_vad", "onnxruntime", "openai", "elevenlabs", "config",
+    "mlx", "mlx_audio", "silero_vad", "onnxruntime", "mediapipe", "matplotlib", "openai", "elevenlabs", "config",
     "intelligence", "audio", "memory", "hardware", "vision",
     "usb", "libusb_package",
     "openwakeword", "rumps", "AppKit", "Foundation",

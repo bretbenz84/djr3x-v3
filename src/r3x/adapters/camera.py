@@ -5,6 +5,7 @@ import threading
 import time
 from uuid import uuid4
 from ..contracts import ProviderFailure
+from ..expressions import ExpressionWatch
 from ..faces import FaceTracker
 from ..vision import Frame, FrameHub
 from ..providers import Capability
@@ -37,7 +38,9 @@ class Camera:
         self.stop = threading.Event()
         self.ready = threading.Event()
         self.lock = threading.Lock()
-        self.tracker = FaceTracker()
+        self.tracker = FaceTracker(ExpressionWatch())
+        self.expressions = None   # adapters.expression.ExpressionReader, when it started.
+        self.on_faces = None      # The picture of the present hears about looks between turns.
         self.hub = FrameHub()
         self.hub.register("faces")
         self.failure = None
@@ -114,6 +117,7 @@ class Camera:
                 began = time.monotonic()
                 if began-frame.at>.5: continue
                 detections = self.encoder.analyze(frame)
+                readings = self._read_expressions(frame, detections)
                 with self.lock: epoch = self.tracker.epoch
                 # Memory is read outside the camera lock. October 12: a reply holding the
                 # memory lock checked the faces in view while this worker held the camera
@@ -121,8 +125,9 @@ class Camera:
                 profiles = self.profiles()
                 with self.lock:
                     if self.tracker.epoch != epoch: continue   # A forget cleared faces meanwhile.
-                    rows = self.tracker.update([d[0] for d in detections],frame.at,[d[1] for d in detections],profiles)
+                    rows = self.tracker.update([d[0] for d in detections],frame.at,[d[1] for d in detections],profiles,readings)
                 self.ready.set()
+                self._tell_faces(rows, frame.at)
                 if self.trace:
                     self.trace.emit("camera_frame",faces=len(rows),frame_id=frame.frame_id,
                         recognized=sum(r['identity'] is not None for r in rows),
@@ -133,6 +138,27 @@ class Camera:
                 del frame, detections
                 self.stop.wait(max(0,.5-(time.monotonic()-began)))
         except Exception as exc: self._failed(exc)
+
+    def _read_expressions(self, frame, detections):
+        """What each face shows. A failed reader costs the looks for this run, never the faces."""
+        reader = self.expressions
+        if reader is None or not detections:
+            return None
+        try:
+            return reader.read_faces(frame, [d[1].native_box for d in detections])
+        except Exception as exc:
+            self.expressions = None
+            if self.trace: self.trace.emit("provider_failed",capability="expressions",error_type=type(exc).__name__)
+            return None
+
+    def _tell_faces(self, rows, at):
+        """Outside the camera lock (see the October 12 note in _analyze)."""
+        if self.on_faces is None or not rows:
+            return
+        try:
+            self.on_faces(rows, at)
+        except Exception as exc:   # Bookkeeping must not stop the eyes.
+            if self.trace: self.trace.emit("expression_note_failed",error_type=type(exc).__name__)
 
     def latest(self, now):
         with self.lock:

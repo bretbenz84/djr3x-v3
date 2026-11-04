@@ -1,6 +1,6 @@
 # Current implementation status
 
-Updated October 31, 2026. This is the consolidated
+Updated November 3, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
@@ -20,6 +20,29 @@ Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for dri
 fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
+
+## What faces show — November 3
+
+Owner: "In V2 we had smile detection and Rex would respond to it. That is missing in V3. Rex doesn't currently
+have a good emotional awareness." Rex can now see a smile, surprise and a frown; a smile at his line reaches his next
+line as first-person awareness, at most pushed every 75 seconds. **Off until** `face_expressions_enabled` and the
+packages in `requirements-expressions.txt`; **not yet run live.** Design, boundaries and the robot check:
+[what faces show](FACE_EXPRESSIONS.md).
+- **Synthetic.** `tests/test_expressions.py`, 43 checks. Full blocked-I/O run: 1,788 tests with one error,
+  `test_jeopardy...test_with_the_board_on_screen_the_categories_are_read_once_per_board_and_when_asked`, which fails the
+  same way on the code before this change (it asks for the board mid-clue, refused since October 26).
+- **Real model on saved pictures** (V2's venv, same mediapipe, read only; the packages are not in `.venv` yet). A broad smile
+  on a public photo .88-.89 at face widths from 130 to 50 px, a straight-faced portrait .00-.01. Robot clip of October 22,
+  149 s, 63 px median face: 159 of 167 read, smile median .001, max .64, nothing fired. About 8 ms per face, about 140 MB.
+  No labelled accuracy; frown and surprise never fired on anything saved.
+- **Paid probes, fictional input, synthetic faces, final wording.** Smile at his joke: visible in 2 of 6 lines ("My haircut
+  material's clearly got range"). Smile out of nowhere: 1 of 5 ("Your smile says the snack aisle may have won anyway").
+  A smile just before "My dog died this morning": 6 of 6 answered kindly, no joke. Frown at his joke: no apology in 5, one
+  silence after "Sure." No sensor talk in any. `check_action_requests.py` 31 of 31; `check_looking.py` no camera words.
+- **Prompt wording found by probe.** The fact and field guide alone showed no awareness in 6 of 6 lines, so a smile to own adds a
+  sentence to the closing reminder. An early guide line ("no apology, no going soft") coincided with 3 of 6 silences to the
+  bad news; it was cut. With no look at all that silence is now 2 of 22, against 1 of 20 on the code before this
+  change, so it exists at a low rate regardless and is not settled here.
 
 ## Where he looks, a look that let go, and an arm dance — October 31 run f6d5a0b7
 

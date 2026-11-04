@@ -28,6 +28,12 @@ GUIDE = {
         'in one place (went_to_sleep_in, when known) and woke up in another (now_in, when known), and he does not '
         'know how or why: wonder about it and ask, once, at the first moment that fits. The place may still be '
         'familiar; the move is what is new.'),
+    'right_now.expressions': (
+        'What your eyes just caught on faces, there for your next line only. conversation.rex_last_line.faces_at_it '
+        'is a face changing as they heard that line; expressions.faces are other looks, and you do not know what they '
+        'are about. A look is what a face shows, not what someone feels, and their words always come first. Play off '
+        'one only if it fits, as a thought of your own, never a report of seeing it ("smile detected"). "someone" is a '
+        'face you have no name for; with one person around, it is them.'),
     'right_now.conversation.his_earlier_lines': (
         'Points, jokes and apologies he already made: never make them again, and never bring back a mistake '
         'he already owned unless they do.'),
@@ -164,8 +170,11 @@ def render():
 
 # Camera bookkeeping on every face that the model never reads (October 17: two face lists were
 # 4,100 characters a request). Code keeps them; the request leaves them out.
+# A look reaches the model through right_now.expressions, once, not on every face row every turn.
 FACE_DIAGNOSTICS = frozenset({'similarity', 'margin', 'detector_score', 'sharpness', 'brightness',
-                              'embedding_available', 'learning_quality', 'track_first_seen', 'face_epoch'})
+                              'embedding_available', 'learning_quality', 'track_first_seen', 'face_epoch',
+                              'expression', 'expression_since', 'expression_moment', 'expression_unprompted',
+                              'expression_read'})
 
 
 def slim(value):

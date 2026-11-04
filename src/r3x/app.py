@@ -107,11 +107,15 @@ class App:
         if self.settings.impersonation_enabled:
             from .adapters.breeze import VoiceCloner
             self.cloner = VoiceCloner(self.paths.root / 'models/breeze-tts-8bit', level=PCMLeveler)
+        expressions = None
+        if camera and self.settings.face_expressions_enabled:
+            from .adapters.expression import ExpressionReader
+            expressions = ExpressionReader(self.paths.root / 'models/faces/face_landmarker.task')
         # A disconnected camera removes its dependents for this run, not the setting.
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner,keywords,turn,voice_check,room_sounds) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,expressions,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner,keywords,turn,voice_check,room_sounds) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -161,6 +165,8 @@ class App:
                 for name in ("scrfd_10g.onnx", "edgeface_s_gamma_05.onnx"):
                     if not (self.paths.root / "models/faces" / name).is_file():
                         missing.append(name)
+            if self.settings.camera_enabled and self.settings.face_expressions_enabled and not (self.paths.root / 'models/faces/face_landmarker.task').is_file():
+                missing.append('expression_model_file')
             if self.settings.camera_enabled and self.settings.object_memory_enabled and not (self.paths.root / 'models/objects/rfdetr-nano.onnx').is_file():
                 missing.append('object_model_file')
             if self.settings.camera_enabled and self.settings.place_recognition_enabled and not (self.paths.root / 'models/places/mobileclip-s2.onnx').is_file():
@@ -402,6 +408,10 @@ class App:
                     state.systems_status = ((lambda: report(self.drive.base_status(), offset)) if 'drive_base' in active
                                             else (lambda: report(None, offset)))
                 state.places=places
+                if camera:
+                    # Looks reach his sense of the moment between turns too (owner, November 3).
+                    camera.expressions = next((p for p in optional if p.capability.name=='expressions' and 'expressions' in active),None)
+                    camera.on_faces = state.present.saw_expressions
                 if objects:
                     from .photo_memory import PhotoMemory
                     state.objects=objects
