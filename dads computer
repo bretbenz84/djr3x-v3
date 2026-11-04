@@ -1,0 +1,75 @@
+#!/bin/sh
+# Rebuild OpenCore with the OCLP app already installed on the Mac, and
+# reinstall it to the internal EFI partition. Run from macOS Recovery.
+# Backs up the existing EFI folder first. Does not touch macOS or user data.
+#
+# Usage: curl -sL <url> | sh
+#        curl -sL <url> | sh -s iMac15,1     (force a model)
+
+set -u
+say() { echo; echo "===== $* ====="; }
+die() { echo; echo "STOPPED: $*"; exit 1; }
+
+# --- Model ---
+MODEL="${1:-$(sysctl -n hw.model 2>/dev/null)}"
+say "Model: $MODEL"
+[ -n "$MODEL" ] || die "could not detect model"
+
+# --- Mount macOS volumes ---
+diskutil mount "Macintosh HD" >/dev/null 2>&1
+diskutil mount "Macintosh HD - Data" >/dev/null 2>&1
+
+# --- Find OCLP app ---
+APP=$(ls -d /Volumes/*/Applications/OpenCore-Patcher.app 2>/dev/null | head -1)
+[ -n "$APP" ] || die "OpenCore-Patcher.app not found (is FileVault on? unlock the Data volume in Disk Utility first)"
+BIN="$APP/Contents/MacOS/OpenCore-Patcher"
+VER=$(defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null)
+say "Found OCLP $VER at $APP"
+
+# --- Find the EFI partition that holds OpenCore ---
+TARGET=""
+for p in $(diskutil list | awk '/EFI/ {print $NF}'); do
+  diskutil mount "$p" >/dev/null 2>&1
+  m=$(diskutil info "$p" | awk -F': *' '/Mount Point/ {print $2}')
+  if [ -n "$m" ] && [ -d "$m/EFI/OC" ]; then TARGET="$p"; MNT="$m"; break; fi
+done
+if [ -z "$TARGET" ]; then
+  TARGET="disk0s1"
+  diskutil mount "$TARGET" >/dev/null 2>&1 || die "could not mount $TARGET"
+  MNT=$(diskutil info "$TARGET" | awk -F': *' '/Mount Point/ {print $2}')
+  echo "No existing OpenCore found on any EFI partition (this may be the problem). Will install to $TARGET."
+fi
+say "Target EFI: $TARGET mounted at $MNT"
+ls -la "$MNT/EFI" 2>/dev/null
+
+# --- Confirm ---
+echo
+printf "Rebuild OpenCore for %s and install to %s? Type y and press Return: " "$MODEL" "$TARGET"
+read ans </dev/tty
+[ "$ans" = "y" ] || die "cancelled, nothing changed"
+
+# --- Back up existing EFI ---
+BK="/Volumes/Macintosh HD - Data/Users/Shared/EFI-backup-$(date +%Y%m%d-%H%M%S)"
+if [ -d "$MNT/EFI" ]; then
+  mkdir -p "$BK" && cp -R "$MNT/EFI" "$BK/" || die "backup failed, nothing changed"
+  say "Backed up old EFI to $BK"
+fi
+
+# --- Build ---
+say "Building OpenCore (takes a minute)"
+WORK=/tmp/oclp-build; rm -rf "$WORK"; mkdir -p "$WORK"; cd "$WORK"
+"$BIN" --build --model "$MODEL" 2>&1 | tail -15
+
+NEW=$(find / -type d -path "*Build-Folder/OpenCore-Build/EFI" -newer "$WORK" 2>/dev/null | head -1)
+[ -n "$NEW" ] || NEW=$(find "$APP" /tmp /private/var/folders -type d -path "*Build-Folder/OpenCore-Build/EFI" 2>/dev/null | head -1)
+[ -n "$NEW" ] && [ -f "$NEW/OC/config.plist" ] || die "build did not produce an EFI folder; old EFI untouched"
+say "Built EFI at $NEW"
+
+# --- Install ---
+rm -rf "$MNT/EFI/OC" "$MNT/EFI/BOOT"
+mkdir -p "$MNT/EFI"
+cp -R "$NEW/OC" "$NEW/BOOT" "$MNT/EFI/" || die "copy failed; restore from $BK"
+ls -la "$MNT/EFI" "$MNT/EFI/OC" | grep -E "OC|BOOT|config.plist"
+
+diskutil unmount "$TARGET" >/dev/null 2>&1
+say "DONE. Restart holding Option, choose EFI Boot, then his disk."
