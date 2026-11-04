@@ -15,13 +15,17 @@ MODEL="${1:-$(sysctl -n hw.model 2>/dev/null)}"
 say "Model: $MODEL"
 [ -n "$MODEL" ] || die "could not detect model"
 
-# --- Mount macOS volumes ---
-diskutil mount "Macintosh HD" >/dev/null 2>&1
-diskutil mount "Macintosh HD - Data" >/dev/null 2>&1
+# --- Mount every APFS volume (names vary) ---
+for v in $(diskutil list | awk '/APFS Volume/ {print $NF}'); do
+  diskutil mount "$v" >/dev/null 2>&1
+done
+echo "Volumes:"; ls /Volumes
 
-# --- Find OCLP app ---
+# --- Find OCLP app anywhere on the mounted volumes ---
 APP=$(ls -d /Volumes/*/Applications/OpenCore-Patcher.app 2>/dev/null | head -1)
-[ -n "$APP" ] || die "OpenCore-Patcher.app not found (is FileVault on? unlock the Data volume in Disk Utility first)"
+[ -n "$APP" ] || APP=$(find /Volumes -maxdepth 5 -name "OpenCore-Patcher*.app" -type d 2>/dev/null | grep -v "^/Volumes/EFI" | head -1)
+[ -n "$APP" ] || die "OpenCore-Patcher.app not found on any volume. Send Bret a photo of this screen."
+VOL=$(echo "$APP" | cut -d/ -f1-3)
 BIN="$APP/Contents/MacOS/OpenCore-Patcher"
 VER=$(defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null)
 say "Found OCLP $VER at $APP"
@@ -49,7 +53,8 @@ read ans </dev/tty
 [ "$ans" = "y" ] || die "cancelled, nothing changed"
 
 # --- Back up existing EFI ---
-BK="/Volumes/Macintosh HD - Data/Users/Shared/EFI-backup-$(date +%Y%m%d-%H%M%S)"
+BK="$VOL/Users/Shared/EFI-backup-$(date +%Y%m%d-%H%M%S)"
+[ -d "$VOL/Users/Shared" ] || BK="/tmp/EFI-backup"
 if [ -d "$MNT/EFI" ]; then
   mkdir -p "$BK" && cp -R "$MNT/EFI" "$BK/" || die "backup failed, nothing changed"
   say "Backed up old EFI to $BK"
