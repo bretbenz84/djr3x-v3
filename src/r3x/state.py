@@ -985,6 +985,11 @@ class CoreState:
                 data=self._accent_line(call.arguments)
                 self.voice_modes.line_at=self.trace.clock()
             elif call.name=='remain_silent': data={'reason':call.arguments['reason']}
+            elif call.name=='jeopardy_setup':
+                # A person asked and his reply was dropped unheard (owed_answer); his own goals never start a game.
+                if not context.get('owed_answer'):raise ValueError('JeopardyNeedsAPersonsWords')
+                data=self._plan_game(call.name,call.arguments,None,True)
+                self.jeopardy.commit()
             elif call.name=='ask_face_question':
                 if call.arguments['face_track_id'] not in {f['track_id'] for f in context['faces']}:
                     raise ValueError('FaceEvidenceMissing')
@@ -1409,16 +1414,7 @@ class CoreState:
                     'until_text':chosen.until_text,**chosen.public()}, False
         if name in GAME_TOOLS:
             # Owner, October 26: the move is checked against the game here and takes effect once committed.
-            if self.sentry.active:raise ValueError('SentryModeActive')
-            people = {}
-            for spoken in args.get('players') or ():
-                # Display and gaze only, never an identity claim: one exact or one compatible known name.
-                exact, compatible, _ = self.store.name_matches(spoken)
-                match = exact if len(exact) == 1 else compatible if not exact and len(compatible) == 1 else []
-                people[' '.join(str(spoken).split())] = match[0]['id'] if match else None
-            parts = self.jeopardy.plan(name, args, speaker_at=voice_onset(capture), people=people,
-                                       trusted=transcript.trusted)
-            return {'parts':parts,'text':args.get('text')}, False
+            return self._plan_game(name, args, voice_onset(capture), transcript.trusted), False
         if name == "remain_silent":
             data = {"reason":args["reason"]}
             if not self.frozen and args['reason'] in {'other_addressee','background_conversation','unfinished_thought'}:
@@ -1986,6 +1982,17 @@ class CoreState:
         conn.execute('DELETE FROM places WHERE id=?',(room_id,))   # Views and connections cascade.
         return {'room_id':room_id,'action':action,'name':rooms[room_id],'source_turn_id':turn_id,
                 'meaning':'The room, every saved view of it and its connections are deleted.'}
+
+    def _plan_game(self, name, args, speaker_at, trusted):
+        if self.sentry.active:raise ValueError('SentryModeActive')
+        people = {}
+        for spoken in args.get('players') or ():
+            # Display and gaze only, never an identity claim: one exact or one compatible known name.
+            exact, compatible, _ = self.store.name_matches(spoken)
+            match = exact if len(exact) == 1 else compatible if not exact and len(compatible) == 1 else []
+            people[' '.join(str(spoken).split())] = match[0]['id'] if match else None
+        parts = self.jeopardy.plan(name, args, speaker_at=speaker_at, people=people, trusted=trusted)
+        return {'parts':parts,'text':args.get('text')}
 
     def _after(self,name,data):
         if name in GAME_TOOLS:

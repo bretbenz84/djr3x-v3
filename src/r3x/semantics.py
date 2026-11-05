@@ -453,7 +453,10 @@ def grounded_tools(context):
     if context.get('trigger')=='visual_arrival':
         definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
     elif context.get('trigger') in {'conversation_lull','ambient','reconsideration'}:
-        definitions = [d for d in definitions if d['name'] in {'voice_mode','respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
+        # November 4 (ba328d49): "Let's play Jeopardy" was dropped as someone came into view; the owed answer
+        # could not start a game, so a goal played at hosting one with no board on the dashboard.
+        definitions = [d for d in definitions if d['name'] in {'voice_mode','respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}
+                       or (d['name'] == 'jeopardy_setup' and context.get('owed_answer'))]
     elif context.get('trigger')=='pet_arrival':
         definitions = [d for d in definitions if d['name'] in {'inspect_visual_memory','respond_with_intent',
                                                                'respond_with_gesture','remain_silent'}]
@@ -585,8 +588,8 @@ def grounded_tools(context):
         if name=='use_memory_opportunity' and (not context.get('trigger') or not context.get('memory_opportunities')):continue
         if name=='shut_down' and context.get('trigger'):continue   # Only a person's request, never his own initiative.
         if name=='sentry_mode' and (context.get('trigger') or not context.get('sentry_available')):continue
-        # No game is on: only a person's request starts one.
-        if name in GAME_TOOLS and (name != 'jeopardy_setup' or context.get('trigger')):continue
+        # No game is on: only a person's request starts one, also when his reply to it was dropped and is owed.
+        if name in GAME_TOOLS and (name != 'jeopardy_setup' or (context.get('trigger') and not context.get('owed_answer'))):continue
         # On his own turns only a line of his own (on/off answer a person), and only when one is allowed now.
         if name=='voice_mode' and (context.get('trigger') or context.get('agency_step')) and not context.get('accent_line_allowed'):continue
         identity_targets = context.get("identity_action_targets", {}).get(name, [])

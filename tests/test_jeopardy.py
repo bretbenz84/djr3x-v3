@@ -277,6 +277,10 @@ class GameTests(unittest.TestCase):
             parts = self.rule('correct')
             self.assertNotIn('Remaining categories', self.says(parts))
             self.opened(self.square('CAT A1', value))
+        with self.assertRaises(ValueError) as refused:      # Never while a clue is open (a garbled "Make moves.").
+            self.move('jeopardy_control', {'action': 'read_board', 'text': None})
+        self.assertEqual(str(refused.exception), 'FinishThisSquareFirst')
+        self.rule('correct')
         board = self.move('jeopardy_control', {'action': 'read_board', 'text': None})
         self.assertTrue(self.says(board).startswith('Still on the board: '))
         # Without a screen: after each of the first four squares, then every third (V2's curve).
@@ -596,6 +600,26 @@ class SessionTests(MemoryFixture):
         self.assertEqual(right.completed_text[0], 'Yes!')
         self.turn('Ok.')                                    # Outside an open clue, silence stands at once.
         self.assertEqual(len(brain.snapshots), 7)
+
+    def test_a_game_asked_for_in_a_dropped_reply_starts_from_the_owed_answer(self):
+        from r3x.proactive import Opportunity
+        silent = ToolCall('s', 'remain_silent', {'reason': 'no_response_needed'})
+        setup = lambda s: ToolCall('c1', 'jeopardy_setup', {'players': [], 'text': 'At last.'})
+        brain = Scripted(silent, silent, setup)
+        session = self.session(brain)
+        self.turn("Let's play Jeopardy.")                  # His reply is dropped as someone comes into view.
+        plain = Opportunity('goal', session.session_id, self.state.trace.at, None, None, (), session._latest_speech,
+                            False, 'reconsideration')
+        session.process_opportunity(plain, session.revision, lambda: True)
+        self.assertNotIn('jeopardy_setup', {d['name'] for d in grounded_tools(brain.snapshots[-1].context)})
+        session._unanswered_turn = 'dropped'
+        owed = Opportunity('owed', session.session_id, self.state.trace.at, None, None, (), session._latest_speech,
+                           False, 'reconsideration')
+        answer = session.process_opportunity(owed, session.revision, lambda: True)
+        self.assertIn('jeopardy_setup', {d['name'] for d in grounded_tools(brain.snapshots[-1].context)})
+        self.assertTrue(self.state.jeopardy.active)         # So the dashboard shows the game page.
+        self.assertTrue(self.state.jeopardy.snapshot()['active'])
+        self.assertEqual(answer.completed_text, ['At last.', WHO_IS_PLAYING])
 
     def test_game_turns_leave_out_the_joke_writer_and_goals(self):
         class Room:

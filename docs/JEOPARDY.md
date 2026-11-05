@@ -157,6 +157,11 @@ Model time per ruling in run 7 (request to the finished ruling): median 2.2 s, 9
 5.4 s. Add the 1 s end-of-speech pause and about 0.4 s of recognition: the right or wrong sound should come
 about 3.5-4 s after someone stops talking. Not yet measured in a game.
 
+- Run `ba328d49` (November 4): "Let's play Jeopardy" was dropped by the private-memory audience guard as someone
+  came into view. The owed answer could not start a game and his goal planner then played at hosting one, so the
+  dashboard had no game to show. The owed answer now offers `jeopardy_setup` (his own turns still cannot start a
+  game). Paid check, typed words, real model on the Fast tier: 3 of 3 started the game. Not yet seen on the robot.
+
 ## Not done
 
 - Second robot game (October 26, three players, dashboard on): on the usual channel the room read -40 to

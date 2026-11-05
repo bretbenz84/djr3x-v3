@@ -1627,6 +1627,7 @@ class Session:
             if owed_answer:
                 self.trace.emit('owed_answer', turn_id=turn_id, source_turn_id=self._unanswered_turn)
                 self._unanswered_turn = None
+                context['owed_answer'] = True   # A person asked: what they asked for is on offer (semantics).
             if (self.state and self.agency_planner and opportunity and not sentry_kind and not owed_answer
                     and opportunity.kind not in {'visual_arrival', 'pet_arrival', 'unseen_presence'}):
                 # Arrivals are greeted directly (people first); the runtime then hands the
