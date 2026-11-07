@@ -1,8 +1,9 @@
 # What faces show — November 3, 2026
 
 Owner: "In V2 we had smile detection and Rex would respond to it. That is missing in V3. Rex doesn't
-currently have a good emotional awareness." This restores it for the reply model. It is off until
-`face_expressions_enabled = true`, the packages in `requirements-expressions.txt` and the model are in place.
+currently have a good emotional awareness." This restores it for the reply model. It needs
+`face_expressions_enabled = true`, the packages in `requirements-expressions.txt` and the model; all three are in place
+on the robot's Mac since November 7 (owner approved the install), taking effect at his next start.
 
 ## What Rex does
 
@@ -49,7 +50,7 @@ their words come first. Images still may not be used to infer emotion (`describe
 | Synthetic | `tests/test_expressions.py`, 43 checks: rules above, camera failure paths, the speaker deduction unchanged |
 | Real model, public photos | Broad smile .88-.89 at face widths from 130 down to 50 px; a straight-faced portrait .00-.01 |
 | Real model, robot footage | October 22 sentry clip, 149 s, 63 px median face: 159 of 167 faces read; smile median .001, max .64; **no look fired** |
-| Cost | About 8 ms per face (99th percentile 9 ms) on a 440 ms face pass; about 140 MB resident, mostly mediapipe importing matplotlib; 0.4-0.8 s to load |
+| Cost | About 8 ms per face (99th percentile 10 ms) on a 440 ms face pass; about 75 MB more resident in a process already holding the face models, torch, onnxruntime and mlx (mediapipe imports matplotlib); 2.7 s to load the first time, 0.4 s after |
 | Paid probe, fictional input | `tools/check_expressions.py --live`; results in [status](IMPLEMENTATION_STATUS.md#what-faces-show--november-3) |
 
 The public photos and clip have no labelled accuracy: the clip shows no false alarm, not that real smiles fire. Whether

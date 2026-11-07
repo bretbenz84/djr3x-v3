@@ -25,16 +25,17 @@ as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid
 
 Owner: "In V2 we had smile detection and Rex would respond to it. That is missing in V3. Rex doesn't currently
 have a good emotional awareness." Rex can now see a smile, surprise and a frown; a smile at his line reaches his next
-line as first-person awareness, at most pushed every 75 seconds. **Off until** `face_expressions_enabled` and the
-packages in `requirements-expressions.txt`; **not yet run live.** Design, boundaries and the robot check:
-[what faces show](FACE_EXPRESSIONS.md).
-- **Synthetic.** `tests/test_expressions.py`, 43 checks. Full blocked-I/O run: 1,788 tests with one error,
-  `test_jeopardy...test_with_the_board_on_screen_the_categories_are_read_once_per_board_and_when_asked`, which fails the
-  same way on the code before this change (it asks for the board mid-clue, refused since October 26).
-- **Real model on saved pictures** (V2's venv, same mediapipe, read only; the packages are not in `.venv` yet). A broad smile
-  on a public photo .88-.89 at face widths from 130 to 50 px, a straight-faced portrait .00-.01. Robot clip of October 22,
-  149 s, 63 px median face: 159 of 167 read, smile median .001, max .64, nothing fired. About 8 ms per face, about 140 MB.
-  No labelled accuracy; frown and surprise never fired on anything saved.
+line as first-person awareness, at most pushed every 75 seconds. **On since November 7** (owner approved the install:
+`requirements-expressions.txt` in `.venv`, `face_expressions_enabled = true` in the robot's settings, effective at his
+next start); **not yet run live.** Design, boundaries and the robot check: [what faces show](FACE_EXPRESSIONS.md).
+- **Synthetic.** `tests/test_expressions.py`, 43 checks. Full blocked-I/O run after the install, November 7: 1,789 pass,
+  6 skipped (the Jeopardy board check that failed on November 3 was fixed by 56ee5ae).
+- **Real model on saved pictures**, in `.venv` since November 7 (first done read only in V2's venv, same numbers). A broad
+  smile on a public photo .88-.89 at face widths from 130 to 50 px, a straight-faced portrait .00-.01. Robot clip of
+  October 22, 149 s, 63 px median face: 159 of 167 read, smile median .001, max .64, nothing fired. About 8 ms per face;
+  about 75 MB more resident beside the face models, torch, onnxruntime and mlx; 2.7 s to load the first time (font
+  cache), 0.4 s after. `r3x doctor` with the robot's settings: nothing missing. No labelled accuracy; frown and surprise
+  never fired on anything saved.
 - **Paid probes, fictional input, synthetic faces, final wording.** Smile at his joke: visible in 2 of 6 lines ("My haircut
   material's clearly got range"). Smile out of nowhere: 1 of 5 ("Your smile says the snack aisle may have won anyway").
   A smile just before "My dog died this morning": 6 of 6 answered kindly, no joke. Frown at his joke: no apology in 5, one
