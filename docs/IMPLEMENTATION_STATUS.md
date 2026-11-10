@@ -1,10 +1,20 @@
 # Current implementation status
 
-Updated November 3, 2026. This is the consolidated
+Updated November 10, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Replies from Claude and a slim character — November 10
+
+Owner: "it's not very fun." After two blind comparisons he judged himself, replies can come from
+`claude-sonnet-5-5` (`reply_provider = "claude"`; OpenAI stays the code default and one setting
+away), the character text is a fifth of its size with no example lines, and the block that kept
+breaking prompt caching now opens every request. 1,799 blocked-I/O checks pass; paid probes put
+Claude at or above `gpt-6-luna` on meaning, addressee, proactive and action requests. **Not yet
+run on the robot**; estimated $55–60 a month of Anthropic credit. Evidence and limits:
+[replies from Claude](CLAUDE_REPLIES.md).
 
 ## October 14 improvement plan
 

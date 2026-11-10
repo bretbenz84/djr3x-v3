@@ -1,5 +1,8 @@
 # Persona prompt consolidation — September 18–19, 2026
 
+(November 10: the character section was replaced by a much shorter one; see
+[replies from Claude](CLAUDE_REPLIES.md). The operating rules described here remain.)
+
 Implemented at the owner's request. The previous persona had grown to 423 lines through
 successive incident patches, repeated the same rule in several places, and contained
 instructions that disagreed. This replaces it with one shorter, ordered prompt. Hosted

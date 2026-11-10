@@ -52,6 +52,8 @@ STOPPED_LINE = "Stopped."   # Said when a spoken stop halts a drive (not for qui
 CREDIT_LINES = {
     'OpenAICreditExhausted': "Bad news: my OpenAI credits have run out, so I can't think of a thing to say. "
                              "Top up the account and I'll be back.",
+    'ClaudeCreditExhausted': "Bad news: my Claude credits have run out for the month, so I can't think of a thing "
+                             "to say. Top up the account, or switch my replies back to OpenAI.",
     'ElevenLabsCreditExhausted': "Bad news: my ElevenLabs voice credits have run out. Top up the account "
                                  "and I'll be back in full voice.",
 }

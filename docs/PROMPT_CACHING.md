@@ -1,5 +1,8 @@
 # Prompt caching repair — September 18, 2026
 
+(November 10: a block that opened only some requests left a third of replies reusing nothing;
+fixed, with Claude's explicit storage points, in [replies from Claude](CLAUDE_REPLIES.md).)
+
 Implemented in the hosted adapter. Owner-reported OpenAI spending had risen from at
 most about $0.80 per day under V2 to about $2.00 per day under V3.
 

@@ -19,7 +19,7 @@ it or reads its data.
 ## What Rex does today
 
 - **Conversation.** Listens through the ReSpeaker array, transcribes locally (Qwen3-ASR),
-  replies with one `gpt-6-luna` call per turn and speaks through ElevenLabs. Speech is
+  replies with one reply-model call per turn (`gpt-6-luna`, or Claude Sonnet 5.5 with `reply_provider = "claude"`: [replies from Claude](docs/CLAUDE_REPLIES.md)) and speaks through ElevenLabs. Speech is
   leveled to V2's −20 LUFS target.
   - Speech ends after 0.5 s of silence. Since October 26, Smart Turn v3.2 (local, 21 ms a check) can
     end finished-sounding speech after 0.2 s instead. The owner turned it on that day, with 1.0 s as the
@@ -323,7 +323,8 @@ models on its own.
 - **Small and replaceable.** No model or device loads at import. Every capability
   declares its dependencies and start/cancel/close. A replacement retires its
   predecessor.
-- **Cost.** Ordinary replies use one `gpt-6-luna` call with low reasoning.
+- **Cost.** Ordinary replies use one `gpt-6-luna` call with low reasoning, or one Claude call
+  ([replies from Claude](docs/CLAUDE_REPLIES.md), November 10).
   See the [character/model comparison](docs/CHARACTER_EVALUATION.md) for measured
   costs, latency and remaining humor limitations. Stronger models run only
   narrowly: `gpt-5.6-terra` plans one goal at a time (at least eight seconds apart, never

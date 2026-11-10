@@ -47,6 +47,11 @@ class Settings:
     # OpenAI service tier for the reply model (owner, October 22): "fast" (Fast mode, formerly priority
     # processing) at twice the Standard token price, or "default" (Standard). Planner and writer stay Standard.
     reply_service_tier: str = "fast"
+    # Who writes Rex's replies (owner, November 10): "openai" (gpt-6-luna) or "claude". The planner, joke
+    # writer, locator and news search stay on OpenAI either way. docs/CLAUDE_REPLIES.md.
+    reply_provider: str = "openai"
+    # With reply_provider "claude": "claude-sonnet-5-5" (the owner's blind pick) or the cheaper "claude-haiku-5-5".
+    claude_reply_model: str = "claude-sonnet-5-5"
     joke_writer_enabled: bool = True  # Side joke material from the planner model between turns (paid, capped at 30 calls an hour).
     proactive_lull_seconds: float = 5.0
     scene_observations_enabled: bool = True
@@ -71,6 +76,10 @@ class Settings:
             raise ValueError("UnsupportedAgencyPlannerModel")
         if self.reply_service_tier not in {"default", "fast"}:
             raise ValueError("UnsupportedReplyServiceTier")
+        if self.reply_provider not in {"openai", "claude"}:
+            raise ValueError("UnsupportedReplyProvider")
+        if self.claude_reply_model not in {"claude-sonnet-5-5", "claude-haiku-5-5"}:
+            raise ValueError("UnsupportedClaudeReplyModel")
         if self.profile != "dev-mac":
             raise ValueError("Only the dev-mac boot profile is implemented")
         if self.microphone_mode not in ("standard", "respeaker-flex"):
@@ -138,8 +147,10 @@ class Secrets:
     elevenlabs_api_key: str = field(default="", repr=False)
     # Sentry mode's phone alerts (owner, October 22): the private ntfy topic name. Optional.
     ntfy_topic: str = field(default="", repr=False)
+    # Needed only while settings.reply_provider is "claude" (the app's readiness check asks for it then).
+    anthropic_api_key: str = field(default="", repr=False)
 
-    OPTIONAL = frozenset({"ntfy_topic"})
+    OPTIONAL = frozenset({"ntfy_topic", "anthropic_api_key"})
 
     @classmethod
     def load(cls, root: Path) -> "Secrets":

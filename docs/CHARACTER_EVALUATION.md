@@ -1,5 +1,8 @@
 # Rex character and model evaluation — October 1, 2026
 
+(November 10: superseded for the character text and the model choice by the owner's blind
+comparisons in [replies from Claude](CLAUDE_REPLIES.md).)
+
 Decision: use `gpt-6-luna` with low reasoning for the conversational owner and
 adopt the revised master persona. The prompt gives Rex specific musical tastes,
 comic vanity, a fondness for unnecessary projects and a home life, with examples

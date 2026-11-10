@@ -40,7 +40,7 @@ def run(manifest,root,settings,with_brain=False,oracle=False):
     from .adapters.asr import QwenASR
     from .adapters.audio import SileroVAD
     from .adapters.voice import CAMPlus, NAMESPACE
-    from .adapters.hosted import OpenAIBrain
+    from .adapters.claude import reply_brain
     from .settings import Secrets
     data,digest = load_manifest(manifest.resolve())
     clips = [c for c in data["clips"] if c["split"]=="evaluation"]
@@ -67,7 +67,7 @@ def run(manifest,root,settings,with_brain=False,oracle=False):
     if settings.smart_turn_enabled:
         from .adapters.turn import MODEL_FILE, SmartTurn
         turn = SmartTurn(root/MODEL_FILE)
-    brain = OpenAIBrain(Secrets.load(root).openai_api_key) if with_brain else None
+    brain = reply_brain(settings, Secrets.load(root)) if with_brain else None
     owner = ProviderOwner((asr,encoder,vad)+((turn,) if turn else ())+((brain,) if with_brain else ()))
     evaluation = Evaluation(memory.profiles(NAMESPACE))
     sessions = {}

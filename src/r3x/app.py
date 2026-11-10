@@ -27,7 +27,7 @@ class App:
     def configure_live(self):
         from .adapters.asr import QwenASR
         from .adapters.audio import AudioSink, Microphone, SileroVAD
-        from .adapters.hosted import ElevenLabsTTS, OpenAIBrain, OpenAIAgencyPlanner, OpenAIJokeWriter
+        from .adapters.hosted import ElevenLabsTTS, OpenAIAgencyPlanner, OpenAIJokeWriter
         from .adapters.voice import CAMPlus
         from .adapters.camera import Camera
         secrets = Secrets.load(self.paths.root)
@@ -45,7 +45,8 @@ class App:
         if self.settings.room_sounds_enabled:
             from .room_sounds import RoomSounds
             room_sounds = RoomSounds(voice_check, self.paths.root / 'room-sounds')
-        brain = OpenAIBrain(secrets.openai_api_key, self.settings.reply_service_tier)
+        from .adapters.claude import reply_brain
+        brain = reply_brain(self.settings, secrets)
         agency_planner = OpenAIAgencyPlanner(secrets.openai_api_key,self.settings.agency_planner_model)
         joke_writer = (OpenAIJokeWriter(secrets.openai_api_key,self.settings.agency_planner_model)
                        if self.settings.joke_writer_enabled else None)
@@ -141,9 +142,12 @@ class App:
     def readiness(self):
         missing = []
         if self.live_components:
-            for name, ready in Secrets.load(self.paths.root).readiness().items():
+            secrets = Secrets.load(self.paths.root)
+            for name, ready in secrets.readiness().items():
                 if not ready:
                     missing.append(name)
+            if self.settings.reply_provider == "claude" and not secrets.anthropic_api_key.strip():
+                missing.append("anthropic_api_key")
             if not self.settings.input_device_name and self.settings.input_device_index is None:
                 missing.append("microphone_selection")
             model = self.paths.root / "models/qwen3-asr"
