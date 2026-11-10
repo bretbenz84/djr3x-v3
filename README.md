@@ -13,8 +13,8 @@ what is finished, what is only simulated and what remains. The October 14
 [improvement plan](docs/IMPROVEMENT_PLAN.md) is implemented in software and awaits its
 first robot run.
 
-V2 (`/Users/bbenziger/djr3x-v2`) is a separately maintained reference. V3 never imports
-it or reads its data.
+V2, the earlier DJ-R3X program in its own `djr3x-v2` checkout, is a separately maintained
+reference. V3 never imports it or reads its data.
 
 ## What Rex does today
 
@@ -190,11 +190,10 @@ it or reads its data.
 
 ## Run it
 
-Say "wake up rex", or start Rex by hand (the supervisor and menus step aside
-automatically):
+Say "wake up rex", or start Rex by hand from the root of the V3 checkout (the supervisor
+and menus step aside automatically):
 
 ```sh
-cd /Users/bbenziger/djr3x-v3
 .venv/bin/python -m r3x live
 ```
 
@@ -246,9 +245,11 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 
 ## Setup (fresh environment)
 
-Python 3.11 (`/Users/bbenziger/.pyenv/versions/3.11.9/bin/python` on this Mac):
+Python 3.11 (tested with 3.11.9). `V2` is wherever the V2 checkout lives; only the
+expression and room models need it:
 
 ```sh
+V2=/path/to/djr3x-v2
 python3.11 -m venv .venv
 .venv/bin/python -m pip install -r requirements-build.txt
 .venv/bin/python -m pip install -r requirements-live.txt
@@ -256,10 +257,10 @@ python3.11 -m venv .venv
 .venv/bin/python -m pip install --no-deps -r requirements-expressions.txt   # Only for face_expressions_enabled
 .venv/bin/python tools/prepare_core_models.py      # pinned public CAM++ assets
 .venv/bin/python tools/prepare_face_models.py      # face models from the offline cache
-.venv/bin/python tools/prepare_face_models.py --landmarker /Users/bbenziger/djr3x-v2/assets/models/face/face_landmarker.task   # adds the expression model
+.venv/bin/python tools/prepare_face_models.py --landmarker "$V2/assets/models/face/face_landmarker.task"   # adds the expression model
 .venv/bin/python tools/prepare_voice_cloning.py    # Breeze TTS 2 8-bit for impressions (about 4.6 GB; --source DIR copies a local snapshot)
 # Room recognition: export V2's MobileCLIP-S2 with any Python that has torch, open_clip and onnx
-/Users/bbenziger/djr3x-v2/venv/bin/python -I tools/export_place_model.py --cache /Users/bbenziger/djr3x-v2/assets/models/mobileclip --out local/models/places/mobileclip-s2.onnx
+"$V2/venv/bin/python" -I tools/export_place_model.py --cache "$V2/assets/models/mobileclip" --out local/models/places/mobileclip-s2.onnx
 ```
 
 Credentials live in ignored `local/secrets.toml` (`OPENAI_API_KEY` and `ELEVENLABS_API_KEY`
