@@ -13,8 +13,8 @@ what is finished, what is only simulated and what remains. The October 14
 [improvement plan](docs/IMPROVEMENT_PLAN.md) is implemented in software and awaits its
 first robot run.
 
-V2, the earlier DJ-R3X program in its own `djr3x-v2` checkout, is a separately maintained
-reference. V3 never imports it or reads its data.
+V2, the earlier DJ-R3X program ([bretbenz84/djr3x-v2](https://github.com/bretbenz84/djr3x-v2)),
+is a separately maintained reference. V3 never imports it or reads its data.
 
 ## What Rex does today
 
@@ -245,8 +245,9 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 
 ## Setup (fresh environment)
 
-Python 3.11 (tested with 3.11.9). `V2` is wherever the V2 checkout lives; only the
-expression and room models need it:
+Python 3.11 (tested with 3.11.9). Only the expression and room models need V2: set `V2` to a
+set-up copy of [djr3x-v2](https://github.com/bretbenz84/djr3x-v2). Its model files and
+`venv` are not in the repository, so a fresh clone needs V2's own setup first:
 
 ```sh
 V2=/path/to/djr3x-v2
