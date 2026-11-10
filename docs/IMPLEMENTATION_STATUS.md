@@ -31,6 +31,13 @@ slowest test no longer waits eight real seconds. 1,803 blocked-I/O checks pass i
 driving simulations are 44% of that time. The suite makes no network calls and cannot reach the
 servos (both blocked since September 10).
 
+Later that day the driving simulations stopped waiting the real board's 0.3 s boot pause on every
+connect, and the full run went from about 200 s to about 110 s. `run_checks.py --changed` runs only
+the test files that used a changed function (one changed conversation function: 1 file, under a
+second; one driving function: 11 files), with the same blocks in a separate process. A full run
+rebuilds the function map when it is a week old (about a minute more that run). A head-tilt check
+that failed by chance now and then has fixed random draws. 1,803 blocked-I/O checks pass.
+
 ## October 14 improvement plan
 
 The owner approved a six-step plan after an architecture review: one shared picture of the

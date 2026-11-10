@@ -343,7 +343,9 @@ class ListeningCueTests(unittest.TestCase):
     def test_the_cock_eases_in_and_out_and_varies(self):
         # October 21: it snapped over at board speed 35 (the picture wobbled) and was the same
         # every time. Both head servos now ease along one curve, and the amount varies.
+        import random
         from r3x.servo_poses import LISTEN_EASE, head_pose
+        self.robot.owner.rng = random.Random(11)   # Unseeded, six draws now and then gave only three amounts.
         tilts = set()
         for _ in range(6):
             self.port.packets.clear(); self.poses.clear()

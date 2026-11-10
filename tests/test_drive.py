@@ -1,5 +1,6 @@
 """Drive-base contracts against a simulated V2 ESP32; no serial port or motor opens."""
 from collections import deque
+import functools
 import json
 import math
 import threading
@@ -23,7 +24,7 @@ class Clock:
 
     def wait(self, seconds):
         self.now += max(0., seconds)
-        time.sleep(.002)
+        time.sleep(.0006)
         return False
 
 
@@ -232,7 +233,7 @@ class FakeBase:
         time.sleep(.0005)
         with self.lock:
             self._advance()
-            if time.monotonic() - self.last_telemetry > .002:
+            if time.monotonic() - self.last_telemetry > .0005:
                 self.last_telemetry = time.monotonic()
                 tof, grid = self.readings()
                 front = self.front() if self.front else None
@@ -302,6 +303,9 @@ def base_setup(test, *, caps=None, radar=None, reflex=False):
     clock = Clock()
     fake = FakeBase(clock, caps) if caps else FakeBase(clock)
     drive = DriveBase('fake', open_port=lambda: fake, clock=clock, wait=clock.wait, radar=radar, reflex=reflex)
+    # The real board may still be booting when its port opens, so Rex waits 0.3 s first; the fake
+    # answers at once, and that wait was a minute of every full run.
+    drive.link.open = functools.partial(drive.link.open, settle=0.)
     world = World(fake)
     drive.faces = world.faces
     drive.objects = world.detections

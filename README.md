@@ -225,7 +225,8 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 ## Check
 
 ```sh
-.venv/bin/python tools/run_checks.py                      # blocked-I/O contract checks
+.venv/bin/python tools/run_checks.py                      # blocked-I/O contract checks (about 2 min)
+.venv/bin/python tools/run_checks.py --changed            # only the checks that use what changed
 .venv/bin/python tools/run_firmware_checks.py             # drive firmware, compiled natively
 .venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
 .venv/bin/python -m r3x replay local/dataset/manifest.json
@@ -233,7 +234,10 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 ```
 
 - `run_checks.py` blocks network, audio, serial and native libraries, and uses fake
-  clocks, a simulated ESP32 and synthetic providers.
+  clocks, a simulated ESP32 and synthetic providers. It never calls a paid service or
+  moves hardware. `--changed` (with `--since REF` for committed work, `--list` to only
+  see the choice) runs the test files that used a changed function, from a map in
+  `local/checks/`; a change it cannot place widens the choice up to every check.
 - `run_firmware_checks.py` compiles drive-firmware headers with clang++ and runs them;
   only the compiler and the programs it builds may start.
 - `scenario` drives the production session with scripted providers. `replay` runs real
