@@ -46,7 +46,6 @@ class HumorInConversation(MemoryFixture):
         noted = self.store.rows("SELECT premise,reaction,person_id FROM joke_record")
         self.assertEqual([(r['premise'], r['reaction'], r['person_id']) for r in noted],
                          [('his salad alibi', 'landed', self.person)])
-        self.assertNotIn('joke_material', brain.snapshots[1].context)   # No writer's room (retired November 10).
         # Next visit: the landed bit is a running gag with this person only.
         later = self.scripted('Hello again.')
         self.turn(self.session('next-day', later), 'Morning, Rex.')

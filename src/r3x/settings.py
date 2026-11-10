@@ -43,7 +43,7 @@ class Settings:
     camera_height: int = 720
     camera_framerate: float = 30.0
     record_evaluation: bool = False
-    agency_planner_model: str = "gpt-5.6-terra"
+    agency_planner_model: str = "gpt-5.6-terra"   # The planner with llm_provider "openai" only.
     # OpenAI service tier for the reply model (owner, October 22): "fast" (Fast mode, formerly priority
     # processing) at twice the Standard token price, or "default" (Standard). Planner and writer stay Standard.
     reply_service_tier: str = "fast"

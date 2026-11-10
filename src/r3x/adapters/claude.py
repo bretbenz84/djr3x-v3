@@ -330,29 +330,9 @@ def _post(client, key, request, seconds):
     return response.json()
 
 
-class _ClaudeWriter(ClaudeBrain):
-    """One streamed JSON answer in a fixed shape, cancellable while it arrives."""
-
-    def _answer(self, snapshot, cancel, instructions, content, schema, effort, max_tokens, failure):
-        model = self.capability.model
-        request = {'model': model, 'max_tokens': max_tokens, 'stream': True, 'thinking': THINKING[model],
-                   'system': [{'type': 'text', 'text': instructions, 'cache_control': {'type': 'ephemeral'}}],
-                   'messages': [{'role': 'user', 'content': _blocks(content)}],
-                   'output_config': {'effort': effort, 'format': {'type': 'json_schema', 'schema': plain(schema)}}}
-        out = {}
-        try:
-            text = ''.join(self._round(request, snapshot, cancel, set(), out))
-        except (Cancelled, ProviderFailure):
-            raise
-        except Exception as exc:
-            raise ProviderFailure('Claude' + type(exc).__name__) from None
-        if out['stop'] != 'end_turn':
-            raise ProviderFailure(failure)
-        return _json_answer(text, failure)
-
-
-class ClaudeAgencyPlanner(_ClaudeWriter):
-    """Private narrative/planning only; no output executor, personal-fact writes or retries."""
+class ClaudeAgencyPlanner(ClaudeBrain):
+    """Private narrative/planning only; no output executor, personal-fact writes or retries.
+    One streamed JSON plan in a fixed shape, cancellable while it arrives."""
 
     def __init__(self, key, model=HELPER_MODEL):
         super().__init__(key, model)
@@ -365,8 +345,22 @@ class ClaudeAgencyPlanner(_ClaudeWriter):
         from ..contracts import Snapshot
         if self.client is None: raise ProviderFailure('AgencyPlannerNotStarted')
         snapshot = Snapshot('agency', facts['request_id'], facts['revision'], ())
-        return self._answer(snapshot, cancel, CHARACTER + '\n' + PLANNER_INSTRUCTIONS, planner_content(facts, images),
-                            plan_schema(), 'medium', 8000, 'AgencyPlanMissing')
+        model = self.capability.model
+        request = {'model': model, 'max_tokens': 8000, 'stream': True, 'thinking': THINKING[model],
+                   'system': [{'type': 'text', 'text': CHARACTER + '\n' + PLANNER_INSTRUCTIONS,
+                               'cache_control': {'type': 'ephemeral'}}],
+                   'messages': [{'role': 'user', 'content': _blocks(planner_content(facts, images))}],
+                   'output_config': {'effort': 'medium', 'format': {'type': 'json_schema', 'schema': plain(plan_schema())}}}
+        out = {}
+        try:
+            text = ''.join(self._round(request, snapshot, cancel, set(), out))
+        except (Cancelled, ProviderFailure):
+            raise
+        except Exception as exc:
+            raise ProviderFailure('Claude' + type(exc).__name__) from None
+        if out['stop'] != 'end_turn':
+            raise ProviderFailure('AgencyPlanMissing')
+        return _json_answer(text, 'AgencyPlanMissing')
 
 
 class ClaudeVisualLocator(OpenAIVisualLocator):

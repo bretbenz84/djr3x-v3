@@ -52,7 +52,7 @@ PET_ABSENT_SECONDS = 120.   # Gone this long, a reappearance is a new arrival.
 PET_COOLDOWN_SECONDS = 300. # At most one pet arrival this often.
 THINGS_KEPT = 8             # Recently seen object labels kept for the picture.
 # October 18 (6aaf22aa): the detector read a "cake" in 14 of 671 looks, never more than three in a
-# row; it entered the picture, the writer's room pitched it and Rex teased the owner about a cake
+# row; it entered the picture and Rex teased the owner about a cake
 # that was not there (also pizza, a kite, a frisbee). Real things in the room are seen for minutes
 # on end. A thing joins the picture only once the detector has seen it this many looks running
 # (about seven seconds); pets keep their own, separate path.
@@ -120,7 +120,7 @@ CONCESSION_PREFIXES = ('yeah', 'yes', 'okay', 'ok', 'oh', 'ah', 'right', 'no', '
 
 def conceded(text):
     """Whether a sentence or clause of one of Rex's own heard lines opens with a concession.
-    Wording of his own output only, like jokes.overlaps; nothing a person said is read here.
+    Wording of his own output only; nothing a person said is read here.
     October 18: lead-ins come first ("Let me check what's there now. You're right..."), so every
     sentence and dash-separated clause counts, not only the start of the line."""
     import re

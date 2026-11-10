@@ -3,15 +3,12 @@
 October 14 improvement plan, step 4 (owner: V2 "joked more, roasted people more", but from
 hard-coded lines that soon repeated). None of it sits in front of a reply:
 
-- A joke record (`joke_record`): bits Rex told and, when the model notes it with `note_bit`,
-  how they landed (landed, flopped, asked to stop). Landed bits about a person become running
+- A joke record (`joke_record`): bits the model notes with `note_bit` and how they landed
+  (landed, flopped, asked to stop). Landed bits about a person become running
   gags offered back, in that person's private audience only, so he can call back to last week;
   flopped and stopped bits are offered as things to leave alone.
 - Joke shapes he has used up this run (`spent_shapes`), found in his own heard lines.
 - Nothing here interprets what a person said; the conversation model judges reactions.
-
-The writer's room (a second model writing joke angles between turns) was retired by the owner on
-November 10: little of its material was used and every call was paid for.
 """
 from .field_guide import GUIDE
 import re
@@ -23,7 +20,6 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS joke_record(
     premise TEXT NOT NULL, line TEXT NOT NULL, reaction TEXT NOT NULL, created_at REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS joke_record_person ON joke_record(person_id, created_at);"""
 
-REACTIONS = ('told', 'landed', 'flopped', 'asked_to_stop')
 GAG_DAYS = 60            # Landed bits about a person stay running-gag material this long.
 AVOID_DAYS = 30          # Flopped or stopped bits are left alone this long.
 DAY_S = 86400.

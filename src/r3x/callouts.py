@@ -13,7 +13,7 @@ come back); asked never to call them that again, he deletes it; a callout's angl
 usual joke limits, and its off-limits always hold.
 
 Code keeps only the record and the pacing; it never reads what a person said. Which heard lines
-used a callout is judged from Rex's own output (like jokes.overlaps). A callout is his material,
+used a callout is judged from Rex's own output. A callout is his material,
 never a fact about anyone (V2 stored "JT, major volleyball celebrity" as JT's real interest).
 Forgetting a person removes callouts about them and the ones they added; forgetting a pet removes
 its own (CoreState.apply_photo).
