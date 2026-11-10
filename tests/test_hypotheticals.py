@@ -33,7 +33,7 @@ class QuietStretchFixture(memory_tests.MemoryFixture):
             if text is None:
                 yield ToolCall('silent', 'remain_silent', {'reason': 'no_response_needed'})
             else:   # A spoken beat comes as respond_with_intent, as the hosted model sends it.
-                yield ToolCall('say', 'respond_with_intent', {'text': text, 'intent_update': None, 'used_material': None,
+                yield ToolCall('say', 'respond_with_intent', {'text': text, 'intent_update': None,
                                                               'invitation_update': None, 'next_opportunity': None})
         self.executor.choose = choose
         self.session = Session('session', self.executor, OutputOwner(SyntheticTTS(),

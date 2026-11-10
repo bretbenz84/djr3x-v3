@@ -54,7 +54,7 @@ during the count only those words (and an exact "shut down") count. Nothing else
 - **Wheels:** locked. Every drive plan, his own or one asked for, is refused. So is the back-off
   reflex, which would otherwise back him away from someone stepping close.
 - **Quiet and free:** no idle movement, no listening head-cock, no goals or lull talk, no planner,
-  no joke writer and no paid news searches. Faces, voices and speech are judged on the robot. The
+  no paid news searches. Faces, voices and speech are judged on the robot. The
   only hosted calls are the ones an intrusion or a stand-down needs.
 
 ## What sets off the alarm

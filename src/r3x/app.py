@@ -27,7 +27,7 @@ class App:
     def configure_live(self):
         from .adapters.asr import QwenASR
         from .adapters.audio import AudioSink, Microphone, SileroVAD
-        from .adapters.hosted import ElevenLabsTTS, OpenAIAgencyPlanner, OpenAIJokeWriter
+        from .adapters.hosted import ElevenLabsTTS
         from .adapters.voice import CAMPlus
         from .adapters.camera import Camera
         secrets = Secrets.load(self.paths.root)
@@ -45,11 +45,9 @@ class App:
         if self.settings.room_sounds_enabled:
             from .room_sounds import RoomSounds
             room_sounds = RoomSounds(voice_check, self.paths.root / 'room-sounds')
-        from .adapters.claude import reply_brain
-        brain = reply_brain(self.settings, secrets)
-        agency_planner = OpenAIAgencyPlanner(secrets.openai_api_key,self.settings.agency_planner_model)
-        joke_writer = (OpenAIJokeWriter(secrets.openai_api_key,self.settings.agency_planner_model)
-                       if self.settings.joke_writer_enabled else None)
+        from .adapters import claude as hosted_models   # Every hosted model follows settings.llm_provider.
+        brain = hosted_models.reply_brain(self.settings, secrets)
+        agency_planner = hosted_models.agency_planner(self.settings, secrets)
         from .voice_modes import MODELS, REX_VOICE, VOICES
         tts = ElevenLabsTTS(secrets.elevenlabs_api_key, REX_VOICE, VOICES, MODELS)
         from .speech_level import PCMLeveler
@@ -62,9 +60,8 @@ class App:
                         framerate=self.settings.camera_framerate) if self.settings.camera_enabled else None
         from .observations import PublicObservations
         from .scene import SceneObserver
-        from .adapters.hosted import OpenAINewsSearch
         from .news import NewsCache
-        search = OpenAINewsSearch(secrets.openai_api_key) if self.settings.news_search_enabled else None
+        search = hosted_models.news_search(self.settings, secrets) if self.settings.news_search_enabled else None
         public = PublicObservations(self.settings, search=search, cache=NewsCache(self.paths.root / 'cache/news.json')) \
             if self.settings.news_feed_urls or self.settings.weather_enabled or search else None
         scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
@@ -97,8 +94,7 @@ class App:
             self.radar = Radar(self.settings.radar_port) if self.settings.radar_port else None
             self.drive = DriveBase(self.settings.drive_port, radar=self.radar)
             if camera:
-                from .adapters.hosted import OpenAIVisualLocator
-                locator = OpenAIVisualLocator(secrets.openai_api_key)
+                locator = hosted_models.visual_locator(self.settings, secrets)
         from .adapters.keywords import WORDS
         keywords = None
         if any((self.paths.root / 'models/wake' / (w + '.onnx')).is_file() for w in WORDS):
@@ -116,7 +112,7 @@ class App:
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,expressions,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,joke_writer,self.cloner,keywords,turn,voice_check,room_sounds) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,expressions,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,self.cloner,keywords,turn,voice_check,room_sounds) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -143,11 +139,10 @@ class App:
         missing = []
         if self.live_components:
             secrets = Secrets.load(self.paths.root)
-            for name, ready in secrets.readiness().items():
-                if not ready:
+            unused = "openai_api_key" if self.settings.llm_provider == "claude" else "anthropic_api_key"
+            for name, ready in {**secrets.readiness(), "anthropic_api_key": bool(secrets.anthropic_api_key.strip())}.items():
+                if not ready and name != unused:   # Only the chosen provider's key is needed.
                     missing.append(name)
-            if self.settings.reply_provider == "claude" and not secrets.anthropic_api_key.strip():
-                missing.append("anthropic_api_key")
             if not self.settings.input_device_name and self.settings.input_device_index is None:
                 missing.append("microphone_selection")
             model = self.paths.root / "models/qwen3-asr"
@@ -460,11 +455,6 @@ class App:
                 if agency and 'agency_planner' in active:
                     agency.trace = trace
                     session.agency_planner = agency
-                writer = next((p for p in optional if p.capability.name=='joke_writer'),None)
-                if writer and 'joke_writer' in active:
-                    from .jokes import JokeRoom
-                    writer.trace = trace
-                    session.joke_room = JokeRoom(writer, trace, trace.clock)
                 if self.cloner and 'voice_cloner' in active:
                     from .impersonation import ReferenceStore
                     self.cloner.trace = trace

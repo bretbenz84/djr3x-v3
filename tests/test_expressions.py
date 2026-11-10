@@ -11,7 +11,6 @@ from r3x.adapters.expression import ExpressionReader, MAX_FACES
 from r3x.contracts import Capture, ProviderFailure, Transcript
 from r3x.expressions import LOST_SECONDS, ExpressionWatch, looks
 from r3x.faces import FaceSample, FaceTracker
-from r3x import jokes
 from r3x.field_guide import GUIDE, slim
 from r3x.output import OutputOwner
 from r3x.present import LOOK_KEEP_SECONDS, OWN_A_SMILE_SECONDS, Present
@@ -355,8 +354,6 @@ class TheNextLineHasIt(memory_tests.MemoryFixture):
         self.tick(100)
         picture = self.planner.requests[0]['right_now']
         self.assertEqual(picture['conversation']['rex_last_line']['faces_at_it'], [{'who': 'Bret', 'look': 'smiled'}])
-        written = json.loads(jokes.summary([], picture, [], {}))
-        self.assertEqual(written['moment']['rex_last_line']['faces_at_it'], [{'who': 'Bret', 'look': 'smiled'}])
 
 
 class NoSayInWhoIsSpeaking(memory_tests.MemoryFixture):

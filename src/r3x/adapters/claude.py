@@ -1,15 +1,16 @@
 """Rex's replies from a Claude model (owner, November 10, after two blind comparisons on his own lines).
 
 The request is the one OpenAIBrain builds (persona, history, the notes for this moment, the tools); only its
-wire form and the stream that comes back differ. The planner, joke writer, locator and news search stay
-where they were. docs/CLAUDE_REPLIES.md has the evidence and what is still unchecked.
+wire form and the stream that comes back differ. The planner, picture locator and news search
+follow the same setting (owner, November 10: everything on Claude, OpenAI one setting away); they are at the
+end of this file. docs/CLAUDE_REPLIES.md has the evidence and what is still unchecked.
 """
 import json
 import time
 
 from ..contracts import Cancelled, ProviderFailure, ToolCall, ToolText
 from ..providers import Capability
-from .hosted import OpenAIBrain
+from .hosted import CHARACTER, HTTPProvider, OpenAIBrain, OpenAIVisualLocator, planner_content
 
 URL = 'https://api.anthropic.com/v1/messages'
 API_VERSION = '2026-10-21'
@@ -22,7 +23,7 @@ OPERATOR = '[Operator note, not said by anyone in the room]\n'
 
 def reply_brain(settings, secrets):
     """The reply model the settings choose; the one place live and replay runs get it from."""
-    if settings.reply_provider == 'claude':
+    if settings.llm_provider == 'claude':
         return ClaudeBrain(secrets.anthropic_api_key, settings.claude_reply_model)
     return OpenAIBrain(secrets.openai_api_key, settings.reply_service_tier)
 
@@ -284,3 +285,177 @@ class ClaudeBrain(OpenAIBrain):
                 or 'credit balance' in str(error.get('message', '')).lower()):
             return 'ClaudeCreditExhausted'
         return f'ClaudeHTTP{response.status_code}'
+
+
+# The helpers beside the conversation. Each asks for one JSON answer in a fixed shape; none speaks or saves.
+HELPER_MODEL, LOOK_MODEL = MODELS[0], MODELS[1]   # Looks happen while he rolls: the quick model.
+_LIMITS = {'minimum': 'at least {}', 'maximum': 'at most {}', 'minLength': 'at least {} characters',
+           'maxLength': 'at most {} characters', 'minItems': 'at least {} items', 'maxItems': 'at most {} items'}
+
+
+def plain(schema):
+    """The schema without the size limits Claude's fixed-shape answers refuse, each kept as a written note.
+    Whoever receives the answer still checks it (the plan owner, news.stories, the drive owner)."""
+    if isinstance(schema, list):
+        return [plain(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {key: plain(value) for key, value in schema.items() if key not in _LIMITS}
+    notes = [_LIMITS[key].format(schema[key]) for key in _LIMITS if key in schema and not isinstance(schema[key], dict)]
+    if notes and 'type' in schema:
+        out['description'] = '; '.join(filter(None, [schema.get('description'), *notes]))
+    return out
+
+
+def _json_answer(text, failure):
+    try:
+        value = json.loads(text)
+    except ValueError:
+        raise ProviderFailure(failure) from None
+    if not isinstance(value, dict):
+        raise ProviderFailure(failure)
+    return value
+
+
+def _post(client, key, request, seconds):
+    """One whole (unstreamed) answer; the body, or the failure it stands for."""
+    import httpx
+    try:
+        response = client.post(URL, json=request, timeout=httpx.Timeout(seconds, connect=5), headers={
+            'x-api-key': key, 'anthropic-version': API_VERSION, 'content-type': 'application/json'})
+    except httpx.HTTPError as exc:
+        raise ProviderFailure('Claude' + type(exc).__name__) from None
+    if response.status_code != 200:
+        raise ProviderFailure(ClaudeBrain._refused(response))
+    return response.json()
+
+
+class _ClaudeWriter(ClaudeBrain):
+    """One streamed JSON answer in a fixed shape, cancellable while it arrives."""
+
+    def _answer(self, snapshot, cancel, instructions, content, schema, effort, max_tokens, failure):
+        model = self.capability.model
+        request = {'model': model, 'max_tokens': max_tokens, 'stream': True, 'thinking': THINKING[model],
+                   'system': [{'type': 'text', 'text': instructions, 'cache_control': {'type': 'ephemeral'}}],
+                   'messages': [{'role': 'user', 'content': _blocks(content)}],
+                   'output_config': {'effort': effort, 'format': {'type': 'json_schema', 'schema': plain(schema)}}}
+        out = {}
+        try:
+            text = ''.join(self._round(request, snapshot, cancel, set(), out))
+        except (Cancelled, ProviderFailure):
+            raise
+        except Exception as exc:
+            raise ProviderFailure('Claude' + type(exc).__name__) from None
+        if out['stop'] != 'end_turn':
+            raise ProviderFailure(failure)
+        return _json_answer(text, failure)
+
+
+class ClaudeAgencyPlanner(_ClaudeWriter):
+    """Private narrative/planning only; no output executor, personal-fact writes or retries."""
+
+    def __init__(self, key, model=HELPER_MODEL):
+        super().__init__(key, model)
+        self.capability = Capability('agency_planner', 'Anthropic Messages',
+            'persisted evidence-grounded character narrative and activity plan', model,
+            ('httpx',), ('network; only at idle plan creation/revision',), required=False)
+
+    def plan(self, facts, cancel, images=()):
+        from ..agency import PLANNER_INSTRUCTIONS, plan_schema
+        from ..contracts import Snapshot
+        if self.client is None: raise ProviderFailure('AgencyPlannerNotStarted')
+        snapshot = Snapshot('agency', facts['request_id'], facts['revision'], ())
+        return self._answer(snapshot, cancel, CHARACTER + '\n' + PLANNER_INSTRUCTIONS, planner_content(facts, images),
+                            plan_schema(), 'medium', 8000, 'AgencyPlanMissing')
+
+
+class ClaudeVisualLocator(OpenAIVisualLocator):
+    """The drive owner's bounded looks (where a thing is, which floor is open) answered by a Claude model."""
+
+    def __init__(self, key: str, model: str = LOOK_MODEL):
+        super().__init__(key, model)
+        self.capability = Capability('visual_locator', 'Anthropic Messages',
+                                     'locate described things and open floor for the drive base',
+                                     model, ('httpx',), ('network',), required=False)
+
+    def _ask(self, instructions, name, schema, text, image, cancel):
+        if not self.available():
+            raise ProviderFailure('VisualLocatorUnavailable')
+        self.calls += 1
+        model = self.capability.model
+        request = {'model': model, 'max_tokens': 1500, 'system': instructions, 'thinking': THINKING[model],
+                   'output_config': {'format': {'type': 'json_schema', 'schema': plain(schema)}},
+                   'messages': [{'role': 'user', 'content': _blocks([
+                       {'type': 'input_text', 'text': text}, {'type': 'input_image', 'image_url': image.data_url}])}]}
+        cancel.check()
+        body = _post(self.client, self.key, request, 20)
+        cancel.check()
+        answer = ''.join(b.get('text', '') for b in body.get('content', []) if b.get('type') == 'text')
+        if body.get('stop_reason') != 'end_turn':
+            raise ProviderFailure('LocatorResultMalformed')
+        return _json_answer(answer, 'LocatorResultMalformed'), body.get('usage', {})
+
+
+class ClaudeNewsSearch(HTTPProvider):
+    """One hosted web search returning structured stories plus the pages actually searched.
+
+    Runs only in the public-observation worker (once a day, plus budgeted interest topics),
+    never on a reply. It neither speaks nor saves anything; news.stories() validates the answer.
+    """
+    # The plain search. On November 10 the newer filtering one (web_search_20260209) returned 1 and 2 of the 5
+    # daily stories asked for, twice; this returned all 5, sooner, on the same request.
+    SEARCH = {'type': 'web_search_20250305', 'name': 'web_search', 'max_uses': 6}
+
+    def __init__(self, key: str, model: str = HELPER_MODEL):
+        super().__init__()
+        self.key, self.trace = key, None
+        self.capability = Capability('news_search', 'Anthropic Messages web_search',
+                                     'daily searched stories and interest news', model, ('httpx',),
+                                     ('network; at most a few searches a day',), required=False)
+
+    def search(self, prompt: str) -> tuple[dict, list[str], dict]:
+        from ..news import STORY_SCHEMA
+        if self.client is None:
+            raise ProviderFailure('NewsSearchNotStarted')
+        model = self.capability.model
+        request = {'model': model, 'max_tokens': 8000, 'thinking': THINKING[model], 'tools': [self.SEARCH],
+                   'output_config': {'effort': 'medium', 'format': {'type': 'json_schema', 'schema': plain(STORY_SCHEMA)}},
+                   'messages': [{'role': 'user', 'content': prompt}]}
+        sources, usage, searches, answer = [], {}, 0, ''
+        for _ in range(4):   # A long search pauses and is resumed as it stands.
+            body = _post(self.client, self.key, request, 180)
+            content = body.get('content') or []
+            for block in content:
+                if block.get('type') == 'web_search_tool_result' and isinstance(block.get('content'), list):
+                    sources += [r['url'] for r in block['content'] if isinstance(r, dict) and r.get('url')]
+            for name, value in (body.get('usage') or {}).items():
+                if isinstance(value, int):
+                    usage[name] = usage.get(name, 0) + value
+            searches += ((body.get('usage') or {}).get('server_tool_use') or {}).get('web_search_requests') or 0
+            if body.get('stop_reason') != 'pause_turn':
+                # The stories are the text after the last search; anything before it is working notes.
+                last = max((i for i, b in enumerate(content) if b.get('type') != 'text'), default=-1)
+                answer = ''.join(b.get('text', '') for b in content[last + 1:])
+                break
+            request['messages'] = [request['messages'][0], {'role': 'assistant', 'content': content}]
+        if body.get('stop_reason') != 'end_turn':
+            raise ProviderFailure('NewsSearchResultMalformed')
+        return _json_answer(answer, 'NewsSearchResultMalformed'), sources, {**usage, 'web_search_calls': searches}
+
+
+def agency_planner(settings, secrets):
+    from .hosted import OpenAIAgencyPlanner
+    if settings.llm_provider == 'claude':
+        return ClaudeAgencyPlanner(secrets.anthropic_api_key)
+    return OpenAIAgencyPlanner(secrets.openai_api_key, settings.agency_planner_model)
+
+
+def news_search(settings, secrets):
+    from .hosted import OpenAINewsSearch
+    return (ClaudeNewsSearch(secrets.anthropic_api_key) if settings.llm_provider == 'claude'
+            else OpenAINewsSearch(secrets.openai_api_key))
+
+
+def visual_locator(settings, secrets):
+    return (ClaudeVisualLocator(secrets.anthropic_api_key) if settings.llm_provider == 'claude'
+            else OpenAIVisualLocator(secrets.openai_api_key))

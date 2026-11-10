@@ -427,7 +427,7 @@ class LateOctober22Tests(memory_tests.MemoryFixture):
         self.setup_owner()
         self.session.history.append({'role': 'assistant', 'content': "Mouth sparkle isn't a separate setting."})
         call = ToolCall('b', 'respond_with_intent', {'text': "Mouth sparkle isn't on the controls, but Voyager...",
-                                                      'intent_update': None, 'used_material': None,
+                                                      'intent_update': None,
                                                       'invitation_update': None, 'next_opportunity': None})
         self.assertEqual(self.session._repeats_recent_line(call), "mouth sparkle isn't")
 

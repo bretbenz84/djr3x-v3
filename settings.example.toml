@@ -150,16 +150,12 @@ agency_planner_model = "gpt-5.6-terra"
 # Standard. Fast traffic can be served at Standard when it ramps; model_usage records served_tier.
 reply_service_tier = "fast"
 
-# Who writes Rex's replies (owner, November 10): "openai" (gpt-6-luna) or "claude". "claude" needs
-# anthropic_api_key in secrets.toml; the planner, joke writer, locator and news search stay on OpenAI.
+# Whose hosted models Rex uses (owner, November 10): "openai" or "claude", for replies, the goal planner,
+# the picture locator and the news search alike. Only that provider's key is needed in secrets.toml.
 # claude_reply_model: "claude-sonnet-5-5" (the owner's blind pick) or the cheaper "claude-haiku-5-5".
 # docs/CLAUDE_REPLIES.md.
-reply_provider = "openai"
+llm_provider = "openai"
 claude_reply_model = "claude-sonnet-5-5"
-
-# Writer's room: after a reply the planner model may write two or three optional joke angles
-# that the next reply can use. Never delays a reply; at most every 45 s and 30 calls an hour.
-joke_writer_enabled = true
 
 # Spelling fixes for names the recognizer gets wrong (owner, October 26). Each whole word, in any
 # case, is replaced in every transcript before Rex reads it; the session log keeps what was heard.

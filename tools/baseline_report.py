@@ -165,8 +165,6 @@ class Totals:
         self.counts['lines_6_words_or_more'] += len(lines)
         self.counts['near_repeated_lines'] += sum(
             max((len(a & b) / len(a | b) for b in lines[:i]), default=0) >= .7 for i, a in enumerate(lines))
-        self.counts['jokes_recorded'] += len(events['joke_recorded'])
-        self.counts['joke_material_written'] += len(events['joke_material'])
 
     def model(self, events):
         self.counts['model_requests'] += len(events['model_request'])
@@ -212,9 +210,7 @@ class Totals:
                         'readings_rechecked': self.counts['drive_readings_rechecked'],
                         'hosted_looks': self.counts['hosted_looks']},
             'humor': {'lines_6_words_or_more': self.counts['lines_6_words_or_more'],
-                      'near_repeated_lines': self.counts['near_repeated_lines'],
-                      'jokes_recorded': self.counts['jokes_recorded'],
-                      'joke_material_written': self.counts['joke_material_written']},
+                      'near_repeated_lines': self.counts['near_repeated_lines']},
             'cost': {'model_requests_per_hour': round(self.counts['model_requests'] / hours, 1),
                      'estimated_model_usd': round(usd, 2), 'usd_per_hour': round(usd / hours, 2)},
         }

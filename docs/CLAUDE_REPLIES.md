@@ -7,17 +7,17 @@ changes followed, at the owner's request. **Not yet run on the robot.**
 
 ## What changed
 
-- **Who writes replies is a setting.** `reply_provider = "claude"` sends Rex's replies to
+- **Whose models Rex uses is one setting.** `llm_provider = "claude"` sends Rex's replies to
   `claude_reply_model` (`claude-sonnet-5-5`, or the cheaper `claude-haiku-5-5`) through
   `ClaudeBrain` (`src/r3x/adapters/claude.py`); `"openai"`, the code default, keeps `gpt-6-luna`.
-  Claude needs `anthropic_api_key` in `local/secrets.toml`; readiness reports it missing. The
-  request is the one `OpenAIBrain` builds; only the wire form differs. The goal planner, joke
-  writer, visual locator and news search stay on OpenAI.
+  The reply request is the one `OpenAIBrain` builds; only the wire form differs. The goal
+  planner, picture locator and news search follow the same setting (below). Only the chosen
+  provider's key is needed in `local/secrets.toml`; readiness reports it missing.
 - **The character is 3,700 characters instead of 16,700** (`CHARACTER` in `hosted.py`): who Rex
   is and how he talks, with no example lines (owner: examples "will end up being what gets
   repeated") and no dated incident rules. Kept by name: bodies are fair game, no "You're right"
   openers, no tacked-on question, callouts, curiosity on his own turns, the clock as a
-  once-a-visit joke, about fifteen words a line. The planner and joke writer share this text.
+  once-a-visit joke, about fifteen words a line. The planner shares this text.
   The operating rules after it and the tool descriptions are unchanged.
 - **The caching leak.** In a month of logs 832 of 2,350 replies reused none of the stored prompt,
   768 of them within a minute of the previous reply. The famous-voices block opened a person's
@@ -37,7 +37,7 @@ changes followed, at the owner's request. **Not yet run on the robot.**
   heard (`reply_text_beside_tool` counts it: 1 of 46 calls). Reply-tool text still streams.
 - A refusal (`ClaudeRefusal`) is a silent failed turn; no fallback model is configured.
 - Out of credit (`ClaudeCreditExhausted`) is not retried: Rex says a saved line, as for OpenAI.
-  Subscriber API credit stops requests when it runs out; switching back is `reply_provider`.
+  Subscriber API credit stops requests when it runs out; switching back is `llm_provider`.
 
 ## Evidence
 
@@ -88,6 +88,35 @@ request's stored and unstored parts, earlier tool calls and camera views, stream
 words, the unoffered-tool retry, required tools, refusals, out of credit, the settings choice,
 and the famous-voices block opening every request.
 
+## Everything on Claude, and the joke writer retired (owner, later on November 10)
+
+Owner: "I wanted you to switch everything to Claude", and "let's also retire the expensive joke
+writer, as it isn't used much and wastes tokens."
+
+- **Goal planner:** `ClaudeAgencyPlanner`, `claude-sonnet-5-5`, medium effort. It asks for one
+  JSON plan in a fixed shape (`output_config.format`) rather than a forced tool call, which
+  Sonnet 5.5 refuses. Claude's fixed shapes refuse size limits, so those are sent as written
+  notes and the plan owner's own validation still decides. One paid run of
+  `check_agency_beats.py` (fictional conversation, replies also on Claude): one planner call,
+  a valid seven-step plan, 7 of 7 beats spoken, none recited or repeated; 12,100 input and 870
+  output tokens for the plan.
+- **Picture locator:** `ClaudeVisualLocator`, `claude-haiku-5-5`, no thinking. Four paid looks at
+  one saved room photo: a chair and the dog found, a purple elephant reported absent, a route
+  proposed; 1.2–2.1 s each. Box accuracy against the previous model was not measured, and no
+  drive used it.
+- **News search:** `ClaudeNewsSearch`, `claude-sonnet-5-5` with Anthropic's web search
+  (`web_search_20250305`, at most six searches). Paid runs: 5 of 5 daily stories and 3 of 3 topic
+  stories kept by `news.stories`, 19–22 s. The newer filtering search returned 1 and 2 of 5
+  daily stories and is not used. About 45,000–70,000 input tokens a search, a few a day.
+- **Joke writer retired:** `JokeRoom`, its prompt, `joke_writer_enabled`, the `joke_material`
+  context and the reply tools' `used_material` field are gone. The record of his bits
+  (`note_bit`, running gags, bits that flopped, spent joke shapes) stays. `check_humor.py` now
+  compares personas only.
+- 1,797 blocked-I/O checks passed after the change (writer tests removed, six added for the
+  Claude helpers); `tests.test_claude_replies` was rerun after the last search adjustment.
+- With `llm_provider = "claude"` nothing calls OpenAI. Speech is still ElevenLabs; hearing,
+  faces and voices are local.
+
 ## Cost, estimated
 
 From October 10 – November 9 (2,350 replies, 79 sessions, test runs included): `gpt-6-luna`
@@ -96,10 +125,12 @@ size are estimated at $55–60 a month: about $31 for 2,350 replies with the pro
 about $26 for roughly a hundred cold starts, each storing 66,000 tokens for an hour. Haiku would
 be a few dollars. Nothing here is measured on the robot; the Anthropic console is the record.
 Tool descriptions are about 60% of each request and are the next thing to trim.
+The planner, locator and news search now draw on the same Anthropic credit (a plan is about three
+cents at list prices; a news search about ten to fifteen); their monthly total is not estimated.
 
 ## Not done
 
 - No live conversation: humor, length, speed with voice, and group behaviour are unjudged.
 - Jeopardy, sentry mode, photo teaching, driving, impressions and callouts were not probed on Claude.
-- The hosted check tools still build `OpenAIBrain` themselves; Claude runs used a private launcher.
-- The planner and joke writer still bill OpenAI.
+- The hosted check tools still build the OpenAI classes themselves; Claude runs used a private launcher.
+- The Claude locator has not guided a drive, and the planner was run once.

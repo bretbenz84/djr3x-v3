@@ -17,7 +17,6 @@ from uuid import uuid4
 
 from r3x.contracts import Capture, ToolCall, Transcript
 from r3x.field_guide import GUIDE
-from r3x.jokes import WRITER_INSTRUCTIONS
 from r3x.output import OutputOwner
 from r3x.photo_memory import PhotoMemory
 from r3x.scenario import SyntheticSink, SyntheticTTS
@@ -402,11 +401,10 @@ class CalloutRequestTests(unittest.TestCase):
     def test_bodies_are_fair_game_in_every_joke_rule(self):
         # Owner, October 25: "I don't know why bodies are off limits... He should be able to joke about people's bodies."
         impersonate = next(t for t in TOOLS if t['name'] == 'impersonate')['description']
-        for text in (PERSONA, WRITER_INSTRUCTIONS, PLANNER_INSTRUCTIONS, impersonate):
+        for text in (PERSONA, PLANNER_INSTRUCTIONS, impersonate):
             for forbidding in ('about bodies', 'bodies, identity', 'never their body', 'Never bodies', 'health, bodies'):
                 self.assertNotIn(forbidding, text)
-        for text in (PERSONA, WRITER_INSTRUCTIONS):
-            self.assertIn('Bodies are fair game', text)
+        self.assertIn('Bodies are fair game', PERSONA)
 
 
 if __name__ == '__main__':

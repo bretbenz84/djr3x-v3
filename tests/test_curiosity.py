@@ -19,7 +19,7 @@ from tests import test_agency_plan as agency_tests
 
 
 def say(text, asked_about=None):
-    return ToolCall(uuid4().hex, 'respond_with_intent', {'text': text, 'intent_update': None, 'used_material': None,
+    return ToolCall(uuid4().hex, 'respond_with_intent', {'text': text, 'intent_update': None,
                                                          'asked_about': asked_about, 'invitation_update': None,
                                                          'next_opportunity': None})
 

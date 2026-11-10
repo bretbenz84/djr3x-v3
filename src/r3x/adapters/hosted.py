@@ -135,10 +135,7 @@ nonsense. Keep a pet, its toy and its name as distinct referents, and treat a tr
 separate from the noun before it. If the ambiguity matters to a question, an identity choice or a write, ask
 briefly; otherwise respond to the understood meaning. Never build a joke on pretending you understood.
 humor holds your own material with these people: running_gags landed before (a callback, sparingly, never the
-same way twice), bits_that_flopped (leave them alone), bits_told_lately (do not tell them again). joke_material
-is material from your writer's room for this moment. When a piece fits what was just said, use it (one piece,
-in your own words) instead of a safer line of your own, and put its premise in used_material so the bit is
-remembered; skip it only when the moment is serious or has moved on, with used_material null.
+same way twice), bits_that_flopped (leave them alone), bits_told_lately (do not tell them again).
 A line that asks about one of curiosity.still_unknown goes through respond_with_intent or respond_with_gesture
 with that topic's id in asked_about, so the question is not asked again for a while; your_question then holds
 it while they answer.
@@ -1370,6 +1367,21 @@ class OpenAIVisualLocator(HTTPProvider):
         return result
 
 
+def planner_content(facts, images=()):
+    """What the planner reads: the facts, and at most one current low-detail view."""
+    content = json.dumps(facts,ensure_ascii=False)
+    if images:
+        # October 2: the planner chose curiosities blind from detector labels ("a clock").
+        # One current low-detail frame lets it notice a painting, a photo or what someone wears.
+        if len(images) > 1 or any(len(i.data_url) > 1_500_000 or
+                not i.data_url.startswith(('data:image/png;base64,','data:image/jpeg;base64,')) for i in images):
+            raise ProviderFailure('InvalidSceneImages')
+        content = [{'type':'input_text','text':content},
+                   {'type':'input_text','text':'Current head-camera frame (what Rex sees now):'},
+                   *({'type':'input_image','image_url':i.data_url,'detail':'low'} for i in images)]
+    return content
+
+
 class OpenAIAgencyPlanner(OpenAIBrain):
     """Private narrative/planning only; no output executor, personal-fact writes or retries."""
     reasoning_effort = "medium"
@@ -1384,16 +1396,7 @@ class OpenAIAgencyPlanner(OpenAIBrain):
         from ..agency import PLANNER_INSTRUCTIONS, plan_schema
         if self.client is None: raise ProviderFailure('AgencyPlannerNotStarted')
         snapshot = Snapshot('agency', facts['request_id'], facts['revision'], (), tools_enabled=True)
-        content = json.dumps(facts,ensure_ascii=False)
-        if images:
-            # October 2: the planner chose curiosities blind from detector labels ("a clock").
-            # One current low-detail frame lets it notice a painting, a photo or what someone wears.
-            if len(images) > 1 or any(len(i.data_url) > 1_500_000 or
-                    not i.data_url.startswith(('data:image/png;base64,','data:image/jpeg;base64,')) for i in images):
-                raise ProviderFailure('InvalidSceneImages')
-            content = [{'type':'input_text','text':content},
-                       {'type':'input_text','text':'Current head-camera frame (what Rex sees now):'},
-                       *({'type':'input_image','image_url':i.data_url,'detail':'low'} for i in images)]
+        content = planner_content(facts, images)
         payload = {'model':self.capability.model, 'instructions':CHARACTER+'\n'+PLANNER_INSTRUCTIONS,
             'input':[{'role':'user','content':content}],
             'tools':[{'type':'function','name':'compose_agency_plan','description':'Return the private plan; no execution.',
@@ -1405,36 +1408,6 @@ class OpenAIAgencyPlanner(OpenAIBrain):
         if len(calls)!=1 or not isinstance(calls[0],ToolCall) or calls[0].name!='compose_agency_plan':
             raise ProviderFailure('AgencyPlanMissing')
         return calls[0].arguments
-
-
-class OpenAIJokeWriter(OpenAIBrain):
-    """The writer's room: optional joke material between turns, never in front of a reply."""
-    reasoning_effort = "low"
-
-    def __init__(self, key, model):
-        super().__init__(key)
-        self.capability = Capability('joke_writer', 'OpenAI Responses',
-            'optional joke material written beside the conversation', model,
-            ('httpx',), ('network; at most every 45 s after a human turn, 30 an hour',), required=False)
-
-    def write(self, facts, cancel):
-        from ..jokes import WRITER_INSTRUCTIONS, writer_schema
-        if self.client is None: raise ProviderFailure('JokeWriterNotStarted')
-        snapshot = Snapshot('jokes', 'jokes', 0, (), tools_enabled=True)
-        payload = {'model':self.capability.model, 'instructions':CHARACTER+'\n'+WRITER_INSTRUCTIONS,
-            'input':[{'role':'user','content':facts}],
-            'tools':[{'type':'function','name':'write_material','description':'Return the material; nothing is spoken.',
-                      'parameters':writer_schema(),'strict':True}],
-            'tool_choice':{'type':'function','name':'write_material'},
-            'parallel_tool_calls':False, 'reasoning':{'effort':self.reasoning_effort},
-            'max_output_tokens':900, 'stream':True, 'store':False}
-        calls = list(self._stream_response(payload,snapshot,cancel))
-        if len(calls)!=1 or not isinstance(calls[0],ToolCall) or calls[0].name!='write_material':
-            raise ProviderFailure('JokeMaterialMissing')
-        items = calls[0].arguments.get('items')
-        if not isinstance(items, list): raise ProviderFailure('JokeMaterialMalformed')
-        return [{'premise':str(i['premise']).strip(),'line':str(i['line']).strip()} for i in items[:3]
-                if isinstance(i,dict) and str(i.get('premise','')).strip() and str(i.get('line','')).strip()]
 
 
 class OpenAINewsSearch(HTTPProvider):

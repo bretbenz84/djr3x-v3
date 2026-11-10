@@ -31,7 +31,7 @@ The furrowed brow from V2 is left out: on the robot's own footage a resting brow
    (V2's fix for mouths that read about .5 at rest with the camera looking up), held for two readings (about a second).
    A look with no line of his behind it must also reach V2's higher unprompted bar.
 3. `present.py` keeps the moments and writes them into `right_now`: `conversation.rex_last_line.faces_at_it`,
-   `expressions.faces`, `conversation.own_it`. The reply, the planner and the joke writer read the same picture.
+   `expressions.faces`, `conversation.own_it`. The reply and the planner read the same picture.
    `own_it` adds a sentence to the reminder that closes the request, because the fact and field guide alone produced no
    visible use in the paid probe.
 

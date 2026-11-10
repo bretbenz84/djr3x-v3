@@ -7,7 +7,7 @@ thread through the output owner's motion lock, and everything else runs on the c
 through the one conversation owner and the one output owner like any other speech.
 
 While he guards no paid call is made: the face, voice and speech checks run on the robot, the
-countdown and the alarm cry are cached clips, the planner, lull beats, joke writer and news searches
+countdown and the alarm cry are cached clips, the planner, lull beats and news searches
 are off, and the wheels are held. Only an intrusion (the roast lines, the alert) or the stand-down
 greeting reaches a hosted service.
 """

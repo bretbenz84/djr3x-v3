@@ -771,15 +771,6 @@ class CoreState:
                     "speaker_boundary_proposed":capture.parent_capture_id is not None},
                 "enrollment":[e.progress() for e in self.enrollments.values()]})
 
-    def bit_told(self, session_id, person_id, premise, line):
-        """A writer's-room bit Rex actually said, kept so it is not told again."""
-        from . import jokes
-        if self.frozen or self.store.connection is None:
-            return
-        with self.store.transaction() as conn:
-            jokes.record(conn, session_id, person_id, jokes.audience_key(person_id), premise, line, 'told',
-                         self.wall_clock())
-
     def note_audience(self, context):
         """The private audience for the memory gate, kept by the picture of the present."""
         return self.present.note_audience(context, self.trace.clock())

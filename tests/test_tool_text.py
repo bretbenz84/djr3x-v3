@@ -144,7 +144,7 @@ class StreamedWordsOnFailure(MemoryFixture):
                 deadline = time.monotonic() + 3
                 while session._delivery.first_audio_at is None and time.monotonic() < deadline:
                     time.sleep(.01)          # The first phrase is playing; the second is queued.
-                yield ToolCall('c', 'respond_with_intent', {'text': LINE, 'intent_update': None, 'used_material': None})
+                yield ToolCall('c', 'respond_with_intent', {'text': LINE, 'intent_update': None})
                 yield ToolCall('d', 'note_bit', {'premise': 'beige', 'reaction': 'landed', 'text': None})
         brain = Brain()
         session = Session('s', brain, OutputOwner(SyntheticTTS(), SlowSink(), self.state.trace),

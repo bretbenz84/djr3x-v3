@@ -246,7 +246,6 @@ class Session:
         self.last_trusted_speech_at = float("-inf")
         self.resolved_audio_at = float("-inf")
         self.motion_committed = False  # Wheels were handed a plan in the current turn.
-        self.joke_room = None    # jokes.JokeRoom: optional material written beside the conversation.
         self.human_turns = 0     # Trusted human turns this session, for material freshness.
         self.preparing_plan = False
         self.agency_scope = None
@@ -309,38 +308,6 @@ class Session:
             if message.get('role') == 'assistant' and isinstance(message.get('content'), str):
                 return plain_text(message['content']).rstrip().endswith('?')
         return False
-
-    def _joke_followup(self, heard, context, opportunity, transcript, turn_id, calls=(), setback=False):
-        """Record a writer's-room bit that was used; after a human turn, ask for fresh material.
-
-        October 17 review: the reply names the piece it used (used_material); and after a turn
-        that went wrong (a refused move, a failed look, a rejected tool) nothing is written, since
-        the writer then wrote about Rex's own failures, which it is told never to do."""
-        from . import jokes
-        person = (context.get('personal_memory') or {}).get('person_id')
-        named = next((c.arguments.get('used_material') for c in calls
-                      if c.name in {'respond_with_intent', 'respond_with_gesture'}), None)
-        item = self.joke_room.used(heard, premise=named if isinstance(named, str) else None)
-        if item:
-            self.state.bit_told(self.session_id, person, item['premise'], heard)
-            self.trace.emit('joke_recorded', turn_id=turn_id, premise=item['premise'], reaction='told',
-                            named=bool(named))
-        if setback:
-            self.trace.emit('joke_writer_skipped', turn_id=turn_id, reason='setback_turn')
-            return
-        if opportunity is None and transcript is not None and transcript.trusted:
-            memory = context.get('personal_memory') or {}
-            known = [f"{r.get('predicate')}: {r.get('value')} (told {r.get('told')}"
-                     + (f"; {r['planned_time']})" if r.get('planned_time') else ')')
-                     for r in memory.get('interests_and_facts', []) if person and memory.get('person_id') == person]
-            # Callouts with a callback due are the writer's to build on too (owner, October 25).
-            due = [{k: e[k] for k in ('about', 'famous_for', 'angles', 'off_limits')}
-                   for e in (context.get('callouts') or {}).get('here', ()) if e.get('riff_now')]
-            facts = jokes.summary(self.history_messages(), context.get('right_now'),
-                                  [], {**(context.get('humor') or {}), **({'callouts': due} if due else {})}, known)
-            if self.joke_room.ask(facts, jokes.audience_key(person), self.human_turns):
-                self.trace.emit('model_request', turn_id=turn_id, primary_calls=0, purpose='joke_material',
-                                model=getattr(getattr(self.joke_room.writer, 'capability', None), 'model', None))
 
     def _talked_about(self, heard, context, turn_id):
         """The words of a heard line of his, counted across days so what he keeps saying wears out
@@ -1548,8 +1515,8 @@ class Session:
                 from . import conversation_memory
                 context["personal_memory"] = conversation_memory.context(
                     self.state.store, context, self.session_id, self.state.wall_clock())
-                # His own material with this audience, and anything the writer's room has for the
-                # moment (October 14 plan, step 4). Running gags follow the private audience only.
+                # His own material with this audience (October 14 plan, step 4). Running gags follow
+                # the private audience only.
                 from . import jokes
                 humor_person = context["personal_memory"].get('person_id')
                 humor_audience = jokes.audience_key(humor_person)
@@ -1558,9 +1525,6 @@ class Session:
                 if spent:
                     humor = {**humor, 'spent_shapes': spent, 'meaning': GUIDE['humor']}
                 if humor: context['humor'] = humor
-                material = self.joke_room.offer(humor_audience, self.human_turns) if self.joke_room and not game_on else None
-                if material and not (opportunity and opportunity.kind in {'visual_arrival', 'unseen_presence'}):
-                    context['joke_material'] = material
                 # Standing celebrity bits people asked for, for whoever is around (owner, October 25).
                 offered = self.state.callout_context(context)
                 if offered: context['callouts'] = offered
@@ -3144,8 +3108,6 @@ class Session:
                                                 answering=(context.get('speaker') or {}).get('speaker_id') or self._memory_subject,
                                                 started=delivery.first_audio_at)
                     playing = self.state.jeopardy.active or bool(context.get('jeopardy'))
-                    if self.joke_room is not None and not context.get('sentry') and not playing:   # No paid writer for the guard or a game.
-                        self._joke_followup(heard, context, opportunity, transcript, turn_id, calls, setback[0])
                     if not context.get('sentry') and not playing and not self.state.frozen:
                         self._talked_about(heard, context, turn_id)
                     if context.get('callouts'):

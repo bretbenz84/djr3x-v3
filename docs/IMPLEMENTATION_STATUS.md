@@ -9,12 +9,18 @@ Documentation does not authorize new hardware operation or feature expansion.
 ## Replies from Claude and a slim character — November 10
 
 Owner: "it's not very fun." After two blind comparisons he judged himself, replies can come from
-`claude-sonnet-5-5` (`reply_provider = "claude"`; OpenAI stays the code default and one setting
+`claude-sonnet-5-5` (`llm_provider = "claude"`; OpenAI stays the code default and one setting
 away), the character text is a fifth of its size with no example lines, and the block that kept
 breaking prompt caching now opens every request. 1,799 blocked-I/O checks pass; paid probes put
 Claude at or above `gpt-6-luna` on meaning, addressee, proactive and action requests. **Not yet
 run on the robot**; estimated $55–60 a month of Anthropic credit. Evidence and limits:
 [replies from Claude](CLAUDE_REPLIES.md).
+
+Later the same day the owner moved everything to Claude and retired the joke writer: the goal
+planner and news search use `claude-sonnet-5-5`, the picture locator `claude-haiku-5-5`, all behind
+`llm_provider`, and `JokeRoom`, `joke_writer_enabled`, `joke_material` and `used_material` are
+gone (the joke record stays). Each Claude helper answered once or more in paid probes; 1,797
+blocked-I/O checks pass. Later sections that mention the writer's room are history.
 
 ## October 14 improvement plan
 
@@ -27,7 +33,7 @@ under two minutes earlier). Steps 1–5 landed the same day, all **not yet run o
 one picture of the present with time in words (`present.py`), beats that wake on conditions
 Rex chose (`wait_for`, no easing ladder), a minute's memory of the floor for driving
 (`local_map.py`: doubtful readings rechecked, remembered ways round), teasing everyone when it
-fits with a joke record and a writer's room (`jokes.py`, `note_bit`), and reply-tool words spoken
+fits with a joke record (`jokes.py`, `note_bit`; the writer's room was retired November 10), and reply-tool words spoken
 as they stream (`tool_text.py`, about 0.9 s sooner to the first phrase in a paid probe).
 1178 blocked-I/O checks pass.
 

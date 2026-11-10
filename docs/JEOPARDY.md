@@ -63,7 +63,7 @@ with far fewer category read-backs when the board is on screen.
   skipped with no score change.
 - **Ending.** "Let's stop playing" (Rex checks they mean it unless it is clear), the end of Final
   Jeopardy, or ten minutes with nobody heard. During a game his goals, greetings, news, curiosity
-  questions, impressions and the joke writer pause, and he does not drive; his head turns to the player
+  questions and impressions pause, and he does not drive; his head turns to the player
   whose turn it is when he recognizes their face.
 
 ## The dashboard

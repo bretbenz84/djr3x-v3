@@ -1,12 +1,12 @@
-"""Explicit paid probe of Rex's humor: old persona against the October 14 persona and writer's room.
+"""Explicit paid probe of Rex's humor: an older persona against the current one.
 
 Run: .venv/bin/python tools/check_humor.py --live [--runs 1] [--before REV]
 
 Fictional conversations run through the production Session with the real reply model, a
-temporary database, synthetic audio and a fake clock (15 s between human turns, the writer's
-room given time to finish, as between real turns). Arms: `before` uses the persona at --before
-(default: before step 4, commit 4a4b93c, with no writer; HEAD compares the working tree with the
-last commit, both with the writer); `after` uses the current persona and the writer's room. A
+temporary database, synthetic audio and a fake clock (15 s between human turns). Arms: `before`
+uses the persona at --before (default: before step 4, commit 4a4b93c; HEAD compares the working
+tree with the last commit); `after` uses the current persona. Neither has the writer's room, which
+the owner retired on November 10. A
 stronger model then labels every Rex line, without knowing the arm: is it a tease or roast, how
 funny (1-5), is it appropriate for the moment, does it repeat an earlier line, and (October 19,
 owner: "too sycophantic ... heaps praise over minor things ... too much like a polite LLM") does
@@ -29,9 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from r3x.adapters import hosted
-from r3x.adapters.hosted import OpenAIBrain, OpenAIJokeWriter
+from r3x.adapters.hosted import OpenAIBrain
 from r3x.contracts import Capture, Cancellation, Snapshot, ToolCall, Transcript
-from r3x.jokes import JokeRoom
 from r3x.memory import Memory
 from r3x.output import OutputOwner
 from r3x.scenario import SyntheticTTS
@@ -145,7 +144,7 @@ def old_persona(rev=BEFORE):
     return names['CHARACTER'], names['PERSONA']
 
 
-def converse(arm, scenario, lines, key, folder, index, writer_in_before=False):
+def converse(arm, scenario, lines, key, folder, index):
     path = folder / f'{arm}-{scenario}-{index}.jsonl'
     trace = Trace(path)
     with TemporaryDirectory() as tmp:
@@ -155,10 +154,6 @@ def converse(arm, scenario, lines, key, folder, index, writer_in_before=False):
             state = CoreState(store, SpeakerTracker(NS), trace)
             brain = Paced(key); brain.trace = trace; brain.start()
             session = Session(uuid4().hex, brain, OutputOwner(SyntheticTTS(), ClockSink(trace), trace), trace, state)
-            writer = None
-            if arm == 'after' or writer_in_before:
-                writer = OpenAIJokeWriter(key, 'gpt-5.6-terra'); writer.trace = trace; writer.start()
-                session.joke_room = JokeRoom(writer, trace, trace.clock)
 
             def capture(seconds=3.):
                 trace.at += 2
@@ -180,12 +175,8 @@ def converse(arm, scenario, lines, key, folder, index, writer_in_before=False):
                 session.note_speech(trace.at)
                 result = session.process_turn(capture(), Transcript(line, -.01, True), session.revision, observation())
                 said.append({'human': line, 'rex': ' '.join(result.completed_text)})
-                room = session.joke_room
-                if room is not None and room.thread is not None:
-                    room.thread.join(60)
             session.close()
-            materials = [r for r in trace.rows if r['event'] == 'joke_material']
-            return said, {'material_writes': len(materials), 'bits_used': sum(r['event'] == 'joke_recorded' for r in trace.rows)}
+            return said, {}
         finally:
             store.close()
 
@@ -216,7 +207,6 @@ def main():
     parser.add_argument('--scenario', action='append', help='run only these scenarios')
     args = parser.parse_args()
     scenarios = {k: v for k, v in SCENARIOS.items() if not args.scenario or k in args.scenario}
-    writer_in_before = args.before != BEFORE   # Any later revision had the writer's room.
     key = Secrets.load(ROOT / 'local').openai_api_key
     folder = ROOT / 'local' / 'validation' / ('humor-' + uuid4().hex[:8])
     folder.mkdir(parents=True)
@@ -229,7 +219,7 @@ def main():
         for arm in order:
             hosted.CHARACTER, hosted.PERSONA = before if arm == 'before' else current
             for scenario, lines in scenarios.items():
-                said, extra = converse(arm, scenario, lines, key, folder, index, writer_in_before)
+                said, extra = converse(arm, scenario, lines, key, folder, index)
                 labels = judge(key, said)
                 rex = [l for l, e in zip(labels, said) if e['rex']]
                 results.append({'arm': arm, 'scenario': scenario, 'run': index, **extra,

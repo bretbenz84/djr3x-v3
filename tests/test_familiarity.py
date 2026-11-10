@@ -7,7 +7,7 @@ scripted reply model; no I/O."""
 import json
 from types import SimpleNamespace
 
-from r3x import familiarity, jokes
+from r3x import familiarity
 from r3x.output import TextOutput
 from r3x.places import Places, VIEW_EVERYDAY_DAYS
 from r3x.session import Session
@@ -53,10 +53,6 @@ class TalkedAboutTests(memory_tests.MemoryFixture):
         self.begin('Please forget me.')
         self.assertEqual(self.call('forget_person', {'person_id': bret}).outcome, 'ok')
         self.assertEqual(self.store.rows('SELECT * FROM talked_about'), [])
-
-    def test_the_writer_is_given_what_is_worn_out(self):
-        picture = {'familiar': {'talked_about': {'worn_out': ['telescope']}}}
-        self.assertEqual(json.loads(jokes.summary([], picture, [], {}))['worn_out'], ['telescope'])
 
 
 class HeardLinesTests(CuriosityFixture):

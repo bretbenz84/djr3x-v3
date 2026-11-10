@@ -26,8 +26,7 @@ class QuietRoomTests(QuietStretchFixture):
             if text in SILENCES:
                 yield ToolCall(uuid4().hex, 'remain_silent', {'reason': text})
             else:
-                yield ToolCall(uuid4().hex, 'respond_with_intent', {'text': text, 'intent_update': None,
-                    'used_material': None, 'invitation_update': None, 'next_opportunity': None})
+                yield ToolCall(uuid4().hex, 'respond_with_intent', {'text': text, 'intent_update': None, 'invitation_update': None, 'next_opportunity': None})
         self.executor.choose = choose
 
     def hear(self, at, text):

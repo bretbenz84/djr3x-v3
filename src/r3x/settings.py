@@ -47,12 +47,11 @@ class Settings:
     # OpenAI service tier for the reply model (owner, October 22): "fast" (Fast mode, formerly priority
     # processing) at twice the Standard token price, or "default" (Standard). Planner and writer stay Standard.
     reply_service_tier: str = "fast"
-    # Who writes Rex's replies (owner, November 10): "openai" (gpt-6-luna) or "claude". The planner, joke
-    # writer, locator and news search stay on OpenAI either way. docs/CLAUDE_REPLIES.md.
-    reply_provider: str = "openai"
-    # With reply_provider "claude": "claude-sonnet-5-5" (the owner's blind pick) or the cheaper "claude-haiku-5-5".
+    # Whose hosted models Rex uses (owner, November 10): "openai" or "claude", for replies, the goal planner,
+    # the picture locator and the news search alike. docs/CLAUDE_REPLIES.md.
+    llm_provider: str = "openai"
+    # Replies with llm_provider "claude": "claude-sonnet-5-5" (the owner's blind pick) or the cheaper "claude-haiku-5-5".
     claude_reply_model: str = "claude-sonnet-5-5"
-    joke_writer_enabled: bool = True  # Side joke material from the planner model between turns (paid, capped at 30 calls an hour).
     proactive_lull_seconds: float = 5.0
     scene_observations_enabled: bool = True
     object_memory_enabled: bool = False
@@ -76,8 +75,8 @@ class Settings:
             raise ValueError("UnsupportedAgencyPlannerModel")
         if self.reply_service_tier not in {"default", "fast"}:
             raise ValueError("UnsupportedReplyServiceTier")
-        if self.reply_provider not in {"openai", "claude"}:
-            raise ValueError("UnsupportedReplyProvider")
+        if self.llm_provider not in {"openai", "claude"}:
+            raise ValueError("UnsupportedModelProvider")
         if self.claude_reply_model not in {"claude-sonnet-5-5", "claude-haiku-5-5"}:
             raise ValueError("UnsupportedClaudeReplyModel")
         if self.profile != "dev-mac":
@@ -100,7 +99,7 @@ class Settings:
                 raise ValueError('Hardware port must be an explicit macOS /dev/cu. device')
         if self.input_device_index is not None and (type(self.input_device_index) is not int or self.input_device_index < 0):
             raise ValueError("input_device_index must be a nonnegative integer")
-        for name in ("echo_isolated","smart_turn_enabled","voice_check_enabled","room_sounds_enabled","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","news_search_enabled","direction_enabled","object_memory_enabled","place_recognition_enabled","face_expressions_enabled","impersonation_enabled","joke_writer_enabled"):
+        for name in ("echo_isolated","smart_turn_enabled","voice_check_enabled","room_sounds_enabled","camera_enabled","record_evaluation","scene_observations_enabled","weather_enabled","news_search_enabled","direction_enabled","object_memory_enabled","place_recognition_enabled","face_expressions_enabled","impersonation_enabled"):
             if type(getattr(self,name)) is not bool:
                 raise ValueError(f"{name} must be boolean")
         from .observations import https_url
@@ -147,10 +146,10 @@ class Secrets:
     elevenlabs_api_key: str = field(default="", repr=False)
     # Sentry mode's phone alerts (owner, October 22): the private ntfy topic name. Optional.
     ntfy_topic: str = field(default="", repr=False)
-    # Needed only while settings.reply_provider is "claude" (the app's readiness check asks for it then).
+    # One of the two model keys is needed: the one settings.llm_provider names (the app's readiness check).
     anthropic_api_key: str = field(default="", repr=False)
 
-    OPTIONAL = frozenset({"ntfy_topic", "anthropic_api_key"})
+    OPTIONAL = frozenset({"ntfy_topic", "anthropic_api_key"})   # openai_api_key: app readiness decides.
 
     @classmethod
     def load(cls, root: Path) -> "Secrets":

@@ -168,7 +168,7 @@ blocks are actually doubtful are unmeasured until a floor run.
   landed: landed, flopped or asked to stop. `humor` in the context offers running gags (landed
   bits with this person, in their private audience only, 60 days), bits that flopped (30 days)
   and bits told lately (two days). Forgetting a person deletes their records.
-- **Writer's room.** After a reply to a person, `jokes.JokeRoom` may send a small summary (the
+- **Writer's room (retired by the owner on November 10; `docs/CLAUDE_REPLIES.md`).** After a reply to a person, `jokes.JokeRoom` may send a small summary (the
   last eight exchanges, who is here, the moment from step 1, his own material) to the planner
   model, which returns up to three joke angles. A later reply sees them as optional
   `joke_material` for two turns or two minutes; the reply never waits for the writer. At most

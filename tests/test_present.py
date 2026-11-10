@@ -178,11 +178,10 @@ class PlanReviewRepairs(unittest.TestCase):
 
     def test_a_flickering_detection_is_not_a_thing_in_the_room(self):
         # October 18 (6aaf22aa): a "cake" the detector saw in 14 of 671 looks, three in a row at
-        # most, reached the picture and the writer's room; Rex teased the owner about it and the
+        # most, reached the picture; Rex teased the owner about it and the
         # owner had to say there was no cake. Only a steadily seen thing joins the picture; once
         # there, it stays known even when the detector drops it for a look.
         from r3x.present import STEADY_SAMPLES
-        from r3x.jokes import summary
         present = Present()
         clock = {'target_id': 'c', 'label': 'clock', 'box': [.05, .3, .2, .2], 'at': 100, 'samples': STEADY_SAMPLES}
         for n in range(1, STEADY_SAMPLES):
@@ -190,7 +189,6 @@ class PlanReviewRepairs(unittest.TestCase):
                                 clock], 100)
         picture = present.describe(101)
         self.assertEqual([row['thing'] for row in picture['things_seen']], ['clock'])
-        self.assertNotIn('cake', summary([], picture, [], None))
         present.saw_things([{**clock, 'samples': 1, 'at': 130}], 130)   # The clock's track restarted.
         self.assertEqual([row['thing'] for row in present.describe(131)['things_seen']], ['clock'])
         present.saw_things([{'target_id': 'k', 'label': 'cake', 'box': [.4, .3, .2, .2], 'at': 140,

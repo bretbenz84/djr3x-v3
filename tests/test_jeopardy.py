@@ -621,17 +621,11 @@ class SessionTests(MemoryFixture):
         self.assertTrue(self.state.jeopardy.snapshot()['active'])
         self.assertEqual(answer.completed_text, ['At last.', WHO_IS_PLAYING])
 
-    def test_game_turns_leave_out_the_joke_writer_and_goals(self):
-        class Room:
-            def __init__(self): self.offers = 0
-            def offer(self, *a): self.offers += 1; return None
+    def test_game_turns_leave_out_goals(self):
         brain = Scripted(lambda s: ToolCall('c1', 'jeopardy_setup', {'players': ['Casey'], 'text': None}), pick_first())
-        session = self.session(brain)
-        session.joke_room = Room()
+        self.session(brain)
         self.turn('Jeopardy for Casey.')
-        offers = session.joke_room.offers
         self.turn('First square.')
-        self.assertEqual(session.joke_room.offers, offers)
         self.assertNotIn('agency_plan', brain.snapshots[-1].context)
 
 

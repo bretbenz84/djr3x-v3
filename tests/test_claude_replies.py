@@ -196,9 +196,9 @@ class ChoiceTests(unittest.TestCase):
         secrets = Secrets(openai_api_key='o', elevenlabs_api_key='e', anthropic_api_key='a')
         chosen = reply_brain(Settings(), secrets)
         self.assertEqual((type(chosen), chosen.capability.model, chosen.key), (OpenAIBrain, 'gpt-6-luna', 'o'))
-        chosen = reply_brain(Settings(reply_provider='claude', claude_reply_model='claude-haiku-5-5'), secrets)
+        chosen = reply_brain(Settings(llm_provider='claude', claude_reply_model='claude-haiku-5-5'), secrets)
         self.assertEqual((type(chosen), chosen.capability.model, chosen.key), (ClaudeBrain, 'claude-haiku-5-5', 'a'))
-        for wrong in ({'reply_provider': 'other'}, {'claude_reply_model': 'claude-opus-5-5'}):
+        for wrong in ({'llm_provider': 'other'}, {'claude_reply_model': 'claude-opus-5-5'}):
             with self.assertRaises(ValueError):
                 Settings(**wrong)
         self.assertNotIn('anthropic_api_key', Secrets(openai_api_key='o', elevenlabs_api_key='e').readiness())
@@ -219,6 +219,117 @@ class ChoiceTests(unittest.TestCase):
         self.assertIn('Ronald Reagan', starts[0]['content'])
         self.assertEqual(starts[0], starts[1])
         self.assertEqual(starts[0], starts[2])
+
+
+class Whole:
+    """An unstreamed answer."""
+    status_code = 200
+    def __init__(self, body): self.body = body
+    def json(self): return self.body
+
+
+class Posts:
+    def __init__(self, *bodies): self.bodies, self.calls = list(bodies), []
+    def post(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return Whole(self.bodies.pop(0))
+
+
+class Image:
+    frame_id, data_url = 'f1', 'data:image/jpeg;base64,AAAA'
+
+
+class HelperTests(unittest.TestCase):
+    """The goal planner, picture locator and news search on Claude (owner, November 10)."""
+
+    def test_the_settings_choose_one_provider_for_every_hosted_model(self):
+        from r3x.adapters import claude
+        from r3x.adapters.hosted import OpenAIAgencyPlanner, OpenAINewsSearch, OpenAIVisualLocator
+        secrets = Secrets(openai_api_key='o', anthropic_api_key='a')
+        on_claude, on_openai = Settings(llm_provider='claude'), Settings()
+        made = [claude.agency_planner(on_claude, secrets), claude.visual_locator(on_claude, secrets),
+                claude.news_search(on_claude, secrets)]
+        self.assertEqual([m.capability.model for m in made], ['claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-sonnet-5-5'])
+        self.assertEqual({m.key for m in made}, {'a'})
+        self.assertEqual({m.capability.provider for m in made} & {'OpenAI Responses'}, set())
+        back = [claude.agency_planner(on_openai, secrets), claude.visual_locator(on_openai, secrets),
+                claude.news_search(on_openai, secrets)]
+        self.assertEqual([type(m) for m in back], [OpenAIAgencyPlanner, OpenAIVisualLocator, OpenAINewsSearch])
+        self.assertEqual({m.key for m in back}, {'o'})
+
+    def test_the_planner_asks_for_one_plan_in_a_fixed_shape_and_reads_it_back(self):
+        from r3x.adapters.claude import ClaudeAgencyPlanner
+        from r3x.adapters.hosted import CHARACTER
+        plan = {'goal_kind': 'x', 'steps': []}
+        planner = ClaudeAgencyPlanner('fixture')
+        planner.client, planner.trace = Client(stream(('text', json.dumps(plan)))), Rows()
+        self.assertEqual(planner.plan({'request_id': 'p', 'revision': 0, 'evidence': {}}, Cancellation(), (Image(),)), plan)
+        request = sent(planner)
+        self.assertEqual(request['model'], 'claude-sonnet-5-5')
+        self.assertTrue(request['system'][0]['text'].startswith(CHARACTER))
+        self.assertNotIn('tools', request)
+        shape = json.dumps(request['output_config']['format']['schema'])
+        for refused in ('maxLength', 'minLength', 'maxItems', 'minItems', 'minimum', 'maximum'):
+            self.assertNotIn(refused, shape)
+        self.assertIn('at most 240 characters', shape)
+        self.assertEqual([b['type'] for b in request['messages'][0]['content']], ['text', 'text', 'image'])
+        self.assertEqual(planner.trace.rows[-1]['event'], 'model_usage')
+
+    def test_a_plan_that_is_cut_short_or_not_json_is_a_missing_plan(self):
+        from r3x.adapters.claude import ClaudeAgencyPlanner
+        for response in (stream(('text', '{"goal_kind": "x"'), stop='max_tokens'), stream(('text', 'Here is my plan.'))):
+            planner = ClaudeAgencyPlanner('fixture')
+            planner.client, planner.trace = Client(response), Rows()
+            with self.assertRaises(ProviderFailure) as failed:
+                planner.plan({'request_id': 'p', 'revision': 0}, Cancellation())
+            self.assertEqual(str(failed.exception), 'AgencyPlanMissing')
+
+    def test_a_look_goes_to_the_quick_model_with_the_picture_and_counts_against_the_budget(self):
+        from r3x.adapters.claude import ClaudeVisualLocator
+        found = {'found': True, 'x': .4, 'y': .5, 'width': .1, 'height': .2, 'confidence': 'high', 'note': 'mug'}
+        locator = ClaudeVisualLocator('fixture')
+        locator.client = Posts({'stop_reason': 'end_turn', 'content': [{'type': 'text', 'text': json.dumps(found)}],
+                                'usage': {'input_tokens': 9}})
+        self.assertEqual(locator.locate('the red mug', Image(), Cancellation()), found)
+        args, kwargs = locator.client.calls[0]
+        request = kwargs['json']
+        self.assertEqual((request['model'], request['thinking']), ('claude-haiku-5-5', {'type': 'disabled'}))
+        self.assertEqual(kwargs['headers']['x-api-key'], 'fixture')
+        self.assertEqual(request['messages'][0]['content'][1]['source'],
+                         {'type': 'base64', 'media_type': 'image/jpeg', 'data': 'AAAA'})
+        self.assertNotIn('minimum', json.dumps(request['output_config']))
+        self.assertEqual(locator.calls, 1)
+        locator.client = Posts({'stop_reason': 'refusal', 'content': []})
+        with self.assertRaises(ProviderFailure):
+            locator.route(Image(), {'goal': 'kitchen'}, Cancellation())
+
+    def test_news_resumes_a_paused_search_and_returns_the_pages_it_was_shown(self):
+        from r3x.adapters.claude import ClaudeNewsSearch
+        results = {'type': 'web_search_tool_result', 'tool_use_id': 's1', 'content': [
+            {'type': 'web_search_result', 'url': 'https://example.org/a', 'title': 'A'}]}
+        paused = {'stop_reason': 'pause_turn', 'usage': {'input_tokens': 5, 'server_tool_use': {'web_search_requests': 1}},
+                  'content': [{'type': 'server_tool_use', 'id': 's1', 'name': 'web_search', 'input': {}}, results]}
+        stories = {'stories': [{'headline': 'A'}]}
+        done = {'stop_reason': 'end_turn', 'usage': {'input_tokens': 7, 'server_tool_use': {'web_search_requests': 1}},
+                'content': [{'type': 'text', 'text': 'Searching.'}, results, {'type': 'text', 'text': json.dumps(stories)}]}
+        search = ClaudeNewsSearch('fixture')
+        search.client = Posts(paused, done)
+        answer, sources, usage = search.search('Find today.')
+        self.assertEqual(answer, stories)
+        self.assertEqual(sources, ['https://example.org/a', 'https://example.org/a'])
+        self.assertEqual((usage['web_search_calls'], usage['input_tokens']), (2, 12))
+        resumed = search.client.calls[1][1]['json']['messages']
+        self.assertEqual([m['role'] for m in resumed], ['user', 'assistant'])
+        self.assertEqual(resumed[1]['content'], paused['content'])
+
+    def test_out_of_credit_on_a_helper_is_named_as_such(self):
+        from r3x.adapters.claude import ClaudeNewsSearch
+        class Broke:
+            def post(self, *args, **kwargs): return Refused(400, b'{"error": {"type": "billing_error", "message": "x"}}')
+        search = ClaudeNewsSearch('fixture'); search.client = Broke()
+        with self.assertRaises(ProviderFailure) as failed:
+            search.search('Find today.')
+        self.assertEqual(str(failed.exception), 'ClaudeCreditExhausted')
 
 
 if __name__ == '__main__':
