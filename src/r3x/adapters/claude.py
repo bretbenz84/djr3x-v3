@@ -6,6 +6,7 @@ follow the same setting (owner, November 10: everything on Claude, OpenAI one se
 end of this file. docs/CLAUDE_REPLIES.md has the evidence and what is still unchecked.
 """
 import json
+import threading
 import time
 
 from ..contracts import Cancelled, ProviderFailure, ToolCall, ToolText
@@ -21,11 +22,12 @@ MAX_TOKENS = 4000
 OPERATOR = '[Operator note, not said by anyone in the room]\n'
 
 
-def reply_brain(settings, secrets):
+def reply_brain(settings, secrets, switch=None):
     """The reply model the settings choose; the one place live and replay runs get it from."""
+    openai = OpenAIBrain(secrets.openai_api_key, settings.reply_service_tier)
     if settings.llm_provider == 'claude':
-        return ClaudeBrain(secrets.anthropic_api_key, settings.claude_reply_model)
-    return OpenAIBrain(secrets.openai_api_key, settings.reply_service_tier)
+        return _with_fallback(ClaudeBrain(secrets.anthropic_api_key, settings.claude_reply_model), openai, secrets, switch)
+    return openai
 
 
 def _blocks(content):
@@ -437,19 +439,130 @@ class ClaudeNewsSearch(HTTPProvider):
         return _json_answer(answer, 'NewsSearchResultMalformed'), sources, {**usage, 'web_search_calls': searches}
 
 
-def agency_planner(settings, secrets):
+def agency_planner(settings, secrets, switch=None):
     from .hosted import OpenAIAgencyPlanner
+    openai = OpenAIAgencyPlanner(secrets.openai_api_key, settings.agency_planner_model)
     if settings.llm_provider == 'claude':
-        return ClaudeAgencyPlanner(secrets.anthropic_api_key)
-    return OpenAIAgencyPlanner(secrets.openai_api_key, settings.agency_planner_model)
+        return _with_fallback(ClaudeAgencyPlanner(secrets.anthropic_api_key), openai, secrets, switch)
+    return openai
 
 
-def news_search(settings, secrets):
+def news_search(settings, secrets, switch=None):
     from .hosted import OpenAINewsSearch
-    return (ClaudeNewsSearch(secrets.anthropic_api_key) if settings.llm_provider == 'claude'
-            else OpenAINewsSearch(secrets.openai_api_key))
+    openai = OpenAINewsSearch(secrets.openai_api_key)
+    if settings.llm_provider == 'claude':
+        return _with_fallback(ClaudeNewsSearch(secrets.anthropic_api_key), openai, secrets, switch)
+    return openai
 
 
-def visual_locator(settings, secrets):
-    return (ClaudeVisualLocator(secrets.anthropic_api_key) if settings.llm_provider == 'claude'
-            else OpenAIVisualLocator(secrets.openai_api_key))
+def visual_locator(settings, secrets, switch=None):
+    openai = OpenAIVisualLocator(secrets.openai_api_key)
+    if settings.llm_provider == 'claude':
+        return _with_fallback(ClaudeVisualLocator(secrets.anthropic_api_key), openai, secrets, switch)
+    return openai
+
+
+# Owner, November 10: the Claude credit comes with his Max plan, so it is used first; when it runs out
+# everything moves to the prepaid OpenAI balance and Rex says so once, with a saved line.
+SWITCHED = 'ClaudeCreditSwitchedToOpenAI'   # The saved line's key in session.CREDIT_LINES.
+
+
+class ModelSwitch:
+    """Shared by every Claude model of a run: once one finds the credit gone, all of them use OpenAI."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.on_openai = False
+        self.notice_owed = False
+        self.trace = None
+
+    def flip(self, capability):
+        with self.lock:
+            if self.on_openai:
+                return
+            self.on_openai = self.notice_owed = True
+        if self.trace:
+            self.trace.emit('model_provider_switched', reason='ClaudeCreditExhausted', found_by=capability,
+                            to='openai')
+
+
+def _with_fallback(claude, openai, secrets, switch):
+    if switch is None or not secrets.openai_api_key.strip():
+        return claude   # No prepaid OpenAI balance to move to: out of credit stays a saved line.
+    return CreditFallback(claude, openai, switch)
+
+
+class CreditFallback:
+    """A Claude model with its OpenAI counterpart behind it.
+
+    Calls go to Claude until the credit is gone, then to OpenAI for the rest of the run (a restart tries
+    Claude again). A reply that had not said anything yet is asked again of OpenAI, so the person still
+    gets an answer; one cut off after words were heard is not repeated. Both are started and closed."""
+
+    def __init__(self, claude, openai, switch):
+        object.__setattr__(self, '_pair', (claude, openai))
+        object.__setattr__(self, 'switch', switch)
+
+    @property
+    def current(self):
+        return self._pair[1] if self.switch.on_openai else self._pair[0]
+
+    @property
+    def capability(self):
+        return self.current.capability
+
+    def __getattr__(self, name):
+        value = getattr(self.current, name)
+        if name in ('reply', 'plan', 'locate', 'route', 'search'):
+            return self._guarded(name)
+        return value
+
+    def __setattr__(self, name, value):
+        if name == 'trace':
+            self.switch.trace = value
+        for provider in self._pair:
+            setattr(provider, name, value)
+
+    def start(self):
+        for provider in self._pair:
+            provider.start()
+
+    def cancel(self):
+        for provider in self._pair:
+            provider.cancel()
+
+    def close(self):
+        for provider in self._pair:
+            provider.close()
+
+    def _guarded(self, name):
+        claude, openai = self._pair
+        if self.switch.on_openai:
+            return getattr(openai, name)
+        if name == 'reply':
+            return self._reply
+        def call(*args, **kwargs):
+            try:
+                return getattr(claude, name)(*args, **kwargs)
+            except ProviderFailure as exc:
+                if str(exc) != 'ClaudeCreditExhausted':
+                    raise
+            self.switch.flip(claude.capability.name)
+            return getattr(openai, name)(*args, **kwargs)
+        return call
+
+    def _reply(self, snapshot, cancel):
+        claude, openai = self._pair
+        released = False
+        try:
+            for item in claude.reply(snapshot, cancel):
+                released = True
+                yield item
+            return
+        except ProviderFailure as exc:
+            if str(exc) != 'ClaudeCreditExhausted':
+                raise
+        self.switch.flip(claude.capability.name)
+        if released:
+            raise ProviderFailure(SWITCHED)   # Words were heard; the next turn starts on OpenAI.
+        yield from openai.reply(snapshot, cancel)

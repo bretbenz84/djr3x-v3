@@ -106,6 +106,111 @@ class NoticeTests(MemoryFixture):
         self.assertEqual([(n['reason'], n['heard']) for n in self.notices()], [('ElevenLabsCreditExhausted', True)])
 
 
+class Model:
+    """A reply model or helper that answers, or is out of credit, as told; it counts its calls."""
+    def __init__(self, name, answer=None, fails=None, after_words=False):
+        from r3x.providers import Capability
+        self.capability = Capability('brain', name, 'test', name, (), ())
+        self.answer, self.fails, self.after_words, self.calls, self.started = answer, fails, after_words, 0, False
+    def start(self): self.started = True
+    def cancel(self): pass
+    def close(self): self.started = False
+    def reply(self, snapshot, cancel):
+        self.calls += 1
+        if self.after_words: yield 'Well,'
+        if self.fails: raise ProviderFailure(self.fails)
+        yield self.answer
+    def plan(self, facts, cancel, images=()):
+        self.calls += 1
+        if self.fails: raise ProviderFailure(self.fails)
+        return {'plan': self.answer}
+
+
+def pair(claude, openai):
+    from r3x.adapters.claude import CreditFallback, ModelSwitch
+    from tests.test_claude_replies import Rows
+    switch = ModelSwitch()
+    made = CreditFallback(claude, openai, switch)
+    made.trace = Rows()
+    return made, switch
+
+
+class SwitchToOpenAITests(unittest.TestCase):
+    """Owner, November 10: Claude's monthly credit first, then the prepaid OpenAI balance."""
+
+    def test_out_of_claude_credit_the_same_reply_comes_from_openai_and_later_ones_skip_claude(self):
+        claude, openai = Model('claude', fails='ClaudeCreditExhausted'), Model('openai', 'Still here.')
+        made, switch = pair(claude, openai)
+        made.start()
+        self.assertTrue(claude.started and openai.started)
+        snapshot = Snapshot('s', 't', 0, (), context={})
+        self.assertEqual(list(made.reply(snapshot, Cancellation())), ['Still here.'])
+        self.assertTrue(switch.on_openai and switch.notice_owed)
+        self.assertEqual(made.capability.name, 'brain')
+        self.assertEqual(list(made.reply(snapshot, Cancellation())), ['Still here.'])
+        self.assertEqual((claude.calls, openai.calls), (1, 2))
+        self.assertEqual([r['event'] for r in made.trace.rows], ['model_provider_switched'])
+
+    def test_other_failures_are_not_a_reason_to_switch(self):
+        claude, openai = Model('claude', fails='ClaudeHTTP500'), Model('openai', 'Hi.')
+        made, switch = pair(claude, openai)
+        with self.assertRaisesRegex(ProviderFailure, 'ClaudeHTTP500'):
+            list(made.reply(Snapshot('s', 't', 0, (), context={}), Cancellation()))
+        self.assertEqual((switch.on_openai, openai.calls), (False, 0))
+
+    def test_a_reply_cut_off_after_words_were_heard_is_not_said_again(self):
+        claude, openai = Model('claude', fails='ClaudeCreditExhausted', after_words=True), Model('openai', 'Hi.')
+        made, switch = pair(claude, openai)
+        said = []
+        with self.assertRaisesRegex(ProviderFailure, 'ClaudeCreditSwitchedToOpenAI'):
+            for words in made.reply(Snapshot('s', 't', 0, (), context={}), Cancellation()):
+                said.append(words)
+        self.assertEqual((said, openai.calls, switch.on_openai), (['Well,'], 0, True))
+
+    def test_a_helper_that_finds_the_credit_gone_moves_every_model_over(self):
+        from r3x.adapters.claude import CreditFallback
+        planner, backup = Model('claude', fails='ClaudeCreditExhausted'), Model('openai', 'walk')
+        made, switch = pair(planner, backup)
+        brain = CreditFallback(Model('claude', 'Hi.'), Model('openai', 'Hello.'), switch)
+        self.assertEqual(made.plan({}, Cancellation()), {'plan': 'walk'})
+        self.assertEqual(list(brain.reply(Snapshot('s', 't', 0, (), context={}), Cancellation())), ['Hello.'])
+
+    def test_without_an_openai_key_there_is_nothing_to_switch_to(self):
+        from r3x.adapters.claude import ClaudeBrain, CreditFallback, ModelSwitch, reply_brain
+        from r3x.settings import Secrets, Settings
+        on_claude = Settings(llm_provider='claude')
+        self.assertIsInstance(reply_brain(on_claude, Secrets(anthropic_api_key='a'), ModelSwitch()), ClaudeBrain)
+        self.assertIsInstance(reply_brain(on_claude, Secrets(anthropic_api_key='a', openai_api_key='o'), ModelSwitch()),
+                              CreditFallback)
+
+
+class SwitchNoticeTests(MemoryFixture):
+    turn = test_attention.AttentionTests.turn
+
+    def test_he_says_once_that_he_switched_and_answers_the_turn_meanwhile(self):
+        from r3x.adapters.claude import ModelSwitch
+        saved = []
+        def canned(text, cancel):
+            saved.append(text)
+            return b'\x01\x00' * 400
+        made, switch = pair(Model('claude', fails='ClaudeCreditExhausted'), Model('openai', 'Still here.'))
+        made.trace = self.state.trace
+        session = Session('session', made, OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace),
+                          self.state.trace, self.state)
+        session.canned, session.model_switch = canned, switch
+        self.addCleanup(session.close)
+        self.session = session
+        self.turn('Rex, are you there?')
+        spoken = [r['text'] for r in self.state.trace.rows if r['event'] == 'phrase_completed']
+        self.assertEqual(spoken, ['Still here.', CREDIT_LINES['ClaudeCreditSwitchedToOpenAI']])
+        self.assertEqual(saved, [CREDIT_LINES['ClaudeCreditSwitchedToOpenAI']])   # The saved line, not new speech.
+        self.state.trace.at += 2 * CREDIT_NOTICE_SECONDS
+        self.turn('And now?')
+        notices = [r['reason'] for r in self.state.trace.rows if r['event'] == 'credit_notice']
+        self.assertEqual(notices, ['ClaudeCreditSwitchedToOpenAI'])                 # Said once a run.
+        self.assertIn('model_provider_switched', [r['event'] for r in self.state.trace.rows])
+
+
 class OwnTurnTests(MemoryFixture):
     setup_core = test_proactive_core.InitiativeCoreTests.setup_core
     turn = test_proactive_core.InitiativeCoreTests.turn

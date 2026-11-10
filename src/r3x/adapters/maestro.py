@@ -95,10 +95,6 @@ class Maestro:
                     packet.extend((pose[ch] & 127, pose[ch] >> 7))
                 self._write(bytes(packet))
 
-    def go_home(self) -> None:
-        """Explicit operator action only; board-stored homes are not calibration."""
-        self._write(bytes((0xA2,)))
-
     def close(self) -> None:
         if not self.closed:
             self.port.close()

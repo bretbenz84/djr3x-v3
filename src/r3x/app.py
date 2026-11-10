@@ -23,6 +23,7 @@ class App:
         self.startup_audio = None
         self.hardware_handoff = None
         self.cloner = None
+        self.model_switch = None
 
     def configure_live(self):
         from .adapters.asr import QwenASR
@@ -46,8 +47,9 @@ class App:
             from .room_sounds import RoomSounds
             room_sounds = RoomSounds(voice_check, self.paths.root / 'room-sounds')
         from .adapters import claude as hosted_models   # Every hosted model follows settings.llm_provider.
-        brain = hosted_models.reply_brain(self.settings, secrets)
-        agency_planner = hosted_models.agency_planner(self.settings, secrets)
+        self.model_switch = hosted_models.ModelSwitch()   # Claude first, then the OpenAI balance (owner, November 10).
+        brain = hosted_models.reply_brain(self.settings, secrets, self.model_switch)
+        agency_planner = hosted_models.agency_planner(self.settings, secrets, self.model_switch)
         from .voice_modes import MODELS, REX_VOICE, VOICES
         tts = ElevenLabsTTS(secrets.elevenlabs_api_key, REX_VOICE, VOICES, MODELS)
         from .speech_level import PCMLeveler
@@ -61,7 +63,7 @@ class App:
         from .observations import PublicObservations
         from .scene import SceneObserver
         from .news import NewsCache
-        search = hosted_models.news_search(self.settings, secrets) if self.settings.news_search_enabled else None
+        search = hosted_models.news_search(self.settings, secrets, self.model_switch) if self.settings.news_search_enabled else None
         public = PublicObservations(self.settings, search=search, cache=NewsCache(self.paths.root / 'cache/news.json')) \
             if self.settings.news_feed_urls or self.settings.weather_enabled or search else None
         scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
@@ -94,7 +96,7 @@ class App:
             self.radar = Radar(self.settings.radar_port) if self.settings.radar_port else None
             self.drive = DriveBase(self.settings.drive_port, radar=self.radar)
             if camera:
-                locator = hosted_models.visual_locator(self.settings, secrets)
+                locator = hosted_models.visual_locator(self.settings, secrets, self.model_switch)
         from .adapters.keywords import WORDS
         keywords = None
         if any((self.paths.root / 'models/wake' / (w + '.onnx')).is_file() for w in WORDS):
@@ -419,6 +421,7 @@ class App:
                 perception = Perception(asr,encoder,trace,camera,direction)
                 session = Session(session_id, brain, output, trace, state=state)
                 session.canned = self.startup_audio.speech   # Saved lines, such as the out-of-credit notices.
+                session.model_switch = self.model_switch
                 if self.robot and camera:
                     from .gaze import FaceTurns, addressee_neck
                     from .faces import VISIBLE_FACE_MAX_AGE

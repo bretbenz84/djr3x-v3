@@ -248,16 +248,6 @@ class ConversationIntent:
             result['current'] = None
         return result
 
-    def working_signature(self):
-        """State change for resource pacing, not a semantic novelty classifier."""
-        row = self.record
-        if row is None:
-            return None
-        return json.dumps({'status': row.status, 'objective': row.objective,
-            'openings': row.openings, 'targets': row.target_ids, 'memories': row.memory_ids,
-            'interests': [{k: item[k] for k in ('topic', 'curiosity', 'next_action', 'kind', 'status')}
-                          for item in row.interests]}, sort_keys=True)
-
     def prepare(self, value, context, memory_ids):
         validate_update(value)
         if value is None:

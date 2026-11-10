@@ -56,6 +56,9 @@ CREDIT_LINES = {
                              "to say. Top up the account, or switch my replies back to OpenAI.",
     'ElevenLabsCreditExhausted': "Bad news: my ElevenLabs voice credits have run out. Top up the account "
                                  "and I'll be back in full voice.",
+    # Owner, November 10: Claude's monthly credit is used first, then the prepaid OpenAI balance.
+    'ClaudeCreditSwitchedToOpenAI': "Heads up: my Claude credits have run out for the month, so I've switched "
+                                    "over to my OpenAI account.",
 }
 CREDIT_NOTICE_SECONDS = 600.
 WAKE_HOLD_SECONDS = 10.    # After "Hey Rex" cuts him off, his own beats wait this long for them to speak.
@@ -211,6 +214,7 @@ class Session:
         self.sentry = None        # sentry_guard.SentryGuard, when sentry mode can run (camera present).
         self.canned = None        # (text, cancel) -> PCM of a saved line (StartupAudio.speech), when live.
         self._credit_said = {}    # Out-of-credit reason -> when its saved line was last said.
+        self.model_switch = None  # claude.ModelSwitch: says once when the run moved from Claude to OpenAI.
         self.on_sentry = None     # Starts the guard after a sentry_mode request was accepted.
         self.revision = 0
         self.history = TurnHistory()
@@ -794,14 +798,15 @@ class Session:
                                          self.trace.clock() + 30), 'with_speech', valid, lambda: None)
 
     def _say_out_of_credit(self, turn_id, reason):
-        """The saved line saying a service is out of credit, at most every CREDIT_NOTICE_SECONDS."""
+        """The saved line saying a service is out of credit, at most every CREDIT_NOTICE_SECONDS.
+        Whether it was heard."""
         now = self.trace.clock()
         if now - self._credit_said.get(reason, float('-inf')) < CREDIT_NOTICE_SECONDS:
-            return
+            return False
         line_cancel, said = Cancellation(), Delivery()
         with self._lock:
             if self.closed or self._cancel is not None:
-                return
+                return False
             self._cancel = line_cancel
         self._credit_said[reason] = now
         text = CREDIT_LINES[reason]
@@ -819,7 +824,7 @@ class Session:
         except Exception as exc:
             self.trace.emit('credit_notice', turn_id=turn_id, reason=reason, status='unspoken',
                             error_type=type(exc).__name__)
-            return
+            return False
         finally:
             with self._lock:
                 if self._cancel is line_cancel:
@@ -827,6 +832,7 @@ class Session:
         self.trace.emit('credit_notice', turn_id=turn_id, reason=reason, heard=bool(said.completed_text))
         if said.completed_text:
             self.history.append({'role': 'assistant', 'phase': 'final_answer', 'content': ' '.join(said.completed_text)})
+        return bool(said.completed_text)
 
     def _say_stopped(self, turn_id):
         """Confirm a spoken stop that halted the wheels. October 16 (3af18a12): told to stop
@@ -3076,8 +3082,11 @@ class Session:
             if (halted_drive and self.revision != submitted_revision   # A stop came during this turn.
                     and self._last_cancel == ('explicit_stop', False) and not self.closed):
                 self._say_stopped(turn_id)
-            if not opportunity and delivery.error in CREDIT_LINES and not self.closed:
-                self._say_out_of_credit(turn_id, delivery.error)
+            switched = self.model_switch is not None and self.model_switch.notice_owed
+            if not opportunity and not self.closed and (delivery.error in CREDIT_LINES or switched):
+                reason = 'ClaudeCreditSwitchedToOpenAI' if switched else delivery.error
+                if self._say_out_of_credit(turn_id, reason) and switched:
+                    self.model_switch.notice_owed = False   # Said once; until then it waits for the next turn.
             audio_at = delivery.first_audio_at
             self.trace.emit("turn_done", turn_id=turn_id, status=delivery.status, medium=delivery.medium, timings={
                 "endpoint": None if opportunity else source_end - speech_end,

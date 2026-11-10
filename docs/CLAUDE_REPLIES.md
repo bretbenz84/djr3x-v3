@@ -36,8 +36,14 @@ changes followed, at the owner's request. **Not yet run on the robot.**
   write words and then call a tool, which the session treats as a broken turn once words are
   heard (`reply_text_beside_tool` counts it: 1 of 46 calls). Reply-tool text still streams.
 - A refusal (`ClaudeRefusal`) is a silent failed turn; no fallback model is configured.
-- Out of credit (`ClaudeCreditExhausted`) is not retried: Rex says a saved line, as for OpenAI.
-  Subscriber API credit stops requests when it runs out; switching back is `llm_provider`.
+- Out of Claude credit (`ClaudeCreditExhausted`), Rex moves to OpenAI (owner, November 10: the Claude
+  credit comes with his Max plan, so it is used first, then the prepaid OpenAI balance). The first model
+  to find the credit gone flips one shared switch (`ModelSwitch`, trace `model_provider_switched`) and
+  every hosted model uses its OpenAI counterpart, with the same slim character, for the rest of the run;
+  a restart tries Claude again. A reply that had said nothing yet is asked again of OpenAI, so the turn
+  is still answered; one cut off after words were heard is not repeated. After that turn Rex says a
+  saved line once a run (`ClaudeCreditSwitchedToOpenAI`). Without an OpenAI key there is no switch
+  and he says the old out-of-credit line. Checked with synthetic models only.
 
 ## Evidence
 

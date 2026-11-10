@@ -112,8 +112,11 @@ class InspectionTests(MemoryFixture):
         self.assertEqual(self.brain.snapshots[-1].context['inspection']['reason'],'InspectionTimeout')
 
     def test_shared_motion_resource_rejects_inspection(self):
+        from unittest.mock import patch
         self.setup_session();self.output._motion_lock.acquire()
-        try:self.turn()
+        try:
+            with patch('r3x.output.INSPECTION_WAIT_SECONDS', .2):   # Rex waits 8 s; the refusal is the same.
+                self.turn()
         finally:self.output._motion_lock.release()
         self.assertEqual(self.events,[])
         self.assertEqual(self.brain.snapshots[-1].context['inspection']['reason'],'MotionResourceBusy')

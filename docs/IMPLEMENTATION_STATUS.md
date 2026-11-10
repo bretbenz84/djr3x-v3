@@ -22,6 +22,15 @@ planner and news search use `claude-sonnet-5-5`, the picture locator `claude-hai
 gone (the joke record stays). Each Claude helper answered once or more in paid probes; 1,797
 blocked-I/O checks pass. Later sections that mention the writer's room are history.
 
+Owner, the same day: Claude's monthly credit first, then the prepaid OpenAI balance. When a Claude
+model finds the credit gone, every hosted model moves to OpenAI for the rest of the run, the reply
+that had said nothing yet is answered by OpenAI, and Rex says a saved line once
+(`ClaudeCreditSwitchedToOpenAI`); synthetic checks only. A test review the same day (each test timed
+and traced) found no tests left for removed features; two unused functions were removed and the
+slowest test no longer waits eight real seconds. 1,803 blocked-I/O checks pass in about 200 s; the
+driving simulations are 44% of that time. The suite makes no network calls and cannot reach the
+servos (both blocked since September 10).
+
 ## October 14 improvement plan
 
 The owner approved a six-step plan after an architecture review: one shared picture of the

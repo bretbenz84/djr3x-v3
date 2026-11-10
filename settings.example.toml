@@ -151,7 +151,9 @@ agency_planner_model = "gpt-5.6-terra"
 reply_service_tier = "fast"
 
 # Whose hosted models Rex uses (owner, November 10): "openai" or "claude", for replies, the goal planner,
-# the picture locator and the news search alike. Only that provider's key is needed in secrets.toml.
+# the picture locator and the news search alike. Only that provider's key is needed in secrets.toml;
+# with "claude" and an OpenAI key too, running out of Claude credit moves everything to OpenAI for the
+# rest of the run and Rex says so once (owner, November 10).
 # claude_reply_model: "claude-sonnet-5-5" (the owner's blind pick) or the cheaper "claude-haiku-5-5".
 # docs/CLAUDE_REPLIES.md.
 llm_provider = "openai"
