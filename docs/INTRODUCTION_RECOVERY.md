@@ -94,3 +94,15 @@ reference was the first unknown face after the introduction from any view, often
 blurry face on a fresh camera track or Jeremy turned aside, and four minutes of clear views never
 matched it. Only clear views count now, and only a face pointed at is a reference. Synthetic
 checks; not yet run on the robot.
+
+## November 10: a picture on the wall
+
+Run `968a2b65` (dev Mac, `--gui`): the owner's self-introduction saved a name but no face (`ambiguous_face_target`).
+A 21 px face in a picture behind him, never embedded and on a new track every frame, counted as a second face. The
+introduction's sole face, the newcomer's one stranger and a supported voice's sole-face association now count only faces
+that are someone in the room, as presence already did: followed past one frame and at least 48 px wide
+(`faces.counts_as_person`). A real second face still refuses the face. Synthetic checks only. His voice did not enroll
+either (every later clip `tentative_continuity` against the 1.4 s introduction clip); that path is unchanged. The
+`speaker_evidence` log row now has `track_scores` (similarity to the three closest session voices, their reference
+counts and voiced seconds) so the next run shows how far below .55 such clips fall.
+

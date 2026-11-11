@@ -38,6 +38,22 @@ second; one driving function: 11 files), with the same blocks in a separate proc
 rebuilds the function map when it is a week old (about a minute more that run). A head-tilt check
 that failed by chance now and then has fixed random draws. 1,803 blocked-I/O checks pass.
 
+## A picture on the wall, and looks on the face boxes — November 10 run 968a2b65
+
+Owner, after a `--gui` run on the dev Mac: "I introduced myself but it did not seem to know who I was." The introduction
+was accepted (a provisional record), but its face was refused as `ambiguous_face_target`: a 21 px face in a picture
+behind him, never embedded and a new track every frame, was in 354 of 360 frames and counted as a second person. Faces
+that are not someone in the room for presence (one-frame flickers, under 48 px) no longer count as people for the
+introduction's sole face, the newcomer's one stranger or a voice's sole-face association (`faces.counts_as_person`; a real
+second face still refuses it). His voice did not enroll either: each later clip (1.2–1.9 s on the webcam microphone)
+sounded only partly like the 1.4 s introduction clip (`tentative_continuity`, under .55), so none was learned and the
+transcript stayed unresolved. That is unchanged; the run logged no track scores and saved no audio to measure it, so
+`speaker_evidence` now carries `track_scores`: the clip's similarity to the three closest session voices, with each
+one's reference count, voiced seconds and person (log only; the model's request never sees it).
+The dashboard's face boxes now carry what the face shows (smiling, surprised, frowning or neutral, with the smile
+reading) and the feed chip says when the expression reader is off. 1,806 blocked-I/O checks pass (synthetic faces,
+offscreen render); **not yet run live**.
+
 ## October 14 improvement plan
 
 The owner approved a six-step plan after an architecture review: one shared picture of the

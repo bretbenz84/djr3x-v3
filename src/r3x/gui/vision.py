@@ -1,8 +1,8 @@
 """Camera preview (V2 gui/vision_panel.py, adapted to V3's frame mailbox and rows).
 
 The newest frame is peeked from the camera's mailbox (no consumer slot). Face boxes are
-the face tracker's latest rows, labelled with the recognized person's name; a face name
-is visibility, never the speaker. Object boxes are the paced detector's tracked rows.
+the face tracker's latest rows, labelled with the recognized person's name and, when the
+expression reader is on, what the face shows; a face name is visibility, never the speaker. Object boxes are the paced detector's tracked rows.
 V2's pose skeleton, animal channel and occlusion-zone overlay have no V3 source.
 """
 
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QWidget
 # is dimmed so a frozen frame isn't mistaken for a live one.
 CAMERA_STALE_SECONDS = 2.0
 FACE_COLOR, OBJECT_COLOR = "#75ef63", "#b98cff"
+LOOK_COLOR = "#e0a526"   # The chip under a face showing a look (smiling, surprised, frowning).
 
 
 class VisionPanel(QWidget):
@@ -58,7 +59,10 @@ class VisionPanel(QWidget):
                 self._draw_box(painter, image_rect, obj.get("box"), label,
                                f"{float(score) * 100:.0f}%" if isinstance(score, (int, float)) else "", OBJECT_COLOR)
             for face in self._camera.get("faces") or ():
-                self._draw_box(painter, image_rect, face.get("box"), face.get("name") or "Unknown face", "", FACE_COLOR)
+                look = face.get("expression") or ""
+                self._draw_box(painter, image_rect, face.get("box"), face.get("name") or "Unknown face", "",
+                               FACE_COLOR, below=look,
+                               below_color=LOOK_COLOR if look and not look.startswith("neutral") else FACE_COLOR)
             age = self._camera.get("age")
             if age is not None and age > CAMERA_STALE_SECONDS:
                 painter.fillRect(image_rect, QColor(7, 17, 26, 150))
@@ -84,7 +88,7 @@ class VisionPanel(QWidget):
                 }.get(state, "Camera unavailable this run.")
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
 
-    def _draw_box(self, painter, image_rect, box, label, details, color_name) -> None:
+    def _draw_box(self, painter, image_rect, box, label, details, color_name, below="", below_color=None) -> None:
         try:
             x, y, w, h = (float(v) for v in box)
         except (TypeError, ValueError):
@@ -96,6 +100,8 @@ class VisionPanel(QWidget):
                       w * image_rect.width(), h * image_rect.height())
         painter.drawRect(rect)
         draw_label(painter, rect.topLeft() + QPointF(0, -30), label, details, color)
+        if below:   # What the face shows, under the box so close faces' labels stay apart.
+            draw_label(painter, rect.bottomLeft() + QPointF(0, 6), below, "", QColor(below_color or color_name))
 
     def _draw_timestamp(self, painter: QPainter, frame_rect: QRectF) -> None:
         text = time.strftime("%I:%M:%S %p").lstrip("0")
@@ -122,6 +128,8 @@ class VisionPanel(QWidget):
         else:
             fps = self._camera.get("fps")
             text, color = (f"● {float(fps):.0f} FPS" if fps else "● LIVE"), "#75ef63"
+            if not self._camera.get("expressions"):
+                text += "  ·  expressions off"
         font = QFont()
         font.setPointSize(10)
         font.setBold(True)
@@ -151,7 +159,7 @@ def draw_label(painter: QPainter, anchor: QPointF, label: str, details: str, col
     font.setBold(True)
     painter.setFont(font)
     metrics = painter.fontMetrics()
-    width = min(max(metrics.horizontalAdvance(text) + 14, 70), 360)
+    width = min(max(metrics.horizontalAdvance(text) + 18, 70), 360)   # +4: bold text was elided at its exact width
     x = max(8.0, min(anchor.x(), painter.device().width() - width - 8))
     rect = QRectF(x, max(8.0, anchor.y()), width, 24)
     painter.setPen(Qt.PenStyle.NoPen)

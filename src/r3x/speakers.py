@@ -121,6 +121,9 @@ class SpeakerTracker:
     def __init__(self, namespace: str, policy: SpeakerPolicy | None = None):
         self.namespace, self.policy = namespace, policy or SpeakerPolicy()
         self.tracks: dict[str, Track] = {}
+        # The last observed clip against each session voice: diagnostics for the log only
+        # (November 10, 968a2b65: four "tentative_continuity" clips left no number to calibrate by).
+        self.last_track_scores: tuple[dict, ...] = ()
 
     def reset(self):
         self.tracks.clear()
@@ -220,6 +223,7 @@ class SpeakerTracker:
     def observe(self, observation: VoiceObservation, at: float, profiles: dict,
                 trusted: bool = True, echo: bool = False, truncated: bool = False) -> Attribution:
         p = self.policy
+        self.last_track_scores = ()
         self.tracks = {key: t for key, t in self.tracks.items() if t.retained or at - t.last_at <= p.track_expiry_seconds}
         matched = self._profile_match(observation, profiles, trusted, echo, truncated)
         if isinstance(matched, Attribution):
@@ -237,6 +241,10 @@ class SpeakerTracker:
                                alternatives, False)
         tracks = sorted(((key, statistics.mean(cosine(vector, ref) for ref in track.references))
                          for key, track in self.tracks.items()), key=lambda row: row[1], reverse=True)
+        self.last_track_scores = tuple(
+            {'track_id': key, 'similarity': round(score, 3), 'references': len(self.tracks[key].references),
+             'voiced_seconds': round(self.tracks[key].voiced_seconds, 2), 'person_id': self.tracks[key].person_id}
+            for key, score in tracks[:3])
         if (person_id is None and tracks and
                 p.continuity_threshold <= tracks[0][1] < p.track_threshold):
             chosen = self._one_voice(tracks, p.continuity_margin, profiles)

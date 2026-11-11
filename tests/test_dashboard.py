@@ -82,6 +82,24 @@ class FeedTranscriptTests(unittest.TestCase):
         self.feed.attach(LiveParts(runtime=Runtime()))
         self.assertEqual(requested, ['dashboard'])
 
+    def test_face_boxes_carry_what_the_face_shows_and_whether_it_is_read(self):
+        from types import SimpleNamespace
+        rows = [{'box': [.1, .1, .2, .3], 'track_id': 'a', 'identity': None,
+                 'expression_read': {'smile': .81, 'surprise': .1, 'frown': 0.}, 'expression': 'smile'},
+                {'box': [.5, .1, .2, .3], 'track_id': 'b', 'identity': None,
+                 'expression_read': {'smile': .04, 'surprise': .1, 'frown': 0.}},
+                {'box': [.8, .1, .1, .1], 'track_id': 'c', 'identity': None}]
+        frame = SimpleNamespace(frame_id='f', at=self.feed.clock())
+        camera = SimpleNamespace(hub=SimpleNamespace(peek=lambda: frame), latest=lambda now: rows,
+                                 failure=None, expressions=object())
+        self.feed.attach(LiveParts(camera=camera))
+        shown = self.feed.snapshot()['camera']
+        self.assertEqual([f['expression'] for f in shown['faces']],
+                         ['smiling · smile 81%', 'neutral · smile 4%', ''])
+        self.assertTrue(shown['expressions'])
+        camera.expressions = None
+        self.assertFalse(self.feed.snapshot()['camera']['expressions'])
+
     def test_the_jeopardy_board_reaches_the_window_through_the_feed(self):
         from types import SimpleNamespace
         board = {'phase': 'selecting', 'active': True, 'players': [{'name': 'Bret', 'score': 200, 'up': True}]}

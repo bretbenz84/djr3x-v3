@@ -336,10 +336,11 @@ class DashboardFeed:
         for row in camera.latest(now):
             person = row.get('identity')
             faces.append({'box': row.get('box'), 'track_id': row.get('track_id'), 'person_id': person,
-                          'name': self._name(parts, person) if person else None, 'position': row.get('position')})
+                          'name': self._name(parts, person) if person else None, 'position': row.get('position'),
+                          'expression': expression_text(row)})
         return {'frame': frame, 'age': now - frame.at if frame else None, 'faces': faces, 'fps': fps,
                 'state': 'failed' if camera.failure else 'live' if frame else 'waiting',
-                'failure': camera.failure}
+                'failure': camera.failure, 'expressions': getattr(camera, 'expressions', None) is not None}
 
     def _name(self, parts, person_id):
         now = self.clock()
@@ -602,3 +603,19 @@ class Teleop:
         if was and thread is not None and thread is not threading.current_thread():
             thread.join(3.)
         self.thread = None
+
+
+LOOK_WORDS = {'smile': 'smiling', 'surprise': 'surprised', 'frown': 'frowning'}
+
+
+def expression_text(row):
+    """What the face shows, for the box label: the held look (expressions.py) when one has fired,
+    else "neutral", with the smile reading. Empty when the face was not read (reader off, or not
+    among the faces it reads). Display only, like the name: never who is speaking."""
+    read = row.get('expression_read')
+    look = row.get('expression')
+    if not read and not look:
+        return ''
+    word = LOOK_WORDS.get(look, look) if look else 'neutral'
+    smile = (read or {}).get('smile')
+    return f"{word} · smile {smile * 100:.0f}%" if isinstance(smile, (int, float)) else word

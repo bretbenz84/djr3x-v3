@@ -63,6 +63,37 @@ class FaceStateTests(MemoryFixture):
                 self.assertEqual(self.store.face_profiles(FNS),{})
                 self.assertNotEqual(result.data.get('face_status'),'saved')
 
+    def test_picture_face_beside_introducer_is_not_a_second_person(self):
+        # November 10 (968a2b65): a 21 px face in a picture, a new track every frame, refused
+        # the owner's self-introduction as ambiguous. A real second face still refuses it.
+        tracker=FaceTracker()
+        def picture(at):
+            return replace(sample(at,None,False),width=21.)
+        for at in (109.,109.5,110.,110.5,111.,111.5,112.):
+            tracker.update([[.4,.3,.2,.4],[.33,.12,.016,.037]],at,[sample(at),picture(at)],{})
+        faces=list(tracker.during(109.,112.))
+        self.assertEqual(len(faces),2)
+        mine=next(f for f in faces if f['face_width_px']==150.)
+        self.assertTrue(mine['sole_face_throughout'])
+        capture=Capture(uuid4().hex,'session',b'x'*96000,109.,112.,112.,voiced_intervals=((0.,3.),))
+        self.state.begin(uuid4().hex,capture,Transcript('My name is Bret Benziger.',0.,True),observation(),faces)
+        result=self.intro_face('Bret',key=mine['track_id'])
+        self.assertEqual(result.data['face_status'],'saved')
+        self.assertIn(result.data['person_id'],self.store.face_profiles(FNS))
+
+        self.state.tracker.reset()
+        self.state.enrollments.clear()
+        tracker=FaceTracker()
+        for at in (209.,209.5,210.,210.5,211.,211.5,212.):
+            tracker.update([[.4,.3,.2,.4],[.05,.3,.1,.2]],at,[sample(at),sample(at,B)],{})
+        faces=list(tracker.during(209.,212.))
+        mine=next(f for f in faces if f['box'][0]==.4)
+        self.assertFalse(mine['sole_face_throughout'])
+        capture=Capture(uuid4().hex,'session',b'x'*96000,209.,212.,212.,voiced_intervals=((0.,3.),))
+        self.state.begin(uuid4().hex,capture,Transcript('My name is Jordan.',0.,True),observation(),faces)
+        result=self.intro_face(key=mine['track_id'])
+        self.assertEqual(result.data['face_status'],'ambiguous_face_target')
+
     def visible_turn(self,text,faces,vector=A,trusted=True,mixed=False):
         start=faces[0]['at']-2
         capture=Capture(uuid4().hex,'session',uuid4().bytes*6000,start,start+3,start+3,

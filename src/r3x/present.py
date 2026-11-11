@@ -156,8 +156,8 @@ def followed(faces):
     motion noise that evening and two things he said about himself were refused. A real second
     person stays in view: in the October 24 visit, 588 of 827 two-face frames had both faces
     followed. A face without track timing (scripted callers) counts."""
-    return [f for f in faces or () if f.get('track_first_seen') is None or f.get('at') is None
-            or f['at'] > f['track_first_seen']]
+    from .faces import followed as is_followed
+    return [f for f in faces or () if is_followed(f)]
 
 
 def line_meaning(line, answered, seconds):

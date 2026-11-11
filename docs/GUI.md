@@ -24,7 +24,7 @@ the centre, the transcript on the right.
 | Panel | Source in V3 |
 | --- | --- |
 | Top bar | Activity badge (listening, thinking, speaking, quiet, shutting down) from the trace and the quiet flag; device lights from settings and provider start results; pack charge/current/voltage from wheel telemetry. |
-| Visual feed | Newest camera frame (`FrameHub.peek`, no consumer slot), face tracker rows labelled with the recognized name, tracked objects. A face name is visibility, never the speaker. Measured FPS and a STALE/NO SIGNAL chip as in V2. |
+| Visual feed | Newest camera frame (`FrameHub.peek`, no consumer slot), face tracker rows labelled with the recognized name, tracked objects. A face name is visibility, never the speaker. Under each face read by the [expression reader](FACE_EXPRESSIONS.md), what it shows (November 10): the held look (smiling, surprised, frowning) or neutral, with the smile reading; the FPS chip says "expressions off" when the reader is not running. Measured FPS and a STALE/NO SIGNAL chip as in V2. |
 | Actuators | Every joint of `servo_poses.JOINT_RANGES` as a percentage of its calibrated range, where the joint's output pulse is now (see [Motion timing](#motion-timing)). |
 | Scene | Current goal, recognized room, faces and objects in view, indoor climate. |
 | Logs | One line per trace event (periodic samples left out); the JSON session file stays the complete record. |

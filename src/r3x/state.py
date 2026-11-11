@@ -5,6 +5,7 @@ import hashlib
 import json
 import time
 from collections import deque
+from .faces import people_in_view
 from .speakers import Track, centroid, cosine, unit
 from uuid import uuid4
 
@@ -136,6 +137,7 @@ class CoreState:
         from .sentry import Sentry
         self.sentry = Sentry(trace.clock, lambda: self.wall_clock())   # Sentry mode's guard (October 22).
         self.faces = ()
+        self.track_scores = (None, ())
         self.face_associations = {}
         self.face_learning = {}
         self.face_invalidator = face_invalidator
@@ -604,6 +606,7 @@ class CoreState:
             observation = replace(observation, mixed=True)
         attribution = self.tracker.observe(observation, capture.ended_at,
             self.store.profiles(self.tracker.namespace), transcript.trusted, capture.echo_risk, capture.truncated)
+        self.track_scores = (turn_id, self.tracker.last_track_scores)   # Log only (speaker_evidence).
         self.enrollments = {key:p for key,p in self.enrollments.items()
                             if p.track_id in self.tracker.tracks}
         if self.pending and capture.ended_at-self.pending["delivered_at"] > 120:
@@ -1654,14 +1657,14 @@ class CoreState:
             from .face_attribution import target_allowed, learning_samples
             face = next((f for f in self.faces if f["track_id"]==args["face_track_id"]),None)
             # The semantic owner may omit the face ID for an ordinary self-introduction.
-            if face is None and args['subject']=='self' and len(self.faces)==1:
-                face = self.faces[0]
+            if face is None and args['subject']=='self' and len(people_in_view(self.faces))==1:
+                face = people_in_view(self.faces)[0]
             from .face_attribution import stranger
             if (args['subject']=='other' and face is not None and
                     (face.get('identity') not in (None,person_id) or face.get('resembles') not in (None,person_id))):
                 # October 20 (515d71db): "This is Jeremy Thomas" was pinned on a blurry face that
                 # scored .77 against Bret's saved face, beside the one face that matched nobody.
-                strangers = [f for f in self.faces if stranger(f)]
+                strangers = [f for f in people_in_view(self.faces) if stranger(f)]
                 if len(strangers)==1:
                     face = strangers[0]
             competing = any(key!=attribution.track_id and 0<=capture.ended_at-track.last_at<=8
@@ -2280,7 +2283,7 @@ class CoreState:
         if len(waiting) != 1:
             return
         newcomer = waiting[0]
-        strangers = [f for f in self.faces if stranger(f)]
+        strangers = [f for f in people_in_view(self.faces) if stranger(f)]
         views = [[s for s in clear_views(f) if s.session_id == capture.session_id] for f in strangers]
         if len(strangers) > 1 and any(views):
             self._newcomer_waiting(newcomer, 'face', 'more_than_one_unknown_face', faces=len(strangers))
@@ -2338,9 +2341,9 @@ class CoreState:
             return
         # A supported voice and sole clear face can associate an already named person
         # without requiring another introduction. Competing recent voices veto this.
-        if attribution.person_id and len(self.faces)==1:
+        if attribution.person_id and len(people_in_view(self.faces))==1:
             from .face_attribution import target_allowed
-            face = self.faces[0]
+            face = people_in_view(self.faces)[0]
             competing = any(k!=attribution.track_id and 0<=capture.ended_at-t.last_at<=8 for k,t in self.tracker.tracks.items())
             samples = face.get('_samples',())
             blocked = self.store.rows('SELECT person_id FROM face_learning_blocks WHERE person_id=?', (attribution.person_id,)) if samples else []

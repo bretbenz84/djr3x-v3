@@ -1,5 +1,5 @@
 """State-owner policy for semantic face targets and persistent face learning."""
-from .faces import rank_face
+from .faces import people_in_view, rank_face
 from .speakers import cosine
 
 
@@ -9,6 +9,9 @@ def public_face(row):
 
 def target_allowed(face, faces, subject, attribution, pending, recent_competitor=False,
                    introduction_source=False):
+    # Who is in the room: a flicker or a tiny far face (a picture on the wall) is nobody.
+    faces = people_in_view(faces)
+    only = len(faces)==1 and faces[0]['track_id']==face['track_id']
     if subject == 'self':
         # A short, clean introduction can identify the sole visible face without
         # supplying enough audio to train a voice profile. Passive learning keeps
@@ -16,12 +19,12 @@ def target_allowed(face, faces, subject, attribution, pending, recent_competitor
         source_allowed = attribution.learning_eligible or (
             introduction_source and attribution.track_id is not None and
             attribution.reason in {'session_track', 'acoustic_match', 'self_introduction'})
-        return bool(face.get('sole_face_throughout') and len(faces)==1 and
+        return bool(face.get('sole_face_throughout') and only and
             face.get('box',[0,0,0,0])[2]*face.get('box',[0,0,0,0])[3]>=.025 and
             source_allowed and not recent_competitor)
     # A targeted delivered question or a uniquely presented face permits an introducer to answer.
     if pending and pending.get('face_track_id')==face['track_id']: return True
-    if len(faces)==1: return True
+    if only: return True
     presented = [f for f in faces if f.get('newly_presented')]
     if len(presented)==1 and presented[0]['track_id']==face['track_id']: return True
     unknown = [f for f in faces if not f.get('identity')]

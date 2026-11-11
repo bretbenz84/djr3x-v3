@@ -1,6 +1,7 @@
 """Self-reported identity starts learning; it never manufactures recognition."""
 from collections import deque
 from dataclasses import replace
+import json
 import math
 from r3x.contracts import Cancellation, ToolCall
 from r3x.speakers import Track, SpeakerTracker, VoiceObservation
@@ -69,6 +70,31 @@ class IntroductionRecoveryTests(MemoryFixture):
         self.assertEqual(result['data']['identity_basis'],'self_report')
         self.assertEqual(self.store.people()[0]['name'],'Jeff')
         self.assertFalse(self.store.profiles(NS))
+
+    def test_speaker_evidence_logs_how_close_a_clip_came_to_each_session_voice(self):
+        # November 10 (968a2b65): four clips after an introduction were "tentative_continuity" and
+        # the log held no number to tell how close they came. Log only; the model never sees it.
+        from r3x.contracts import Capture, Transcript
+        from r3x.session import Session
+        from r3x.output import TextOutput
+        from tests.test_semantic_session import Brain
+        from tests.test_memory_core import observation
+        brain=Brain(lambda snapshot:ToolCall('intro','introduce_person',
+            dict(name='Bret',aliases=[],subject='self',person_id=None,face_track_id=None))
+            if snapshot.context['turn']['text']=='My name is Bret.' else 'Noted.')
+        session=Session('session',brain,TextOutput(self.state.trace),self.state.trace,self.state)
+        self.addCleanup(session.close)
+        session.process_turn(Capture('introduction','session',b'x'*96000,97.,100.,100.),
+            Transcript('My name is Bret.',0.,True),0,observation())
+        session.process_turn(Capture('later','session',b'x'*96000,107.,110.,110.),
+            Transcript('I spell it with one T.',0.,True),0,observation((.4,math.sqrt(.84),0.)))
+        evidence=[r for r in self.state.trace.rows if r['event']=='speaker_evidence']
+        self.assertEqual(len(evidence),2)
+        self.assertEqual(evidence[1]['reason'],'tentative_continuity')
+        best=evidence[1]['track_scores'][0]
+        self.assertAlmostEqual(best['similarity'],.4,places=3)
+        self.assertEqual(best['references'],1)
+        self.assertNotIn('track_scores',json.dumps([r.context for r in brain.requests],default=str))
 
     def test_stalled_provisional_chain_can_be_reintroduced_without_importing_old_audio(self):
         person=self.introduce('Jeff',A)

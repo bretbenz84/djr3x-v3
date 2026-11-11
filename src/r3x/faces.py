@@ -8,6 +8,27 @@ from .speakers import cosine
 # Presence only: a 2 Hz analysis pass can publish ~0.6 s after capture.
 # Keep one update interval of headroom; acoustic attribution uses its own windows.
 VISIBLE_FACE_MAX_AGE = 1.5
+# Narrower than this, a face is not someone in the room (present.saw_faces, October 17).
+PERSON_MIN_PX = 48
+
+
+def followed(row):
+    """Followed past its first frame: a person, not a flicker (October 25, a0afcf85). A row
+    without track timing (scripted callers) counts."""
+    return row.get('track_first_seen') is None or row.get('at') is None or row['at'] > row['track_first_seen']
+
+
+def counts_as_person(row):
+    """A face that is someone in the room: followed and at least PERSON_MIN_PX wide.
+
+    November 10 (968a2b65): a 21 px face in a picture on the wall, never embedded and a new
+    track every frame, sat beside the owner in 354 of 360 frames. Counted as a second person,
+    it refused the face of his self-introduction as ambiguous. Presence already ignored it."""
+    return followed(row) and (row.get('face_width_px') or PERSON_MIN_PX) >= PERSON_MIN_PX
+
+
+def people_in_view(faces):
+    return [f for f in faces or () if counts_as_person(f)]
 
 
 @dataclass(frozen=True)
@@ -171,7 +192,7 @@ class FaceTracker:
         result = {}
         all_tracks = set()
         for at,rows in frames:
-            all_tracks.update(r['track_id'] for r in rows)
+            all_tracks.update(r['track_id'] for r in rows if counts_as_person(r))
             for row in rows:
                 result[row['track_id']] = {**row,'first_seen_in_capture':result.get(row['track_id'],{}).get('first_seen_in_capture',at)}
         answer = []

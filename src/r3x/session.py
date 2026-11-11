@@ -1271,8 +1271,10 @@ class Session:
                 from copy import deepcopy
                 archive_context = deepcopy(context)
                 if not opportunity:
+                    scored_turn, track_scores = self.state.track_scores
                     self.trace.emit("speaker_evidence",turn_id=turn_id,**context["speaker"],
-                                    namespace=observation.namespace,window_consistency=observation.consistency)
+                                    namespace=observation.namespace,window_consistency=observation.consistency,
+                                    track_scores=list(track_scores) if scored_turn == turn_id else None)
             if self.state and self.sentry is not None:
                 sentry_reply = self.sentry.reply_context(opportunity)
                 if sentry_reply:
