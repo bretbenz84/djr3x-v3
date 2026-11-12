@@ -583,7 +583,8 @@
 // ---- Bluetooth gamepad (Bluepad32) — only when MOTION_GAMEPAD_PRESENT==1 ----
 // Left stick = arcade drive (Y forward, X turn); L1 creep / R1 boost; B = e-stop;
 // Start = clear + return to AUTO; hold BOTH analog triggers = full-override (docs §11).
-#define GAMEPAD_DEADZONE       0.12f    // stick fraction ignored around center
+#define GAMEPAD_DEADZONE       0.12f    // stick fraction ignored around centre (radial), and
+                                        // on the forward axis; the turn axis: GAMEPAD_TURN_DEADZONE
 // TELEOP SURFACE MODES — the gamepad's own caps, in REAL m/s / rad/s, independent
 // of params.max_lin/max_ang (the AUTONOMOUS limits the Mac pushes down on connect).
 // control_tick clamps a MANUAL drive to the larger (carpet) profile; autonomous
@@ -622,8 +623,21 @@
 // 66% at half stick) to help the weak old motors break stiction, which on these motors
 // made the stick an on/off switch; the turn axis was linear. The spin↔arcade blend
 // still keys off the RAW forward stick, so its bands do not shift with the curve.
+// (2026-11-12, after the first drive: the turn curve eased from 1.6 to 1.3 so a slight
+// lean while driving is felt; at 30% turn stick it commands 21% of the authority, was 15%.)
 #define GAMEPAD_LIN_GAMMA      1.6f
-#define GAMEPAD_ANG_GAMMA      1.6f
+#define GAMEPAD_ANG_GAMMA      1.3f
+// Stick geometry and turn authority while translating (stick_shaping.h, owner 2026-11-12:
+// "no turn happens, then it nearly stops and turns; I can't bank"). GAMEPAD_DEADZONE is
+// now a radial deadzone around centre plus the forward axis's own; the turn axis keeps
+// only this small one, so a lean at full forward registers almost at once. While
+// translating, full turn stick asks for a wheel-speed difference of ARC_STEER_FRAC of the
+// mode's forward ceiling each side: at full forward the inside wheel keeps 20% of the
+// speed and the base banks through about a 0.28 m radius instead of stopping to pivot.
+// Standing still the full spin ceiling (GAMEPAD_*_ANG_RADS) applies; the blend band
+// below eases between the two.
+#define GAMEPAD_TURN_DEADZONE   0.05f
+#define GAMEPAD_ARC_STEER_FRAC  0.80f
 // (GAMEPAD_SPIN_SCALE retired 2026-07-11 with the speed levels: turn authority is now
 // always the surface mode's full ang ceiling; the blend below only morphs the wheel
 // MIXING between spin-in-place and arcade arc.)

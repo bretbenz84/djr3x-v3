@@ -27,6 +27,7 @@
 #include "control.h"
 #include "battery.h"
 #include "gamepad_unplug.h"
+#include "stick_shaping.h"
 #include "calib.h"
 #include "proto_io.h"   // emit_event_kv — forward action-button presses to the Mac
 
@@ -339,39 +340,22 @@ void gamepad_tick() {
   float br = (float)c->brake()    / GAMEPAD_TRIGGER_MAX;
   float th = (float)c->throttle() / GAMEPAD_TRIGGER_MAX;
 
-  // Drive stick: LEFT in normal operation (avoidance active), RIGHT in bypass —
-  // scaled by the SURFACE MODE's ceilings (full stick = the mode's max).
-  float fwd, turn;
-  if (s_bypass) {
-    fwd  = -stick_norm(c->axisRY());  // right stick up = forward, sensors bypassed
-    turn =  stick_norm(c->axisRX());
-  } else {
-    fwd  = -stick_norm(c->axisY());   // left stick up = forward
-    turn =  stick_norm(c->axisX());
-  }
+  // Drive stick: LEFT in normal operation (avoidance active), RIGHT in bypass (sensors
+  // bypassed), scaled by the SURFACE MODE's ceilings (full stick = the mode's max).
+  // Teleop scales against the GAMEPAD's OWN ceilings, NOT params.max_lin/max_ang: those
+  // are the autonomous caps the Mac pushes down on connect. control_tick clamps manual
+  // drives to the carpet (larger) profile defensively. The mapping itself (round travel
+  // stretched to a square, deadzones, expo, spin↔arcade blend and the turn authority
+  // while translating) is the pure stick_to_drive in stick_shaping.h.
+  const float raw_x = (float)(s_bypass ? c->axisRX() : c->axisX()) / 512.0f;
+  const float raw_y = -(float)(s_bypass ? c->axisRY() : c->axisY()) / 512.0f;   // up = forward
   const float mode_lin = s_carpet_mode ? GAMEPAD_CARPET_LIN_MS   : GAMEPAD_HARDWOOD_LIN_MS;
   const float mode_ang = s_carpet_mode ? GAMEPAD_CARPET_ANG_RADS : GAMEPAD_HARDWOOD_ANG_RADS;
-
-  // Teleop scales against the GAMEPAD's OWN ceilings, NOT params.max_lin/max_ang —
-  // those are the autonomous caps, and the Mac pushes them down on connect
-  // (0.25 m/s), which used to silently slow the pad whenever Rex was running.
-  // control_tick clamps manual drives to the carpet (larger) profile defensively.
-  // Expo response curve on both axes (GAMEPAD_*_GAMMA > 1): small pushes command small
-  // speeds, full deflection still lands exactly on the mode max. The spin↔arcade blend
-  // below deliberately keys off the RAW `fwd` (its LO/HI bands are raw stick fractions).
-  float fwd_shaped = powf(fabsf(fwd), GAMEPAD_LIN_GAMMA);
-  if (fwd < 0.0f) fwd_shaped = -fwd_shaped;
-  float turn_shaped = powf(fabsf(turn), GAMEPAD_ANG_GAMMA);
-  if (turn < 0.0f) turn_shaped = -turn_shaped;
-  float lin =  fwd_shaped * mode_lin;
-  // Spin↔arcade BLEND, keyed off how far the stick is pushed forward/back. bt only
-  // drives the wheel MIXING morph in hal now (pure spin -> arcade arc); turn authority
-  // is the mode's full ceiling at every blend (the old per-level authority taper died
-  // with the speed levels — GAMEPAD_SPIN_SCALE governed it and is retired).
-  float bt = clampf((fabsf(fwd) - GAMEPAD_SPIN_BLEND_FWD_LO) /
-                    (GAMEPAD_SPIN_BLEND_FWD_HI - GAMEPAD_SPIN_BLEND_FWD_LO), 0.0f, 1.0f);
-  bt = bt * bt * (3.0f - 2.0f * bt);       // smoothstep: zero slope at both edges
-  float ang = -turn_shaped * mode_ang;     // stick-right => -ang (REP-103: +ang = left)
+  float track;
+  LOCK_STATE(); track = g_ctx.params.track_width_m; UNLOCK_STATE();
+  const StickDrive sd = stick_to_drive(clampf(raw_x, -1.0f, 1.0f), clampf(raw_y, -1.0f, 1.0f),
+                                       mode_lin, mode_ang, track);
+  const float fwd = sd.fwd, turn = sd.turn, lin = sd.lin, ang = sd.ang, bt = sd.blend;
 
   // Enter MANUAL on the first meaningful push; once manual, keep refreshing (incl. zero,
   // which feeds the drive deadman and holds the base stopped) until release/auto-return.

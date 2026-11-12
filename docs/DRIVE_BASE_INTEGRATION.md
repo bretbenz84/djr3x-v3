@@ -1454,3 +1454,8 @@ cut-out when a driven wheel's encoder is silent (`encoder_stall`), and hands the
 Host code is unchanged: `drive.CONFIG` speeds and ramps are in true units and within the new caps.
 **Not yet verified:** encoder direction and scale, any driving, `TURN_COAST_S` and the approach
 stopping distances on the new drivetrain, and the tall robot's weight on the estimated floors.
+
+Same day, firmware 0.2.12, after the owner's first drive ("it's better", but a lean at full forward
+did nothing and then nearly stopped the base into a counter-rotating turn): the gamepad stick mapping
+now holds forward speed through a lean and slows only the inside wheel, so the base banks.
+**Not yet driven.**

@@ -433,6 +433,7 @@ the contract correctly.
 | `control.{h,cpp}` | Stub plant + odometry, finite-command lifecycle |
 | `safety.{h,cpp}` | Watchdog, ToF zones + reflex stop, comms-loss handling |
 | `hal.{h,cpp}` | Hardware abstraction — motor/encoder stubs vs real drivers behind `MOTION_HW_PRESENT` |
+| `stick_shaping.h` | Pure gamepad stick mapping (round travel to square, deadzones, expo, turn authority); compiled natively by `firmware/tests/test_stick_shaping.py` |
 | `drive_shaping.h` | Pure per-wheel effort shaping (breakaway boost, stop fade, PID) and reflex braking; compiled natively by `firmware/tests/test_drive_shaping.py` |
 | `tof.cpp` | ToF (VL53L0X ×5) driver — clear-room stub vs XSHUT/mux real driver behind `MOTION_TOF_PRESENT` |
 | `gamepad.cpp` | Bluetooth gamepad manual override (Bluepad32) behind `MOTION_GAMEPAD_PRESENT` |
@@ -686,3 +687,30 @@ Checks: 40 native firmware checks pass, one new (the encoder watch). Full four-f
 Bluepad32 build 814,977 bytes program, 90,972 globals. Flashed at the owner's request,
 hashes verified, hello `0.2.11-yellow-jacket`; boot showed 8/8 radial sensors, both
 matrices, IMU, compass and battery sense up. No motion command was sent.
+
+## Banking turns from the stick (firmware 0.2.12, November 12, 2026)
+
+Owner, after driving 0.2.11: better, but at full forward a slight lean left or right did
+nothing, then past a point the base nearly stopped and turned, with the two sides
+counter-rotating; no banking. The per-axis stick mapping caused it. A thumbstick travels
+in a circle, so leaning it at full push shortened the forward reading (0.71 at 45°), and
+the deadzone and expo curve turned that into half speed or less, soon inside the band
+where the mixing lets the inside wheel reverse. The turn axis also had a 12% deadzone of
+its own, and full turn stick asked for more wheel-speed difference than the forward
+ceiling.
+
+`stick_shaping.h` (pure, called from `gamepad.cpp`) now stretches the round travel to a
+square, so a full push anywhere within 45° of forward is still full forward; uses one
+radial deadzone, keeps the forward axis's own, and gives the turn axis only 5%; eases
+the turn curve from 1.6 to 1.3; and while translating limits full turn stick to a
+wheel-speed difference of 80% of the forward ceiling each side
+(`GAMEPAD_ARC_STEER_FRAC`). At full push on hardwood a 10° lean commands 0.235 / 0.265
+m/s, 30° 0.157 / 0.343, 45° 0.05 / 0.42 (about a 0.28 m radius). The inside wheel stops
+only past 45°, and the sides counter-rotate only within about 20° of pure sideways.
+Standing still, sideways is the same spin as before (1.2 rad/s hardwood).
+
+Checks: 45 native firmware checks pass, five new (`test_stick_shaping.py`: speed held
+through a lean, progressive difference, no step across a 1° sweep, spins, centre,
+reverse). Full four-flag build 815,517 bytes program, 90,972 globals. Flashed at the
+owner's request, hashes verified, hello `0.2.12-bank-turns`. Not yet driven. The pad's
+real stick range was assumed round and was not measured.
