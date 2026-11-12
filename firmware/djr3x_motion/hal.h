@@ -53,7 +53,8 @@ void hal_read_tof(TofMm& out);                   // latest ToF distances (mm; -1
 // Real closed-loop drive. These run inside control_tick UNDER the state lock, so
 // they must be fast and non-blocking and must never take the serial mux.
 void hal_read_odom(Odom& out, float dt);              // encoders -> odom (+ measured wheel speeds)
-void hal_drive_velocity(float lin, float ang, float dt, bool pivot_steer, float pivot_blend,
+// Returns false when a driven wheel's encoder is silent (calib.h "Encoder watch").
+bool hal_drive_velocity(float lin, float ang, float dt, bool pivot_steer, float pivot_blend,
                         bool stopping); // body vel -> per-wheel PID -> PWM (pivot_steer: joystick; pivot_blend 0 spin .. 1 arcade morphs the mixing smoothly; stopping: ramping to rest, effort fades out)
 void hal_drive_wheel_raw(int side, float frac);       // ONE wheel at raw duty (side 0=L/1=R, frac -1..1) — bring-up jog, NO kinematics/PID
 void hal_motors_off();                                // disable the H-bridges + reset PID (estop/idle)

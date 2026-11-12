@@ -89,6 +89,17 @@ int main(int argc, char** argv) {
     }
     std::printf("cross %.4f %.4f\n", reflex_ramp_step(0.001f, 0.25f, 0.05f, 0.35f, DT),
                 reflex_ramp_step(-0.001f, 0.25f, 0.05f, 0.35f, DT));
+  } else if (!std::strcmp(s, "encoder")) {   // ticks until the watch trips, -1 = never
+    struct Case { int duty; int count_every; };   // count_every 0 = encoder never moves
+    const Case cases[] = {{600, 0}, {-600, 0}, {300, 0}, {600, 20}, {1023, 0}};
+    for (const auto& c : cases) {
+      EncoderWatch e; int tripped = -1;
+      for (int i = 0; i < 300 && tripped < 0; ++i) {
+        const bool counted = c.count_every && (i % c.count_every == 0);
+        if (encoder_silent_step(e, c.duty, counted, DT)) tripped = i;
+      }
+      std::printf("%d %d %d\n", c.duty, c.count_every, tripped);
+    }
   } else if (!std::strcmp(s, "phantom")) {   // one false matrix frame at the stop line
     float v = 0.25f, lowest = v;
     for (int i = 0; i < 60; ++i) {
@@ -166,6 +177,13 @@ class DriveShapingTests(unittest.TestCase):
                 if room > 0.1:                       # room to spare: not a one-tick slam
                     self.assertGreaterEqual(ticks, 10)
         self.assertEqual([abs(float(x)) for x in cross[1:]], [0.0, 0.0])   # never past zero
+
+    def test_a_driven_wheel_with_a_silent_encoder_trips_the_watch(self):
+        tripped = {(int(d), int(n)): int(t) for d, n, t in self.rows('encoder')}
+        for duty in (600, -600, 1023):               # about half a second, either direction
+            self.assertTrue(45 <= tripped[(duty, 0)] <= 55, tripped)
+        self.assertEqual(tripped[(300, 0)], -1)      # gentle duty may leave a loaded wheel still
+        self.assertEqual(tripped[(600, 20)], -1)     # a slow wheel that still counts is measured
 
     def test_one_false_frame_costs_a_dip_not_a_stop(self):
         lowest, final = map(float, self.rows('phantom')[0])

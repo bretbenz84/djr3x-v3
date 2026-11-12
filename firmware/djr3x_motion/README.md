@@ -307,7 +307,7 @@ remembers the bond for next time.
 
 | Input | Action |
 | --- | --- |
-| Left stick | arcade drive — Y forward/back, X turn. Pure X (no Y) spins in place at the mode's full turn authority; as Y is added the spin **blends smoothly** into an arcade arc (inside-wheel reverse eases out — no hard regime snap) |
+| Left stick | arcade drive — Y forward/back, X turn, both on an expo curve (half stick = a third of the ceiling). Pure X (no Y) spins in place; as Y is added the spin **blends smoothly** into an arcade arc (inside-wheel reverse eases out — no hard regime snap). Ceilings since 0.2.11: hardwood 0.25 m/s and 1.2 rad/s, carpet 0.38 m/s and 1.6 rad/s |
 | **L3 (click left stick)** | **toggle SURFACE MODE**: hardwood (boot/reconnect default) ↔ carpet (max authority — higher speed/turn ceilings + full-saturation spin breakaway). Latches; rumble confirms: 1 pulse = hardwood, 2 = carpet. Emits `event:"mode" surface:"hardwood"/"carpet"` |
 | **D-pad** | **relative nudges**: Up/Down = short forward/back move (`GAMEPAD_NUDGE_DIST_M`, ToF-gated), Left/Right = relative 90° turn (`default_turn_deg`) |
 | **L1 (hold) + D-pad** | **spin to an absolute heading** (encoder test): Up=0°, Left=+90° (CCW), Down=180°, Right=−90° (CW) |
@@ -366,8 +366,8 @@ Any meaningful stick push switches `owner` to **MANUAL** — the Mac's drive/tur
 are then refused (`stop`/`estop`/`config`/`ping` still work) and the GUI shows
 `owner: manual`. Default is **MANUAL-ASSISTED** (ToF still protects you); FULL-OVERRIDE
 is the only way past it and only while held. If the pad drops, the base stops immediately
-and stays MANUAL until `MOTION_MANUAL_AUTORETURN`'s idle timeout hands back to AUTO (or
-you reconnect and press Start).
+and stays MANUAL until the idle timeout hands back to AUTO (`manual_autoreturn`, on by
+default since 0.2.11, 4 s) or you reconnect and press Start.
 
 **Action buttons → R3X soundboard / animations.** The buttons motion does NOT use —
 **A, X, Y, Select (−), Home (★), R3 (right stick click)** — are forwarded to the
@@ -644,3 +644,45 @@ native firmware checks pass (`tools/run_firmware_checks.py`). Full four-flag Blu
 program, 90,956 globals. Flashed at the owner's request; hashes verified, hello
 `0.2.10-smooth-drive`. Not yet driven: the feel on the floor, whether a softer launch
 stalls a carpet pivot, and how the change moves the Mac's turn-coast compensation.
+
+## Yellow Jacket motors and 72 mm wheels (firmware 0.2.11, November 12, 2026)
+
+The owner rebuilt the base with two goBILDA 5203 Yellow Jacket motors (50.9:1, 117 rpm,
+1425.1 encoder counts per wheel revolution) and 72 mm wheels, and reported from the
+gamepad: far too fast, an on/off stick, turns that jerk, no steering away from walls,
+and a menu bar joystick that did nothing. A stationary telemetry read (hello only) found
+firmware 0.2.10 still calibrated for the 60 rpm motors and 100 mm wheels: 17000 counts
+per metre against a true 6300, so every measured speed read 0.37x true and any command
+saturated both wheels at the drivetrain's 0.44 m/s. With both wheels saturated there is
+no speed difference left for a turn or the wall assist. The pad also still owned the
+wheels (`owner: manual`), which refuses every host `drive`.
+
+Changed (all in `calib.h` unless noted):
+
+- **Geometry**: 6300 counts per metre per wheel (computed, not taped), wheel 0.072 m,
+  wheel-speed ceiling 0.42 m/s (was 0.90), gain scale 3.4 (was 5.2). Hard caps
+  0.45 m/s and 2.0 rad/s (`context.h`, were 1.10 and 6.10). Track width unchanged.
+- **Effort floors**, estimated at a third of the old motors' (about three times the push
+  per unit of duty): running floor 80, straight breakaway 200, pivot floor/kick 150/350
+  hardwood and 260/650 carpet.
+- **Pad feel**: boot acceleration 0.40 m/s² and 2.5 rad/s² (were 1.2 and 8.0; the V3
+  program still pushes 0.35 and 2.0). Expo 1.6 on both stick axes (forward was 0.60
+  anti-expo, turn linear). Turn ceilings 1.2 / 1.6 rad/s instead of the whole wheel
+  range (4 rad/s), so at full forward the turn stick slows the inside wheel in
+  proportion and stops it only at full deflection. Forward 0.25 / 0.38 m/s.
+- **Encoder watch** (`drive_shaping.h`, `hal.cpp`, `control.cpp`): a wheel driven at 45%
+  duty or more with no encoder count for 0.5 s cuts the motors and raises the existing
+  fault `encoder_stall` (Start or `clear` releases). Without it a dead encoder winds the
+  speed loop to full duty. A truly jammed wheel trips it too.
+- **Idle hand-back** (`context.h`): `manual_autoreturn` defaults to true, so a pad left
+  alone for 4 s returns the wheels and the menu bar joystick works.
+
+Not verified: encoder direction and scale on the new motors (the odometry after the
+owner's pad drive read 6 cm and 15°, which suggests the encoders counted little or
+nothing), the estimated floors, track width, any driving at all, carpet, and the Mac's
+turn-coast compensation. The front-right radial sensor quarantined itself again at boot.
+
+Checks: 40 native firmware checks pass, one new (the encoder watch). Full four-flag
+Bluepad32 build 814,977 bytes program, 90,972 globals. Flashed at the owner's request,
+hashes verified, hello `0.2.11-yellow-jacket`; boot showed 8/8 radial sensors, both
+matrices, IMU, compass and battery sense up. No motion command was sent.

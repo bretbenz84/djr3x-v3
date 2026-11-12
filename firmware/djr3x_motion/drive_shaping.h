@@ -95,6 +95,19 @@ static inline int wheel_effort(WheelLoop& w, float target, float meas, float dt,
   return (int)shape_clamp(u, -(float)PWM_DUTY_MAX, (float)PWM_DUTY_MAX);
 }
 
+// Encoder watch: true once a wheel has been driven at or above ENC_SILENT_DUTY for
+// ENC_SILENT_S without its encoder moving one count. That wheel is not being measured
+// (unplugged encoder, broken lead) or is jammed; either way the speed loop is blind.
+struct EncoderWatch { float silent_s = 0.0f; };
+static inline bool encoder_silent_step(EncoderWatch& e, int duty, bool counted, float dt) {
+  if (counted || (duty < ENC_SILENT_DUTY && duty > -ENC_SILENT_DUTY)) {
+    e.silent_s = 0.0f;
+    return false;
+  }
+  e.silent_s += dt;
+  return e.silent_s >= ENC_SILENT_S;
+}
+
 // Deceleration for a reflex block in the direction of travel: as firm as the room left
 // before the obstacle requires, never gentler than REFLEX_DECEL_MIN_MS2. A one-frame
 // false reading then costs a brief slow-down instead of a slam and relaunch.

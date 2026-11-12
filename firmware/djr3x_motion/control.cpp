@@ -149,6 +149,7 @@ void control_tick(float dt) {
   uint32_t   dseq     = 0;
   Odom       dodom;
   bool       turnVerifyTimeout = false;
+  bool       encoderSilent = false;
 
   LOCK_STATE();
   MotionContext& c = g_ctx;
@@ -408,8 +409,18 @@ void control_tick(float dt) {
     // turn only slows the inside wheel. The Mac's autonomous `drive` (owner==AUTO)
     // keeps plain differential mixing (blend forced to 1, pivot_steer false).
     const bool manual = (c.owner == OWNER_MANUAL && c.cmd_mode == CMD_DRIVE);
-    hal_drive_velocity(s_ramp_lin, s_ramp_ang, dt,
-                       manual, manual ? c.setpoint.pivot_blend : 1.0f, stopping);
+    if (!hal_drive_velocity(s_ramp_lin, s_ramp_ang, dt,
+                            manual, manual ? c.setpoint.pivot_blend : 1.0f, stopping)) {
+      // A hard-driven wheel shows no encoder counts (calib.h "Encoder watch"): the speed
+      // loop is blind and would run it to full duty. Cut the motors and latch a fault;
+      // the next tick's halt path ends any finite command with done:aborted.
+      encoderSilent = true;
+      c.state = ST_FAULT; c.fault = F_ENCODER_STALL;
+      c.setpoint.lin = 0; c.setpoint.ang = 0;
+      if (c.cmd_mode == CMD_DRIVE) c.cmd_mode = CMD_NONE;
+      s_ramp_lin = 0.0f; s_ramp_ang = 0.0f;
+      hal_motors_off();
+    }
   }
 #else
   // Push velocity to the motor HAL (stub: no-op until wheels are wired).
@@ -418,6 +429,9 @@ void control_tick(float dt) {
 
   UNLOCK_STATE();
 
+  if (encoderSilent) {
+    emit_log("error", "drive: a wheel is powered but its encoder is not counting - motors cut (fault encoder_stall)");
+  }
   if (turnVerifyTimeout)
     emit_log("warn", "turn: IMU yaw did not reach target before timeout - possible wheel slip/stall");
   if (emitDone) emit_done(dseq, dres, dodom);

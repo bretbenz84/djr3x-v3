@@ -20,14 +20,10 @@ inline uint32_t clampu(uint32_t v, uint32_t lo, uint32_t hi) {
 // ===== Hard caps (compile-time ceilings; `config` can tighten, never exceed) =
 // These are deliberately conservative for a tall, top-heavy droid on 2 driven
 // wheels. Re-tune once the base is measured (docs/motion_system.md §14).
-#define HARDCAP_MAX_LINEAR_MS     1.10f   // m/s — 0.60->0.80 when units became real (the base had
-                                          // been field-driven ~0.72 m/s daily under the 4x cpm
-                                          // miscalibration), then ->1.10 for the carpet surface
-                                          // profile (full weight + pile drag need the headroom;
-                                          // actual speed is drag-limited well below the cap)
-#define HARDCAP_MAX_ANGULAR_RAD_S 6.10f   // rad/s (~350 deg/s) — with a 0.297 m track this
-                                          // requests ~0.91 m/s per wheel in a pure pivot,
-                                          // matching the 176 rpm / 100 mm drivetrain ceiling
+#define HARDCAP_MAX_LINEAR_MS     0.45f   // m/s — the 117 rpm / 72 mm drivetrain's no-load
+                                          // speed (2026-11-12; was 1.10 for 176 rpm / 100 mm)
+#define HARDCAP_MAX_ANGULAR_RAD_S 2.00f   // rad/s (~115 deg/s) — 0.45 m/s per wheel in a pure
+                                          // pivot on the 0.446 m track (was 6.10)
 #define HARDCAP_MAX_TURN_RATE_DPS 120.0f  // deg/s
 #define HARDCAP_WATCHDOG_MS       2000u   // watchdog can't be set looser than this
 #define HARDCAP_DRIVE_EXPIRY_MS   1000u
@@ -53,7 +49,9 @@ struct MotionParams {
   uint32_t watchdog_ms       = 500;
   uint32_t drive_expiry_ms   = 300;
   uint32_t manual_idle_return_secs = 4;
-  bool     manual_autoreturn = false;
+  bool     manual_autoreturn = true;    // 2026-11-12: a pad left idle hands the wheels back, so
+                                        // the menu bar joystick works after a pad drive (it was
+                                        // refused manual_override until Start or a reboot)
 
   // Drive tuning (real HW only) — runtime-overridable via `config` for live
   // calibration + PID tuning without reflashing. Boot defaults from calib.h.

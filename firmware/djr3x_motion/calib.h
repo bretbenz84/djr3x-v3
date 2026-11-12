@@ -22,52 +22,34 @@
 #endif
 
 // ---- Drive geometry (MEASURE — see above) --------------------------------
-// Encoder spec (11 cycles/motor-rev/channel × 176:1 gear × 4 full-quad ≈ 7744
-// counts/wheel-rev) is kept for reference but proved substantially high on the
-// bench — see COUNTS_PER_METER below. Either the datasheet PPR already included
-// the quadrature factor or the gearing differs; the empirical value wins regardless.
-#define COUNTS_PER_REV_OUTPUT  7744.0f   // reference only — superseded by empirical cpm
-#define WHEEL_DIAMETER_M       0.100f    // measured rubber drive-wheel diameter
-// EMPIRICAL turn calibration. Old mixed-motor build (2026-07-11): 0.200 → 270°;
-// 0.272 → ~330°; 0.297 → 360°. Current dual-60RPM build field run (2026-07-21):
-// cmd 180° produced ~270° at 0.297, so standard proportional correction gives
-// 0.297 * 270/180 = 0.4455 m. Effective track includes contact-patch scrub and any
-// residual average encoder-scale error; refine with a taped 360° test on hardwood.
+// Drivetrain since 2026-11-12 (owner rebuild): two goBILDA 5203 Yellow Jacket
+// planetary gear motors, 50.9:1, 117 rpm no-load at 12 V, with 72 mm drive wheels.
+// The built-in encoder gives 28 counts per motor revolution in full quadrature, so
+// 28 x 50.9 = 1425.1 counts per wheel revolution (goBILDA's published figure).
+// The values below are COMPUTED from those numbers, not yet taped on the floor.
+// History: the JGB37 60 rpm motors with 100 mm wheels measured 17000 counts/m; that
+// value left in place under these motors made every measured speed read 0.37x true,
+// so any stick command saturated both wheels (owner: "either really fast or it stops").
+#define COUNTS_PER_REV_OUTPUT  1425.1f
+#define WHEEL_DIAMETER_M       0.072f
+// EMPIRICAL turn calibration from the previous drivetrain (2026-07-21: 0.297 turned
+// 270 deg for a commanded 180, so 0.4455). The effective track includes tyre scrub.
+// ⚠ Not re-measured since the rebuild: check with a taped 360 deg turn on hardwood.
 #define TRACK_WIDTH_M          0.446f
 
 #define WHEEL_CIRCUM_M   ((float)M_PI * WHEEL_DIAMETER_M)
-// EMPIRICAL distance calibration (bench `straight`, 2026-07-11, two passes).
-// The original calculation mistakenly assumed an 80 mm wheel; the fitted wheels
-// are 100 mm. The tape-measured counts-per-metre below remains authoritative:
-// pass 1 — cmd 1.0 m, wall-blocked at odom 0.532 m, tape ~2.134 m (7 ft): the old
-// old 80 mm derived value (30812.39 counts/m) was 4.01× high —
-// every commanded speed had been ~4× fast physically. Provisional cpm 7683.
-// pass 2 — cmd 1.0 m COMPLETED (odometry = exactly 1.00 by the completion rule),
-// tape 1.02 m → 7683 × 1.00/1.02 = 7532. Residual now ~tape precision.
-// SPLIT PER WHEEL 2026-07-17: the replacement 60RPM left motor has a different
-// gearbox ratio, so its encoder scale differs from the right's. 7532 is the
-// EMPIRICAL right-wheel value (tape-calibrated 2026-07-11). The left value is
-// measured with the hand-roll test (bench `encoder`: one full wheel rev =
-// pi*0.100 m of travel). Runtime keys: counts_per_meter_l / _r (the legacy
-// counts_per_meter config key sets BOTH, for the bench straight calibration).
-#define COUNTS_PER_METER_L 17000.0f  // MEASURED 2026-07-17 (hand-roll, one full rev =
-                                     // 5341 counts): the 60RPM gearbox is 2.26x the
-                                     // right's ratio. Re-measure when the matching
-                                     // right motor arrives.
-#define COUNTS_PER_METER_R 17000.0f  // ⚠ ASSUMES the matching 60RPM right motor is
-                                     // FITTED (arriving 2026-07-20) — seeded from the
-                                     // left's measured value; VERIFY with the hand-roll
-                                     // before trusting (gearbox tolerance varies a few
-                                     // % even within a SKU). History: the old right
-                                     // measured 3361, and the old shared 7532 was the
-                                     // average of two secretly-mismatched gearboxes —
-                                     // the per-wheel split exposed it (and the true
-                                     // culprit behind 2026-06-23 "left motor always
-                                     // slow"). DO NOT flash this onto the old motor.
+// 1425.1 / (pi x 0.072 m) = 6300 counts per metre. ⚠ Verify: roll the base a taped
+// metre by hand and compare the odometry (runtime keys counts_per_meter_l / _r; the
+// legacy counts_per_meter key sets both).
+#define COUNTS_PER_METER_L 6300.0f
+#define COUNTS_PER_METER_R 6300.0f
 
 // Per-wheel count direction. +1 means "driving the wheel forward makes its count
 // increase." Flip to -1 (per wheel) if the bench hand-turn test shows the sign
 // backwards, instead of rewiring A/B.
+// ⚠ 2026-11-12: signs below are the previous motors'. The Yellow Jackets drive the right
+// way from the gamepad (owner), so MOTOR_SIGN_* stand; the ENCODER signs are unverified
+// until a wheel is turned with telemetry watched (forward travel must count positive).
 #define ENC_SIGN_L  (-1.0f)   // flipped 2026-07-17: replacement 60RPM left motor is
                               // mirror-wired vs the original (bench `wheel left`:
                               // + counts but physically BACKWARD — flip BOTH signs)
@@ -109,18 +91,14 @@
 // INFLATED m/s, so keeping them would have quadrupled the loop gain overnight
 // (overshoot/oscillation). Anchor: at the old FULL, kff put ~455 duty on the
 // wheels for a true 0.716 m/s → plant ≈ 635 duty per real m/s.
-// PER-WHEEL GAIN SCALES (2026-07-17, mixed motors): the shared gains below were
-// tuned in the old shared-7532 encoder units. The per-wheel encoder split made
-// measured speeds TRUE m/s, which changed each wheel's effective plant gain:
-//   right (old motor, true cpm 3361): plant = 640 * 3361/7532 ≈ 286 duty/(m/s) → 0.446x
-//   left (new 60RPM motor): ~1023 duty ≈ 0.31 m/s → plant ≈ 3300 duty/(m/s) → ~5.2x
-// Applied to kp/ki/kff (not min_duty — breakaway duty is a motor property, not a
-// unit artifact). Runtime keys: gain_scale_l / gain_scale_r. Re-derive when the
-// matching 60RPM right motor arrives (both will be ~5.2x, i.e. retune the bases).
-#define WHEEL_GAIN_SCALE_L  5.2f
-#define WHEEL_GAIN_SCALE_R  5.2f     // ⚠ matching-60RPM value (old right motor was
-                                     // 0.446) — flash only after the motor swap; then
-                                     // fine-tune BOTH on the floor as a pair
+// PER-WHEEL GAIN SCALES multiply kp/ki/kff (runtime keys gain_scale_l / _r) so the base
+// gains stay in one unit while the motors change. They track the plant: full duty over
+// no-load wheel speed. 60 rpm JGB37 on 100 mm wheels: 1023 / 0.31 m/s = 3300 duty per
+// m/s = 5.2 x the 640 base. Yellow Jacket 117 rpm on 72 mm wheels: 0.44 m/s at 12 V,
+// about 0.47 m/s at the 12.8 V the feedforward assumes, so 1023 / 0.47 = 2180 = 3.4 x.
+// Computed 2026-11-12; trim on the floor if a steady run sits above or below its command.
+#define WHEEL_GAIN_SCALE_L  3.4f
+#define WHEEL_GAIN_SCALE_R  3.4f
 #define WHEEL_PID_KP      440.0f
 #define WHEEL_PID_KI      220.0f
 #define WHEEL_PID_KD        0.0f
@@ -142,7 +120,15 @@
 //          Raise until the wheel starts moving crisply at creep; lower if it lurches.
 #define WHEEL_PID_KFF     640.0f    // duty per REAL m/s of COMMAND (was 2600 in the old
                                     // 4.09×-inflated units; 640 ≈ the measured plant gain)
-#define WHEEL_MIN_DUTY    230.0f    // running duty floor (duty), in travel dir — applies
+// 2026-11-12, Yellow Jackets: the floors and breakaway ceilings below are ESTIMATES scaled
+// from the old motors' measured ones. A Yellow Jacket stalls at about 6.7 N·m (186 N at a
+// 36 mm wheel radius) against roughly 60 N for a 60 rpm JGB37 on a 50 mm radius: three
+// times the push per unit of duty, so the same friction needs about a third of the duty.
+// Left at the old values the floor alone (22% duty) free-ran a wheel at 0.10 m/s the
+// moment any speed was commanded. Old measured values: floor 230, straight breakaway 500,
+// pivot floor 380 / kick 700-750 (hardwood), 650 / 1023 (carpet). If a start hums without
+// moving, raise the ceiling for that case; the ramped boost only uses what it needs.
+#define WHEEL_MIN_DUTY     80.0f    // running duty floor (duty), in travel dir — applies
                                     // while the wheel is ROLLING. MEASURED on the
                                     // full-weight base (2026-07-12): sustained creep
                                     // needs ~240 total duty; at the old 120 the wheel
@@ -175,7 +161,7 @@
 // commanded tick: a stalled wheel climbs from WHEEL_MIN_DUTY toward it at
 // WHEEL_BOOST_RISE_DUTY_S and gives the excess back once it rolls. Runtime param
 // (breakaway_duty); this is the boot default.
-#define WHEEL_STRAIGHT_BREAKAWAY_DUTY 500.0f
+#define WHEEL_STRAIGHT_BREAKAWAY_DUTY 200.0f
 // PIVOT (spin-in-place) breakaway CEILING: when the two wheel targets have OPPOSITE
 // signs the base is scrubbing both tires sideways — a far higher static threshold than
 // rolling, and higher again on carpet. The ramped boost (drive_shaping.h) climbs toward
@@ -188,16 +174,16 @@
 // stalled duty (the inflated-units loop delivered it unknowingly); this carpet
 // SATURATES at 1023 duty with ~zero rotation — in-place spins on that carpet exceed
 // the platform's torque ceiling, full stop; use moving arcs there instead.
-#define WHEEL_SPIN_BREAKAWAY_DUTY 700.0f
+#define WHEEL_SPIN_BREAKAWAY_DUTY 320.0f
 // Pivot RUNNING floor (field fix, same day): stall-gating alone made spins twitch —
 // the kick broke the wheels loose, dropped to WHEEL_MIN_DUTY (120) one tick later,
 // and the SUSTAINED sideways scrub of a pivot re-stalled them (stick-slip grind;
 // the integrator needed seconds to build the missing duty). While pivoting, the floor
 // sits here instead of at WHEEL_MIN_DUTY, carrying the scrub load; the per-surface
 // profiles (GAMEPAD_*_SPIN_RUN) override this base at mode-apply. A stop fades it out.
-#define WHEEL_SPIN_RUN_DUTY       380.0f
+#define WHEEL_SPIN_RUN_DUTY       150.0f
 #define WHEEL_STALLED_EPS_MS      0.03f   // wheel counts as stalled below this (m/s);
-                                          // ~2.3 encoder counts per 10 ms tick — resolvable
+                                          // ~1.9 encoder counts per 10 ms tick — resolvable
 
 // A wheel target below this (m/s magnitude) counts as "stopped" → duty zero and the
 // controller state reset rather than chasing micro-setpoints. A stop reaches it with
@@ -215,11 +201,22 @@
 #define WHEEL_BOOST_RISE_DUTY_S   2500.0f   // duty per second while stalled
 #define WHEEL_BOOST_FALL_DUTY_S   2500.0f   // duty per second once rolling or stopping
 
-// Rated 176 rpm with a 100 mm wheel is 0.922 m/s unloaded. Keep mixed wheel-speed
+// 117 rpm on a 72 mm wheel is 0.44 m/s unloaded at 12 V. Keep mixed wheel-speed
 // requests just below that physical ceiling and scale both sides together so a
 // combined forward+turn command preserves curvature instead of saturating only the
-// outside wheel.
-#define WHEEL_TARGET_MAX_MS      0.90f
+// outside wheel. (Was 0.90 for the original 176 rpm / 100 mm drivetrain.)
+#define WHEEL_TARGET_MAX_MS      0.42f
+
+// ---- Encoder watch (hal.cpp, drive_shaping.h encoder_silent_step) -----------
+// A wheel driven at or above ENC_SILENT_DUTY whose encoder has not moved a single count
+// for ENC_SILENT_S is not being measured: an unplugged or unpowered encoder, a broken
+// lead, or a jammed wheel. The speed loop would otherwise read "stopped", wind its
+// integrator and run that wheel to full duty whatever the stick asks. The base cuts the
+// motors and raises fault encoder_stall instead (Start on the pad or `clear` releases).
+// 45% duty is well past anything that leaves a free Yellow Jacket wheel still. The
+// single-wheel `wheel` bring-up jog is not watched: it exists to test an unproven encoder.
+#define ENC_SILENT_DUTY   450
+#define ENC_SILENT_S      0.5f
 
 // ---- Drive setpoint slew (teleop feel) ------------------------------------
 // Acceleration limit applied to every normal drive setpoint so the base
@@ -234,8 +231,12 @@
 // (First pass wrongly set ang to 1.5 — a backwards conversion — and spins ramped
 // like molasses, part of the "left/right has no power" report.)
 // Tune with `set --accel-lin` / `--accel-ang` (higher = snappier).
-#define DRIVE_ACCEL_LIN    1.2f     // m/s^2  (teleop linear setpoint slew, REAL units)
-#define DRIVE_ACCEL_ANG    8.0f     // rad/s^2 (teleop angular setpoint slew, REAL units)
+// 2026-11-12 (owner: the pad was far too sensitive and turns jerked): these boot values
+// are what the gamepad gets whenever no host has pushed its own (the V3 program pushes
+// 0.35 / 2.0). Was 1.2 / 8.0: full speed in 0.2 s and a full spin rate in half a second.
+// Now 0 to 0.25 m/s takes 0.6 s and 0 to 1.2 rad/s takes 0.5 s; stops use the same ramp.
+#define DRIVE_ACCEL_LIN    0.40f    // m/s^2  (teleop linear setpoint slew, REAL units)
+#define DRIVE_ACCEL_ANG    2.5f     // rad/s^2 (teleop angular setpoint slew, REAL units)
 // (The old DRIVE_SPIN_LIN_EPS binary spin gate is gone — replaced by the smooth
 // GAMEPAD_SPIN_BLEND_FWD_LO/HI band above; the blend factor rides the setpoint.)
 
@@ -599,30 +600,30 @@
 //     the test carpet saturated both wheels at 1023 duty with ~zero rotation, so
 //     carpet mode makes turning as strong as the hardware allows (arcs improve;
 //     pure pivots on deep pile may still stall — that's motors, not firmware).
-#define GAMEPAD_HARDWOOD_LIN_MS    0.25f   // ⚠ TEMP CAP 2026-07-17 (was 0.80): the 60RPM
-                                           // left motor tops out ~0.31 m/s no-load —
-                                           // commanding beyond it makes the faster right
-                                           // motor veer the base. Restore when the
-                                           // matching right motor is fitted.
-// Pure-pivot kinematics are wheel_speed = angular_rate * track_width / 2. BOTH
-// modes command the full wheel-speed ceiling for turns (owner 2026-07-13): the
-// loaded chassis needs every bit of scrub authority regardless of surface, and
-// the stick still scales below the ceiling for fine control.
-#define GAMEPAD_HARDWOOD_ANG_RADS  ((2.0f * WHEEL_TARGET_MAX_MS) / TRACK_WIDTH_M)
-#define GAMEPAD_HARDWOOD_SPIN_KICK 750.0f  // stall-gated pivot breakaway (see below)
-#define GAMEPAD_HARDWOOD_SPIN_RUN  380.0f  // pivot RUNNING floor (sustained scrub carry)
-#define GAMEPAD_CARPET_LIN_MS      0.28f   // ⚠ TEMP CAP 2026-07-17 (was 1.05) — see above
-#define GAMEPAD_CARPET_ANG_RADS    ((2.0f * WHEEL_TARGET_MAX_MS) / TRACK_WIDTH_M)
-#define GAMEPAD_CARPET_SPIN_KICK   1023.0f // full saturation — everything the bridge has
-#define GAMEPAD_CARPET_SPIN_RUN    650.0f  // pile drag needs most of the range sustained
-// Forward/back stick RESPONSE CURVE: lin command = sign(fwd)*|fwd|^GAMMA * level max.
-// GAMMA < 1 is concave ("anti-expo"): more authority at small stick pushes — at 25%
-// stick you command ~|0.25|^0.6 ≈ 44% of the level's max (linear gave 25%) — while full
-// deflection still hits exactly the level max, so top speeds are unchanged. This is what
-// makes the loaded base actually MOVE at small/medium stick without a linear speed-up.
-// 1.0 = linear (old feel). Applies to the LINEAR axis only; the turn axis stays linear
-// and the spin↔arcade blend keys off the RAW stick so the tuned blend bands don't shift.
-#define GAMEPAD_LIN_GAMMA      0.60f
+// 2026-11-12, Yellow Jackets (owner: "too fast", turns never smooth). Speeds are now
+// true m/s. Turn ceilings used to be the whole wheel-speed range (4 rad/s, 230 deg/s)
+// because the old motors needed every bit of scrub authority; against a 0.25 m/s
+// forward ceiling that meant a quarter of the turn stick already stopped the inside
+// wheel, so a moving turn was a lurch into a pivot. The ceilings below keep the wheel
+// speed a full turn stick asks for (ang x track / 2 = 0.27 m/s hardwood) close to the
+// forward ceiling: at full forward, turn stick now slows the inside wheel in proportion
+// and only stops it at full deflection.
+#define GAMEPAD_HARDWOOD_LIN_MS    0.25f   // the autonomous walking pace
+#define GAMEPAD_HARDWOOD_ANG_RADS  1.2f    // ~70 deg/s spin at full stick
+#define GAMEPAD_HARDWOOD_SPIN_KICK 350.0f  // stall-gated pivot breakaway ceiling (estimate)
+#define GAMEPAD_HARDWOOD_SPIN_RUN  150.0f  // pivot RUNNING floor (estimate)
+#define GAMEPAD_CARPET_LIN_MS      0.38f   // near the drivetrain's 0.44 m/s ceiling
+#define GAMEPAD_CARPET_ANG_RADS    1.6f    // ~90 deg/s
+#define GAMEPAD_CARPET_SPIN_KICK   650.0f  // estimate; carpet pivots untested on these motors
+#define GAMEPAD_CARPET_SPIN_RUN    260.0f
+// Stick RESPONSE CURVES: command = sign(stick) * |stick|^GAMMA * mode max, per axis.
+// GAMMA > 1 is expo: fine control around centre, full deflection still the mode max.
+// At half stick 1.6 gives 33% of the ceiling. The forward axis used 0.60 (anti-expo,
+// 66% at half stick) to help the weak old motors break stiction, which on these motors
+// made the stick an on/off switch; the turn axis was linear. The spin↔arcade blend
+// still keys off the RAW forward stick, so its bands do not shift with the curve.
+#define GAMEPAD_LIN_GAMMA      1.6f
+#define GAMEPAD_ANG_GAMMA      1.6f
 // (GAMEPAD_SPIN_SCALE retired 2026-07-11 with the speed levels: turn authority is now
 // always the surface mode's full ang ceiling; the blend below only morphs the wheel
 // MIXING between spin-in-place and arcade arc.)

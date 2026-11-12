@@ -1437,3 +1437,20 @@ the firmware's 0.35 m/s² ramp. Plain moves, turns and detour legs are unchanged
 Checks (simulated base): `tests/test_drive.py` (gradual rise, slowing well before the stop, the
 4 ft stop), `tests/test_floor_feedback.py` (seated knees, table within reach). **Not yet run on the
 robot:** whether 0.04 m/s still breaks away on carpet, and whether 4 ft by the face estimate is 4 ft.
+
+
+
+## New motors and wheels — November 12, 2026 (firmware 0.2.11)
+
+The owner rebuilt the base with goBILDA Yellow Jacket motors (117 rpm) and 72 mm wheels. Firmware
+0.2.10 still held the old motors' encoder scale, so every command ran both wheels flat out: the pad
+felt on/off, turns jerked and the wall assist had no speed difference to steer with. Firmware 0.2.11
+carries the new scale (computed, not taped), a 0.42 m/s wheel ceiling, lower effort floors
+(estimated), a gentler pad (slower ramps, expo stick, turn ceilings near the forward ceiling), a
+cut-out when a driven wheel's encoder is silent (`encoder_stall`), and hands the wheels back after
+4 s without pad input so the menu bar joystick works. Detail and evidence:
+`firmware/djr3x_motion/README.md`.
+
+Host code is unchanged: `drive.CONFIG` speeds and ramps are in true units and within the new caps.
+**Not yet verified:** encoder direction and scale, any driving, `TURN_COAST_S` and the approach
+stopping distances on the new drivetrain, and the tall robot's weight on the estimated floors.

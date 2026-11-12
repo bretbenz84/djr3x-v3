@@ -356,13 +356,13 @@ void gamepad_tick() {
   // those are the autonomous caps, and the Mac pushes them down on connect
   // (0.25 m/s), which used to silently slow the pad whenever Rex was running.
   // control_tick clamps manual drives to the carpet (larger) profile defensively.
-  // Concave response curve on the forward/back axis (GAMEPAD_LIN_GAMMA < 1): lifts the
-  // command at small stick pushes so the loaded base breaks stiction and creeps reliably,
-  // while full deflection still lands exactly on the mode max. Turn stays linear, and
-  // the spin↔arcade blend below deliberately keys off the RAW `fwd` (its LO/HI bands were
-  // tuned on the raw stick fraction — shaping it would shift the blend feel).
+  // Expo response curve on both axes (GAMEPAD_*_GAMMA > 1): small pushes command small
+  // speeds, full deflection still lands exactly on the mode max. The spin↔arcade blend
+  // below deliberately keys off the RAW `fwd` (its LO/HI bands are raw stick fractions).
   float fwd_shaped = powf(fabsf(fwd), GAMEPAD_LIN_GAMMA);
   if (fwd < 0.0f) fwd_shaped = -fwd_shaped;
+  float turn_shaped = powf(fabsf(turn), GAMEPAD_ANG_GAMMA);
+  if (turn < 0.0f) turn_shaped = -turn_shaped;
   float lin =  fwd_shaped * mode_lin;
   // Spin↔arcade BLEND, keyed off how far the stick is pushed forward/back. bt only
   // drives the wheel MIXING morph in hal now (pure spin -> arcade arc); turn authority
@@ -371,7 +371,7 @@ void gamepad_tick() {
   float bt = clampf((fabsf(fwd) - GAMEPAD_SPIN_BLEND_FWD_LO) /
                     (GAMEPAD_SPIN_BLEND_FWD_HI - GAMEPAD_SPIN_BLEND_FWD_LO), 0.0f, 1.0f);
   bt = bt * bt * (3.0f - 2.0f * bt);       // smoothstep: zero slope at both edges
-  float ang = -turn * mode_ang;            // stick-right => -ang (REP-103: +ang = left)
+  float ang = -turn_shaped * mode_ang;     // stick-right => -ang (REP-103: +ang = left)
 
   // Enter MANUAL on the first meaningful push; once manual, keep refreshing (incl. zero,
   // which feeds the drive deadman and holds the base stopped) until release/auto-return.
