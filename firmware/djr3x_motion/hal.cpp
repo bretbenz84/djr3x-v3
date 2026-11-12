@@ -56,6 +56,8 @@ static WheelLoop s_loop_l, s_loop_r;
 // has a hard-driven wheel shown nothing.
 static bool s_counted_l = false, s_counted_r = false;
 static EncoderWatch s_watch_l, s_watch_r;
+// Last wheel targets handed to the speed loops (gamepad wheel-target slew).
+static float s_tgt_l = 0.0f, s_tgt_r = 0.0f;
 
 static inline void motors_enable(bool en) {
   if (en == s_motors_enabled) return;        // only toggle the GPIO on a real change
@@ -76,6 +78,7 @@ static void reset_pid() {
   s_loop_r = WheelLoop();
   s_watch_l = EncoderWatch();
   s_watch_r = EncoderWatch();
+  s_tgt_l = 0.0f; s_tgt_r = 0.0f;
 }
 
 void hal_init() {
@@ -187,38 +190,16 @@ bool hal_drive_velocity(float lin, float ang, float dt, bool pivot_steer, float 
   // wired straight per pins.h (proven by the per-wheel `wheel` bench test 2026-07-11:
   // PIN_L_* spins the physical left wheel), which made that negation reverse all turning
   // (stick fwd+left drove fwd+right). Per-wheel direction is MOTOR_SIGN_*'s job, not this.
-  float v_l = lin - ang * (track * 0.5f);
-  float v_r = lin + ang * (track * 0.5f);
-
-  // Joystick steering (teleop only) — a smooth MORPH between two mixings, driven by
-  // pivot_blend (0..1, from the fwd-stick fraction in gamepad.cpp):
-  //   • blend 0 (pure left/right, no forward/back): SPIN IN PLACE. Raw differential
-  //     mix — the inside wheel runs backward and the base rotates on the spot.
-  //   • blend 1 (clearly translating): ARCADE STEER. Each wheel is floored at zero
-  //     against the travel direction, so a turn only slows the inside wheel — it
-  //     never reverses from steering, only from the stick itself being pulled back.
-  //   • between: per-wheel lerp of the two, so tilting the stick forward out of a
-  //     spin tightens smoothly into an arc (no regime snap at a threshold).
-  // NOT applied to autonomous paths (control_tick passes pivot_steer=false) — finite
-  // turns spin via CMD_TURN and the Mac's velocity drive keeps plain mixing.
-  if (pivot_steer && pivot_blend > 0.0f) {
-    float a_l = v_l, a_r = v_r;              // the arcade (clamped) mix
-    if (lin >= 0.0f) { if (a_l < 0.0f) a_l = 0.0f; if (a_r < 0.0f) a_r = 0.0f; }
-    else             { if (a_l > 0.0f) a_l = 0.0f; if (a_r > 0.0f) a_r = 0.0f; }
-    v_l += (a_l - v_l) * pivot_blend;        // lerp raw spin mix -> arcade mix
-    v_r += (a_r - v_r) * pivot_blend;
+  // The mixing itself, the joystick's spin↔arcade morph and the shared wheel-speed
+  // ceiling are the pure mix_wheels in drive_shaping.h. pivot_blend comes from
+  // control_tick: the more arcade of the stick's forward fraction and the base's speed.
+  float v_l, v_r;
+  mix_wheels(lin, ang, track, pivot_steer, pivot_blend, v_l, v_r);
+  if (pivot_steer) {   // gamepad: bound how fast a wheel may speed up or reverse (calib.h)
+    v_l = wheel_slew_step(s_tgt_l, v_l, GAMEPAD_WHEEL_SLEW_MS2 * dt);
+    v_r = wheel_slew_step(s_tgt_r, v_r, GAMEPAD_WHEEL_SLEW_MS2 * dt);
   }
-
-  // Preserve the requested curvature when combined linear+angular input asks an
-  // individual wheel to exceed the drivetrain's physical speed. Without this,
-  // only the outside wheel saturates and full-stick steering becomes unexpectedly
-  // shallow while its PID integrator winds up.
-  const float peak = fmaxf(fabsf(v_l), fabsf(v_r));
-  if (peak > WHEEL_TARGET_MAX_MS) {
-    const float scale = WHEEL_TARGET_MAX_MS / peak;
-    v_l *= scale;
-    v_r *= scale;
-  }
+  s_tgt_l = v_l; s_tgt_r = v_r;
 
   // Energize only when something should move (commanded OR still rolling, so we
   // actively brake a coasting wheel to a stop before disabling it).
@@ -231,7 +212,7 @@ bool hal_drive_velocity(float lin, float ang, float dt, bool pivot_steer, float 
   // Pivot regime: opposite-sign wheel targets mean both tires scrub sideways — a far
   // higher breakaway threshold than rolling (measured: spins stall at duties that move
   // the base fine in a straight line). Floors and breakaway ceilings per regime
-  // (surface mode + params, context.h):
+  // (context.h):
   //   pivot    -> run floor spin_run_duty, breakaway ceiling spin_breakaway_duty
   //   straight -> run floor min_duty,      breakaway ceiling params.breakaway_duty
   // Arcade-clamped turns floor the inside wheel at 0, so they stay in the straight

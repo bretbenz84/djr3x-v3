@@ -252,8 +252,8 @@ struct MotionContext {
   // Pivot duty tiers currently in force (hal_drive_velocity reads them under the
   // state lock): breakaway while a wheel is STALLED in a pivot, run-floor while it
   // is ROLLING in a pivot (sustained sideways-scrub carry). Boot defaults from
-  // calib.h; the gamepad's surface-mode toggle (L3) applies the hardwood/carpet
-  // profile — a SURFACE property, so autonomous turns benefit from the mode too.
+  // calib.h. (The gamepad's hardwood/carpet toggle that used to change them was
+  // removed 2026-11-12.)
   float     spin_breakaway_duty = WHEEL_SPIN_BREAKAWAY_DUTY;
   float     spin_run_duty       = WHEEL_SPIN_RUN_DUTY;
   GamepadLive gp_live;                 // live pad mirror for the GUI (telemetry only)

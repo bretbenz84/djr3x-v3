@@ -100,6 +100,10 @@ int main(int argc, char** argv) {
       }
       std::printf("%d %d %d\n", c.duty, c.count_every, tripped);
     }
+  } else if (!std::strcmp(s, "slew")) {      // prev target -> result with a 0.01 step
+    const float cases[][2] = {{0.25f, 0.0f}, {0.25f, 0.10f}, {0.0f, 0.25f}, {0.10f, 0.25f},
+                              {0.0f, -0.25f}, {0.02f, -0.25f}, {-0.25f, -0.05f}, {-0.10f, 0.25f}};
+    for (const auto& c : cases) std::printf("%.3f %.3f %.4f\n", c[0], c[1], wheel_slew_step(c[0], c[1], 0.01f));
   } else if (!std::strcmp(s, "phantom")) {   // one false matrix frame at the stop line
     float v = 0.25f, lowest = v;
     for (int i = 0; i < 60; ++i) {
@@ -184,6 +188,17 @@ class DriveShapingTests(unittest.TestCase):
             self.assertTrue(45 <= tripped[(duty, 0)] <= 55, tripped)
         self.assertEqual(tripped[(300, 0)], -1)      # gentle duty may leave a loaded wheel still
         self.assertEqual(tripped[(600, 20)], -1)     # a slow wheel that still counts is measured
+
+    def test_wheel_slew_never_softens_slowing_but_bounds_speeding_up_and_reversal(self):
+        got = {(float(a), float(b)): float(c) for a, b, c in self.rows('slew')}
+        self.assertEqual(got[(0.25, 0.0)], 0.0)          # a stop or reflex passes straight through
+        self.assertEqual(got[(0.25, 0.10)], 0.10)
+        self.assertEqual(got[(-0.25, -0.05)], -0.05)
+        self.assertAlmostEqual(got[(0.0, 0.25)], 0.01)   # speeding up: one step
+        self.assertAlmostEqual(got[(0.10, 0.25)], 0.11)
+        self.assertAlmostEqual(got[(0.0, -0.25)], -0.01) # reversing: one step, through zero
+        self.assertAlmostEqual(got[(0.02, -0.25)], 0.01)
+        self.assertAlmostEqual(got[(-0.10, 0.25)], -0.09)
 
     def test_one_false_frame_costs_a_dip_not_a_stop(self):
         lowest, final = map(float, self.rows('phantom')[0])

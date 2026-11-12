@@ -2,6 +2,7 @@
 #include "proto_io.h"
 #include "hal.h"
 #include "drive_shaping.h"
+#include "stick_shaping.h"
 #include <math.h>
 
 #ifndef M_PI
@@ -64,8 +65,13 @@ static float hall_assist_correction(const MotionContext& c, float lin_t) {
   const int16_t r_side = nearest_capped(c.tof.rf, c.tof.rb, eng);
   // Front obstacle avoidance is physical protection for forward motion.
   const int16_t front_eng = (int16_t)fmaxf(eng, ASSIST_FRONT_ENGAGE_MM);
-  const int16_t l_frnt = nearest_capped(c.tof.fl, -1, front_eng);
-  const int16_t r_frnt = nearest_capped(c.tof.fr, -1, front_eng);
+  // Both front readings must be valid: a missing side used to count as "clear", so one
+  // dead or flickering front sensor steered the base toward itself whenever the other
+  // saw anything within range (2026-11-12: the front matrix held in reset and the
+  // front-right radial dropping in and out pushed every forward drive to the right).
+  const bool front_known = c.tof.fl >= 0 && c.tof.fr >= 0;
+  const int16_t l_frnt = front_known ? nearest_capped(c.tof.fl, -1, front_eng) : front_eng;
+  const int16_t r_frnt = front_known ? nearest_capped(c.tof.fr, -1, front_eng) : front_eng;
   // Imbalance in metres: positive (l - r) = the left side is more open (right wall
   // closer) -> steer LEFT (+ang, REP-103) toward the open side; negative mirrors.
   const float side_turn = c.params.assist_gain * (float)(l_side-r_side) * 0.001f;
@@ -282,13 +288,13 @@ void control_tick(float dt) {
   // (calib.h GAMEPAD_MAX_*, bounded by the hard caps); everything else clamps to the
   // runtime params — which are the AUTONOMOUS limits the Mac pushes down on connect
   // (0.25 m/s), and which used to silently cap the pad whenever Rex was running.
-  // Manual clamps to the LARGER surface profile (carpet) — the per-mode precision is
-  // already applied where the command is built (gamepad.cpp); this is defensive only.
+  // Manual clamps to the gamepad's own ceilings, already applied where the command is
+  // built (gamepad.cpp); this is defensive only.
   const bool manual_drive = (c.owner == OWNER_MANUAL && c.cmd_mode == CMD_DRIVE);
   const float lin_cap = manual_drive
-      ? fminf(GAMEPAD_CARPET_LIN_MS, HARDCAP_MAX_LINEAR_MS)   : c.params.max_lin;
+      ? fminf(GAMEPAD_LIN_MS, HARDCAP_MAX_LINEAR_MS)   : c.params.max_lin;
   const float ang_cap = manual_drive
-      ? fminf(GAMEPAD_CARPET_ANG_RADS, HARDCAP_MAX_ANGULAR_RAD_S) : c.params.max_ang;
+      ? fminf(GAMEPAD_ANG_RADS, HARDCAP_MAX_ANGULAR_RAD_S) : c.params.max_ang;
   lin_t = clampf(lin_t, -lin_cap, lin_cap);
   ang_t = clampf(ang_t, -ang_cap, ang_cap);
 
@@ -409,8 +415,15 @@ void control_tick(float dt) {
     // turn only slows the inside wheel. The Mac's autonomous `drive` (owner==AUTO)
     // keeps plain differential mixing (blend forced to 1, pivot_steer false).
     const bool manual = (c.owner == OWNER_MANUAL && c.cmd_mode == CMD_DRIVE);
-    if (!hal_drive_velocity(s_ramp_lin, s_ramp_ang, dt,
-                            manual, manual ? c.setpoint.pivot_blend : 1.0f, stopping)) {
+    // A wheel may run backward for a turn only when the base is nearly in place: the
+    // more arcade of the stick's blend and the speed's (stick_shaping.h, owner
+    // 2026-11-12). Speed is the larger of the ramped command and the measured value, so
+    // a heavy base that coasts past its ramp still counts as moving.
+    const float blend = manual
+        ? fmaxf(c.setpoint.pivot_blend,
+                drive_speed_blend(fmaxf(fabsf(s_ramp_lin), fabsf(c.odom.lin))))
+        : 1.0f;
+    if (!hal_drive_velocity(s_ramp_lin, s_ramp_ang, dt, manual, blend, stopping)) {
       // A hard-driven wheel shows no encoder counts (calib.h "Encoder watch"): the speed
       // loop is blind and would run it to full duty. Cut the motors and latch a fault;
       // the next tick's halt path ends any finite command with done:aborted.

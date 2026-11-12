@@ -11,7 +11,7 @@
 //   left stick : arcade drive — Y forward/back, X turn (avoidance ACTIVE)
 //   D-pad      : relative nudges — Up/Down = short fwd/back move, Left/Right = 90° turn
 //                (hold L1 + D-pad = absolute-heading encoder test, bring-up only)
-//   L3 (click) : toggle surface mode (hardwood <-> carpet)
+//   L3 (click) : nothing (the hardwood/carpet toggle was removed 2026-11-12)
 //   B          : E-STOP (always honored)
 //   Start      : clear e-stop + return control to AUTO
 //   L1+R1 hold : with sticks centered, assert physically unplugged after 2 seconds
@@ -48,23 +48,7 @@ static bool s_prev_start = false;
 static GamepadUnplugHold s_unplug_hold;
 static bool s_bypass = false;             // R3-toggled sensor-bypass (right-stick drive)
 static uint8_t s_prev_dpad = 0;           // D-pad rising-edge state (heading-turn triggers)
-static bool s_prev_l3 = false;            // left-stick-click rising edge (surface-mode toggle)
 static bool s_prev_r3 = false;            // right-stick-click rising edge (sensor-bypass toggle)
-// SURFACE MODE (replaced the 3 abstract speed levels 2026-07-11 — at full build
-// weight the whole ladder was insufficient; what actually varies is the floor):
-// false = HARDWOOD (boot/reconnect default), true = CARPET (max authority). L3
-// toggles. Each mode sets its own lin/ang ceilings AND the pivot breakaway kick
-// (g_ctx.spin_breakaway_duty — a surface property, so autonomous turns get it too).
-static bool s_carpet_mode = false;
-
-static void apply_surface_mode() {
-  LOCK_STATE();
-  g_ctx.spin_breakaway_duty =
-      s_carpet_mode ? GAMEPAD_CARPET_SPIN_KICK : GAMEPAD_HARDWOOD_SPIN_KICK;
-  g_ctx.spin_run_duty =
-      s_carpet_mode ? GAMEPAD_CARPET_SPIN_RUN : GAMEPAD_HARDWOOD_SPIN_RUN;
-  UNLOCK_STATE();
-}
 
 static void onConnect(ControllerPtr c) {
   if (!s_ctl) {
@@ -85,8 +69,6 @@ static void onDisconnect(ControllerPtr c) {
     s_unplug_hold = GamepadUnplugHold();
     s_bypass = false;                 // bypass NEVER survives a disconnect
     ctl_set_full_override(false);
-    s_carpet_mode = false;    // a reconnected pad starts in HARDWOOD (gentler default)
-    apply_surface_mode();
     ctl_set_gamepad(false);
     LOCK_STATE(); g_ctx.gp_live.connected = false; UNLOCK_STATE();  // GUI: pad gone
     ctl_manual_stop();        // failsafe: stop now, KEEP manual — never silently resume AUTO
@@ -139,9 +121,8 @@ static void poll_action_buttons(ControllerPtr c) {
     {"y",          c->y()},
     {"select",     c->miscSelect()},   // the "-" button
     {"home",       c->miscSystem()},   // the star / home button
-    // NB: L3 and R3 (stick clicks) are NOT forwarded — L3 toggles the surface
-    // mode and R3 toggles sensor-bypass (see gamepad_tick), so they must not
-    // also fire soundboard clips.
+    // NB: L3 and R3 (stick clicks) are NOT forwarded — the sticks get clicked by
+    // accident while driving, and R3 toggles sensor-bypass (see gamepad_tick).
   };
   const uint8_t n = (uint8_t)(sizeof(btns) / sizeof(btns[0]));
   uint16_t cur = 0;
@@ -198,7 +179,6 @@ void gamepad_init() {
   BP32.setup(&onConnect, &onDisconnect);
   BP32.enableVirtualDevice(false);          // real gamepads only (no virtual mouse/kbd)
   BP32.enableNewBluetoothConnections(true); // accept a pad in pairing mode
-  apply_surface_mode();                     // boot in the HARDWOOD profile (incl. spin kick)
   emit_log("info", "gamepad: Bluepad32 ready - accepting pad connections");
 }
 
@@ -236,7 +216,6 @@ void gamepad_tick() {
     UNLOCK_STATE();
     s_prev_start = c->miscStart();
     s_prev_dpad = c->dpad();
-    s_prev_l3 = c->thumbL();
     s_prev_r3 = c->thumbR();
     if (unplug_request && battery_gauge_available()) {
       battery_request_charge_assert(false);
@@ -249,20 +228,6 @@ void gamepad_tick() {
   bool start = c->miscStart();
   if (start && !s_prev_start) { ctl_clear(0); ctl_manual_release(); }
   s_prev_start = start;
-
-  // Left-stick CLICK (L3) = toggle the SURFACE MODE: hardwood <-> carpet (rising
-  // edge). Latches. Rumble confirms without looking: 1 pulse = hardwood, 2 = carpet.
-  bool l3 = c->thumbL();
-  if (l3 && !s_prev_l3) {
-    s_carpet_mode = !s_carpet_mode;
-    apply_surface_mode();
-    emit_event_kv("mode", "surface", s_carpet_mode ? "carpet" : "hardwood");
-#if GAMEPAD_RUMBLE_ENABLED
-    rumble_burst(s_carpet_mode ? 2 : 1, 140, 140,
-                 GAMEPAD_RUMBLE_HELLO_MAG, GAMEPAD_RUMBLE_HELLO_MAG);
-#endif
-  }
-  s_prev_l3 = l3;
 
   // D-pad -> RELATIVE driving nudges (rising edge: one action per press):
   //   Up    = nudge FORWARD  by GAMEPAD_NUDGE_DIST_M (finite move — ToF stop reflex gates it)
@@ -341,20 +306,18 @@ void gamepad_tick() {
   float th = (float)c->throttle() / GAMEPAD_TRIGGER_MAX;
 
   // Drive stick: LEFT in normal operation (avoidance active), RIGHT in bypass (sensors
-  // bypassed), scaled by the SURFACE MODE's ceilings (full stick = the mode's max).
+  // bypassed), scaled by the gamepad's ceilings (full stick = GAMEPAD_LIN_MS / _ANG_RADS).
   // Teleop scales against the GAMEPAD's OWN ceilings, NOT params.max_lin/max_ang: those
   // are the autonomous caps the Mac pushes down on connect. control_tick clamps manual
-  // drives to the carpet (larger) profile defensively. The mapping itself (round travel
+  // drives to the same ceilings defensively. The mapping itself (round travel
   // stretched to a square, deadzones, expo, spin↔arcade blend and the turn authority
   // while translating) is the pure stick_to_drive in stick_shaping.h.
   const float raw_x = (float)(s_bypass ? c->axisRX() : c->axisX()) / 512.0f;
   const float raw_y = -(float)(s_bypass ? c->axisRY() : c->axisY()) / 512.0f;   // up = forward
-  const float mode_lin = s_carpet_mode ? GAMEPAD_CARPET_LIN_MS   : GAMEPAD_HARDWOOD_LIN_MS;
-  const float mode_ang = s_carpet_mode ? GAMEPAD_CARPET_ANG_RADS : GAMEPAD_HARDWOOD_ANG_RADS;
   float track;
   LOCK_STATE(); track = g_ctx.params.track_width_m; UNLOCK_STATE();
   const StickDrive sd = stick_to_drive(clampf(raw_x, -1.0f, 1.0f), clampf(raw_y, -1.0f, 1.0f),
-                                       mode_lin, mode_ang, track);
+                                       GAMEPAD_LIN_MS, GAMEPAD_ANG_RADS, track);
   const float fwd = sd.fwd, turn = sd.turn, lin = sd.lin, ang = sd.ang, bt = sd.blend;
 
   // Enter MANUAL on the first meaningful push; once manual, keep refreshing (incl. zero,

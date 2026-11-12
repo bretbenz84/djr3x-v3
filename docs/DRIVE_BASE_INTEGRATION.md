@@ -1459,3 +1459,9 @@ Same day, firmware 0.2.12, after the owner's first drive ("it's better", but a l
 did nothing and then nearly stopped the base into a counter-rotating turn): the gamepad stick mapping
 now holds forward speed through a lean and slows only the inside wheel, so the base banks.
 **Not yet driven.**
+
+Firmware 0.2.13, same day, after the second drive: a wheel now runs backward for a gamepad turn only
+when the base is nearly still (owner: a 55 lb robot thrown from full forward into a spin "will get
+whiplash"), wheel targets are slew-limited, the wall steering ignores the front pair unless both
+sides read, and the gamepad has one profile (no hardwood/carpet toggle). The owner found the front
+depth matrix's reset button held down, which explains the missed braking. **Not yet driven.**

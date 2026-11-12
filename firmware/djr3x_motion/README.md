@@ -307,8 +307,8 @@ remembers the bond for next time.
 
 | Input | Action |
 | --- | --- |
-| Left stick | arcade drive — Y forward/back, X turn, both on an expo curve (half stick = a third of the ceiling). Pure X (no Y) spins in place; as Y is added the spin **blends smoothly** into an arcade arc (inside-wheel reverse eases out — no hard regime snap). Ceilings since 0.2.11: hardwood 0.25 m/s and 1.2 rad/s, carpet 0.38 m/s and 1.6 rad/s |
-| **L3 (click left stick)** | **toggle SURFACE MODE**: hardwood (boot/reconnect default) ↔ carpet (max authority — higher speed/turn ceilings + full-saturation spin breakaway). Latches; rumble confirms: 1 pulse = hardwood, 2 = carpet. Emits `event:"mode" surface:"hardwood"/"carpet"` |
+| Left stick | arcade drive — Y forward/back, X turn, both on an expo curve; ceilings 0.25 m/s and 1.2 rad/s (one profile since 0.2.13). A lean while driving banks: forward speed holds and the inside wheel slows. Pure X spins in place. A wheel runs backward for a turn only when the base is nearly still (under 0.12 m/s, fully under 0.03), whatever the stick does |
+| L3 (click left stick) | nothing since 0.2.13 (was the hardwood/carpet toggle) |
 | **D-pad** | **relative nudges**: Up/Down = short forward/back move (`GAMEPAD_NUDGE_DIST_M`, ToF-gated), Left/Right = relative 90° turn (`default_turn_deg`) |
 | **L1 (hold) + D-pad** | **spin to an absolute heading** (encoder test): Up=0°, Left=+90° (CCW), Down=180°, Right=−90° (CW) |
 | **B** | **E-STOP** (always honored) |
@@ -372,7 +372,7 @@ default since 0.2.11, 4 s) or you reconnect and press Start.
 **Action buttons → R3X soundboard / animations.** The buttons motion does NOT use —
 **A, X, Y, Select (−), Home (★), R3 (right stick click)** — are forwarded to the
 Mac as `event:"button"` (rising edge, one per press) by `poll_action_buttons()`.
-(L3 is NOT forwarded — it's the surface-mode toggle above.) They fire
+(L3 and R3 are NOT forwarded.) They fire
 **whenever the pad is connected**, independent of the drive `owner` (so the soundboard works
 in AUTO and pressing them does NOT grab the wheel). On the Mac,
 `intelligence/motion_controller._on_motion_event` looks the button up in
@@ -714,3 +714,42 @@ through a lean, progressive difference, no step across a 1° sweep, spins, centr
 reverse). Full four-flag build 815,517 bytes program, 90,972 globals. Flashed at the
 owner's request, hashes verified, hello `0.2.12-bank-turns`. Not yet driven. The pad's
 real stick range was assumed round and was not measured.
+
+## Reversal by speed, one gamepad profile (firmware 0.2.13, November 12, 2026)
+
+Owner, after driving 0.2.12: at full forward a slight right worked (with a jerk) and a
+slight left did not; it did not brake before obstacles; and tying wheel reversal to the
+stick's diagonal is wrong for a 55 lb robot carrying speed: "it needs to ramp down that
+side's speed and reverse only if it's moving in place ... otherwise this thing will get
+whiplash". He also expected no hardwood/carpet difference, and found the front 8x8
+module's reset button held down (released; the log shows that module going stale twice
+that evening).
+
+- **Reversal follows speed** (`stick_shaping.h` `drive_speed_blend`, `control.cpp`). The
+  spin↔arcade blend is now the more arcade of the stick's and the speed's: at 0.12 m/s or
+  more (the larger of the ramped command and the measured speed) a turn can only slow the
+  inside wheel to a stop; the allowance to reverse it eases in below that and is complete
+  under 0.03 m/s. The mixing moved to the pure `mix_wheels` (`drive_shaping.h`).
+- **Wheel-target slew** (`wheel_slew_step`, gamepad only): a wheel's target may gain speed
+  or cross zero at most 1.0 m/s²; slowing toward zero is never limited. Without it the
+  inside wheel swung backward at 1.9 m/s² as the allowance opened. Boot angular
+  acceleration 2.5 → 2.0 rad/s² (the V3 program's own value).
+- **Wall steering needs both front readings** (`control.cpp`). A missing front side
+  counted as clear, so with the matrix in reset and the front-right radial dropping in and
+  out, anything within 0.9 m front-left pushed every forward drive right by up to
+  0.25 rad/s: enough to cancel a slight left and exaggerate a slight right. This is the
+  likely cause of the left/right difference; it was not observed directly.
+- **One gamepad profile**: the hardwood/carpet toggle on L3 is gone (0.25 m/s, 1.2 rad/s,
+  pivot floor/kick 150/350). R3 is unchanged: it still turns obstacle protection off and
+  moves driving to the right stick while off.
+
+Simulated with the firmware's own mapping, ramps and mixing: stick thrown from full
+forward to full left, the inside wheel slows 0.25 → 0 in 0.29 s at 0.85 m/s², reverses
+only once the base is under 0.12 m/s, and reaches the full spin at 0.68 s with no wheel
+target changing faster than 1.0 m/s². Thrown to a hard forward-left, no wheel reverses.
+
+Checks: 49 native firmware checks pass (four new). Full four-flag build 815,629 bytes
+program, 90,972 globals. Flashed at the owner's request, hashes verified, hello
+`0.2.13-speed-reversal`; after boot the front matrix reported its own distances
+(488 / 433 mm against the radial pair's 923 / 571). Not yet driven: the feel, braking
+before obstacles with the matrix back, and whether the left/right difference is gone.

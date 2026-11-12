@@ -174,7 +174,7 @@
 // stalled duty (the inflated-units loop delivered it unknowingly); this carpet
 // SATURATES at 1023 duty with ~zero rotation — in-place spins on that carpet exceed
 // the platform's torque ceiling, full stop; use moving arcs there instead.
-#define WHEEL_SPIN_BREAKAWAY_DUTY 320.0f
+#define WHEEL_SPIN_BREAKAWAY_DUTY 350.0f
 // Pivot RUNNING floor (field fix, same day): stall-gating alone made spins twitch —
 // the kick broke the wheels loose, dropped to WHEEL_MIN_DUTY (120) one tick later,
 // and the SUSTAINED sideways scrub of a pivot re-stalled them (stick-slip grind;
@@ -234,9 +234,10 @@
 // 2026-11-12 (owner: the pad was far too sensitive and turns jerked): these boot values
 // are what the gamepad gets whenever no host has pushed its own (the V3 program pushes
 // 0.35 / 2.0). Was 1.2 / 8.0: full speed in 0.2 s and a full spin rate in half a second.
-// Now 0 to 0.25 m/s takes 0.6 s and 0 to 1.2 rad/s takes 0.5 s; stops use the same ramp.
+// Now 0 to 0.25 m/s takes 0.6 s and 0 to 1.2 rad/s takes 0.6 s; stops use the same ramp.
+// (Angular 2.5 -> 2.0 later the same day: the value the V3 program already uses.)
 #define DRIVE_ACCEL_LIN    0.40f    // m/s^2  (teleop linear setpoint slew, REAL units)
-#define DRIVE_ACCEL_ANG    2.5f     // rad/s^2 (teleop angular setpoint slew, REAL units)
+#define DRIVE_ACCEL_ANG    2.0f     // rad/s^2 (teleop angular setpoint slew, REAL units)
 // (The old DRIVE_SPIN_LIN_EPS binary spin gate is gone — replaced by the smooth
 // GAMEPAD_SPIN_BLEND_FWD_LO/HI band above; the blend factor rides the setpoint.)
 
@@ -585,38 +586,18 @@
 // Start = clear + return to AUTO; hold BOTH analog triggers = full-override (docs §11).
 #define GAMEPAD_DEADZONE       0.12f    // stick fraction ignored around centre (radial), and
                                         // on the forward axis; the turn axis: GAMEPAD_TURN_DEADZONE
-// TELEOP SURFACE MODES — the gamepad's own caps, in REAL m/s / rad/s, independent
-// of params.max_lin/max_ang (the AUTONOMOUS limits the Mac pushes down on connect).
-// control_tick clamps a MANUAL drive to the larger (carpet) profile; autonomous
-// motion stays on the params caps.
-//
-// History: launched as 3 abstract speed LEVELS (slow/med/full, L3 cycling), retuned
-// repeatedly (bare base -> full weight -> carpet -> real units). At full build
-// weight the whole 3-level ladder was insufficient (owner 2026-07-11: full stick on
-// level 3 struggles on carpet, turning difficult even on hardwood) — what actually
-// varies is the SURFACE, so L3 now TOGGLES two surface profiles instead:
-//   HARDWOOD (boot/reconnect default): a bit above the old level-3 top speed.
-//   CARPET: maximum authority — higher speed ceiling and a full-saturation spin
-//     breakaway kick. NOTE the measured torque ceiling stands: an in-place spin on
-//     the test carpet saturated both wheels at 1023 duty with ~zero rotation, so
-//     carpet mode makes turning as strong as the hardware allows (arcs improve;
-//     pure pivots on deep pile may still stall — that's motors, not firmware).
-// 2026-11-12, Yellow Jackets (owner: "too fast", turns never smooth). Speeds are now
-// true m/s. Turn ceilings used to be the whole wheel-speed range (4 rad/s, 230 deg/s)
-// because the old motors needed every bit of scrub authority; against a 0.25 m/s
-// forward ceiling that meant a quarter of the turn stick already stopped the inside
-// wheel, so a moving turn was a lurch into a pivot. The ceilings below keep the wheel
-// speed a full turn stick asks for (ang x track / 2 = 0.27 m/s hardwood) close to the
-// forward ceiling: at full forward, turn stick now slows the inside wheel in proportion
-// and only stops it at full deflection.
-#define GAMEPAD_HARDWOOD_LIN_MS    0.25f   // the autonomous walking pace
-#define GAMEPAD_HARDWOOD_ANG_RADS  1.2f    // ~70 deg/s spin at full stick
-#define GAMEPAD_HARDWOOD_SPIN_KICK 350.0f  // stall-gated pivot breakaway ceiling (estimate)
-#define GAMEPAD_HARDWOOD_SPIN_RUN  150.0f  // pivot RUNNING floor (estimate)
-#define GAMEPAD_CARPET_LIN_MS      0.38f   // near the drivetrain's 0.44 m/s ceiling
-#define GAMEPAD_CARPET_ANG_RADS    1.6f    // ~90 deg/s
-#define GAMEPAD_CARPET_SPIN_KICK   650.0f  // estimate; carpet pivots untested on these motors
-#define GAMEPAD_CARPET_SPIN_RUN    260.0f
+// TELEOP CEILINGS — the gamepad's own caps, in REAL m/s / rad/s, independent of
+// params.max_lin/max_ang (the AUTONOMOUS limits the Mac pushes down on connect).
+// One profile since 2026-11-12 (owner: "I thought we didn't have a difference between
+// hardwood/carpet modes anymore"). History: three speed levels, then a hardwood/carpet
+// toggle on the left-stick click, because the old motors needed full-saturation spin
+// kicks on carpet. The ramped breakaway boost and these motors' torque make one profile
+// enough, and a click while pushing the stick no longer changes how the base drives.
+// Turn ceiling: the old one was the whole wheel-speed range (4 rad/s, 230 deg/s) for the
+// weak motors; against a 0.25 m/s forward ceiling a quarter of the turn stick already
+// stopped the inside wheel.
+#define GAMEPAD_LIN_MS         0.25f    // the autonomous walking pace
+#define GAMEPAD_ANG_RADS       1.2f     // ~70 deg/s spin at full stick
 // Stick RESPONSE CURVES: command = sign(stick) * |stick|^GAMMA * mode max, per axis.
 // GAMMA > 1 is expo: fine control around centre, full deflection still the mode max.
 // At half stick 1.6 gives 33% of the ceiling. The forward axis used 0.60 (anti-expo,
@@ -632,12 +613,28 @@
 // now a radial deadzone around centre plus the forward axis's own; the turn axis keeps
 // only this small one, so a lean at full forward registers almost at once. While
 // translating, full turn stick asks for a wheel-speed difference of ARC_STEER_FRAC of the
-// mode's forward ceiling each side: at full forward the inside wheel keeps 20% of the
+// forward ceiling each side: at full forward the inside wheel keeps 20% of the
 // speed and the base banks through about a 0.28 m radius instead of stopping to pivot.
-// Standing still the full spin ceiling (GAMEPAD_*_ANG_RADS) applies; the blend band
+// Standing still the full spin ceiling (GAMEPAD_ANG_RADS) applies; the blend band
 // below eases between the two.
 #define GAMEPAD_TURN_DEADZONE   0.05f
 #define GAMEPAD_ARC_STEER_FRAC  0.80f
+// Inside-wheel reversal follows the base's SPEED, not only the stick (owner 2026-11-12:
+// "if it's going forward at full speed and I suddenly jerk the joystick left/right, it
+// needs to ramp down that side's speed and reverse only if it's moving in place ...
+// otherwise this thing will get whiplash"; 55 lb robot). At or above SPIN_SPEED_HI of
+// linear speed (the larger of the ramped command and the encoder-measured speed) a turn
+// can only slow the inside wheel to a stop; the allowance to run it backward eases in
+// below that and is complete under SPIN_SPEED_LO. The stick's own forward fraction still
+// forces arcade mixing as before, whichever is more arcade wins.
+#define GAMEPAD_SPIN_SPEED_LO   0.03f   // m/s: at or under this the base is "in place"
+#define GAMEPAD_SPIN_SPEED_HI   0.12f   // m/s: at or over this no wheel reverses for a turn
+// Gamepad wheel-target slew (drive_shaping.h wheel_slew_step): the most a wheel's target
+// may gain speed or cross through zero, m/s^2. The body ramps already keep ordinary
+// driving under this (0.40 + 2.0 x track/2 = 0.85); it bounds the moment the reversal
+// allowance opens, which otherwise swung the inside wheel backward at 1.9 m/s^2.
+// Slowing toward zero is never limited, so stops and the obstacle reflex keep their grip.
+#define GAMEPAD_WHEEL_SLEW_MS2  1.0f
 // (GAMEPAD_SPIN_SCALE retired 2026-07-11 with the speed levels: turn authority is now
 // always the surface mode's full ang ceiling; the blend below only morphs the wheel
 // MIXING between spin-in-place and arcade arc.)

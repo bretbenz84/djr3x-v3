@@ -17,6 +17,41 @@ static inline float shape_clamp(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// Body velocity -> wheel targets (REP-103: +lin forward, +ang CCW/left; a left turn slows
+// or reverses the LEFT wheel). pivot_steer (gamepad only) morphs between two mixings by
+// pivot_blend: 0 = raw differential (spin in place, the inside wheel may run backward),
+// 1 = arcade (each wheel floored at zero against the travel direction, so a turn only
+// slows the inside wheel), per-wheel lerp between. Autonomous paths pass pivot_steer
+// false and keep the raw mix. Both wheels are then scaled together under
+// WHEEL_TARGET_MAX_MS so a combined command keeps its curvature.
+static inline void mix_wheels(float lin, float ang, float track, bool pivot_steer,
+                              float pivot_blend, float& v_l, float& v_r) {
+  v_l = lin - ang * (track * 0.5f);
+  v_r = lin + ang * (track * 0.5f);
+  if (pivot_steer && pivot_blend > 0.0f) {
+    float a_l = v_l, a_r = v_r;              // the arcade (clamped) mix
+    if (lin >= 0.0f) { if (a_l < 0.0f) a_l = 0.0f; if (a_r < 0.0f) a_r = 0.0f; }
+    else             { if (a_l > 0.0f) a_l = 0.0f; if (a_r > 0.0f) a_r = 0.0f; }
+    v_l += (a_l - v_l) * pivot_blend;        // lerp raw spin mix -> arcade mix
+    v_r += (a_r - v_r) * pivot_blend;
+  }
+  const float peak = fmaxf(fabsf(v_l), fabsf(v_r));
+  if (peak > WHEEL_TARGET_MAX_MS) {
+    const float scale = WHEEL_TARGET_MAX_MS / peak;
+    v_l *= scale;
+    v_r *= scale;
+  }
+}
+
+// Gamepad wheel-target slew: a target may fall toward zero freely (stops and the reflex
+// are never softened) but may gain speed, or pass through zero into the other direction,
+// only by max_step per tick.
+static inline float wheel_slew_step(float prev, float target, float max_step) {
+  const bool slowing = (prev >= 0.0f) == (target >= 0.0f) && fabsf(target) <= fabsf(prev);
+  if (slowing) return target;
+  return prev + shape_clamp(target - prev, -max_step, max_step);
+}
+
 // One wheel's controller state. Reset whenever the wheel is commanded to rest.
 struct WheelLoop {
   float integ = 0.0f, eprev = 0.0f;

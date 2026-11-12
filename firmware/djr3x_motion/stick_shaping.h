@@ -51,7 +51,7 @@ struct StickDrive {
 };
 
 // x: stick right = +, y: stick forward = +, both raw -1..1. mode_lin / mode_ang are the
-// surface mode's ceilings; track_m is the wheel track.
+// gamepad's ceilings; track_m is the wheel track.
 static inline StickDrive stick_to_drive(float x, float y, float mode_lin, float mode_ang,
                                         float track_m) {
   StickDrive d;
@@ -70,11 +70,22 @@ static inline StickDrive stick_to_drive(float x, float y, float mode_lin, float 
                          (GAMEPAD_SPIN_BLEND_FWD_HI - GAMEPAD_SPIN_BLEND_FWD_LO), 0.0f, 1.0f);
   bt = bt * bt * (3.0f - 2.0f * bt);
   d.blend = bt;
-  // Turn authority: the mode's spin ceiling standing still, easing to the arc ceiling
+  // Turn authority: the spin ceiling standing still, easing to the arc ceiling
   // while translating. The arc ceiling is a wheel-speed difference of
   // GAMEPAD_ARC_STEER_FRAC of the forward ceiling, so at full forward and full turn the
   // inside wheel still rolls at (1 - FRAC) of the forward speed.
   const float arc_ang = fminf(mode_ang, GAMEPAD_ARC_STEER_FRAC * mode_lin * 2.0f / track_m);
   d.ang = -ts * (mode_ang + (arc_ang - mode_ang) * bt);   // stick right => -ang
   return d;
+}
+
+// How arcade the wheel mixing must be at this linear speed (m/s, magnitude): 0 at or
+// under GAMEPAD_SPIN_SPEED_LO (a turn may run the inside wheel backward), 1 at or over
+// GAMEPAD_SPIN_SPEED_HI (a turn can only slow the inside wheel to a stop), smoothstep
+// between. control_tick takes the larger of this and the stick's own blend, so a heavy
+// base still carrying speed never has a wheel thrown into reverse by a sudden stick move.
+static inline float drive_speed_blend(float speed_abs) {
+  float b = stick_clamp((speed_abs - GAMEPAD_SPIN_SPEED_LO) /
+                        (GAMEPAD_SPIN_SPEED_HI - GAMEPAD_SPIN_SPEED_LO), 0.0f, 1.0f);
+  return b * b * (3.0f - 2.0f * b);
 }
