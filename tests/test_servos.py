@@ -7,7 +7,7 @@ import unittest
 from r3x.adapters.maestro import Maestro
 from r3x.contracts import Cancellation, Playback, ProviderFailure
 from r3x.output import Delivery, OutputOwner
-from r3x.servo_poses import AWAKE_ARMS, HEAD_PARK, NECK_PER_DEG, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
+from r3x.servo_poses import AWAKE_ARMS, HEAD_LIFT_NORMAL, HEAD_PARK, NECK_PER_DEG, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
 from r3x.servos import ARM_RETURN
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 
@@ -99,7 +99,7 @@ class ServoTests(unittest.TestCase):
         self.assertEqual(wake.evidence, 'controller_output_pulses_only')
         self.assertEqual({ch:self.port.pose[ch] for ch in (8,9,10)}, dict(REST))
         self.assertEqual(self.port.pose[0], 5472)
-        self.assertEqual(self.port.pose[1], 3600)
+        self.assertEqual(self.port.pose[1], HEAD_LIFT_NORMAL)
         targets = self.port.targets
         first_throttle = next(i for i,p in enumerate(targets) if p[0] == 0x9F)
         neck = [i for i,p in enumerate(targets) if p[:2] == bytes((0x84,0))]
@@ -333,7 +333,7 @@ class ServoTests(unittest.TestCase):
         from r3x.servo_poses import NECK_PER_DEG,head_pose
         self.assertEqual(len({len(targets(ch)) for ch in (0,1,2,11)}),1)
         self.assertGreater(len(set(targets(0))),4)
-        self.assertTrue(all(abs(n-5472)<=7*NECK_PER_DEG+1 and abs(l-3600)<=160 for n,l in zip(targets(0),targets(1))))
+        self.assertTrue(all(abs(n-5472)<=7*NECK_PER_DEG+1 and abs(l-HEAD_LIFT_NORMAL)<=160 for n,l in zip(targets(0),targets(1))))
         for left,right in zip(targets(2),targets(11)):
             pitch,tilt=head_pose({2:left,11:right})
             self.assertLessEqual(abs(pitch),.07);self.assertLessEqual(abs(tilt),.11)   # A small nod and cock.
@@ -456,7 +456,7 @@ class ServoTests(unittest.TestCase):
             self.assertEqual(result.status,'cancelled')
             # Each emphasis is measured from the startup anchor, never from where the last stopped.
             self.assertLessEqual(abs(self.port.pose[0]-5472),7*NECK_PER_DEG+1)
-            self.assertLessEqual(abs(self.port.pose[1]-3600),160)
+            self.assertLessEqual(abs(self.port.pose[1]-HEAD_LIFT_NORMAL),160)
 
     def test_production_output_drives_real_executor_with_synthetic_port(self):
         self.owner.start()

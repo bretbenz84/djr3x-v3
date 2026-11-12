@@ -1,7 +1,7 @@
 """Production joint/tool contracts with fake serial, PCM and scripted model choices."""
 import unittest
 from r3x.contracts import Cancellation, Capture, Transcript, ToolCall
-from r3x.servo_poses import JOINTS, LIMITS, THROTTLE, joint_targets
+from r3x.servo_poses import HEAD_POSES, JOINTS, LIMITS, THROTTLE, joint_targets
 from r3x.servos import ServoRequest
 from r3x.robot_servos import RobotServos
 from r3x.output import OutputOwner
@@ -128,7 +128,7 @@ class ChainedPoseCommands(MemoryFixture):
         neck = [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,0))]
         self.assertLess(neck.index(NECK_RIGHT), neck.index(NECK_LEFT))
         self.assertEqual(self.port.pose[0], NECK_LEFT)            # The later up/down kept the side.
-        self.assertEqual(self.port.pose[1], 3200)
+        self.assertEqual(self.port.pose[1], HEAD_POSES['look_down']['lift'])
         self.assertAlmostEqual(head_pose(self.port.pose)[0], -LOOK_PITCH, delta=.02)   # Both head servos pitched down.
         events = [r['event'] for r in self.state.trace.rows]
         self.assertLess(max(i for i,e in enumerate(events) if e=='robot_pose_result'), events.index('phrase_completed'))
@@ -208,7 +208,7 @@ class ChainedPoseCommands(MemoryFixture):
         self.assertEqual([r['pose'] for r in self.rows('robot_pose_result')], steps[:5])
         self.assertEqual([l['pattern'] for l in result.lights if l['request_id'].endswith(':5')], ['blink'])
         self.assertEqual(ports['head'].commands.count('EYE:0,0,0'), 3)
-        self.assertEqual(self.port.pose[1], 3200)
+        self.assertEqual(self.port.pose[1], HEAD_POSES['look_down']['lift'])
         self.assertAlmostEqual(head_pose(self.port.pose)[0], -LOOK_PITCH, delta=.02)
         self.assertEqual({ch:self.port.pose[ch] for ch,_ in NAMED_POSES['throttle_offer']}, dict(NAMED_POSES['throttle_offer']))
 

@@ -6,6 +6,17 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 12: a new head-lift range, park and normal height
+
+Owner: the head lift (channel 1) runs 832–2496 µs (`LIMITS[1]` 3328–9984; was 656–1936 µs).
+Startup begins from, and shutdown parks at, the new low (`HEAD_PARK`, 3328). The normal height
+(`HEAD_LIFT_NORMAL`, the midpoint, 6656 = 1664 µs; was 3600) is where startup, idle, talking,
+driving and `look_level` stand; `look_down`/`look_up` keep their 400/600 pulses below/above it.
+`neck_up`/`neck_down` and `set_robot_joints` percentages follow the new range (the model is told
+50 is the normal height). The servo menu bar app shows the same range. The Maestro's stored range
+for channel 1 must allow 832–2496 µs or targets outside it never arrive (`ServoArrivalTimeout`);
+not checked against the board. Synthetic checks only; not yet run on the robot.
+
 ## October 31: a person's head pose lets go, and an arm dance
 
 Run `f6d5a0b7`. A person's `look_*`, `tilt_*`, `look_level`, `neck_*` or head joint request put the head

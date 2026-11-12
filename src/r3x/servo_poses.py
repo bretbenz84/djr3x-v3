@@ -18,8 +18,9 @@ from types import MappingProxyType
 
 # Calibrated limits per channel. The October 10 servo-console readings (Maestro
 # microseconds x 4) are the limits of the two head servos and the poker elbow/wrist.
+# Head lift (1): owner, November 12, 832-2496 us (was 656-1936).
 LIMITS = MappingProxyType({
-    0: (1984, 8960), 1: (2624, 7744), 2: (4032, 8128), 3: (4544, 6976),
+    0: (1984, 8960), 1: (3328, 9984), 2: (4032, 8128), 3: (4544, 6976),
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
     8: (2176, 9088), 9: (2048, 9984), 10: (2048, 9984),
     11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
@@ -156,7 +157,7 @@ VISOR_IDLE = (5382, 6082)
 
 # name -> (channel or head axis, value at 0 %, value at 100 %)
 JOINT_RANGES = {
-    'neck': (0, 1984, 8960), 'head_lift': (1, 2624, 7744),
+    'neck': (0, *LIMITS[0]), 'head_lift': (1, *LIMITS[1]),
     'head_pitch': ('pitch', -1., 1.), 'head_tilt': ('tilt', -1., 1.),
     'visor': (3, VISOR_DOWN, 4544),
     'hero_elbow': (4, 6300, 7424), 'hero_wrist': (5, 1984, 9984), 'poker_arm': (6, 3968, 8000),
@@ -224,9 +225,12 @@ RAISED = 2176
 # saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
 # driving on September 27; set this from the servo console reading.
 NECK_CENTER = 5472
+# The head lift's normal height: startup, idle, talking and driving stand here. Owner,
+# November 12: the midpoint of the lift's range (1664 us; was 3600, 900 us).
+HEAD_LIFT_NORMAL = (LIMITS[1][0] + LIMITS[1][1]) // 2
 # Head lift and the level, straight head pair held while the base drives (owner: level
 # stance when moving). The pair is the owner's "level headed" console reading.
-DRIVE_HEAD = ((1, 3600), (2, HEAD_LEVEL[0]), (11, HEAD_LEVEL[1]))
+DRIVE_HEAD = ((1, HEAD_LIFT_NORMAL), (2, HEAD_LEVEL[0]), (11, HEAD_LEVEL[1]))
 # Owner request September 27: while the base drives, the hero-arm elbow is fully up
 # (higher pulse lifts it) and the poker arm at its highest value, held until done.
 DRIVE_ARMS = ((4, 7424), (6, 8000))
@@ -248,10 +252,10 @@ AWAKE_ARMS = ((4, 6720), (6, 6000))
 # either stays at its drive stance after a drive while something is within its reach
 # (drive_space.arms_blocked); base_lanes 'base_release' then leaves it where it is.
 REACHING_ARMS = MappingProxyType({'poker': (6, *POKER), 'throttle': THROTTLE})
-# The head lift's lowest pulse is 2624 (656 us): the board's own range clamps anything
-# lower, so a park at 2600 never arrived (shutdown ServoArrivalTimeout:ch1@2624->2600,
-# October 10 run b954c14c).
-HEAD_PARK = ((0, NECK_CENTER), (1, 2624), (2, HEAD_FULL_DOWN[0]), (11, HEAD_FULL_DOWN[1]),
+# The head lift parks at its lowest pulse, never below: the board's own range clamps anything
+# lower, so a park under it never arrives (shutdown ServoArrivalTimeout:ch1@2624->2600,
+# October 10 run b954c14c). Owner, November 12: 3328 (832 us), the new low limit.
+HEAD_PARK = ((0, NECK_CENTER), (1, LIMITS[1][0]), (2, HEAD_FULL_DOWN[0]), (11, HEAD_FULL_DOWN[1]),
              (3, VISOR_DOWN), (4, 6300))
 # Where each joint hangs once the robot has been powered off (the board then reads 0).
 UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK, *POKER_PARK)
@@ -1055,15 +1059,18 @@ NECK_LEFT, NECK_RIGHT = 2 * NECK_CENTER - 8000, 8000
 NECK_POSES = {'look_left': -1, 'look_right': 1}
 LOOK_PITCH, LOOK_TILT = .8, .8
 LOOK_SPEED = 40   # A person's look: twice the ordinary pose speed, still below the voice reflex's 60.
+# look_down/look_up drop or raise the pole a little from its normal height (400 and 600 pulses,
+# as before the November 12 range change).
 HEAD_POSES = {
-    'look_down': {'lift': 3200, 'pitch': -LOOK_PITCH}, 'look_up': {'lift': 4200, 'pitch': LOOK_PITCH},
-    'look_level': {'lift': 3600, 'pitch': 0., 'tilt': 0.},
+    'look_down': {'lift': HEAD_LIFT_NORMAL - 400, 'pitch': -LOOK_PITCH},
+    'look_up': {'lift': HEAD_LIFT_NORMAL + 600, 'pitch': LOOK_PITCH},
+    'look_level': {'lift': HEAD_LIFT_NORMAL, 'pitch': 0., 'tilt': 0.},
     'tilt_left': {'tilt': -LOOK_TILT}, 'tilt_right': {'tilt': LOOK_TILT}, 'tilt_straight': {'tilt': 0.},
 }
 NAMED_POSES = {
     'look_center': ((0,NECK_CENTER),),
     # The owner calls the head-lift pole the neck. October 13: "raise your neck" and "highest
-    # neck pose" got look_up, a head tip on a pole raised only to 4200 of its 7744.
+    # neck pose" got look_up, a head tip on a pole raised only a little (then 4200 of its 7744).
     'neck_up': ((1,LIMITS[1][1]),), 'neck_down': ((1,LIMITS[1][0]),),
     'visor_down': ((3,VISOR_DOWN),), 'visor_up': ((3,VISOR_UP),),
     # Owner, October 22: "put it back to the way it normally goes". Its usual open point, then it moves

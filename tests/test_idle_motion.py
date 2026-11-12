@@ -7,7 +7,7 @@ from r3x.contracts import Cancellation
 from r3x.idle_motion import IdleMotion
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 from r3x.robot_servos import RobotServos
-from r3x.servo_poses import HEAD_SMALL, LIMITS, NECK_CENTER, NECK_PER_DEG, IdlePhrase, idle_lanes
+from r3x.servo_poses import HEAD_LIFT_NORMAL, HEAD_SMALL, LIMITS, NECK_CENTER, NECK_PER_DEG, IdlePhrase, idle_lanes
 from tests.test_servos import PulsePort,Clock
 
 
@@ -163,7 +163,7 @@ class IdleTests(unittest.TestCase):
         # Owner, October 21: talking was rapid and robotic beside the eased idle head, the same
         # three moves over and over. It stays livelier than idle but moves on the same curve.
         from r3x.servo_poses import THROTTLE,head_pulses,minimum_jerk,talking_lanes
-        anchor={0:NECK_CENTER,1:3600,**head_pulses(0.,0.)}
+        anchor={0:NECK_CENTER,1:HEAD_LIFT_NORMAL,**head_pulses(0.,0.)}
         current={**self.port.pose,**anchor,3:5900,4:6900,5:6000}
         spreads,aims=[],set()
         for seed in range(20):
@@ -268,7 +268,7 @@ class IdleTests(unittest.TestCase):
         # Owner, October 21 (later): during speech the poker arm moved too much. Its sway is now
         # about a third of the idle size, at the idle pace, with pauses between half sways.
         from r3x.servo_poses import POKER,POKER_TAIL,THROTTLE,head_pulses,talking_lanes
-        anchor={0:NECK_CENTER,1:3600,**head_pulses(0.,0.)}
+        anchor={0:NECK_CENTER,1:HEAD_LIFT_NORMAL,**head_pulses(0.,0.)}
         current={**self.port.pose,**anchor,3:5900,4:6900,5:6000,6:6000,12:6000,13:3768}
         for seed in range(10):
             lanes=talking_lanes(current,anchor,held=frozenset(THROTTLE),rng=random.Random(seed))
@@ -280,7 +280,7 @@ class IdleTests(unittest.TestCase):
 
     def test_bigger_idle_head_moves_take_longer(self):
         from r3x.servo_poses import eased_head_beat,head_pulses
-        start={0:NECK_CENTER,1:3600,**head_pulses(0.,0.)}
+        start={0:NECK_CENTER,1:HEAD_LIFT_NORMAL,**head_pulses(0.,0.)}
         def arrival(degrees):
             beat=eased_head_beat(start,((0,round(NECK_CENTER+degrees*NECK_PER_DEG)),))
             ch,speed,acceleration=beat.profiles[0]
