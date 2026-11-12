@@ -1473,3 +1473,7 @@ encoder cut-out now also trips on a flickering or reversed encoder. **Not yet dr
 
 Owner after driving 0.2.14: "the motion is much better", but too slow. Firmware 0.2.15 raises the
 gamepad's forward ceiling from 0.25 to 0.38 m/s; Rex's own speeds are unchanged. **Not yet driven.**
+
+Owner after driving 0.2.15: "so much better", acceleration good, nothing lurches. Firmware 0.2.16
+raises the gamepad's forward ceiling to the motors' limit (0.45 m/s) and cuts the in-place spin by
+20% (0.96 rad/s); Rex's own speeds are unchanged. **Not yet driven.**

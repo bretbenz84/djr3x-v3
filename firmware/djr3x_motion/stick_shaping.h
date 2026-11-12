@@ -74,7 +74,7 @@ static inline StickDrive stick_to_drive(float x, float y, float mode_lin, float 
   // while translating. The arc ceiling is a wheel-speed difference of
   // GAMEPAD_ARC_STEER_FRAC of the forward ceiling, so at full forward and full turn the
   // inside wheel still rolls at (1 - FRAC) of the forward speed.
-  const float arc_ang = fminf(mode_ang, GAMEPAD_ARC_STEER_FRAC * mode_lin * 2.0f / track_m);
+  const float arc_ang = GAMEPAD_ARC_STEER_FRAC * mode_lin * 2.0f / track_m;
   d.ang = -ts * (mode_ang + (arc_ang - mode_ang) * bt);   // stick right => -ang
   return d;
 }

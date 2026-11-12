@@ -307,7 +307,7 @@ remembers the bond for next time.
 
 | Input | Action |
 | --- | --- |
-| Left stick | arcade drive — Y forward/back, X turn, both on an expo curve; ceilings 0.38 m/s (0.25 before 0.2.15) and 1.2 rad/s (one profile since 0.2.13). A lean while driving banks: forward speed holds and the inside wheel slows. Pure X spins in place. A wheel runs backward for a turn only when the base is nearly still (under 0.12 m/s, fully under 0.03), whatever the stick does |
+| Left stick | arcade drive — Y forward/back, X turn, both on an expo curve; ceilings 0.45 m/s and 0.96 rad/s since 0.2.16 (one profile since 0.2.13). A lean while driving banks: forward speed holds and the inside wheel slows. Pure X spins in place. A wheel runs backward for a turn only when the base is nearly still (under 0.12 m/s, fully under 0.03), whatever the stick does |
 | L3 (click left stick) | nothing since 0.2.13 (was the hardwood/carpet toggle) |
 | **D-pad** | **relative nudges**: Up/Down = short forward/back move (`GAMEPAD_NUDGE_DIST_M`, ToF-gated), Left/Right = relative 90° turn (`default_turn_deg`) |
 | **L1 (hold) + D-pad** | **spin to an absolute heading** (encoder test): Up=0°, Left=+90° (CCW), Down=180°, Right=−90° (CW) |
@@ -797,3 +797,26 @@ Checks: 49 native firmware checks pass. Full four-flag build 815,733 bytes progr
 90,996 globals. Flashed at the owner's request, hashes verified, hello
 `0.2.15-pad-speed`. Not yet driven at this speed; braking before obstacles at 0.38 m/s
 is unverified.
+
+## Faster forward, gentler spin (firmware 0.2.16, November 12, 2026)
+
+Owner after driving 0.2.15: "It's so much better ... The acceleration profile seems
+really good. Nothing lurches." He asked for more forward/back speed if the motors have
+it, and the stationary spin down by 20%.
+
+- `GAMEPAD_LIN_MS` 0.38 → 0.45 m/s, the drivetrain's limit (0.44 m/s unloaded at 12 V,
+  about 0.48 on a full pack). `WHEEL_TARGET_MAX_MS` 0.42 → 0.46, hard cap 0.45 → 0.50.
+  At full stick the speed loop will sit at or near full duty, so the top few percent
+  depend on charge and on the two motors matching.
+- `GAMEPAD_ANG_RADS` 1.2 → 0.96 rad/s (about 55°/s in place).
+- Banking no longer takes the spin ceiling as its limit: `GAMEPAD_ARC_STEER_FRAC` 0.70 of
+  the forward ceiling keeps the bank he approved at 0.38 m/s. Full push: 15° lean
+  0.37 / 0.46 m/s, 30° 0.23 / 0.46, 45° 0.08 / 0.46.
+- Ramps, the reversal-by-speed rule, the wheel-target slew and autonomous speeds are
+  unchanged. At 0.45 m/s the boot obstacle envelope is a 0.21 m stop line with braking
+  from 0.50 m.
+
+Checks: 49 native firmware checks pass. Full four-flag build 815,733 bytes program,
+90,996 globals. Flashed at the owner's request, hashes verified, hello
+`0.2.16-pad-faster`. Not yet driven at this speed: straight tracking at full duty and
+braking before obstacles at 0.45 m/s are unverified.

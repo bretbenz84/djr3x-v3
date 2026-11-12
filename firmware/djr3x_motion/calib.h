@@ -203,8 +203,9 @@
 // 117 rpm on a 72 mm wheel is 0.44 m/s unloaded at 12 V. Keep mixed wheel-speed
 // requests just below that physical ceiling and scale both sides together so a
 // combined forward+turn command preserves curvature instead of saturating only the
-// outside wheel. (Was 0.90 for the original 176 rpm / 100 mm drivetrain.)
-#define WHEEL_TARGET_MAX_MS      0.42f
+// outside wheel. (Was 0.90 for the original 176 rpm / 100 mm drivetrain; 0.42 until the
+// gamepad ceiling went to 0.45 on 2026-11-12.)
+#define WHEEL_TARGET_MAX_MS      0.46f
 
 // ---- Encoder watch (hal.cpp, drive_shaping.h encoder_watch_step) ------------
 // A wheel driven at or above ENC_SILENT_DUTY must be MEASURED moving the way it is
@@ -607,8 +608,15 @@
 // the speed loop headroom under the 0.42 wheel ceiling. In a hard bank the outside wheel
 // would exceed that ceiling, so both wheels scale down together and the base slows
 // through the turn. Autonomous speeds are the host's and are unchanged (0.25 m/s).
-#define GAMEPAD_LIN_MS         0.38f
-#define GAMEPAD_ANG_RADS       1.2f     // ~70 deg/s spin at full stick
+// 0.38 -> 0.45 (owner, same day, after driving 0.38: "so much better ... if it can go
+// faster I'd like to be able to make it go faster forward/back"). 0.45 is the drivetrain's
+// limit: 117 rpm on 72 mm is 0.44 m/s unloaded at 12 V, about 0.48 on a full pack, less
+// under the robot's weight. At full stick the speed loop will usually sit at or near full
+// duty, so the last few percent depend on battery charge and the two motors matching.
+#define GAMEPAD_LIN_MS         0.45f
+// Spin 1.2 -> 0.96 rad/s (owner, same day: "stationary left/right turning could be tuned
+// down by 20%"). Turning while driving is set separately (GAMEPAD_ARC_STEER_FRAC).
+#define GAMEPAD_ANG_RADS       0.96f    // ~55 deg/s spin in place at full stick
 // Stick RESPONSE CURVES: command = sign(stick) * |stick|^GAMMA * mode max, per axis.
 // GAMMA > 1 is expo: fine control around centre, full deflection still the mode max.
 // At half stick 1.6 gives 33% of the ceiling. The forward axis used 0.60 (anti-expo,
@@ -624,12 +632,16 @@
 // now a radial deadzone around centre plus the forward axis's own; the turn axis keeps
 // only this small one, so a lean at full forward registers almost at once. While
 // translating, full turn stick asks for a wheel-speed difference of ARC_STEER_FRAC of the
-// forward ceiling each side, never more than the spin ceiling: at full forward the inside
-// wheel keeps rolling (20-30% of the speed) and the base banks instead of stopping to pivot.
+// forward ceiling each side: at full forward the inside wheel keeps rolling (30% of the
+// speed before the shared wheel ceiling scales both) and the base banks instead of
+// stopping to pivot.
 // Standing still the full spin ceiling (GAMEPAD_ANG_RADS) applies; the blend band
 // below eases between the two.
 #define GAMEPAD_TURN_DEADZONE   0.05f
-#define GAMEPAD_ARC_STEER_FRAC  0.80f
+// 0.70 with the 0.45 m/s ceiling keeps the bank the owner approved at 0.38 m/s (inside
+// wheel about a sixth of the outside wheel at the full diagonal). It no longer shrinks
+// with the spin ceiling: lowering the spin rate must not flatten the banking.
+#define GAMEPAD_ARC_STEER_FRAC  0.70f
 // Inside-wheel reversal follows the base's SPEED, not only the stick (owner 2026-11-12:
 // "if it's going forward at full speed and I suddenly jerk the joystick left/right, it
 // needs to ramp down that side's speed and reverse only if it's moving in place ...
