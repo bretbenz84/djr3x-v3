@@ -1465,3 +1465,8 @@ when the base is nearly still (owner: a 55 lb robot thrown from full forward int
 whiplash"), wheel targets are slew-limited, the wall steering ignores the front pair unless both
 sides read, and the gamepad has one profile (no hardwood/carpet toggle). The owner found the front
 depth matrix's reset button held down, which explains the missed braking. **Not yet driven.**
+
+Firmware 0.2.14, same day: a hand test with telemetry found the right encoder had a loose signal
+wire (fixed by the owner) and both encoders counting backward for the new motors. Both wheels had
+therefore run at full power for any command on 0.2.11-0.2.13. The directions are flipped and the
+encoder cut-out now also trips on a flickering or reversed encoder. **Not yet driven.**

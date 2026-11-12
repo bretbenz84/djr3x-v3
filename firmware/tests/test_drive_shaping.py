@@ -90,16 +90,29 @@ int main(int argc, char** argv) {
     std::printf("cross %.4f %.4f\n", reflex_ramp_step(0.001f, 0.25f, 0.05f, 0.35f, DT),
                 reflex_ramp_step(-0.001f, 0.25f, 0.05f, 0.35f, DT));
   } else if (!std::strcmp(s, "encoder")) {   // ticks until the watch trips, -1 = never
-    struct Case { int duty; int count_every; };   // count_every 0 = encoder never moves
-    const Case cases[] = {{600, 0}, {-600, 0}, {300, 0}, {600, 20}, {1023, 0}};
+    // counts per tick follow a pattern: 'none', 'flicker' (+1/-1), 'back' (-5), 'slow'
+    // (1 every other tick, 8 mm/s), 'fast' (+12), each relative to the drive direction.
+    struct Case { const char* name; int effort; };
+    const Case cases[] = {{"none", 600}, {"none", -600}, {"none", 1023}, {"none", 300},
+                          {"flicker", 600}, {"back", 600}, {"back", -600},
+                          {"slow", 600}, {"fast", 600}, {"fast", -600}, {"back", 300}};
     for (const auto& c : cases) {
       EncoderWatch e; int tripped = -1;
+      const int dir = c.effort >= 0 ? 1 : -1;
       for (int i = 0; i < 300 && tripped < 0; ++i) {
-        const bool counted = c.count_every && (i % c.count_every == 0);
-        if (encoder_silent_step(e, c.duty, counted, DT)) tripped = i;
+        long counts = 0;
+        if (!std::strcmp(c.name, "flicker")) counts = (i % 2) ? 1 : -1;
+        else if (!std::strcmp(c.name, "back")) counts = -5 * dir;
+        else if (!std::strcmp(c.name, "slow")) counts = (i % 2) ? dir : 0;
+        else if (!std::strcmp(c.name, "fast")) counts = 12 * dir;
+        if (encoder_watch_step(e, c.effort, counts, DT)) tripped = i;
       }
-      std::printf("%d %d %d\n", c.duty, c.count_every, tripped);
+      std::printf("%s %d %d\n", c.name, c.effort, tripped);
     }
+    EncoderWatch e; int tripped = -1;        // easing off the drive resets the window
+    for (int i = 0; i < 300 && tripped < 0; ++i)
+      if (encoder_watch_step(e, (i % 40 == 39) ? 100 : 600, 0, DT)) tripped = i;
+    std::printf("pulsed 600 %d\n", tripped);
   } else if (!std::strcmp(s, "slew")) {      // prev target -> result with a 0.01 step
     const float cases[][2] = {{0.25f, 0.0f}, {0.25f, 0.10f}, {0.0f, 0.25f}, {0.10f, 0.25f},
                               {0.0f, -0.25f}, {0.02f, -0.25f}, {-0.25f, -0.05f}, {-0.10f, 0.25f}};
@@ -182,12 +195,19 @@ class DriveShapingTests(unittest.TestCase):
                     self.assertGreaterEqual(ticks, 10)
         self.assertEqual([abs(float(x)) for x in cross[1:]], [0.0, 0.0])   # never past zero
 
-    def test_a_driven_wheel_with_a_silent_encoder_trips_the_watch(self):
-        tripped = {(int(d), int(n)): int(t) for d, n, t in self.rows('encoder')}
-        for duty in (600, -600, 1023):               # about half a second, either direction
-            self.assertTrue(45 <= tripped[(duty, 0)] <= 55, tripped)
-        self.assertEqual(tripped[(300, 0)], -1)      # gentle duty may leave a loaded wheel still
-        self.assertEqual(tripped[(600, 20)], -1)     # a slow wheel that still counts is measured
+    def test_a_driven_wheel_must_be_measured_moving_the_way_it_is_driven(self):
+        tripped = {(name, int(effort)): int(t) for name, effort, t in self.rows('encoder')}
+        half_second = lambda t: 45 <= t <= 55
+        for case in (('none', 600), ('none', -600), ('none', 1023)):   # unplugged encoder
+            self.assertTrue(half_second(tripped[case]), (case, tripped))
+        self.assertTrue(half_second(tripped[('flicker', 600)]), tripped)   # one signal wire loose
+        self.assertTrue(half_second(tripped[('back', 600)]), tripped)      # encoder sign reversed
+        self.assertTrue(half_second(tripped[('back', -600)]), tripped)
+        for case in (('slow', 600), ('fast', 600), ('fast', -600)):     # measured, even if slow
+            self.assertEqual(tripped[case], -1, (case, tripped))
+        self.assertEqual(tripped[('none', 300)], -1)     # gentle duty may leave a loaded wheel still
+        self.assertEqual(tripped[('back', 300)], -1)     # and a wheel being slowed is not a fault
+        self.assertEqual(tripped[('pulsed', 600)], -1)
 
     def test_wheel_slew_never_softens_slowing_but_bounds_speeding_up_and_reversal(self):
         got = {(float(a), float(b)): float(c) for a, b, c in self.rows('slew')}

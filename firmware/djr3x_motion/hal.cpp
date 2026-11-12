@@ -52,9 +52,9 @@ static bool    s_motors_enabled = false;
 
 // Per-wheel controller state: PID, breakaway boost, stop fade (drive_shaping.h).
 static WheelLoop s_loop_l, s_loop_r;
-// Encoder watch (drive_shaping.h): did each encoder move this tick, and for how long
-// has a hard-driven wheel shown nothing.
-static bool s_counted_l = false, s_counted_r = false;
+// Encoder watch (drive_shaping.h): each wheel's counts this tick, forward positive, and
+// how long a hard-driven wheel has gone without measured travel the way it is driven.
+static long s_dcount_l = 0, s_dcount_r = 0;
 static EncoderWatch s_watch_l, s_watch_r;
 // Last wheel targets handed to the speed loops (gamepad wheel-target slew).
 static float s_tgt_l = 0.0f, s_tgt_r = 0.0f;
@@ -123,8 +123,8 @@ void hal_read_odom(Odom& out, float dt) {
   // Signed wheel travel (metres) since the previous tick.
   const float d_l = ENC_SIGN_L * (float)(cl - s_prev_l) / cpm_l;
   const float d_r = ENC_SIGN_R * (float)(cr - s_prev_r) / cpm_r;
-  s_counted_l = (cl != s_prev_l);
-  s_counted_r = (cr != s_prev_r);
+  s_dcount_l = (long)(ENC_SIGN_L * (float)(cl - s_prev_l));
+  s_dcount_r = (long)(ENC_SIGN_R * (float)(cr - s_prev_r));
   s_prev_l = cl;
   s_prev_r = cr;
 
@@ -231,14 +231,16 @@ bool hal_drive_velocity(float lin, float ang, float dt, bool pivot_steer, float 
   const float vcomp = batt_comp_factor();
   const WheelGains g_l{kp*gl, ki*gl, kd*gl, kff*gl, run_floor, ceiling, vcomp};
   const WheelGains g_r{kp*gr, ki*gr, kd*gr, kff*gr, run_floor, ceiling, vcomp};
-  const int duty_l = MOTOR_SIGN_L * wheel_effort(s_loop_l, v_l, s_vmeas_l, dt, g_l, stopping);
-  const int duty_r = MOTOR_SIGN_R * wheel_effort(s_loop_r, v_r, s_vmeas_r, dt, g_r, stopping);
+  const int effort_l = wheel_effort(s_loop_l, v_l, s_vmeas_l, dt, g_l, stopping);
+  const int effort_r = wheel_effort(s_loop_r, v_r, s_vmeas_r, dt, g_r, stopping);
+  const int duty_l = MOTOR_SIGN_L * effort_l;
+  const int duty_r = MOTOR_SIGN_R * effort_r;
   apply_wheel_duty(PIN_L_RPWM, PIN_L_LPWM, duty_l);
   apply_wheel_duty(PIN_R_RPWM, PIN_R_LPWM, duty_r);
   g_ctx.wheels.dl = (int16_t)duty_l;   // telemetry diag (caller holds the state lock)
   g_ctx.wheels.dr = (int16_t)duty_r;
-  const bool silent_l = encoder_silent_step(s_watch_l, duty_l, s_counted_l, dt);
-  const bool silent_r = encoder_silent_step(s_watch_r, duty_r, s_counted_r, dt);
+  const bool silent_l = encoder_watch_step(s_watch_l, effort_l, s_dcount_l, dt);
+  const bool silent_r = encoder_watch_step(s_watch_r, effort_r, s_dcount_r, dt);
   return !(silent_l || silent_r);
 }
 

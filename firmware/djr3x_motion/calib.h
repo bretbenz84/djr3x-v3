@@ -47,25 +47,24 @@
 // Per-wheel count direction. +1 means "driving the wheel forward makes its count
 // increase." Flip to -1 (per wheel) if the bench hand-turn test shows the sign
 // backwards, instead of rewiring A/B.
-// ⚠ 2026-11-12: signs below are the previous motors'. The Yellow Jackets drive the right
-// way from the gamepad (owner), so MOTOR_SIGN_* stand; the ENCODER signs are unverified
-// until a wheel is turned with telemetry watched (forward travel must count positive).
-#define ENC_SIGN_L  (-1.0f)   // flipped 2026-07-17: replacement 60RPM left motor is
-                              // mirror-wired vs the original (bench `wheel left`:
-                              // + counts but physically BACKWARD — flip BOTH signs)
-#define ENC_SIGN_R  (+1.0f)   // 2026-07-20: right motor replaced with the 60RPM SKU. The new
-                              // unit reads/drives inverted vs the old right, so flip to +1
-                              // (opposite the left's -1: identical motor mounted mirror-image).
-                              // Encoder + motor flipped BOTH in lockstep; bench-verify `wheel right`.
+// 2026-11-12, Yellow Jackets: MEASURED by hand with telemetry watched (owner turned each
+// wheel forward then back, twice, top of the wheel toward the front of the robot). With
+// the previous motors' signs (L -1, R +1) both wheels read forward as reverse, so both
+// are flipped. With a reversed encoder the speed loop is positive feedback: any command
+// ran that wheel to full duty. MOTOR_SIGN_* are unchanged (the pad drove the right way):
+// on these motors the encoder counts the opposite way round to the JGB37s' for the same
+// rotation, so ENC_SIGN is now the opposite of MOTOR_SIGN on both wheels.
+#define ENC_SIGN_L  (+1.0f)
+#define ENC_SIGN_R  (-1.0f)
 
 // Per-wheel MOTOR direction. +1 means "a positive (forward) duty spins the wheel
 // forward." Flip to -1 (per wheel) — the software equivalent of swapping that motor's
 // two power leads — if the bench `spin` test runs away / auto-estops or the wheel spins
-// BACKWARD on a forward command. MUST agree with ENC_SIGN_* (forward duty -> forward
-// travel -> +counts): a mismatch makes the velocity PID positive feedback and trips the
-// runaway guard. Fixing direction HERE keeps each channel paired with its own encoder,
+// BACKWARD on a forward command. Forward duty must give forward travel and +counts
+// (ENC_SIGN_*): a mismatch makes the velocity PID positive feedback, which the encoder
+// watch below now cuts out. Fixing direction HERE keeps each channel paired with its own encoder,
 // so it does NOT desync odometry the way swapping only the motor leads does.
-#define MOTOR_SIGN_L  (-1)    // flipped in lockstep with ENC_SIGN_L (see above)
+#define MOTOR_SIGN_L  (-1)    // unchanged for the Yellow Jackets (2026-11-12)
 #define MOTOR_SIGN_R  (+1)    // 2026-07-20: flipped in lockstep with ENC_SIGN_R (60RPM right-motor
                               // swap). Bench-verify with `spin` / `wheel right` — forward duty must
                               // spin FORWARD and not trip the runaway guard.
@@ -207,16 +206,22 @@
 // outside wheel. (Was 0.90 for the original 176 rpm / 100 mm drivetrain.)
 #define WHEEL_TARGET_MAX_MS      0.42f
 
-// ---- Encoder watch (hal.cpp, drive_shaping.h encoder_silent_step) -----------
-// A wheel driven at or above ENC_SILENT_DUTY whose encoder has not moved a single count
-// for ENC_SILENT_S is not being measured: an unplugged or unpowered encoder, a broken
-// lead, or a jammed wheel. The speed loop would otherwise read "stopped", wind its
-// integrator and run that wheel to full duty whatever the stick asks. The base cuts the
-// motors and raises fault encoder_stall instead (Start on the pad or `clear` releases).
-// 45% duty is well past anything that leaves a free Yellow Jacket wheel still. The
-// single-wheel `wheel` bring-up jog is not watched: it exists to test an unproven encoder.
-#define ENC_SILENT_DUTY   450
-#define ENC_SILENT_S      0.5f
+// ---- Encoder watch (hal.cpp, drive_shaping.h encoder_watch_step) ------------
+// A wheel driven at or above ENC_SILENT_DUTY must be MEASURED moving the way it is
+// driven: at least ENC_PROGRESS_MIN_COUNTS in that direction within ENC_SILENT_S. If
+// not, the speed loop is blind or backward and would run that wheel to full duty
+// whatever the stick asks, so the base cuts the motors and raises fault encoder_stall
+// (Start on the pad or `clear` releases). It catches, all seen 2026-11-12:
+//   - no counts at all (encoder unplugged or unpowered),
+//   - counts flickering +1/-1 with no net travel (one of the two signal wires loose; the
+//     first version of this watch only looked for "any count" and missed it),
+//   - counts in the opposite direction (encoder sign reversed).
+// A jammed wheel trips it too. 45% duty is well past anything that leaves a free Yellow
+// Jacket wheel still, and 20 counts is 3 mm of travel. The single-wheel `wheel` bring-up
+// jog is not watched: it exists to test an unproven encoder.
+#define ENC_SILENT_DUTY          450
+#define ENC_SILENT_S             0.5f
+#define ENC_PROGRESS_MIN_COUNTS  20
 
 // ---- Drive setpoint slew (teleop feel) ------------------------------------
 // Acceleration limit applied to every normal drive setpoint so the base

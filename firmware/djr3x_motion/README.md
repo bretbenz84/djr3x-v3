@@ -753,3 +753,30 @@ program, 90,972 globals. Flashed at the owner's request, hashes verified, hello
 `0.2.13-speed-reversal`; after boot the front matrix reported its own distances
 (488 / 433 mm against the radial pair's 923 / 571). Not yet driven: the feel, braking
 before obstacles with the matrix back, and whether the left/right difference is gone.
+
+## Encoder directions measured, stronger encoder watch (firmware 0.2.14, November 12, 2026)
+
+The owner turned each wheel by hand while telemetry was recorded (hello only, motors
+unpowered). First pass: the right encoder only flickered one count up and down with no
+net travel, the signature of one of its two signal wires missing; he found a loose wire.
+Second pass, each wheel forward then back, twice: both encoders counted, and both read
+forward as reverse (about -180 to -235 mm on the forward pushes, +185 to +210 mm on the
+backward ones; each wheel registered only while it was the one being turned).
+
+With a reversed encoder the speed loop is positive feedback, and with the dead channel
+the right wheel read as stopped: on 0.2.11 to 0.2.13 both wheels ran to full duty for
+any command. The tuning in those versions was therefore never exercised as intended,
+and the left/right difference and jerks reported under 0.2.12 are more likely this than
+the wall steering blamed in the 0.2.13 section.
+
+- `ENC_SIGN_L` +1 and `ENC_SIGN_R` -1 (were -1 / +1). `MOTOR_SIGN_*` unchanged.
+- The encoder watch now requires a wheel driven at 45% duty or more to be measured
+  moving the way it is driven, 20 counts (3 mm) within 0.5 s (`encoder_watch_step`). It
+  catches a dead encoder, the one-wire flicker the first version missed (any count reset
+  it), and a reversed sign. Fault `encoder_stall` as before.
+
+Checks: 49 native firmware checks pass (the watch test rewritten for the three cases).
+Full four-flag build 815,741 bytes program, 90,996 globals. Flashed at the owner's
+request, hashes verified, hello `0.2.14-encoder-signs`. Not yet driven: this is the
+first build whose speed loops are closed correctly on these motors, so the estimated
+floors, gains and counts per metre get their first real test.

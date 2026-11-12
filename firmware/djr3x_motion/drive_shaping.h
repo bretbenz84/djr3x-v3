@@ -131,12 +131,22 @@ static inline int wheel_effort(WheelLoop& w, float target, float meas, float dt,
 }
 
 // Encoder watch: true once a wheel has been driven at or above ENC_SILENT_DUTY for
-// ENC_SILENT_S without its encoder moving one count. That wheel is not being measured
-// (unplugged encoder, broken lead) or is jammed; either way the speed loop is blind.
-struct EncoderWatch { float silent_s = 0.0f; };
-static inline bool encoder_silent_step(EncoderWatch& e, int duty, bool counted, float dt) {
-  if (counted || (duty < ENC_SILENT_DUTY && duty > -ENC_SILENT_DUTY)) {
+// ENC_SILENT_S without being measured to move ENC_PROGRESS_MIN_COUNTS the way it is
+// driven. `effort` and `counts` share the forward-positive convention (before
+// MOTOR_SIGN, after ENC_SIGN). Progress the right way restarts the window; easing off
+// or reversing the drive resets it.
+struct EncoderWatch { float silent_s = 0.0f; long progress = 0; int dir = 0; };
+static inline bool encoder_watch_step(EncoderWatch& e, int effort, long counts, float dt) {
+  const int dir = effort >= ENC_SILENT_DUTY ? 1 : (effort <= -ENC_SILENT_DUTY ? -1 : 0);
+  if (dir == 0 || dir != e.dir) {
+    e = EncoderWatch();
+    e.dir = dir;
+    return false;
+  }
+  e.progress += counts * dir;
+  if (e.progress >= ENC_PROGRESS_MIN_COUNTS) {
     e.silent_s = 0.0f;
+    e.progress = 0;
     return false;
   }
   e.silent_s += dt;

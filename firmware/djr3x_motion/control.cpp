@@ -424,8 +424,8 @@ void control_tick(float dt) {
                 drive_speed_blend(fmaxf(fabsf(s_ramp_lin), fabsf(c.odom.lin))))
         : 1.0f;
     if (!hal_drive_velocity(s_ramp_lin, s_ramp_ang, dt, manual, blend, stopping)) {
-      // A hard-driven wheel shows no encoder counts (calib.h "Encoder watch"): the speed
-      // loop is blind and would run it to full duty. Cut the motors and latch a fault;
+      // A hard-driven wheel is not measured moving the way it is driven (calib.h "Encoder
+      // watch"): the speed loop is blind or backward and would run it to full duty. Cut the motors and latch a fault;
       // the next tick's halt path ends any finite command with done:aborted.
       encoderSilent = true;
       c.state = ST_FAULT; c.fault = F_ENCODER_STALL;
@@ -443,7 +443,7 @@ void control_tick(float dt) {
   UNLOCK_STATE();
 
   if (encoderSilent) {
-    emit_log("error", "drive: a wheel is powered but its encoder is not counting - motors cut (fault encoder_stall)");
+    emit_log("error", "drive: a powered wheel is not measured moving the way it is driven (encoder dead, flickering or reversed, or wheel jammed) - motors cut (fault encoder_stall)");
   }
   if (turnVerifyTimeout)
     emit_log("warn", "turn: IMU yaw did not reach target before timeout - possible wheel slip/stall");
