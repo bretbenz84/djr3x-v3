@@ -116,7 +116,7 @@ class StickShapingTests(unittest.TestCase):
                 rows, lo, hi = self.jerk(x, 0.0)
                 inside = [(lin, l if x < 0 else r) for lin, _, l, r in rows]
                 outside = [r if x < 0 else l for _, _, l, r in rows]
-                self.assertAlmostEqual(inside[0][1], 0.25, places=3)          # at speed, straight
+                self.assertAlmostEqual(inside[0][1], self.drive(0.0, 1.0)['lin'], places=3)   # at speed, straight
                 self.assertTrue(all(v >= 0.0 for lin, v in inside if lin >= hi))   # no reversal while moving
                 self.assertTrue(any(v == 0.0 for lin, v in inside))           # it does come to a stop first
                 self.assertTrue(all(b <= a + 1e-6 for (_, a), (_, b) in zip(inside, inside[1:])))   # only slows
@@ -127,8 +127,10 @@ class StickShapingTests(unittest.TestCase):
                 self.assertLess(inside[-1][1], -0.2)
 
     def test_stick_thrown_to_a_hard_forward_turn_never_reverses_a_wheel(self):
-        rows, _, _ = self.jerk(-0.94, 0.34)          # 70 degrees left of forward, full push
-        self.assertTrue(all(l >= -0.03 and r >= 0.0 for _, _, l, r in rows))
+        rows, _, hi = self.jerk(-0.94, 0.34)         # 70 degrees left of forward, full push
+        self.assertTrue(all(l >= 0.0 and r >= 0.0 for lin, _, l, r in rows if lin >= hi))
+        # Once it has slowed to the crawl that stick asks for, the inside wheel may creep back.
+        self.assertTrue(all(l >= -0.05 and r >= 0.0 for _, _, l, r in rows))
         self.assertGreater(min(lin for lin, _, _, _ in rows), 0.0)
 
     def test_standing_still_the_speed_alone_allows_a_spin(self):

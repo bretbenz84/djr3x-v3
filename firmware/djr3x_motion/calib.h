@@ -601,7 +601,13 @@
 // Turn ceiling: the old one was the whole wheel-speed range (4 rad/s, 230 deg/s) for the
 // weak motors; against a 0.25 m/s forward ceiling a quarter of the turn stick already
 // stopped the inside wheel.
-#define GAMEPAD_LIN_MS         0.25f    // the autonomous walking pace
+// Forward ceiling 0.25 -> 0.38 m/s (owner 2026-11-12, first drive with working speed
+// control: "super slow now, full speed ahead feels like 1/3 speed"; he had only ever
+// felt these motors flat out, about 0.47 m/s). 0.38 is about 80% of flat out and leaves
+// the speed loop headroom under the 0.42 wheel ceiling. In a hard bank the outside wheel
+// would exceed that ceiling, so both wheels scale down together and the base slows
+// through the turn. Autonomous speeds are the host's and are unchanged (0.25 m/s).
+#define GAMEPAD_LIN_MS         0.38f
 #define GAMEPAD_ANG_RADS       1.2f     // ~70 deg/s spin at full stick
 // Stick RESPONSE CURVES: command = sign(stick) * |stick|^GAMMA * mode max, per axis.
 // GAMMA > 1 is expo: fine control around centre, full deflection still the mode max.
@@ -618,8 +624,8 @@
 // now a radial deadzone around centre plus the forward axis's own; the turn axis keeps
 // only this small one, so a lean at full forward registers almost at once. While
 // translating, full turn stick asks for a wheel-speed difference of ARC_STEER_FRAC of the
-// forward ceiling each side: at full forward the inside wheel keeps 20% of the
-// speed and the base banks through about a 0.28 m radius instead of stopping to pivot.
+// forward ceiling each side, never more than the spin ceiling: at full forward the inside
+// wheel keeps rolling (20-30% of the speed) and the base banks instead of stopping to pivot.
 // Standing still the full spin ceiling (GAMEPAD_ANG_RADS) applies; the blend band
 // below eases between the two.
 #define GAMEPAD_TURN_DEADZONE   0.05f

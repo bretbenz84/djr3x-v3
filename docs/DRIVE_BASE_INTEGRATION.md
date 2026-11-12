@@ -1470,3 +1470,6 @@ Firmware 0.2.14, same day: a hand test with telemetry found the right encoder ha
 wire (fixed by the owner) and both encoders counting backward for the new motors. Both wheels had
 therefore run at full power for any command on 0.2.11-0.2.13. The directions are flipped and the
 encoder cut-out now also trips on a flickering or reversed encoder. **Not yet driven.**
+
+Owner after driving 0.2.14: "the motion is much better", but too slow. Firmware 0.2.15 raises the
+gamepad's forward ceiling from 0.25 to 0.38 m/s; Rex's own speeds are unchanged. **Not yet driven.**
