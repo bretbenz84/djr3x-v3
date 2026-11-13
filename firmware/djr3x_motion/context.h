@@ -8,6 +8,7 @@
 #include <Arduino.h>
 #include "protocol.h"
 #include "calib.h"   // boot defaults for the runtime-tunable drive params below
+#include "zone_envelope.h"
 
 // ===== Small numeric helpers (shared) ======================================
 inline float clampf(float v, float lo, float hi) {
@@ -78,24 +79,6 @@ struct MotionParams {
   float    assist_engage_mm = ASSIST_ENGAGE_MM;  // walls beyond this are ignored
   float    assist_gain      = ASSIST_GAIN;       // rad/s per METER of left-right imbalance
 };
-
-// ===== Speed-adaptive collision zones (calib.h ZONE_*/STOP_ZONE_MIN_M) ======
-// Effective stop/slow distances as a function of MEASURED linear speed: the
-// configured params are the full-speed envelope, shrinking linearly to the calib.h
-// floors at rest. Used by BOTH the safety reflex (zone classification) and the
-// control taper — keep them consuming these helpers so the two never disagree.
-inline float zone_speed_frac(float lin_ms) {
-  return clampf(fabsf(lin_ms) / ZONE_SPEED_REF_MS, 0.0f, 1.0f);
-}
-inline float stop_zone_eff(const MotionParams& p, float lin_ms) {
-  const float lo = fminf(STOP_ZONE_MIN_M, p.stop_zone_m);   // a tighter config wins
-  return lo + (p.stop_zone_m - lo) * zone_speed_frac(lin_ms);
-}
-inline float slow_zone_eff(const MotionParams& p, float lin_ms) {
-  const float lo = fminf(SLOW_ZONE_MIN_M, p.slow_zone_m);
-  const float s  = lo + (p.slow_zone_m - lo) * zone_speed_frac(lin_ms);
-  return fmaxf(s, stop_zone_eff(p, lin_ms) + 0.05f);        // keep a real band above stop
-}
 
 // ===== Active finite command (turn / move) ===========================
 struct FiniteCmd {
@@ -281,6 +264,20 @@ struct MotionContext {
   int8_t    batt_soc = -1;        // coulomb-counted state of charge, 0-100%;
                                   // -1 = unknown (no shunt / gauge not initialized)
 };
+
+// ===== Speed-adaptive collision zones (zone_envelope.h, calib.h ZONE_*) =====
+// Effective stop/slow distances for this tick: the full-speed envelope in force (the
+// configured one, or the gamepad's own if larger while the pad drives) scaled by MEASURED
+// linear speed down to the calib.h floors at rest. Used by BOTH the safety reflex (zone
+// classification) and the control taper; keep them on these helpers so they never disagree.
+inline float stop_zone_eff(const MotionContext& c) {
+  return stop_zone_at(zone_stop_full(c.params.stop_zone_m, c.owner == OWNER_MANUAL), c.odom.lin);
+}
+inline float slow_zone_eff(const MotionContext& c) {
+  const bool manual = (c.owner == OWNER_MANUAL);
+  return slow_zone_at(zone_stop_full(c.params.stop_zone_m, manual),
+                      zone_slow_full(c.params.slow_zone_m, manual), c.odom.lin);
+}
 
 // ===== Globals (defined in djr3x_motion.ino) ==============================
 extern MotionContext     g_ctx;

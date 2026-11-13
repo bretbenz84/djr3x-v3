@@ -433,6 +433,7 @@ the contract correctly.
 | `control.{h,cpp}` | Stub plant + odometry, finite-command lifecycle |
 | `safety.{h,cpp}` | Watchdog, ToF zones + reflex stop, comms-loss handling |
 | `hal.{h,cpp}` | Hardware abstraction — motor/encoder stubs vs real drivers behind `MOTION_HW_PRESENT` |
+| `zone_envelope.h` | Pure speed-adaptive obstacle envelope (stop line and braking distance by speed; the gamepad's own minimum); compiled natively by `firmware/tests/test_zone_envelope.py` |
 | `stick_shaping.h` | Pure gamepad stick mapping (round travel to square, deadzones, expo, turn authority); compiled natively by `firmware/tests/test_stick_shaping.py` |
 | `drive_shaping.h` | Pure per-wheel effort shaping (breakaway boost, stop fade, PID) and reflex braking; compiled natively by `firmware/tests/test_drive_shaping.py` |
 | `tof.cpp` | ToF (VL53L0X ×5) driver — clear-room stub vs XSHUT/mux real driver behind `MOTION_TOF_PRESENT` |
@@ -820,3 +821,33 @@ Checks: 49 native firmware checks pass. Full four-flag build 815,733 bytes progr
 90,996 globals. Flashed at the owner's request, hashes verified, hello
 `0.2.16-pad-faster`. Not yet driven at this speed: straight tracking at full duty and
 braking before obstacles at 0.45 m/s are unverified.
+
+## Braking envelope at the new top speed (firmware 0.2.17, November 12, 2026)
+
+Owner after driving 0.2.16 at 0.45 m/s: "At full speed, it still runs into walls. If
+it's near a wall and stationary it won't let me go forward ... It needs to decelerate a
+little faster if it's quickly approaching a wall."
+
+The obstacle zones scale with speed, and the scale's top (`ZONE_SPEED_REF_MS`) was still
+0.80 m/s from the original 176 rpm motors. A full-speed run on these motors got 56% of
+the configured envelope: stop line 0.21 m, braking from 0.50 m. In simulation an ideal
+base still stops; one whose real speed lags the commanded slowdown by 0.3 s with 0.3 s of
+sensor delay reaches the wall at 0.08 m/s, and with the host's tighter zones (0.15 /
+0.60 m, pushed whenever Rex runs) at 0.3 m/s. At 0.25 m/s the same base stops.
+
+- `ZONE_SPEED_REF_MS` 0.80 → 0.46: the whole configured envelope applies at top speed
+  (boot values: stop line 0.30 m, braking from 0.75 m). The at-rest floors (0.10 / 0.18 m)
+  are unchanged, so parking close still works.
+- While the pad drives, the envelope is never tighter than the gamepad's own
+  (`GAMEPAD_STOP_ZONE_M` 0.30, `GAMEPAD_SLOW_ZONE_M` 0.75), whatever the host configured
+  for Rex. The envelope math moved to the pure `zone_envelope.h`.
+- **Rex's own driving changes slightly**: at 0.25 m/s with the host's zones his stop line
+  is 0.127 m (was 0.116) and braking starts 0.41 m out (was 0.31).
+
+Checks: 54 native firmware checks pass, five new (`test_zone_envelope.py`: the envelope
+at top speed and at rest, the pad's minimum, and a lagging base stopping at least 5 cm
+short from full pad speed with either set of zones). Full four-flag build 815,833 bytes
+program, 90,996 globals. Flashed at the owner's request, hashes verified, hello
+`0.2.17-brake-envelope`. Not yet driven. The lag and delay figures are assumptions, not
+measurements; no approach has been recorded. Oblique approaches, where the front corner
+reaches a wall before the forward-facing sensors see it close, are not addressed.

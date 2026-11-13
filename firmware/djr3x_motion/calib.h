@@ -549,9 +549,20 @@
 // The STOP floor is the "never able to actually hit the wall" guarantee.
 #define STOP_ZONE_MIN_M       0.10f   // hard-stop floor at rest (~4 in) — never hittable
 #define SLOW_ZONE_MIN_M       0.18f   // braking-band floor at rest
-#define ZONE_SPEED_REF_MS     0.80f   // speed at which the configured zones fully apply
-                                      // (tracks the hardwood-mode ceiling; carpet mode
-                                      // tops out higher but is drag-limited in practice)
+// ZONE_SPEED_REF_MS is the drivetrain's top speed. It was 0.80 for the 176 rpm motors and
+// stayed there through two motor swaps; with the Yellow Jackets topping out at 0.46 m/s a
+// full-speed gamepad run got only 56% of the configured envelope (stop line 0.21 m,
+// braking from 0.50 m) and the 55 lb base, whose real speed lags the commanded slowdown,
+// ran into walls (owner 2026-11-12: "at full speed, it still runs into walls ... it
+// needs to decelerate a little faster if it's quickly approaching a wall"). At 0.46 the
+// whole configured envelope applies at top speed: boot values stop 0.30 m, braking from
+// 0.75 m. Rex's own 0.25 m/s now gets 54% of his configured envelope instead of 31%
+// (host zones 0.15 / 0.60: stop line 0.127 m, was 0.116; braking from 0.41 m, was 0.31).
+#define ZONE_SPEED_REF_MS     0.46f
+// The gamepad's own full-speed envelope: while a person drives from the pad the zones are
+// never tighter than these, whatever the host configured for Rex (zone_envelope.h).
+#define GAMEPAD_STOP_ZONE_M   0.30f
+#define GAMEPAD_SLOW_ZONE_M   0.75f
 
 // ---- Finite-command reflex-block grace (control.cpp) ------------------------
 // A finite move/come used to terminate done:blocked the instant the reflex latched

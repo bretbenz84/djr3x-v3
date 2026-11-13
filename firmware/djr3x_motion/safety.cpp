@@ -99,8 +99,8 @@ void safety_tick() {
   // Speed-adaptive envelope (context.h helpers): the configured zones apply at full
   // speed, shrinking to the calib.h floors at rest — fast approach brakes early,
   // slow positioning gets close, and the STOP floor still makes contact impossible.
-  const int stop_mm = (int)(stop_zone_eff(c.params, c.odom.lin) * 1000.0f);
-  const int slow_mm = (int)(slow_zone_eff(c.params, c.odom.lin) * 1000.0f);
+  const int stop_mm = (int)(stop_zone_eff(c) * 1000.0f);
+  const int slow_mm = (int)(slow_zone_eff(c) * 1000.0f);
   const int16_t d_front = min2_valid(c.tof.fl, c.tof.fr);
   const int16_t d_rear  = min2_valid(c.tof.rl, c.tof.rr);
   const MotionZone zf = (d_front < stop_mm) ? Z_STOP : ((d_front < slow_mm) ? Z_SLOW : Z_CLEAR);

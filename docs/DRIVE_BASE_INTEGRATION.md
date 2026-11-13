@@ -1477,3 +1477,9 @@ gamepad's forward ceiling from 0.25 to 0.38 m/s; Rex's own speeds are unchanged.
 Owner after driving 0.2.15: "so much better", acceleration good, nothing lurches. Firmware 0.2.16
 raises the gamepad's forward ceiling to the motors' limit (0.45 m/s) and cuts the in-place spin by
 20% (0.96 rad/s); Rex's own speeds are unchanged. **Not yet driven.**
+
+Firmware 0.2.17, same day: at the pad's 0.45 m/s the base still ran into walls. The speed scale of
+the obstacle zones dated from the first motors (0.80 m/s), so top speed got about half the braking
+room. It is now the real top speed (0.46), and pad driving never uses zones tighter than its own
+0.30 / 0.75 m. Rex's own stops at 0.25 m/s move out slightly: stop line 0.127 m (was 0.116),
+braking from 0.41 m (was 0.31). **Not yet driven;** watch his approaches to furniture for crawling.
