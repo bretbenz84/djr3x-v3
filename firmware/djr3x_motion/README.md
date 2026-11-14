@@ -307,7 +307,7 @@ remembers the bond for next time.
 
 | Input | Action |
 | --- | --- |
-| Left stick | arcade drive — Y forward/back, X turn, both on an expo curve; ceilings 0.45 m/s and 0.96 rad/s since 0.2.16 (one profile since 0.2.13). A lean while driving banks: forward speed holds and the inside wheel slows. Pure X spins in place. A wheel runs backward for a turn only when the base is nearly still (under 0.12 m/s, fully under 0.03), whatever the stick does |
+| Left stick | arcade drive — Y forward/back, X turn, both on an expo curve; ceilings 0.60 m/s (96 mm wheels, 0.2.18) and 0.96 rad/s (one profile since 0.2.13). A lean while driving banks: forward speed holds and the inside wheel slows. Pure X spins in place. A wheel runs backward for a turn only when the base is nearly still (under 0.12 m/s, fully under 0.03), whatever the stick does |
 | L3 (click left stick) | nothing since 0.2.13 (was the hardwood/carpet toggle) |
 | **D-pad** | **relative nudges**: Up/Down = short forward/back move (`GAMEPAD_NUDGE_DIST_M`, ToF-gated), Left/Right = relative 90° turn (`default_turn_deg`) |
 | **L1 (hold) + D-pad** | **spin to an absolute heading** (encoder test): Up=0°, Left=+90° (CCW), Down=180°, Right=−90° (CW) |
@@ -851,3 +851,35 @@ program, 90,996 globals. Flashed at the owner's request, hashes verified, hello
 `0.2.17-brake-envelope`. Not yet driven. The lag and delay figures are assumptions, not
 measurements; no approach has been recorded. Oblique approaches, where the front corner
 reaches a wall before the forward-facing sensors see it close, are not addressed.
+
+## 96 mm wheels (firmware 0.2.18, November 13, 2026)
+
+The owner replaced the 72 mm drive wheels with 96 mm ones and asked for the firmware to
+match. Everything below is computed from the wheel size and the motor's published
+figures; nothing was taped or driven.
+
+- **Scale**: 4725 counts per metre per wheel (1425.1 / (π × 0.096 m); was 6300), wheel
+  0.096 m, gain scale 2.55 (was 3.4: a third more speed per unit of duty).
+- **Effort floors** scaled by 96/72 from the 72 mm values the owner drove (a quarter less
+  push per unit of duty): running floor 105, straight breakaway 265, pivot floor / kick
+  200 / 465.
+- **Top speed**: the drivetrain now reaches 0.59 m/s unloaded at 12 V. Wheel ceiling
+  0.61 m/s (was 0.46), hard caps 0.66 m/s and 2.7 rad/s, and the gamepad's forward
+  ceiling 0.60 m/s (was 0.45), keeping full stick at the motors' limit as the owner
+  asked on the 72 mm wheels. Spin rate, banking fraction and ramps are unchanged, so
+  full speed now takes 1.5 s to reach.
+- **Braking envelope**: `ZONE_SPEED_REF_MS` 0.61 (top speed). The gamepad's own envelope
+  grows to a 0.40 m stop line with braking from 1.00 m at full speed; with the previous
+  0.30 / 0.75 m the simulated lagging base reached the wall from 0.60 m/s, and with
+  these it stops at least 7 cm short. Rex at 0.25 m/s with the host's zones: stop line
+  0.12 m, braking from 0.35 m.
+
+A stationary read after the wheel change showed no false obstacle from either depth
+matrix (bottom two rows of the front one read floor at 299-586 mm, zone clear). The
+matrices sit about 12 mm higher now; their floor calibration was not redone.
+
+Checks: 54 native firmware checks pass (the stick-sweep step bound is now relative to
+top speed). Full four-flag build 815,833 bytes program, 90,996 globals. Flashed at the
+owner's request, hashes verified, hello `0.2.18-wheels-96mm`. Not yet driven: speed,
+starting push, braking from 0.60 m/s, track width with the new wheels, and Rex's own
+turns and approaches.

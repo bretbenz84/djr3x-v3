@@ -22,27 +22,28 @@
 #endif
 
 // ---- Drive geometry (MEASURE — see above) --------------------------------
-// Drivetrain since 2026-11-12 (owner rebuild): two goBILDA 5203 Yellow Jacket
-// planetary gear motors, 50.9:1, 117 rpm no-load at 12 V, with 72 mm drive wheels.
+// Drivetrain: two goBILDA 5203 Yellow Jacket planetary gear motors (2026-11-12), 50.9:1,
+// 117 rpm no-load at 12 V, on 96 mm drive wheels (2026-11-13; 72 mm for one day before).
 // The built-in encoder gives 28 counts per motor revolution in full quadrature, so
 // 28 x 50.9 = 1425.1 counts per wheel revolution (goBILDA's published figure).
 // The values below are COMPUTED from those numbers, not yet taped on the floor.
 // History: the JGB37 60 rpm motors with 100 mm wheels measured 17000 counts/m; that
-// value left in place under these motors made every measured speed read 0.37x true,
-// so any stick command saturated both wheels (owner: "either really fast or it stops").
+// value left in place under these motors made every measured speed read 0.37x true.
+// With 72 mm wheels the figures were 6300 counts/m and a 0.44 m/s no-load top speed.
 #define COUNTS_PER_REV_OUTPUT  1425.1f
-#define WHEEL_DIAMETER_M       0.072f
+#define WHEEL_DIAMETER_M       0.096f
 // EMPIRICAL turn calibration from the previous drivetrain (2026-07-21: 0.297 turned
 // 270 deg for a commanded 180, so 0.4455). The effective track includes tyre scrub.
-// ⚠ Not re-measured since the rebuild: check with a taped 360 deg turn on hardwood.
+// ⚠ Not re-measured since the rebuild or the wheel changes (a wider or differently
+// offset wheel moves it): check with a taped 360 deg turn on hardwood.
 #define TRACK_WIDTH_M          0.446f
 
 #define WHEEL_CIRCUM_M   ((float)M_PI * WHEEL_DIAMETER_M)
-// 1425.1 / (pi x 0.072 m) = 6300 counts per metre. ⚠ Verify: roll the base a taped
+// 1425.1 / (pi x 0.096 m) = 4725 counts per metre. ⚠ Verify: roll the base a taped
 // metre by hand and compare the odometry (runtime keys counts_per_meter_l / _r; the
 // legacy counts_per_meter key sets both).
-#define COUNTS_PER_METER_L 6300.0f
-#define COUNTS_PER_METER_R 6300.0f
+#define COUNTS_PER_METER_L 4725.0f
+#define COUNTS_PER_METER_R 4725.0f
 
 // Per-wheel count direction. +1 means "driving the wheel forward makes its count
 // increase." Flip to -1 (per wheel) if the bench hand-turn test shows the sign
@@ -93,11 +94,12 @@
 // PER-WHEEL GAIN SCALES multiply kp/ki/kff (runtime keys gain_scale_l / _r) so the base
 // gains stay in one unit while the motors change. They track the plant: full duty over
 // no-load wheel speed. 60 rpm JGB37 on 100 mm wheels: 1023 / 0.31 m/s = 3300 duty per
-// m/s = 5.2 x the 640 base. Yellow Jacket 117 rpm on 72 mm wheels: 0.44 m/s at 12 V,
-// about 0.47 m/s at the 12.8 V the feedforward assumes, so 1023 / 0.47 = 2180 = 3.4 x.
-// Computed 2026-11-12; trim on the floor if a steady run sits above or below its command.
-#define WHEEL_GAIN_SCALE_L  3.4f
-#define WHEEL_GAIN_SCALE_R  3.4f
+// m/s = 5.2 x the 640 base. Yellow Jacket 117 rpm on 72 mm wheels: 0.47 m/s at the 12.8 V
+// the feedforward assumes, 1023 / 0.47 = 2180 = 3.4 x (driven and approved 2026-11-12).
+// On 96 mm wheels: 0.59 m/s at 12 V, 0.63 at 12.8 V, so 1023 / 0.63 = 1630 = 2.55 x.
+// Computed 2026-11-13; trim on the floor if a steady run sits above or below its command.
+#define WHEEL_GAIN_SCALE_L  2.55f
+#define WHEEL_GAIN_SCALE_R  2.55f
 #define WHEEL_PID_KP      440.0f
 #define WHEEL_PID_KI      220.0f
 #define WHEEL_PID_KD        0.0f
@@ -127,7 +129,10 @@
 // moment any speed was commanded. Old measured values: floor 230, straight breakaway 500,
 // pivot floor 380 / kick 700-750 (hardwood), 650 / 1023 (carpet). If a start hums without
 // moving, raise the ceiling for that case; the ramped boost only uses what it needs.
-#define WHEEL_MIN_DUTY     80.0f    // running duty floor (duty), in travel dir — applies
+// 2026-11-13, 96 mm wheels: a wheel a third larger pushes a quarter less per unit of duty,
+// so the 72 mm values the owner drove ("nothing lurches": floor 80, straight breakaway
+// 200, pivot floor 150 / kick 350) are scaled by 96/72 below. Still estimates.
+#define WHEEL_MIN_DUTY    105.0f    // running duty floor (duty), in travel dir — applies
                                     // while the wheel is ROLLING. MEASURED on the
                                     // full-weight base (2026-07-12): sustained creep
                                     // needs ~240 total duty; at the old 120 the wheel
@@ -160,7 +165,7 @@
 // commanded tick: a stalled wheel climbs from WHEEL_MIN_DUTY toward it at
 // WHEEL_BOOST_RISE_DUTY_S and gives the excess back once it rolls. Runtime param
 // (breakaway_duty); this is the boot default.
-#define WHEEL_STRAIGHT_BREAKAWAY_DUTY 200.0f
+#define WHEEL_STRAIGHT_BREAKAWAY_DUTY 265.0f
 // PIVOT (spin-in-place) breakaway CEILING: when the two wheel targets have OPPOSITE
 // signs the base is scrubbing both tires sideways — a far higher static threshold than
 // rolling, and higher again on carpet. The ramped boost (drive_shaping.h) climbs toward
@@ -173,16 +178,16 @@
 // stalled duty (the inflated-units loop delivered it unknowingly); this carpet
 // SATURATES at 1023 duty with ~zero rotation — in-place spins on that carpet exceed
 // the platform's torque ceiling, full stop; use moving arcs there instead.
-#define WHEEL_SPIN_BREAKAWAY_DUTY 350.0f
+#define WHEEL_SPIN_BREAKAWAY_DUTY 465.0f
 // Pivot RUNNING floor (field fix, same day): stall-gating alone made spins twitch —
 // the kick broke the wheels loose, dropped to WHEEL_MIN_DUTY (120) one tick later,
 // and the SUSTAINED sideways scrub of a pivot re-stalled them (stick-slip grind;
 // the integrator needed seconds to build the missing duty). While pivoting, the floor
 // sits here instead of at WHEEL_MIN_DUTY, carrying the scrub load; the per-surface
 // profiles (GAMEPAD_*_SPIN_RUN) override this base at mode-apply. A stop fades it out.
-#define WHEEL_SPIN_RUN_DUTY       150.0f
+#define WHEEL_SPIN_RUN_DUTY       200.0f
 #define WHEEL_STALLED_EPS_MS      0.03f   // wheel counts as stalled below this (m/s);
-                                          // ~1.9 encoder counts per 10 ms tick — resolvable
+                                          // ~1.4 encoder counts per 10 ms tick — resolvable
 
 // A wheel target below this (m/s magnitude) counts as "stopped" → duty zero and the
 // controller state reset rather than chasing micro-setpoints. A stop reaches it with
@@ -200,12 +205,12 @@
 #define WHEEL_BOOST_RISE_DUTY_S   2500.0f   // duty per second while stalled
 #define WHEEL_BOOST_FALL_DUTY_S   2500.0f   // duty per second once rolling or stopping
 
-// 117 rpm on a 72 mm wheel is 0.44 m/s unloaded at 12 V. Keep mixed wheel-speed
+// 117 rpm on a 96 mm wheel is 0.59 m/s unloaded at 12 V. Keep mixed wheel-speed
 // requests just below that physical ceiling and scale both sides together so a
 // combined forward+turn command preserves curvature instead of saturating only the
-// outside wheel. (Was 0.90 for the original 176 rpm / 100 mm drivetrain; 0.42 until the
-// gamepad ceiling went to 0.45 on 2026-11-12.)
-#define WHEEL_TARGET_MAX_MS      0.46f
+// outside wheel. (Was 0.90 for the original 176 rpm / 100 mm drivetrain, 0.46 on the
+// Yellow Jackets with 72 mm wheels.)
+#define WHEEL_TARGET_MAX_MS      0.61f
 
 // ---- Encoder watch (hal.cpp, drive_shaping.h encoder_watch_step) ------------
 // A wheel driven at or above ENC_SILENT_DUTY must be MEASURED moving the way it is
@@ -218,7 +223,7 @@
 //     first version of this watch only looked for "any count" and missed it),
 //   - counts in the opposite direction (encoder sign reversed).
 // A jammed wheel trips it too. 45% duty is well past anything that leaves a free Yellow
-// Jacket wheel still, and 20 counts is 3 mm of travel. The single-wheel `wheel` bring-up
+// Jacket wheel still, and 20 counts is 4 mm of travel. The single-wheel `wheel` bring-up
 // jog is not watched: it exists to test an unproven encoder.
 #define ENC_SILENT_DUTY          450
 #define ENC_SILENT_S             0.5f
@@ -558,11 +563,17 @@
 // whole configured envelope applies at top speed: boot values stop 0.30 m, braking from
 // 0.75 m. Rex's own 0.25 m/s now gets 54% of his configured envelope instead of 31%
 // (host zones 0.15 / 0.60: stop line 0.127 m, was 0.116; braking from 0.41 m, was 0.31).
-#define ZONE_SPEED_REF_MS     0.46f
+// 0.46 -> 0.61 with the 96 mm wheels (2026-11-13). Rex's 0.25 m/s then gets 41% of his
+// configured envelope (host zones: stop line 0.12 m, braking from 0.35 m).
+#define ZONE_SPEED_REF_MS     0.61f
 // The gamepad's own full-speed envelope: while a person drives from the pad the zones are
 // never tighter than these, whatever the host configured for Rex (zone_envelope.h).
-#define GAMEPAD_STOP_ZONE_M   0.30f
-#define GAMEPAD_SLOW_ZONE_M   0.75f
+// 0.30 / 0.75 -> 0.40 / 1.00 with the 96 mm wheels' 0.60 m/s (2026-11-13): in simulation
+// a base whose speed lags its commanded slowdown by 0.3 s, with 0.3 s of sensor delay,
+// reached the wall from 0.60 m/s with the smaller envelope and stops 7 cm short with this
+// one. These apply in full only at top speed; at rest the floors above still let it park.
+#define GAMEPAD_STOP_ZONE_M   0.40f
+#define GAMEPAD_SLOW_ZONE_M   1.00f
 
 // ---- Finite-command reflex-block grace (control.cpp) ------------------------
 // A finite move/come used to terminate done:blocked the instant the reflex latched
@@ -624,7 +635,9 @@
 // limit: 117 rpm on 72 mm is 0.44 m/s unloaded at 12 V, about 0.48 on a full pack, less
 // under the robot's weight. At full stick the speed loop will usually sit at or near full
 // duty, so the last few percent depend on battery charge and the two motors matching.
-#define GAMEPAD_LIN_MS         0.45f
+// 0.45 -> 0.60 with the 96 mm wheels (2026-11-13): the same "as fast as it can go" on a
+// drivetrain a third faster (0.59 m/s unloaded at 12 V, about 0.65 on a full pack).
+#define GAMEPAD_LIN_MS         0.60f
 // Spin 1.2 -> 0.96 rad/s (owner, same day: "stationary left/right turning could be tuned
 // down by 20%"). Turning while driving is set separately (GAMEPAD_ARC_STEER_FRAC).
 #define GAMEPAD_ANG_RADS       0.96f    // ~55 deg/s spin in place at full stick

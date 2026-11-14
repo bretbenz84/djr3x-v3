@@ -1483,3 +1483,13 @@ the obstacle zones dated from the first motors (0.80 m/s), so top speed got abou
 room. It is now the real top speed (0.46), and pad driving never uses zones tighter than its own
 0.30 / 0.75 m. Rex's own stops at 0.25 m/s move out slightly: stop line 0.127 m (was 0.116),
 braking from 0.41 m (was 0.31). **Not yet driven;** watch his approaches to furniture for crawling.
+
+
+## 96 mm wheels — November 13, 2026 (firmware 0.2.18)
+
+The owner swapped the 72 mm drive wheels for 96 mm ones. Firmware 0.2.18 carries the new distance
+scale (computed), gains and starting effort, a 0.61 m/s wheel ceiling, a 0.60 m/s gamepad ceiling
+and a larger gamepad braking envelope (stop line 0.40 m, braking from 1.00 m at full speed). Rex's
+own speeds are unchanged in metres per second; his obstacle zones at 0.25 m/s are a 0.12 m stop line
+with braking from 0.35 m. Detail: `firmware/djr3x_motion/README.md`. **Not yet driven;** distance
+scale and track width are untaped, so his turn angles and distances are unverified.

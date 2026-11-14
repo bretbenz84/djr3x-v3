@@ -21,10 +21,10 @@ inline uint32_t clampu(uint32_t v, uint32_t lo, uint32_t hi) {
 // ===== Hard caps (compile-time ceilings; `config` can tighten, never exceed) =
 // These are deliberately conservative for a tall, top-heavy droid on 2 driven
 // wheels. Re-tune once the base is measured (docs/motion_system.md §14).
-#define HARDCAP_MAX_LINEAR_MS     0.50f   // m/s — just above the 117 rpm / 72 mm drivetrain's
-                                          // full-pack no-load speed (2026-11-12; was 1.10)
-#define HARDCAP_MAX_ANGULAR_RAD_S 2.00f   // rad/s (~115 deg/s) — 0.45 m/s per wheel in a pure
-                                          // pivot on the 0.446 m track (was 6.10)
+#define HARDCAP_MAX_LINEAR_MS     0.66f   // m/s — just above the 117 rpm / 96 mm drivetrain's
+                                          // full-pack no-load speed (2026-11-13; 0.50 on 72 mm)
+#define HARDCAP_MAX_ANGULAR_RAD_S 2.70f   // rad/s (~155 deg/s) — 0.60 m/s per wheel in a pure
+                                          // pivot on the 0.446 m track (2.00 on 72 mm wheels)
 #define HARDCAP_MAX_TURN_RATE_DPS 120.0f  // deg/s
 #define HARDCAP_WATCHDOG_MS       2000u   // watchdog can't be set looser than this
 #define HARDCAP_DRIVE_EXPIRY_MS   1000u

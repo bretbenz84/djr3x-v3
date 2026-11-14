@@ -82,8 +82,8 @@ class ZoneEnvelopeTests(unittest.TestCase):
     def test_the_whole_configured_envelope_applies_at_the_gamepad_top_speed(self):
         self.zones(0.0, 0.30, 0.75, True)
         stop_m, slow_m = self.zones(self.top, 0.30, 0.75, True)
-        self.assertGreaterEqual(stop_m, 0.29)        # it was 0.21 m at 0.45 m/s
-        self.assertGreaterEqual(slow_m, 0.73)        # it was 0.50 m
+        self.assertGreaterEqual(stop_m, 0.29)        # 0.21 m at 0.45 m/s on the 0.80 scale
+        self.assertGreaterEqual(slow_m, 0.73)        # 0.50 m
 
     def test_at_rest_the_base_can_still_park_close(self):
         self.assertEqual(self.zones(0.0, 0.30, 0.75, True), (0.10, 0.18))

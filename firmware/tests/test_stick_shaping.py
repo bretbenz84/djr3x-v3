@@ -88,9 +88,9 @@ class StickShapingTests(unittest.TestCase):
 
     def test_no_step_anywhere_along_a_sweep_from_forward_to_sideways(self):
         sweep = [self.at(lean) for lean in range(0, 91)]
-        for a, b in zip(sweep, sweep[1:]):
-            self.assertLess(abs(b['left'] - a['left']), 0.03)
-            self.assertLess(abs(b['right'] - a['right']), 0.03)
+        for a, b in zip(sweep, sweep[1:]):           # per degree of stick: under 7% of top speed
+            self.assertLess(abs(b['left'] - a['left']), 0.07 * self.top)
+            self.assertLess(abs(b['right'] - a['right']), 0.07 * self.top)
 
     def test_sideways_is_a_spin_and_a_thumb_slightly_off_axis_stays_one(self):
         for y in (0.0, 0.08, -0.08):
