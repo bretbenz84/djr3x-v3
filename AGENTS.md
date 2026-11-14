@@ -64,7 +64,8 @@ V2 is at `/Users/bbenziger/djr3x-v2`. Treat it as reference material, not a runt
 dependency. Do not copy its config.py, requirements.txt, environment, startup chain,
 interaction handlers, or global state into v3. The drive ESP32 firmware now lives in
 v3 `firmware/djr3x_motion` (checks: `tools/run_firmware_checks.py`); edit and flash from
-there, not V2's copy. Firmware edits and flashes still need the owner's request.
+there, not V2's copy. The LED board's firmware (one ESP32 for the head and chest strips)
+lives in v3 `firmware/djr3x_leds`. Firmware edits and flashes still need the owner's request.
 
 For each extraction, record source revision and working-tree status, behavior to
 preserve, dependencies, adaptation, focused checks, and remaining live validation

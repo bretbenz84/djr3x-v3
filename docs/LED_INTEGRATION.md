@@ -1,16 +1,19 @@
 # LED integration
 
-Implemented September 25, 2026; **not activated on hardware**. V2 services continue
-running. Head and chest devices are independently optional through `head_led_port`
-and `chest_led_port`; empty defaults open neither device and offer no LED tool.
-Ports must be distinct explicit macOS `/dev/cu.*` paths. `pyserial==3.5` is the only
-LED dependency, already in `requirements-robot.txt`. No extra model is loaded.
+**Current, November 14, 2026:** one ESP32 (`firmware/djr3x_leds`) drives the head and chest
+strips on one serial port, `led_port`, an explicit macOS `/dev/cu.*` path distinct from the
+other ports. Empty opens nothing and offers no LED tool. `pyserial==3.5` is the only LED
+dependency, in `requirements-robot.txt`. No extra model is loaded. The first two sections
+describe what runs now. Sections dated before November 14 are history from the two-board
+system; their repeated commands, boot waits and per-board options are gone
+([what changed](#november-14-one-led-board)).
 
 ## Behavior and ownership
 
-The V3 `LEDs` owner uses the existing 115200-baud newline protocol, with exclusive
-opens, bounded writes and a two-second Arduino boot wait. Firmware source was
-inspected, not flashed or verified against the installed boards. Firmware owns
+The V3 `LEDs` owner speaks the board's 115200-baud newline protocol with an exclusive
+open and bounded writes. Every command names its strip: `H:` head, `C:` chest. At start it
+asks the board to identify itself (`HELLO`) and sends no light command to anything that does
+not answer as `djr3x_leds`; the reported firmware version is traced. Firmware owns
 pattern rendering. Startup sends chest `STARTUP` and warm gold active eyes before
 servo wake. Shutdown sends `FADEOFF` no later than servo park begins, then retains the LED ports
 through the four-second fade. The shutdown latch prevents late speech cleanup from
@@ -21,8 +24,8 @@ The audio callback supplies only bounded PCM/timestamps to an eight-slot mailbox
 it never writes serial. A single 20 Hz worker computes RMS from DAC-due PCM using
 V2's scale 800, sends changes of at least eight brightness steps, and refreshes
 levels at least every 500 ms for the firmware's 1.5-second watchdog. Silence/starvation
-reduces the level to zero. After completion/interruption, three head `SPEAK_STOP`
-commands and `ACTIVE` restore idle mouth glow and eye blinking; the chest returns
+reduces the level to zero. After completion/interruption, head `SPEAK_STOP`
+and `ACTIVE` restore idle mouth glow and eye blinking; the chest returns
 to idle. This is approximate playback synchronization, not measured LED latency.
 Talking servos remain independently synchronized by the same output owner.
 
@@ -53,8 +56,8 @@ the boards.
 
 CoreState validates the offered capability, pattern, state revision and request;
 the output owner rechecks state, expiry and LED generation before execution.
-Requests cannot replay across intervening light activity. Serial failures latch the
-capability unavailable and attempt to stop healthy boards without reconnecting.
+Requests cannot replay across intervening light activity. A serial failure latches the
+capability unavailable and attempts one stop of both strips, without reconnecting.
 Speech can complete even if its decorative lights fail. Structured `led_delivery`
 receipts and conversation history report commands sent, failure, cancellation or
 supersession separately from heard speech. Neither a serial write nor firmware's
@@ -124,6 +127,9 @@ Live model selection and visible rendering remain unverified by these tests.
 
 ## October 3: mouth animation missed some lines
 
+Superseded November 14: the ESP32 board does not lose bytes while repainting, and the repeats
+described here were removed.
+
 The owner reported the mouth did not always animate when Rex spoke. In run `30ec1b04`
 every one of the 29 spoken phrases has a `led_delivery` row with `commands_sent`, so the
 host believed it had started the mouth each time. V2's head firmware (`head_nano.ino` at
@@ -156,3 +162,40 @@ and the Mac's log shows no USB reset of the head board, and they came back with 
 The cause (an LED repaint or power dip) is not established. Between lines the eye colour is now
 resent every 3 s (`EYE_REFRESH_SECONDS`), never over a requested blink, so such a dropout heals
 within seconds. Fake ports only; not yet run on the robot.
+
+## November 14: one LED board
+
+Owner request: replace the two Arduino Nanos with one ESP32 and remove the Nano code from V3.
+`firmware/djr3x_leds` ports both installed sketches behind one serial port
+([wiring and protocol](../firmware/djr3x_leds/README.md)).
+
+Changed in V3:
+
+- **Settings.** `led_port` replaces `head_led_port` and `chest_led_port`. A settings file that
+  still has the old names is refused with a message naming `led_port`.
+- **LED owner.** One port; `H:`/`C:` prefixes; the identity check replaces the two-second boot
+  wait. `SPEAK:` is sent once per phrase and `SPEAK_STOP` once (the October 3 repeats and V2's
+  triple stop existed because the Nano lost serial bytes while repainting). The level refresh
+  every 500 ms stays, for the firmware's mouth watchdog, and so does the three-second eye
+  refresh, whose cause was never established. Sparkle and blink are always offered with the
+  board; there is no head-only or chest-only setup.
+- **Handoff.** One `leds` resource lease and one port checked with `lsof`, in place of two.
+- **Menus.** The LED menu and the battery menu's charge display open the one board through
+  `operator_tools/led_board.py`, which makes the same identity check; the battery menu's
+  two-second waits and doubled chest command are gone.
+- **Dashboard.** One "LED Board" status in place of "Head LEDs" and "Chest LEDs".
+
+Evidence: on a spare board on the bench, the owner watched every head mode, driven at 3.3 V
+with no level shifter and each command sent once, and all looked correct
+([details](../V2_REFERENCE.md)). The rewritten owner, handoff, menus' settings and dashboard are
+checked with a fake board only; the board had been unplugged before the rewritten owner could be
+run against it.
+
+Not yet run: this program on the robot; pyserial opening the board (whether the open restarts
+it; the identity check allows for either); the whole chest strip; the head line with servos
+moving; real speech levels; the LED and battery menus on the board.
+
+To put it on the robot: wire head data to GPIO 18, chest data to GPIO 19 and a ground to the LED
+supply; move the chest panels' 5 V to the buck rail; in `local/settings.toml` delete
+`head_led_port` and `chest_led_port` and set `led_port`; restart the `com.djr3x.led` and
+`com.djr3x.battery` agents so they load the new code.

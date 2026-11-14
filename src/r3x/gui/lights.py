@@ -1,8 +1,8 @@
 """Display mirror of the head/chest LED firmware (V2 gui/mouth_leds.py, rex_avatar.py).
 
 The LED owner reports each command it wrote; `LightMirror` turns that command stream into
-mode-level state the avatar renders. Firmware animation phases run on the Arduinos, so
-this is a command-level mirror, not pixel readback. Without LED boards (dev Mac) the
+mode-level state the avatar renders. Firmware animation phases run on the LED board, so
+this is a command-level mirror, not pixel readback. Without the board (dev Mac) the
 dashboard feeds `speaking()` from playback and a PCM level, so the mouth still moves.
 """
 from __future__ import annotations
@@ -92,7 +92,7 @@ class LightMirror:
         chest['updated_at'] = now
 
     def speaking(self, active: bool, level: int = 0, emotion: str = 'neutral') -> None:
-        """Playback-derived mouth when no head board reports commands (dev Mac)."""
+        """Playback-derived mouth when no LED board reports commands (dev Mac)."""
         now = self.clock()
         with self.lock:
             if self.mirrored:
@@ -108,7 +108,7 @@ class LightMirror:
             head['mouth_updated_at'] = now
 
     def awake(self) -> None:
-        """No LED boards: show the startup eye colour so the avatar is not dark all run."""
+        """No LED board: show the startup eye colour so the avatar is not dark all run."""
         now = self.clock()
         with self.lock:
             if not self.mirrored and self.head['mode'] == 'off':
@@ -225,7 +225,7 @@ class EyeBlink:
         return .3 + .35*(1 + math.sin(self.idle_phase)) if head.get('mode') == 'idle' else 1.
 
 
-# Palettes from arduino/chest_nano/chest_nano.ino, screen-brightened (V2 rex_avatar.py).
+# Palettes from the chest firmware (firmware/djr3x_leds/chest.cpp), screen-brightened (V2 rex_avatar.py).
 CHEST_SMALL = ((208, 44, 40),) * 3 + ((196, 205, 210),) * 4 + ((64, 88, 224),) * 2
 CHEST_BLOCKS = ((255, 56, 40), (235, 240, 245), (255, 221, 136), (80, 120, 255))
 CHEST_EMOTIONS = {

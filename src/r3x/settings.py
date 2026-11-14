@@ -16,8 +16,7 @@ class Settings:
     input_gain: float = 1.0
     direction_enabled: bool = False
     servo_port: str = ""  # Empty disables physical servos; explicit device path opts in.
-    head_led_port: str = ""
-    chest_led_port: str = ""
+    led_port: str = ""  # ESP32 LED board (firmware/djr3x_leds); empty disables the lights.
     drive_port: str = ""  # V2 ESP32 drive base; empty disables wheels.
     radar_port: str = ""  # V2 ESP32-S3 radar ring; requires drive_port.
     echo_isolated: bool = False
@@ -85,10 +84,10 @@ class Settings:
             raise ValueError("Unknown microphone_mode")
         if self.direction_enabled and self.microphone_mode != "respeaker-flex":
             raise ValueError("Direction requires the ReSpeaker Flex microphone")
-        for name in ("input_device_name", "output_device_name", "camera_device_name", "servo_port", "head_led_port", "chest_led_port", "drive_port", "radar_port"):
+        for name in ("input_device_name", "output_device_name", "camera_device_name", "servo_port", "led_port", "drive_port", "radar_port"):
             if not isinstance(getattr(self, name), str):
                 raise ValueError(f"{name} must be text")
-        ports = [self.servo_port,self.head_led_port,self.chest_led_port,self.drive_port,self.radar_port]
+        ports = [self.servo_port,self.led_port,self.drive_port,self.radar_port]
         if self.radar_port and not self.drive_port:
             raise ValueError('Radar requires the drive base')
         if len([p for p in ports if p]) != len({p for p in ports if p}):
@@ -134,6 +133,8 @@ class Settings:
     def load(cls, path: Path) -> "Settings":
         with path.open("rb") as handle:
             values = tomllib.load(handle)
+        if values.keys() & {"head_led_port", "chest_led_port"}:
+            raise ValueError("head_led_port and chest_led_port were replaced by led_port (one LED board)")
         unknown = values.keys() - {f.name for f in fields(cls)}
         if unknown:
             raise ValueError(f"Unknown settings: {', '.join(sorted(unknown))}")

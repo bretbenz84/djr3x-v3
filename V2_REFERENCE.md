@@ -1391,4 +1391,43 @@ overwrite the pinned `opencv-python`.
 Not ported: the furrowed brow (a resting browDown read a median .56 on the robot's footage), the active-speaker hook
 (forbidden: mouth motion is no speaker evidence), disposition memory of a person's usual face, the diary hook and the
 giddy body mood. Checks and remaining live validation: [what faces show](docs/FACE_EXPRESSIONS.md).
+## Combined LED board firmware — November 14, 2026
 
+Owner request: one program for all the LEDs on a spare ESP32, for a bench trial of replacing
+the two Nanos. Source: GitHub `main` at `678a12f8f80b3d791710592335085da9ed39ba2d`, cloned fresh
+into scratch. The clone at `/Users/bbenziger/djr3x-v2` on this Mac is behind (`4887805`, no
+`PRIDE` commands); it was not used and not changed. `arduino/head_nano/head_nano.ino`
+(`72a946e4…`) and `arduino/chest_nano/chest_nano.ino` (`1619abfe…`) match the hashes recorded
+above as installed on the boards.
+
+Preserved, as `firmware/djr3x_leds/head.cpp` and `chest.cpp`: every command, mode, colour,
+timing constant, watchdog and pride lease of both sketches, including the mouth's R/G swap for
+the eyes sharing its data line. Dependencies: `esp32:esp32` core 3.3.10, FastLED 3.10.1.
+
+Adapted: one serial line reader in `djr3x_leds.ino` routes `H:`/`C:` prefixed commands to one
+strip and bare commands to both, and answers `HELLO` with a version line (the Nanos never
+reply). Each strip has its own FastLED controller, brightness and clear; the sketches' board-wide
+calls would have let the head's shutdown fade dim the chest. Chest dithering is switched off
+explicitly, which the board-wide show did implicitly at this frame rate. Random seeds come from
+the ESP32's generator instead of a floating analog pin. An over-long line is dropped instead of
+dispatched truncated. Not ported: the chest's unused `RandomBlocks`, `SetMode` and `AllBlue`,
+the Nano's pin 13 light, and the AVR flash-string calls.
+
+Checks: compiles for `esp32:esp32:esp32`; flashed to the spare board (ESP32-D0WD-V3, CP2102)
+with upload hashes verified; live `HELLO` returned `hello djr3x_leds 0.1.0 head=82@18
+chest=98@19`, and port opens did not reset the board.
+
+Head seen by the owner the same day, on its own 5 V supply with the data wire straight from
+GPIO 18 (3.3 V, no level shifter): dark, gold eyes with amber glow, the six speaking colours on
+synthetic levels at about 15 a second, breathing eyes, pride idle and speaking, sleep, charge,
+three requested blinks and the shutdown fade all looked correct. Each command was sent once.
+Without a ground wire from the ESP32 to the LED supply the head showed one flickering light
+blue; joining the grounds fixed it. Servos were not moving and nothing was compared side by
+side with the Nano.
+
+Remaining live validation: the whole chest strip (not yet wired), the head line with servos
+moving, real speech levels, and animation speed against the Nanos (the chest pattern step no
+longer stalls during repaints, so fades may run slightly faster). The same day V3's LED owner,
+settings, handoff and menus were changed to this board and the two-Nano code removed
+([LED integration](docs/LED_INTEGRATION.md#november-14-one-led-board)); earlier sections of this
+file that describe the Nanos are history.

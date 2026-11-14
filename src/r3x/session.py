@@ -1415,7 +1415,7 @@ class Session:
                 from .leds import PATTERNS
                 led = self.output.leds
                 context.update(led_enabled=led.state=='ready',led_version=led.version,
-                    led_patterns=[p for p in PATTERNS if (p!='sparkle' or 'chest' in led.ports) and (p!='blink' or 'head' in led.ports)])
+                    led_patterns=list(PATTERNS))
             from .hypotheticals import OPEN_SECONDS
             if (self.state and not opportunity and self.last_hypothetical
                     and self.trace.clock() - self.last_hypothetical['at'] <= OPEN_SECONDS):

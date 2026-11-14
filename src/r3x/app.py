@@ -82,11 +82,9 @@ class App:
         from .adapters.flex import FlexControl
         from .direction import Direction
         direction = Direction(FlexControl()) if self.settings.direction_enabled else None
-        led_ports = {zone:port for zone,port in (
-            ('head',self.settings.head_led_port),('chest',self.settings.chest_led_port)) if port}
-        if led_ports:
+        if self.settings.led_port:
             from .leds import LEDs
-            self.leds = LEDs(led_ports)
+            self.leds = LEDs(self.settings.led_port)
         if self.settings.servo_port:
             from .robot_servos import RobotServos
             self.robot = RobotServos(self.settings.servo_port)
@@ -232,9 +230,8 @@ class App:
         from .hardware_ownership import ControllerHandoff, HardwareLocks
         from .contracts import Cancellation
         self.hardware_handoff = ControllerHandoff(HardwareLocks(),port=self.settings.servo_port or None,
-            led_ports={zone:port for zone,port in (("head_led",self.settings.head_led_port),
-                ("chest_led",self.settings.chest_led_port),("drive_base",self.settings.drive_port),
-                ("radar",self.settings.radar_port)) if port})
+            led_ports={zone:port for zone,port in (("leds",self.settings.led_port),
+                ("drive_base",self.settings.drive_port),("radar",self.settings.radar_port)) if port})
         try:
             self.hardware_handoff.acquire(Cancellation())
         except BaseException:

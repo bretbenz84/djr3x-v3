@@ -74,7 +74,7 @@ service setup as an optional step; see [public installation and hardware choices
 - Controller ownership notification is not proof that a port is already released.
   Wait for confirmed release with a bounded handoff and clear diagnostics. A timeout
   must not result in two writers or forced takeover of a live controller's hardware.
-  Avoid opening ports merely to probe ownership: doing so can reset Arduino boards.
+  Avoid opening ports merely to probe ownership: doing so can reset a board.
 - Inventory the related battery/base and LED menu-bar tools when planning the
   migration. If installed, they share this hardware-ownership problem and must not
   be left contending with V3. Preserve useful off-program operation; sequence their

@@ -43,7 +43,7 @@ evidence, not evidence that nobody or nothing is present. Do not automatically
 replace a missing model/backend with a different one.
 
 A simple microphone/speaker installation should be useful without a camera,
-ReSpeaker, Arduino LEDs, Maestro servos or a drive base. Camera perception, LEDs,
+ReSpeaker, LED board, Maestro servos or a drive base. Camera perception, LEDs,
 servos and base motion should be independently selectable where their dependencies
 allow. Keep hardware availability separate from choices such as proactive speech,
 photo uploads, model/provider selection and recording retention.

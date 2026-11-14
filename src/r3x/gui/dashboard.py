@@ -131,7 +131,7 @@ class DashboardWindow(QMainWindow):
         self._power.setToolTip("Drive pack (INA226 via the drive base): charge / current / voltage")
         rc.addWidget(self._power)
         self._devices: dict[str, QLabel] = {}
-        for name in ('Chest LEDs', 'Head LEDs', 'Maestro', 'ESP32 Motor', 'Radar', 'Camera'):
+        for name in ('LED Board', 'Maestro', 'ESP32 Motor', 'Radar', 'Camera'):
             label = QLabel(f'<span style="color:#5b6b7d;">●</span>&nbsp;{name}')
             label.setObjectName("deviceStatus")
             label.setTextFormat(Qt.TextFormat.RichText)

@@ -162,7 +162,8 @@ is a separately maintained reference. V3 never imports it or reads its data.
     direction the model chose (October 3; not yet run on the robot).
   - Model-selected poses and a microphone hold for enrollment. "Dance with your arms" gets a short dance
     of all three arms that keeps the hands up and ends where it began (October 31; not yet run on the robot).
-- **Lights.** Head and chest startup/shutdown, speaking lights and model-selected
+- **Lights** (one ESP32 for the head and chest strips, firmware in `firmware/djr3x_leds`, November 14;
+  not yet run on the robot). Head and chest startup/shutdown, speaking lights and model-selected
   animations.
 - **Wheels and radar** (drive firmware in `firmware/djr3x_motion`, moved from V2 October 23; radar firmware still V2's):
   - The model plans turns, moves, facing and approaching people or objects, finding a
@@ -198,7 +199,7 @@ and menus step aside automatically):
 ```
 
 - Hardware is enabled by `local/settings.toml`: `camera_enabled`, `servo_port`,
-  `head_led_port`, `chest_led_port`, `drive_port` and `radar_port` (all set on the
+  `led_port`, `drive_port` and `radar_port` (all set on the
   robot). `--camera` turns the camera on for a single run. Every setting is documented
   in [settings.example.toml](settings.example.toml).
 - Say "shut down" to exit; Enter or `stop` + Enter in the terminal cancels the current

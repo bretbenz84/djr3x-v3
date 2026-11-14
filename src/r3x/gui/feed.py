@@ -365,7 +365,7 @@ class DashboardFeed:
                 'looks_like': context.get('looks_like') or []}
 
     def _mouth(self, parts, now):
-        """Without head-board commands, playback drives the mirror (dev Mac)."""
+        """Without LED board commands, playback drives the mirror (dev Mac)."""
         if parts.leds is not None:
             return
         if self.status == 'online':
@@ -431,8 +431,7 @@ class DashboardFeed:
         robot, drive, radar, camera = parts.robot, parts.drive, parts.radar, parts.camera
         get = (lambda name: getattr(settings, name, None)) if settings else (lambda name: None)
         return {
-            'Chest LEDs': status(get('chest_led_port'), 'robot_leds', lambda: leds and 'chest' in leds.devices and leds.state == 'ready'),
-            'Head LEDs': status(get('head_led_port'), 'robot_leds', lambda: leds and 'head' in leds.devices and leds.state == 'ready'),
+            'LED Board': status(get('led_port'), 'robot_leds', lambda: leds and leds.state == 'ready'),
             'Maestro': status(get('servo_port'), 'robot_servos', lambda: robot and robot.owner.state not in {'faulted', 'closed'}),
             'ESP32 Motor': status(get('drive_port'), 'drive_base', lambda: drive and drive.state == 'ready' and not drive.link.failure),
             'Radar': status(get('radar_port'), 'radar', lambda: radar and radar.state == 'ready' and not radar.link.failure),

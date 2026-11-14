@@ -1,10 +1,22 @@
 # Current implementation status
 
-Updated November 10, 2026. This is the consolidated
+Updated November 14, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## One LED board — November 14
+
+Owner request. One ESP32 (`firmware/djr3x_leds`) replaces the two Arduino Nanos: one `led_port`
+in place of `head_led_port` and `chest_led_port`, `H:`/`C:` command prefixes, an identity check
+at start in place of the boot wait, and the Nano-era repeated commands removed from the LED
+owner and both menus ([LED integration](LED_INTEGRATION.md#november-14-one-led-board)). On the
+bench the owner saw every head mode correct at 3.3 V with no level shifter. **Not yet run on the
+robot**: the rewritten program against the board, the chest strip, the head line with servos
+moving, and the menus. The robot's `local/settings.toml` must be changed to `led_port` before it
+will start. 1,807 blocked-I/O checks ran with none failing and 6 skipped (fake board, clocks and
+providers).
 
 ## Replies from Claude and a slim character — November 10
 

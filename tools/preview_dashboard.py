@@ -26,7 +26,7 @@ from r3x.vision import Frame   # noqa: E402
 class Settings:
     camera_enabled = True
     servo_port = None   # No controller: the dashboard's simulated body moves the droid.
-    head_led_port = chest_led_port = drive_port = radar_port = 'synthetic'
+    led_port = drive_port = radar_port = 'synthetic'
 
 
 class Result:

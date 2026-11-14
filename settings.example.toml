@@ -124,11 +124,11 @@ impersonation_enabled = true
 # after a power-down are held at their unpowered rest first. No port auto-detection.
 servo_port = ""
 
-# Optional LED boards: each empty value disables that zone. Explicit /dev/cu.*
-# paths must differ from each other and the Maestro. No discovery or reconnect.
+# Optional LED board: one ESP32 (firmware/djr3x_leds) driving the head and chest
+# strips. Empty disables the lights. An explicit /dev/cu.* path, distinct from the
+# other ports; the board must identify itself at start. No discovery or reconnect.
 # Consumed by live LED lifecycle/output and exclusive controller handoff.
-head_led_port = ""
-chest_led_port = ""
+led_port = ""
 
 # Optional drive base (V2 ESP32 firmware, unchanged). Empty disables wheels.
 # Explicit /dev/cu.* path, distinct from other ports; the V2 battery menu app

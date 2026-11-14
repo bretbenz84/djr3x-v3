@@ -461,85 +461,58 @@ def _advance_current_ema(ma) -> None:
         _snap["batt_ma_avg_at"] = now
 
 
-# ── Mouth PCB sleep sync (owner request 2026-07-17) ───────────────────────────
-# While the ROBOT IS OFF (this app only owns ports when main.py isn't running)
-# and the charger is connected, the head/mouth PCB shows its SLEEP animation
-# (slow red breathing); unplugging turns it back off. Uses the same one-line
-# text protocol as hardware/leds_head.py on ARDUINO_HEAD_PORT. The port is
-# opened per state change and closed immediately, so a starting main.py never
-# finds it held. Rex himself handles LEDs while running (we're dormant then).
+# ── LED board charge display ──────────────────────────────────────────────────
+# While the ROBOT IS OFF (this app only owns ports when the robot isn't running)
+# the LED board shows the pack: the mouth breathes in a colour for the charge
+# while the charger is connected (owner request 2026-07-17), and the chest shows
+# its 24-pixel gauge. One ESP32 (firmware/djr3x_leds) drives both strips on one
+# port: `H:` commands go to the head, `C:` to the chest (see led_board.py). The
+# port is opened per change and closed immediately, so a starting robot never
+# finds it held; the board keeps animating after the handle closes. Rex himself
+# handles the LEDs while running (we're dormant then).
 
-def _head_port() -> str:
-    env = _read_env_file()
-    return (os.environ.get("ARDUINO_HEAD_PORT") or env.get("ARDUINO_HEAD_PORT") or "").strip()
-
-
-_BOARD_MOUTH = "mouth PCB"
-_BOARD_CHEST = "chest Arduino"
-
-# Retry pacing for the two companion Arduinos. An open that FAILS costs nothing —
-# a busy or missing port errors immediately and no board is reset — and the delay
-# is exactly how long the charge display stays wrong after another app lets go of
-# a port, so retry it quickly. An open that SUCCEEDED and then failed to write has
-# already reset that board, so back off instead of strobing it.
-_PORT_BUSY_RETRY_SECS = 5.0
-_WRITE_FAIL_RETRY_SECS = 30.0
+# A failed open costs nothing, and the delay is exactly how long the charge
+# display stays wrong after another app lets go of the port, so retry quickly.
+_LED_RETRY_SECS = 5.0
 
 # One WARNING per outage instead of per attempt. These used to be debug-only, so
 # a permanently held port looked exactly like everything working: the LED Control
-# menu bar console held both Arduinos whenever Rex was off, every open here
-# failed, and the charge gauge silently never appeared (owner 2026-08-04).
-_open_fail_warned: dict[str, bool] = {}
-_reached_open: dict[str, bool] = {}
+# menu bar console held the lights whenever Rex was off, every open here failed,
+# and the charge gauge silently never appeared (owner 2026-08-04).
+_led_fail_warned = False
 
 
-def _warn_board_unreachable(board: str, port: str, exc: Exception) -> None:
-    _reached_open[board] = False
-    if _open_fail_warned.get(board):
-        log.debug("%s open failed again (%s).", board, exc)
-        return
-    _open_fail_warned[board] = True
-    text = str(exc).lower()
-    hint = (" — another process holds it (the LED Control menu bar item takes "
-            "both Arduinos unless it is in Battery Meter Mode)"
-            if ("busy" in text or "errno 16" in text) else "")
-    log.warning("Could not open the %s on %s: %s%s. Charge display is NOT updating.",
-                board, port, exc, hint)
-
-
-def _clear_board_warning(board: str) -> None:
-    _reached_open[board] = True
-    if _open_fail_warned.pop(board, None):
-        log.info("The %s is reachable again — charge display resumed.", board)
-
-
-def _retry_delay(board: str) -> float:
-    """Seconds to wait after a failed sync — see the two constants above."""
-    return (_WRITE_FAIL_RETRY_SECS if _reached_open.get(board)
-            else _PORT_BUSY_RETRY_SECS)
-
-
-def _send_mouth_command(cmd: str) -> bool:
-    port = _head_port()
+def _send_led_command(cmd: str) -> bool:
+    """Send one prefixed command to the LED board; False when it did not go out."""
+    global _led_fail_warned
+    import led_board
+    port = led_board.port()
     if not port:
         return False
     try:
-        import serial
-        ser = serial.Serial(port, 115200, timeout=1.0, write_timeout=1.0, exclusive=True)
+        ser = led_board.connect(port)
     except Exception as exc:
-        _warn_board_unreachable(_BOARD_MOUTH, port, exc)
+        if _led_fail_warned:
+            log.debug("LED board open failed again (%s).", exc)
+        else:
+            _led_fail_warned = True
+            text = str(exc).lower()
+            hint = (" — another process holds it (the LED Control menu bar item takes "
+                    "the board unless it is in Battery Meter Mode)"
+                    if ("busy" in text or "errno 16" in text) else "")
+            log.warning("Could not reach the LED board on %s: %s%s. Charge display is "
+                        "NOT updating.", port, exc, hint)
         return False
-    _clear_board_warning(_BOARD_MOUTH)
+    if _led_fail_warned:
+        _led_fail_warned = False
+        log.info("The LED board is reachable again — charge display resumed.")
     try:
-        # Opening the port auto-resets the AVR; wait out its bootloader before
-        # writing or the command lands on deaf ears.
-        time.sleep(2.0)
         ser.write((cmd + "\n").encode("ascii"))
         ser.flush()
-        log.info("Mouth PCB: sent %s.", cmd)
+        log.info("LED board: sent %s.", cmd)
         return True
     except Exception as exc:
-        log.warning("Mouth PCB write failed (%s).", exc)
+        log.warning("LED board write failed (%s).", exc)
         return False
     finally:
         try:
@@ -583,74 +556,28 @@ def _sync_mouth_charge(mode: str, soc, charging: bool) -> None:
         return
     if charging and band is not None:
         value = max(0, min(100, int(soc)))
-        cmd = f"CHARGE:{value}"
+        cmd = f"H:CHARGE:{value}"
     elif charging:
-        cmd = "SLEEP"  # unknown SOC: retain safe legacy charging indicator
+        cmd = "H:SLEEP"  # unknown SOC: retain safe legacy charging indicator
     else:
-        cmd = "OFF"
-    if _send_mouth_command(cmd):
+        cmd = "H:OFF"
+    if _send_led_command(cmd):
         _mouth_charge_state = target
     else:
-        # Nothing reached the PCB, so it still shows whatever it had. Forget the
+        # Nothing reached the board, so it still shows whatever it had. Forget the
         # baseline as well, or a later success would be deduped away and the glow
         # would stay wrong until the SOC band moved.
         _mouth_charge_state = None
-        _mouth_retry_at = now + _retry_delay(_BOARD_MOUTH)
-
-
-# ── Chest charge gauge sync ──────────────────────────────────────────────────
-# Same ownership model as the mouth above: while Rex is off this battery worker
-# has the live SOC/charger state and briefly opens the chest Nano only when the
-# visible 24-pixel meter level or attached state changes. The Nano keeps animating
-# after the serial handle closes; main.py owns it again when Rex wakes.
-
-def _chest_port() -> str:
-    env = _read_env_file()
-    return (os.environ.get("ARDUINO_CHEST_PORT") or env.get("ARDUINO_CHEST_PORT") or "").strip()
-
-
-def _send_chest_command(cmd: str) -> bool:
-    port = _chest_port()
-    if not port:
-        return False
-    try:
-        import serial
-        ser = serial.Serial(port, 115200, timeout=1.0, write_timeout=1.0, exclusive=True)
-    except Exception as exc:
-        _warn_board_unreachable(_BOARD_CHEST, port, exc)
-        return False
-    _clear_board_warning(_BOARD_CHEST)
-    try:
-        time.sleep(2.0)  # Nano/CH340 resets on open; wait out its bootloader
-        ser.write((cmd + "\n").encode("ascii"))
-        ser.flush()
-        # A slow bootloader can swallow the first line (field 2026-09-27: CHARGE
-        # "sent" after a V3 handoff, chest stayed dark). Repeat once on the same
-        # open, so no second reset; CHARGE is idempotent (the intro sweep only
-        # plays when entering charge mode).
-        time.sleep(2.5)
-        ser.write((cmd + "\n").encode("ascii"))
-        ser.flush()
-        log.info("Chest Arduino: sent %s (twice).", cmd)
-        return True
-    except Exception as exc:
-        log.warning("Chest Arduino write failed (%s).", exc)
-        return False
-    finally:
-        try:
-            ser.close()
-        except Exception:
-            pass
+        _mouth_retry_at = now + _LED_RETRY_SECS
 
 
 _chest_charge_state: "tuple[int, bool] | None" = None
 _chest_retry_at = 0.0
 _chest_sent_at = 0.0
 
-# Repaint even when nothing changed, so the meter self-heals if the Nano
-# rebooted behind our back (reflash, test tool, brownout) — the dedup baseline
-# can't see that. Opening the port resets the Nano (~2 s dark blip), so keep
-# this rare.
+# Repaint even when nothing changed, so the meter self-heals if the board
+# restarted behind our back (reflash, test tool, power dip) — the dedup baseline
+# can't see that.
 CHEST_REFRESH_S = 30 * 60.0
 
 
@@ -660,7 +587,7 @@ def _reset_chest_charge_baseline() -> None:
 
 
 def _charge_level(soc) -> "int | None":
-    """Visible 0..24 meter level, matching the Nano's ceiling mapping."""
+    """Visible 0..24 meter level, matching the firmware's ceiling mapping."""
     try:
         value = max(0, min(100, int(soc)))
     except (TypeError, ValueError):
@@ -683,9 +610,9 @@ def _sync_chest_charge(mode: str, soc, charging: bool) -> None:
     if now < _chest_retry_at:
         return
     # Send the actual percentage for future display refinements; level-based
-    # dedup avoids resetting the Nano for every 1% coulomb-counter change.
+    # dedup avoids a write for every 1% coulomb-counter change.
     value = max(0, min(100, int(soc)))
-    if _send_chest_command(f"CHARGE:{value}:{1 if charging else 0}"):
+    if _send_led_command(f"C:CHARGE:{value}:{1 if charging else 0}"):
         _chest_charge_state = target
         _chest_sent_at = now
     else:
@@ -693,7 +620,7 @@ def _sync_chest_charge(mode: str, soc, charging: bool) -> None:
         # meter must repaint the moment the port frees up, not wait for the SOC
         # to move or for the 30-minute refresh.
         _chest_charge_state = None
-        _chest_retry_at = now + _retry_delay(_BOARD_CHEST)
+        _chest_retry_at = now + _LED_RETRY_SECS
 
 
 def _worker() -> None:

@@ -19,13 +19,13 @@ class OperatorToolsTests(unittest.TestCase):
             path = Path(directory) / 'settings.toml'
             path.write_text('input_device_name = "reSpeaker Flex"\noutput_device_name = "reSpeaker Flex"\n'
                             'microphone_mode = "respeaker-flex"\nservo_port = "/dev/cu.maestro"\n'
-                            'head_led_port = "/dev/cu.head"\nchest_led_port = "/dev/cu.chest"\n'
+                            'led_port = "/dev/cu.leds"\n'
                             'drive_port = "/dev/cu.drive"\nradar_port = "/dev/cu.radar"\n')
             with patch.object(v3_settings, 'SETTINGS', path):
                 self.assertEqual(v3_settings.env(), {
                     'AUDIO_DEVICE_NAME': 'reSpeaker Flex', 'AUDIO_OUTPUT_DEVICE_NAME': 'reSpeaker Flex',
                     'AUDIO_AEC_INPUT_CHANNEL': '0', 'MAESTRO_PORT': '/dev/cu.maestro',
-                    'ARDUINO_HEAD_PORT': '/dev/cu.head', 'ARDUINO_CHEST_PORT': '/dev/cu.chest',
+                    'LED_PORT': '/dev/cu.leds',
                     'MOTION_ESP32_PORT': '/dev/cu.drive'})
             with patch.object(v3_settings, 'SETTINGS', Path(directory) / 'missing.toml'):
                 self.assertEqual(v3_settings.env(), {})

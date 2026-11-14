@@ -23,22 +23,39 @@ class Clock:
     def wait(self,n): self.at+=n
 
 
-class Port:
-    def __init__(self): self.commands=[];self.closed=False;self.fail=False
+class Strip:
+    """One strip's view of the fake board: the commands addressed to it."""
+    def __init__(self,board): self.board=board;self.commands=[]
+    closed=property(lambda self:self.board.closed)
+    fail=property(lambda self:self.board.fail,lambda self,value:setattr(self.board,'fail',value))
+
+
+class Board:
+    """Fake LED board on one port: answers HELLO, sorts each command by its strip prefix."""
+    def __init__(self,reply=b'hello djr3x_leds 0.1.0 head=82@18 chest=98@19\n'):
+        self.reply=reply;self.replies=[];self.lines=[];self.closed=False;self.fail=False
+        self.strips={'head':Strip(self),'chest':Strip(self)}
     def write(self,data):
         if self.fail: raise OSError('synthetic wire failure')
-        self.commands.append(data.decode().strip())
+        for line in data.decode().split('\n'):
+            if not line: continue
+            self.lines.append(line)
+            if line=='HELLO': self.replies.append(self.reply)
+            elif line[:2]=='H:': self.strips['head'].commands.append(line[2:])
+            elif line[:2]=='C:': self.strips['chest'].commands.append(line[2:])
+            else: raise AssertionError('the owner names a strip in every command: '+line)
         return len(data)
+    def readline(self): return self.replies.pop(0) if self.replies else b''
     def close(self): self.closed=True
 
 
 def rig():
-    clock=Clock();ports={'head':Port(),'chest':Port()}
-    led=LEDs({k:k for k in ports},opener=ports.get,clock=clock,wait=clock.wait)
+    clock=Clock();board=Board()
+    led=LEDs('board',opener=lambda path:board,clock=clock,wait=clock.wait)
     led.start()
     # Deterministic ticks without a competing real-time worker.
     led.stop_event.set();led.worker.join(1)
-    return led,ports,clock
+    return led,board.strips,clock
 
 
 class LEDTests(unittest.TestCase):
@@ -49,10 +66,14 @@ class LEDTests(unittest.TestCase):
     def test_start_and_shutdown_preserve_firmware_effects(self):
         self.assertEqual(self.ports['chest'].commands,['PRIDE:0','STARTUP'])
         self.assertEqual(self.ports['head'].commands[-2:],['ACTIVE','EYE:255,200,0'])
+        self.assertEqual(self.ports['head'].board.lines[0],'HELLO')   # Identified before any light command.
+        self.assertEqual(self.led.firmware,'0.1.0')
+        self.assertEqual(self.clock(),100.)                           # No blind boot wait.
         self.led.close()
         self.assertEqual(self.ports['head'].commands[-1],'FADEOFF')
-        self.assertEqual(self.clock(),106.)
-        self.assertTrue(all(p.closed for p in self.ports.values()))
+        self.assertEqual(self.ports['chest'].commands[-1],'FADEOFF')
+        self.assertEqual(self.clock(),104.)                           # The four-second fade.
+        self.assertTrue(self.ports['head'].closed)
 
     def test_pcm_drives_only_playback_and_silence_has_watchdog_heartbeat(self):
         self.led.pcm(b'\x00\x40'*1024,self.clock())
@@ -67,32 +88,19 @@ class LEDTests(unittest.TestCase):
         self.clock.wait(.1);self.led.tick()
         self.assertEqual(len(self.ports['head'].commands),before)
         self.clock.wait(.5);self.led.tick()
-        self.assertEqual(self.ports['head'].commands[before:],['SPEAK:neutral','SPEAK_LEVEL:0'])
+        self.assertEqual(self.ports['head'].commands[before:],['SPEAK_LEVEL:0'])
 
-    def test_mouth_start_is_repeated_so_one_lost_command_cannot_darken_a_whole_line(self):
-        # Owner, October 3: the mouth animation fired inconsistently. The head board drops
-        # serial bytes while repainting; SPEAK: was sent once per phrase.
+    def test_mouth_start_and_stop_are_each_sent_once(self):
+        # Only the level stream repeats: it feeds the firmware's 1.5 s mouth watchdog.
         token=self.led.begin(speaking=True)
         head=self.ports['head'].commands
-        starts=lambda: sum(c=='SPEAK:neutral' for c in head)
-        self.assertEqual(starts(),1)
-        for _ in range(3):
-            self.clock.wait(.13);self.led.pcm(b'\x00\x40'*1024,self.clock());self.led.tick()
-        self.assertEqual(starts(),3)
-        # Every repeat restarts the firmware level at zero, so the level follows it at once.
-        for index,command in enumerate(head):
-            if command=='SPEAK:neutral' and index>head.index('SPEAK:neutral'):
-                self.assertTrue(head[index+1].startswith('SPEAK_LEVEL:'))
-        for _ in range(40):
-            self.clock.wait(.05);self.led.tick()
-        self.assertEqual(starts(),5)   # Then once a second while he keeps talking.
+        for _ in range(60):
+            self.clock.wait(.05);self.led.pcm(b'\x00\x40'*1024,self.clock());self.led.tick()
+        self.assertEqual(head.count('SPEAK:neutral'),1)
         self.assertEqual(self.led.finish(token),'commands_sent')
-        count=starts()
-        self.clock.wait(2.);self.led.tick()
-        self.assertEqual(starts(),count)   # Never after the phrase ends.
-        token=self.led.begin(speaking=True)
-        self.assertEqual(self.led.finish(token),'commands_sent')
-        self.assertEqual(self.ports['head'].commands[-4:],['SPEAK_STOP']*3+['ACTIVE'])
+        self.assertEqual(head[-3:],['SPEAK_LEVEL:0','SPEAK_STOP','ACTIVE'])
+        self.assertEqual(head.count('SPEAK_STOP'),1)
+        self.assertEqual(self.ports['chest'].commands[-1],'SPEAK_STOP')
 
     def test_fault_never_reports_display_success_and_no_reconnect(self):
         token=self.led.begin(speaking=True)
@@ -101,8 +109,7 @@ class LEDTests(unittest.TestCase):
         self.assertEqual(self.led.finish(token),'failed')
         with self.assertRaises(ProviderFailure): self.led.begin()
         with self.assertRaises(ProviderFailure): self.led.close()
-        self.assertTrue(self.ports['chest'].closed)
-        self.assertEqual(self.ports['chest'].commands[-1],'FADEOFF')
+        self.assertTrue(self.ports['head'].closed)
 
     def test_shutdown_wins_over_late_speech_stop(self):
         token=self.led.begin('happy',speaking=True)
@@ -112,49 +119,56 @@ class LEDTests(unittest.TestCase):
         self.assertEqual(self.ports['head'].commands,before)
         with self.assertRaises(ProviderFailure): self.led.begin()
 
-    def test_stale_expired_unknown_and_missing_zone_requests_rejected(self):
+    def test_stale_expired_and_unknown_requests_rejected(self):
         for req in (LightRequest('x','happy',1,99,0),LightRequest('x','happy',1,200,8)):
             with self.assertRaises(ProviderFailure): self.led.begin(req.pattern,request=req)
         with self.assertRaises(ProviderFailure): self.led.begin('OFF\nCHARGE:100:1')
-        other=LEDs({'head':'head'},opener=self.ports.get,clock=self.clock,wait=self.clock.wait)
-        other.start()
-        try:
-            with self.assertRaises(ProviderFailure): other.begin('sparkle')
-        finally: other.close()
 
-    def test_partial_open_failure_closes_owned_port(self):
-        port=Port()
-        def opener(name):
-            if name=='chest': raise OSError('failed')
-            return port
-        led=LEDs({'head':'head','chest':'chest'},opener=opener,wait=lambda n:None)
+    def test_a_device_that_does_not_answer_as_the_led_board_is_closed_and_never_commanded(self):
+        for reply in (b'',b'hello djr3x_motion 0.2.7\n',b'\xff\x00noise\n'):
+            board=Board(reply)
+            led=LEDs('board',opener=lambda path:board,wait=lambda n:None)
+            with self.assertRaises(ProviderFailure): led.start()
+            self.assertTrue(board.closed)
+            self.assertEqual(set(board.lines),{'HELLO'})
+            led.close()
+            self.assertEqual(set(board.lines),{'HELLO'})   # Not even a fade.
+        booted=Board(b'ready djr3x_leds 0.1.0 head=82@18 chest=98@19\n')   # The line a fresh boot prints.
+        led=LEDs('board',opener=lambda path:booted,wait=lambda n:None)
+        led.start();self.addCleanup(led.close)
+        self.assertEqual(led.state,'ready')
+
+    def test_failed_open_leaves_nothing_to_close(self):
+        def opener(path): raise OSError('failed')
+        led=LEDs('board',opener=opener,wait=lambda n:None)
         with self.assertRaises(OSError): led.start()
-        led.close();self.assertTrue(port.closed)
+        led.close();self.assertIsNone(led.device)
 
     def test_composition_inert_and_ports_distinct(self):
         with tempfile.TemporaryDirectory() as directory:
-            app=App(Settings(head_led_port='/dev/cu.head',chest_led_port='/dev/cu.chest'),Path(directory))
+            app=App(Settings(led_port='/dev/cu.leds'),Path(directory))
             app.configure_live()
             self.assertEqual([p.capability.name for p in app.owner.providers[:4]],['tts','playback','startup_audio','robot_leds'])
-            self.assertEqual(app.leds.devices,{})
-        for kwargs in ({'head_led_port':'auto'},{'chest_led_port':'/dev/tty.foo'},
-                       {'head_led_port':'/dev/cu.x','servo_port':'/dev/cu.x'}):
+            self.assertIsNone(app.leds.device)
+            retired=Path(directory)/'settings.toml'
+            retired.write_text('head_led_port = "/dev/cu.head"\n')
+            with self.assertRaisesRegex(ValueError,'replaced by led_port'): Settings.load(retired)
+        for kwargs in ({'led_port':'auto'},{'led_port':'/dev/tty.foo'},
+                       {'led_port':'/dev/cu.x','servo_port':'/dev/cu.x'}):
             with self.assertRaises(ValueError): Settings(**kwargs)
 
-    def test_handoff_waits_for_both_legacy_ports_without_opening(self):
+    def test_handoff_waits_for_the_led_port_without_opening(self):
         with tempfile.TemporaryDirectory() as directory:
             locks=HardwareLocks(Path(directory)/'controller')
             probes=[]
             def free(path):
                 probes.append(path)
                 return self.clock()>103
-            handoff=ControllerHandoff(locks,led_ports={'head_led':'head','chest_led':'chest'},
+            handoff=ControllerHandoff(locks,led_ports={'leds':'board'},
                 port_free=free,legacy_active=lambda:False,clock=self.clock,wait=self.clock.wait)
             handoff.acquire(Cancellation())
-            self.assertIn('chest',probes)
-            for name in ('head_led','chest_led'):
-                lease=locks.lease(name)
-                self.assertFalse(lease.acquire())
+            self.assertIn('board',probes)
+            self.assertFalse(locks.lease('leds').acquire())
             handoff.close()
             self.assertFalse(locks.controller_running())
 
@@ -321,22 +335,22 @@ class LEDTimingTests(unittest.TestCase):
         self.assertEqual(len(led.samples),48)   # Bounded; holds the ~1.5 s buffered startup sound writes ahead.
         self.assertEqual(len(led.samples[0][0]),4096)
 
-    def test_failed_chest_fade_cannot_wake_already_fading_head(self):
+    def test_failed_fade_still_closes_the_port(self):
         led,ports,clock=rig()
-        ports['chest'].fail=True
+        ports['head'].fail=True
         with self.assertRaises(ProviderFailure): led.close()
-        self.assertEqual(ports['head'].commands[-1],'FADEOFF')
         self.assertTrue(ports['head'].closed)
+        self.assertEqual(led.state,'closed')
 
     def test_one_busy_led_port_releases_all_leases_on_timeout(self):
         clock=Clock()
         with tempfile.TemporaryDirectory() as directory:
             locks=HardwareLocks(Path(directory)/'controller')
-            handoff=ControllerHandoff(locks,led_ports={'head_led':'head','chest_led':'chest'},
-                legacy_active=lambda:False,port_free=lambda path:path=='head',
+            handoff=ControllerHandoff(locks,led_ports={'leds':'board','drive_base':'drive'},
+                legacy_active=lambda:False,port_free=lambda path:path=='drive',
                 clock=clock,wait=clock.wait)
             with self.assertRaises(ProviderFailure): handoff.acquire(Cancellation(),timeout=.2)
             self.assertFalse(locks.controller_running())
-            for name in ('microphone','head_led','chest_led'):
+            for name in ('microphone','leds','drive_base'):
                 probe=locks.lease(name)
                 self.assertTrue(probe.acquire());probe.close()

@@ -29,8 +29,7 @@ def env() -> dict[str, str]:
         'AUDIO_DEVICE_NAME': text('input_device_name'),
         'AUDIO_OUTPUT_DEVICE_NAME': text('output_device_name'),
         'MAESTRO_PORT': text('servo_port'),
-        'ARDUINO_HEAD_PORT': text('head_led_port'),
-        'ARDUINO_CHEST_PORT': text('chest_led_port'),
+        'LED_PORT': text('led_port'),
         'MOTION_ESP32_PORT': text('drive_port'),
     }
     if data.get('input_device_index') is not None:

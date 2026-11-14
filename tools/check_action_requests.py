@@ -234,8 +234,8 @@ def run(case, key, folder, round_=0):
                 state.photo_memory = PhotoMemory(Path(tmp).resolve() / 'photos'); state.photo_memory.start()
                 state.objects = SimpleNamespace(snapshot=lambda min_samples=2: (
                     {'target_id': 'object-1', 'label': 'dog', 'score': .7, 'box': [.6, .6, .1, .2], 'samples': 3},))
-            ports = {'head': 'memory-head', 'chest': 'memory-chest'}
-            output.leds = LEDs(ports, opener=lambda path: SimpleNamespace(write=len, close=lambda: None),
+            output.leds = LEDs('memory-leds', opener=lambda path: SimpleNamespace(
+                                   write=len, close=lambda: None, readline=lambda: b'hello djr3x_leds 0.1.0\n'),
                                wait=lambda seconds: None)
             output.leds.start()
             state.initiative.quiet = quiet

@@ -303,20 +303,15 @@ class TeleopTests(unittest.TestCase):
 class OwnerHookTests(unittest.TestCase):
     def test_led_observers_see_only_commands_written(self):
         from r3x.leds import LEDs
-        written, seen = [], []
-        class Port:
-            def write(self, data):
-                written.append(data)
-                return len(data)
-            def close(self):
-                pass
-        leds = LEDs({'head': 'h'}, opener=lambda path: Port(), wait=lambda s: None)
+        from tests.test_leds import Board
+        board, seen = Board(), []
+        leds = LEDs('board', opener=lambda path: board, wait=lambda s: None)
         leds.on_command.append(lambda zone, command: seen.append((zone, command)))
         leds.start()
         self.addCleanup(leds.close)
         self.assertIn(('head', 'EYE:255,200,0'), seen)
-        self.assertNotIn('chest', {zone for zone, _ in seen})   # No chest board, nothing mirrored.
-        self.assertEqual(len(seen), len(written))
+        self.assertIn(('chest', 'STARTUP'), seen)
+        self.assertEqual(len(seen), len(board.lines) - 1)   # Every light command; not the identity check.
 
     def test_runtime_shutdown_request_is_emitted_once(self):
         from r3x.runtime import VoiceRuntime
