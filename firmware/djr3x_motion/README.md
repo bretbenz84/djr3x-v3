@@ -883,3 +883,7 @@ top speed). Full four-flag build 815,833 bytes program, 90,996 globals. Flashed 
 owner's request, hashes verified, hello `0.2.18-wheels-96mm`. Not yet driven: speed,
 starting push, braking from 0.60 m/s, track width with the new wheels, and Rex's own
 turns and approaches.
+
+Owner, after driving 0.2.18 from the gamepad the same day: "its good, doesn't hit things." That
+covers gamepad driving and braking at the new top speed. Still open: taped distance scale and track
+width, the depth matrices' floor calibration at the new height, and Rex's own turns and approaches.

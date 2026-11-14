@@ -1493,3 +1493,7 @@ and a larger gamepad braking envelope (stop line 0.40 m, braking from 1.00 m at 
 own speeds are unchanged in metres per second; his obstacle zones at 0.25 m/s are a 0.12 m stop line
 with braking from 0.35 m. Detail: `firmware/djr3x_motion/README.md`. **Not yet driven;** distance
 scale and track width are untaped, so his turn angles and distances are unverified.
+
+Owner, after driving 0.2.18 from the gamepad the same day: "its good, doesn't hit things." That
+covers gamepad driving and braking at the new top speed. Still open: taped distance scale and track
+width, the depth matrices' floor calibration at the new height, and Rex's own turns and approaches.
