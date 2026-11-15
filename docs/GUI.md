@@ -73,7 +73,7 @@ the board.
   is on, drives that need the arm park are refused.
 - **Take the wheels** (Motivator) holds the drive owner's plan lock. Rex's own, requested and
   reflex drives are refused (`DriveBusy`). The arms park before the first non-reverse move.
-  - Setpoints are sent at 10 Hz. They are capped at 0.25 m/s and 60°/s (the firmware limits),
+  - Setpoints are sent at 10 Hz. They are capped at 0.25 m/s and 60°/s (the September planned-move limits),
     with V2's 1.2 s/0.5 s ramps.
   - Forward stops at the front path check. Spins stop at the arm-swing check. Reverse stops
     at the firmware's rear block.

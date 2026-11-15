@@ -6,7 +6,7 @@ import unittest
 
 from r3x.capture import Endpoint, Frame
 from r3x.contracts import Cancellation
-from r3x.drive import LOOK_NECK_MAX, DrivePlan, DriveStep
+from r3x.drive import HALLWAY_SPEED, LOOK_NECK_MAX, OPEN_SPEED, DrivePlan, DriveStep
 from r3x.drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
 from r3x.gaze import addressee_neck
 from r3x.servo_poses import LIMITS, NECK_PER_DEG, talking_lanes
@@ -1084,7 +1084,49 @@ class HallwayMoveTests(SeekTests):
         self.assertEqual(receipt.status, 'completed')
         self.assertFalse([c for c in fake.commands if c['cmd'] == 'turn'])
         self.assertNotIn('slowed_for_tight_space', receipt.steps[0])
-        self.assertEqual(self.moves(fake)[0]['speed'], .25)
+        self.assertEqual(self.moves(fake)[0]['speed'], OPEN_SPEED)   # Nothing near: full speed.
+
+    def test_a_hallway_is_driven_faster_than_the_old_crawl_and_open_floor_faster_still(self):
+        """Owner, November 14: down the hallway he averaged 3 cm/s. "If he's in a tight hallway he
+        still goes faster, but he can go much faster if there are not obstacles in his way." The
+        logged plans asked for the slow pace."""
+        clock, fake, drive, world = self.start([])
+        record = watched(fake, hallway(fake, .45))     # About 0.2 m beside him on each side.
+        settle()
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=2., pace='slow'))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        rolled = sorted(c['lin'] for c in fake.commands if c['cmd'] == 'drive' and c['lin'] > 0)
+        self.assertGreater(rolled[len(rolled)//2], .15)    # The old crawl: 0.12 m/s at most, 0.09 at this pace.
+        self.assertLessEqual(rolled[-1], HALLWAY_SPEED)    # Still slower than open floor,
+        self.assertGreaterEqual(record['side_m'], .12)     # and no nearer the walls for it.
+        fake.sensors = None
+        settle()
+        self.run_plan(clock, drive, DriveStep('move', meters=1.5, pace='slow'), DriveStep('move', meters=1.5))
+        self.assertEqual([m['speed'] for m in self.moves(fake)], [round(.6*OPEN_SPEED, 3), OPEN_SPEED])
+
+    def test_an_approach_past_a_corner_at_one_side_of_his_path_keeps_rolling_without_floor_looks(self):
+        """November 14 run: as he set off for the hallway the front-left sensor read 0.44 m to
+        something at the edge of his path while straight ahead was open. Each time the approach
+        stopped for a camera look at the floor (5-20 s with the re-find), which said "straight
+        ahead", then crawled 1.2 m; 5.4 m took three minutes. The roll now steers past what limits
+        one side of his path, as a crawl does, and keeps going."""
+        clock, fake, drive, world = self.start([('far end', 'the hallway', 5., 0.)])
+        fake.sensors = shaped_room(world, [(.95, .42, .12)])   # A box corner at the left edge of his path.
+        drive.router = Router()
+        settle()
+        space = drive.space()
+        self.assertLess(space['path_left_m'], .8)           # It limits one side of his path...
+        self.assertGreater(space['path_center_m'], 3.)      # ...and straight ahead is open.
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='the hallway'),
+                                DriveStep('approach', target='sought'))
+        step = receipt.steps[-1]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertGreater(fake.x, 3.5, receipt)
+        self.assertEqual(drive.router.facts, [])            # Never stopped to look at the floor.
+        self.assertNotIn('detours', step, receipt)
+        self.assertEqual(step['continuous_runs'], 1, receipt)
+        rolled = [c['lin'] for c in fake.commands if c['cmd'] == 'drive' and c['lin'] > 0]
+        self.assertGreater(max(rolled), HALLWAY_SPEED)      # Past it, open floor: faster than the old top speed.
 
     def test_the_logged_refusal_now_crawls_instead_of_refusing(self):
         clock, fake, drive, world = self.start([])
@@ -1764,8 +1806,16 @@ class ArrivalTests(SeekTests):
 
     def test_a_thing_that_has_grown_large_in_view_is_reached_whatever_stops_him(self):
         clock, fake, drive, world = self.start([('microwave', 'microwave', 4., 0.)])
-        # A counter under it juts in from the right: a side return, never the centre band.
+        # A counter under it juts in from the right: a side return, never the centre band. Since
+        # November 14 the roll steers past a return on one side of his path, so what stops him
+        # is the firmware's own front pair at the counter's corner.
         fake.sensors = shaped_room(world, [(3.3, y/10, .12) for y in range(-12, -3, 2)])
+        handle = fake.handle
+        def firmware(command):
+            handle(command)
+            if command['cmd'] == 'drive' and command['lin'] > 0 and fake.x >= 2.9:
+                fake.setpoint, fake.linear, fake.state = None, 0., 'blocked'
+        fake.handle = firmware
         settle()
         drive.router = Router()
         receipt = self.run_plan(clock, drive, DriveStep('seek', description='microwave'),

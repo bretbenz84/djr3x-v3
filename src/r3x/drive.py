@@ -16,19 +16,33 @@ from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, clearance, describe_bearing, face_range, image_bearing,
                           move_allowance, radar_bodies, steer, wall_angle, wrap, FRONT_MARGIN, MIN_TURN, PERSON_MARGIN,
-                          SCRAPE_M, WALL_HOLD_M)
+                          SCRAPE_M, STEER_MAX, WALL_HOLD_M)
 from .field_guide import GUIDE
 from .local_map import LocalMap
 from .providers import Capability
 
-# Owner-approved limits: 0.25 m/s and 1.5 m legs (first test); requested plans may cover 10 m
-# (September 27: the 3 m first-test cap cut door trips short and refused 'go ten feet').
+# Owner, November 14 (first run on the 96 mm wheels): down a hallway into the living room he
+# averaged 3 cm/s. Tight space meant a crawl capped at 0.12 m/s, cut further by the model's
+# "slow" pace and a tight-space factor (0.05-0.09 m/s), and open floor never went past the
+# 0.25 m/s set for the September first test. "If he's in a tight hallway he still goes faster,
+# but he can go much faster if there are not obstacles in his way." One rule now sets how fast
+# the room lets him roll forward (DriveBase._room_speed): the nearest return beside him or at a
+# front corner, and how soon he would reach anything in his path. The pace scales only the top.
+OPEN_SPEED = .45          # Nothing near him (the wheels reach 0.61 m/s, the gamepad 0.60).
+HALLWAY_SPEED = .25       # A hallway wall HALLWAY_GAP_M beside him; also backing up (rear sensing is narrower).
+SQUEEZE_SPEED = .12       # A door jamb SQUEEZE_GAP_M or less beside him, or something close in his path.
+OPEN_GAP_M = .9
+HALLWAY_GAP_M = .35
+SQUEEZE_GAP_M = .10
+REACH_S = 2.              # Something in his path: at least this long before it is inside the crawl's hold distance.
+# Requested plans may cover 10 m in 1.5 m legs (September 27: the 3 m first-test cap cut door
+# trips short and refused 'go ten feet').
 LIMITS = {
-    'requested': {'speed_mps': .25, 'step_m': 1.5, 'total_m': 10., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
+    'requested': {'speed_mps': OPEN_SPEED, 'step_m': 1.5, 'total_m': 10., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
     # October 2 owner ruling: Rex's own moves need no permission and no smaller limits; he
     # only must not drive into things and must respect the time-of-flight boundaries, which
     # the clearance checks enforce for every origin.
-    'self_initiated': {'speed_mps': .25, 'step_m': 1.5, 'total_m': 10., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
+    'self_initiated': {'speed_mps': OPEN_SPEED, 'step_m': 1.5, 'total_m': 10., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
 }
 ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek')
 SEEK_SWEEP_DEG = 80.      # Just under the ~90 degree camera view, so consecutive looks overlap.
@@ -54,7 +68,10 @@ SIDE_WAY_M = .8           # A side sensor this open is a way around when nothing
 # 15 ft short of a door with open floor beside the obstacle, or pointed slightly into a wall).
 DETOUR_DEG = 30.          # The sought thing stays inside the ~90 degree view after the turn.
 DETOUR_MORE_DEG = 25.     # Once more when the first turn leaves the obstacle in the path.
-DETOUR_M = .6
+# 0.6 m until November 14: after the 30 degree turn that moved him 0.30 m aside, short of his half
+# width plus the path margin (0.32 m), and only the slow crawl's drift took him past a thing dead
+# ahead. 0.7 m moves him 0.35 m aside at the room's faster pace.
+DETOUR_M = .7
 MAX_DETOURS = 2
 SIDE_OPEN_M = .5          # A front band this much past the stand-off counts as a way around.
 PERSON_REACH = .8         # Face range minus a front return within this may be knees, feet or chair legs.
@@ -80,8 +97,8 @@ SIDE_OPEN_MORE_M = .3     # Straight ahead and the far side this much more open 
 # away from the wall all along (10 degrees over those legs); the host kept stopping him
 # first. In tight space the host now drives a slow continuous crawl, lets the firmware's
 # steering finish its work, and adds only what the firmware cannot read (drive_space.steer).
-# The door beyond is narrower still (about 0.8 m for a 0.54 m body): the same crawl.
-CRAWL_SPEED = .12         # Top crawl speed; the firmware's stop zone at this speed is about 0.10 m.
+# The door beyond is narrower still (about 0.8 m for a 0.54 m body): the same crawl. Its
+# speed is the room's (_room_speed; November 14), less while steering hard.
 CRAWL_MIN_SPEED = .06
 CRAWL_TICK_S = .15        # Setpoint refresh, inside the firmware's 300 ms drive deadman.
 CRAWL_STALL_S = 2.        # No wheel progress this long: something holds him.
@@ -110,9 +127,7 @@ STRAIGHTEN_MIN_DEG = 8.   # The turn away from a wall is the angle it converges 
 STRAIGHTEN_MAX_DEG = 30.
 STRAIGHTEN_MARGIN_DEG = 3.
 STRAIGHTEN_SIDE_M = .5    # A wall this near beside him that converges ahead is turned away from first.
-TIGHT_SIDE_M = .35        # A side return this close, or...
-TIGHT_CORNER_M = .5       # ...a front-corner return this close, is a tight space: go slower.
-TIGHT_PACE = .6
+TIGHT_CORNER_M = .5       # A front-corner return this close is tight space too.
 # October 3, second run. A voice's direction is remembered as a room heading, so it stays
 # right after he turns and for requests spoken while he moves (the model re-used "88 degrees
 # left" after he had already turned to face it, and he ended up facing away).
@@ -173,8 +188,12 @@ DEFAULT_STOP_AT = {'face': 1.2, 'nearest_person': 1.2, 'object': .6, 'radar_body
 # words and reflexes keep the firmware's firmer ramp. Unverified on the robot.
 EASE_IN = .1    # m/s²: 0.04 to 0.25 m/s takes about 2 s and 0.3 m.
 EASE_OUT = .07  # m/s²
+# A roll toward a sought thing plans its slow-down to the stand-off at this rate, allowing the same
+# 0.3 s reaction as its stop check, which assumes the firmware's 0.35 m/s². November 14: at 0.45 m/s
+# the check otherwise ended the roll 0.4 m early, and each restart costs a camera look.
+CRUISE_DECEL = .2  # m/s²
 # Pushed at every connect; config can only lower firmware hard caps.
-CONFIG = {'max_lin': .25, 'max_ang': round(math.radians(60), 3), 'accel_lin': .35, 'accel_ang': 2.,
+CONFIG = {'max_lin': OPEN_SPEED, 'max_ang': round(math.radians(60), 3), 'accel_lin': .35, 'accel_ang': 2.,
           'stop_zone_m': .15, 'slow_zone_m': .6, 'default_turn_rate': TURN_RATE,
           'watchdog_ms': 500, 'drive_expiry_ms': 300,
           # V2 pushes these: firmware defaults keep the gamepad owner until Start is pressed.
@@ -187,9 +206,10 @@ CONFIG = {'max_lin': .25, 'max_ang': round(math.radians(60), 3), 'accel_lin': .3
 # A freshly unplugged pack can retain 13.61 V for minutes; 13.6 V reintroduced
 # the old surface-charge lockout even after firmware had released its latch.
 CHARGER_MV = 14000
-# Dashboard joystick (V2 Motivator console): the owner-approved planned-move speed, a gentle
-# spin, and the swing check one 10 Hz setpoint ahead of a spin.
-MANUAL_SPEED = LIMITS['requested']['speed_mps']
+# Dashboard joystick (V2 Motivator console): the September planned-move speed (unchanged when
+# Rex's own speeds rose on November 14), a gentle spin, and the swing check one 10 Hz setpoint
+# ahead of a spin.
+MANUAL_SPEED = HALLWAY_SPEED
 MANUAL_TURN = math.radians(60.)
 MANUAL_TURN_CHECK_DEG = 15.
 CAMERA_KINDS = {'face', 'nearest_person', 'object'}
@@ -1387,13 +1407,35 @@ class DriveBase:
         return turned
 
     @staticmethod
-    def _caution(space):
-        """Speed factor: slower where a wall is close beside or at a front corner (owner,
-        October 3: in tight clearance hallways he should move slower)."""
-        sides = [v for v in (space.get('left_m'), space.get('right_m')) if v is not None]
-        corners = [v for v in (space.get('front_left_m'), space.get('front_right_m')) if v is not None]
-        tight = (sides and min(sides) < TIGHT_SIDE_M) or (corners and min(corners) < TIGHT_CORNER_M)
-        return TIGHT_PACE if tight else 1.
+    def _room_speed(space, top):
+        """How fast the room lets him roll forward, never above top (the step's paced speed).
+
+        Owner, October 3: slower in tight hallways; November 14: still faster there than the
+        old crawl, and much faster with nothing in the way. The nearest return beside him or
+        at a front corner sets a speed from SQUEEZE_SPEED (a door jamb) through HALLWAY_SPEED
+        (a hallway wall) to OPEN_SPEED; with no side readings it is HALLWAY_SPEED. Anything in
+        his path then allows only a speed that takes REACH_S to bring it inside the hold
+        distance, so he slows while steering round a corner and while closing on a wall. The
+        firmware still slows and stops him by its own zones."""
+        near = [v for v in (space.get(k) for k in ('left_m', 'right_m', 'front_left_m', 'front_right_m')) if v is not None]
+        gap = min(near) if near else HALLWAY_GAP_M
+        if gap <= HALLWAY_GAP_M:
+            share = max(0., gap - SQUEEZE_GAP_M) / (HALLWAY_GAP_M - SQUEEZE_GAP_M)
+            speed = SQUEEZE_SPEED + share * (HALLWAY_SPEED - SQUEEZE_SPEED)
+        else:
+            share = min(1., (gap - HALLWAY_GAP_M) / (OPEN_GAP_M - HALLWAY_GAP_M))
+            speed = HALLWAY_SPEED + share * (OPEN_SPEED - HALLWAY_SPEED)
+        path = space.get('path_m')
+        if path is not None:
+            speed = min(speed, max(SQUEEZE_SPEED, (path - WALL_HOLD_M) / REACH_S))
+        return min(top, speed)
+
+    @classmethod
+    def _crawl_speed(cls, space, top, ang):
+        """The room's speed for a steered roll through tight space, eased while steering hard
+        so the turn takes effect over less distance."""
+        speed = cls._room_speed(space, top)
+        return speed if abs(ang) < .3 else max(CRAWL_MIN_SPEED, speed * .6)
 
     @staticmethod
     def _tight(space, need):
@@ -1426,8 +1468,9 @@ class DriveBase:
                 return 'wall_too_close_' + key
         return None
 
-    def _crawl(self, meters, plan, cancel, speed, row):
-        """A slow forward crawl through tight space as a continuous drive setpoint.
+    def _crawl(self, meters, plan, cancel, top, row):
+        """A forward crawl through tight space as a continuous drive setpoint, at the room's
+        speed under top (the step's paced speed).
 
         The firmware keeps steering him away from walls as it does on every move; the host
         no longer stops him for a wall beside the path and adds each tick what the firmware
@@ -1438,7 +1481,6 @@ class DriveBase:
         self._ensure_parked(cancel)
         start = self._telemetry()
         start_odom, start_heading = dict(start.get('odom') or {}), self._heading(start)
-        speed = max(CRAWL_MIN_SPEED, min(speed * TIGHT_PACE, CRAWL_SPEED))
         row = {**row, 'commanded_m': round(meters, 2), 'slowed_for_tight_space': True, 'crawled': True}
         def travelled_from(odom):
             return math.hypot(float(odom.get('x', 0)) - float(start_odom.get('x', 0)),
@@ -1448,7 +1490,7 @@ class DriveBase:
         self._assist(True)
         self._wheels_on('move', self._origin)
         try:
-            seq = self.link.send({'cmd': 'drive', 'lin': round(speed, 3), 'ang': 0.})
+            seq = self.link.send({'cmd': 'drive', 'lin': round(self._room_speed(self.space(), top), 3), 'ang': 0.})
             ack = self._await_ack(seq, .5, self.wait)
             if ack is not None and not ack.get('accepted'):
                 return {**row, 'status': 'refused', 'reason': 'controller_refused_' + str(ack.get('reason')), 'travelled_m': 0.}
@@ -1479,7 +1521,7 @@ class DriveBase:
                     row['stopped_by'], row['clearance_m'] = why, self._room_row(space)
                     break
                 ang = steer(space, telemetry.get('tof_mm'))
-                lin = speed if abs(ang) < .3 else max(CRAWL_MIN_SPEED, speed * .6)
+                lin = self._crawl_speed(space, top, ang)
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                 self.wait(CRAWL_TICK_S)
         finally:
@@ -1504,7 +1546,7 @@ class DriveBase:
         self._step_trace(row)
         return row
 
-    def _move(self, meters, plan, cancel, speed=None, straighten=True):
+    def _move(self, meters, plan, cancel, straighten=True):
         row = {'action': 'move', 'requested_m': round(meters, 2)}
         need = min(meters, STRAIGHTEN_WITHIN_M)
         straightened = self._straighten(need, plan, cancel) if meters > 0 and straighten else 0.
@@ -1512,7 +1554,7 @@ class DriveBase:
             # Reported so the model can say he lined up with the hallway first.
             row['turned_away_from_wall_deg'] = round(straightened, 1)
             row['turned_deg'] = abs(round(straightened, 1))
-        speed = speed or LIMITS[plan.origin]['speed_mps'] * self._pace
+        top = LIMITS[plan.origin]['speed_mps'] * self._pace
         space = self.space()
         if meters > 0 and self._path_blocked(space, need) and self._doubtful(space, self.clock()):
             # Open floor was seen there a moment ago and nothing before: look again first.
@@ -1524,7 +1566,7 @@ class DriveBase:
             held = self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm'))
             if held:
                 return self._refused_move(row, held, space)
-            return self._crawl(meters, plan, cancel, speed, row)
+            return self._crawl(meters, plan, cancel, top, row)
         allowed, note = move_allowance(meters, space)
         if not allowed:
             return self._refused_move(row, note, space)
@@ -1533,6 +1575,7 @@ class DriveBase:
         allowed, note = move_allowance(meters, space)   # Clearance after the park settles.
         if not allowed:
             return self._refused_move(row, note, space)
+        speed = self._room_speed(space, top) if meters > 0 else min(top, HALLWAY_SPEED)
         start = self._telemetry().get('odom') or {}
         status, reason, done = self._finite({'cmd': 'move', 'dist': round(allowed, 2), 'speed': round(speed, 3)},
                                             max(8., abs(allowed)/speed + 10.), cancel)
@@ -1931,7 +1974,7 @@ class DriveBase:
                                             self._at[1] + current['range_m']*math.sin(math.radians(last['heading'])))
                 space = self.space(now)
                 lin, ang, result, reason = controller.step(now, telemetry, space, current)
-                lin = ease(now, min(lin, max(.05, controller.speed * self._caution(space))),
+                lin = ease(now, min(lin, max(.05, self._room_speed(space, controller.speed))),
                            max(0., float((telemetry.get('odom') or {}).get('lin', 0))))
                 if current is not None:
                     # Near the target the firmware must slow him, not steer him off it.
@@ -2150,7 +2193,7 @@ class DriveBase:
                     break
                 heading = self._heading(telemetry)
                 ang = 0. if hold is None or heading is None else max(-.2, min(.2, math.radians(wrap(hold - heading))*1.2))
-                lin = max(.05, min(speed * self._caution(self.space(now)),
+                lin = max(.05, min(self._room_speed(self.space(now), speed),
                                    math.sqrt(2*EASE_OUT*max(0., min(room, distance_m - travelled))),
                                    (distance_m - travelled)/.6))
                 lin = ease(now, lin, speed_now)
@@ -2342,9 +2385,25 @@ class DriveBase:
         return {**row, 'status': 'not_found', 'reason': 'not_seen_in_any_look', 'turned_deg': turned,
                 'looks': looks, 'notes': notes[-2:], 'vision_calls': self._vision_calls}
 
+    def _ahead(self, space, telemetry):
+        """(forward room that counts for a roll, whether it is in tight space).
+
+        In tight space the roll steers round what limits only one side of the path (a door
+        jamb, a hallway corner), as a crawl does, so the centre of the path counts, and what
+        would hold a crawl leaves no room (owner, November 14: an approach down a hallway
+        stopped for a floor look before every 1.2 m leg and never rolled on). Elsewhere the
+        whole width of the path counts. A front block the firmware holds leaves no room
+        whatever the host reads, so a roll is not restarted into it."""
+        tight = space.get('path_center_m') is not None and self._tight(space, STRAIGHTEN_WITHIN_M)
+        if telemetry.get('state') == 'blocked' and telemetry.get('blocked_dir') in ('front', 'both'):
+            return 0., tight
+        if tight:
+            return (0. if self._crawl_hold(space, telemetry.get('tof_mm')) else space['path_center_m']), True
+        return space.get('path_m'), False
+
     def _room(self, stand_off):
         space = self.space()
-        front = space.get('path_m')
+        front, _ = self._ahead(space, self.link.snapshot()[0] or {})
         return space, (front if front is not None else 0.) - stand_off
 
     @staticmethod
@@ -2411,7 +2470,8 @@ class DriveBase:
                     outcome = ('distance_limit', 'distance_limit_reached')
                     break
                 space = self.space(now)
-                room = (space.get('path_m') if space.get('path_m') is not None else 0.) - stand_off
+                ahead, tight = self._ahead(space, telemetry)
+                room = (ahead if ahead is not None else 0.) - stand_off
                 speed_now = max(0., float(odom.get('lin', 0)))
                 brake = speed_now*speed_now/(2*CONFIG['accel_lin']) + speed_now*.3
                 firmware_blocked = telemetry.get('state') == 'blocked' and telemetry.get('blocked_dir') in ('front', 'both')
@@ -2440,8 +2500,13 @@ class DriveBase:
                     break
                 self._assist(not self._near_target(space, expected))
                 ang = 0. if expected is None else max(-.2, min(.2, math.radians(expected)*1.2))
-                lin = max(.05, min(speed * self._caution(space), math.sqrt(2*CONFIG['accel_lin']*max(0., room)),
-                                   (budget_m - travelled)/.6))
+                if tight:
+                    # What the firmware cannot read, as in a crawl: a wall slanting in beside him
+                    # and what the depth matrix sees across one side of the path.
+                    ang = max(-STEER_MAX, min(STEER_MAX, ang + steer(space, telemetry.get('tof_mm'))))
+                slowing = CRUISE_DECEL * (math.sqrt(.09 + 2*max(0., room)/CRUISE_DECEL) - .3)
+                lin = max(.05, min(self._crawl_speed(space, speed, ang) if tight else self._room_speed(space, speed),
+                                   slowing, (budget_m - travelled)/.6))
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                 self.wait(.15)
         except BaseException:
@@ -2484,10 +2549,15 @@ class DriveBase:
             return {**row, 'status': 'refused', 'reason': 'nothing_sought_yet', 'travelled_m': 0.}
         stand_off = max(FRONT_MARGIN, step.stop_at_m or DEFAULT_STOP_AT['object'])
         travelled, turned, misses, detours, swing_refusals, carried, cruises = 0., 0., 0, [], 0, None, 0
+        # A roll that ended blocked without headway is not restarted until he has gone round
+        # something: each restart costs a look, a firmware hold can clear once he stops, and a
+        # re-aim of a few degrees from the same spot meets the same hold (a counter's corner).
+        held_here = False
         tried = []   # What each leg around something did, in words, for the next look.
         shifted = 0  # +1 after a leg off to the left (the thing has slid right of its old heading), -1 after one to the right.
         def went(detour):
-            nonlocal travelled, turned, shifted
+            nonlocal travelled, turned, shifted, held_here
+            held_here = False
             shifted = 1 if detour['side'] == 'left' else -1
             turned += detour['turned_deg']
             travelled += detour['travelled_m']
@@ -2546,10 +2616,11 @@ class DriveBase:
                 else:
                     swing_refusals += 1   # Arms near something: keep going forward and aim once past it.
                 space, room = self._room(stand_off)
-            if min(budget_m - travelled, room) >= .2:   # Braking stops ~0.1 m early; no creeping restarts.
+            if not held_here and min(budget_m - travelled, room) >= .2:   # Braking stops ~0.1 m early; no creeping restarts.
                 moved, outcome, carried = self._cruise(plan, cancel, stand_off, budget_m - travelled)
                 travelled += moved
                 cruises += 1
+                held_here = outcome[0] == 'blocked' and moved < .05
                 if outcome[0] == 'arrived':
                     return result('completed', outcome[1])
                 if outcome[0] == 'stopped':

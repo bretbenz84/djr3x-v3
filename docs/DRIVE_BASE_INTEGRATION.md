@@ -63,8 +63,8 @@ hallway no-reverse rule. No firmware was changed.
   - Arm-swing checks gate turns. Firmware stop zones stay active.
   - Stop phrases ("stop", "whoa", "Oh, stop!") halt the wheels and silence the motion
     sounds at once.
-  - Limits: 0.25 m/s, 10 m per plan (3 m until the owner found it cut trips short,
-    September 27). Since October 2, Rex's own moves share these limits: the owner ruled
+  - Limits: 0.45 m/s on open floor, slower where the room is tight (November 14, below),
+    10 m per plan (3 m until the owner found it cut trips short, September 27). Since October 2, Rex's own moves share these limits: the owner ruled
     that self-initiated motion needs no permission or smaller caps, only obstacle and
     time-of-flight respect, which the clearance checks enforce for every origin.
 - **Honesty.** Receipts report firmware results, odometry and IMU heading. A stopped or
@@ -130,7 +130,7 @@ sensor; about a dozen mostly silent stand-downs; and 5–25 cm moves at a crawl.
 
 | | Requested and self-initiated |
 | --- | --- |
-| Top speed (also pushed to firmware `max_lin`) | 0.25 m/s |
+| Top speed (also pushed to firmware `max_lin`) | 0.45 m/s on open floor (0.25 m/s until November 14); the room sets less |
 | Firmware leg | 1.5 m |
 | Plan distance total (moves and approaches) | 10 m (was 3 m) |
 | Turn per step / total | 360° / 720° |
@@ -1497,3 +1497,47 @@ scale and track width are untaped, so his turn angles and distances are unverifi
 Owner, after driving 0.2.18 from the gamepad the same day: "its good, doesn't hit things." That
 covers gamepad driving and braking at the new top speed. Still open: taped distance scale and track
 width, the depth matrices' floor calibration at the new height, and Rex's own turns and approaches.
+
+
+## Speed by room — November 14, 2026
+
+Owner, after the first trip on the 96 mm wheels (log `cd53a5cd`): he got down the hallway into the
+living room, but "abysmally slow"; then "if he's in a tight hallway he still goes faster, but he can go
+much faster if there are not obstacles in his way", and "use the vision only for when there are
+obstacles or path changes". The log: 5.4 m in 175 s (3 cm/s). About 80 s was rolling at 0.05-0.09 m/s
+(tight space meant a crawl capped at 0.12 m/s, cut further by the plan's "slow" pace and a tight-space
+factor). About 100 s was stopping: something at one edge of his path (0.44 m on the front-left
+radial, straight ahead open) made each 1.2 m leg end in a camera look at the floor plus a re-find, and
+each look answered "straight ahead". Not one continuous roll.
+
+What changed (host only; the firmware, its stop and slow zones and its wall steering are unchanged):
+
+- **One speed rule** (`DriveBase._room_speed`) for every forward roll. The nearest return beside
+  him or at a front corner sets the speed: 0.12 m/s at 0.10 m or less (a door jamb), 0.25 m/s at
+  0.35 m (a hallway wall), 0.45 m/s from 0.9 m (open floor), linear between. Anything in his path
+  allows only a speed that takes 2 s to bring it inside the 12 cm hold, so he slows while closing on
+  a corner. Pace (slow 60%, easy 80%) scales only the 0.45 top, so a "slow" hallway trip is no
+  slower than the room allows. Backing up stays at 0.25 m/s; turns and the dashboard joystick are
+  unchanged. `max_lin` pushed to the firmware is 0.45, which also makes the gamepad's D-pad nudge
+  0.14 m/s (30% of `max_lin`, was 0.08).
+- **Hallway rolls keep going.** An approach to a sought thing in tight space now counts the centre
+  of its path: what limits only one side is steered past as a crawl does (host steering plus the
+  firmware's wall nudge). The camera floor look is kept for real blocks: something straight ahead,
+  a crawl hold (12 cm in his path, a side about to scrape) or a firmware stop. The background looks
+  that keep the target in view while he rolls (one every 2 s at most) are unchanged and never stop him.
+- **Fallout of the higher speed, found in simulation.** The roll toward a sought thing now plans
+  its slow-down to the stand-off (0.2 m/s² with a 0.3 s allowance); its stop check otherwise ended
+  the roll 0.4 m early at 0.45 m/s and each restart cost a look. A roll that ends blocked without
+  headway is not restarted until he has gone round something: with the firmware holding him at a
+  counter's corner the simulation re-aimed and retried 18 times until the plan's 40 looks were spent.
+  The sideways step around an obstacle is 0.7 m (was 0.6 m, which moved him 0.30 m aside, short of
+  the 0.32 m his body needs, and worked only through the slow crawl's drift).
+
+Replaying tonight's logged clearances through the rule gives 0.12-0.19 m/s at the hallway's tight
+spots and 0.27-0.45 m/s in the open. Two new checks fail on the old code as the run did (a floor look
+beside a corner at the edge of his path; 0.09 m/s in a hallway at the slow pace). **Checked in the
+simulated base only (synthetic sensors).** Not yet driven: braking from 0.45 m/s at furniture and
+people, whether the faster crawl still clears door jambs (it has less distance to steer in), and
+whether the firmware's speed-scaled zones (Rex's own 0.15 / 0.60 m full-speed envelope: stop line
+0.14 m and braking from 0.49 m at 0.45 m/s) stop him gently enough for something that appears
+suddenly; the gamepad needed a larger envelope at its 0.60 m/s.

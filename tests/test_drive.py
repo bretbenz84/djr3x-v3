@@ -337,7 +337,7 @@ class DriveOwnerTests(unittest.TestCase):
         config_ack = next(a for a in self.drive.link.acks.values() if 'config' in a)
         self.assertGreater(len(json.dumps(config_ack)), 512)
         config = next(c for c in self.fake.commands if c['cmd'] == 'config')
-        self.assertEqual(config['max_lin'], .25)
+        self.assertEqual(config['max_lin'], LIMITS['requested']['speed_mps'])
         self.assertEqual(config, {**CONFIG, 'v': 1, 'cmd': 'config', 'seq': config['seq']})
         deadline = time.monotonic() + 1.
         while not any(c['cmd'] == 'ping' for c in self.fake.commands) and time.monotonic() < deadline:
@@ -377,7 +377,8 @@ class DriveOwnerTests(unittest.TestCase):
         turns = [c['rate'] for c in self.fake.commands if c['cmd'] == 'turn']
         moves = [c['speed'] for c in self.fake.commands if c['cmd'] == 'move']
         self.assertEqual(turns, [27., 45.])
-        self.assertEqual([round(v, 3) for v in moves], [.2, .25])
+        top = LIMITS['requested']['speed_mps']   # Open floor: the room allows the paced top speed.
+        self.assertEqual([round(v, 3) for v in moves], [round(.8*top, 3), top])
 
     def test_move_is_shortened_to_front_clearance(self):
         self.start()
@@ -389,7 +390,7 @@ class DriveOwnerTests(unittest.TestCase):
         self.assertEqual(receipt.steps[0]['reason'], 'shortened_by_clearance')
         self.assertAlmostEqual(self.fake.x, .65, places=2)
         move = next(c for c in self.fake.commands if c['cmd'] == 'move')
-        self.assertLessEqual(move['speed'], .25)
+        self.assertLessEqual(move['speed'], LIMITS['requested']['speed_mps'])
 
     def test_rear_matrix_frames_shorten_a_reverse_through_the_real_link(self):
         self.start()
@@ -595,7 +596,7 @@ class DriveOwnerTests(unittest.TestCase):
         self.assertGreater(distance, 1.1)   # About 4 ft (owner, October 25).
         self.assertLess(distance, 1.45)
         self.assertEqual(self.fake.commands[-1]['cmd'], 'stop')
-        self.assertTrue(all(c['lin'] <= .25 for c in self.fake.commands if c['cmd'] == 'drive'))
+        self.assertTrue(all(c['lin'] <= LIMITS['requested']['speed_mps'] for c in self.fake.commands if c['cmd'] == 'drive'))
 
     def test_person_approach_speeds_up_gradually_and_slows_early(self):
         # Owner, October 25: one speed and then a late stop looked threatening.
