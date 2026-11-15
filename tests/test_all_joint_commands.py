@@ -22,7 +22,7 @@ class JointCommands(MemoryFixture):
         self.clock, self.port = Clock(), PulsePort()
         self.robot = RobotServos('fake', open_port=lambda:self.port, clock=self.clock, wait=self.clock.wait)
         self.robot.owner.wait = self.clock.wait
-        self.robot.start()
+        self.robot.start();self.robot.open_eyes()   # Past the ready line: the visor is open.
         self.addCleanup(self.robot.close)
         self.brain = Brain(call)
         self.output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, robot=self.robot)
@@ -303,7 +303,7 @@ class ListeningCueTests(unittest.TestCase):
         self.clock, self.port = Clock(), PulsePort()
         self.robot = RobotServos('fake', open_port=lambda:self.port, clock=self.clock, wait=self.clock.wait)
         self.robot.owner.wait = self.clock.wait
-        self.robot.start()
+        self.robot.start();self.robot.open_eyes()   # Past the ready line: the visor is open.
         self.addCleanup(self.robot.close)
         self.rows = []
         self.robot.reflex.trace = type('T', (), {'emit': lambda _, event, **kw: self.rows.append((event, kw))})()

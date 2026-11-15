@@ -54,6 +54,33 @@ class RobotServoTests(unittest.TestCase):
         self.assertEqual(self.port.pose[1],LIMITS[1][0])
         self.assertEqual(self.port.pose[8],dict(PARK)[8])
 
+    def test_he_wakes_with_the_visor_shut_and_the_ready_line_opens_it(self):
+        # Owner, November 15: the visor stays down over his eyes through the wake and the
+        # please-wait line, and opens only as he says his ready line.
+        import random
+        from r3x.servo_poses import VISOR_DOWN, VISOR_SPEECH, talking_lanes
+        self.robot.start()
+        owner = self.robot.owner
+        self.assertEqual(self.port.pose[3], VISOR_DOWN)
+        moved = lambda: {ch for lane in talking_lanes(dict(self.port.pose), None, owner.held_channels, rng=random.Random(1))
+                         for beat in lane for ch, _ in beat.targets}
+        self.assertNotIn(3, moved())            # The please-wait line moves the rest of him, not the visor.
+        self.assertIn(0, moved())
+        self.robot.eyes_may_open()              # The ready line is next.
+        self.assertFalse(owner.held_channels)
+        visor = next(lane for lane in talking_lanes(dict(self.port.pose), None, owner.held_channels, rng=random.Random(1))
+                     if lane[0].targets[0][0] == 3)
+        self.assertLessEqual(visor[0].wait, .3)                                    # It opens as the line begins...
+        self.assertTrue(VISOR_SPEECH[0] <= visor[0].targets[0][1] <= VISOR_SPEECH[1])   # ...to where it sits when he talks.
+
+    def test_with_no_ready_line_the_visor_still_opens(self):
+        from r3x.servo_poses import VISOR_DOWN, VISOR_OPEN
+        self.robot.start()
+        self.assertEqual(self.port.pose[3], VISOR_DOWN)
+        self.assertEqual(self.robot.open_eyes().status, 'pulses_reached')   # No voice, so no talking motion opened it.
+        self.assertEqual(self.port.pose[3], VISOR_OPEN)
+        self.assertFalse(self.robot.owner.held_channels)
+
     def test_microphone_hold_expires_and_capture_completion_releases_it(self):
         self.robot.start()
         ready,expires=self.robot.owner.microphone_hold
@@ -87,7 +114,7 @@ class RobotServoTests(unittest.TestCase):
         self.assertTrue(self.robot.owner.microphone_held_during(self.clock(),self.clock()+1))
 
     def test_look_at_people_turns_to_the_face_follows_and_never_holds(self):
-        self.robot.start()
+        self.robot.start();self.robot.open_eyes()   # Past the ready line: the visor is open.
         self.robot.idle.face=lambda:{'neck':4300,'y':.4,'at':self.clock()}
         held=self.robot.execute_pose('look_right',Cancellation(),'look')        # A person asked.
         self.assertEqual(held.status,'pulses_reached')
@@ -114,7 +141,7 @@ class RobotServoTests(unittest.TestCase):
         # answer and on until "resume normal operations". It is now his again once the look is over.
         from r3x.servo_poses import HEAD
         from r3x.servos import LOOK_HOLD_SECONDS
-        self.robot.start()
+        self.robot.start();self.robot.open_eyes()   # Past the ready line: the visor is open.
         for pose in ('look_left','look_up','tilt_right','throttle_high_five'):
             self.assertEqual(self.robot.execute_pose(pose,Cancellation(),pose).status,'pulses_reached')
         self.assertEqual(self.robot.idle.mode(),'direction')

@@ -371,7 +371,9 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         first, second = (4000, 8000) if first_look == 'left' else (8000, 4000)
         # Slower lifecycle glide: V2 also paced intermediate targets in software.
         # Direct V3 targets need lower Maestro speed/acceleration caps.
-        head = (Beat((*DRIVE_HEAD, (3, VISOR_OPEN), (4, 6720)), speed=12, acceleration=3),)
+        # Owner, November 15: he wakes with the visor still shut over his eyes; it opens as he
+        # says his ready line (RobotServos.eyes_may_open / open_eyes).
+        head = (Beat((*DRIVE_HEAD, (3, VISOR_DOWN), (4, 6720)), speed=12, acceleration=3),)
         neck = (Beat(((0, first),), speed=12, acceleration=3, dwell=.3),
                 Beat(((0, second),), speed=12, acceleration=3, dwell=.3),
                 Beat(((0, NECK_CENTER),), speed=12, acceleration=3, dwell=.2))

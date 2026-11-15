@@ -39,7 +39,7 @@ class October31Tests(MemoryFixture):
         self.clock, self.port = Clock(), PulsePort()
         self.robot = RobotServos('fake', open_port=lambda: self.port, clock=self.clock, wait=self.clock.wait)
         self.robot.owner.wait = self.clock.wait
-        self.robot.start()
+        self.robot.start();self.robot.open_eyes()   # Past the ready line: the visor is open.
         self.addCleanup(self.robot.close)
         self.brain = Scripted(call, answer, on_answer)
         view = CurrentView(FakeScene(self.clock), clock=self.clock)

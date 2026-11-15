@@ -4,7 +4,8 @@ import time
 from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
-from .servo_poses import ARM_HOLD, HEAD, LIMITS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, pose_channels, sentry_head
+from .servo_poses import (ARM_HOLD, HEAD, LIMITS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, pose_channels, sentry_head,
+                          visor_over_eyes)
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
 from .voice_reflex import VoiceReflex
@@ -60,10 +61,30 @@ class RobotServos:
         except Exception as exc:
             if self.trace: self.trace.emit('servo_startup_hook_failed',error_type=type(exc).__name__)
         self._sequence('startup')
+        # Owner, November 15: the wake leaves the visor shut over his eyes, and it stays shut (the
+        # please-wait line's talking motion leaves it alone) until the ready line (eyes_may_open).
+        self.owner.held_channels.add(3)
         # Capture is started later by ProviderOwner, after motion/hold settling.
         self.wait(.5)
         self.owner.refresh_microphone_hold()
         self.wait(1.5)
+
+    def eyes_may_open(self):
+        """Just before the ready line: its talking motion may now move the visor, which opens it
+        as he speaks."""
+        self.owner.held_channels.discard(3)
+
+    def open_eyes(self):
+        """After the ready line: if nothing opened the visor (no voice, no talking motion), open
+        it now, so he is never left awake and blind."""
+        self.eyes_may_open()
+        if self.owner.state != 'active' or not visor_over_eyes(self.owner.commanded):
+            return None
+        receipt = self.owner.execute(ServoRequest('startup-open-eyes', self.owner.version, 'pose',
+                                                  self.owner.clock()+60, pose='visor_normal', hold_pose=False), Cancellation())
+        if self.trace:
+            self.trace.emit('servo_lifecycle', kind='open_eyes', **asdict(receipt))
+        return receipt
 
     def cancel(self):
         self.idle.close()

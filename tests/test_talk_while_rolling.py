@@ -302,7 +302,7 @@ class RobotStanceTests(unittest.TestCase):
         robot.owner.wait = clock.wait
         robot.owner._visor_wait = lambda seconds: time.sleep(.001)
         self.addCleanup(lambda: robot.closed or robot.close())
-        robot.start()
+        robot.start();robot.open_eyes()   # Past the ready line: the visor is open.
         robot.talking.start('turn', Cancellation(), visor_only=True)
         self.assertEqual(robot.prepare_base_motion(Cancellation()).status, 'pulses_reached')
         self.assertIsNotNone(robot.talking._thread)

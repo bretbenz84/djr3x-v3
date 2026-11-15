@@ -6,6 +6,19 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 15: he wakes with the visor shut
+
+Owner: "the visor stays down over the eyes, and only open the visor when he says his TTS ready
+lines". The startup choreography now sends the visor to closed (`VISOR_DOWN`) instead of open, and
+`RobotServos.start` holds channel 3, so the please-wait line's talking motion moves the head and
+arms but not the visor. Once everything has loaded, `App` calls `eyes_may_open` just before the
+ready line; that line's ordinary talking motion then opens the visor to its speaking range within
+its first 0.1–0.3 s. A hardware notice ("Hardware unavailable…") is spoken in the same breath before
+the ready line, so on such a start the visor opens with the notice. After the line `open_eyes`
+opens the visor to its usual point if it is still shut (no voice, or the talking motion was refused),
+so he is never left awake and blind; a failed startup leaves it shut. His eyes see nothing until
+then; nothing reads the camera before the ready line. Synthetic checks only; not yet seen on the robot.
+
 ## November 15: head-lift normal height, surprise rise and pace
 
 Owner: the head lift's normal height is 1093 µs (`HEAD_LIFT_NORMAL` 4372; was the range's midpoint,

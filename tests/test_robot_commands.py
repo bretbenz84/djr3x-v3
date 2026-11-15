@@ -376,7 +376,7 @@ class HeldPoseContinuationTests(MemoryFixture):
         clock,port=Clock(),PulsePort()
         robot=RobotServos('fake',open_port=lambda:port,clock=clock,wait=clock.wait)
         robot.owner.wait=clock.wait
-        robot.start();self.addCleanup(robot.close)
+        robot.start();robot.open_eyes();self.addCleanup(robot.close)
         brain=Brain(ToolCall('offer','set_robot_pose',{'poses':['throttle_offer'],'look_after':None,'say_before':None,'text':None}))
         output=OutputOwner(SyntheticTTS(),SyntheticSink(),self.state.trace,robot=robot)
         session=Session('s',brain,output,self.state.trace,self.state);self.addCleanup(session.close)

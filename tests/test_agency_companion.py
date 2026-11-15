@@ -131,7 +131,7 @@ class PhysicalPlanTests(MemoryFixture):
         self.clock=Clock();self.port=PulsePort()
         self.robot=RobotServos('fake',open_port=lambda:self.port,clock=self.clock,wait=self.clock.wait)
         self.robot.owner.wait=self.clock.wait
-        self.robot.start();self.addCleanup(self.robot.close)
+        self.robot.start();self.robot.open_eyes();self.addCleanup(self.robot.close)
         self.state.trace.clock=self.clock
         self.brain=Brain(ToolCall('pose','set_robot_pose',{'poses':['look_left'],'look_after':None,'say_before':None,'text':None}))
         output=OutputOwner(SyntheticTTS(),SyntheticSink(),self.state.trace,robot=self.robot)
