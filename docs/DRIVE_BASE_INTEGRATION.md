@@ -1603,10 +1603,28 @@ lockout's explanation to the model now says the sensor returns by itself once fr
 
 Checks: nine native checks run the firmware's link logic against a simulated sensor (boot unchanged,
 held in reset then released, reset by itself, a brief glitch left alone, a dropped mode request, a
-sensor never fitted, lost twice, clock wrap); 73 firmware checks pass. Full four-flag build 816,273
+sensor never fitted, lost twice, clock wrap); 73 firmware checks pass. Full four-flag build 816,421
 bytes program, 91,028 globals; the bare build also compiles. 14 host checks (rules, and the notices
 through the production link, drive base, session and output owner with a simulated controller); the
 891 checks chosen by the change pass, the full suite was not run. Build kept at
-`local/firmware/2026-11-15-0.2.19-matrix-recovery.bin`. **Not flashed. Not yet run on the robot:**
-how the real sensor answers after its reset button, the bus restart on this I2C driver, the notices
-aloud, and whether the dropouts continue.
+`local/firmware/2026-11-15-0.2.19-matrix-recovery.bin`.
+
+**Flashed at the owner's request, and what the first boot showed.** Before the flash the battery
+menu's log showed the controller had restarted by itself at 04:02 that morning (idle, on the charger,
+no reset clicked) and that neither depth sensor had answered since: 13,441 probes, two seconds apart,
+which is each probe timing out rather than the instant refusal of an empty bus. So 0.2.19 also frees
+a stuck data line and logs both bus lines whenever the sensor bus starts or restarts. Upload hashes
+verified; hello `0.2.19-matrix-recovery`; eight of eight ring sensors, IMU, compass and climate
+sensor up; charging latch held; no motion commanded (`local/firmware/2026-11-15-0.2.19-flash.log`,
+`-boot.ndjson`). The new line read **`bus started, SDA high, SCL LOW`**, and both sensors still gave
+no answer. The clock wire shared by the two sensors is being held low by something other than the
+controller; the data wire is high, so the sensors' pull-ups have power. That is a sensor module hung
+while holding the clock, or the clock wire shorted to ground. Firmware cannot release a held clock
+line. It fits the earlier pattern (the front sensor failing first and the rear following once the
+clock was taken) but that link is inferred.
+
+**Not yet run on the robot:** the recovery itself (it needs the clock line released: the hung
+sensor's reset button, or unplugging one sensor at a time to find which holds it), the bus restart
+on this I2C driver, the notices aloud, and whether the dropouts continue. Why the controller
+restarted at 04:02 is unknown; a dip on the 3.3 V supply would explain both that and a hung sensor,
+and has not been measured.

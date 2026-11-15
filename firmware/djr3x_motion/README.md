@@ -906,6 +906,10 @@ power cycle brought it back (V3 logs `c85e39dc`, `e1095922`, `00748116`).
 - A held-in reset button therefore costs the sensor for as long as it is held plus about 6 s
   (about 20 s if the module drops the first mode request while starting). Readers get -1
   throughout, as before; the host keeps the wheels locked until frames return.
+- **Bus line states are logged** whenever the matrix bus starts or restarts
+  (`tof_matrix: bus started, SDA high, SCL high`). At start a stuck data line is also clocked
+  free. A line that stays LOW is a module holding it, a short, or the modules without power
+  (their pull-ups then drag both lines down); nothing in firmware can release a held clock.
 - The `publisher stale` warning re-arms once the publisher is live again. The poll task's
   stack is 4096 bytes (was 3584) for the bus restart.
 - Unchanged and still true: a poll task blocked forever inside the I2C driver cannot recover
@@ -913,7 +917,11 @@ power cycle brought it back (V3 logs `c85e39dc`, `e1095922`, `00748116`).
 
 Checks: 73 native firmware checks pass (nine new, `test_tof_matrix_link.py`: a simulated module
 held in reset and released, reset by itself, glitching briefly, dropping a mode request, never
-fitted, lost twice, across a millisecond-clock wrap). Full four-flag build 816,273 bytes
-program, 91,028 globals; the bare build compiles. **Not flashed.** Unverified on hardware: the
-module's real behaviour after its reset button, and `Wire1.end()`/`begin()` at run time on the
-Bluepad32 core's I2C driver.
+fitted, lost twice, across a millisecond-clock wrap). Full four-flag build 816,421 bytes
+program, 91,028 globals; the bare build compiles. Flashed at the owner's request, hashes
+verified, hello `0.2.19-matrix-recovery`, 8/8 radials, IMU, compass and BME280 up, no motion.
+First boot: `bus started, SDA high, SCL LOW` and no ACK from either module, as on 0.2.18 since
+the controller's unexplained restart at 04:02 that day: the clock line is held low outside the
+controller. Unverified on hardware: the recovery once the line is free, the module's real
+behaviour after its reset button, and `Wire1.end()`/`begin()` at run time on the Bluepad32
+core's I2C driver.

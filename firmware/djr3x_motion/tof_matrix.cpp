@@ -195,6 +195,25 @@ static bool mx_read_frame(MxUnit& u) {
   return true;
 }
 
+// ---- Bus start: free a stuck line, say what the lines read -------------------------
+// With the controller stopped, clock a module that was cut off mid-byte free, then
+// read both lines before starting Wire1. HIGH/HIGH is a healthy idle bus (a module
+// that still does not answer is in reset or hung). A line LOW that stays LOW is a
+// module holding it, a short, or the modules without power: their own pull-ups then
+// drag both lines to the dead supply. Seen November 15: after the controller
+// restarted by itself at 04:02 every probe TIMED OUT (2 s apart, not the instant
+// NACK of an empty bus) for seven hours, and nothing recorded which it was.
+static void mx_bus_start(const char* when) {
+  i2c_clear_stuck_lines(PIN_MX_I2C_SDA, PIN_MX_I2C_SCL);   // leaves both pins as pulled-up inputs
+  const bool sda = digitalRead(PIN_MX_I2C_SDA) == HIGH, scl = digitalRead(PIN_MX_I2C_SCL) == HIGH;
+  Wire1.begin(PIN_MX_I2C_SDA, PIN_MX_I2C_SCL);
+  Wire1.setTimeOut(500);   // ride out slave clock-stretch; only the poll task waits
+  char buf[96];
+  snprintf(buf, sizeof(buf), "tof_matrix: bus %s, SDA %s, SCL %s%s", when, sda ? "high" : "LOW",
+           scl ? "high" : "LOW", (sda && scl) ? "" : " - sensor power, or a module holding the line");
+  emit_log((sda && scl) ? "info" : "warn", buf);
+}
+
 // ---- Bus restart (recovery path only) --------------------------------------------
 // Restart the matrix I2C controller and clock a stuck line free, as the trunk does
 // (i2c_trunk.cpp). Runs on the poll task, between transactions, and only for a
@@ -203,11 +222,7 @@ static bool mx_read_frame(MxUnit& u) {
 static void mx_bus_reset() {
   Wire1.end();
   vTaskDelay(pdMS_TO_TICKS(2));
-  const bool released = i2c_clear_stuck_lines(PIN_MX_I2C_SDA, PIN_MX_I2C_SCL);
-  Wire1.begin(PIN_MX_I2C_SDA, PIN_MX_I2C_SCL);
-  Wire1.setTimeOut(500);
-  if (released) emit_log("info", "tof_matrix: bus restarted (both lines high)");
-  else emit_log("warn", "tof_matrix: bus restarted (a line is still held low)");
+  mx_bus_start("restarted");
 }
 
 // ---- The bus as tof_matrix_link.h sees it -----------------------------------------
@@ -323,8 +338,7 @@ static void mx_task(void*) {
 void tof_matrix_init() {
   // Second controller, dedicated pins (pins.h): the matrices share a bus with
   // nothing else, and all their transactions run on their own expendable task.
-  Wire1.begin(PIN_MX_I2C_SDA, PIN_MX_I2C_SCL);
-  Wire1.setTimeOut(500);   // ride out slave clock-stretch; only this task waits
+  mx_bus_start("started");
   emit_log("info", "tof_matrix: init deferred (mode switch needs ~5s settle)");
   xTaskCreatePinnedToCore(mx_task, "tofmx", 4096, nullptr, 1, nullptr, 1);
 }

@@ -16,9 +16,11 @@ back, and the controller's own log lines now reach the session log
 ([recovery and notices](DRIVE_BASE_INTEGRATION.md#depth-sensor-recovery-and-spoken-notices--november-15-2026-firmware-0219)).
 Nine native checks replay a simulated sensor held in reset and let go (73 firmware checks pass);
 14 host checks run the notices through the production link, session and output owner with a
-simulated controller. Built, **not flashed. Not yet run on the robot:** the real sensor's behaviour
-after its reset button, the bus restart, and the lines aloud. What knocks the sensor out is still
-unknown.
+simulated controller. Flashed; the controller answers as 0.2.19 with everything else healthy. Its
+first boot logged the sensors' shared clock wire held low (`SDA high, SCL LOW`) and no answer from
+either sensor: a hung sensor module or a shorted clock wire, which firmware cannot release. **Not
+yet run on the robot:** the recovery (it needs the clock line freed first), the bus restart, and the
+lines aloud. Why a sensor hangs is still unknown.
 
 ## Chest light transitions — November 14
 
