@@ -8,6 +8,14 @@ hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
 ## November 15: feelings on his body
 
+**Later the same day: `angry`, and the lights follow.** Owner: "if we make him mad by insulting him
+his eyes could turn red." An eleventh expression, `angry`: a glare, the head down 0.2 at speed 30
+with the visor eased to `VISOR_SQUINT` (speed 30, acceleration 6), held 1.1 s, the pole still. Every expression
+but the nod now also sets his eyes, mouth and chest lights
+([lights](LED_INTEGRATION.md#november-15-feelings-on-the-lights)). Wording: a tease gets skeptical,
+an insult that is meant gets angry, one that truly hurts gets deflated. Probe and checks are
+recorded with the lights. The glare is **not yet seen on the robot**.
+
 Owner: "I'd like the servo animations to be more emotionally based. I'm not sure the LLM is choosing
 stuff like that much." Measured from the session logs: under the earlier reply model he sent a line
 with a head expression in 360 of about 4,200 replies (about one in eight in October), all but four

@@ -33,13 +33,15 @@ Talking servos remain independently synchronized by the same output owner.
 
 The sole conversation model can use `animate_lights`:
 
-- `during_speech`: choose neutral, happy, excited, sad, angry or curious for the
-  accompanying phrase. The pattern starts only when audio starts.
+- `during_speech`: choose neutral, happy, excited, sad, angry, curious, surprised, proud,
+  skeptical or sympathetic for the accompanying phrase. The pattern starts only when audio starts.
 - `before_speech`: show one of those patterns, or `sparkle` (the chest firmware's
   COMPLIMENT effect), for one or 2.5 seconds. Text follows; null text produces a silent
   animation.
 
-Curious has purple eyes/mouth and the chest's neutral fallback. Sparkle is offered only with a
+Since November 15 a line that carries a feeling takes that feeling's lights by itself, with no
+light request ([feelings on the lights](#november-15-feelings-on-the-lights)), and every pattern
+has a chest pattern of its own (curious used the neutral panel). Sparkle is offered only with a
 chest, is a standalone effect, and since October 22 touches only the chest: it no longer turns
 the eyes green or runs the mouth (run 1072c10a: "he made your mouth sparkle too"; named
 `compliment`, the model told the owner it could not make the chest sparkle). When answering a
@@ -296,3 +298,56 @@ contract runner, passes run directly). Flashed to the board on `led_port`, which
 Not yet seen: any of it on the mouth; he was not on the charger when it was flashed. Which end of
 the grid is physically the top is taken from the dashboard's model of the head, not the PCB; one
 constant (`MOUTH_ROW0_AT_TOP`) turns it over.
+
+## November 15: feelings on the lights
+
+Owner request: "make sure there are emotional reaction animations for the chest LEDs and eyes and
+mouth ... if we make him mad by insulting him his eyes could turn red. If he gets excited or
+surprised the chest LEDs should transition to an excitement/surprise animation", integrated with
+the feelings his body shows ([servo side](SERVO_INTEGRATION.md#november-15-feelings-on-his-body)).
+
+- **One feeling, body and lights.** The expression the model chooses for a line
+  (`respond_with_gesture`, or a save's `expression`) also picks the lights
+  (`leds.FEELING_LIGHTS`): angry → red, surprised → white, proud → gold, deflated → sad blue,
+  sympathetic → rose, skeptical → yellow-green, tilt and perplexed → curious purple, wiggle →
+  excited, laugh → happy. A nod, a lift and an arm emphasis keep the ordinary speaking lights. No
+  second model choice and no extra generation; `animate_lights` is still there for a light effect
+  asked for by itself, and offers the four new patterns.
+- **When.** A line that starts with its expression is spoken in the feeling: the eyes take its
+  colour, the mouth talks in it and the chest runs its pattern, then the chest returns to idle. An
+  expression that arrives beside a line already being said turns that line's lights
+  (`LEDs.feel`), and the rest of the reply keeps the feeling. With no line under it (after the
+  line, or before one) the eyes and the mouth's idle glow take the colour and the chest runs the
+  pattern while the move lasts, the mouth not moving (`LEDs.react`). As before, the eyes keep the
+  last line's colour until his next line. Sentry mode's red is never overridden.
+- **A new feeling: angry.** There was no anger among the expressions, so an insult could only get
+  a deadpan look. `angry` is a glare (head down 0.2, visor narrowed, held 1.1 s; no pole move) with
+  red eyes and mouth and the chest's red alert.
+- **LED firmware 0.5.0.** Four more mouth colours (surprised, proud, skeptical, sympathetic) and
+  five new chest patterns (those four and curious, which used the neutral panel)
+  ([table](../firmware/djr3x_leds/README.md#feelings)).
+- **Menus and dashboard.** The LED menu has a button for each new feeling on each strip; the
+  dashboard mirror knows their colours (not their motion).
+- **`tools/show_light_feelings.py --live`** plays every feeling through the production LED owner,
+  naming each as it runs.
+
+Evidence:
+- Frames of the real chest and head code on the Mac (15 new checks, 98 firmware checks in all):
+  the surprise opens from the middle of each bar within a quarter second, is never a white panel
+  and settles; pride fills from the bottom and then nothing blinks; skeptical is three flat lines,
+  two blocks and one eyebrow; sympathy beats twice and rests; curious lights one block at a time;
+  each leaves no colour behind on the idle panel; each mouth colour is distinct.
+- Fake-board checks of the output owner (6 new): the commands for a line with a feeling, a plain
+  line, a feeling arriving mid-line, one with no line, and sentry mode.
+- Paid probe (`tools/check_gestures.py --live`, real Claude Sonnet 5.5 replies, simulated body, made-up
+  lines, 10 replies): being proved right → proud, new wheels → surprised, a dog's death →
+  sympathetic, a roast → laugh (happy lights), "worst robot I have ever met" → skeptical, a sum and
+  small talk → plain. "Shut up, you worthless pile of scrap" got skeptical under the first wording
+  and angry after it said plainly when he is mad (1 of 1; one reply each, one person, no history).
+- Flashed; the board answers `hello djr3x_leds 0.5.0`. The first upload stopped part-way ("the chip
+  stopped responding") just after the menus released the port; the second verified. The show tool
+  then ran once on the robot's lights (3:10 pm).
+
+Not yet seen or judged by the owner: any of the ten on the lights, the glare, and how often he
+gets angry over a real evening. The eyes keeping a feeling's colour until the next line was not
+changed and may want a return to gold.

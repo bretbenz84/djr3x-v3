@@ -6,6 +6,16 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Feelings on the lights — November 15
+
+Owner request. The feeling Rex shows with his body now shows on his eyes, mouth and chest as he
+says the line (red when angry, white when surprised, gold when proud, and so on), with a new
+`angry` glare, four new mouth colours and five new chest patterns in LED firmware 0.5.0
+([details](LED_INTEGRATION.md#november-15-feelings-on-the-lights)). Flashed; the board answers
+as 0.5.0. Frame checks, fake-board checks and a 10-reply paid probe; `tools/show_light_feelings.py
+--live` played all ten on the robot's lights once. **Not yet judged by the owner, and never run
+in a real conversation.**
+
 ## Head lift, a shut-eyed wake and feelings on his body — November 15
 
 Owner requests. The head lift's normal height is 1093 µs, `surprised` sends it to 2310 µs, and the

@@ -634,6 +634,11 @@ HEAD_EXPRESSIONS = {
                  'lift': ('by', -500, 12, 3)},
     # Pleased with himself: chin up and standing taller, held.
     'proud': {'moves': ((.3, 0., 1.),), 'speed': 14, 'acceleration': 3, 'lift': ('by', 700, HEAD_LIFT_SPEED, HEAD_LIFT_ACCEL)},
+    # Owner, November 15: "if we make him mad by insulting him his eyes could turn red". A glare: the
+    # head drops and the visor narrows, held, then eases back. The lights give it its red
+    # (leds.FEELING_LIGHTS); the pole stays where it is. The visor eases (the same day the owner found
+    # the surprise's snap far too fast), a little quicker than the skeptical look's.
+    'angry': {'moves': ((-.2, 0., 1.1),), 'speed': 30, 'visor': (VISOR_SQUINT, 30, 6)},
 }
 GESTURE_PRIMITIVES = (*HEAD_EXPRESSIONS, 'lift', 'arm_emphasis')
 
@@ -1139,7 +1144,7 @@ NAMED_POSES = {
 # head expressions (not the plain one-cock 'tilt', which tilt_left/tilt_right cover as held
 # looks) are also steps people can ask for and Rex can plan.
 GESTURES = ('wave', 'arm_dance', 'nod', 'perplexed', 'wiggle', 'sympathetic', 'surprised', 'laugh', 'skeptical',
-            'deflated', 'proud')
+            'deflated', 'proud', 'angry')
 # Owner request October 3: the model chooses between following faces and looking where it
 # decides. look_at_people resumes following faces; any look_* step holds that direction.
 GAZE = ('look_at_people',)

@@ -16,7 +16,17 @@ from .contracts import ProviderFailure
 from .providers import Capability
 
 COLORS = {'neutral':(0,180,255), 'happy':(0,255,100), 'excited':(255,200,0),
-          'sad':(0,50,200), 'angry':(255,0,0), 'curious':(180,0,255)}
+          'sad':(0,50,200), 'angry':(255,0,0), 'curious':(180,0,255),
+          # Owner, November 15: four more feelings. LED firmware 0.5.0 has their mouth colours and
+          # chest patterns (and a chest pattern for curious); these are the eyes.
+          'surprised':(255,255,255), 'proud':(255,170,40), 'skeptical':(120,160,0), 'sympathetic':(255,60,110)}
+# The feeling the lights take for each expression of his body (owner, November 15: "if we make him mad
+# by insulting him his eyes could turn red. If he gets excited or surprised the chest LEDs should
+# transition to an excitement/surprise animation"). One feeling, chosen once, shows on both. An
+# expression not listed (nod, lift, arm_emphasis) keeps the ordinary speaking lights.
+FEELING_LIGHTS = {'tilt':'curious', 'perplexed':'curious', 'wiggle':'excited', 'laugh':'happy',
+                  'skeptical':'skeptical', 'proud':'proud', 'deflated':'sad', 'sympathetic':'sympathetic',
+                  'surprised':'surprised', 'angry':'angry'}
 # sparkle is the chest strip's COMPLIMENT effect. October 22 (1072c10a): named for its purpose, the
 # model told the owner it could not make the chest sparkle; it also turned the eyes green and ran the
 # mouth, so "he made your mouth sparkle too". It is named for what people see and is the chest's alone.
@@ -320,6 +330,46 @@ class LEDs:
             self.eye_color = COLORS[pattern]
             self._send('head','EYE:'+','.join(map(str,self.eye_color)))
             self._send('head','SPEAK:'+pattern)
+            self.mouth = pattern
+            self._send('chest','SPEAK:'+pattern)
+            return self.version
+
+    def feel(self, pattern):
+        """Turn the line being spoken to a feeling: the eyes, the mouth's colour and the chest pattern
+        change and the line's own finish() still ends it. False when no ordinary line is being
+        spoken (nothing is sent); sentry mode's red and a running sparkle are left alone."""
+        with self.lock:
+            if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
+            if pattern not in COLORS: raise ProviderFailure('UnknownLEDPattern')
+            if not self.speaking or self.guarding or self.chest_only: return False
+            if pattern == self.mouth and self.eye_color == COLORS[pattern]: return True
+            self.eye_color = COLORS[pattern]
+            self._send('head','EYE:'+','.join(map(str,self.eye_color)))
+            self._send('head','SPEAK:'+pattern)
+            self.mouth = pattern
+            self.last_level,self.last_sent = -1,float('-inf')   # SPEAK: restarts the mouth from silence.
+            self._send('chest','SPEAK:'+pattern)
+            return True
+
+    def react(self, pattern):
+        """Show a feeling without words (an expression after a line, or before the next): the eyes and
+        the mouth's idle glow take its colour and the chest runs its pattern; the mouth does not move.
+        Returns the token finish() ends it with, or None in sentry mode, whose red stays."""
+        with self.lock:
+            if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
+            if pattern not in COLORS: raise ProviderFailure('UnknownLEDPattern')
+            if self.guarding: return None
+            self.version += 1
+            self.speaking = self.demo = False
+            self.chest_only = True          # finish() then ends the chest pattern and leaves the head as it is.
+            self.eye_color = COLORS[pattern]
+            self._send('head','EYE:'+','.join(map(str,self.eye_color)))
+            self.eyes_sent = self.clock()
+            # SPEAK: sets the colour the mouth's idle glow uses; stopping at once leaves only the glow.
+            self._send('head','SPEAK:'+pattern)
+            self._send('head','SPEAK_LEVEL:0')
+            self._send('head','SPEAK_STOP')
+            self._send('head','ACTIVE')     # SPEAK_STOP suspends firmware blinking.
             self.mouth = pattern
             self._send('chest','SPEAK:'+pattern)
             return self.version

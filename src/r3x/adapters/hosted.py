@@ -772,9 +772,9 @@ class OpenAIBrain(HTTPProvider):
                 # Owner, November 15: he rarely showed a feeling (no expression in 119 Claude replies; the
                 # wording had said to keep most lines plain). A feeling now goes out with its expression.
                 notes.append('\nShowing feeling: your body shows what you feel. When your line carries a feeling that someone watching would name (amusement, disbelief, pride, '
-                    'a jab landing or stinging, astonishment, delight, warmth, disappointment), answer through respond_with_gesture with the '
-                    'expression that matches instead of plain text: laugh, skeptical, proud, deflated, surprised, wiggle, sympathetic, perplexed, '
-                    'tilt or nod. It is the same single reply with the same words. A plain answer to a plain question, small talk, and a line '
+                    'a jab landing or stinging, anger, astonishment, delight, warmth, disappointment), answer through respond_with_gesture with the '
+                    'expression that matches instead of plain text: laugh, skeptical, proud, deflated, angry, surprised, wiggle, sympathetic, perplexed, '
+                    'tilt or nod. Your eyes, mouth and chest lights take the feeling by themselves. It is the same single reply with the same words. A plain answer to a plain question, small talk, and a line '
                     'with only your everyday attitude in it stay plain text: an expression on every line stops meaning anything. A turn that '
                     'needs another tool uses that tool instead; a save carries the feeling in its own expression field. Let the expression follow the feeling, so '
                     'it changes from line to line. News about you that you did not already know (a gift, an upgrade, something made or '

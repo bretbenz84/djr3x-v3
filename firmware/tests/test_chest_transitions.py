@@ -171,7 +171,7 @@ class ChestTransitionTests(unittest.TestCase):
         self.assertTrue(any(block_lit(f, b) for f in settled for b in BLOCK_STARTS))
 
     def test_speaking_patterns_blend_in_and_out(self):
-        for emotion in ('excited', 'happy', 'sad', 'angry'):
+        for emotion in ('excited', 'happy', 'sad', 'angry', 'curious', 'surprised', 'proud', 'skeptical', 'sympathetic'):
             with self.subTest(emotion=emotion):
                 frames = self.play(f'cmd IDLE run 3000 cmd SPEAK:{emotion} run 2000 cmd SPEAK_STOP run 1500')
                 self.assert_no_jump(frames, 3000)
@@ -254,6 +254,130 @@ class ChestTransitionTests(unittest.TestCase):
         frames = self.play('cmd CHARGE:50:0 run 3000 cmd SLEEP run 2000 cmd CHARGE:50:0 run 3000')
         self.assert_no_jump(frames, 3000)
         self.assert_no_jump(frames, 5000)
+
+
+    # --- Feelings added November 15 (owner: emotional reactions on the chest) -----------------
+
+    def feeling(self, emotion, ms=5000):
+        """Frames from the moment the feeling is asked for, on an idle panel."""
+        frames = self.play(f'cmd IDLE run 3000 cmd SPEAK:{emotion} run {ms}')
+        return [(t - 3000, f) for t, f in frames if t > 3000]
+
+    def bar_lit(self, frame, start):
+        return [lit(frame[start + i]) for i in range(8)]
+
+    def test_each_new_feeling_shows_in_its_own_colour(self):
+        def tone(emotion):
+            frames = [f for t, f in self.feeling(emotion) if t > 1500]
+            return [sum(f[i][c] for f in frames for i in range(96)) for c in range(3)]
+        red, green, blue = tone('curious')
+        self.assertTrue(blue > red > green)                    # violet
+        red, green, blue = tone('surprised')
+        self.assertTrue(blue > green > red)                    # blue with a little white
+        red, green, blue = tone('proud')
+        self.assertTrue(red > green > blue)                    # gold
+        red, green, blue = tone('skeptical')
+        self.assertTrue(green > red > blue == 0)               # sour yellow-green
+        red, green, blue = tone('sympathetic')
+        self.assertTrue(red > blue > green)                    # rose
+
+    def test_surprise_bursts_from_the_middle_of_every_bar_then_settles(self):
+        frames = self.feeling('surprised', 6000)
+        # Within a quarter of a second every bar is full and every block is on.
+        soon = [f for t, f in frames if 230 <= t <= 340]
+        self.assertTrue(soon)
+        for f in soon:
+            self.assertTrue(all(sum(f[s + i]) > 250 for s in BAR_STARTS for i in range(8)))
+            self.assertTrue(all(light(f, range(b, b + 4)) > 600 for b in BLOCK_STARTS))
+        # It opened from the middle: the middle pair of a bar lit before its ends.
+        first = {i: next(t for t, f in frames if sum(f[i]) > 250) for i in (0, 3, 4, 7)}
+        self.assertLess(max(first[3], first[4]), min(first[0], first[7]))
+        # Then the blocks flicker, fast at first and slower as he settles; the bars stay full.
+        def on(f, blk):                                        # bright, not merely the faint blue floor
+            return light(f, range(blk, blk + 4)) > 600
+        def changes(a, b):
+            window = [f for t, f in frames if a < t <= b]
+            return sum(on(x, blk) != on(y, blk) for x, y in zip(window, window[1:]) for blk in BLOCK_STARTS)
+        self.assertGreater(changes(400, 1400), 2 * changes(4000, 5000))
+        self.assertGreater(changes(400, 1400), 20)
+        late = [f for t, f in frames if t > 4000]
+        self.assertTrue(all(sum(f[s + i]) > 250 for f in late for s in BAR_STARTS for i in range(8)))
+        self.assertGreater(sum(on(f, b) for f in late for b in BLOCK_STARTS), .6 * 9 * len(late))
+        # Never a white panel: white is kept to the bar tips and a block or two.
+        self.assertLessEqual(max(sum(min(f[i]) > 100 for i in range(96)) for _, f in frames), 20)
+
+    def test_pride_fills_the_bars_from_the_bottom_and_then_nothing_blinks(self):
+        frames = self.feeling('proud', 6000)
+        for start in BAR_STARTS:
+            # Gold at pride's brightness, not the idle panel's dim lights blending away.
+            first = [next(t for t, f in frames if sum(f[start + i]) > 250) for i in range(8)]
+            self.assertEqual(first, sorted(first, reverse=True))        # pixel 7 is the bottom of a bar
+            self.assertGreater(first[0] - first[7], 300)
+        steady = [f for t, f in frames if t > 1800]
+        for f in steady:
+            self.assertTrue(all(all(self.bar_lit(f, s)) for s in BAR_STARTS))
+            self.assertTrue(all(block_lit(f, b) for b in BLOCK_STARTS))
+            self.assertEqual(light(f, UNOWNED), 0)
+        # The blocks came on one after another.
+        blocks = sorted(next(t for t, f in frames if block_lit(f, b)) for b in BLOCK_STARTS)
+        self.assertGreater(blocks[-1] - blocks[0], 600)
+
+    def test_skeptical_stops_the_panel_and_raises_one_eyebrow(self):
+        frames = [(t, f) for t, f in self.feeling('skeptical', 9000) if t > 800]
+        for t, f in frames:
+            self.assertEqual(sum(lit(f[i]) for s in BAR_STARTS for i in range(s, s + 8)), 6, t)    # three flat lines
+            self.assertEqual(sum(block_lit(f, b) for b in BLOCK_STARTS), 2, t)
+            self.assertEqual(self.bar_lit(f, 0), [False]*3 + [True]*2 + [False]*3)
+            self.assertEqual(self.bar_lit(f, 32), [False]*3 + [True]*2 + [False]*3)
+        # The last bar's line goes up two pixels (towards pixel 0), stays, and comes back.
+        top = [min(i for i in range(8) if lit(f[64 + i])) for _, f in frames]
+        self.assertEqual(sorted(set(top)), [1, 2, 3])
+        raised = [t for (t, _), at in zip(frames, top) if at == 1]
+        self.assertGreater(raised[-1] - raised[0], 3000)               # more than once
+        self.assertGreater(sum(at == 3 for at in top), sum(at != 3 for at in top))   # mostly level
+        # Dim: a fraction of the idle panel's light.
+        idle = self.play('cmd IDLE run 3000')
+        self.assertLess(max(light(f) for _, f in frames), .5 * max(light(f) for t, f in idle if t > 1000))
+
+    def test_sympathy_beats_twice_and_rests_and_never_goes_dark(self):
+        frames = [(t, f) for t, f in self.feeling('sympathetic', 8000) if t > 1300]
+        levels = [(t, light(f, range(32, 40))) for t, f in frames]          # the middle bar
+        self.assertGreater(min(v for _, v in levels), 0)
+        peaks = [t for (_, a), (t, b), (_, c) in zip(levels, levels[1:], levels[2:]) if a < b >= c and b > 1.5 * min(v for _, v in levels)]
+        gaps = [b - a for a, b in zip(peaks, peaks[1:])]
+        self.assertGreaterEqual(len(peaks), 8)
+        short, long = [g for g in gaps if g < 500], [g for g in gaps if g >= 500]
+        self.assertTrue(short and long)
+        self.assertTrue(all(230 <= g <= 380 for g in short), gaps)           # the second beat
+        self.assertTrue(all(820 <= g <= 980 for g in long), gaps)            # the rest
+        # The outer panels' beat lands a moment after the middle panel's (one beat, mid-run).
+        window = [(t, f) for t, f in frames if 2400 - 200 <= t <= 2400 + 250]
+        peak = lambda pixels: max(window, key=lambda tf: light(tf[1], pixels))[0]
+        self.assertTrue(30 <= peak(range(0, 8)) - peak(range(32, 40)) <= 110)
+        self.assertTrue(30 <= peak(range(64, 72)) - peak(range(32, 40)) <= 110)
+
+    def test_curious_checks_the_blocks_one_at_a_time(self):
+        frames = [(t, f) for t, f in self.feeling('curious', 6000) if t > 800]
+        def brightest(f):
+            return max(BLOCK_STARTS, key=lambda b: light(f, range(b, b + 4)))
+        order = []
+        for _, f in frames:
+            if not order or order[-1] != brightest(f):
+                order.append(brightest(f))
+        self.assertEqual(set(order), set(BLOCK_STARTS))
+        self.assertEqual(order[:9], [BLOCK_STARTS[(BLOCK_STARTS.index(order[0]) + k) % 9] for k in range(9)])
+        # Each bar has one bright head that moves.
+        for start in BAR_STARTS:
+            heads = {max(range(8), key=lambda i: sum(f[start + i])) for _, f in frames}
+            self.assertGreaterEqual(len(heads), 6)
+
+    def test_a_feeling_leaves_no_colour_behind_on_the_idle_panel(self):
+        for emotion in ('curious', 'surprised', 'proud', 'skeptical', 'sympathetic'):
+            with self.subTest(emotion=emotion):
+                frames = self.play(f'cmd IDLE run 3000 cmd SPEAK:{emotion} run 2500 cmd SPEAK_STOP run 2500')
+                settled = [f for t, f in frames if t > 5500 + 700]
+                self.assertEqual(max(light(f, UNOWNED) for f in settled), 0)
+                self.assertTrue(any(block_lit(f, b) for f in settled for b in BLOCK_STARTS))
 
 
 if __name__ == '__main__':

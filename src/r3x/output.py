@@ -9,7 +9,7 @@ import time
 
 from .contracts import Cancellation, Cancelled, ProviderFailure, Sink, TTS
 from .performance import Performance
-from .leds import LightPerformance
+from .leds import FEELING_LIGHTS, LightPerformance
 
 
 TAGS = frozenset({"sarcastic", "curious", "excited", "mischievously", "laughs",
@@ -281,6 +281,11 @@ class OutputOwner:
         self._resume_guard = threading.Lock()
         self._line_playing = False
         self._talk_resumed = False
+        # The feeling this reply's expression carries, shown on the lights too (owner, November 15):
+        # a light pattern name while it lasts. The guard keeps a line starting its lights and an
+        # expression arriving beside it from missing each other.
+        self._feeling = None
+        self._feeling_guard = threading.Lock()
         self._driving = False
         self._saying = None        # The output item being said now.
         self.lines = deque(maxlen=8)   # [started, ended or None, words] of his recent lines.
@@ -394,7 +399,7 @@ class OutputOwner:
             if swaying:
                 self._stop_talking(turn_id, False)
             try:
-                self._gesture(performance, cancel, turn_id, delivery)
+                self._gesture_with_lights(performance, cancel, turn_id, delivery)
             except Cancelled:
                 return
             with self._resume_guard:
@@ -404,29 +409,56 @@ class OutputOwner:
         self._expressing.append(worker)
         worker.start()
 
-    def _light_result(self, delivery, turn_id, request, status, reason=None):
-        row = dict(request_id=request.request_id if request else turn_id+':speaking',
-            pattern=request.pattern if request else 'neutral',status=status,reason=reason,
+    def _feeling_of(self, performance):
+        """The light pattern for an expression's feeling, or None for a plain one or no lights."""
+        return FEELING_LIGHTS.get(performance.gesture.primitive) if self.leds and performance else None
+
+    def _gesture_with_lights(self, performance, cancel, turn_id, delivery):
+        """An expression that is not a line's own start: beside a line already being said the line's
+        lights change to its feeling, and with no line playing the eyes, mouth glow and chest react
+        for as long as the move takes. Later phrases of this reply keep the feeling."""
+        feeling, token = self._feeling_of(performance), None
+        if feeling:
+            try:
+                with self._feeling_guard:
+                    self._feeling = feeling
+                    changed = self.leds.feel(feeling)
+                    token = None if changed else self.leds.react(feeling)
+                if changed:
+                    self._light_result(delivery, turn_id, None, 'commands_sent', pattern=feeling)
+            except Exception as exc:
+                self._light_result(delivery, turn_id, None, 'failed',
+                                   str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__, pattern=feeling)
+        try:
+            self._gesture(performance, cancel, turn_id, delivery)
+        finally:
+            if token is not None:
+                self._finish_lights(token, None, delivery, turn_id, pattern=feeling)
+
+    def _light_result(self, delivery, turn_id, request, status, reason=None, pattern=None):
+        row = dict(request_id=request.request_id if request else turn_id+(':feeling' if pattern else ':speaking'),
+            pattern=request.pattern if request else pattern or 'neutral',status=status,reason=reason,
             at=self.trace.clock(),medium='serial',evidence='commands_only_display_unverified')
         delivery.lights.append(row)
         self.trace.emit('led_delivery',turn_id=turn_id,**row)
 
-    def _begin_lights(self, light, cancel):
+    def _begin_lights(self, light, cancel, feeling=None):
         cancel.check()
         if not self.leds: raise ProviderFailure('LEDUnavailable')
         if light and (not light.valid() or self.trace.clock()>=light.request.expires_at):
             raise ProviderFailure('StaleLEDRequest')
-        return self.leds.begin(light.request.pattern if light else 'neutral',
+        return self.leds.begin(light.request.pattern if light else feeling or 'neutral',
             speaking=light is None or light.timing=='during_speech',
             request=light.request if light else None)
 
-    def _finish_lights(self, token, light, delivery, turn_id, status=None):
+    def _finish_lights(self, token, light, delivery, turn_id, status=None, pattern=None):
         try:
             result = self.leds.finish(token)
             self._light_result(delivery,turn_id,light.request if light else None,
-                status if result=='commands_sent' and status else result)
+                status if result=='commands_sent' and status else result, pattern=pattern)
         except Exception as exc:
-            self._light_result(delivery,turn_id,light.request if light else None,'failed',str(exc) if isinstance(exc,ProviderFailure) else type(exc).__name__)
+            self._light_result(delivery,turn_id,light.request if light else None,'failed',
+                               str(exc) if isinstance(exc,ProviderFailure) else type(exc).__name__, pattern=pattern)
 
     def _light_demo(self, light, cancel, delivery, turn_id):
         token = None
@@ -684,7 +716,7 @@ class OutputOwner:
                         # Its words were already streamed ahead as plain phrases (October 14,
                         # step 5): the gesture follows them on its own.
                         try:
-                            self._gesture(performance, cancel, turn_id, delivery)
+                            self._gesture_with_lights(performance, cancel, turn_id, delivery)
                         except ProviderFailure as exc:
                             self.trace.emit('gesture_failed', turn_id=turn_id, reason=str(exc))
                     continue
@@ -702,6 +734,10 @@ class OutputOwner:
                     if not talking_started:
                         talking_started = self._start_talking(turn_id, cancel)
                 gesture_worker = None
+                line_feeling = None       # The light pattern this line began in, for its receipt.
+                if performance and performance.timing == 'with_speech' and not light:
+                    with self._feeling_guard:
+                        self._feeling = self._feeling_of(performance) or self._feeling
                 if performance and performance.timing == 'with_speech':
                     # October 11: finishing the gesture before asking for audio delayed
                     # first audio by about 2.6 s. The gesture now runs while the line is
@@ -737,7 +773,7 @@ class OutputOwner:
                         if close:
                             close()
                 def started(at):
-                    nonlocal light_token, light_attempted, playing
+                    nonlocal light_token, light_attempted, playing, line_feeling
                     delivery.first_audio_at = delivery.first_audio_at or at
                     delivery.status = "started"
                     self.trace.emit("playback_started", turn_id=turn_id, at_device=at,
@@ -745,9 +781,12 @@ class OutputOwner:
                     if self.leds:
                         light_attempted = True
                         try:
-                            light_token = self._begin_lights(light,cancel)
+                            with self._feeling_guard:
+                                line_feeling = None if light else self._feeling
+                                light_token = self._begin_lights(light,cancel,line_feeling)
                         except Exception as exc:
-                            self._light_result(delivery,turn_id,light.request if light else None,'failed',str(exc) if isinstance(exc,ProviderFailure) else type(exc).__name__)
+                            self._light_result(delivery,turn_id,light.request if light else None,'failed',
+                                               str(exc) if isinstance(exc,ProviderFailure) else type(exc).__name__,pattern=line_feeling)
                     with talking_lock:
                         playing = True
                         with self._resume_guard:
@@ -770,7 +809,7 @@ class OutputOwner:
                         playing = False
                     if light_token is not None:
                         self._finish_lights(light_token,light,delivery,turn_id,
-                            'cancelled' if cancel.event.is_set() else None)
+                            'cancelled' if cancel.event.is_set() else None,pattern=line_feeling)
                     elif light and not light_attempted:
                         self._light_result(delivery,turn_id,light.request,'cancelled','PlaybackNotStarted')
                     with self._resume_guard:
@@ -794,7 +833,7 @@ class OutputOwner:
                                 completed_at=receipt.completed_at, **({'voice': cloned.voice} if cloned else {}))
                 cancel.check()
                 if performance and performance.timing == 'after_speech':
-                    self._gesture(performance, cancel, turn_id, delivery)
+                    self._gesture_with_lights(performance, cancel, turn_id, delivery)
                 performance = None
             cancel.check()
             if delivery.status != "suppressed":
@@ -822,6 +861,8 @@ class OutputOwner:
             workers, self._expressing = self._expressing, []
             for worker in workers:
                 worker.join()   # An expression started beside the line: its receipt belongs to this delivery.
+            with self._feeling_guard:
+                self._feeling = None   # The feeling lasts the reply, no longer.
             if hushed:
                 sounds.resume()
             self.trace.emit("delivery", turn_id=turn_id, status=delivery.status,

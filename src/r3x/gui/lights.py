@@ -14,7 +14,10 @@ import time
 
 
 MOUTH_COLORS = {'neutral': (255, 140, 0), 'happy': (0, 200, 255), 'excited': (255, 200, 0),
-                'sad': (40, 0, 200), 'angry': (255, 0, 0), 'curious': (180, 0, 255)}
+                'sad': (40, 0, 200), 'angry': (255, 0, 0), 'curious': (180, 0, 255),
+                # LED firmware 0.5.0 (November 15): four more feelings.
+                'surprised': (200, 230, 255), 'proud': (255, 170, 40), 'skeptical': (170, 220, 0),
+                'sympathetic': (255, 60, 110)}
 # The mouth's charge meter (LED firmware 0.4.0, head.cpp CHARGE_RGB): each row's colour from the bottom up.
 CHARGE_ROWS = ((255, 0, 0), (255, 48, 0), (255, 96, 0), (255, 160, 0), (255, 220, 0),
                (140, 255, 0), (0, 255, 0), (0, 255, 130), (0, 140, 255), (0, 0, 255))
@@ -247,7 +250,14 @@ CHEST_EMOTIONS = {
     'sad': (((40, 70, 220), (25, 45, 170)), ((40, 70, 220), (25, 45, 170))),
     'angry': (((255, 42, 30),), ((255, 42, 30),)),
     'happy': (((255, 200, 80), (255, 255, 255)), CHEST_BLOCKS),
+    # LED firmware 0.5.0: the colours of each new chest pattern (its motion is not mirrored).
+    'curious': (((190, 60, 255), (120, 0, 220)), ((150, 0, 255),)),
+    'surprised': (((30, 140, 255), (200, 230, 255)), ((0, 130, 255), (0, 130, 255), (190, 225, 255))),
+    'proud': (((255, 165, 25), (255, 230, 170)), ((255, 221, 136), (255, 150, 0))),
+    'skeptical': (((170, 220, 0),), ((110, 140, 0),)),
+    'sympathetic': (((255, 40, 90),), ((255, 40, 90),)),
 }
+CHEST_SLOW = ('sad', 'proud', 'skeptical', 'sympathetic')   # Patterns that hold or breathe.
 GAUGE = ((234, 0, 0), (234, 40, 0), (234, 81, 0), (216, 180, 0), (108, 198, 27), (0, 216, 54), (0, 148, 162), (0, 81, 255))
 FLASH_SECONDS = 2.2
 
@@ -295,7 +305,8 @@ def chest_render_state(state, now):
         out.update(rate=6., fill=(now * 1.5) % 1.)
     elif mode == 'speak':
         ladder, squares = CHEST_EMOTIONS.get(emotion, (CHEST_SMALL, CHEST_BLOCKS))
-        out.update(ladder=ladder, squares=squares, rate=2.5 if emotion == 'sad' else 9.)
+        out.update(ladder=ladder, squares=squares, rate=2.5 if emotion in CHEST_SLOW else 9.,
+                   brightness=.4 if emotion == 'skeptical' else 1.)
     elif mode == 'charge':
         soc = state.get('soc')
         out.update(rate=1., fill=max(0., min(1., (int(soc) if soc is not None else 0) / 100)), gauge=True,

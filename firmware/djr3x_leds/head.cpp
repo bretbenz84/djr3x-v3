@@ -36,7 +36,8 @@
  * ---------------------------------------------------------------------
  *   SPEAK:{emotion}       Start speaking animation. Also sets the mouth's
  *                         emotion colour used by the idle glow afterwards.
- *                         emotion = neutral | happy | excited | sad | angry | curious
+ *                         emotion = neutral | happy | excited | sad | angry | curious |
+ *                                   surprised | proud | skeptical | sympathetic
  *   PRIDE:{0|1}          Rainbow mouth overlay; refresh ON within 10 seconds.
  *   SPEAK_LEVEL:{0-255}   Update audio intensity — drives bar height + motion.
  *                         Send as often as needed; non-blocking.
@@ -114,7 +115,11 @@ struct EmotionColor { uint8_t r, g, b; };
 #define EMO_SAD      3
 #define EMO_ANGRY    4
 #define EMO_CURIOUS  5
-#define EMO_COUNT    6
+#define EMO_SURPRISED   6
+#define EMO_PROUD       7
+#define EMO_SKEPTICAL   8
+#define EMO_SYMPATHETIC 9
+#define EMO_COUNT    10
 
 // IMPORTANT — mouth colour encoding (leds[2..81]):
 // The eye pixels (leds[0-1]) are RGB-ordered LEDs; the mouth PCB uses
@@ -131,6 +136,11 @@ const EmotionColor EMOTION_COLORS[EMO_COUNT] PROGMEM = {
     {   0,  40, 200 },   // sad      — blue-purple  (physical R=40  G=0   B=200 → swap → 0,40,200)
     {   0, 255,   0 },   // angry    — red          (physical R=255 G=0   B=0 → swap → 0,255,0)
     {   0, 180, 255 },   // curious  — purple       (physical R=180 G=0   B=255 → swap → 0,180,255)
+    // Owner, November 15: four more feelings, matching the chest's.
+    { 230, 200, 255 },   // surprised   — icy white      (physical R=200 G=230 B=255)
+    { 170, 255,  40 },   // proud       — rich gold      (physical R=255 G=170 B=40)
+    { 220, 170,   0 },   // skeptical   — sour yellow-green (physical R=170 G=220 B=0)
+    {  60, 255, 110 },   // sympathetic — rose           (physical R=255 G=60  B=110)
 };
 
 // ---------------------------------------------------------------------------
@@ -390,6 +400,10 @@ static uint8_t parseEmotion(const char *s) {
     if (strcmp(s, "sad")     == 0) return EMO_SAD;
     if (strcmp(s, "angry")   == 0) return EMO_ANGRY;
     if (strcmp(s, "curious") == 0) return EMO_CURIOUS;
+    if (strcmp(s, "surprised")   == 0) return EMO_SURPRISED;
+    if (strcmp(s, "proud")       == 0) return EMO_PROUD;
+    if (strcmp(s, "skeptical")   == 0) return EMO_SKEPTICAL;
+    if (strcmp(s, "sympathetic") == 0) return EMO_SYMPATHETIC;
     return EMO_NEUTRAL;
 }
 

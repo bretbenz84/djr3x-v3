@@ -43,6 +43,11 @@ void complimentFlash();
 void excitedPulse();
 void sadSigh();
 void happyBounce();
+void curiousScan();
+void surprisedBurst();
+void proudRise();
+void skepticalStare();
+void sympathyBeat();
 void chargeGauge();
 void startupShow();
 void nextPattern();
@@ -140,6 +145,11 @@ enum ChestMode : uint8_t {
     CM_SPEAK_SAD,     // speaking sad: slow blue sighs (draining bars, breathing blocks)
     CM_SPEAK_ANGRY,   // speaking angry: red alert (scanner bars + alarm blocks + slams)
     CM_SPEAK_HAPPY,   // speaking happy: bouncing gold heads + cheery pops + confetti
+    CM_SPEAK_CURIOUS,     // curious: violet heads looking the bars over, one block lit in turn
+    CM_SPEAK_SURPRISED,   // surprised: a burst from the middle of every bar, then a flicker that settles
+    CM_SPEAK_PROUD,       // proud: bars fill to the top in gold and stay full, blocks steady
+    CM_SPEAK_SKEPTICAL,   // skeptical: the panel stops; flat dim lines, one raised eyebrow
+    CM_SPEAK_SYMPATHETIC, // sympathetic: a soft rose heartbeat
     CM_COMPLIMENT,    // reacting to a compliment: blue glow + gold/white sparkles (self-ends ~2.5s)
     CM_FADEOFF,       // shutdown: blend the frame that was showing to black, then OFF
     CM_SLEEP,         // sleep: very dim slow red breath
@@ -233,7 +243,7 @@ static inline bool panelMode(ChestMode m) {
 // Modes in which the two chest lights are RandomEyes' steady gold flicker.
 static inline bool awakeMode(ChestMode m) {
     return m == CM_STARTUP || m == CM_COMPLIMENT || m == CM_IDLE || m == CM_ACTIVE ||
-        (m >= CM_SPEAK_NEUTRAL && m <= CM_SPEAK_HAPPY);
+        (m >= CM_SPEAK_NEUTRAL && m <= CM_SPEAK_SYMPATHETIC);
 }
 
 // The rainbow was drawn on the last pattern step. A change of state that has
@@ -356,6 +366,10 @@ static void freshCanvas(ChestMode mode, bool keepLights) {
     if (panelMode(mode)) panelSeed();
 }
 
+// When the pattern now running was entered: the patterns with an opening (the surprise's burst,
+// pride's rise, the raised eyebrow) time themselves from it.
+static uint32_t modeEnteredMs = 0;
+
 // Change state with a blend. Panel modes arriving during startup wait for it to end.
 static void enter(ChestMode mode, uint8_t brightness, uint16_t ms) {
     if (chestMode == CM_STARTUP && panelMode(mode)) {
@@ -370,6 +384,7 @@ static void enter(ChestMode mode, uint8_t brightness, uint16_t ms) {
     if (!samePattern) {
         endStartupLayers();
         freshCanvas(mode, awakeMode(chestMode) && awakeMode(mode) && !prideShown);
+        modeEnteredMs = millis();
     }
     masterBrightness = brightness;
     chestMode = mode;
@@ -465,6 +480,26 @@ void runCurrentMode() {
 
 		case CM_SPEAK_HAPPY:
 			happyBounce();
+			break;
+
+		case CM_SPEAK_CURIOUS:
+			curiousScan();
+			break;
+
+		case CM_SPEAK_SURPRISED:
+			surprisedBurst();
+			break;
+
+		case CM_SPEAK_PROUD:
+			proudRise();
+			break;
+
+		case CM_SPEAK_SKEPTICAL:
+			skepticalStare();
+			break;
+
+		case CM_SPEAK_SYMPATHETIC:
+			sympathyBeat();
 			break;
 
 		case CM_COMPLIMENT:
@@ -579,6 +614,11 @@ void nextPattern()
 //                        sad      → slow blue sighs, dim
 //                        angry    → red alert (scanner bars, alarm blocks, slams)
 //                        happy    → bouncing gold heads + cheery pops + confetti
+//                        curious  → violet heads looking the bars over, one block lit in turn
+//                        surprised → a burst from the middle of every bar, then a flicker that settles
+//                        proud    → bars fill to the top in gold and stay full, blocks steady
+//                        skeptical → the panel stops: flat dim lines, one raised eyebrow
+//                        sympathetic → a soft rose heartbeat
 //   SPEAK_STOP       — return to IDLE (end of speech)
 //   SLEEP            — very dim slow red breathing pulse
 //   CHARGE:{soc}:{0|1} — contiguous 24-LED SOC meter; final field says charger attached
@@ -640,6 +680,16 @@ void command(const char *cmd) {
 		} else if (strcmp(emotion, "happy") == 0) {
 			// match ACTIVE's energy — happy shouldn't be dimmer than idle chat
 			enter(CM_SPEAK_HAPPY, 200, FADE_QUICK_MS);
+		} else if (strcmp(emotion, "curious") == 0) {
+			enter(CM_SPEAK_CURIOUS, 120, FADE_QUICK_MS);
+		} else if (strcmp(emotion, "surprised") == 0) {
+			enter(CM_SPEAK_SURPRISED, 255, 80);   // a jolt: nearly at once
+		} else if (strcmp(emotion, "proud") == 0) {
+			enter(CM_SPEAK_PROUD, 200, FADE_QUICK_MS);
+		} else if (strcmp(emotion, "skeptical") == 0) {
+			enter(CM_SPEAK_SKEPTICAL, 60, FADE_SETTLE_MS);
+		} else if (strcmp(emotion, "sympathetic") == 0) {
+			enter(CM_SPEAK_SYMPATHETIC, 110, FADE_SETTLE_MS);
 		} else {
 			// neutral or unknown emotion
 			enter(CM_SPEAK_NEUTRAL, BRIGHTNESS, FADE_SETTLE_MS);
@@ -1458,6 +1508,157 @@ void happyBounce() {
 
     // Rainbow confetti drifting over the top.
     if (random8() < 90) DJLEDs[random8(96)] += CHSV(gHue + random8(64), 200, 255);
+}
+
+// ---------------------------------------------------------------------------
+// Feelings added November 15 (owner: emotional reactions on the chest). Each keeps the
+// panel's own parts, three bars and nine blocks, so it still reads as Rex's chest; what
+// differs is how they move. Bars are wired top down: pixel 0 is the top of a bar.
+// ---------------------------------------------------------------------------
+
+static const uint8_t BAR_STARTS[3] = { PanelAStart, PanelBStart, PanelCStart };
+
+// curiousScan — looking something over. A violet head drifts up and down each bar,
+// lingering at the ends, the three out of step like eyes moving over a thing, while one
+// block at a time lights in turn round the nine, as if checking each. A dim violet floor.
+void curiousScan() {
+    const uint32_t t = millis() - modeEnteredMs;
+    fadeToBlackBy(DJLEDs, 96, 14);
+    for (byte i = 0; i < 96; i++) DJLEDs[i] |= CRGB(10, 0, 22);
+    for (byte b = 0; b < 3; b++) {
+        const uint8_t head = beatsin8(22 + b * 5, 0, 7, 0, b * 85);
+        DJLEDs[BAR_STARTS[b] + head] = CRGB(190, 60, 255);
+    }
+    LEDBlockOn(StartLEDNum[(t / 260UL) % 9], CRGB(150, 0, 255), BLOCKBRIGHTNESS);
+}
+
+// surprisedBurst — a jolt. In the first fifth of a second every bar fills from its middle
+// outward and every block comes on at once, blue with white tips. Then the blocks flicker
+// fast and unevenly while the full bars tremble, and over about two and a half seconds the
+// flicker slows to wide awake: bars full, blocks mostly on with a blink now and then.
+// The whole panel is never white (see the PSU note at complimentFlash): the body of the
+// burst is blue, and white is kept to the bar tips and a block or two.
+#define SURPRISE_BURST_MS  180UL
+#define SURPRISE_HOLD_MS   350UL
+#define SURPRISE_SETTLE_MS 2500UL
+void surprisedBurst() {
+    static bool     blockWhite[9] = { false };
+    const uint32_t now = millis();
+    const uint32_t t   = now - modeEnteredMs;
+
+    fadeToBlackBy(DJLEDs, 96, 40);
+    for (byte i = 0; i < 96; i++) DJLEDs[i] |= CRGB(0, 8, 26);
+
+    // Bars: out from the middle pair, the outermost lit pair white.
+    const uint8_t reach = t >= SURPRISE_BURST_MS ? 4 : (uint8_t)(1 + t * 3 / SURPRISE_BURST_MS);
+    for (byte b = 0; b < 3; b++) {
+        for (byte d = 0; d < reach; d++) {
+            CRGB colour = (d == reach - 1) ? CRGB(200, 230, 255) : CRGB(30, 140, 255);
+            if (t > SURPRISE_HOLD_MS) colour.nscale8(190 + random8(66));   // the tremble
+            DJLEDs[BAR_STARTS[b] + 3 - d] = colour;
+            DJLEDs[BAR_STARTS[b] + 4 + d] = colour;
+        }
+    }
+
+    // Blocks: all on through the hold, then a flicker whose lit spells lengthen as he settles.
+    const uint32_t calm = (t < SURPRISE_SETTLE_MS ? t : SURPRISE_SETTLE_MS) * 255UL / SURPRISE_SETTLE_MS;   // 0 jolted .. 255 settled
+    for (byte i = 0; i < 9; i++) {
+        const uint8_t pos = StartLEDNum[i];
+        if (t <= SURPRISE_HOLD_MS) {
+            LEDOn[pos] = 1;
+            LEDMillis[pos] = now;
+            IntervalTime[pos] = random(40, 140);
+            blockWhite[i] = (i == 4);                      // the middle block alone is white
+        } else if (now - LEDMillis[pos] > IntervalTime[pos]) {
+            LEDMillis[pos] = now;
+            LEDOn[pos] = !LEDOn[pos];
+            if (LEDOn[pos]) {
+                IntervalTime[pos] = random(60, 160) + (uint16_t)(calm * random(300, 900) / 255);
+                blockWhite[i] = random8() < 40;
+            } else {
+                IntervalTime[pos] = random(30, 110);
+            }
+        }
+        if (LEDOn[pos]) LEDBlockOn(pos, blockWhite[i] ? CRGB(190, 225, 255) : CRGB(0, 130, 255), BLOCKBRIGHTNESS);
+    }
+}
+
+// proudRise — standing tall. The three bars fill from the bottom to the top in gold, the
+// middle one leading, each with a pale crest, and stay full; the blocks come on one after
+// another and stay on. After that nothing blinks: a sheen climbs the full bars every couple
+// of seconds and the blocks breathe very slightly. Fullness and stillness set it apart from
+// excited's racing and happy's bouncing.
+#define PROUD_FILL_MS 600UL
+void proudRise() {
+    const uint32_t t = millis() - modeEnteredMs;
+    fill_solid(DJLEDs, 96, CRGB::Black);
+
+    const uint8_t sheen = (uint8_t)((t / 90UL) % 27);          // a bright step climbing, then a rest
+    for (byte b = 0; b < 3; b++) {
+        const uint32_t since = t > (b == 1 ? 0UL : 120UL) ? t - (b == 1 ? 0UL : 120UL) : 0;
+        const uint8_t filled = since >= PROUD_FILL_MS ? 8 : (uint8_t)(since * 8 / PROUD_FILL_MS);
+        for (byte level = 0; level < filled; level++) {
+            CRGB colour = (level == filled - 1) ? CRGB(255, 230, 170) : CRGB(255, 165, 25);
+            if (filled == 8 && level == sheen) colour = CRGB(255, 240, 200);
+            DJLEDs[BAR_STARTS[b] + 7 - level] = colour;
+        }
+    }
+    for (byte i = 0; i < 9; i++) {
+        if (t < 300UL + i * 110UL) continue;
+        CRGB colour = (i & 1) ? CRGB(255, 150, 0) : CRGB(cGOLD);
+        colour.nscale8(beatsin8(12, 205, 255, 0, i * 28));
+        LEDBlockOn(StartLEDNum[i], colour, BLOCKBRIGHTNESS);
+    }
+}
+
+// skepticalStare — unimpressed. The busy panel stops. Each bar holds one flat two-pixel
+// line at its middle, a dim sour yellow-green, unmoving, and seven of the nine blocks are
+// dark. Every few seconds the last bar's line creeps up two pixels, stays, and comes slowly
+// back: one raised eyebrow. Runs dim.
+#define SKEPTIC_CYCLE_MS 3600UL
+void skepticalStare() {
+    const uint32_t t = (millis() - modeEnteredMs) % SKEPTIC_CYCLE_MS;
+    fill_solid(DJLEDs, 96, CRGB::Black);
+
+    uint8_t raised = 0;                                        // pixels the eyebrow is up
+    if (t >= 2000UL && t < 2400UL)      raised = (uint8_t)((t - 2000UL) * 3 / 400UL);        // up
+    else if (t >= 2400UL && t < 3100UL) raised = 2;                                           // held
+    else if (t >= 3100UL)               raised = (uint8_t)(2 - (t - 3100UL) * 3 / 500UL);    // back
+    if (raised > 2) raised = 2;
+    for (byte b = 0; b < 3; b++) {
+        const uint8_t up = (b == 2) ? raised : 0;
+        DJLEDs[BAR_STARTS[b] + 3 - up] = CRGB(170, 220, 0);
+        DJLEDs[BAR_STARTS[b] + 4 - up] = CRGB(170, 220, 0);
+    }
+    LEDBlockOn(StartLEDNum[1], CRGB(110, 140, 0), BLOCKBRIGHTNESS);
+    LEDBlockOn(StartLEDNum[7], CRGB(110, 140, 0), BLOCKBRIGHTNESS);
+}
+
+// sympathyBeat — warmth. The bars and blocks glow soft rose and swell in a slow heartbeat,
+// two beats and a rest about fifty times a minute, the middle panel a moment ahead of the
+// outer two, over a faint rose floor.
+#define HEART_CYCLE_MS 1200UL
+static uint8_t heartLevel(uint32_t t) {
+    // One beat: up in 90 ms, down over 250 ms. The second, at 300 ms, is smaller.
+    auto beat = [](int32_t x) -> float {
+        if (x < 0 || x >= 340) return 0.0f;
+        return x < 90 ? x / 90.0f : 1.0f - (x - 90) / 250.0f;
+    };
+    const int32_t x = (int32_t)(t % HEART_CYCLE_MS);
+    float level = max(beat(x), 0.7f * beat(x - 300));
+    return (uint8_t)(46 + level * 209.0f);                     // never below 18 %
+}
+void sympathyBeat() {
+    const uint32_t t = millis() - modeEnteredMs;
+    fill_solid(DJLEDs, 96, CRGB(20, 2, 6));
+    for (byte panel = 0; panel < 3; panel++) {
+        // 70 ms behind the middle panel; HEART_CYCLE_MS keeps the subtraction from going under zero.
+        const uint8_t level = heartLevel(panel == 1 ? t + HEART_CYCLE_MS : t + HEART_CYCLE_MS - 70UL);
+        CRGB colour(255, 40, 90);
+        colour.nscale8(level);
+        for (byte i = 0; i < 8; i++) DJLEDs[BAR_STARTS[panel] + i] = colour;
+        for (byte k = 0; k < 3; k++) LEDBlockOn(StartLEDNum[panel * 3 + k], colour, BLOCKBRIGHTNESS);
+    }
 }
 
 }  // namespace chest

@@ -1,6 +1,6 @@
 """Run the LED board's head code (firmware/djr3x_leds/head.cpp) on the Mac against the
-stand-in LED library and read back every frame the mouth's charge meter would show. No
-board, no serial.
+stand-in LED library and read back every frame the mouth would show: its charge meter, and
+the colour it speaks in for each feeling. No board, no serial.
 
 The frames prove what the code sends to the strip, with a fake clock. They do not prove
 how it looks, nor which end of the mouth is physically the top: the firmware takes that
@@ -184,6 +184,38 @@ class MouthChargeTests(unittest.TestCase):
         self.assertFalse(any(lit(c) for c in back[0][1]))                 # dark, then the rows come on again
         first = [next(t for t, rows in back if lit(rows[level])) for level in range(8)]
         self.assertEqual(first, sorted(first))
+
+
+class MouthFeelingTests(MouthChargeTests):
+    """The colour the mouth speaks in for each feeling (owner, November 15: four more)."""
+
+    def colour(self, emotion):
+        """The brightest mouth light while he speaks loudly in that feeling, as physical (r, g, b)."""
+        frames = self.play(f'cmd SPEAK:{emotion} cmd SPEAK_LEVEL:255 run 700')
+        best = (0, 0, 0)
+        for _, rows, _ in frames:
+            for row in rows:
+                if row is not None and sum(row) > sum(best):
+                    best = row
+        return best
+
+    def test_each_feeling_speaks_in_its_own_colour(self):
+        seen = {e: self.colour(e) for e in ('neutral', 'happy', 'excited', 'sad', 'angry', 'curious',
+                                            'surprised', 'proud', 'skeptical', 'sympathetic')}
+        self.assertEqual(len(set(seen.values())), 10)
+        r, g, b = seen['surprised']
+        self.assertTrue(b >= g >= r > .7 * b)                  # icy white
+        r, g, b = seen['proud']
+        self.assertTrue(r > g > b > 0 and g > .55 * r)         # rich gold
+        r, g, b = seen['skeptical']
+        self.assertTrue(g > r > 0 and b == 0)                  # sour yellow-green
+        r, g, b = seen['sympathetic']
+        self.assertTrue(r > b > g > 0)                         # rose
+        r, g, b = seen['angry']
+        self.assertTrue(r > 0 and g == 0 and b == 0)           # red, as before
+
+    def test_an_unknown_feeling_speaks_in_the_neutral_colour(self):
+        self.assertEqual(self.colour('bewildered'), self.colour('neutral'))
 
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ production Session, with the simulated gesture adapter, so nothing moves.
 Run: .venv/bin/python tools/check_gestures.py --live [--repeats 1] [--case NAME]
 
 Each case is one thing said to him. Printed for each: his answer, whether it went out with an expression
-and which (on respond_with_gesture, or on a save that carries his reply), its size, and any other tool he used. The flat and small-talk cases are there to
+and which (on respond_with_gesture, or on a save that carries his reply), its size, the lights that go with it, and any other tool he used. The flat and small-talk cases are there to
 show he still answers a plain line plainly. Whether an expression fits the line is for a person to
 judge. One model call per repeat of a case (about 20,000 input tokens, mostly cached after the first).
 """
@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 
 from r3x.adapters.claude import reply_brain
 from r3x.contracts import Capture, Cancellation, ToolCall, Transcript
+from r3x.leds import FEELING_LIGHTS
 from r3x.memory import Memory
 from r3x.output import OutputOwner
 from r3x.performance import SimulatedGesture
@@ -39,6 +40,8 @@ CASES = {
     'big_news': 'I just won the lottery. Two million dollars.',
     'sad_news': 'My dog died this morning.',
     'insult': 'Honestly, Rex, you are the worst robot I have ever met.',
+    # November 15: anger (a glare, red eyes) for an insult meant to wound.
+    'cruel_insult': 'Shut up, you worthless pile of scrap. Nobody here even likes you.',
     'he_was_right': 'You were right about the loose wire, by the way. That fixed it.',
     'absurd_claim': 'I taught my cat to flush the toilet.',
     'nonsense': 'The purple of Thursday tastes like a triangle.',
@@ -89,6 +92,8 @@ def run(case, folder):
             return {'case': case, 'they_said': said, 'answer': ' '.join(result.completed_text),
                     'expression': shown[0].get('primitive') if shown else gesture and gesture.get('primitive'),
                     'size': shown[0].get('intensity') if shown else gesture and gesture.get('intensity'),
+                    # The lights that go with it (eyes, mouth and chest), None for the ordinary speaking lights.
+                    'lights': FEELING_LIGHTS.get(shown[0].get('primitive') if shown else gesture and gesture.get('primitive')),
                     'timing': gesture and gesture.get('timing'),
                     'delivered': [r.get('status') for r in shown],
                     'other_tools': [r['name'] for r in calls if r['name'] != 'respond_with_gesture'],

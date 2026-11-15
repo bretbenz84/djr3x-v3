@@ -44,8 +44,8 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Version 0.4.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 413,984 bytes of
-program, 26,448 bytes of globals. Each strip has its own FastLED controller and brightness,
+Version 0.5.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 416,440 bytes of
+program, 26,456 bytes of globals. Each strip has its own FastLED controller and brightness,
 since the library's board-wide show, brightness and clear would act on both.
 
 ## Chest transitions
@@ -61,6 +61,28 @@ sweeps up under the last two seconds of the fade. A `CHARGE` within a minute of 
 confirms it without a visible change; otherwise the meter fades out after that minute. Plain
 `FADEOFF` still ends dark. Under the meter the two small chest lights stay dark (they used to
 blip gold for one frame every few seconds).
+
+## Feelings
+
+`SPEAK:<feeling>` on either strip takes one of ten names; an unknown one is treated as neutral.
+The head speaks in the feeling's colour and keeps it for the idle glow; the chest runs its
+pattern until `SPEAK_STOP`. The eyes are set by the host (`EYE:r,g,b`). Since 0.5.0:
+
+| Feeling | Mouth | Chest |
+| --- | --- | --- |
+| neutral | amber | the ordinary panel |
+| happy | cyan | gold heads bouncing on the bars, cheerful pops, confetti |
+| excited | yellow | gold heads racing up the bars, rapid pops, glitter |
+| sad | blue | slow blue sighs |
+| angry | red | red alert: scanner bars, alarm blocks, slams |
+| curious | purple | **new:** a violet head drifting over each bar, one block lit in turn |
+| surprised | icy white | **new:** every bar bursts from its middle and every block comes on, blue with white tips; the blocks flicker and settle over 2.5 s |
+| proud | deep gold | **new:** bars fill from the bottom and stay full, blocks come on in turn and stay; nothing blinks |
+| skeptical | sour yellow-green | **new:** the panel stops: one flat dim line on each bar, two blocks; the last bar's line rises two pixels every 3.6 s (an eyebrow) |
+| sympathetic | rose | **new:** a soft heartbeat, two beats and a rest, the middle panel leading |
+
+The burst is never a white panel: an earlier full-panel white browned the chest supply out and
+showed red, so its body is blue and white is kept to the bar tips and a block or two.
 
 ## Mouth charge meter
 
