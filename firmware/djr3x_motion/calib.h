@@ -352,6 +352,13 @@
 #define TOF_MATRIX_MODE_SETTLE_MS  5200  // VL53L7CX reconfigure settle (vendor lib uses 5000)
 #define TOF_MATRIX_STALE_MS         500  // publisher silence past this = poll task dead
                                          // (I2C wedge) -> fl/fr report -1, robot stays alive
+// Setup again after a loss (0.2.19, tof_matrix_link.h): a module that was streaming
+// and has failed every read for REINIT_AFTER goes back to probe -> 8x8 mode -> settle.
+// Two seconds leaves a brief glitch alone (a new setup costs the 5.2 s blind settle).
+#define TOF_MATRIX_PROBE_INTERVAL_MS 1000 // between probes of a module that does not answer
+#define TOF_MATRIX_REINIT_AFTER_MS   2000 // failed reads this long = set the module up again
+#define TOF_MATRIX_BUS_RESET_PROBES  10   // while a lost module stays silent, reset the bus
+                                          // every Nth unanswered probe (a stuck line)
 //
 // FLOOR REJECTION geometry — the sensor sits above the floor, so the lower rows
 // permanently see floor at short range (h=0.15 m: bottom row ≈ 445 mm along-ray).

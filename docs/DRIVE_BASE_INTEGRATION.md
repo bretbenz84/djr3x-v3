@@ -1560,3 +1560,53 @@ cause. A `drive_availability` trace row records each change of lockout. Checked 
 only; the prompt wording has not been probed against the hosted model. No firmware change: failing
 closed on a dead matrix while on the gamepad, and re-running matrix setup after errors, await the
 owner's decision.
+
+## Depth sensor recovery and spoken notices — November 15, 2026 (firmware 0.2.19)
+
+Owner: "figure out why the front ToF sensor keeps going offline and doesn't come back", then "program
+the firmware recovery. I'd like to be able to fix it if the button is depressed so it can resume",
+and to have Rex "speak out loud when an 8x8 array fails using pre-canned text, no LLM required, only
+if the failure lasts a few seconds or more, and then have him speak if it recovers."
+
+**What the logs show.** About 145 drive steps from October 17 to November 5 had no depth sensor
+lockout; four of the seven sessions on November 14-15 did, all after the November 12-13 motor and
+wheel rebuild. In `00748116` both sensors were reading after one turn and gone by the end of the
+next; in `e1095922` the front one vanished 25 cm into a roll. Twice with Rex not running (23:32 and
+00:05) the controller logged the front sensor failing first and the rear 6 s and 106 s later. The
+"publisher stale" warnings (a single transaction blocked for half a second) did not lock the wheels:
+two sessions drove normally after one. Restarting Rex never restarted the controller (the port is
+opened without a reset on purpose), so only a power cycle re-ran the setup. The cause of the dropouts
+is not established; the front sensor's reset button (found held in on November 12), its cable and
+motor noise are the candidates. The battery menu's **Restart ESP32** item has never been used and
+would also have re-run the setup.
+
+**Firmware 0.2.19** (`tof_matrix_link.h`, pure; `tof_matrix.cpp`). A sensor that was streaming and
+then fails every read for 2 s goes back through the boot sequence: probe once a second until it
+answers, 8x8 mode request, 5.2 s blind settle, acknowledgement, stream. A sensor held in reset
+resumes about 6 s after it is let go, about 20 s if its first mode request is dropped while it starts.
+When setup starts over, and on every tenth unanswered probe after that, the sensor bus is restarted
+and a stuck line clocked free (the helper the trunk already used). The boot sequence, a healthy pair
+and a rear sensor that was never fitted behave exactly as before: none of this runs until a sensor
+that worked has been failing for 2 s. The "publisher stale" warning is logged once per stall instead
+of once per boot. Not covered: a poll task stuck inside the I2C driver cannot rescue itself; that
+still needs Restart ESP32 or a power cycle.
+
+**Host.** `depth_watch.DepthSensorWatch` decides when a notice is due from how long ago each sensor
+sent a frame: lost for 4 s (counted from its last frame), back for 1.5 s, both sensors in one line
+when they drop within seconds of each other, the same sensor at most every 30 s, the rear only if
+it streamed this run, and nothing while the controller itself is silent. The runtime says the line at
+an idle moment through `Session.say_notice` (saved audio, no model call, never over a turn or someone
+speaking); an unheard line stays owed. Lines are in `depth_watch.LINES`, two or three per case, and
+are synthesized ahead with the other saved lines. `hardware_notice` rows record each one, and the
+firmware's log lines are now kept as `drive_firmware_log` rows (they were dropped while Rex ran). The
+lockout's explanation to the model now says the sensor returns by itself once freed.
+
+Checks: nine native checks run the firmware's link logic against a simulated sensor (boot unchanged,
+held in reset then released, reset by itself, a brief glitch left alone, a dropped mode request, a
+sensor never fitted, lost twice, clock wrap); 73 firmware checks pass. Full four-flag build 816,273
+bytes program, 91,028 globals; the bare build also compiles. 14 host checks (rules, and the notices
+through the production link, drive base, session and output owner with a simulated controller); the
+891 checks chosen by the change pass, the full suite was not run. Build kept at
+`local/firmware/2026-11-15-0.2.19-matrix-recovery.bin`. **Not flashed. Not yet run on the robot:**
+how the real sensor answers after its reset button, the bus restart on this I2C driver, the notices
+aloud, and whether the dropouts continue.

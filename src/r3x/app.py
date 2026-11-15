@@ -362,10 +362,14 @@ class App:
                 mic.discard_pending()
                 from .sentry import canned_lines
                 from .session import CREDIT_LINES
-                # Uncached lines, paced, never over speech; sentry mode's when it can run (camera), and the
-                # out-of-credit notices, saved while the voice service still works.
+                from . import depth_watch
+                wheels = bool(self.drive and 'drive_base' in active)
+                # Uncached lines, paced, never over speech; sentry mode's when it can run (camera), the
+                # out-of-credit notices, saved while the voice service still works, and the depth sensor
+                # notices when he has wheels.
                 self.startup_audio.warm(busy=output.active.is_set,
-                                        extra=tuple(CREDIT_LINES.values()) + (canned_lines() if camera else ()))
+                                        extra=tuple(CREDIT_LINES.values()) + (canned_lines() if camera else ())
+                                              + (depth_watch.canned_lines() if wheels else ()))
                 if self.drive and 'drive_base' not in active:
                     # Configured wheels that failed to start: Rex still knows he has them.
                     failure = next((r for r in self.owner.results if r.capability=='drive_base' and r.operation=='start'),None)
@@ -474,6 +478,9 @@ class App:
                                        drive=output.drive,keywords=keywords,turn=turn,voice_check=voice_check)
                 if room_sounds is not None and 'room_sounds' in active:
                     runtime.room_sounds = room_sounds   # Logged only: nothing it hears reaches the conversation.
+                if output.drive is not None:
+                    # A depth sensor dark for a few seconds, or back, is said aloud (owner, November 15).
+                    runtime.depth_watch = depth_watch.DepthSensorWatch()
                 if camera:
                     # Sentry mode (owner, October 22) needs the camera: faces trip and stand it down.
                     from .push import Push, valid_topic

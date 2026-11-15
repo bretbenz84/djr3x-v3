@@ -143,9 +143,16 @@ class DriveLink(NDJSONLink):
         self.dones = {}
         self.events = deque(maxlen=32)
         self.boot_id = None
+        # (level, text): the firmware's own log lines. Until November 15 they were dropped while Rex
+        # ran, so a sensor lost mid-drive left no word of why in the session log.
+        self.on_log = None
 
     def dispatch(self, message, received_at):
         kind = message['type']
+        if kind == 'log':
+            if self.on_log is not None and isinstance(message.get('msg'), str):
+                self.on_log(str(message.get('lvl') or 'info'), message['msg'][:200])
+            return
         with self._state:
             if kind == 'telemetry':
                 self.telemetry = {**message, 'received_at':received_at}

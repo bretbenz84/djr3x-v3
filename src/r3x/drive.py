@@ -222,7 +222,8 @@ UNAVAILABLE_MEANINGS = {
         'The 8x8 depth sensor on the front of the base has stopped sending readings. It is what sees chair legs '
         'and low things ahead, so the wheels stay locked until it reads again; the drive controller and motors '
         'are fine. Usual causes: its reset button pressed in by the shell, or a loose cable. '
-        'After freeing it, switch the base off and on so the controller sets the sensor up again.'),
+        'Once it is freed the controller sets the sensor up again by itself, usually within 20 seconds, and he '
+        'says aloud when it is back; if it stays out, switch the base off and on.'),
     'radial_ring_unavailable': (
         'None of the distance sensors around the base ring is reporting, so the wheels stay locked: he cannot '
         'tell what is beside or behind him. Likely their cable or power.'),
@@ -567,6 +568,7 @@ class DriveBase:
             raise ProviderFailure('DriveConfigRejected:' + str(ack.get('reason')))
         # Only firmware that reports the steering gain can have it switched (0.2.x does).
         self._assist_gain = CONFIG['assist_gain'] if 'assist_gain' in (ack.get('config') or {}) else None
+        self.link.on_log = self._firmware_log
         self._spawn('heartbeat', self._heartbeat)
         deadline = time.monotonic() + 1.5
         while self.link.snapshot()[0] is None:
@@ -579,6 +581,23 @@ class DriveBase:
         if self._reflex:
             self._spawn('reflex', self._reflex_loop)
         self._spawn('arm-clearance', self._arm_clearance_loop)
+
+    def _firmware_log(self, level, text):
+        """The controller's own log lines (a sensor lost, set up again, a bus restart) join the session log."""
+        if self.trace:
+            self.trace.emit('drive_firmware_log', level=level, text=text)
+
+    def depth_sensor_ages(self, now=None):
+        """Seconds since each 8x8 depth sensor last sent a frame (None: never this run), or None while
+        the controller itself is not reporting, when silence says nothing about the sensors."""
+        now = self.clock() if now is None else now
+        telemetry, front = self.link.snapshot()
+        if (self.state != 'ready' or self.link.failure or not telemetry
+                or not 0 <= now - telemetry['received_at'] <= .5):
+            return None
+        rear = self.link.rear_snapshot()
+        return {'front': now - front['received_at'] if front else None,
+                'rear': now - rear['received_at'] if rear else None}
 
     def _spawn(self, name, target):
         thread = threading.Thread(target=target, name='r3x-drive-'+name, daemon=True)

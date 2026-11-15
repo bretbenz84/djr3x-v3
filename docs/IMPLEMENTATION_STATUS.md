@@ -1,10 +1,24 @@
 # Current implementation status
 
-Updated November 14, 2026. This is the consolidated
+Updated November 15, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Depth sensors come back by themselves, and he says so — November 15
+
+Owner request, after the front 8x8 depth sensor kept dropping out and only a power cycle revived it.
+Drive firmware 0.2.19 sets a depth sensor up again once it has failed for two seconds (probe each
+second, mode request, settle), so pressing and releasing its reset button resumes it. Rex says in a
+saved line, with no model call, when a depth sensor has been dark for four seconds and when it is
+back, and the controller's own log lines now reach the session log
+([recovery and notices](DRIVE_BASE_INTEGRATION.md#depth-sensor-recovery-and-spoken-notices--november-15-2026-firmware-0219)).
+Nine native checks replay a simulated sensor held in reset and let go (73 firmware checks pass);
+14 host checks run the notices through the production link, session and output owner with a
+simulated controller. Built, **not flashed. Not yet run on the robot:** the real sensor's behaviour
+after its reset button, the bus restart, and the lines aloud. What knocks the sensor out is still
+unknown.
 
 ## Chest light transitions — November 14
 

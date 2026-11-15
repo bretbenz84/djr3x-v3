@@ -887,3 +887,33 @@ turns and approaches.
 Owner, after driving 0.2.18 from the gamepad the same day: "its good, doesn't hit things." That
 covers gamepad driving and braking at the new top speed. Still open: taped distance scale and track
 width, the depth matrices' floor calibration at the new height, and Rex's own turns and approaches.
+
+## Depth matrix set up again after a loss (firmware 0.2.19, November 15, 2026)
+
+Until 0.2.18 each SEN0628 was set up once per boot. One that reset afterwards (its reset button
+pressed in, a power dip) failed every frame from then on, the host locked the wheels, and only a
+power cycle brought it back (V3 logs `c85e39dc`, `e1095922`, `00748116`).
+
+- **`tof_matrix_link.h`** (pure, native-checked) holds the per-module state machine that
+  `tof_matrix.cpp` used to carry inline: probe, mode request, blind settle, acknowledgement,
+  stream. New: a streaming module that fails every read for `TOF_MATRIX_REINIT_AFTER_MS` (2 s)
+  returns to the probe state and is set up again. Logs: `not answering - setting it up again`,
+  then `back - 8x8 matrix set up again at 0x33`.
+- **Bus restart**, recovery path only: `Wire1.end()`, nine clock pulses and a STOP
+  (`i2c_clear_stuck_lines`, shared with the trunk), `Wire1.begin()`. Once when setup starts
+  over and on every `TOF_MATRIX_BUS_RESET_PROBES`th (10th) unanswered probe after that. Never
+  at boot, never for a healthy pair or a module that was never fitted.
+- A held-in reset button therefore costs the sensor for as long as it is held plus about 6 s
+  (about 20 s if the module drops the first mode request while starting). Readers get -1
+  throughout, as before; the host keeps the wheels locked until frames return.
+- The `publisher stale` warning re-arms once the publisher is live again. The poll task's
+  stack is 4096 bytes (was 3584) for the bus restart.
+- Unchanged and still true: a poll task blocked forever inside the I2C driver cannot recover
+  itself. That needs a controller reset (battery menu, Restart ESP32) or a power cycle.
+
+Checks: 73 native firmware checks pass (nine new, `test_tof_matrix_link.py`: a simulated module
+held in reset and released, reset by itself, glitching briefly, dropping a mode request, never
+fitted, lost twice, across a millisecond-clock wrap). Full four-flag build 816,273 bytes
+program, 91,028 globals; the bare build compiles. **Not flashed.** Unverified on hardware: the
+module's real behaviour after its reset button, and `Wire1.end()`/`begin()` at run time on the
+Bluepad32 core's I2C driver.

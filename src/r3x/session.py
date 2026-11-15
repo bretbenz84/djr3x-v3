@@ -797,20 +797,16 @@ class Session:
         return Performance(text, Gesture(result.request_id + ':flourish', 'pride_flourish', 'unfocused', 'normal',
                                          self.trace.clock() + 30), 'with_speech', valid, lambda: None)
 
-    def _say_out_of_credit(self, turn_id, reason):
-        """The saved line saying a service is out of credit, at most every CREDIT_NOTICE_SECONDS.
-        Whether it was heard."""
-        now = self.trace.clock()
-        if now - self._credit_said.get(reason, float('-inf')) < CREDIT_NOTICE_SECONDS:
-            return False
+    def _say_saved(self, text, turn_id):
+        """Say one of the code's own lines, from its saved audio when there is any: no model call.
+        (Delivery, error type or None), or None when he is mid-turn or closed and nothing was tried.
+        A heard line joins the history, so the conversation knows he said it."""
         line_cancel, said = Cancellation(), Delivery()
         with self._lock:
             if self.closed or self._cancel is not None:
-                return False
+                return None
             self._cancel = line_cancel
-        self._credit_said[reason] = now
-        text = CREDIT_LINES[reason]
-        phrases = Queue()
+        phrases, error = Queue(), None
         try:
             line = text
             if self.canned:
@@ -818,21 +814,53 @@ class Session:
                 line = Prerecorded(text, self.canned(text, line_cancel))   # Saved at startup (warm).
             put_phrase(phrases, line, line_cancel)
             put_phrase(phrases, None, line_cancel)
-            self.output.run(phrases, line_cancel, turn_id + ':credit', said)
+            self.output.run(phrases, line_cancel, turn_id, said)
         except Cancelled:
             pass
         except Exception as exc:
-            self.trace.emit('credit_notice', turn_id=turn_id, reason=reason, status='unspoken',
-                            error_type=type(exc).__name__)
-            return False
+            error = type(exc).__name__
         finally:
             with self._lock:
                 if self._cancel is line_cancel:
                     self._cancel = None
-        self.trace.emit('credit_notice', turn_id=turn_id, reason=reason, heard=bool(said.completed_text))
-        if said.completed_text:
+        if error is None and said.completed_text:
             self.history.append({'role': 'assistant', 'phase': 'final_answer', 'content': ' '.join(said.completed_text)})
+        return said, error
+
+    def _say_out_of_credit(self, turn_id, reason):
+        """The saved line saying a service is out of credit, at most every CREDIT_NOTICE_SECONDS.
+        Whether it was heard."""
+        now = self.trace.clock()
+        if now - self._credit_said.get(reason, float('-inf')) < CREDIT_NOTICE_SECONDS:
+            return False
+        outcome = self._say_saved(CREDIT_LINES[reason], turn_id + ':credit')
+        if outcome is None:
+            return False
+        self._credit_said[reason] = now
+        said, error = outcome
+        if error:
+            self.trace.emit('credit_notice', turn_id=turn_id, reason=reason, status='unspoken', error_type=error)
+            return False
+        self.trace.emit('credit_notice', turn_id=turn_id, reason=reason, heard=bool(said.completed_text))
         return bool(said.completed_text)
+
+    def say_notice(self, text, kind, **facts):
+        """A hardware notice at an idle moment (a depth sensor lost or back; owner, November 15): one of
+        the code's own lines, no model call. Never over a turn in progress. Whether it was heard."""
+        if not self._processing.acquire(blocking=False):
+            return False
+        try:
+            turn_id = kind + '-' + uuid4().hex[:12]
+            outcome = self._say_saved(text, turn_id)
+            if outcome is None:
+                return False
+            said, error = outcome
+            heard = error is None and bool(said.completed_text)
+            self.trace.emit('hardware_notice', turn_id=turn_id, kind=kind, text=text, heard=heard,
+                            **({'error_type': error} if error else {}), **facts)
+            return heard
+        finally:
+            self._processing.release()
 
     def _say_stopped(self, turn_id):
         """Confirm a spoken stop that halted the wheels. October 16 (3af18a12): told to stop

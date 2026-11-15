@@ -33,6 +33,8 @@
 #include "calib.h"
 #include "tof_filter.h"
 #include "tof_matrix_floor.h"
+#include "tof_matrix_link.h"
+#include "i2c_trunk.h"
 #include "proto_io.h"
 #include <Arduino.h>
 #include <Wire.h>
@@ -52,11 +54,12 @@ static const uint8_t MX_MODE_8X8      = 8;      // eMatrix_8X8
 // FRONT (0x33) and REAR (0x32, owner 2026-10-19: same height, facing straight
 // back) share Wire1. One poll task owns every transaction to both, so a
 // stretching module costs only matrix time. Each module runs its own small state
-// machine, so the front never waits on the rear's 5 s mode switch and a rear
-// module that is absent or unplugged simply keeps being probed once a second.
+// machine (tof_matrix_link.h), so the front never waits on the rear's 5 s mode
+// switch and a rear module that is absent or unplugged simply keeps being probed
+// once a second. Since 0.2.19 a module that stops answering after it was streaming
+// goes back through the same setup instead of failing until the next power cycle.
 // Clock stretching only happens on transactions ADDRESSED to the busy module;
 // nothing talks to a module during its blind settle window.
-enum MxState : uint8_t { MX_PROBE, MX_SETTLE, MX_ACK, MX_READY };
 
 struct MxUnit {
   const char* name;            // log label
@@ -66,11 +69,10 @@ struct MxUnit {
   uint8_t emit_every;          // stream every Nth good frame
   MxGeom geom;
   // Poll-task owned:
-  MxState state;
-  uint32_t state_ms, attempts;
+  MxLink link;                 // probe / setup / read / setup-again state
   uint16_t grid[64];
   TofFilt filt_l, filt_r;
-  uint8_t err_streak, emit_div;
+  uint8_t emit_div;
   // Published to the sensor task (lock-free snapshot):
   volatile bool ready;
   volatile int16_t left, right;   // SENSOR-frame halves, mm; -1 = no data
@@ -81,11 +83,11 @@ static MxUnit s_units[2] = {
   {"front", TOF_MATRIX_ADDR, 10, "tofmx", 2,
    {TOF_MATRIX_FLIP_V != 0, TOF_MATRIX_FLIP_H != 0, TOF_MATRIX_HEIGHT_M,
     TOF_MATRIX_FLOOR_ROW_MM, {0}, {0}},
-   MX_PROBE, 0, 0, {0}, TofFilt(), TofFilt(), 0, 0, false, -1, -1, 0},
+   MxLink(), {0}, TofFilt(), TofFilt(), 0, false, -1, -1, 0},
   {"rear", TOF_MATRIX_REAR_ADDR, 60, "tofmx_rear", TOF_MATRIX_REAR_EMIT_EVERY,
    {TOF_MATRIX_REAR_FLIP_V != 0, TOF_MATRIX_REAR_FLIP_H != 0, TOF_MATRIX_REAR_HEIGHT_M,
     TOF_MATRIX_REAR_FLOOR_ROW_MM, {0}, {0}},
-   MX_PROBE, 0, 0, {0}, TofFilt(), TofFilt(), 0, 0, false, -1, -1, 0},
+   MxLink(), {0}, TofFilt(), TofFilt(), 0, false, -1, -1, 0},
 };
 static MxUnit& s_front = s_units[0];
 static MxUnit& s_rear  = s_units[1];
@@ -158,7 +160,57 @@ static int mx_recv_response(uint8_t addr, uint8_t cmd, uint8_t* payload_out, int
   }
 }
 
-// ---- Per-module bring-up: probe -> SETMODE 8x8 -> blind settle -> ack ----------
+// ---- One frame from a ready module ---------------------------------------------
+// True when a whole frame was read and published. What a failure means (hold the
+// last values, report -1, set the module up again) is decided in mx_link_step.
+static bool mx_read_frame(MxUnit& u) {
+  mx_send_cmd(u.addr, MX_CMD_ALLDATA, nullptr, 0);
+  uint8_t payload[128];
+  const int got = mx_recv_response(u.addr, MX_CMD_ALLDATA, payload, sizeof(payload),
+                                   TOF_MATRIX_READ_TIMEOUT_MS);
+  // A module that reset comes back in its power-on mode and answers with a shorter
+  // frame: that is a failure here, and what sends it back through setup.
+  if (got != (int)sizeof(payload)) return false;
+  for (int i = 0; i < 64; i++) {                     // uint16 little-endian, row-major
+    u.grid[i] = (uint16_t)payload[2 * i] | ((uint16_t)payload[2 * i + 1] << 8);
+  }
+  int16_t raw_l, raw_r;
+  mx_aggregate(u.geom, u.grid, &raw_l, &raw_r);
+  u.left  = tof_filter_step(u.filt_l, raw_l);
+  u.right = tof_filter_step(u.filt_r, raw_r);
+  u.pub_ms = millis();
+  // Stream the raw frame to the host in the normalized orientation the
+  // aggregator uses (row 0 = top, col 0 = the SENSOR'S left), plus the per-row
+  // floor-rejection thresholds so the host can mark which zones are floor.
+  if (++u.emit_div >= u.emit_every) {
+    u.emit_div = 0;
+    uint16_t norm[64], rej[8];
+    for (int r = 0; r < 8; r++) {
+      for (int c = 0; c < 8; c++) norm[r * 8 + c] = u.grid[mx_raw_index(u.geom, r, c)];
+      const float rm = u.geom.row_reject_mm[r];
+      rej[r] = (rm >= 4095.0f) ? 4095 : (uint16_t)rm;
+    }
+    emit_tofmx(u.emit_type, norm, rej);
+  }
+  return true;
+}
+
+// ---- Bus restart (recovery path only) --------------------------------------------
+// Restart the matrix I2C controller and clock a stuck line free, as the trunk does
+// (i2c_trunk.cpp). Runs on the poll task, between transactions, and only for a
+// module that was streaming and has been lost for TOF_MATRIX_REINIT_AFTER_MS: a
+// healthy pair and the boot sequence never come here.
+static void mx_bus_reset() {
+  Wire1.end();
+  vTaskDelay(pdMS_TO_TICKS(2));
+  const bool released = i2c_clear_stuck_lines(PIN_MX_I2C_SDA, PIN_MX_I2C_SCL);
+  Wire1.begin(PIN_MX_I2C_SDA, PIN_MX_I2C_SCL);
+  Wire1.setTimeOut(500);
+  if (released) emit_log("info", "tof_matrix: bus restarted (both lines high)");
+  else emit_log("warn", "tof_matrix: bus restarted (a line is still held low)");
+}
+
+// ---- The bus as tof_matrix_link.h sees it -----------------------------------------
 // ⚠ DO NOT status-poll a module while it reconfigures. The RP2040
 // clock-stretches during the ~5 s VL53L7CX mode switch, and the ESP32's I2C
 // hardware tolerates at most ~13 ms of stretch — hammering status reads into
@@ -166,105 +218,86 @@ static int mx_recv_response(uint8_t addr, uint8_t cmd, uint8_t* payload_out, int
 // 2026-07-16: telemetry died seconds after boot, 4/5 resets). Instead: send
 // SETMODE, leave that module alone BLINDLY through the settle, then read the ack
 // when the sensor is guaranteed idle again. The other module keeps polling.
-static void mx_send_setmode(MxUnit& u, uint32_t now) {
-  const uint8_t args[4] = {0, 0, 0, MX_MODE_8X8};
-  mx_send_cmd(u.addr, MX_CMD_SETMODE, args, sizeof(args));
-  u.state = MX_SETTLE;
-  u.state_ms = now;
+struct MxIo {
+  MxUnit& u;
+  bool probe() { return mx_probe(u.addr); }
+  void send_setmode() {
+    const uint8_t args[4] = {0, 0, 0, MX_MODE_8X8};
+    mx_send_cmd(u.addr, MX_CMD_SETMODE, args, sizeof(args));
+  }
+  bool mode_acked() {
+    uint8_t scratch[8];
+    return mx_recv_response(u.addr, MX_CMD_SETMODE, scratch, sizeof(scratch),
+                            TOF_MATRIX_READ_TIMEOUT_MS) >= 0;
+  }
+  bool read_frame() { return mx_read_frame(u); }
+  void bus_reset() { mx_bus_reset(); }
+};
+
+static void mx_drop_values(MxUnit& u) {
+  u.left = u.right = -1;
+  tof_filter_reset(u.filt_l); tof_filter_reset(u.filt_r);
 }
 
-static void mx_bringup_step(MxUnit& u, uint32_t now) {
-  switch (u.state) {
-    case MX_PROBE:
-      if (u.attempts && (uint32_t)(now - u.state_ms) < 1000) return;   // 1 s between probes
-      u.state_ms = now;
-      if (mx_probe(u.addr)) { mx_send_setmode(u, now); return; }
-      if ((u.attempts++ % u.probe_log_every) == 0) {
-        char buf[96];
+// ---- One step for one module: act on what the link decided ------------------------
+static void mx_unit_step(MxUnit& u) {
+  MxIo io{u};
+  char buf[96];
+  const MxEvent ev = mx_link_step(u.link, io, millis());
+  switch (ev) {
+    case MX_EV_NO_ACK:
+      if (((u.link.attempts - 1) % u.probe_log_every) == 0) {
         snprintf(buf, sizeof(buf),
                  "tof_matrix %s: no ACK at 0x%02X (attempt %lu) - check wiring/DIP addr",
-                 u.name, u.addr, (unsigned long)u.attempts);
+                 u.name, u.addr, (unsigned long)u.link.attempts);
         emit_log("warn", buf);
       }
-      return;
-    case MX_SETTLE:
-      if ((uint32_t)(now - u.state_ms) >= TOF_MATRIX_MODE_SETTLE_MS) {
-        u.state = MX_ACK;
-        u.state_ms = now;
-      }
-      return;
-    case MX_ACK: {
-      uint8_t scratch[8];
-      if (mx_recv_response(u.addr, MX_CMD_SETMODE, scratch, sizeof(scratch),
-                           TOF_MATRIX_READ_TIMEOUT_MS) >= 0) {
-        mx_compute_geometry(u.geom);
-        u.err_streak = 0;
-        u.pub_ms = millis();   // arm the staleness clock BEFORE readers can see ready
-        u.state = MX_READY;
-        u.ready = true;
-        char buf[80];
+      break;
+    case MX_EV_READY:
+    case MX_EV_BACK:
+      mx_compute_geometry(u.geom);
+      u.pub_ms = millis();   // arm the staleness clock BEFORE readers can see ready
+      u.ready = true;
+      if (ev == MX_EV_BACK) {
+        snprintf(buf, sizeof(buf), "tof_matrix %s: back - 8x8 matrix set up again at 0x%02X", u.name, u.addr);
+      } else {
         snprintf(buf, sizeof(buf), "tof_matrix %s: 8x8 matrix ready at 0x%02X (floor rejection active)",
                  u.name, u.addr);
-        emit_log("info", buf);
-      } else if ((uint32_t)(now - u.state_ms) >= TOF_MATRIX_MODE_ACK_TIMEOUT_MS) {
-        char buf[72];
-        snprintf(buf, sizeof(buf), "tof_matrix %s: 8x8 mode-set not acknowledged - retrying", u.name);
-        emit_log("warn", buf);
-        u.state = MX_PROBE;     // re-probe in 1 s, then re-send SETMODE
-        u.state_ms = now;
-        u.attempts = 1;
       }
-      return;
-    }
-    case MX_READY:
-      return;
-  }
-}
-
-// ---- One frame from a ready module ---------------------------------------------
-static void mx_frame_step(MxUnit& u) {
-  mx_send_cmd(u.addr, MX_CMD_ALLDATA, nullptr, 0);
-  uint8_t payload[128];
-  const int got = mx_recv_response(u.addr, MX_CMD_ALLDATA, payload, sizeof(payload),
-                                   TOF_MATRIX_READ_TIMEOUT_MS);
-  if (got == (int)sizeof(payload)) {
-    u.err_streak = 0;
-    for (int i = 0; i < 64; i++) {                     // uint16 little-endian, row-major
-      u.grid[i] = (uint16_t)payload[2 * i] | ((uint16_t)payload[2 * i + 1] << 8);
-    }
-    int16_t raw_l, raw_r;
-    mx_aggregate(u.geom, u.grid, &raw_l, &raw_r);
-    u.left  = tof_filter_step(u.filt_l, raw_l);
-    u.right = tof_filter_step(u.filt_r, raw_r);
-    u.pub_ms = millis();
-    // Stream the raw frame to the host in the normalized orientation the
-    // aggregator uses (row 0 = top, col 0 = the SENSOR'S left), plus the per-row
-    // floor-rejection thresholds so the host can mark which zones are floor.
-    if (++u.emit_div >= u.emit_every) {
-      u.emit_div = 0;
-      uint16_t norm[64], rej[8];
-      for (int r = 0; r < 8; r++) {
-        for (int c = 0; c < 8; c++) norm[r * 8 + c] = u.grid[mx_raw_index(u.geom, r, c)];
-        const float rm = u.geom.row_reject_mm[r];
-        rej[r] = (rm >= 4095.0f) ? 4095 : (uint16_t)rm;
-      }
-      emit_tofmx(u.emit_type, norm, rej);
-    }
-  } else {
-    // Failed/short frame: hold the last-good aggregates through a transient
-    // error, then publish an honest -1 (same policy + streak as tof.cpp, same
-    // documented fail-open in safety.cpp).
-    if (u.err_streak < 255) u.err_streak++;
-    if (u.err_streak == TOF_ERR_STREAK_STALE && (u.left != -1 || u.right != -1)) {
-      u.left = u.right = -1;
-      tof_filter_reset(u.filt_l); tof_filter_reset(u.filt_r);
-      char buf[72];
-      snprintf(buf, sizeof(buf), "tof_matrix %s: consecutive read errors - reporting -1", u.name);
+      emit_log("info", buf);
+      break;
+    case MX_EV_MODE_UNACKED:
+      snprintf(buf, sizeof(buf), "tof_matrix %s: 8x8 mode-set not acknowledged - retrying", u.name);
       emit_log("warn", buf);
-    } else if (u.err_streak > TOF_ERR_STREAK_STALE) {
+      break;
+    case MX_EV_LOST:
+      // Failed/short frames: the last-good aggregates were held through a transient
+      // error; from here publish an honest -1 (same policy + streak as tof.cpp, same
+      // documented fail-open in safety.cpp).
+      if (u.left != -1 || u.right != -1) {
+        snprintf(buf, sizeof(buf), "tof_matrix %s: consecutive read errors - reporting -1", u.name);
+        emit_log("warn", buf);
+      }
+      mx_drop_values(u);
+      u.pub_ms = millis();   // an honest error is still a live publisher
+      break;
+    case MX_EV_STILL_LOST:
       u.left = u.right = -1;
-    }
-    u.pub_ms = millis();   // an honest error is still a live publisher
+      u.pub_ms = millis();
+      break;
+    case MX_EV_FRAME_HELD:
+      u.pub_ms = millis();
+      break;
+    case MX_EV_REINIT:
+      u.ready = false;       // readers get -1 until the module streams again
+      mx_drop_values(u);
+      u.emit_div = 0;
+      snprintf(buf, sizeof(buf), "tof_matrix %s: not answering - setting it up again", u.name);
+      emit_log("warn", buf);
+      break;
+    case MX_EV_FRAME:
+    case MX_EV_NONE:
+      break;
   }
 }
 
@@ -281,11 +314,7 @@ static void mx_frame_step(MxUnit& u) {
 static void mx_task(void*) {
   TickType_t last = xTaskGetTickCount();
   for (;;) {
-    for (MxUnit& u : s_units) {
-      const uint32_t now = millis();
-      if (u.state == MX_READY) mx_frame_step(u);
-      else mx_bringup_step(u, now);
-    }
+    for (MxUnit& u : s_units) mx_unit_step(u);
     vTaskDelayUntil(&last, pdMS_TO_TICKS(TOF_MATRIX_FRAME_INTERVAL_MS));
   }
 }
@@ -297,7 +326,7 @@ void tof_matrix_init() {
   Wire1.begin(PIN_MX_I2C_SDA, PIN_MX_I2C_SCL);
   Wire1.setTimeOut(500);   // ride out slave clock-stretch; only this task waits
   emit_log("info", "tof_matrix: init deferred (mode switch needs ~5s settle)");
-  xTaskCreatePinnedToCore(mx_task, "tofmx", 3584, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(mx_task, "tofmx", 4096, nullptr, 1, nullptr, 1);
 }
 
 bool tof_matrix_ready() { return s_front.ready; }
@@ -319,6 +348,7 @@ static void mx_snapshot(MxUnit& u, bool& warned, int16_t* l, int16_t* r) {
     *l = -1; *r = -1;
     return;
   }
+  warned = false;   // publishing again: a later stall is logged again
   *l = u.left;
   *r = u.right;
 }

@@ -12,5 +12,10 @@ void i2c_trunk_init();
 // serialized on sensorTask, so callers must stay on that task.
 bool i2c_trunk_recover(const char* reason);
 
+// Nine SCL pulses and a STOP on any I2C pin pair whose controller is stopped
+// (Wire.end() first). True when both lines read high afterwards. Shared with the
+// matrix bus (tof_matrix.cpp), which restarts its own controller around it.
+bool i2c_clear_stuck_lines(int sda, int scl);
+
 static const uint32_t I2C_TRUNK_CLOCK_HZ = 100000;
 static const uint16_t I2C_TRUNK_TIMEOUT_MS = 20;

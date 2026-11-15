@@ -116,6 +116,7 @@ class VoiceRuntime:
         self.speech_confirmed = False   # The forming capture has lasted like speech, or began in stillness.
         self.sentry = None   # sentry_guard.SentryGuard: while it is on, what Rex hears goes to it first.
         self.room_sounds = None   # room_sounds.RoomSounds: hears every frame, logs household sounds, never acts.
+        self.depth_watch = None   # depth_watch.DepthSensorWatch: a depth sensor lost or back is said aloud.
         session.on_shutdown = self.conversation_shutdown
 
     def conversation_shutdown(self, turn_id):
@@ -464,6 +465,8 @@ class VoiceRuntime:
             except Empty:
                 if self.guarding():
                     self.sentry.tick(self.trace.clock())   # Instead of initiative: sentry mode watches.
+                elif self.sensor_tick():
+                    pass   # He just said a depth sensor went dark or came back.
                 elif self.gaming():
                     self.game_tick()   # A game's clock instead of his own goals (owner, October 26).
                 else:
@@ -480,6 +483,21 @@ class VoiceRuntime:
                 self.sentry.after_reply(delivery)
         if self.session.closed:
             self.stop.set()
+
+    def sensor_tick(self):
+        """A depth sensor dark for a few seconds, or back: he says so in a saved line, when nobody is
+        speaking and he is not (owner, November 15). Whether a line was heard."""
+        if self.depth_watch is None or self.drive is None:
+            return False
+        now = self.drive.clock()
+        notice = self.depth_watch.due(now, self.drive.depth_sensor_ages(now))
+        if notice is None or self.speech_in_flight() or self.session.output.active.is_set():
+            return False
+        if not self.session.say_notice(self.depth_watch.line(notice), 'depth_sensor_' + notice.kind,
+                                       sensors=list(notice.sensors)):
+            return False
+        self.depth_watch.said(notice, self.drive.clock())
+        return True
 
     def gaming(self):
         state = self.session.state

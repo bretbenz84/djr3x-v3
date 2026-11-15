@@ -24,41 +24,41 @@ void i2c_trunk_init() {
 
 // Nine SCL pulses release a slave that lost byte alignment while holding SDA.
 // Open-drain outputs preserve normal I2C electrical behavior.
-static bool clear_stuck_lines() {
-  pinMode(PIN_I2C_SDA, INPUT_PULLUP);
-  pinMode(PIN_I2C_SCL, INPUT_PULLUP);
+bool i2c_clear_stuck_lines(int sda, int scl) {
+  pinMode(sda, INPUT_PULLUP);
+  pinMode(scl, INPUT_PULLUP);
   delayMicroseconds(10);
 
-  if (digitalRead(PIN_I2C_SDA) == LOW) {
-    pinMode(PIN_I2C_SCL, OUTPUT_OPEN_DRAIN);
-    digitalWrite(PIN_I2C_SCL, HIGH);
-    for (int i = 0; i < 9 && digitalRead(PIN_I2C_SDA) == LOW; ++i) {
-      digitalWrite(PIN_I2C_SCL, LOW);
+  if (digitalRead(sda) == LOW) {
+    pinMode(scl, OUTPUT_OPEN_DRAIN);
+    digitalWrite(scl, HIGH);
+    for (int i = 0; i < 9 && digitalRead(sda) == LOW; ++i) {
+      digitalWrite(scl, LOW);
       delayMicroseconds(8);
-      digitalWrite(PIN_I2C_SCL, HIGH);
+      digitalWrite(scl, HIGH);
       delayMicroseconds(8);
     }
   }
 
   // Emit a STOP while both pins are still under our control.
-  pinMode(PIN_I2C_SDA, OUTPUT_OPEN_DRAIN);
-  digitalWrite(PIN_I2C_SDA, LOW);
+  pinMode(sda, OUTPUT_OPEN_DRAIN);
+  digitalWrite(sda, LOW);
   delayMicroseconds(8);
-  pinMode(PIN_I2C_SCL, OUTPUT_OPEN_DRAIN);
-  digitalWrite(PIN_I2C_SCL, HIGH);
+  pinMode(scl, OUTPUT_OPEN_DRAIN);
+  digitalWrite(scl, HIGH);
   delayMicroseconds(8);
-  digitalWrite(PIN_I2C_SDA, HIGH);
+  digitalWrite(sda, HIGH);
   delayMicroseconds(8);
 
-  pinMode(PIN_I2C_SDA, INPUT_PULLUP);
-  pinMode(PIN_I2C_SCL, INPUT_PULLUP);
-  return digitalRead(PIN_I2C_SDA) == HIGH && digitalRead(PIN_I2C_SCL) == HIGH;
+  pinMode(sda, INPUT_PULLUP);
+  pinMode(scl, INPUT_PULLUP);
+  return digitalRead(sda) == HIGH && digitalRead(scl) == HIGH;
 }
 
 bool i2c_trunk_recover(const char* reason) {
   Wire.end();
   delay(2);
-  const bool lines_released = clear_stuck_lines();
+  const bool lines_released = i2c_clear_stuck_lines(PIN_I2C_SDA, PIN_I2C_SCL);
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   apply_settings();
   s_started = true;
