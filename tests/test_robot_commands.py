@@ -256,7 +256,14 @@ class PoseTests(unittest.TestCase):
         snap = [p for p in self.port.packets if p[0] == 0x89 and p[1] == 3][0]
         self.assertEqual(snap[2] + 128*snap[3], 0)                           # It snaps: unlimited acceleration.
         sent = [(p[1], p[2]+128*p[3]) for p in self.port.targets if p[1] in HEAD_PAIR]
-        self.assertAlmostEqual(head_pose(dict(sent[:2]))[0], .15, delta=.03)   # The head lifts a little.
+        self.assertAlmostEqual(head_pose(dict(sent[:2]))[0], .15, delta=.03)   # The head tips up a little.
+        # Owner, November 15: the head lift shoots up to 2310 us and settles back to where it stood
+        # (normally 1093 us), a little quicker on the way up than its usual pace.
+        from r3x.servo_poses import HEAD_LIFT_NORMAL, HEAD_LIFT_SPEED, HEAD_LIFT_SURPRISE, SURPRISE_LIFT_SPEED
+        self.assertEqual((HEAD_LIFT_NORMAL, HEAD_LIFT_SURPRISE), (1093*4, 2310*4))
+        self.assertEqual([p[2]+128*p[3] for p in self.port.targets if p[1] == 1], [HEAD_LIFT_SURPRISE, before[1]])
+        self.assertEqual([p[2]+128*p[3] for p in self.port.packets if p[0] == 0x87 and p[1] == 1],
+                         [SURPRISE_LIFT_SPEED, HEAD_LIFT_SPEED])
         self.assertEqual(self.port.pose, before)
         self.assertFalse(self.owner.held_channels)
 

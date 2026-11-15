@@ -6,6 +6,31 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 15: head-lift normal height, surprise rise and pace
+
+Owner: the head lift's normal height is 1093 µs (`HEAD_LIFT_NORMAL` 4372; was the range's midpoint,
+1664 µs). Startup, idle, talking, driving, sentry and `look_level` stand there; `look_down`/`look_up`
+stay 400/600 pulses below/above it. The model is told `head_lift` 16 % is the normal height (was 50),
+and the servo menu's neutral follows. The range (832–2496 µs) and the park at its low end are unchanged.
+
+The `surprised` expression now also raises the lift to 2310 µs (`HEAD_LIFT_SURPRISE` 9240) from
+wherever it stands, at board speed 45 / acceleration 8 (about 1.5 s from the normal height). The
+visor and the tipped-up head hold until the lift is up, all hold 0.8 s, and the lift comes back at
+its usual pace (about 2.3 s); `subtle` goes half as far. Like every expression it is refused while
+a channel it moves is held (a person's `neck_up`/`neck_down` now included).
+
+Owner: "increase that servo's speed slightly". The lift's own pace is board speed 25 (was 20,
+`HEAD_LIFT_SPEED`), acceleration 5 as before. It applies wherever the lift moves in a lane of its
+own: `neck_up`/`neck_down`, the lift part of `look_up`/`look_down`/`look_level`, a `head_lift` joint
+request (now always its own lane, beside whatever else the request moves) and the way down from a
+surprise. Startup/park (12), the drive stance (20, shared with the neck and head pair), and the
+eased idle and talking sways are unchanged.
+
+The Maestro's stored home for channel 1 is not in this repository: the servo menu's "Restart
+Pololu" sends the lift to that home, not to 1093 µs, until the owner changes it in Maestro Control
+Center. Synthetic checks only (simulated board); the height, the 1.5 s rise and how the surprise
+looks are **not yet seen on the robot**.
+
 ## November 14: the reworked throttle shoulder
 
 Owner, after reworking the throttle arm's shoulder (channel 8): lower limit 2000 µs, straight down

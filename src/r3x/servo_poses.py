@@ -233,8 +233,14 @@ FULL_DOWN = ((8, SHOULDER_DOWN), (9, 5589), (10, 9511))
 # driving on September 27; set this from the servo console reading.
 NECK_CENTER = 5472
 # The head lift's normal height: startup, idle, talking and driving stand here. Owner,
-# November 12: the midpoint of the lift's range (1664 us; was 3600, 900 us).
-HEAD_LIFT_NORMAL = (LIMITS[1][0] + LIMITS[1][1]) // 2
+# November 15: 1093 us (was the midpoint of the range, 1664 us, since November 12).
+HEAD_LIFT_NORMAL = 4372
+# Surprised, the head shoots up to 2310 us (owner, November 15), then settles back.
+HEAD_LIFT_SURPRISE = 9240
+# The lift's pace when it moves in a lane of its own (a pose, a joint request, the way back down
+# from a surprise). Owner, November 15: slightly quicker (speed was 20).
+HEAD_LIFT_SPEED, HEAD_LIFT_ACCEL = 25, 5
+SURPRISE_LIFT_SPEED, SURPRISE_LIFT_ACCEL = 45, 8   # The way up: about 1.5 s from the normal height.
 # Head lift and the level, straight head pair held while the base drives (owner: level
 # stance when moving). The pair is the owner's "level headed" console reading.
 DRIVE_HEAD = ((1, HEAD_LIFT_NORMAL), (2, HEAD_LEVEL[0]), (11, HEAD_LEVEL[1]))
@@ -604,9 +610,10 @@ HEAD_EXPRESSIONS = {
     # 1.5 s on the steepest head ramp of any expression). Each swing now eases in and out: about 3 s.
     'wiggle': {'moves': ((0., .35, .15), (0., -.35, .15), (0., .35, .15)), 'ease': (.35, .03)},
     'sympathetic': {'moves': ((-.15, .45, 1.2),), 'speed': 12, 'acceleration': 3, 'side': True},   # Slow cock, slightly down, held.
-    # The visor snaps wide open to its surprise position as the head lifts a little, holds,
-    # and both ease back (owner, October 11: surprise is 1136 us).
-    'surprised': {'moves': ((.15, 0., .8),), 'speed': 40, 'visor': VISOR_SURPRISE},
+    # The visor snaps wide open to its surprise position as the head tips up a little and the
+    # head lift rises to its surprise height; all hold, then ease back (owner, October 11: visor
+    # surprise is 1136 us; November 15: the lift goes to 2310 us).
+    'surprised': {'moves': ((.15, 0., .8),), 'speed': 40, 'visor': VISOR_SURPRISE, 'lift': HEAD_LIFT_SURPRISE},
 }
 GESTURE_PRIMITIVES = (*HEAD_EXPRESSIONS, 'lift', 'arm_emphasis')
 
@@ -741,6 +748,12 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
             # The two head servos: finite moves from where the head is, then back to it. A
             # sided expression cocks away from any lean the head already has.
             spec = HEAD_EXPRESSIONS[primitive]
+            rise, high = 0., None
+            if 'lift' in spec:
+                # The lift pole takes longer than the visor and the head pair: they hold their
+                # pose while it rises, so everything is up together and settles back together.
+                high = round(current[1] + (spec['lift'] - current[1]) * scale)
+                rise = board_seconds(abs(high - current[1]), SURPRISE_LIFT_SPEED, SURPRISE_LIFT_ACCEL)
             pitch0, tilt0 = head_pose(current)
             side = (-1. if tilt0 > .2 else 1.) if spec.get('side') else 1.
             start = tuple((ch, current[ch]) for ch in HEAD_PAIR)
@@ -752,15 +765,19 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
                     at.update(aim)
                 lane += (eased_head_beat(at, start, pace=spec['ease']),)
             else:
-                lane = tuple(Beat(aim,speed=spec['speed'],acceleration=spec.get('acceleration',6),dwell=dwell)
+                lane = tuple(Beat(aim,speed=spec['speed'],acceleration=spec.get('acceleration',6),dwell=dwell+rise)
                              for aim,(_,_,dwell) in zip(aims, spec['moves']))
                 lane += (Beat(start,speed=spec['speed'],acceleration=spec.get('acceleration',6)),)
             if 'visor' in spec:
                 # Its own lane: the visor snaps (unlimited acceleration) while the head moves
                 # at its own pace; subtle opens it half as far beyond where it is.
                 wide = round(current[3] + (spec['visor'] - current[3]) * scale)
-                extra = ((Beat(((3, wide),), speed=70, acceleration=0, dwell=spec['moves'][0][2]),
+                extra = ((Beat(((3, wide),), speed=70, acceleration=0, dwell=spec['moves'][0][2]+rise),
                           Beat(((3, current[3]),), speed=20, acceleration=5)),)
+            if high is not None:
+                extra += ((Beat(((1, high),), speed=SURPRISE_LIFT_SPEED, acceleration=SURPRISE_LIFT_ACCEL,
+                                dwell=spec['moves'][0][2]),
+                           Beat(((1, current[1]),), speed=HEAD_LIFT_SPEED, acceleration=HEAD_LIFT_ACCEL)),)
         elif primitive == PRIDE_FLOURISH:
             lane, *extra = flourish_lanes(current)
         else:
@@ -1066,8 +1083,7 @@ NECK_LEFT, NECK_RIGHT = 2 * NECK_CENTER - 8000, 8000
 NECK_POSES = {'look_left': -1, 'look_right': 1}
 LOOK_PITCH, LOOK_TILT = .8, .8
 LOOK_SPEED = 40   # A person's look: twice the ordinary pose speed, still below the voice reflex's 60.
-# look_down/look_up drop or raise the pole a little from its normal height (400 and 600 pulses,
-# as before the November 12 range change).
+# look_down/look_up drop or raise the pole a little from its normal height (400 and 600 pulses).
 HEAD_POSES = {
     'look_down': {'lift': HEAD_LIFT_NORMAL - 400, 'pitch': -LOOK_PITCH},
     'look_up': {'lift': HEAD_LIFT_NORMAL + 600, 'pitch': LOOK_PITCH},
@@ -1320,11 +1336,10 @@ def pose_lanes(name, current, further=True):
     if target:
         # Owner ruling October 23: a look a person asks for is brisk. At speed 20 the head took about
         # 3 s to swing across, and the answer came 9-11 s after the request (1e626e07).
-        # The neck and the head servos only: the lift pole keeps its usual pace in a lane of its own.
-        if further and set(target) <= set(HEAD) and set(target) - {1}:
-            if 1 in target:
-                lanes += ((Beat(((1, target.pop(1)),), speed=20, acceleration=5),),)
-            lanes += ((Beat(tuple(target.items()), speed=LOOK_SPEED, acceleration=10),),)
-        else:
-            lanes += ((Beat(tuple(target.items()), speed=20, acceleration=5),),)
+        # The neck and the head servos only: the lift pole keeps its own pace in a lane of its own.
+        look = further and set(target) <= set(HEAD)
+        if 1 in target:
+            lanes += ((Beat(((1, target.pop(1)),), speed=HEAD_LIFT_SPEED, acceleration=HEAD_LIFT_ACCEL),),)
+        if target:
+            lanes += ((Beat(tuple(target.items()), speed=LOOK_SPEED if look else 20, acceleration=10 if look else 5),),)
     return lanes

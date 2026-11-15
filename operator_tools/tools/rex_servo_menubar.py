@@ -88,7 +88,7 @@ _CMD_GO_HOME = 0xA2
 # Mirror of src/r3x/servo_poses.py LIMITS (q-µs). Keep in sync when the robot changes.
 _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
     "neck":     {"ch": 0, "min": 1984, "max": 8960, "neutral": 5472},
-    "headlift": {"ch": 1, "min": 3328, "max": 9984, "neutral": 6656},  # 832–2496 µs, normal 1664 (Nov 12)
+    "headlift": {"ch": 1, "min": 3328, "max": 9984, "neutral": 4372},  # 832–2496 µs (Nov 12), normal 1093 (Nov 15)
     # Two-servo head (October 10): measured extremes are the limits; neutral is the level pose.
     "headleft": {"ch": 2, "min": 4032, "max": 8128, "neutral": 5832},   # 1008–2032 µs, level 1458
     "headright": {"ch": 11, "min": 5248, "max": 7616, "neutral": 6480}, # 1312–1904 µs, level 1620
