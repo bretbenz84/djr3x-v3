@@ -318,8 +318,9 @@ the feelings his body shows ([servo side](SERVO_INTEGRATION.md#november-15-feeli
   expression that arrives beside a line already being said turns that line's lights
   (`LEDs.feel`), and the rest of the reply keeps the feeling. With no line under it (after the
   line, or before one) the eyes and the mouth's idle glow take the colour and the chest runs the
-  pattern while the move lasts, the mouth not moving (`LEDs.react`). As before, the eyes keep the
-  last line's colour until his next line. Sentry mode's red is never overridden.
+  pattern while the move lasts, the mouth not moving (`LEDs.react`). When the reply is over the
+  eyes and the mouth's glow go back to a plain line's colours (`LEDs.settle`; see below). Sentry
+  mode's red is never overridden.
 - **A new feeling: angry.** There was no anger among the expressions, so an insult could only get
   a deadpan look. `angry` is a glare (head down 0.2, visor narrowed, held 1.1 s; no pole move) with
   red eyes and mouth and the chest's red alert.
@@ -349,5 +350,12 @@ Evidence:
   then ran once on the robot's lights (3:10 pm).
 
 Not yet seen or judged by the owner: any of the ten on the lights, the glare, and how often he
-gets angry over a real evening. The eyes keeping a feeling's colour until the next line was not
-changed and may want a return to gold.
+gets angry over a real evening.
+
+**Later the same day: the eyes let go of the feeling.** A fake-board run showed the eyes after an
+angry line staying red, re-sent every 3 s, until his next line; the owner chose to have them reset.
+When a reply that showed a feeling ends, the eyes and the mouth's idle glow go back to the colours
+a plain line leaves them in; the chest was already idle. A plain reply sends nothing extra, and
+sentry mode's red stays. Fake-board checks only (one new, three extended); **not yet seen on the robot**.
+Explicit light requests (`animate_lights`, the `lights_` steps) still leave their colour on the eyes
+until the next line, as before.

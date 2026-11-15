@@ -862,7 +862,12 @@ class OutputOwner:
             for worker in workers:
                 worker.join()   # An expression started beside the line: its receipt belongs to this delivery.
             with self._feeling_guard:
-                self._feeling = None   # The feeling lasts the reply, no longer.
+                felt, self._feeling = self._feeling, None   # The feeling lasts the reply, no longer...
+            if felt and self.leds:
+                try:
+                    self.leds.settle()                       # ...and the eyes do not keep it after.
+                except ProviderFailure as exc:
+                    self.trace.emit('led_settle_failed', turn_id=turn_id, reason=str(exc))
             if hushed:
                 sounds.resume()
             self.trace.emit("delivery", turn_id=turn_id, status=delivery.status,

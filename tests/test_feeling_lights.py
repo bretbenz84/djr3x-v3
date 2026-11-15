@@ -26,6 +26,11 @@ def eye(pattern):
     return 'EYE:' + ','.join(map(str, COLORS[pattern]))
 
 
+# What the head is sent once a reply that showed a feeling is over: plain eyes and the plain mouth glow
+# (the mouth's level stream left out, as in Stage.sent).
+PLAIN_AGAIN = [eye('neutral'), 'SPEAK:neutral', 'SPEAK_STOP', 'ACTIVE']
+
+
 class Stage:
     """An output owner with a fake LED board and a simulated body."""
     def __init__(self, sink=None):
@@ -76,7 +81,8 @@ class FeelingLightTests(unittest.TestCase):
                 stage = Stage()
                 delivery = stage.say(stage.feeling(primitive, 'Say that again.'))
                 self.assertEqual(delivery.status, 'completed')
-                self.assertEqual(stage.sent('head'), [eye(pattern), 'SPEAK:' + pattern, 'SPEAK_STOP', 'ACTIVE'])
+                self.assertEqual(stage.sent('head'), [eye(pattern), 'SPEAK:' + pattern, 'SPEAK_STOP', 'ACTIVE',
+                                                      *PLAIN_AGAIN])   # The reply over, the head is plain again.
                 self.assertEqual(stage.sent('chest'), ['SPEAK:' + pattern, 'SPEAK_STOP'])
                 self.assertEqual([(row['pattern'], row['status']) for row in delivery.lights], [(pattern, 'commands_sent')])
                 self.assertEqual([g['primitive'] for g in delivery.gestures], [primitive])
@@ -123,7 +129,8 @@ class FeelingLightTests(unittest.TestCase):
         head, chest = stage.ports['head'].commands, stage.sent('chest')
         self.assertEqual(chest, ['SPEAK:neutral', 'SPEAK_STOP', 'SPEAK:sad', 'SPEAK_STOP'])
         after = head[head.index('ACTIVE') + 1:]                       # Everything after the line's own lights ended.
-        self.assertEqual(after, [eye('sad'), 'SPEAK:sad', 'SPEAK_LEVEL:0', 'SPEAK_STOP', 'ACTIVE'])
+        self.assertEqual(after, [eye('sad'), 'SPEAK:sad', 'SPEAK_LEVEL:0', 'SPEAK_STOP', 'ACTIVE',
+                                 eye('neutral'), 'SPEAK:neutral', 'SPEAK_LEVEL:0', 'SPEAK_STOP', 'ACTIVE'])
         self.assertEqual([(row['pattern'], row['status']) for row in delivery.lights],
                          [('neutral', 'commands_sent'), ('sad', 'commands_sent')])
         # Chosen before any line, it reacts at once and the line that follows speaks in it.
@@ -135,6 +142,24 @@ class FeelingLightTests(unittest.TestCase):
         stage.say('That is the funniest thing I have heard all week.')
         self.assertEqual(stage.sent('chest'), ['SPEAK:happy', 'SPEAK_STOP', 'SPEAK:happy', 'SPEAK_STOP'])
 
+    def test_the_eyes_do_not_keep_a_feeling_once_the_reply_is_over(self):
+        # Owner, November 15: after an angry line his eyes stayed red, refreshed every 3 s, until he
+        # next spoke. The reply over, they and the mouth's glow go back to what a plain line leaves.
+        for timing in ('with_speech', 'after_speech'):
+            with self.subTest(timing=timing):
+                stage = Stage()
+                stage.say(stage.feeling('angry', 'Say that again.', timing=timing))
+                self.assertEqual(stage.sent('head')[-4:], PLAIN_AGAIN)
+                stage.ports['head'].commands.clear()
+                for _ in range(20):                                  # A minute of quiet.
+                    stage.led.clock.wait(3.1)
+                    stage.led.tick()
+                self.assertEqual(set(stage.sent('head')), {eye('neutral')})
+        # A plain reply sends nothing more than its own line's lights.
+        stage = Stage()
+        stage.say('Fifty-six.')
+        self.assertEqual(stage.sent('head'), [eye('neutral'), 'SPEAK:neutral', 'SPEAK_STOP', 'ACTIVE'])
+
     def test_sentry_red_stays_and_an_unknown_feeling_is_refused(self):
         stage = Stage()
         stage.led.guard(True)
@@ -142,6 +167,8 @@ class FeelingLightTests(unittest.TestCase):
             port.commands.clear()
         stage.say(stage.feeling('laugh', 'Ha.'))
         self.assertEqual([c for c in stage.sent('chest') if c.startswith('SPEAK:')], ['SPEAK:angry'])   # Every line in red.
+        self.assertEqual(stage.led.eye_color, COLORS['angry'])       # And the reply over, still red.
+        self.assertNotIn(eye('neutral'), stage.sent('head'))
         self.assertIsNone(stage.led.react('happy'))
         self.assertFalse(stage.led.feel('happy'))
         from r3x.contracts import ProviderFailure

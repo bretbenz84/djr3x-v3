@@ -13,8 +13,9 @@ says the line (red when angry, white when surprised, gold when proud, and so on)
 `angry` glare, four new mouth colours and five new chest patterns in LED firmware 0.5.0
 ([details](LED_INTEGRATION.md#november-15-feelings-on-the-lights)). Flashed; the board answers
 as 0.5.0. Frame checks, fake-board checks and a 10-reply paid probe; `tools/show_light_feelings.py
---live` played all ten on the robot's lights once. **Not yet judged by the owner, and never run
-in a real conversation.**
+--live` played all ten on the robot's lights once. Later: when a reply with a feeling ends, the
+eyes and mouth glow go back to their plain colours instead of keeping it until his next line. **Not
+yet judged by the owner, and never run in a real conversation.**
 
 ## Head lift, a shut-eyed wake and feelings on his body — November 15
 

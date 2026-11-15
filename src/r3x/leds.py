@@ -374,6 +374,27 @@ class LEDs:
             self._send('chest','SPEAK:'+pattern)
             return self.version
 
+    def settle(self):
+        """A reply that showed a feeling is over: the eyes and the mouth's idle glow go back to the
+        colours a plain line leaves them in (owner, November 15: red eyes stayed red until his next
+        line). True when commands went out; nothing is sent while a line, a light request or sentry
+        mode has the lights, or when they are already plain. The chest is idle by then already."""
+        with self.lock:
+            if self.state != 'ready' or self.speaking or self.demo or self.guarding or self.chest_only:
+                return False
+            if self.mouth == 'neutral' and self.eye_color == COLORS['neutral']:
+                return False
+            self.eye_color = COLORS['neutral']
+            self._send('head','EYE:'+','.join(map(str,self.eye_color)))
+            self.eyes_sent = self.clock()
+            if self.mouth != 'neutral':
+                self._send('head','SPEAK:neutral')   # The glow's colour, stopped at once, as in react().
+                self._send('head','SPEAK_LEVEL:0')
+                self._send('head','SPEAK_STOP')
+                self._send('head','ACTIVE')
+                self.mouth = 'neutral'
+            return True
+
     def finish(self, token):
         with self.lock:
             if token != self.version or self.state != 'ready':
