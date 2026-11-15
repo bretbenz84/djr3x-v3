@@ -1,7 +1,7 @@
 // DJ-R3X combined LED board: one ESP32 driving the head and chest strips.
 #pragma once
 
-#define LEDS_VERSION   "0.1.0"
+#define LEDS_VERSION   "0.2.0"
 #define LEDS_BAUD      115200
 
 // Plain outputs on every classic ESP32 dev board: not boot-strapping pins, not the

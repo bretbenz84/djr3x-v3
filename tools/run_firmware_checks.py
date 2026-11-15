@@ -1,7 +1,7 @@
-"""Run the drive firmware's native checks with I/O blocked except the C++ toolchain.
+"""Run the drive and LED firmware's native checks with I/O blocked except the C++ toolchain.
 
-Each check compiles pure firmware headers (or battery.cpp with fake hardware) with clang++
-into a temporary directory and runs the result. The ordinary runner (run_checks.py) blocks
+Each check compiles pure firmware headers (or battery.cpp, or the LED board's chest.cpp, with
+fake hardware) with clang++ into a temporary directory and runs the result. The ordinary runner (run_checks.py) blocks
 all subprocesses, so these live in firmware/tests and run here instead. Only clang++ and
 programs built under the temporary directory may start; network, devices, v2 files and
 real v3 state stay blocked.

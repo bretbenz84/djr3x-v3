@@ -6,7 +6,8 @@ other ports. Empty opens nothing and offers no LED tool. `pyserial==3.5` is the 
 dependency, in `requirements-robot.txt`. No extra model is loaded. The first two sections
 describe what runs now. Sections dated before November 14 are history from the two-board
 system; their repeated commands, boot waits and per-board options are gone
-([what changed](#november-14-one-led-board)).
+([what changed](#november-14-one-led-board)). The chest blends between its states since the
+same day ([chest transitions](#november-14-chest-transitions)).
 
 ## Behavior and ownership
 
@@ -199,3 +200,40 @@ To put it on the robot: wire head data to GPIO 18, chest data to GPIO 19 and a g
 supply; move the chest panels' 5 V to the buck rail; in `local/settings.toml` delete
 `head_led_port` and `chest_led_port` and set `led_port`; restart the `com.djr3x.led` and
 `com.djr3x.battery` agents so they load the new code.
+
+## November 14: chest transitions
+
+Owner request: the chest went dark and then sparkled when he woke from the charge meter, and
+jumped from the startup sparkle to the ordinary panel. LED firmware 0.2.0 changes only the chest
+(`firmware/djr3x_leds/chest.cpp`); the commands the program and the menus send are the same.
+
+- **Every change of chest state is blended** from what was showing: 0.2 s into a speaking
+  pattern or the sparkle, 0.6 s back to the ordinary panel, 1 s into sleep. The shutdown fade
+  is still four seconds; `OFF` alone is instant.
+- **Waking from the charge meter.** The meter brightens for 0.3 s, a white spark climbs it from
+  the bottom and burns it up (about 0.9 s for a full meter), and the startup sparkle begins when
+  the spark reaches the top of the charge. From dark, the sparkle starts at once as before.
+- **Startup into the ordinary panel.** During the last three seconds of the sparkle the three
+  bars and nine blocks come on one at a time in a random order, each catching with a short
+  stutter, under the last sparks. The whole startup is still about 13 s.
+- **Speech during startup.** The please-wait line asks for the neutral speaking lights, which
+  used to end the sparkle on the spot. Neutral speech, idle and active now wait for the startup
+  to finish; an emotion or the sparkle effect still takes over at once.
+- **No stale colour.** Coming back to the ordinary panel wipes the previous pattern, so angry's
+  red or the sparkle's blue no longer lingers on pixels the panel does not redraw, and the
+  brightness no longer drops in one step.
+
+The head is unchanged; its mouth glow already fades in over four seconds.
+
+Evidence: `tools/run_firmware_checks.py` runs the real chest code on the Mac against a stand-in
+LED library with a fake clock and reads every frame it would send (10 checks; all 10 fail on
+the previous firmware). That shows what is sent, not how it looks. The firmware compiles for the
+ESP32 and was flashed to the board on `led_port`, which answered `hello djr3x_leds 0.2.0`; no
+light command was sent after flashing.
+
+Not yet seen: any of it on the strip. To judge on the robot: the spark's speed up the meter, the
+stutter as the panel comes on (it should read as power catching, not a fault), and the 0.2 s
+blend at the start of an excited or angry line. If opening the port restarts the board
+(unconfirmed for pyserial), the meter is already dark when startup arrives and the spark cannot
+run. After a flash the chest stays dark until the battery menu next repaints the meter (on a
+change of charge, or within 30 minutes).

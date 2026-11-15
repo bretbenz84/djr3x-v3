@@ -6,6 +6,15 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Chest light transitions — November 14
+
+Owner request. LED firmware 0.2.0 blends every change of chest state instead of snapping, burns
+the charge meter up with a climbing spark before the startup sparkle, brings the panel on piece
+by piece under the last sparks, and no longer lets the please-wait line cut the sparkle short
+([chest transitions](LED_INTEGRATION.md#november-14-chest-transitions)). Flashed to the board;
+it answers as 0.2.0. Ten native checks read the frames the real chest code would send (64
+firmware checks pass). **Not yet seen on the strip.**
+
 ## One LED board — November 14
 
 Owner request. One ESP32 (`firmware/djr3x_leds`) replaces the two Arduino Nanos: one `led_port`

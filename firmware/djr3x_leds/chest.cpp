@@ -9,6 +9,11 @@
  *
  * 98 WS2811-type pixels on CHEST_DATA_PIN. Commands are routed here by
  * djr3x_leds.ino, bare or with the C: prefix; the list is above command().
+ *
+ * Transitions (owner request, November 14, 2026; not in V2): a change of state is
+ * blended from the frame that was showing instead of snapping, the charge meter is
+ * burned up by a spark that then starts the startup sparkle, and the panel comes on
+ * piece by piece under the last startup sparks. See "Transitions" below.
  */
 
 #include <FastLED.h>
@@ -39,6 +44,7 @@ void excitedPulse();
 void sadSigh();
 void happyBounce();
 void chargeGauge();
+void startupShow();
 void nextPattern();
 void LEDBlockOn(uint8_t LEDStart, CRGB Color, int Brightness);
 
@@ -80,14 +86,18 @@ uint8_t Bar1Length = 4;
 uint8_t Bar2Length = 4;
 uint8_t Bar3Length = 4;
 
-CRGB DJLEDs[NUM_LEDS];
+CRGB DJLEDs[NUM_LEDS];              // the running pattern draws here
+static CRGB shown[NUM_LEDS];        // what the strip is showing, master brightness applied
+static CRGB fadeFrom[NUM_LEDS];     // the frame showing when the current blend began
+static CRGB sparks[NUM_LEDS];       // startup sparks, added on top of the pattern
 
 // This strip has its own controller and master brightness. The head shares the
 // FastLED singleton, so the library's board-wide show, brightness and clear
 // would act on both strips; nothing in this file may call them.
 static CLEDController *strip = nullptr;
 static uint8_t masterBrightness = BRIGHTNESS;
-static inline void show()     { strip->showLeds(masterBrightness); }
+static void compose();
+static inline void show()     { compose(); strip->showLeds(255); }
 static inline void clearAll() { fill_solid(DJLEDs, NUM_LEDS, CRGB::Black); }
 #define BLOCKBRIGHTNESS 225
 
@@ -122,7 +132,7 @@ const CRGB BlockLEDColors[4] = { cRED, cWHITE, cGOLD, cBLUE };
 // Chest mode
 // ---------------------------------------------------------------------------
 enum ChestMode : uint8_t {
-    CM_STARTUP,       // host-requested: ShortCircuit once, then auto-switch to IDLE
+    CM_STARTUP,       // host-requested: startup sparks, the panel comes on under the last of them, then IDLE
     CM_IDLE,          // default: RandomBlocks2 at normal brightness
     CM_ACTIVE,        // Rex awake: RandomBlocks2 brighter
     CM_SPEAK_NEUTRAL, // speaking neutral: RandomBlocks2
@@ -131,7 +141,7 @@ enum ChestMode : uint8_t {
     CM_SPEAK_ANGRY,   // speaking angry: red alert (scanner bars + alarm blocks + slams)
     CM_SPEAK_HAPPY,   // speaking happy: bouncing gold heads + cheery pops + confetti
     CM_COMPLIMENT,    // reacting to a compliment: blue glow + gold/white sparkles (self-ends ~2.5s)
-    CM_FADEOFF,       // shutdown: smoothly fade the current frame to black, then OFF
+    CM_FADEOFF,       // shutdown: blend the frame that was showing to black, then OFF
     CM_SLEEP,         // sleep: very dim slow red breath
     CM_CHARGE,        // Rex off: contiguous 24-LED SOC meter; upward pulse while charging
     CM_OFF,           // all off
@@ -162,16 +172,204 @@ bool chargeConnected = false;
 uint32_t chargeIntroStartMs = 0;   // millis() when CM_CHARGE was entered (intro sweep)
 #define CHARGE_INTRO_MS 2000
 
-// FADEOFF: freeze the last rendered frame and ramp master brightness to 0 over
+// FADEOFF: blend the frame that was showing to black in a straight line over
 // CHEST_FADEOFF_MS, then go fully OFF — a lifelike "powering down" fade.
 #define CHEST_FADEOFF_MS 4000
-uint32_t chestFadeStartMs    = 0;
-uint8_t  chestFadeStartBright = 0;
+
+// ---------------------------------------------------------------------------
+// Transitions
+// ---------------------------------------------------------------------------
+//
+// Blend: every change of state copies the frame on the strip (fadeFrom) and mixes
+// from it into the new pattern over a set time, eased at both ends. FADEOFF is the
+// same blend into black, in a straight line. OFF alone is instant.
+//
+// Panel look: IDLE, ACTIVE and SPEAK:neutral all run RandomBlocks2, so moving among
+// them changes brightness only. Arriving from any other pattern wipes the old
+// picture from the pattern buffer (the blend still shows it leaving) and starts the
+// panel at its ordinary density, so no stale colour is left behind.
+//
+// Waking from the charge meter: the meter brightens, then a white spark climbs it
+// from the bottom, each pixel it passes left to die away; when it reaches the fill
+// line the startup sparks begin.
+//
+// Startup into the panel: during the last BOOT_BURSTS spark bursts the three bars
+// and nine blocks come on one at a time in a random order, each catching with a
+// short stutter. The sparks sit on their own layer so the panel can run beneath.
+// IDLE, ACTIVE, SPEAK:neutral and SPEAK_STOP arriving during startup do not cut it
+// short; startup ends in whichever of them came last.
+#define FADE_STARTUP_MS   300   // into startup: old brightness to the startup level
+#define FADE_QUICK_MS     200   // into a speaking pattern or the sparkle: on with the voice
+#define FADE_SETTLE_MS    600   // back to the panel, and brightness changes within it
+#define FADE_SLOW_MS     1000   // into sleep
+#define FADE_CHARGE_MS    400   // into the charge meter
+#define FADE_MANUAL_MS    300   // NEXT
+#define FADE_PRIDE_MS     600   // rainbow on or off
+
+static uint32_t fadeStartMs = 0;
+static uint16_t fadeMs      = 0;       // 0: nothing is blending
+static bool     fadeLinear  = false;
+
+static void beginFade(uint16_t ms, bool linear = false) {
+    memcpy(fadeFrom, shown, sizeof(shown));
+    fadeStartMs = millis();
+    fadeMs      = ms;
+    fadeLinear  = linear;
+}
+
+static inline bool panelMode(ChestMode m) {
+    return m == CM_IDLE || m == CM_ACTIVE || m == CM_SPEAK_NEUTRAL;
+}
+// Modes in which the two chest lights are RandomEyes' steady gold flicker.
+static inline bool awakeMode(ChestMode m) {
+    return m == CM_STARTUP || m == CM_COMPLIMENT || m == CM_IDLE || m == CM_ACTIVE ||
+        (m >= CM_SPEAK_NEUTRAL && m <= CM_SPEAK_HAPPY);
+}
+
+// The rainbow was drawn on the last pattern step. A change of state that has
+// already blended and wiped for it sets this itself, so tick() does not blend again.
+static bool prideShown = false;
+static uint8_t chargeFilled();
+
+// Waking from the charge meter.
+#define IGNITE_HOLD_MS 300             // the meter brightens before the spark sets off
+#define IGNITE_STEP_MS 38              // per meter pixel: a full meter burns in about 0.9 s
+static bool     igniting      = false;
+static uint8_t  igniteFilled  = 0;
+static uint32_t igniteStartMs = 0;
+
+// Startup sparks and the panel coming on beneath them.
+#define BOOT_BURSTS      10            // the last ten bursts take about 3.0 s
+#define BOOT_ELEMENTS    12            // bars A, B, C then the nine blocks
+#define BOOT_STAGGER_MS  190           // one element starts about this often
+#define BOOT_JITTER_MS   90
+#define BOOT_CATCH_MS    330           // length of one element's stutter
+#define SPARK_TAIL_MS    600           // the last sparks finish dying after startup ends
+static bool      sparksLive  = false;
+static uint32_t  sparksEndMs = 0;
+static bool      booting     = false;
+static uint32_t  bootStartMs = 0;
+static uint16_t  bootOnlineAt[BOOT_ELEMENTS];   // ms after bootStartMs
+static bool      bootOnline[BOOT_ELEMENTS];
+static ChestMode startupLandMode       = CM_IDLE;
+static uint8_t   startupLandBrightness = BRIGHTNESS;
+
+static void endStartupLayers() {
+    igniting = booting = sparksLive = false;
+    fill_solid(sparks, NUM_LEDS, CRGB::Black);
+}
+
+// Which bar or block a pixel belongs to: 0-2 bars A-C, 3-11 the blocks, 255 none.
+static uint8_t elementOf(uint8_t pixel) {
+    if (pixel >= 96) return 255;
+    if ((pixel & 31) < 8) return pixel >> 5;
+    for (uint8_t k = 0; k < 9; k++)
+        if (pixel >= StartLEDNum[k] && pixel < StartLEDNum[k] + 4) return 3 + k;
+    return 255;
+}
+
+// How much of an element shows while the panel is coming on: dark until its
+// moment, then a tube catching (on, out, half, out, on, dip) and steady.
+static uint8_t bootGate(uint8_t element, uint32_t now) {
+    const uint32_t since = now - bootStartMs;
+    if (since < bootOnlineAt[element]) return 0;
+    const uint32_t dt = since - bootOnlineAt[element];
+    if (dt <  50) return 255;
+    if (dt < 120) return 0;
+    if (dt < 170) return 110;
+    if (dt < 230) return 0;
+    if (dt < 300) return 255;
+    if (dt < BOOT_CATCH_MS) return 60;
+    return 255;
+}
+
+// Build the frame for the strip: pattern, gated while the panel comes on, plus the
+// spark layer, at master brightness, mixed with the outgoing frame while blending.
+static void compose() {
+    const uint32_t now = millis();
+    uint8_t mix = 255;                 // share of the new picture
+    if (fadeMs) {
+        const uint32_t elapsed = now - fadeStartMs;
+        if (elapsed >= fadeMs) {
+            fadeMs = 0;
+        } else {
+            mix = (uint8_t)(elapsed * 255UL / fadeMs);
+            if (!fadeLinear) mix = ease8InOutQuad(mix);
+        }
+    }
+    for (uint8_t i = 0; i < NUM_LEDS; i++) {
+        CRGB c = DJLEDs[i];
+        if (booting) {
+            const uint8_t element = elementOf(i);
+            if (element != 255) c.nscale8(bootGate(element, now));
+        }
+        if (sparksLive) c += sparks[i];
+        c.nscale8(masterBrightness);
+        shown[i] = (mix == 255) ? c : blend(fadeFrom[i], c, mix);
+    }
+}
+
+// Start the ordinary panel at once at its usual density: bars A and C redraw on the
+// next step, about half of bar B and of the blocks are lit, the rest come on soon.
+static void panelSeed() {
+    const uint32_t now = millis();
+    IntervalTime[PanelAStart] = 0;  LEDMillis[PanelAStart] = now - 1;
+    IntervalTime[PanelCStart] = 0;  LEDMillis[PanelCStart] = now - 1;
+    for (uint8_t i = 0; i < 8; i++) {
+        const uint8_t pos = PanelBStart + i;
+        LEDMillis[pos] = now;
+        if (random8() < 120) {
+            DJLEDs[pos] = SmallLEDColors[random(0, 9)];
+            LEDOn[pos] = 1;  IntervalTime[pos] = random(500, 2500);
+        } else {
+            LEDOn[pos] = 0;  IntervalTime[pos] = random(0, 1500);
+        }
+    }
+    for (uint8_t k = 0; k < 9; k++) {
+        const uint8_t pos = StartLEDNum[k];
+        LEDMillis[pos] = now;
+        if (random8() < 128) {
+            LEDBlockOn(pos, BlockLEDColors[random(0, 4)], BLOCKBRIGHTNESS);
+            LEDOn[pos] = 1;  IntervalTime[pos] = random(200, 1500);
+        } else {
+            LEDOn[pos] = 0;  IntervalTime[pos] = random(0, 1000);
+        }
+    }
+}
+
+// Wipe the outgoing pattern's picture for the mode about to run. The two chest
+// lights keep their flicker when both modes are awake; otherwise they start gold
+// for an awake mode (so they fade in with the blend) and dark for any other.
+static void freshCanvas(ChestMode mode, bool keepLights) {
+    fill_solid(DJLEDs, 96, CRGB::Black);
+    if (!keepLights) DJLEDs[96] = DJLEDs[97] = awakeMode(mode) ? CRGB(cGOLD) : CRGB(CRGB::Black);
+    if (panelMode(mode)) panelSeed();
+}
+
+// Change state with a blend. Panel modes arriving during startup wait for it to end.
+static void enter(ChestMode mode, uint8_t brightness, uint16_t ms) {
+    if (chestMode == CM_STARTUP && panelMode(mode)) {
+        startupLandMode = mode;
+        startupLandBrightness = brightness;
+        return;
+    }
+    const bool samePattern = !prideShown &&
+        (mode == chestMode || (panelMode(mode) && panelMode(chestMode)));
+    if (samePattern && brightness == masterBrightness) { chestMode = mode; return; }
+    beginFade(ms);
+    if (!samePattern) {
+        endStartupLayers();
+        freshCanvas(mode, awakeMode(chestMode) && awakeMode(mode) && !prideShown);
+    }
+    masterBrightness = brightness;
+    chestMode = mode;
+    prideShown = prideVisible();
+}
 
 // setup() function -- runs once at startup --------------------------------
 
 void begin() {
-	strip = &FastLED.addLeds<LED_TYPE, CHEST_DATA_PIN, COLOR_ORDER>(DJLEDs, NUM_LEDS)
+	strip = &FastLED.addLeds<LED_TYPE, CHEST_DATA_PIN, COLOR_ORDER>(shown, NUM_LEDS)
 		.setCorrection(TypicalLEDStrip);
 	// The board-wide show turned dithering off at this frame rate; showLeds() does not.
 	strip->setDither(0);
@@ -222,8 +420,7 @@ bool updown = 0;
 // Mode dispatcher — called every loop tick
 // ---------------------------------------------------------------------------
 //
-// CM_STARTUP: runs ShortCircuit() directly; detects completion when ShortCircuit
-//             internally sets gCurrentPatternNumber = 0, then switches to CM_IDLE.
+// CM_STARTUP: runs startupShow(), which ends in the panel mode last asked for.
 // CM_MANUAL:  uses gPatterns[gCurrentPatternNumber]() so NEXT still works.
 // All other modes call a specific pattern function, with masterBrightness
 // set at command time (in command()).
@@ -232,13 +429,7 @@ void runCurrentMode() {
 	if (prideVisible()) { prideRainbow(); return; }
 	switch (chestMode) {
 		case CM_STARTUP:
-			ShortCircuit();
-			if (gCurrentPatternNumber == 0) {
-				// ShortCircuit completed — switch to idle
-				chestMode = CM_IDLE;
-				gCurrentPatternNumber = 1;
-				masterBrightness = BRIGHTNESS;
-			}
+			startupShow();
 			break;
 
 		case CM_IDLE:
@@ -270,25 +461,13 @@ void runCurrentMode() {
 			complimentFlash();
 			// Self-terminate so a missed follow-up command can't leave the panel
 			// stuck flashing; hand back to the awake/active pattern.
-			if (millis() - complimentStartMs > 2500UL) {
-				chestMode = CM_ACTIVE;
-				masterBrightness = 200;
-			}
+			if (millis() - complimentStartMs > 2500UL) enter(CM_ACTIVE, 200, FADE_SETTLE_MS);
 			break;
 
-		case CM_FADEOFF: {
-			// Freeze the last frame (don't redraw a pattern) and ramp brightness
-			// down with elapsed time for a smooth, frame-rate-independent fade.
-			uint32_t elapsed = millis() - chestFadeStartMs;
-			if (elapsed >= CHEST_FADEOFF_MS) {
-				clearAll();
-				chestMode = CM_OFF;
-			} else {
-				masterBrightness =
-					(uint8_t)((uint32_t)chestFadeStartBright * (CHEST_FADEOFF_MS - elapsed) / CHEST_FADEOFF_MS);
-			}
+		case CM_FADEOFF:
+			// Nothing is drawn: the blend takes the frame that was showing to black.
+			if (millis() - fadeStartMs >= CHEST_FADEOFF_MS) chestMode = CM_OFF;
 			break;
-		}
 
 		case CM_SLEEP:
 			sleepBreath();
@@ -315,11 +494,25 @@ void tick() {
 
 	if (millis() - previousMillis > interval) {
 		previousMillis = millis();
+		// The rainbow coming or going is blended like any other change; when it
+		// goes, its picture is wiped so the pattern beneath starts clean.
+		if (prideVisible() != prideShown) {
+			beginFade(FADE_PRIDE_MS);
+			if (prideShown) freshCanvas(chestMode, false);
+			prideShown = !prideShown;
+		}
 		// Call the current mode function, updating the 'leds' array
 		runCurrentMode();
 		// RandomEyes only in active modes — skip during sleep/off and while fading
-		// (the fade freezes the last frame, so nothing should redraw onto it).
+		// (the fade ends in black, so nothing should draw under it).
 		if (!prideVisible() && chestMode != CM_SLEEP && chestMode != CM_OFF && chestMode != CM_FADEOFF) RandomEyes();
+		// The last startup sparks finish dying away over the panel.
+		if (sparksLive && chestMode != CM_STARTUP) {
+			fadeToBlackBy(sparks, NUM_LEDS, 10);
+			if (millis() - sparksEndMs > SPARK_TAIL_MS) sparksLive = false;
+		}
+		if (booting && millis() - bootStartMs >
+				(uint32_t)BOOT_ELEMENTS * BOOT_STAGGER_MS + BOOT_JITTER_MS + BOOT_CATCH_MS) booting = false;
 	}
 
 	if (millis() - LEDUpdateMillis > LEDUpdateInterval) {
@@ -358,7 +551,8 @@ void nextPattern()
 // ---------------------------------------------------------------------------
 //
 // Commands (newline-terminated, 115200 baud):
-//   STARTUP          — play ShortCircuit once then switch to RandomBlocks2
+//   STARTUP          — startup sparks (set off by a spark up the charge meter when it
+//                      was showing), the panel coming on under the last of them
 //   IDLE             — RandomBlocks2 at normal brightness (default)
 //   ACTIVE           — RandomBlocks2 at higher brightness
 //   SPEAK:{emotion}  — emotion-specific pattern:
@@ -370,8 +564,11 @@ void nextPattern()
 //   SPEAK_STOP       — return to IDLE (end of speech)
 //   SLEEP            — very dim slow red breathing pulse
 //   CHARGE:{soc}:{0|1} — contiguous 24-LED SOC meter; final field says charger attached
-//   OFF              — all LEDs off
+//   OFF              — all LEDs off at once, the one change that is not blended
 //   NEXT             — cycle to next pattern in gPatterns[]
+//   COMPLIMENT       — blue glow with gold and white sparkles for 2.5 s, then ACTIVE
+//   FADEOFF          — fade to black over four seconds, then off
+//   PRIDE:{0|1}      — rainbow over the awake patterns; renew ON within 10 seconds
 
 void command(const char *cmd) {
     // Colour overlay only; never changes sleep/off/charge/fade state.
@@ -382,44 +579,54 @@ void command(const char *cmd) {
     }
 
 	if (strcmp(cmd, "STARTUP") == 0) {
+		const uint32_t now = millis();
+		// What the meter was showing is the spark's fuel; none from any other state,
+		// where the old picture simply dies away under the first sparks.
+		const uint8_t fuel = (chestMode == CM_CHARGE) ? chargeFilled() : 0;
+		const bool lightsLit = awakeMode(chestMode) && !prideShown;
+		beginFade(FADE_STARTUP_MS);
+		endStartupLayers();
+		if (!lightsLit) DJLEDs[96] = DJLEDs[97] = cGOLD;
+		if (fuel) {
+			igniting = true;
+			igniteFilled = fuel;
+			igniteStartMs = now + IGNITE_HOLD_MS;
+		}
+		sparksLive = true;
 		DecayTime = 80;
 		FadeInterval = 0;
-		FadeMillis = millis();
+		FadeMillis = now;
 		gCurrentPatternNumber = 1;
 		masterBrightness = BRIGHTNESS;
+		startupLandMode = CM_IDLE;
+		startupLandBrightness = BRIGHTNESS;
 		chestMode = CM_STARTUP;
+		prideShown = false;   // any rainbow dies away under the sparks
 
 	} else if (strcmp(cmd, "IDLE") == 0 || strcmp(cmd, "SPEAK_STOP") == 0) {
-		masterBrightness = BRIGHTNESS;
-		chestMode = CM_IDLE;
+		enter(CM_IDLE, BRIGHTNESS, FADE_SETTLE_MS);
 
 	} else if (strcmp(cmd, "ACTIVE") == 0) {
-		masterBrightness = 200;
-		chestMode = CM_ACTIVE;
+		enter(CM_ACTIVE, 200, FADE_SETTLE_MS);
 
 	} else if (strncmp(cmd, "SPEAK:", 6) == 0) {
 		const char *emotion = cmd + 6;
 		if (strcmp(emotion, "excited") == 0) {
-			masterBrightness = 255;
-			chestMode = CM_SPEAK_EXCITED;
+			enter(CM_SPEAK_EXCITED, 255, FADE_QUICK_MS);
 		} else if (strcmp(emotion, "sad") == 0) {
-			masterBrightness = 55;
-			chestMode = CM_SPEAK_SAD;
+			enter(CM_SPEAK_SAD, 55, FADE_SETTLE_MS);
 		} else if (strcmp(emotion, "angry") == 0) {
-			masterBrightness = 255;
-			chestMode = CM_SPEAK_ANGRY;
+			enter(CM_SPEAK_ANGRY, 255, FADE_QUICK_MS);
 		} else if (strcmp(emotion, "happy") == 0) {
-			masterBrightness = 200;   // match ACTIVE's energy — happy shouldn't be dimmer than idle chat
-			chestMode = CM_SPEAK_HAPPY;
+			// match ACTIVE's energy — happy shouldn't be dimmer than idle chat
+			enter(CM_SPEAK_HAPPY, 200, FADE_QUICK_MS);
 		} else {
 			// neutral or unknown emotion
-			masterBrightness = BRIGHTNESS;
-			chestMode = CM_SPEAK_NEUTRAL;
+			enter(CM_SPEAK_NEUTRAL, BRIGHTNESS, FADE_SETTLE_MS);
 		}
 
 	} else if (strcmp(cmd, "SLEEP") == 0) {
-		masterBrightness = BRIGHTNESS;
-		chestMode = CM_SLEEP;
+		enter(CM_SLEEP, BRIGHTNESS, FADE_SLOW_MS);
 
 	} else if (strncmp(cmd, "CHARGE:", 7) == 0) {
 		int soc = 0;
@@ -427,36 +634,43 @@ void command(const char *cmd) {
 		if (sscanf(cmd + 7, "%d:%d", &soc, &connected) == 2) {
 			chargeSoc = (uint8_t)constrain(soc, 0, 100);
 			chargeConnected = connected != 0;
-			masterBrightness = 55;  // visible while off, never room-filling
 			// Intro sweep only when ENTERING charge mode (handoff from main.py,
 			// or first paint after a reboot) — SOC updates while already in
 			// CM_CHARGE must not replay it.
 			if (chestMode != CM_CHARGE) chargeIntroStartMs = millis();
-			chestMode = CM_CHARGE;
+			enter(CM_CHARGE, 55, FADE_CHARGE_MS);  // visible while off, never room-filling
 		}
 
 	} else if (strcmp(cmd, "OFF") == 0) {
+		fadeMs = 0;
+		endStartupLayers();
 		masterBrightness = BRIGHTNESS;
 		chestMode = CM_OFF;
+		prideShown = false;
 		clearAll();
 		show();
 
 	} else if (strcmp(cmd, "NEXT") == 0) {
+		beginFade(FADE_MANUAL_MS);
+		endStartupLayers();
+		freshCanvas(CM_MANUAL, false);
 		nextPattern();
 		chestMode = CM_MANUAL;
+		prideShown = false;
 
 	} else if (strcmp(cmd, "COMPLIMENT") == 0) {
-		masterBrightness = 200;
 		complimentStartMs = millis();
-		chestMode = CM_COMPLIMENT;
+		enter(CM_COMPLIMENT, 200, FADE_QUICK_MS);
 
 	} else if (strcmp(cmd, "FADEOFF") == 0) {
-		// Smoothly fade the current frame to black (shutdown). Idempotent: a
+		// Smoothly fade the frame that is showing to black (shutdown). Idempotent: a
 		// repeat during an in-progress fade is ignored so the fade isn't restarted.
 		if (chestMode != CM_FADEOFF) {
-			chestFadeStartMs     = millis();
-			chestFadeStartBright = masterBrightness;
+			beginFade(CHEST_FADEOFF_MS, true);
+			endStartupLayers();
+			clearAll();
 			chestMode = CM_FADEOFF;
+			prideShown = false;
 		}
 	}
 	// Unknown commands are silently ignored.
@@ -521,15 +735,19 @@ static inline uint8_t gauge24Pixel(uint8_t level) {
 // down, each pixel keeping its own static colour. The topmost lit pixel blinks
 // until it goes off. While the charger is attached, a bright energy packet also
 // climbs from the fill boundary to the top of the whole meter.
-void chargeGauge() {
-	// Each pixel owns one twenty-fourth of the range, so pixel k lights the
-	// moment the charge passes (k-1)*100/24 %. That is a CEILING, not a
-	// round-to-nearest (rounding made the bar lag a whole LED behind the charge
-	// for most of the range back when this was the 8-level gauge). Ceiling of 0
-	// is 0, so an empty pack is dark and any non-zero charge keeps at least the
-	// bottom red pixel lit.
+// Lit meter pixels, 0..24. Each pixel owns one twenty-fourth of the range, so
+// pixel k lights the moment the charge passes (k-1)*100/24 %. That is a CEILING,
+// not a round-to-nearest (rounding made the bar lag a whole LED behind the charge
+// for most of the range back when this was the 8-level gauge). Ceiling of 0 is 0,
+// so an empty pack is dark and any non-zero charge keeps at least the bottom red
+// pixel lit.
+static uint8_t chargeFilled() {
 	uint8_t filled = (uint8_t)(((uint16_t)chargeSoc * 24 + 99) / 100);
-	if (filled > 24) filled = 24;
+	return filled > 24 ? 24 : filled;
+}
+
+void chargeGauge() {
+	const uint8_t filled = chargeFilled();
 
 	// Intro sweep on entering CM_CHARGE: instead of snapping the whole meter on
 	// at once, reveal the pixels in order over CHARGE_INTRO_MS until the fill
@@ -781,14 +999,19 @@ void addGlitter(fract8 chanceOfGlitter)
 	}
 }
 
-void addGlitter4(fract8 chanceOfGlitter)
+static void glitter4(CRGB *layer, fract8 chanceOfGlitter)
 {
 	for (byte i = 0; i < 4; i++) {
 		if (random8() < chanceOfGlitter) {
-			DJLEDs[random16(NUM_LEDS)] += CRGB::White;
+			layer[random16(NUM_LEDS)] += CRGB::White;
 
 		}
 	}
+}
+
+void addGlitter4(fract8 chanceOfGlitter)
+{
+	glitter4(DJLEDs, chanceOfGlitter);
 }
 
 void confetti()
@@ -860,6 +1083,94 @@ void ShortCircuit() {
 	}
 	fadeToBlackBy(DJLEDs, NUM_LEDS, 10);
 
+}
+
+// One bar or block joins the running panel, lit, so its stutter has something to show.
+static void bootElementOn(uint8_t element, uint32_t now) {
+	if (element == 0 || element == 2) {          // bars A and C redraw on this step
+		const uint8_t pos = element ? PanelCStart : PanelAStart;
+		IntervalTime[pos] = 0;
+		LEDMillis[pos] = now - 1;
+	} else if (element == 1) {                   // bar B: every pixel lit
+		for (uint8_t i = 0; i < 8; i++) {
+			const uint8_t pos = PanelBStart + i;
+			DJLEDs[pos] = SmallLEDColors[random(0, 9)];
+			LEDOn[pos] = 1;  LEDMillis[pos] = now;  IntervalTime[pos] = random(600, 2500);
+		}
+	} else {
+		const uint8_t pos = StartLEDNum[element - 3];
+		LEDBlockOn(pos, BlockLEDColors[random(0, 4)], BLOCKBRIGHTNESS);
+		LEDOn[pos] = 1;  LEDMillis[pos] = now;  IntervalTime[pos] = random(700, 1500);
+	}
+}
+
+// Startup (see "Transitions"): a spark up the charge meter when it was showing,
+// ShortCircuit's 80 thinning bursts on the spark layer, and the panel coming on
+// piece by piece under the last BOOT_BURSTS of them.
+void startupShow() {
+	const uint32_t now = millis();
+
+	if (igniting) {
+		fadeToBlackBy(DJLEDs, NUM_LEDS, 10);     // the spark's tail, and anything else showing
+		const int32_t since = (int32_t)(now - igniteStartMs);
+		uint8_t head = 0;
+		if (since >= 0) head = (uint8_t)min((int32_t)igniteFilled, since / IGNITE_STEP_MS);
+		for (uint8_t level = head; level < igniteFilled; level++)
+			DJLEDs[gauge24Pixel(level)] = gauge24Color(level);
+		if (since >= 0 && head < igniteFilled) DJLEDs[gauge24Pixel(head)] = CRGB::White;
+		if (head < igniteFilled) return;
+		igniting = false;                        // the meter is gone: the sparks start now
+		FadeMillis = now;
+	}
+
+	if (now - FadeMillis > FadeInterval) {
+		glitter4(sparks, 150);
+		DecayTime--;
+		FadeInterval += 4;
+		FadeMillis = now;
+	}
+	fadeToBlackBy(sparks, NUM_LEDS, 10);
+
+	if (!booting) {
+		fadeToBlackBy(DJLEDs, NUM_LEDS, 10);     // whatever was showing dies away
+		if (DecayTime <= BOOT_BURSTS) {
+			// The panel starts running, every element dark until its moment.
+			fill_solid(DJLEDs, 96, CRGB::Black);
+			uint8_t order[BOOT_ELEMENTS];
+			for (uint8_t i = 0; i < BOOT_ELEMENTS; i++) order[i] = i;
+			for (uint8_t i = BOOT_ELEMENTS - 1; i > 0; i--) {
+				const uint8_t j = random8(i + 1);
+				const uint8_t swap = order[i];  order[i] = order[j];  order[j] = swap;
+			}
+			for (uint8_t slot = 0; slot < BOOT_ELEMENTS; slot++) {
+				bootOnlineAt[order[slot]] = slot * BOOT_STAGGER_MS + random8(BOOT_JITTER_MS);
+				bootOnline[order[slot]] = false;
+			}
+			bootStartMs = now;
+			booting = true;
+		}
+	}
+	if (booting) {
+		for (uint8_t e = 0; e < BOOT_ELEMENTS; e++) {
+			if (!bootOnline[e] && now - bootStartMs >= bootOnlineAt[e]) {
+				bootOnline[e] = true;
+				bootElementOn(e, now);
+			}
+		}
+		RandomBlocks2();
+	}
+
+	if (DecayTime == 0) {
+		// Startup is over; the panel is already running. Any element still to come
+		// on keeps its moment, and the last sparks die away on their layer.
+		DecayTime = DECAYTIME;
+		FadeInterval = 0;
+		gCurrentPatternNumber = 1;
+		sparksEndMs = now;
+		if (startupLandBrightness != masterBrightness) beginFade(FADE_SETTLE_MS);
+		masterBrightness = startupLandBrightness;
+		chestMode = startupLandMode;
+	}
 }
 
 void LEDsOff() {

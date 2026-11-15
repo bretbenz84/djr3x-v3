@@ -44,6 +44,21 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.1: 373,112 bytes of program,
-25,192 bytes of globals. Each strip has its own FastLED controller and brightness, since
-the library's board-wide show, brightness and clear would act on both.
+Version 0.2.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 413,560 bytes of
+program, 26,432 bytes of globals. Each strip has its own FastLED controller and brightness,
+since the library's board-wide show, brightness and clear would act on both.
+
+## Chest transitions
+
+Since 0.2.0 the chest blends every change of state from the frame that was showing; only `OFF`
+is instant. `STARTUP` sent while the charge meter shows sets a spark climbing the meter before
+the sparkle, and the panel comes on piece by piece under the last sparks. `IDLE`, `ACTIVE`,
+`SPEAK:neutral` and `SPEAK_STOP` sent during startup take effect when it ends (about 13 s); send
+`OFF` first to stop a startup early. The "Transitions" comment in `chest.cpp` has the timings.
+
+```bash
+.venv/bin/python tools/run_firmware_checks.py
+```
+
+runs `chest.cpp` on the Mac against `firmware/tests/fake_fastled` and checks the frames it
+would send. It does not show how they look on the strip.

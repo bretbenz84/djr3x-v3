@@ -1425,6 +1425,10 @@ Without a ground wire from the ESP32 to the LED supply the head showed one flick
 blue; joining the grounds fixed it. Servos were not moving and nothing was compared side by
 side with the Nano.
 
+Later the same day the chest gained blended changes of state, a spark up the charge meter at
+wake and a staged startup (firmware 0.2.0). These are V3's own and have no V2 source
+([chest transitions](docs/LED_INTEGRATION.md#november-14-chest-transitions)).
+
 Remaining live validation: the whole chest strip (not yet wired), the head line with servos
 moving, real speech levels, and animation speed against the Nanos (the chest pattern step no
 longer stalls during repaints, so fades may run slightly faster). The same day V3's LED owner,

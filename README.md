@@ -164,7 +164,8 @@ is a separately maintained reference. V3 never imports it or reads its data.
     of all three arms that keeps the hands up and ends where it began (October 31; not yet run on the robot).
 - **Lights** (one ESP32 for the head and chest strips, firmware in `firmware/djr3x_leds`, November 14;
   not yet run on the robot). Head and chest startup/shutdown, speaking lights and model-selected
-  animations.
+  animations. The chest blends between its states and wakes from the charge meter with a spark
+  (firmware 0.2.0, flashed November 14; not yet seen on the strip).
 - **Wheels and radar** (drive firmware in `firmware/djr3x_motion`, moved from V2 October 23; radar firmware still V2's):
   - The model plans turns, moves, facing and approaching people or objects, finding a
     person, and seeking things the detector cannot name ("find the door and go to it").
@@ -228,7 +229,7 @@ described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
 ```sh
 .venv/bin/python tools/run_checks.py                      # blocked-I/O contract checks (about 2 min)
 .venv/bin/python tools/run_checks.py --changed            # only the checks that use what changed
-.venv/bin/python tools/run_firmware_checks.py             # drive firmware, compiled natively
+.venv/bin/python tools/run_firmware_checks.py             # drive and LED firmware, compiled natively
 .venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
 .venv/bin/python -m r3x replay local/dataset/manifest.json
 .venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl
