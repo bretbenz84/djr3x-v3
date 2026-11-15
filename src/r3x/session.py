@@ -1468,9 +1468,10 @@ class Session:
                     speaker_direction=None if opportunity else (context.get('speaker') or {}).get('direction'),
                     speaker_person=None if opportunity else (context.get('speaker') or {}).get('speaker_id'))
             elif self.state and not self.state.frozen and getattr(self.output,'drive_unavailable',None):
-                from .drive import LIMITS
+                from .drive import LIMITS, unavailable_meaning
                 origin = 'self_initiated' if opportunity else 'requested'
                 context['drive'] = {'available':False,'unavailable_reason':self.output.drive_unavailable,
+                    'unavailable_meaning':unavailable_meaning(self.output.drive_unavailable),
                     'origin':origin,'targets':[],'limits':dict(LIMITS[origin]),
                     'meaning':GUIDE['drive (unavailable)']}
             if self.state and not self.state.frozen and getattr(self.state,'places',None) is not None:

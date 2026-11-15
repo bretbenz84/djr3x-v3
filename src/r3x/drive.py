@@ -213,6 +213,46 @@ MANUAL_SPEED = HALLWAY_SPEED
 MANUAL_TURN = math.radians(60.)
 MANUAL_TURN_CHECK_DEG = 15.
 CAMERA_KINDS = {'face', 'nearest_person', 'object'}
+# Owner, November 14 (log c85e39dc): both depth matrices stopped answering before startup, the wheels
+# were locked out as front_depth_matrix_unavailable, and Rex told him his "drive controller didn't wake
+# up". "It would be better if the LLM responded indicating what's wrong rather than just refusing to
+# move." Each lockout now reaches the model with what is wrong and what would fix it.
+UNAVAILABLE_MEANINGS = {
+    'front_depth_matrix_unavailable': (
+        'The 8x8 depth sensor on the front of the base has stopped sending readings. It is what sees chair legs '
+        'and low things ahead, so the wheels stay locked until it reads again; the drive controller and motors '
+        'are fine. Usual causes: its reset button pressed in by the shell, or a loose cable. '
+        'After freeing it, switch the base off and on so the controller sets the sensor up again.'),
+    'radial_ring_unavailable': (
+        'None of the distance sensors around the base ring is reporting, so the wheels stay locked: he cannot '
+        'tell what is beside or behind him. Likely their cable or power.'),
+    'drive_telemetry_stale': (
+        'The drive controller has stopped sending its status for the moment (cable, power or a reboot); the wheels '
+        'wait until it reports again.'),
+    'drive_link_failed': 'The cable link to the drive controller failed this run; restarting Rex reconnects it.',
+    'drive_not_ready': 'The drive controller is still connecting or has been closed.',
+    'gamepad_in_control': ('Someone has the wheels on the gamepad; they come back 4 seconds after the pad is let go, '
+                           'or with its Start button.'),
+    'charging': 'He is on the charger, and the controller locks the wheels while charging. Unplug to drive.',
+    'controller_estop': 'The emergency stop is on (the gamepad B button); Start on the gamepad clears it.',
+    'controller_comms_lost': ('The drive controller lost contact with Rex and stopped the wheels as a safety '
+                              'measure; it usually recovers within a second.'),
+    'controller_fault': 'The drive controller reports a fault (named in unavailable_reason) and has stopped the wheels.',
+    'sentry_mode': 'Sentry mode locks the wheels while he guards.',
+    'human_pose_held': 'A pose someone asked for is being held, so he does not drive off on his own.',
+    'wheel_controller_not_connected': ('The drive controller did not connect when Rex started (unplugged, '
+                                       'switched off, or its port busy); restarting Rex once it is on reconnects it.'),
+}
+
+
+def unavailable_meaning(reason):
+    """What a wheel lockout means in words, for the model to tell people; None when wheels are free."""
+    if not reason:
+        return None
+    for key in (reason, reason.split(':')[0], 'controller_fault' if reason.startswith('controller_fault') else None):
+        if key in UNAVAILABLE_MEANINGS:
+            return UNAVAILABLE_MEANINGS[key]
+    return f'The wheels are locked out ({reason}).'
 
 
 class ArmParkFailed(ProviderFailure):
@@ -512,6 +552,7 @@ class DriveBase:
         self._assist_on = True
         self.local_map = LocalMap(clock)   # What the range sensors saw around him in the last minute.
         self._manual = None           # Dashboard teleop holding the plan lock: {'parked', 'moving'}.
+        self._offered_reason = None   # The lockout last told to the model, traced when it changes.
 
     # Lifecycle -----------------------------------------------------------
     def start(self):
@@ -787,6 +828,10 @@ class DriveBase:
         ok, reason = self.availability(now)
         if origin=='self_initiated' and self._pose_held():
             ok, reason = False, 'human_pose_held'
+        if reason != self._offered_reason and self.trace:
+            # November 14: the log never said why the wheels were locked out all run.
+            self.trace.emit('drive_availability', available=ok, reason=reason, origin=origin)
+        self._offered_reason = reason
         space = self.space(now)
         targets = []
         faces = self._fresh_faces(now)
@@ -851,7 +896,7 @@ class DriveBase:
             heading = self._heading(telemetry)
             displacement = {'distance_m': round(math.hypot(dx, dy), 2),
                             'heading_change_deg': round(wrap(heading - self.origin[2])) if heading is not None and self.origin[2] is not None else None}
-        return {'available': ok, 'unavailable_reason': reason,
+        return {'available': ok, 'unavailable_reason': reason, 'unavailable_meaning': unavailable_meaning(reason),
                 'clearance_m': {k: (round(v, 1) if isinstance(v, float) else v) for k, v in space.items() if k != 'health'},
                 'clearance_meaning': GUIDE['drive.clearance_m'],
                 'radar_view': {'status': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),

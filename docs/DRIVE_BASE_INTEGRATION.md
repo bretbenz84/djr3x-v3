@@ -1541,3 +1541,22 @@ people, whether the faster crawl still clears door jambs (it has less distance t
 whether the firmware's speed-scaled zones (Rex's own 0.15 / 0.60 m full-speed envelope: stop line
 0.14 m and braking from 0.49 m at 0.45 m/s) stop him gently enough for something that appears
 suddenly; the gamepad needed a larger envelope at its 0.60 m/s.
+
+## Wheels locked out by a silent depth matrix — November 14, 2026 (log `c85e39dc`)
+
+At 23:32:11 and 23:32:17, before Rex started, the drive firmware logged "consecutive read errors" for
+the front and then the rear depth matrix (both share one I²C bus, so one stuck module silences both).
+The host refuses all wheel motion without the front matrix, and Rex told the owner his "drive controller
+didn't wake up": the model had only the code `front_depth_matrix_unavailable`. The owner then drove from
+the gamepad and was nearly hit with no braking. Firmware facts behind that: a sensor reading -1 counts as
+clear (fail-open by design), so gamepad braking fell back to the two ±22.5° front radials, which can miss
+someone straight ahead, and the front-right radial was dropping out as unreliable all evening. Once a
+matrix is READY the firmware never re-runs its setup, so a module that resets (its reset button, a
+power blip) likely stays silent until the base is switched off and on.
+
+Host change: every lockout reaches the model with `drive.unavailable_meaning`, what is wrong and what
+would fix it, and the reply prompt says to tell people that plainly instead of refusing or inventing a
+cause. A `drive_availability` trace row records each change of lockout. Checked in the simulated base
+only; the prompt wording has not been probed against the hosted model. No firmware change: failing
+closed on a dead matrix while on the gamepad, and re-running matrix setup after errors, await the
+owner's decision.

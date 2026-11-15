@@ -271,6 +271,21 @@ class DriveSessionTests(MemoryFixture):
         self.assertEqual(delivery.completed_text, ['I am plugged in, so I will stay put.'])
         self.assertFalse(any(c['cmd'] == 'turn' for c in self.fake.commands))
 
+    def test_a_silent_depth_matrix_is_told_as_what_is_wrong_and_logged(self):
+        # November 14 (c85e39dc): both matrices stopped answering, the wheels were locked out all run,
+        # the log never said why, and Rex blamed a drive controller that "didn't wake up".
+        self.setup_drive(drive_call(step('turn', degrees=90.)), followup='My front depth sensor is out.')
+        self.fake.matrix = False                  # The controller stops sending depth frames.
+        self.clock.now += 2.
+        settle()
+        self.turn('Turn left.')
+        offered = self.brain.snapshots[0].context['drive']
+        self.assertEqual((offered['available'], offered['unavailable_reason']), (False, 'front_depth_matrix_unavailable'))
+        self.assertIn('depth sensor', offered['unavailable_meaning'])
+        self.assertIn('reset button', offered['unavailable_meaning'])        # What he can check.
+        self.assertIn('front_depth_matrix_unavailable', [r['reason'] for r in self.rows('drive_availability')])
+        self.assertFalse(any(c['cmd'] in {'turn', 'move', 'drive'} for c in self.fake.commands))
+
 
 class DriveRuntimeTests(MemoryFixture):
     def runtime_for(self, session, faces):
