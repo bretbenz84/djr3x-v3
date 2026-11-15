@@ -44,8 +44,8 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Version 0.2.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 413,560 bytes of
-program, 26,432 bytes of globals. Each strip has its own FastLED controller and brightness,
+Version 0.3.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 413,812 bytes of
+program, 26,440 bytes of globals. Each strip has its own FastLED controller and brightness,
 since the library's board-wide show, brightness and clear would act on both.
 
 ## Chest transitions
@@ -55,6 +55,12 @@ is instant. `STARTUP` sent while the charge meter shows sets a spark climbing th
 the sparkle, and the panel comes on piece by piece under the last sparks. `IDLE`, `ACTIVE`,
 `SPEAK:neutral` and `SPEAK_STOP` sent during startup take effect when it ends (about 13 s); send
 `OFF` first to stop a startup early. The "Transitions" comment in `chest.cpp` has the timings.
+
+Since 0.3.0 `FADEOFF:<soc>:<0|1>` is the shutdown fade ending in the charge meter: the meter
+sweeps up under the last two seconds of the fade. A `CHARGE` within a minute of the fade's end
+confirms it without a visible change; otherwise the meter fades out after that minute. Plain
+`FADEOFF` still ends dark. Under the meter the two small chest lights stay dark (they used to
+blip gold for one frame every few seconds).
 
 ```bash
 .venv/bin/python tools/run_firmware_checks.py

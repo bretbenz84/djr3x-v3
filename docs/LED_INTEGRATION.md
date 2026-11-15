@@ -17,7 +17,8 @@ asks the board to identify itself (`HELLO`) and sends no light command to anythi
 not answer as `djr3x_leds`; the reported firmware version is traced. Firmware owns
 pattern rendering. Startup sends chest `STARTUP` and warm gold active eyes before
 servo wake. Shutdown sends `FADEOFF` no later than servo park begins, then retains the LED ports
-through the four-second fade. The shutdown latch prevents late speech cleanup from
+through the four-second fade; with the drive base's battery reading the chest's is
+`FADEOFF:<soc>:<0|1>`, which ends in the charge meter (November 15). The shutdown latch prevents late speech cleanup from
 waking the lights again. A fade failure does not skip servo park.
 
 Ordinary speech automatically selects neutral LEDs on actual playback start.
@@ -237,3 +238,34 @@ blend at the start of an excited or angry line. If opening the port restarts the
 (unconfirmed for pyserial), the meter is already dark when startup arrives and the spark cannot
 run. After a flash the chest stays dark until the battery menu next repaints the meter (on a
 change of charge, or within 30 minutes).
+
+## November 15: the shutdown fade ends in the charge meter
+
+Owner request: link the chest's shutdown fade to the battery meter. Before, the four-second fade
+ended dark, and the battery menu painted the meter about 1.5 s later (shutdowns at 1:21 and
+1:51 pm the same day), with its own 0.4 s blend and 2 s sweep up from black.
+
+- **Rex sends the level.** At shutdown the LED owner asks the drive base for its last battery
+  reading (`DriveBase.charge_reading`: a whole percent, and charging when the controller's charger
+  flag is set or the pack is at full-charge voltage, as the battery menu decides them; none if
+  unknown or over 30 s old). With one, the chest gets `FADEOFF:<soc>:<0|1>`; without, plain
+  `FADEOFF`. The head's fade is unchanged.
+- **The meter rises out of the fade** (LED firmware 0.3.0). The panel fades for four seconds as
+  before; during the last two the meter sweeps up from the bottom under it, so the meter stands
+  where the panel went dark. The blinking top light and the charging dot start as the fade ends.
+- **The battery menu confirms it.** Its `CHARGE` a few seconds later changes nothing visible
+  (unless the level moved). With no `CHARGE` within a minute (Battery Meter Mode off, or no
+  battery app), the meter fades out, so a level nothing updates never stays up.
+- **No gold blips under the meter.** The two small chest lights flickered gold for one frame every
+  few seconds while the meter showed (RandomEyes ran under it); they now stay dark.
+
+Evidence: the real chest code on the Mac against the stand-in LED library (14 checks, 4 new):
+the first two seconds match the plain fade frame for frame, the meter sweeps bottom to top and is
+complete at four seconds, no frame is dark, a later `CHARGE` causes no jump, an unconfirmed meter
+fades out after a minute, and the chest lights stay dark under the meter. LED owner checks with a
+fake board cover the command, the plain fade without a usable reading, and that a failed meter
+fade wakes no lights. Flashed to the board on `led_port`, which answered `hello djr3x_leds
+0.3.0`; the battery menu then repainted the meter.
+
+Not yet seen: the hand-over on the strip at a real shutdown. Firmware before 0.3.0 ignores
+`FADEOFF:<soc>:<0|1>`, so the chest would not fade at all; flash 0.3.0 with this program.

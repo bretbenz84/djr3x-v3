@@ -100,6 +100,7 @@ class LEDs:
         self.eyes_sent = float('-inf')    # When the eye colour was last sent between lines.
         self.blinking = False             # A requested blink is dark on purpose: no refresh over it.
         self.pride = None                 # callable -> True while pride mode is on (the state owner's voice modes).
+        self.charge_meter = None          # callable -> (percent, charging) or None: the drive base's battery reading.
         self.pride_on, self.pride_sent = False, float('-inf')
         self.trace = None
         self.on_command = []              # Observers (zone, command) of each command written; the dashboard mirror.
@@ -112,7 +113,7 @@ class LEDs:
             if self.device.write(data) != len(data):
                 raise OSError('short write')
         except Exception:
-            shutting_down = command=='FADEOFF'
+            shutting_down = command.startswith('FADEOFF')
             self.state = 'faulted'
             self.version += 1
             # One best-effort stop of both strips. No reconnect or success claim; the
@@ -353,14 +354,34 @@ class LEDs:
             failed = False
             self.state = 'closing'
             try:
+                # Owner, November 15: with the battery level known, the chest's fade ends in the charge
+                # meter (firmware 0.3.0) instead of going dark until the battery menu paints it.
+                meter = self._shutdown_meter() if self.device is not None else None
                 for zone in (PREFIX if self.device is not None else ()):
-                    try: self._send(zone,'FADEOFF')
+                    command = f'FADEOFF:{meter[0]}:{int(meter[1])}' if zone == 'chest' and meter else 'FADEOFF'
+                    try: self._send(zone,command)
                     except ProviderFailure: failed = True
                 if failed: raise ProviderFailure('LEDFadeCommandFailed')
-                if self.trace: self.trace.emit('led_lifecycle',kind='shutdown',status='commands_sent',evidence='display_unverified')
+                if self.trace: self.trace.emit('led_lifecycle',kind='shutdown',status='commands_sent',evidence='display_unverified',
+                                               charge_meter=list(meter) if meter else None)
             finally:
                 self.fade_at = self.clock()
                 self.state = 'closing'
+
+    def _shutdown_meter(self):
+        """(percent, charging) for the chest's shutdown fade to end in, or None for a plain fade."""
+        if self.charge_meter is None:
+            return None
+        try:
+            reading = self.charge_meter()
+        except Exception:
+            return None   # A failed reading costs only the meter; the fade still runs.
+        if not isinstance(reading, tuple) or len(reading) != 2:
+            return None
+        percent, charging = reading
+        if type(percent) is not int or not 0 <= percent <= 100:
+            return None
+        return percent, bool(charging)
 
     def close(self):
         if self.state=='closed': return

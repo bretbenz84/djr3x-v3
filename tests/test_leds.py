@@ -75,6 +75,39 @@ class LEDTests(unittest.TestCase):
         self.assertEqual(self.clock(),104.)                           # The four-second fade.
         self.assertTrue(self.ports['head'].closed)
 
+    def test_shutdown_fade_hands_the_chest_to_the_charge_meter(self):
+        # Owner, November 15: with the battery level known, the chest's fade ends in the meter.
+        self.led.charge_meter = lambda: (97, False)
+        self.led.close()
+        self.assertEqual(self.ports['head'].commands[-1],'FADEOFF')
+        self.assertEqual(self.ports['chest'].commands[-1],'FADEOFF:97:0')
+        self.assertEqual(self.clock(),104.)
+
+    def test_without_a_usable_battery_reading_the_fade_is_plain(self):
+        def broken(): raise ProviderFailure('DriveLinkClosed')
+        for reading in (lambda: None, lambda: (101, True), lambda: ('97', False), broken):
+            with self.subTest(reading=reading):
+                led,ports,_=rig()
+                led.charge_meter=reading
+                led.close()
+                self.assertEqual(ports['chest'].commands[-1],'FADEOFF')
+
+    def test_a_failed_meter_fade_wakes_no_lights(self):
+        clock=Clock();board=Board();writes=[];real=board.write
+        def write(data):
+            writes.append(data)
+            if data.startswith(b'C:FADEOFF'): raise OSError('synthetic wire failure')
+            return real(data)
+        board.write=write
+        led=LEDs('board',opener=lambda path:board,clock=clock,wait=clock.wait)
+        led.start();led.stop_event.set();led.worker.join(1)
+        led.charge_meter=lambda: (60, True)
+        with self.assertRaises(ProviderFailure):
+            led.close()
+        failed=writes.index(b'C:FADEOFF:60:1\n')
+        self.assertEqual(writes[failed+1:],[])     # No SPEAK_STOP / ACTIVE during shutdown.
+        self.assertTrue(board.closed)
+
     def test_pcm_drives_only_playback_and_silence_has_watchdog_heartbeat(self):
         self.led.pcm(b'\x00\x40'*1024,self.clock())
         self.led.tick()

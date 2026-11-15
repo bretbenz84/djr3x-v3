@@ -176,6 +176,16 @@ uint32_t chargeIntroStartMs = 0;   // millis() when CM_CHARGE was entered (intro
 // CHEST_FADEOFF_MS, then go fully OFF — a lifelike "powering down" fade.
 #define CHEST_FADEOFF_MS 4000
 
+// FADEOFF:{soc}:{0|1} (owner, November 15): Rex's shutdown hands over to the charge
+// meter. The panel fades the same way, but under it the meter sweeps up during the last
+// CHARGE_INTRO_MS of the fade, so the meter stands where the panel went dark. The level
+// is Rex's last battery reading; the off-state battery monitor's own CHARGE confirms it
+// a few seconds later. Unconfirmed after CHARGE_UNCONFIRMED_MS (no monitor has the
+// port), the meter fades out: a level nobody updates must not stay up for hours.
+#define CHARGE_UNCONFIRMED_MS 60000UL
+static bool     chargeUnconfirmed = false;
+static uint32_t chargeLinkedAt    = 0;
+
 // ---------------------------------------------------------------------------
 // Transitions
 // ---------------------------------------------------------------------------
@@ -474,6 +484,11 @@ void runCurrentMode() {
 			break;
 
 		case CM_CHARGE:
+			if (chargeUnconfirmed && millis() - chargeLinkedAt > CHEST_FADEOFF_MS + CHARGE_UNCONFIRMED_MS) {
+				chargeUnconfirmed = false;
+				enter(CM_OFF, BRIGHTNESS, FADE_SLOW_MS);
+				break;
+			}
 			chargeGauge();
 			break;
 
@@ -504,8 +519,11 @@ void tick() {
 		// Call the current mode function, updating the 'leds' array
 		runCurrentMode();
 		// RandomEyes only in active modes — skip during sleep/off and while fading
-		// (the fade ends in black, so nothing should draw under it).
-		if (!prideVisible() && chestMode != CM_SLEEP && chestMode != CM_OFF && chestMode != CM_FADEOFF) RandomEyes();
+		// (the fade ends in black, so nothing should draw under it). November 15: and
+		// under the charge meter, which clears the two lights every step, so each time
+		// RandomEyes turned one on it showed for a single frame: a gold blip every few seconds.
+		if (!prideVisible() && chestMode != CM_SLEEP && chestMode != CM_OFF && chestMode != CM_FADEOFF &&
+		    chestMode != CM_CHARGE) RandomEyes();
 		// The last startup sparks finish dying away over the panel.
 		if (sparksLive && chestMode != CM_STARTUP) {
 			fadeToBlackBy(sparks, NUM_LEDS, 10);
@@ -568,6 +586,8 @@ void nextPattern()
 //   NEXT             — cycle to next pattern in gPatterns[]
 //   COMPLIMENT       — blue glow with gold and white sparkles for 2.5 s, then ACTIVE
 //   FADEOFF          — fade to black over four seconds, then off
+//   FADEOFF:{soc}:{0|1} — the same fade, ending in the charge meter, which sweeps up
+//                      under its last two seconds; fades out if no CHARGE confirms it
 //   PRIDE:{0|1}      — rainbow over the awake patterns; renew ON within 10 seconds
 
 void command(const char *cmd) {
@@ -634,6 +654,7 @@ void command(const char *cmd) {
 		if (sscanf(cmd + 7, "%d:%d", &soc, &connected) == 2) {
 			chargeSoc = (uint8_t)constrain(soc, 0, 100);
 			chargeConnected = connected != 0;
+			chargeUnconfirmed = false;
 			// Intro sweep only when ENTERING charge mode (handoff from main.py,
 			// or first paint after a reboot) — SOC updates while already in
 			// CM_CHARGE must not replay it.
@@ -662,15 +683,30 @@ void command(const char *cmd) {
 		complimentStartMs = millis();
 		enter(CM_COMPLIMENT, 200, FADE_QUICK_MS);
 
-	} else if (strcmp(cmd, "FADEOFF") == 0) {
+	} else if (strncmp(cmd, "FADEOFF", 7) == 0 && (cmd[7] == '\0' || cmd[7] == ':')) {
 		// Smoothly fade the frame that is showing to black (shutdown). Idempotent: a
 		// repeat during an in-progress fade is ignored so the fade isn't restarted.
-		if (chestMode != CM_FADEOFF) {
+		// With a battery level the fade ends in the charge meter (see CHARGE_UNCONFIRMED_MS).
+		int soc = 0;
+		int connected = 0;
+		const bool meter = cmd[7] == ':' && sscanf(cmd + 8, "%d:%d", &soc, &connected) == 2;
+		const bool fading = chestMode == CM_FADEOFF ||
+			(chestMode == CM_CHARGE && chargeUnconfirmed && millis() - chargeLinkedAt < CHEST_FADEOFF_MS);
+		if (!fading) {
 			beginFade(CHEST_FADEOFF_MS, true);
 			endStartupLayers();
 			clearAll();
-			chestMode = CM_FADEOFF;
 			prideShown = false;
+			chestMode = CM_FADEOFF;
+			if (meter) {
+				chargeSoc = (uint8_t)constrain(soc, 0, 100);
+				chargeConnected = connected != 0;
+				chargeLinkedAt = millis();
+				chargeIntroStartMs = chargeLinkedAt + CHEST_FADEOFF_MS - CHARGE_INTRO_MS;
+				chargeUnconfirmed = true;
+				masterBrightness = 55;   // the meter's brightness; the outgoing frame keeps its own
+				chestMode = CM_CHARGE;
+			}
 		}
 	}
 	// Unknown commands are silently ignored.
@@ -752,9 +788,10 @@ void chargeGauge() {
 	// Intro sweep on entering CM_CHARGE: instead of snapping the whole meter on
 	// at once, reveal the pixels in order over CHARGE_INTRO_MS until the fill
 	// line is reached. Blink and charge packet stay suppressed until it lands.
-	const uint32_t elapsed = millis() - chargeIntroStartMs;
+	// The sweep may be due to start later (FADEOFF:{soc}:{0|1}): the meter is dark until then.
+	const int32_t elapsed = (int32_t)(millis() - chargeIntroStartMs);
 	if (elapsed < CHARGE_INTRO_MS) {
-		const uint8_t reveal = (uint8_t)(((uint32_t)filled * elapsed) / CHARGE_INTRO_MS);
+		const uint8_t reveal = elapsed <= 0 ? 0 : (uint8_t)(((uint32_t)filled * (uint32_t)elapsed) / CHARGE_INTRO_MS);
 		clearAll();
 		for (uint8_t level = 0; level < reveal; level++)
 			DJLEDs[gauge24Pixel(level)] = gauge24Color(level);

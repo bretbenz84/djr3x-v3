@@ -786,6 +786,26 @@ def ServoRequestFor(robot, pose):
     return ServoRequest('pose-test', owner.version, 'pose', owner.clock() + 30., pose=pose)
 
 
+class ChargeReadingTests(unittest.TestCase):
+    """Owner, November 15: the battery level the chest's shutdown fade hands over to."""
+    def reading(self, age=1., **telemetry):
+        clock, _, drive, _ = base_setup(self)
+        drive.link.telemetry = {'type': 'telemetry', **telemetry, 'received_at': clock() - age}
+        return drive.charge_reading()
+
+    def test_percent_and_charging_as_the_battery_menu_decides_them(self):
+        self.assertEqual(self.reading(batt_soc=96.7, batt_mv=13200, charging=False), (96, False))
+        self.assertEqual(self.reading(batt_soc=55, batt_mv=13000, charging=True), (55, True))
+        self.assertEqual(self.reading(batt_soc=100, batt_mv=14100, charging=False), (100, True))   # full pack
+
+    def test_unknown_or_stale_levels_give_nothing(self):
+        self.assertIsNone(self.reading(batt_soc=-1, batt_mv=13200))
+        self.assertIsNone(self.reading(batt_mv=13200))
+        self.assertIsNone(self.reading(age=31., batt_soc=80, batt_mv=13200))
+        clock, _, drive, _ = base_setup(self)
+        self.assertIsNone(drive.charge_reading())          # no telemetry yet
+
+
 class GeometryTests(unittest.TestCase):
     def test_matrix_bands_ignore_floor_and_single_speckles(self):
         grid = [3500]*64

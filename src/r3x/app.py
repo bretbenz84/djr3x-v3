@@ -281,6 +281,8 @@ class App:
             sink.on_pcm = self.leds.pcm
             if self.robot:
                 self.robot.before_shutdown = self.leds.cancel
+            if self.drive:
+                self.leds.charge_meter = self.drive.charge_reading   # The shutdown fade ends in the meter.
         mic.echo_risk = output.echo_risk
         mic.trace = trace
         if self.robot:

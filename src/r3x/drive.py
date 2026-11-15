@@ -206,6 +206,8 @@ CONFIG = {'max_lin': OPEN_SPEED, 'max_ang': round(math.radians(60), 3), 'accel_l
 # A freshly unplugged pack can retain 13.61 V for minutes; 13.6 V reintroduced
 # the old surface-charge lockout even after firmware had released its latch.
 CHARGER_MV = 14000
+# A battery reading older than this (s) does not reach the chest's charge meter at shutdown.
+CHARGE_READING_MAX_AGE = 30.
 # Dashboard joystick (V2 Motivator console): the September planned-move speed (unchanged when
 # Rex's own speeds rose on November 14), a gentle spin, and the swing check one 10 Hz setpoint
 # ahead of a spin.
@@ -2887,6 +2889,23 @@ class DriveBase:
                 self.trace.emit('drive_receipt', **asdict(receipt), origin=plan.origin, purpose=plan.purpose)
             self._lock.release()
         return receipt
+
+    def charge_reading(self, now=None):
+        """(percent, charging) for the chest's charge meter, from the latest telemetry, or None.
+
+        Owner, November 15: Rex's shutdown fade ends in the meter. Both values are decided as the
+        battery menu bar app decides them for the same meter: a whole percent, and charging when
+        the controller's charger flag is set or the pack is at full-charge voltage. A level not
+        yet known, or a reading older than CHARGE_READING_MAX_AGE, gives None."""
+        now = self.clock() if now is None else now
+        telemetry, _ = self.link.snapshot()
+        if not telemetry or now - telemetry['received_at'] > CHARGE_READING_MAX_AGE:
+            return None
+        soc, mv = telemetry.get('batt_soc'), telemetry.get('batt_mv')
+        if not isinstance(soc, (int, float)) or soc < 0:
+            return None
+        full = isinstance(mv, (int, float)) and mv >= CHARGER_MV
+        return min(100, int(soc)), bool(telemetry.get('charging')) or full
 
     def base_status(self, now=None):
         """Live wheel-controller readings for honest answers (battery, charging, climate).

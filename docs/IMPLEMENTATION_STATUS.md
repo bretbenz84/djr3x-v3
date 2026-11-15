@@ -35,6 +35,16 @@ and held for the twelve minutes watched, including one of Rex's turns, with brie
 a minute. **Not yet run on the robot:** a recovery the firmware can complete, a long run, driving,
 and the lines aloud.
 
+## Shutdown fade into the charge meter — November 15
+
+Owner request. At shutdown Rex sends the drive base's last battery reading with the chest's fade,
+and LED firmware 0.3.0 sweeps the meter up under the last two seconds, so the meter stands where
+the panel went dark instead of after a dark gap; the battery menu's own paint confirms it, and an
+unconfirmed meter fades out after a minute. The two small chest lights no longer blip gold under
+the meter ([details](LED_INTEGRATION.md#november-15-the-shutdown-fade-ends-in-the-charge-meter)).
+Flashed; the board answers as 0.3.0. Native and fake-board checks only. **Not yet seen at a real
+shutdown.**
+
 ## Chest light transitions — November 14
 
 Owner request. LED firmware 0.2.0 blends every change of chest state instead of snapping, burns

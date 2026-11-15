@@ -202,6 +202,43 @@ class ChestTransitionTests(unittest.TestCase):
         self.assertGreater(next(v for t, v in fade if t >= 6500), 0)
         self.assertEqual(max(v for t, v in fade if t >= 7050), 0)
 
+    def test_shutdown_with_a_battery_level_ends_in_the_charge_meter(self):
+        # Owner, November 15: the shutdown fade leads straight into the meter, with no dark gap.
+        plain = self.play('cmd IDLE run 3000 cmd FADEOFF run 4500')
+        linked = self.play('cmd IDLE run 3000 cmd FADEOFF:50:0 run 2000 cmd FADEOFF:50:0 run 7000')
+        # The first two seconds are the ordinary fade, and a repeat does not restart it.
+        self.assertEqual([f for t, f in plain if t < 5000], [f for t, f in linked if t < 5000])
+        # Then the meter sweeps up from the bottom under the rest of the fade (50 % lights 12).
+        reached = [next(t for t, f in linked if t > 5000 and lit(f[METER[level]]) and
+                        f[METER[level]] != next(g for u, g in plain if u >= t)[METER[level]]) for level in range(12)]
+        self.assertEqual(reached, sorted(reached))
+        self.assertLessEqual(reached[-1], 7000 + 40)
+        # It is never dark: there is light every frame from the fade through the meter.
+        self.assertTrue(all(light(f) > 0 for t, f in linked if t > 3000))
+        # From the end of the fade only the meter shows, reading the charge.
+        for t, f in linked:
+            if t > 7050:
+                self.assertTrue(all(lit(f[METER[level]]) for level in range(11)), t)
+                self.assertEqual(light(f, [i for i in range(98) if i not in METER[:12]]), 0, t)
+        self.assert_no_jump(linked, 7000, METER[:11])
+
+    def test_the_battery_monitor_confirms_the_meter_without_a_change(self):
+        frames = self.play('cmd IDLE run 3000 cmd FADEOFF:50:0 run 5500 cmd CHARGE:50:0 run 63000')
+        self.assert_no_jump(frames, 8500, METER[:11])
+        self.assertTrue(all(lit(frames[-1][1][METER[level]]) for level in range(11)))
+
+    def test_a_meter_nothing_confirms_fades_out_after_a_minute(self):
+        frames = self.play('cmd IDLE run 3000 cmd FADEOFF:50:0 run 66000')
+        before = [f for t, f in frames if 3000 + 4000 + 59000 < t < 3000 + 4000 + 60000]
+        self.assertTrue(all(lit(f[METER[0]]) for f in before))
+        self.assert_no_jump(frames, 3000 + 4000 + 60000 + 10, METER[:11])   # it fades, not snaps
+        self.assertEqual(max(light(f) for t, f in frames if t > 3000 + 4000 + 60000 + 1100), 0)
+
+    def test_the_two_chest_lights_stay_dark_under_the_meter(self):
+        # They used to blip gold for a single frame every few seconds.
+        frames = self.play('cmd CHARGE:100:0 run 12000')
+        self.assertEqual(max(light(f, (96, 97)) for t, f in frames if t > 500), 0)
+
     def test_off_is_instant(self):
         frames = self.play('cmd IDLE run 3000 cmd OFF run 500')
         self.assertGreater(light([f for t, f in frames if t < 3000][-1]), 0)
