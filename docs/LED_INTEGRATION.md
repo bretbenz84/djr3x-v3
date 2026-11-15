@@ -269,3 +269,30 @@ fade wakes no lights. Flashed to the board on `led_port`, which answered `hello 
 
 Not yet seen: the hand-over on the strip at a real shutdown. Firmware before 0.3.0 ignores
 `FADEOFF:<soc>:<0|1>`, so the chest would not fade at all; flash 0.3.0 with this program.
+
+## November 15: the charging mouth is a rainbow meter
+
+Owner request: while he is off and on the charger the mouth breathed in one colour for the
+charge; make it like the chest's meter, a rainbow from red at the bottom to blue at the top that
+pulses upward. LED firmware 0.4.0, head only ([what it shows](../firmware/djr3x_leds/README.md#mouth-charge-meter)).
+
+- **A meter.** The mouth's ten rows light from the bottom up to the charge, one row for each
+  10 %; each row's colour belongs to its place (red, orange, yellow, green, blue), so the level is
+  read by where the colours stop, as on the chest.
+- **The pulse.** A soft band of light climbs from the bottom row to the top in 2 s, rests 1 s and
+  repeats. Above the charge it shows faintly in the empty rows' own colours.
+- **Battery menu.** It sent the mouth a new level only when one of five colour bands changed; it
+  now sends one whenever the row count changes. It still shows the mouth only while charging.
+- **Dashboard.** The mouth mirror draws the same meter for a charge command.
+
+Evidence: the real head code on the Mac against the stand-in LED library (6 new checks): a full
+charge shows ten different row colours running red to blue, rows light to the charge, the band's
+brightest moment comes later the higher the row and nothing is sent while it rests, empty rows
+show faintly, a new level does not blank the meter, and the eyes stay dark. A fake-board check
+covers the battery menu's resend, and a mirror check the dashboard (numpy; skipped under the
+contract runner, passes run directly). Flashed to the board on `led_port`, which answered
+`hello djr3x_leds 0.4.0`.
+
+Not yet seen: any of it on the mouth; he was not on the charger when it was flashed. Which end of
+the grid is physically the top is taken from the dashboard's model of the head, not the PCB; one
+constant (`MOUTH_ROW0_AT_TOP`) turns it over.

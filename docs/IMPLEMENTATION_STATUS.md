@@ -50,6 +50,15 @@ and held for the twelve minutes watched, including one of Rex's turns, with brie
 a minute. **Not yet run on the robot:** a recovery the firmware can complete, a long run, driving,
 and the lines aloud.
 
+## Charging mouth is a rainbow meter — November 15
+
+Owner request. While he is off and charging, the mouth's ten rows light from the bottom up to the
+charge, red at the bottom to blue at the top, with a band of light climbing them (LED firmware
+0.4.0; was one breathing colour). The battery menu sends the level per row and the dashboard
+mirror matches ([details](LED_INTEGRATION.md#november-15-the-charging-mouth-is-a-rainbow-meter)).
+Flashed; the board answers as 0.4.0. Native and fake-board checks only. **Not yet seen on the
+mouth, and which end is the top is unchecked against the PCB.**
+
 ## Shutdown fade into the charge meter — November 15
 
 Owner request. At shutdown Rex sends the drive base's last battery reading with the chest's fade,

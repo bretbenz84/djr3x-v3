@@ -165,8 +165,9 @@ is a separately maintained reference. V3 never imports it or reads its data.
 - **Lights** (one ESP32 for the head and chest strips, firmware in `firmware/djr3x_leds`, November 14;
   not yet run on the robot). Head and chest startup/shutdown, speaking lights and model-selected
   animations. The chest blends between its states, wakes from the charge meter with a spark,
-  and fades at shutdown straight into the meter (firmware 0.3.0, flashed November 15; the
-  transitions are not yet seen on the strip).
+  and fades at shutdown straight into the meter. On the charger the mouth is a rainbow meter
+  with a pulse climbing it (firmware 0.4.0, flashed November 15; the transitions and the mouth
+  meter are not yet seen on the lights).
 - **Wheels and radar** (drive firmware in `firmware/djr3x_motion`, moved from V2 October 23; radar firmware still V2's):
   - The model plans turns, moves, facing and approaching people or objects, finding a
     person, and seeking things the detector cannot name ("find the door and go to it").

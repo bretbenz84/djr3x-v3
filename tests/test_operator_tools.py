@@ -63,6 +63,20 @@ class OperatorToolsTests(unittest.TestCase):
         for name in ('startup_chime', 'droid_gaining_electric', 'droid_losing_electric'):
             self.assertTrue((ROOT / 'assets/audio/operator' / (name + '.wav')).is_file())
 
+    def test_battery_menu_sends_the_mouth_meter_again_when_its_rows_change(self):
+        # LED firmware 0.4.0: the charging mouth is a ten-row meter, one row for each 10 %.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('rex_battery_menubar_check',
+                                                      TOOLS / 'tools' / 'rex_battery_menubar.py')
+        menu = importlib.util.module_from_spec(spec)
+        with patch('logging.basicConfig'):
+            spec.loader.exec_module(menu)
+        sent = []
+        menu._send_led_command = lambda cmd: sent.append(cmd) or True
+        for soc, charging in ((81, True), (85, True), (90, True), (91, True), (91, False)):
+            menu._sync_mouth_charge('live', soc, charging)
+        self.assertEqual(sent, ['H:CHARGE:81', 'H:CHARGE:91', 'H:OFF'])
+
 
 if __name__ == '__main__':
     unittest.main()

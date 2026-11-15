@@ -525,36 +525,32 @@ _mouth_charge_state: "tuple[bool, int | None] | None" = None
 _mouth_retry_at = 0.0
 
 
-def _mouth_soc_band(soc) -> "int | None":
+def _mouth_charge_rows(soc) -> "int | None":
+    """Rows of the mouth's charge meter that are lit, 0..10, as the LED firmware counts them.
+
+    Since LED firmware 0.4.0 the mouth is a ten-row meter (was five colour bands), so the
+    level is sent again whenever this changes."""
     try:
         value = max(0, min(100, int(soc)))
     except (TypeError, ValueError):
         return None
-    if value <= 25:
-        return 0
-    if value <= 50:
-        return 1
-    if value <= 75:
-        return 2
-    if value <= 90:
-        return 3
-    return 4
+    return (value + 9) // 10
 
 
 def _sync_mouth_charge(mode: str, soc, charging: bool) -> None:
-    """Show SOC-coloured breathing only while Rex is off and charging."""
+    """Show the mouth's charge meter only while Rex is off and charging."""
     global _mouth_charge_state, _mouth_retry_at
     if mode != "live":
         _mouth_charge_state = None  # Rex owns the LEDs — resync after shutdown
         return
-    band = _mouth_soc_band(soc) if charging else None
-    target = (bool(charging), band)
+    rows = _mouth_charge_rows(soc) if charging else None
+    target = (bool(charging), rows)
     if _mouth_charge_state == target:
         return
     now = time.time()
     if now < _mouth_retry_at:
         return
-    if charging and band is not None:
+    if charging and rows is not None:
         value = max(0, min(100, int(soc)))
         cmd = f"H:CHARGE:{value}"
     elif charging:
@@ -566,7 +562,7 @@ def _sync_mouth_charge(mode: str, soc, charging: bool) -> None:
     else:
         # Nothing reached the board, so it still shows whatever it had. Forget the
         # baseline as well, or a later success would be deduped away and the glow
-        # would stay wrong until the SOC band moved.
+        # would stay wrong until the meter's row count moved.
         _mouth_charge_state = None
         _mouth_retry_at = now + _LED_RETRY_SECS
 

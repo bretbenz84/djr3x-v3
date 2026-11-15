@@ -53,8 +53,11 @@
  *                         re-lit by the host's eye keep-alive heartbeat), this
  *                         also re-enters ACTIVE so the mouth glow resumes.
  *   OFF                   All 82 pixels off immediately; blinking suspended.
- *   CHARGE:{0-100}        Eyes off; mouth breathes in an SOC colour while Rex
- *                         is off and attached to the charger.
+ *   CHARGE:{0-100}        Eyes off; the mouth is a charge meter while Rex is off
+ *                         and attached to the charger: rows lit from the bottom
+ *                         up to the charge, red at the bottom to blue at the
+ *                         top, with a pulse of light climbing it (see "Charge
+ *                         display").
  *
  * Mouth idle glow
  * ---------------
@@ -164,7 +167,6 @@ AnimMode animMode = ANIM_OFF;
 // Default matches EMOTION_COLORS[EMO_NEUTRAL] (wire-order, R↔G pre-swapped for
 // the GRB mouth strip — see the EMOTION_COLORS note).
 EmotionColor mouthColor  = { 140, 255, 0 };   // neutral amber (wire order)
-EmotionColor chargeColor = { 0, 255, 0 };     // deep-discharge red (wire order)
 bool prideMouth = false;
 uint32_t prideRefreshMs = 0;
 uint32_t prideGlowFrameMs = 0;
@@ -172,6 +174,43 @@ uint8_t swirlHue[NUM_MOUTH]; // spatial angle + radius, computed once at boot
 #define PRIDE_TIMEOUT_MS 10000UL
 #define PRIDE_GLOW_FRAME_MS 40UL
 uint8_t      speakLevel  = 0;                 // 0–255 audio intensity
+
+// Charge display (owner, November 15): a meter like the chest's. Each row's colour
+// belongs to its place, red at the bottom to blue at the top, and the rows light from
+// the bottom up to the charge, so the level is read by where the colours stop. A soft
+// band of light climbs from the bottom row to the top every CHARGE_CYCLE_MS, then
+// rests; above the charge it lights the empty rows faintly in their own colours. On
+// entering the mode the rows come on from the bottom over CHARGE_INTRO_MS.
+//
+// Which end of the grid is the top is taken from the dashboard's 3D model of the head
+// (row 0 widest and highest); it has not been checked against the PCB. If the red
+// shows at the top, set this to 0.
+#define MOUTH_ROW0_AT_TOP 1
+#define CHARGE_FRAME_MS   40UL     // 25 frames a second while the band moves
+#define CHARGE_INTRO_MS   1200UL
+#define CHARGE_CYCLE_MS   3000UL   // one climb and its rest
+#define CHARGE_TRAVEL_MS  2000UL   // the climb
+#define CHARGE_BAND       1.8f     // half-width of the band, in rows
+#define CHARGE_BASE       26       // a lit row's steady brightness: 10 %, the idle glow's level
+#define CHARGE_PEAK       100      // a lit row under the band: 39 %, below the speaking bars
+#define CHARGE_EMPTY_PEAK 30       // an empty row under the band: 12 %
+// Physical colours from the bottom row up.
+const uint8_t CHARGE_RGB[MOUTH_ROWS][3] = {
+    { 255,   0,   0 },   // red
+    { 255,  48,   0 },   // red/orange
+    { 255,  96,   0 },   // orange
+    { 255, 160,   0 },   // amber
+    { 255, 220,   0 },   // yellow
+    { 140, 255,   0 },   // yellow/green
+    {   0, 255,   0 },   // green
+    {   0, 255, 130 },   // green/blue
+    {   0, 140, 255 },   // light blue
+    {   0,   0, 255 },   // blue
+};
+uint8_t      chargeRows    = 0;               // rows lit, 0-10, from the last CHARGE:{soc}
+uint32_t     chargeStartMs = 0;               // when the mode was entered
+uint32_t     chargeFrameMs = 0;               // last frame considered
+uint8_t      chargeShown[MOUTH_ROWS];         // each row's brightness as last drawn, bottom first
 
 // Speaking equalizer state — one bar per mouth column (see tickSpeak).
 float        colHeight[MOUTH_COLS];           // smoothed bar height, 0–MOUTH_HALF half-rows
@@ -585,25 +624,28 @@ void command(const char *cmd) {
         return;
     }
 
-    // CHARGE:{soc} — off-state charge breath. The battery companion sends this
-    // only while main.py is down and the charger is attached.
+    // CHARGE:{soc} — off-state charge meter. The battery companion sends this
+    // only while the program is down and the charger is attached. A level sent
+    // while the meter is already showing only moves the fill line: the rows do
+    // not go dark and come on again.
     if (strncmp(cmd, "CHARGE:", 7) == 0) {
         uint8_t soc = clampByte(atoi(cmd + 7));
-        // Physical RGB -> stored R/G swapped for the GRB mouth strip.
-        if (soc <= 25)      chargeColor = {   0, 255,   0 }; // red
-        else if (soc <= 50) chargeColor = {  96, 255,   0 }; // orange
-        else if (soc <= 75) chargeColor = { 220, 255,   0 }; // yellow
-        else if (soc <= 90) chargeColor = { 255,   0,   0 }; // green
-        else                chargeColor = {   0,   0, 255 }; // blue
-        animMode      = ANIM_CHARGE;
-        eyeColor      = CRGB::Black;
-        eyesActive    = false;
-        blinkState    = BLINK_OPEN;
-        isSecondBlink = false;
-        leds[0]       = CRGB::Black;
-        leds[1]       = CRGB::Black;
-        mouthOff();
-        show();
+        if (soc > 100) soc = 100;
+        chargeRows = (uint8_t)((soc + 9) / 10);   // ceiling: any charge lights the bottom row
+        if (animMode != ANIM_CHARGE) {
+            animMode      = ANIM_CHARGE;
+            eyeColor      = CRGB::Black;
+            eyesActive    = false;
+            blinkState    = BLINK_OPEN;
+            isSecondBlink = false;
+            leds[0]       = CRGB::Black;
+            leds[1]       = CRGB::Black;
+            mouthOff();
+            show();
+            chargeStartMs = millis();
+            chargeFrameMs = chargeStartMs - CHARGE_FRAME_MS;
+            memset(chargeShown, 0, sizeof(chargeShown));     // every row was just blanked
+        }
         return;
     }
 
@@ -862,21 +904,43 @@ void tickSleep() {
     show();
 }
 
-// Same low, slow breathing envelope as SLEEP, but coloured by state of charge.
+// Charge display (see the block above chargeRows). One frame every
+// CHARGE_FRAME_MS, pushed only when a row's brightness changed, so nothing is
+// sent while the pulse rests.
 void tickCharge() {
-    uint32_t now = millis();
-    float phase = (float)(now % 8000UL) / 8000.0f;
-    float tri = (phase < 0.5f) ? phase * 2.0f : 2.0f - phase * 2.0f;
-    uint8_t scale = (uint8_t)(tri * 76.0f); // 30% peak
-    static uint8_t lastScale = 255;
-    if (scale == lastScale) return;
-    lastScale = scale;
-    CRGB color = CRGB(
-        scale8(chargeColor.r, scale),
-        scale8(chargeColor.g, scale),
-        scale8(chargeColor.b, scale));
-    for (uint8_t i = MOUTH_START; i < NUM_LEDS; i++) leds[i] = color;
-    show();
+    const uint32_t now = millis();
+    if ((uint32_t)(now - chargeFrameMs) < CHARGE_FRAME_MS) return;
+    chargeFrameMs = now;
+
+    const uint32_t elapsed = now - chargeStartMs;
+    uint8_t lit   = chargeRows;     // rows holding their steady light
+    float   pulse = -100.0f;        // centre of the climbing band, in rows from the bottom; far off at rest
+    if (elapsed < CHARGE_INTRO_MS) {
+        lit = (uint8_t)((uint32_t)chargeRows * elapsed / CHARGE_INTRO_MS);
+    } else {
+        const uint32_t t = (elapsed - CHARGE_INTRO_MS) % CHARGE_CYCLE_MS;
+        if (t < CHARGE_TRAVEL_MS)
+            pulse = -CHARGE_BAND + (MOUTH_ROWS - 1 + 2.0f * CHARGE_BAND) * (float)t / (float)CHARGE_TRAVEL_MS;
+    }
+
+    bool changed = false;
+    for (uint8_t level = 0; level < MOUTH_ROWS; level++) {
+        float w = 1.0f - fabsf((float)level - pulse) / CHARGE_BAND;
+        if (w < 0.0f) w = 0.0f;
+        w = w * w * (3.0f - 2.0f * w);                    // soft edges
+        uint8_t bright = 0;
+        if (level < lit)              bright = (uint8_t)(CHARGE_BASE + w * (CHARGE_PEAK - CHARGE_BASE));
+        else if (level >= chargeRows) bright = (uint8_t)(w * CHARGE_EMPTY_PEAK);
+        if (bright == chargeShown[level]) continue;
+        chargeShown[level] = bright;
+        changed = true;
+        // Physical RGB -> stored R/G swapped for the GRB mouth strip.
+        const CRGB colour(scale8(CHARGE_RGB[level][1], bright), scale8(CHARGE_RGB[level][0], bright),
+                          scale8(CHARGE_RGB[level][2], bright));
+        const uint8_t row = MOUTH_ROW0_AT_TOP ? (uint8_t)(MOUTH_ROWS - 1 - level) : level;
+        for (uint8_t col = 0; col < MOUTH_COLS; col++) leds[mouthIdx(row, col)] = colour;
+    }
+    if (changed) show();
 }
 
 // ---------------------------------------------------------------------------

@@ -166,6 +166,22 @@ class LightMirrorTests(unittest.TestCase):
         self.assertGreater(float(mouth.render(state, 2.).sum()), 0.)
         self.assertEqual(float(mouth.render(state, 5.1).sum()), 0.)
 
+    @unittest.skipUnless(native_available(), 'numpy unavailable (blocked under the contract runner)')
+    def test_charging_mouth_is_a_meter_red_at_the_bottom_with_a_band_climbing(self):
+        # Mirrors LED firmware 0.4.0: row 0 is the top of the mouth, eight lights a row.
+        def rows(soc, age):
+            state = {'mouth_mode': 'charge', 'mouth_soc': soc, 'mouth_updated_at': 10.}
+            return MouthAnimation().render(state, 10. + age).reshape(10, 8, 3)
+        rest = rows(100, 1.2 + 2.5)                       # the band rests for the last second of three
+        self.assertTrue((rest == rest[:, :1]).all())      # each row one colour across
+        self.assertTrue(rest[9, 0, 0] > 0 and rest[9, 0, 1] == 0 and rest[9, 0, 2] == 0)   # bottom red
+        self.assertTrue(rest[0, 0, 2] > 0 and rest[0, 0, 0] == 0 and rest[0, 0, 1] == 0)   # top blue
+        half = rows(50, 1.2 + 2.5)
+        self.assertEqual([bool(r.sum()) for r in half], [False]*5 + [True]*5)
+        brightest = [int(rows(100, 1.2 + t).sum(axis=(1, 2)).argmax()) for t in (.4, 1., 1.6)]
+        self.assertEqual(brightest, sorted(brightest, reverse=True))   # towards row 0: upwards
+        self.assertGreater(brightest[0], brightest[-1])
+
 
 @unittest.skipUnless(native_available(), 'numpy unavailable (blocked under the contract runner)')
 class RigTests(unittest.TestCase):

@@ -1,6 +1,6 @@
-// Stand-in for FastLED and the Arduino core, for running firmware/djr3x_leds/chest.cpp on
-// the Mac (firmware/tests/test_chest_transitions.py). It has what chest.cpp uses and no
-// more. Fades, blends and the pattern timers follow FastLED's arithmetic; hue-to-colour
+// Stand-in for FastLED and the Arduino core, for running firmware/djr3x_leds/chest.cpp and
+// head.cpp on the Mac (firmware/tests/test_chest_transitions.py, test_head_charge.py). It
+// has what they use and no more. Fades, blends and the pattern timers follow FastLED's arithmetic; hue-to-colour
 // and the sine are approximations, so rainbow colours here are not the strip's.
 #pragma once
 #include <algorithm>
@@ -15,11 +15,15 @@ typedef uint8_t fract8;
 using std::max;
 using std::min;
 #define TWO_PI 6.283185307179586f
+#define PI 3.141592653589793f
+#define PROGMEM
+#define memcpy_P memcpy
 #define constrain(x, lo, hi) ((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x)))
 
 extern uint32_t fake_ms;     // the test's clock
 extern uint32_t fake_seed;   // state of its random numbers
 inline uint32_t millis() { return fake_ms; }
+inline void delay(uint32_t ms) { fake_ms += ms; }
 inline uint32_t fake_rand() {
     fake_seed ^= fake_seed << 13;  fake_seed ^= fake_seed >> 17;  fake_seed ^= fake_seed << 5;
     return fake_seed;
@@ -29,6 +33,7 @@ inline uint8_t  random8(uint8_t limit)  { return limit ? (uint8_t)((fake_rand() 
 inline uint16_t random16()              { return (uint16_t)(fake_rand() >> 8); }
 inline uint16_t random16(uint16_t limit){ return limit ? (uint16_t)((fake_rand() >> 8) % limit) : 0; }
 inline long     random(long lo, long hi){ return hi > lo ? lo + (long)((fake_rand() >> 8) % (uint32_t)(hi - lo)) : lo; }
+inline long     random(long limit)      { return random(0, limit); }
 
 inline uint8_t scale8(uint8_t value, uint8_t scale) { return (uint8_t)(((uint16_t)value * (1 + (uint16_t)scale)) >> 8); }
 inline uint8_t qadd8(uint8_t a, uint8_t b) { const unsigned sum = a + b; return sum > 255 ? 255 : (uint8_t)sum; }
@@ -106,6 +111,7 @@ inline CRGB ColorFromPalette(const CRGBPalette16 &, uint8_t index, uint8_t brigh
     if (millis() - every_n_last >= (N) && ((every_n_last = millis()), true))
 
 struct WS2811 {};
+struct WS2812B {};
 enum EOrder { RGB, GRB };
 enum LEDColorCorrection { TypicalLEDStrip };
 void fake_show(const CRGB *leds, int count, uint8_t brightness);   // the test records the frame

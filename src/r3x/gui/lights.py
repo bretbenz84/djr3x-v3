@@ -15,6 +15,9 @@ import time
 
 MOUTH_COLORS = {'neutral': (255, 140, 0), 'happy': (0, 200, 255), 'excited': (255, 200, 0),
                 'sad': (40, 0, 200), 'angry': (255, 0, 0), 'curious': (180, 0, 255)}
+# The mouth's charge meter (LED firmware 0.4.0, head.cpp CHARGE_RGB): each row's colour from the bottom up.
+CHARGE_ROWS = ((255, 0, 0), (255, 48, 0), (255, 96, 0), (255, 160, 0), (255, 220, 0),
+               (140, 255, 0), (0, 255, 0), (0, 255, 130), (0, 140, 255), (0, 0, 255))
 
 
 class LightMirror:
@@ -165,12 +168,23 @@ class MouthAnimation:
                 values[5+d] = bright
         elif mode in ('active', 'idle'):
             values[:] = .075 + .025*math.sin(now)
-        elif mode in ('sleep', 'charge'):
+        elif mode == 'sleep':
             phase = (now % 8) / 8
             values[:] = .3 * (phase*2 if phase < .5 else 2 - phase*2)
-            soc = state.get('mouth_soc', 0)
-            rgb = np.array((255, 0, 0) if mode == 'sleep' or soc <= 25 else (255, 96, 0) if soc <= 50 else
-                           (255, 220, 0) if soc <= 75 else (0, 255, 0) if soc <= 90 else (0, 0, 255), float) / 255
+            rgb = np.array((255, 0, 0), float) / 255
+        elif mode == 'charge':
+            # Rows lit from the bottom up to the charge, red to blue; a band of light climbs them for
+            # 2 s of every 3, after the rows have come on over 1.2 s. Row 0 is the top of the mouth.
+            filled = (max(0, min(100, state.get('mouth_soc', 0))) + 9) // 10
+            lit = filled if age >= 1.2 else int(filled * age / 1.2)
+            cycle = (age - 1.2) % 3
+            pulse = -1.8 + 12.6 * cycle / 2 if age >= 1.2 and cycle < 2 else -100.
+            level = np.arange(10)
+            band = np.clip(1 - np.abs(level - pulse) / 1.8, 0, 1)
+            band = band * band * (3 - 2*band)
+            bright = np.where(level < lit, 26 + band*74, np.where(level >= filled, band*30, 0)) / 255
+            values[:] = bright[::-1, None]
+            rgb = np.repeat(np.array(CHARGE_ROWS[::-1], float), 8, axis=0) / 255
         if mode == 'fadeoff':
             if self.last_mode != 'fadeoff':
                 self.fade_pixels = self.last_pixels.copy()
