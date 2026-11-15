@@ -275,6 +275,12 @@ class OutputOwner:
         # the drive keeps the resource.
         self._talk_guard = threading.Lock()
         self._talk = None          # 'full' or 'visor' while a line's talking motion runs.
+        # An expression started beside a line (express): its workers, whether a line is playing, and
+        # whether one of them handed the line its talking motion back.
+        self._expressing = []
+        self._resume_guard = threading.Lock()
+        self._line_playing = False
+        self._talk_resumed = False
         self._driving = False
         self._saying = None        # The output item being said now.
         self.lines = deque(maxlen=8)   # [started, ended or None, words] of his recent lines.
@@ -374,6 +380,29 @@ class OutputOwner:
         delivery.gestures.append(row)
         self.trace.emit('gesture_delivery', turn_id=turn_id, **row)
         cancel.check()
+
+    def express(self, performance, cancel, turn_id, delivery):
+        """Start an expression now, beside whatever line is being made or played.
+
+        Owner, November 15: told he had new wheels, he showed nothing. A line whose words stream ahead
+        of the rest of its tool call had its expression queued behind those words, so in about half of
+        the October gestures the feeling showed after the line was over. The line's talking motion
+        gives way to the expression and takes over again when it ends; run() waits for it."""
+        def work():
+            with self._talk_guard:
+                swaying = self._talk == 'full'
+            if swaying:
+                self._stop_talking(turn_id, False)
+            try:
+                self._gesture(performance, cancel, turn_id, delivery)
+            except Cancelled:
+                return
+            with self._resume_guard:
+                if self._line_playing and not self._talk_resumed and not cancel.event.is_set():
+                    self._talk_resumed = self._start_talking(turn_id, cancel)
+        worker = threading.Thread(target=work, name='r3x-expression', daemon=True)
+        self._expressing.append(worker)
+        worker.start()
 
     def _light_result(self, delivery, turn_id, request, status, reason=None):
         row = dict(request_id=request.request_id if request else turn_id+':speaking',
@@ -721,6 +750,8 @@ class OutputOwner:
                             self._light_result(delivery,turn_id,light.request if light else None,'failed',str(exc) if isinstance(exc,ProviderFailure) else type(exc).__name__)
                     with talking_lock:
                         playing = True
+                        with self._resume_guard:
+                            self._line_playing = True
                         start_talking()
                 played_out = False   # The whole line played: talking motion winds down, not freezes.
                 if self.bed is not None:
@@ -742,7 +773,10 @@ class OutputOwner:
                             'cancelled' if cancel.event.is_set() else None)
                     elif light and not light_attempted:
                         self._light_result(delivery,turn_id,light.request,'cancelled','PlaybackNotStarted')
-                    if talking_started:
+                    with self._resume_guard:
+                        self._line_playing = False
+                        resumed, self._talk_resumed = self._talk_resumed, False
+                    if talking_started or resumed:   # Its own, or handed back after an expression.
                         self._stop_talking(turn_id, played_out)
                     if first_pcm_at is not None:
                         self.echo_until = self.trace.clock() + .3
@@ -785,6 +819,9 @@ class OutputOwner:
                 self.trace.emit('gesture_delivery',turn_id=turn_id,**row)
             self.active.clear()
             self._saying = None
+            workers, self._expressing = self._expressing, []
+            for worker in workers:
+                worker.join()   # An expression started beside the line: its receipt belongs to this delivery.
             if hushed:
                 sounds.resume()
             self.trace.emit("delivery", turn_id=turn_id, status=delivery.status,

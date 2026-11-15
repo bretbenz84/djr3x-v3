@@ -54,11 +54,11 @@ class RobotServoTests(unittest.TestCase):
         self.assertEqual(self.port.pose[1],LIMITS[1][0])
         self.assertEqual(self.port.pose[8],dict(PARK)[8])
 
-    def test_he_wakes_with_the_visor_shut_and_the_ready_line_opens_it(self):
+    def test_he_wakes_with_the_visor_shut_and_it_goes_up_just_before_the_ready_line(self):
         # Owner, November 15: the visor stays down over his eyes through the wake and the
-        # please-wait line, and opens only as he says his ready line.
+        # please-wait line, and goes up right before he says his ready line.
         import random
-        from r3x.servo_poses import VISOR_DOWN, VISOR_SPEECH, talking_lanes
+        from r3x.servo_poses import VISOR_DOWN, VISOR_OPEN, talking_lanes
         self.robot.start()
         owner = self.robot.owner
         self.assertEqual(self.port.pose[3], VISOR_DOWN)
@@ -66,20 +66,22 @@ class RobotServoTests(unittest.TestCase):
                          for beat in lane for ch, _ in beat.targets}
         self.assertNotIn(3, moved())            # The please-wait line moves the rest of him, not the visor.
         self.assertIn(0, moved())
-        self.robot.eyes_may_open()              # The ready line is next.
+        self.port.packets.clear()
+        self.assertEqual(self.robot.open_eyes().status, 'pulses_reached')   # Everything has loaded.
+        self.assertEqual(self.port.pose[3], VISOR_OPEN)                     # Up, before a word of the ready line.
+        self.assertEqual({p[1] for p in self.port.targets}, {3})            # Only the visor moved.
         self.assertFalse(owner.held_channels)
-        visor = next(lane for lane in talking_lanes(dict(self.port.pose), None, owner.held_channels, rng=random.Random(1))
-                     if lane[0].targets[0][0] == 3)
-        self.assertLessEqual(visor[0].wait, .3)                                    # It opens as the line begins...
-        self.assertTrue(VISOR_SPEECH[0] <= visor[0].targets[0][1] <= VISOR_SPEECH[1])   # ...to where it sits when he talks.
+        self.assertIn(3, moved())               # The ready line then moves it like any other line.
+        self.assertIsNone(self.robot.open_eyes())                           # Already open: nothing more to do.
 
-    def test_with_no_ready_line_the_visor_still_opens(self):
-        from r3x.servo_poses import VISOR_DOWN, VISOR_OPEN
+    def test_a_refused_visor_move_still_lets_the_ready_line_open_it(self):
+        from r3x.servo_poses import VISOR_DOWN
         self.robot.start()
+        self.robot.owner.state = 'stopped'      # The board will take no pose now.
+        self.assertIsNone(self.robot.open_eyes())
         self.assertEqual(self.port.pose[3], VISOR_DOWN)
-        self.assertEqual(self.robot.open_eyes().status, 'pulses_reached')   # No voice, so no talking motion opened it.
-        self.assertEqual(self.port.pose[3], VISOR_OPEN)
-        self.assertFalse(self.robot.owner.held_channels)
+        self.assertNotIn(3, self.robot.owner.held_channels)   # The hold is gone: talking motion may open it.
+        self.robot.owner.state = 'active'
 
     def test_microphone_hold_expires_and_capture_completion_releases_it(self):
         self.robot.start()

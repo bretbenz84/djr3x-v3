@@ -5,7 +5,7 @@ production Session, with the simulated gesture adapter, so nothing moves.
 Run: .venv/bin/python tools/check_gestures.py --live [--repeats 1] [--case NAME]
 
 Each case is one thing said to him. Printed for each: his answer, whether it went out with an expression
-(respond_with_gesture) and which, its size, or which other tool he used. The flat and small-talk cases are there to
+and which (on respond_with_gesture, or on a save that carries his reply), its size, and any other tool he used. The flat and small-talk cases are there to
 show he still answers a plain line plainly. Whether an expression fits the line is for a person to
 judge. One model call per repeat of a case (about 20,000 input tokens, mostly cached after the first).
 """
@@ -43,6 +43,7 @@ CASES = {
     'absurd_claim': 'I taught my cat to flush the toilet.',
     'nonsense': 'The purple of Thursday tastes like a triangle.',
     'good_news': 'We are getting married in June!',
+    'new_wheels': 'Guess what. I built you new wheels, and your motors are stronger than ever.',
     'flat_fact': 'What is seven times eight?',
     'small_talk': 'I got back from the store a little while ago.',
     'flat_question': 'Which is bigger, a mile or a kilometre?',
@@ -84,10 +85,12 @@ def run(case, folder):
             rows = [json.loads(line) for line in path.read_text().splitlines()]
             calls = [r for r in rows if r.get('event') == 'tool_proposed']
             gesture = next((r['arguments'] for r in calls if r['name'] == 'respond_with_gesture'), None)
+            shown = [r for r in rows if r.get('event') == 'gesture_delivery']   # A save can carry one too.
             return {'case': case, 'they_said': said, 'answer': ' '.join(result.completed_text),
-                    'expression': gesture and gesture.get('primitive'), 'size': gesture and gesture.get('intensity'),
+                    'expression': shown[0].get('primitive') if shown else gesture and gesture.get('primitive'),
+                    'size': shown[0].get('intensity') if shown else gesture and gesture.get('intensity'),
                     'timing': gesture and gesture.get('timing'),
-                    'delivered': [r.get('status') for r in rows if r.get('event') == 'gesture_delivery'],
+                    'delivered': [r.get('status') for r in shown],
                     'other_tools': [r['name'] for r in calls if r['name'] != 'respond_with_gesture'],
                     'model': next((r.get('model') for r in rows if r.get('event') == 'model_usage'), None),
                     'tokens': [(r.get('input_tokens'), r.get('cached_tokens'), r.get('output_tokens'))

@@ -789,12 +789,25 @@ class Session:
             from .output import AccentLine
             return AccentLine(text, result.data['mode'])
         if not (call.name == 'voice_mode' and result.data.get('flourish') and context.get('gesture_enabled')):
-            return text
+            return self._felt(call, result.request_id, context, cancel, text) or text
         from .performance import Gesture, Performance
         def valid():
             cancel.check()
             return self.state.voice_modes.on('pride', self.trace.clock())
         return Performance(text, Gesture(result.request_id + ':flourish', 'pride_flourish', 'unfocused', 'normal',
+                                         self.trace.clock() + 30), 'with_speech', valid, lambda: None)
+
+    def _felt(self, call, request_id, context, cancel, text=''):
+        """A spoken result's line with the feeling it named shown as it is said (owner, November 15:
+        news he saves is often the news he feels most about); None for a plain line or no body."""
+        expression = call.arguments.get('expression')
+        if not expression or getattr(self.output, 'gestures', None) is None:   # The follow-up's context is rebuilt.
+            return None
+        from .performance import Gesture, Performance
+        def valid():
+            cancel.check()
+            return True
+        return Performance(text, Gesture(request_id + ':expression', expression, 'unfocused', 'normal',
                                          self.trace.clock() + 30), 'with_speech', valid, lambda: None)
 
     def _say_saved(self, text, turn_id):
@@ -2697,9 +2710,16 @@ class Session:
                                 raise ProviderFailure('GestureEvidenceStale')
                             self.state.attention.clear()
                             self.state.attention.scene.invalidate(self.trace.clock())
-                    # Words already streamed ahead: the gesture follows them on its own.
-                    put_phrase(phrases, Performance('' if call.call_id in streamed else call.arguments['text'],gesture,
-                        call.arguments['timing'],valid_gesture,delivered_gesture),cancel)
+                    express = getattr(self.output, 'express', None)
+                    if call.call_id in streamed and call.arguments['timing'] == 'with_speech' and express:
+                        # Its words streamed ahead and are being said: the feeling shows now, beside
+                        # them, not once they are over (November 15).
+                        express(Performance('', gesture, 'with_speech', valid_gesture, delivered_gesture),
+                                cancel, turn_id, delivery)
+                    else:
+                        # After the line: the gesture follows the words already streamed ahead.
+                        put_phrase(phrases, Performance('' if call.call_id in streamed else call.arguments['text'],gesture,
+                            call.arguments['timing'],valid_gesture,delivered_gesture),cancel)
                 elif result.outcome=='ok' and call.name=='shift_attention':
                     # Output owns execution; never hold the state lock over an adapter call.
                     cancel.check()
@@ -2885,6 +2905,11 @@ class Session:
                             'Already said aloud before this result: '+json.dumps(streamed[call.call_id],ensure_ascii=False)+
                             '. Do not repeat it.'}))
                     if result.outcome!='ok' and call.name in MEMORY_SAVES:
+                        # The save was refused and its line unsaid, but what he felt about the news still
+                        # shows, at once, while the line that replaces it is written (November 15, c36ecba3).
+                        felt, express = self._felt(call, result.request_id, context, cancel), getattr(self.output, 'express', None)
+                        if felt and express:
+                            express(felt, cancel, turn_id, delivery)
                         from dataclasses import replace
                         followup=replace(followup,messages=(*followup.messages,{'role':'developer','content':
                             'That save did not go through, and its draft text was NOT spoken. Never tell them a save '

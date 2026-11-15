@@ -62,7 +62,7 @@ class RobotServos:
             if self.trace: self.trace.emit('servo_startup_hook_failed',error_type=type(exc).__name__)
         self._sequence('startup')
         # Owner, November 15: the wake leaves the visor shut over his eyes, and it stays shut (the
-        # please-wait line's talking motion leaves it alone) until the ready line (eyes_may_open).
+        # please-wait line's talking motion leaves it alone) until just before the ready line (open_eyes).
         self.owner.held_channels.add(3)
         # Capture is started later by ProviderOwner, after motion/hold settling.
         self.wait(.5)
@@ -70,16 +70,17 @@ class RobotServos:
         self.wait(1.5)
 
     def eyes_may_open(self):
-        """Just before the ready line: its talking motion may now move the visor, which opens it
-        as he speaks."""
+        """The startup hold on the visor ends: talking and idle motion may move it again."""
         self.owner.held_channels.discard(3)
 
     def open_eyes(self):
-        """After the ready line: if nothing opened the visor (no voice, no talking motion), open
-        it now, so he is never left awake and blind."""
+        """Everything has loaded: the visor goes up to its usual open point, just before he says he
+        is ready (owner, November 15). Should the move be refused, the hold is still gone, so the
+        ready line's talking motion opens it and he is never left awake and blind."""
         self.eyes_may_open()
         if self.owner.state != 'active' or not visor_over_eyes(self.owner.commanded):
             return None
+        self.talking.stop()   # The please-wait line's sway, if it is still winding down.
         receipt = self.owner.execute(ServoRequest('startup-open-eyes', self.owner.version, 'pose',
                                                   self.owner.clock()+60, pose='visor_normal', hold_pose=False), Cancellation())
         if self.trace:

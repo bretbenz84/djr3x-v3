@@ -350,7 +350,6 @@ class App:
                 # The ready line gets the usual talking motion and speaking lights.
                 output.robot = self.robot if self.robot and 'robot_servos' in active else None
                 if output.robot:
-                    output.robot.eyes_may_open()   # Shut since the wake; the ready line opens the visor.
                     from .physical_attention import PhysicalAttention, PhysicalGesture
                     output.attention, output.gestures = PhysicalAttention(output.robot), PhysicalGesture(output.robot)
                     output.attention.start();output.gestures.start()
@@ -361,12 +360,13 @@ class App:
                 except Exception as exc:
                     ready = None
                     trace.emit('startup_audio',status='ready_line_failed',error_type=type(exc).__name__)
-                startup_delivery = announce(self.settings,self.owner,output,trace,ready=ready)
                 if output.robot:
+                    # Shut since the wake: the visor goes up now, just before he says he is ready.
                     try:
-                        output.robot.open_eyes()   # Only moves it if the line did not.
+                        output.robot.open_eyes()
                     except Exception as exc:
                         trace.emit('servo_lifecycle',kind='open_eyes',status='failed',error_type=type(exc).__name__)
+                startup_delivery = announce(self.settings,self.owner,output,trace,ready=ready)
                 mic.discard_pending()
                 from .sentry import canned_lines
                 from .session import CREDIT_LINES

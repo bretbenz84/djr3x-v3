@@ -13,10 +13,13 @@ lift's own moves are slightly quicker; he wakes with the visor shut and it opens
 line; and a line with a feeling in it now goes out with a matching expression, with four new ones
 (laugh, skeptical, deflated, proud) beside the six there were
 ([details](SERVO_INTEGRATION.md#november-15-feelings-on-his-body)). Before: no expression in 119
-Claude replies. After, on a paid probe of made-up lines (18 replies): the lines with a feeling got a
-fitting expression and the plain ones stayed plain. Synthetic checks (simulated board and gestures)
-otherwise. **Nothing here has been seen on the robot,** and how often he shows a feeling over a real
-evening is unmeasured.
+Claude replies. After the first live run (told of his new wheels, he showed nothing): news he saves
+can carry a feeling, a refused save still shows it, an expression starts when it is chosen rather
+than after the line, and the visor goes up just before the ready line. On a paid probe of made-up
+lines (38 replies) the lines with a feeling got a fitting expression, new wheels got `surprised`, and
+plain ones stayed plain. Synthetic checks (simulated board and gestures) otherwise. **Only the first
+shut-visor start has been seen on the robot,** how often he shows a feeling over a real evening is
+unmeasured, and a hero-elbow chatter in the drive stance during that run is unexplained.
 
 ## "It's done" updates a saved plan — November 15
 

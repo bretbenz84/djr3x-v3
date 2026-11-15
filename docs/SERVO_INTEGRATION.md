@@ -34,21 +34,63 @@ plain", "about one line in four at most".
   (earlier run: a death → `sympathetic`). One reply each, one person, no history: how often he
   does it in a real evening, and whether he varies it, is **unmeasured**.
 
+**Later the same day, run `c36ecba3`:** "I just told Rex he got new wheels and he showed no
+surprise." He answered with a save (`correct_claim`, his line inside it), which had nowhere to put a
+feeling; the save was refused (his voice was masked by his own motors) and the line that replaced it
+was plain text. The October logs also show the feeling arriving late: a line's words stream out
+ahead of the rest of its tool call, the gesture was queued behind those words, and in 109 of 225
+`with_speech` gestures it finished after the first phrase had ended.
+
+- **A save carries the feeling.** Every tool whose text is his whole reply (`SPOKEN_RESULT_TOOLS`)
+  has an `expression` field (one of the head expressions or null); the line goes out as a
+  `with_speech` performance. A refused memory save still shows it, at once, while the replacing line
+  is written.
+- **The feeling starts when it is chosen** (`OutputOwner.express`): for a line whose words streamed
+  ahead, the expression starts beside the line being said instead of after it. The line's talking
+  motion gives way and takes over again when the expression ends.
+- **Examples of the behaviour** (owner: "not just patching the prompt but ... examples to follow for
+  behavior"): the tool lists situations and what he does (told he has new wheels: surprised; their
+  pet died: sympathetic; a sum: plain), with no words to say, since quoted lines get repeated
+  (owner, November 9). The note adds that news about himself he did not know is a jolt first.
+- **Probe**, 20 more paid replies (38 in all): wedding news was saved with a `wiggle` on the save;
+  "I built you new wheels" got `proud` or `wiggle` until the last two changes and `surprised` in
+  3 of 3 after; insult → `skeptical`, absurd claim → `laugh`, proved right → `proud`, and the plain
+  question and small talk stayed plain. In the real run he had also been told about the wheels
+  several times ("I've heard that three times today"), so there a doubtful look would be fair.
+
 Synthetic pulses and a simulated gesture adapter only: how the four new moves look, whether they
-creak, and the pole's travel in `deflated`/`proud` are **not yet seen on the robot**.
+creak, the pole's travel in `deflated`/`proud`, and an expression beginning in the middle of a line
+are **not yet seen on the robot**.
+
+### Unexplained: the hero elbow chattered in the drive stance (run `c36ecba3`)
+
+Owner: after Rex tucked his arms to drive on his own (and never moved, on thick carpet) the hero
+arm's elbow flickered 4–5 times a second until shutdown. The log: `base_park` at 4249.2 sent the
+elbow (channel 4) to 7424, the top of its range and the Maestro's stored limit, with the other
+stance channels; nothing was sent to channel 4 again until `base_release` at 4265.8 (it is held
+against idle and talking in the stance). Meanwhile the approach looked for the person four times
+with the head, travelled 0.0 m and ended `lost`. The microphone, which rides on that arm, read between
+−26 and −43 dBFS through those 16 s (−59 dBFS just before the tuck) and three motor-noise "Oh."
+captures were thrown away. So the host commanded one steady position and the servo did not hold it
+steadily. Not established: why (pressed against its end stop at the limit, supply sag, or the
+servo); there is no servo current or voltage reading. A hand test at 1856 µs from the servo menu,
+and a little below it, would tell.
 
 ## November 15: he wakes with the visor shut
 
 Owner: "the visor stays down over the eyes, and only open the visor when he says his TTS ready
-lines". The startup choreography now sends the visor to closed (`VISOR_DOWN`) instead of open, and
-`RobotServos.start` holds channel 3, so the please-wait line's talking motion moves the head and
-arms but not the visor. Once everything has loaded, `App` calls `eyes_may_open` just before the
-ready line; that line's ordinary talking motion then opens the visor to its speaking range within
-its first 0.1–0.3 s. A hardware notice ("Hardware unavailable…") is spoken in the same breath before
-the ready line, so on such a start the visor opens with the notice. After the line `open_eyes`
-opens the visor to its usual point if it is still shut (no voice, or the talking motion was refused),
-so he is never left awake and blind; a failed startup leaves it shut. His eyes see nothing until
-then (the camera runs but looks at the inside of the visor). Synthetic checks only; not yet seen on the robot.
+lines"; later the same day: "the visor goes up right before the ready lines". The startup
+choreography sends the visor to closed (`VISOR_DOWN`) instead of open, and `RobotServos.start`
+holds channel 3, so the please-wait line's talking motion moves the head and arms but not the visor.
+Once everything has loaded and the ready line's audio is in hand, `App` calls
+`RobotServos.open_eyes`: the hold ends and the visor goes up to its usual open point (board speed
+20, about a second), and then the ready line (or a hardware notice before it) is spoken with its
+ordinary talking motion. If that move is refused the hold is gone all the same, so the line's
+talking motion opens the visor; a failed startup leaves it shut. His eyes see nothing until then
+(the camera runs but looks at the inside of the visor). First live start (run `c36ecba3`, the
+earlier version that opened it during the line): the wake left channel 3 alone and the line opened
+it. The before-the-line order is covered at the robot level by synthetic checks; the `App` call
+order itself is **not yet run on the robot**.
 
 ## November 15: head-lift normal height, surprise rise and pace
 
