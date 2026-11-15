@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from r3x.adapters.audio import Microphone, selected_pcm
 from r3x.adapters.flex import FlexControl
 from r3x.contracts import Capture, Cancellation, ProviderFailure, Transcript
-from r3x.direction import Direction, DirectionSample, coordinates, summarize
+from r3x.direction import ARRAY_OFFSET_DEG, Direction, DirectionSample, coordinates, summarize
 from r3x.output import TextOutput
 from r3x.perception import Perception
 from r3x.session import Session
@@ -148,7 +148,8 @@ class DirectionTests(unittest.TestCase):
         direction = Direction(control, clock=trace.clock)
         for _ in range(3):
             direction.poll(); trace.at += .1
-        self.assertAlmostEqual(direction.during(99,101)['bearing_deg'],-90)
+        # The owner's calibration (November 15): the array reads about 11 degrees right of the voice.
+        self.assertAlmostEqual(direction.during(99,101)['bearing_deg'],-90+ARRAY_OFFSET_DEG)
         direction.echo_risk=lambda: True
         direction.poll()
         self.assertFalse(direction.samples[-1].eligible)

@@ -41,6 +41,12 @@ def coordinates(bearing):
 # still placed within half this of the truth. October 17 runs: reads took 0.11 s median and
 # 0.16 s at p90, so a 0.15 s limit threw away about one in six samples during speech.
 READ_SECONDS = .2
+# Owner's walk-around calibration, November 15, 2026 (tools/calibrate_mic_direction.py, local/calibration/
+# mic-direction-20261115-001400.json): at eight spots two metres round a still Rex the array read on
+# average 10.7 degrees right of where he stood (errors -32 to +24, two front readings 17 degrees apart),
+# and 475 head turns to a face since September lean the same way. Readings are turned this far left;
+# the trace keeps the array's own value. A spot-by-spot table would only fit one lap's scatter.
+ARRAY_OFFSET_DEG = 10.7
 
 
 @dataclass(frozen=True)
@@ -149,7 +155,8 @@ class Direction:
         now = self.clock()
         if before_echo or self.echo_risk():
             self.last_echo = now
-        beam = wrap(math.degrees(radians))
+        raw = wrap(math.degrees(radians))
+        beam = wrap(raw + ARRAY_OFFSET_DEG)
         sample = DirectionSample((began+now)/2, float(doa), beam, energy,
                                  now-began <= READ_SECONDS and now-self.last_echo > .4)
         with self.lock:
@@ -159,7 +166,7 @@ class Direction:
             # 61% of polls the array itself flagged as speech, and only a run with the others
             # logged can show whether another beam carries it.
             self.trace.emit('direction_sample', sampled_at=sample.at, doa_deg=doa,
-                speech_flag=bool(flag), beam_deg=beam, speech_energy=energy,
+                speech_flag=bool(flag), beam_deg=beam, raw_beam_deg=raw, speech_energy=energy,
                 beam_energies=[round(e) if math.isfinite(e) else None for e in energies],
                 eligible=sample.eligible, read_seconds=now-began)
 

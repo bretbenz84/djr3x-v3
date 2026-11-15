@@ -25,7 +25,7 @@ import threading
 import time
 
 from r3x.contracts import Cancellation, ProviderFailure
-from r3x.direction import Direction, summarize, wrap
+from r3x.direction import ARRAY_OFFSET_DEG, Direction, summarize, wrap
 from r3x.settings import ScratchPaths
 
 # Rex's frame: degrees from straight ahead, positive to his left (the array's own convention).
@@ -112,7 +112,8 @@ def run(args, paths):
                        'status': evidence['status'], 'reason': evidence['reason'],
                        'measured_deg': evidence['bearing_deg'] if evidence['bearing_deg'] is not None else strongest,
                        'clusters': evidence['clusters'],
-                       'samples': [{'at': round(s.at - began, 2), 'beam_deg': round(s.beam, 1), 'doa_deg': s.doa,
+                       'samples': [{'at': round(s.at - began, 2), 'beam_deg': round(s.beam, 1),
+                                    'raw_beam_deg': round(wrap(s.beam - ARRAY_OFFSET_DEG), 1), 'doa_deg': s.doa,
                                     'energy': round(s.energy), 'eligible': s.eligible} for s in window]}
                 if evidence['status'] != 'unavailable':
                     break
@@ -132,6 +133,7 @@ def run(args, paths):
     summary = {'readings': len(errors), 'of': len(results),
                'mean_error_deg': round(circular_mean(errors), 1) if errors else None,
                'worst_error_deg': round(max(errors, key=abs), 1) if errors else None}
+    summary['correction_applied_deg'] = ARRAY_OFFSET_DEG   # measured_deg is as Rex reads it, after the correction.
     path.write_text(json.dumps({'when': time.strftime('%Y-%m-%d %H:%M:%S'), 'positive': 'left of straight ahead',
                                 'summary': summary, 'positions': results}, indent=1))
     print('\nPosition       true  heard  error')

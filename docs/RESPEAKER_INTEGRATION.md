@@ -97,3 +97,30 @@ pass, including this near-forward regression; revised wording awaits live use.
   checks do not establish Bret/JT discrimination or acoustic AEC quality.
 - Synthetic PCM microbenchmark: 10,000 stereo blocks processed in 1.10 s,
   about 0.11 ms per 32 ms block (0.34% of one core at real-time rate).
+
+## Direction calibration — November 15, 2026
+
+After Rex drove toward a voice the array had placed about 26° off, the owner walked round a still
+Rex with `tools/calibrate_mic_direction.py`, counting aloud about two metres from his body at eight
+spots and once more in front (`local/calibration/mic-direction-20261115-001400.json`, one lap).
+
+| Spot | Stood (° left) | Array read | Error |
+| --- | --- | --- | --- |
+| front | 0 | −15 | −15 |
+| front-left | 45 | 22 | −23 |
+| left | 90 | 74 | −16 |
+| back-left | 135 | 130 | −5 |
+| back | 180 | 173 | −7 |
+| back-right | −135 | −147 | −12 |
+| right | −90 | −66 | +24 (a second cluster at −108) |
+| front-right | −45 | −54 | −9 |
+| front again | 0 | −32 | −32 |
+
+The beam azimuth and the DoA register agree, the beam holds its last value through pauses, and only
+6–37 polls per spot passed the energy floor. The average error is 10.7° to the right; 475 head turns
+that aimed at a face since September lean the same way, by less. The two front readings differ by
+17°, about the size of the per-spot errors, so one lap supports a single offset, not a table:
+`ARRAY_OFFSET_DEG = 10.7` turns every reading left (`direction.py`), and `direction_sample` keeps the
+array's own value as `raw_beam_deg`. With it the lap's errors run −21 to +35° with the mean near zero;
+expect the array to remain about ±20° off at any spot. A second lap (`--laps 2`) would show whether the
+spot-to-spot pattern repeats. Checked against a simulated array; not yet used live.
