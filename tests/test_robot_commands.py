@@ -154,7 +154,7 @@ class PoseTests(unittest.TestCase):
         from r3x.servo_poses import GESTURES, HEAD_PAIR, head_pose
         self.run_pose('look_down')
         before, held = dict(self.port.pose), set(self.owner.held_channels)
-        for name in ('perplexed', 'wiggle', 'sympathetic', 'nod'):
+        for name in ('perplexed', 'wiggle', 'sympathetic', 'nod', 'laugh', 'skeptical', 'deflated', 'proud'):
             self.assertIn(name, GESTURES)
             self.port.packets.clear()
             self.assertEqual(self.run_pose(name).status, 'pulses_reached')
@@ -162,7 +162,7 @@ class PoseTests(unittest.TestCase):
             self.assertEqual(self.owner.held_channels, held)                # The expression itself holds nothing.
             sent = [(p[1], p[2]+128*p[3]) for p in self.port.targets if p[1] in HEAD_PAIR]
             cocked = [abs(head_pose(dict(sent[i:i+2]))[1]) for i in range(0, len(sent), 2)]
-            self.assertGreater(max(cocked), .3 if name != 'nod' else -1)     # It visibly cocked (or nodded).
+            self.assertGreater(max(cocked), .3 if name in ('perplexed', 'wiggle', 'sympathetic', 'skeptical') else -1)   # It visibly cocked (the others pitch).
         self.assertAlmostEqual(head_pose(self.port.pose)[0], -.8, delta=.03)   # Still looking down afterwards.
 
     def test_head_pair_is_never_sent_alone_or_outside_the_measured_envelope(self):

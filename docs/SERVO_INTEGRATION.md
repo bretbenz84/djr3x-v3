@@ -6,6 +6,37 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 15: feelings on his body
+
+Owner: "I'd like the servo animations to be more emotionally based. I'm not sure the LLM is choosing
+stuff like that much." Measured from the session logs: under the earlier reply model he sent a line
+with a head expression in 360 of about 4,200 replies (about one in eight in October), all but four
+at the `subtle` half size, never `surprised`; 284 reached the servos. Since replies moved to Claude
+(November 14–15): none in 119 replies. An expression only happens when the model sends its line
+through `respond_with_gesture` instead of plain text, and the wording told it to "keep most lines
+plain", "about one line in four at most".
+
+- **Wording.** The tool and the per-turn note now say the opposite: a line carrying a feeling that
+  someone watching would name goes out with the matching expression, `normal` the usual size; a plain
+  answer, small talk and everyday attitude stay plain text. Still one generation per reply.
+- **Four more feelings**, each a finite move that returns (`HEAD_EXPRESSIONS`, also `set_robot_pose`
+  steps and plan gestures): `laugh` (the head rocks back twice, eased, the pole 200 pulses higher;
+  about 2.4 s), `skeptical` (a slow sideways cock with the visor half shut, `VISOR_SQUINT` 6350, held
+  1.1 s), `deflated` (head down 0.45, pole 500 lower, visor half shut, slow, held 1.2 s; about 3.3 s)
+  and `proud` (chin up 0.3, pole 700 higher, held 1 s). An expression may now move the visor and the
+  lift pole in lanes of their own, which stay until the head starts back; `subtle` halves everything.
+  The half-shut visor covers part of his view for that second or two.
+- **Probe** (`tools/check_gestures.py --live`, real Claude Sonnet 5.5 replies through the production
+  session, simulated gestures, made-up lines; 18 paid replies in all). First wording: 9 of 10 lines
+  got an expression, `proud` on five of them including "what is seven times eight". After adding
+  that plain lines stay plain: 5 of 8, the three plain lines plain, and lottery news → `surprised`,
+  an insult and a nonsense claim → `skeptical`, being proved right → `proud`, a roast → `laugh`
+  (earlier run: a death → `sympathetic`). One reply each, one person, no history: how often he
+  does it in a real evening, and whether he varies it, is **unmeasured**.
+
+Synthetic pulses and a simulated gesture adapter only: how the four new moves look, whether they
+creak, and the pole's travel in `deflated`/`proud` are **not yet seen on the robot**.
+
 ## November 15: he wakes with the visor shut
 
 Owner: "the visor stays down over the eyes, and only open the visor when he says his TTS ready
@@ -17,7 +48,7 @@ its first 0.1–0.3 s. A hardware notice ("Hardware unavailable…") is spoken i
 the ready line, so on such a start the visor opens with the notice. After the line `open_eyes`
 opens the visor to its usual point if it is still shut (no voice, or the talking motion was refused),
 so he is never left awake and blind; a failed startup leaves it shut. His eyes see nothing until
-then; nothing reads the camera before the ready line. Synthetic checks only; not yet seen on the robot.
+then (the camera runs but looks at the inside of the visor). Synthetic checks only; not yet seen on the robot.
 
 ## November 15: head-lift normal height, surprise rise and pace
 

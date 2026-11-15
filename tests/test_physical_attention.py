@@ -65,7 +65,7 @@ class PhysicalMotionTests(unittest.TestCase):
     def test_gestures_return_to_start_and_do_not_touch_microphone(self):
         adapter=PhysicalGesture(self.robot);adapter.start()
         from r3x.servo_poses import GESTURE_PRIMITIVES, head_pose
-        self.assertEqual(set(GESTURE_PRIMITIVES), {'nod','tilt','perplexed','wiggle','sympathetic','surprised','lift','arm_emphasis'})
+        self.assertEqual(set(GESTURE_PRIMITIVES), {'nod','tilt','perplexed','wiggle','sympathetic','surprised','laugh','skeptical','deflated','proud','lift','arm_emphasis'})
         for primitive in GESTURE_PRIMITIVES:
             for intensity in ('subtle','normal'):
                 before=self.port.pose.copy();self.port.packets.clear()
@@ -102,6 +102,19 @@ class PhysicalMotionTests(unittest.TestCase):
                         visor=[value for ch,value in sent if ch==3]
                         self.assertEqual(visor[-1],before[3])
                         self.assertEqual(visor[0],round(before[3]+(4544-before[3])*scale))
+                    elif primitive in ('laugh','skeptical','deflated','proud'):
+                        # Owner, November 15: feelings that use the whole head. Where each takes the head pair,
+                        # the lift pole and the visor (None: it stays), from the level, open, normal-height start.
+                        from r3x.servo_poses import VISOR_SQUINT
+                        pitch_by,tilt_by,lift_by,squint={'laugh':(.2,0.,200,False),'skeptical':(-.05,.4,None,True),
+                                                         'deflated':(-.45,0.,-500,True),'proud':(.3,0.,700,False)}[primitive]
+                        self.assertAlmostEqual(pitch,pitch_by*scale,delta=.03);self.assertAlmostEqual(tilt,tilt_by*scale,delta=.03)
+                        self.assertEqual([value for ch,value in sent if ch==1],
+                                         [] if lift_by is None else [round(before[1]+lift_by*scale),before[1]])
+                        self.assertEqual([value for ch,value in sent if ch==3],
+                                         [round(before[3]+(VISOR_SQUINT-before[3])*scale),before[3]] if squint else [])
+                        if primitive=='laugh':   # Two rocks back, eased, never snapped.
+                            self.assertEqual([round(p,1) for p,_ in poses],[round(v*scale,1) for v in (.2,-.06,.2,-.06)])
                     elif primitive=='sympathetic': # One slow cock, slightly down, held.
                         self.assertEqual(len(poses),1)
                         self.assertAlmostEqual(tilt,.45*scale,delta=.03);self.assertAlmostEqual(pitch,-.15*scale,delta=.03)

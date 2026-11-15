@@ -6,6 +6,18 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Head lift, a shut-eyed wake and feelings on his body — November 15
+
+Owner requests. The head lift's normal height is 1093 µs, `surprised` sends it to 2310 µs, and the
+lift's own moves are slightly quicker; he wakes with the visor shut and it opens as he says his ready
+line; and a line with a feeling in it now goes out with a matching expression, with four new ones
+(laugh, skeptical, deflated, proud) beside the six there were
+([details](SERVO_INTEGRATION.md#november-15-feelings-on-his-body)). Before: no expression in 119
+Claude replies. After, on a paid probe of made-up lines (18 replies): the lines with a feeling got a
+fitting expression and the plain ones stayed plain. Synthetic checks (simulated board and gestures)
+otherwise. **Nothing here has been seen on the robot,** and how often he shows a feeling over a real
+evening is unmeasured.
+
 ## "It's done" updates a saved plan — November 15
 
 Run `c9755a3e`: Rex ended a hardware report with "The drivetrain upgrade can't come soon enough" after the

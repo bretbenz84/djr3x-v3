@@ -603,6 +603,9 @@ POKER_TAIL_TRAIL = (.5, .8)        # The wrist arrives this much later.
 # "subtle" halves the amounts. 'side' expressions cock away from any lean already there.
 # 'ease' (least seconds, seconds per degree) moves each step on one smooth curve timed by its
 # size, like idle and talking head moves, instead of the board's fixed speed and acceleration.
+# 'visor' (pulse, speed, acceleration) and 'lift' ('to' a pulse or 'by' pulses from where it
+# stands, speed, acceleration) join in on lanes of their own and hold until the head starts back.
+VISOR_SQUINT = 6350   # Half shut: a narrowed, unimpressed eye (about midway between open and closed).
 HEAD_EXPRESSIONS = {
     'nod': {'moves': ((-.3, 0., .25), (.1, 0., .25)), 'speed': 35},
     'tilt': {'moves': ((0., .6, .5),), 'speed': 20, 'side': True},                  # One cock and back.
@@ -615,7 +618,20 @@ HEAD_EXPRESSIONS = {
     # The visor snaps wide open to its surprise position as the head tips up a little and the
     # head lift rises to its surprise height; all hold, then ease back (owner, October 11: visor
     # surprise is 1136 us; November 15: the lift goes to 2310 us).
-    'surprised': {'moves': ((.15, 0., .8),), 'speed': 40, 'visor': VISOR_SURPRISE, 'lift': HEAD_LIFT_SURPRISE},
+    'surprised': {'moves': ((.15, 0., .8),), 'speed': 40, 'visor': (VISOR_SURPRISE, 70, 0),
+                  'lift': ('to', HEAD_LIFT_SURPRISE, SURPRISE_LIFT_SPEED, SURPRISE_LIFT_ACCEL)},
+    # Owner, November 15: "I'd like the servo animations to be more emotionally based." Four more
+    # feelings, each using the whole head: the two head servos, the lift pole and the visor.
+    # A laugh: the head rocks back twice, riding a little higher, each rock eased like the wiggle.
+    'laugh': {'moves': ((.2, 0., .05), (-.06, 0., .05), (.2, 0., .05), (-.06, 0., .05)), 'ease': (.3, .03),
+              'lift': ('by', 200, HEAD_LIFT_SPEED, HEAD_LIFT_ACCEL)},
+    # Unimpressed: a slow cock to one side with the visor narrowed, held (the deadpan look).
+    'skeptical': {'moves': ((-.05, .4, 1.1),), 'speed': 14, 'acceleration': 3, 'side': True, 'visor': (VISOR_SQUINT, 25, 5)},
+    # Crestfallen: the head sinks, the pole drops and the visor droops, slowly, held, then he gathers himself.
+    'deflated': {'moves': ((-.45, 0., 1.2),), 'speed': 12, 'acceleration': 3, 'visor': (VISOR_SQUINT, 12, 3),
+                 'lift': ('by', -500, 12, 3)},
+    # Pleased with himself: chin up and standing taller, held.
+    'proud': {'moves': ((.3, 0., 1.),), 'speed': 14, 'acceleration': 3, 'lift': ('by', 700, HEAD_LIFT_SPEED, HEAD_LIFT_ACCEL)},
 }
 GESTURE_PRIMITIVES = (*HEAD_EXPRESSIONS, 'lift', 'arm_emphasis')
 
@@ -752,10 +768,12 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
             spec = HEAD_EXPRESSIONS[primitive]
             rise, high = 0., None
             if 'lift' in spec:
-                # The lift pole takes longer than the visor and the head pair: they hold their
-                # pose while it rises, so everything is up together and settles back together.
-                high = round(current[1] + (spec['lift'] - current[1]) * scale)
-                rise = board_seconds(abs(high - current[1]), SURPRISE_LIFT_SPEED, SURPRISE_LIFT_ACCEL)
+                how, amount, lift_speed, lift_accel = spec['lift']
+                high = clamp(1, current[1] + (amount - current[1] if how == 'to' else amount) * scale)
+                if len(spec['moves']) == 1:
+                    # A held pose: the lift pole takes longer than the visor and the head pair, which
+                    # wait for it, so everything is in place together and settles back together.
+                    rise = board_seconds(abs(high - current[1]), lift_speed, lift_accel)
             pitch0, tilt0 = head_pose(current)
             side = (-1. if tilt0 > .2 else 1.) if spec.get('side') else 1.
             start = tuple((ch, current[ch]) for ch in HEAD_PAIR)
@@ -770,16 +788,22 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
                 lane = tuple(Beat(aim,speed=spec['speed'],acceleration=spec.get('acceleration',6),dwell=dwell+rise)
                              for aim,(_,_,dwell) in zip(aims, spec['moves']))
                 lane += (Beat(start,speed=spec['speed'],acceleration=spec.get('acceleration',6)),)
+            # The visor and the lift each move in a lane of their own, at their own pace, and stay
+            # until the head starts back; subtle takes them half as far from where they are.
+            held_for = _lane_seconds(lane[:-1], current)
+            def beside(ch, target, speed, acceleration, back):
+                there = Beat(((ch, target),), speed=speed, acceleration=acceleration)
+                stay = max(.1, held_for - (board_seconds(abs(target - current[ch]), speed, acceleration)
+                                           if acceleration else _lane_seconds((there,), current)))
+                return (replace(there, dwell=stay), Beat(((ch, current[ch]),), speed=back[0], acceleration=back[1]))
             if 'visor' in spec:
-                # Its own lane: the visor snaps (unlimited acceleration) while the head moves
-                # at its own pace; subtle opens it half as far beyond where it is.
-                wide = round(current[3] + (spec['visor'] - current[3]) * scale)
-                extra = ((Beat(((3, wide),), speed=70, acceleration=0, dwell=spec['moves'][0][2]+rise),
-                          Beat(((3, current[3]),), speed=20, acceleration=5)),)
+                # The surprise snaps it open (unlimited acceleration); every way back is gentle.
+                target, speed, acceleration = spec['visor']
+                extra += (beside(3, round(current[3] + (target - current[3]) * scale), speed, acceleration,
+                                 (min(20, speed), min(5, acceleration or 5))),)
             if high is not None:
-                extra += ((Beat(((1, high),), speed=SURPRISE_LIFT_SPEED, acceleration=SURPRISE_LIFT_ACCEL,
-                                dwell=spec['moves'][0][2]),
-                           Beat(((1, current[1]),), speed=HEAD_LIFT_SPEED, acceleration=HEAD_LIFT_ACCEL)),)
+                extra += (beside(1, high, lift_speed, lift_accel,
+                                 (min(HEAD_LIFT_SPEED, lift_speed), min(HEAD_LIFT_ACCEL, lift_accel))),)
         elif primitive == PRIDE_FLOURISH:
             lane, *extra = flourish_lanes(current)
         else:
@@ -1112,7 +1136,8 @@ NAMED_POSES = {
 # One-shot gestures run and return to where they started; nothing is held afterwards. The
 # head expressions (not the plain one-cock 'tilt', which tilt_left/tilt_right cover as held
 # looks) are also steps people can ask for and Rex can plan.
-GESTURES = ('wave', 'arm_dance', 'nod', 'perplexed', 'wiggle', 'sympathetic', 'surprised')
+GESTURES = ('wave', 'arm_dance', 'nod', 'perplexed', 'wiggle', 'sympathetic', 'surprised', 'laugh', 'skeptical',
+            'deflated', 'proud')
 # Owner request October 3: the model chooses between following faces and looking where it
 # decides. look_at_people resumes following faces; any look_* step holds that direction.
 GAZE = ('look_at_people',)

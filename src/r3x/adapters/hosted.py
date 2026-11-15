@@ -768,7 +768,17 @@ class OpenAIBrain(HTTPProvider):
                 notes.append(' Recognition alone must not save a reference. Explicit teaching may use remember_object; '
                     'user-supplied details/corrections may use edit_object_memory. No extra inspection.')
         if snapshot.context.get('attention_enabled') or snapshot.context.get('gesture_enabled'):
-            notes.append('\nPurposeful attention: choose a silent shift or a finite before/after-speech gesture when it expresses a reason. Your head can cock to a side: perplexed for something that does not add up or a question you cannot answer, wiggle for delight or a joke, sympathetic for warmth, surprised (visor flies wide open) for real astonishment, tilt for interest, nod for agreement; pick the one that fits the feeling, not at random, and keep most lines plain. Follow attention.mode, attention_targets and gesture_targets; unfocused gestures express without claiming gaze at an object. Held poses and drive stance take priority. Controller pulse receipts do not prove sight. Your own goal owns later beats. No face is required.')
+            if snapshot.context.get('gesture_enabled'):
+                # Owner, November 15: he rarely showed a feeling (no expression in 119 Claude replies; the
+                # wording had said to keep most lines plain). A feeling now goes out with its expression.
+                notes.append('\nShowing feeling: your body shows what you feel. When your line carries a feeling that someone watching would name (amusement, disbelief, pride, '
+                    'a jab landing or stinging, astonishment, delight, warmth, disappointment), answer through respond_with_gesture with the '
+                    'expression that matches instead of plain text: laugh, skeptical, proud, deflated, surprised, wiggle, sympathetic, perplexed, '
+                    'tilt or nod. It is the same single reply with the same words. A plain answer to a plain question, small talk, and a line '
+                    'with only your everyday attitude in it stay plain text: an expression on every line stops meaning anything. A turn that '
+                    'needs another tool (a save, a look, a drive, a lookup) uses that tool instead. Let the expression follow the feeling, so '
+                    'it changes from line to line.')
+            notes.append('\nPurposeful attention: a silent shift of attention is yours when it expresses a reason. Follow attention.mode, attention_targets and gesture_targets; unfocused gestures express without claiming gaze at an object. Held poses and drive stance take priority. Controller pulse receipts do not prove sight. Your own goal owns later beats. No face is required.')
         if snapshot.context.get('camera_continuity'):
             notes.append('\nThe camera moves with your head. Use camera_continuity plus visual_memory, actual heard remarks and working interests to distinguish a revisited view from a meaningful change. New frame/track IDs and missing/reappearing subjects never reset a question or joke. Similar views are not object identity; two similar objects may remain unresolved. An unresolved question or human reference can justify fresh inspection; reappearance alone normally calls for silence. For useful impersonal object/room descriptions select description_scope general so they survive turns away; people, ownership and private discussion remain audience scoped. General records and their spoken remarks/corrections must stay impersonal.')
         if snapshot.context.get('visual_novelty'):
