@@ -18,9 +18,11 @@ Nine native checks replay a simulated sensor held in reset and let go (73 firmwa
 14 host checks run the notices through the production link, session and output owner with a
 simulated controller. Flashed; the controller answers as 0.2.19 with everything else healthy. Its
 first boot logged the sensors' shared clock wire held low (`SDA high, SCL LOW`) and no answer from
-either sensor: a hung sensor module or a shorted clock wire, which firmware cannot release. **Not
-yet run on the robot:** the recovery (it needs the clock line freed first), the bus restart, and the
-lines aloud. Why a sensor hangs is still unknown.
+either sensor: a hung sensor module, which firmware cannot release. The owner then moved every 3.3 V
+I2C device from the USB-fed controller board to a separate 3.3 V converter; both sensors read again
+and held for the twelve minutes watched, including one of Rex's turns, with brief stalls about once
+a minute. **Not yet run on the robot:** a recovery the firmware can complete, a long run, driving,
+and the lines aloud.
 
 ## Chest light transitions — November 14
 

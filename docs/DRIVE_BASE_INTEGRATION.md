@@ -1628,3 +1628,25 @@ sensor's reset button, or unplugging one sensor at a time to find which holds it
 on this I2C driver, the notices aloud, and whether the dropouts continue. Why the controller
 restarted at 04:02 is unknown; a dip on the 3.3 V supply would explain both that and a hung sensor,
 and has not been measured.
+
+**Same day, after the owner moved the sensors' power.** The boot buttons (the SEN0628's only button is
+BOOT, not reset) and a controller restart changed nothing: six restarts, each `SDA high, SCL LOW`. A
+full power cycle at about 12:36 brought both sensors back; they ran eight minutes with about twenty
+half-second stalls (`publisher stale`, now logged per stall), then hung with the clock held low at
+12:44:57. The recovery path ran on the robot for the first time: both sensors sent back to setup, the
+bus restarted about 28 times, the controller unaffected, the clock still held, as expected. The log
+also shows the controller restarting with no reset clicked: 04:02, 11:46 and 12:17 that day, and 16
+times on November 7, before the motor change. The owner reported the controller was powered only from
+USB, with every 3.3 V device on its regulator, and moved all the 3.3 V I2C devices to a separate
+3.3 V converter with a common ground (about 13:10).
+
+After that, a read-only look through the controller (hello only): front sensor 51 frames in 8 s, rear
+35, all eight ring sensors, no health flags. Over the next twelve minutes: no hang, no setup-again, no
+controller restart, and Rex's own 90 degree turn in session `c9755a3e` ran with depth readings; the
+firmware's log lines appeared in that session's log as `drive_firmware_log`. Stalls continue: 8 in
+about 8 idle minutes and 6 in under 2 minutes with Rex running. The battery menu's log has none
+between October 20 and November 11 across some 25 controller starts, so they belong to the new
+trouble; whether they are the sensors holding the clock briefly or the controller's poll task waiting
+is not known. **Still open:** a longer run, driving, the spoken notices aloud, and a recovery from a
+real dropout that the firmware can actually complete.
+
