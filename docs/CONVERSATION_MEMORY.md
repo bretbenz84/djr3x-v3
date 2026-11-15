@@ -327,5 +327,29 @@ blocked-I/O checks passed.
 
 Not verified: whether the reply model now chooses the update (no paid probe was run, and the
 `check_action_requests.py` set was not rerun after the wording change), and nothing was run on the robot.
+
+**First live test, the same afternoon (run `c36ecba3`): the model chose the update and it was refused.**
+"No, actually, I made new wheels for you. Your wheel upgrade is complete, and your motors are stronger than
+ever." The reply model called `correct_claim` on the November 2 plan with its line inside, as intended; the
+state owner answered `CorrectionNeedsSupportedSourceOrSubject` and a second, plain reply was generated (first
+audio 8.0 s after he stopped speaking). The voice was not masked by motors this time: 6.2 voiced seconds, six
+windows agreeing at .75, no motion or echo flag, his face recognized and alone in view. The microphone's
+direction evidence was `ambiguous` (two clusters, 29° right with 64% of the weight and 1° left with 36%),
+and `SpeakerTracker._profile_match` answered any direction conflict with no candidates at all, so
+`_unconfirmed_self` had nothing to compare with the person Rex was talking to.
+
+- **A direction conflict keeps what the voice sounded like.** The clip still names nobody, joins no track and
+  teaches nothing (same reason, `echo_mixed_or_conflicting`; presence and the carried conversation both still
+  refuse it), but its attribution now lists the saved voices it resembles, as a motion-masked clip's does, when
+  its windows agree. The unconfirmed-fact rule can then keep his news, facts, interests and callouts as
+  candidates on its usual terms (most like the one person there above the floor, nobody else heard or
+  recognized in ten minutes). Rex's own voice in the clip, or two voices in it, still keeps nothing.
+
+Checks: `tests/test_finished_plans.py` adds the live turn (one steady voice, his face, two directions: the plan
+is replaced by a candidate, no speaker confirmed, no recording, no track) and its refusals (a voice like nobody
+there, echo, two voices, windows that disagree); the first fails without the repair. Full run: 1,848 synthetic
+blocked-I/O checks pass. **Not verified:** the sentence's audio was not kept, so how his voice scored on that
+clip is unknown (two short clips that minute scored .44 and .48 against a .25 floor, with one saved voice in the
+store); why the microphone heard two directions is not established; and the repair has not been run on the robot.
 One update names one fact, so when two saved facts cover the same thing the other stays until it is updated
 too. The two stale drivetrain facts were left in the database at the owner's request, for a live test.

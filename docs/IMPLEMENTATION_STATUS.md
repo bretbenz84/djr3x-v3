@@ -29,8 +29,11 @@ had it planned and waiting on parts; no telling was saved or used to update them
 confirmed voice that Rex's motors had masked. News that a saved plan has moved on now updates that fact,
 as a candidate when the voice is unconfirmed, and a refused update is never talked about
 ([details](CONVERSATION_MEMORY.md#november-15-its-done-updates-a-saved-plan)). Six synthetic checks.
-**Not yet run with the reply model or on the robot;** the two stale facts are left in place for the owner's
-live test.
+First live test the same afternoon (`c36ecba3`): the reply model chose the update, and it was refused
+because the microphone heard sound from two directions during the sentence and nothing of the voice was
+kept. Such a clip now keeps what it sounded like, still naming nobody, so the news is kept as a candidate;
+two more synthetic checks. **The repair is not yet run on the robot;** the two stale facts are still in
+place for the owner's next live test.
 
 ## Depth sensors come back by themselves, and he says so — November 15
 

@@ -42,6 +42,49 @@ class FinishedPlanTests(MemoryFixture):
     def status(self, claim):
         return self.store.rows('SELECT status FROM claims WHERE id=?', (claim,))[0]['status']
 
+    def heard_from_two_directions(self, text, vector, seconds=6., **flags):
+        """A clip during which the microphone heard sound from two directions (or other trouble)."""
+        from dataclasses import replace
+        from uuid import uuid4
+        from r3x.contracts import Capture, Transcript
+        from tests.test_speaker_presence import clip
+        self.at += 10
+        capture = Capture(uuid4().hex, 'session', uuid4().bytes*int(2000*seconds), self.at, self.at+seconds,
+                          self.at+seconds, voiced_intervals=((0., seconds),), echo_risk=flags.pop('echo', False))
+        self.state.trace.at = self.at + seconds
+        heard = replace(clip(vector, seconds), **(flags or {'direction_conflict': True}))
+        self.state.begin(uuid4().hex, capture, Transcript(text, -.01, True), heard, [seen(self.person, self.at + seconds)])
+        return self.state.current[4]
+
+    def test_news_heard_from_two_directions_still_updates_his_plan_as_a_candidate(self):
+        # November 15 (c36ecba3): "I made new wheels for you. Your wheel upgrade is complete." One steady
+        # voice, his face the only one in view, and sound from two directions at the microphone. The
+        # update was refused because nothing of the voice was kept.
+        old = self.plan()
+        recordings = self.store.rows('SELECT count(*) AS n FROM recordings')[0]['n']
+        heard = self.heard_from_two_directions('Your wheel upgrade is complete.', MASKED)
+        self.assertEqual((heard.state, heard.reason, heard.speaker_id, heard.track_id),
+                         ('unresolved', 'echo_mixed_or_conflicting', None, None))   # It still names nobody.
+        self.assertEqual(heard.candidates[0][0], self.person)                       # But it sounded like him.
+        result = self.update(old)
+        self.assertEqual(result.outcome, 'ok', result)
+        self.assertEqual((result.data['status'], result.data['supersedes']), ('candidate', old))
+        new = self.store.rows('SELECT * FROM claims WHERE id=?', (result.data['claim_id'],))[0]
+        self.assertIsNone(new['said_by'])                                           # Confirms no speaker.
+        self.assertEqual(self.store.rows('SELECT count(*) AS n FROM recordings')[0]['n'], recordings)
+        self.assertFalse(self.state.tracker.tracks.get(heard.track_id))             # And starts no voice track.
+
+    def test_two_directions_with_a_voice_like_nobody_here_or_other_trouble_leaves_the_plan(self):
+        old = self.plan()
+        self.heard_from_two_directions('Your wheel upgrade is complete.', TOO_FAR)
+        self.assertEqual(self.update(old).reason, 'CorrectionNeedsSupportedSourceOrSubject')
+        # His own voice mixed into the clip, or two voices in it, keeps nothing of the voice.
+        for flags in ({'echo': True}, {'mixed': True}, {'direction_conflict': True, 'consistency': .3}):
+            heard = self.heard_from_two_directions('Your wheel upgrade is complete.', MASKED, **flags)
+            self.assertEqual(heard.candidates, (), flags)
+            self.assertNotEqual(self.update(old).outcome, 'ok', flags)
+        self.assertEqual(self.status(old), 'accepted')
+
     def test_his_masked_news_replaces_the_saved_plan_as_a_candidate(self):
         old = self.plan()
         self.company()

@@ -185,8 +185,19 @@ class SpeakerTracker:
         vector = unit(observation.embedding)
         if observation.namespace != self.namespace or vector is None:
             return Attribution(reason="missing_or_wrong_namespace")
-        if echo or observation.mixed or observation.direction_conflict:
+        if echo or observation.mixed:
             return Attribution(reason="echo_mixed_or_conflicting")
+        if observation.direction_conflict:
+            # Owner, November 15 (c36ecba3): "I made new wheels for you. Your wheel upgrade is complete."
+            # Six seconds of one steady voice (windows agreeing at .75) while the microphone heard sound
+            # from two directions. The clip named nobody, rightly, but what it sounded like was thrown
+            # away too, so the news could not be kept even as a candidate for the one person there.
+            # Sound from two directions lowers confidence; it does not erase the voice (owner, earlier:
+            # degrade, never discard). Still no speaker, no track, no learning: the same reason, with
+            # the saved voices it resembles kept for the state owner's unconfirmed-fact rule.
+            agree = observation.consistency is None or observation.consistency >= p.window_threshold
+            return Attribution(reason="echo_mixed_or_conflicting",
+                               candidates=tuple(self.rank(vector, profiles)[:3]) if agree else ())
         if observation.consistency is not None and observation.consistency < p.window_threshold:
             return Attribution(reason="window_disagreement")
         ranked = self.rank(vector, profiles)
