@@ -246,11 +246,12 @@ class IdleTests(unittest.TestCase):
 
     def test_the_throttle_rests_with_the_shoulder_fully_down_and_gets_out_again(self):
         # Owner, October 21 (later): when it rests, the shoulder relaxes fully; the elbow stays partway.
-        from r3x.servo_poses import (LIMITS,THROTTLE,THROTTLE_RELAXED,THROTTLE_WRIST_SPEED,TUCK,motion_profiles,
+        # November 14: fully relaxed is straight down, inside the reworked shoulder's lower limit.
+        from r3x.servo_poses import (LIMITS,SHOULDER_DOWN,THROTTLE,THROTTLE_RELAXED,THROTTLE_WRIST_SPEED,TUCK,motion_profiles,
                                      pose_lanes,talking_lanes,throttle_clear)
         for relaxed in THROTTLE_RELAXED:
             relaxed=dict(relaxed)
-            self.assertEqual(relaxed[8],LIMITS[8][1])
+            self.assertEqual(relaxed[8],SHOULDER_DOWN)
             self.assertIn(relaxed[9],(8000,8400))
             start={**self.port.pose,**relaxed,0:NECK_CENTER}
             for name in ('throttle_rest','throttle_offer','throttle_high_five','release_poses'):

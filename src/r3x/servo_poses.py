@@ -19,10 +19,11 @@ from types import MappingProxyType
 # Calibrated limits per channel. The October 10 servo-console readings (Maestro
 # microseconds x 4) are the limits of the two head servos and the poker elbow/wrist.
 # Head lift (1): owner, November 12, 832-2496 us (was 656-1936).
+# Throttle shoulder (8): owner, November 14, after its rework, 906-2000 us (was 544-2272).
 LIMITS = MappingProxyType({
     0: (1984, 8960), 1: (3328, 9984), 2: (4032, 8128), 3: (4544, 6976),
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
-    8: (2176, 9088), 9: (2048, 9984), 10: (2048, 9984),
+    8: (3624, 8000), 9: (2048, 9984), 10: (2048, 9984),
     11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
 })
 THROTTLE = (8, 9, 10)
@@ -162,7 +163,7 @@ JOINT_RANGES = {
     'visor': (3, VISOR_DOWN, 4544),
     'hero_elbow': (4, 6300, 7424), 'hero_wrist': (5, 1984, 9984), 'poker_arm': (6, 3968, 8000),
     'hero_arm': (7, 3968, 8000),
-    'throttle_shoulder': (8, 2176, 9088), 'throttle_elbow': (9, 2048, 9984), 'throttle_wrist': (10, 2048, 9984),
+    'throttle_shoulder': (8, *LIMITS[8]), 'throttle_elbow': (9, 2048, 9984), 'throttle_wrist': (10, 2048, 9984),
     'poker_elbow': (12, POKER_ELBOW_DOWN, POKER_ELBOW_UP), 'poker_wrist': (13, POKER_WRIST_DOWN, POKER_WRIST_IN),
 }
 JOINTS = tuple(JOINT_RANGES)
@@ -216,11 +217,17 @@ def joint_percents(commanded) -> dict[str, int]:
     return result
 
 
-PARK = ((8, 9088), (9, 9984), (10, 2048))
-TUCK = ((8, 6544), (9, 8400), (10, 2048))
-REST = ((8, 4200), (9, 7720), (10, 5120))
-FULL_DOWN = ((8, 9088), (9, 5589), (10, 9511))
-RAISED = 2176
+# Throttle shoulder, owner, November 14, after its rework: straight down 1850 us (park and the
+# relaxed rest), 45 degrees up 1240 us (the awake rest) and fully up 906 us (the upper limit).
+# 2000 us, the lower limit, is past straight down and only the joint tool and servo menu reach it.
+# Every other shoulder position below, and the clearance rule's shoulder thresholds, were scaled
+# from the old ones to the same place in the swing between those three points (owner's choice;
+# old fully up 544, awake rest 1050 and fully down 2272 us).
+SHOULDER_DOWN, SHOULDER_45, RAISED = 7400, 4960, 3624
+PARK = ((8, SHOULDER_DOWN), (9, 9984), (10, 2048))
+TUCK = ((8, 6132), (9, 8400), (10, 2048))
+REST = ((8, SHOULDER_45), (9, 7720), (10, 5120))
+FULL_DOWN = ((8, SHOULDER_DOWN), (9, 5589), (10, 9511))
 # Neck pulse where the head physically faces straight along the base. The owner
 # saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
 # driving on September 27; set this from the servo console reading.
@@ -277,7 +284,7 @@ def validate_pose(pose: dict[int, int]) -> None:
 
 
 def full_down_corridor(pose: dict[int, int]) -> bool:
-    return (RAISED - 2 <= pose[8] <= 9088 + 2 and
+    return (RAISED - 2 <= pose[8] <= SHOULDER_DOWN + 2 and
             abs(pose[9] - 5589) <= 2 and abs(pose[10] - 9511) <= 2)
 
 
@@ -309,14 +316,14 @@ def throttle_clear(start: dict[int, int], end: dict[int, int]) -> bool:
     shoulder = max(start[8], end[8])
     elbow = min(start[9], end[9])
     wrist = max(start[10], end[10])
-    minimum = 1546 if shoulder > 6810 else 636 if shoulder > 6546 else 500
+    minimum = 1546 if shoulder > 6263 else 636 if shoulder > 6134 else 500
     if elbow < minimum * 4 - 2:
         return False
     if shoulder <= RAISED + 2:
         return True
-    if shoulder <= 5540 and elbow >= 2046 and wrist <= 9019:
+    if shoulder <= 5629 and elbow >= 2046 and wrist <= 9019:
         return True
-    if shoulder <= 6546:
+    if shoulder <= 6134:
         return wrist <= 6002 or elbow >= 3598
     return elbow >= 6182 and wrist <= 2050
 
@@ -362,8 +369,8 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         neck = (Beat(((0, first),), speed=12, acceleration=3, dwell=.3),
                 Beat(((0, second),), speed=12, acceleration=3, dwell=.3),
                 Beat(((0, NECK_CENTER),), speed=12, acceleration=3, dwell=.2))
-        throttle = bridge + (TUCK, ((8, 4800), (9, 8000), (10, 3800)),
-                             ((8, 3680), (9, 8720), (10, 5920)), REST)
+        throttle = bridge + (TUCK, ((8, 5260), (9, 8000), (10, 3800)),
+                             ((8, 4616), (9, 8720), (10, 5920)), REST)
         lanes = (head, neck, tuple(Beat(p, throttle_duration=1.25) for p in throttle))
         if any(abs(current[ch] - value) > 2 for ch, value in POKER_UP):
             lanes += (poker_lane(current, dict(POKER_UP), speed=12, acceleration=3),)
@@ -426,13 +433,13 @@ TALK_HEAD_SECONDS = 6.     # Head moves planned per talking cycle, so a repeat i
 TALK_TAIL_PACE = 1.
 TALK_TAIL_REACH = .35
 TALK_TAIL_PAUSE = (.4, 1.2)
-THROTTLE_TALK = (((8, 3360), (9, 8560), (10, 7920)), ((8, 4000), (9, 7800), (10, 3800)))
+THROTTLE_TALK = (((8, 4404), (9, 8560), (10, 7920)), ((8, 4828), (9, 7800), (10, 3800)))
 # Owner, October 21: held half-raised for long, the big throttle arm looks like someone
 # straining to hold it up. Between bouts of movement it rests lower: the halfway-down and
 # tucked waypoints of the startup/park route (fully parked would block talking's route).
 # Later that night: the shoulder relaxes fully (its lowest), the elbow stays partway as it was;
 # fully down the wrist must be folded (clearance), and the tuck is the way in and out.
-THROTTLE_RELAXED = (((8, 9088), (9, 8400), (10, 2048)), ((8, 9088), (9, 8000), (10, 2048)))
+THROTTLE_RELAXED = (((8, SHOULDER_DOWN), (9, 8400), (10, 2048)), ((8, SHOULDER_DOWN), (9, 8000), (10, 2048)))
 THROTTLE_MIN_SPEED = 4      # No throttle joint creeps slower than this (board units).
 THROTTLE_WRIST_SPEED, THROTTLE_WRIST_ACCEL = 12, 5   # The gentler wrist while talking and idle.
 TALK_NECK_DEG = (3., 7.)    # Emphasis either side of the addressee (V2's 260 pulses barely read).
@@ -573,8 +580,8 @@ class IdlePhrase:
 # Each arm is one part: when it moves, all of its joints move a little together (owner,
 # October 12: the joints had moved one at a time, which no real arm does).
 IDLE_CHANNELS = {'head': HEAD, 'visor': (3,), 'hero': (4, 5, 7), 'poker': (6, *POKER), 'throttle': THROTTLE}
-THROTTLE_IDLE = (((8,4400),(9,7480),(10,4760)), ((8,3920),(9,8080),(10,5600)),
-                 ((8,4080),(9,7840),(10,4920)), ((8,4480),(9,7640),(10,5360)), REST)
+THROTTLE_IDLE = (((8,5060),(9,7480),(10,4760)), ((8,4776),(9,8080),(10,5600)),
+                 ((8,4880),(9,7840),(10,4920)), ((8,5100),(9,7640),(10,5360)), REST)
 POKER_IDLE = {12: (5200, 6800), 13: (2900, 4700)}   # Around the awake 45-degree pose; under the ceiling.
 # The poker arm's idle sway, like a cat's tail (owner, October 13): (centre, least, most
 # swing either side). The centres are the awake pose (swing 6000, poker_up 6000/3768).
@@ -1006,7 +1013,7 @@ def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True) 
         else:
             stages = [dict(REST), dict(TUCK), dict(PARK)]
     else:
-        route = [dict(TUCK), {8: 4800, 9: 8000, 10: 3800}, {8: 3680, 9: 8720, 10: 5920}, dict(REST)]
+        route = [dict(TUCK), {8: 5260, 9: 8000, 10: 3800}, {8: 4616, 9: 8720, 10: 5920}, dict(REST)]
         stages = ([] if at(REST) or 'throttle' in keep else
                   route if at(PARK) or throttle_clear(start, route[0]) else [dict(REST)])
     previous = start
@@ -1076,8 +1083,8 @@ NAMED_POSES = {
     # Owner, October 22: "put it back to the way it normally goes". Its usual open point, then it moves
     # with speech and idle again (never held).
     'visor_normal': ((3,VISOR_OPEN),),
-    'throttle_offer': ((8,2176),(9,2601),(10,5938)),
-    'throttle_high_five': ((8,2176),(9,9361),(10,6302)),
+    'throttle_offer': ((8,RAISED),(9,2601),(10,5938)),
+    'throttle_high_five': ((8,RAISED),(9,9361),(10,6302)),
     'throttle_down': FULL_DOWN, 'throttle_rest': REST,
     # Poker arm, owner's console readings October 10.
     'poker_out': ((12,4228),(13,5556)),      # Straight out: elbow 1057 us, wrist 1389 us.

@@ -6,6 +6,27 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 14: the reworked throttle shoulder
+
+Owner, after reworking the throttle arm's shoulder (channel 8): lower limit 2000 µs, straight down
+1850 µs (the lower rest), 45° up 1240 µs, upper limit 906 µs (`LIMITS[8]` 3624–8000; was
+544–2272 µs). Low pulses still raise it. Park, `throttle_down` and the relaxed rest stand straight
+down (`SHOULDER_DOWN`, 7400), not at the limit; the awake rest (`REST`) is the 45° point
+(`SHOULDER_45`, 4960); `throttle_offer`, `throttle_high_five` and the raised steps of the park
+route use the new top (`RAISED`, 3624). Only `set_robot_joints` (100 is the 2000 µs limit) and the
+servo menu reach past straight down.
+
+There were no old angle readings, so the owner chose to scale every other shoulder position, and
+the clearance rule's shoulder thresholds, to the same place in the swing, between old fully up
+544 → 906, old awake rest 1050 → 1240 and old fully down 2272 → 1850 µs: tuck 6544 → 6132,
+talking 3360/4000 → 4404/4828, idle 3920–4480 → 4776–5100, the startup route's 4800/3680 →
+5260/4616, thresholds 5540/6546/6810 → 5629/6134/6263. The elbow and wrist are unchanged.
+
+Unseen: whether the scaled poses look right and the clearance rule still keeps the reworked arm
+clear. The Maestro's stored range and home for channel 8 must lie within 906–2000 µs: targets
+outside the range never arrive, and the servo menu's "Restart Pololu" sends every channel to its
+stored home. Not checked against the board. Synthetic checks only; not yet run on the robot.
+
 ## November 12: a new head-lift range, park and normal height
 
 Owner: the head lift (channel 1) runs 832–2496 µs (`LIMITS[1]` 3328–9984; was 656–1936 µs).
@@ -31,7 +52,7 @@ it points while he answers "what are you looking at?".
 `FLAIR_ARM` poses seven times at 0.5 s; the throttle takes its clearance route to `throttle_high_five`, pumps four
 times between it and `THROTTLE_IDLE[1]` at 0.8 s, and routes back; the poker swing, elbow and wrist alternate two
 high/low poses inside the elbow ceiling at 0.7 s, routed in and out. Every arm ends where it started; channel 7
-does not move. From rest the throttle shoulder never goes below rest (4200) nor the elbow below 7720. Synthetic
+does not move. From rest the throttle shoulder never goes below rest (4960 since November 14, was 4200) nor the elbow below 7720. Synthetic
 only (simulated board); physical clearance of these moves is unseen.
 
 ## October 26: a send that "times out" no longer freezes every servo
@@ -543,7 +564,8 @@ robot-specific calibration, not an import of effective local/environment overrid
 The V2 animation still declares headlift floor 1984; its current configuration
 raises the minimum to 2600 and clamps writes. V3 explicitly parks at **2600**.
 Throttle bounds intersect source configuration with V2's measured board endpoints:
-shoulder 2176–9088, elbow/wrist 2048–9984. Park is 9088/9984/2048.
+shoulder 2176–9088, elbow/wrist 2048–9984. Park is 9088/9984/2048. Since November 14 the reworked
+shoulder runs 3624–8000 and parks straight down at 7400.
 
 Maestro readback describes generated pulses, **not shaft feedback or obstruction
 detection**. Receipts say `pulses_reached`, with the simulation/controller medium

@@ -9,7 +9,7 @@ from unittest.mock import patch
 from r3x.app import App
 from r3x.contracts import Cancellation, Capture, Transcript, ProviderFailure
 from r3x.robot_servos import RobotServos
-from r3x.servo_poses import LIMITS
+from r3x.servo_poses import LIMITS, PARK
 from r3x.servos import ServoRequest
 from r3x.settings import Settings
 from r3x.state import CoreState
@@ -52,7 +52,7 @@ class RobotServoTests(unittest.TestCase):
         self.assertEqual(events,['capture_started','capture_cancelled','capture_closed'])
         self.assertTrue(self.port.closed)
         self.assertEqual(self.port.pose[1],LIMITS[1][0])
-        self.assertEqual(self.port.pose[8],9088)
+        self.assertEqual(self.port.pose[8],dict(PARK)[8])
 
     def test_microphone_hold_expires_and_capture_completion_releases_it(self):
         self.robot.start()

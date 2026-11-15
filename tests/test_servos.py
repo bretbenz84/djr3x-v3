@@ -7,7 +7,7 @@ import unittest
 from r3x.adapters.maestro import Maestro
 from r3x.contracts import Cancellation, Playback, ProviderFailure
 from r3x.output import Delivery, OutputOwner
-from r3x.servo_poses import AWAKE_ARMS, HEAD_LIFT_NORMAL, HEAD_PARK, NECK_PER_DEG, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
+from r3x.servo_poses import RAISED, AWAKE_ARMS, HEAD_LIFT_NORMAL, HEAD_PARK, NECK_PER_DEG, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
 from r3x.servos import ARM_RETURN
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 
@@ -142,7 +142,7 @@ class ServoTests(unittest.TestCase):
         self.port.pose.update({8: 0, 9: 9000})
         self.owner.start()
         self.assertEqual(self.owner.energized_channels, (8,))
-        self.assertEqual({ch: self.port.pose[ch] for ch in (8, 9, 10)}, {8: 9088, 9: 9000, 10: 2048})
+        self.assertEqual({ch: self.port.pose[ch] for ch in (8, 9, 10)}, {8: dict(PARK)[8], 9: 9000, 10: 2048})
 
     def test_wake_waits_for_the_board_to_apply_first_pulses(self):
         # Field September 28: channels 5, 7-10 off; wake read them 4 ms after the
@@ -178,7 +178,7 @@ class ServoTests(unittest.TestCase):
         self.assertEqual(self.execute('park').status, 'pulses_reached')
         packets = [p for p in self.port.targets if p[0] == 0x9F]
         poses = [{8+i:p[3+i*2]+128*p[4+i*2] for i in range(3)} for p in packets]
-        self.assertEqual(poses[0], {**dict(FULL_DOWN),8:2176})
+        self.assertEqual(poses[0], {**dict(FULL_DOWN),8:RAISED})
         self.assertEqual(poses[-2:], [dict(TUCK),dict(PARK)])
 
     def test_stale_expired_and_duplicate_requests_do_not_replay(self):

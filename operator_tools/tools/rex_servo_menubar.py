@@ -100,7 +100,7 @@ _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
     "pokerwrist": {"ch": 13, "min": 1984, "max": 9944, "neutral": 5760},  # 496 (down) – 2486 (up inward) µs; straight 1440
     "heroarm":  {"ch": 7, "min": 3968, "max": 8000, "neutral": 6000},
     # Neutral is only an unsent slider placeholder, never a startup command.
-    "throttle_shoulder": {"ch": 8, "min": 2140, "max": 9120, "neutral": 6000,
+    "throttle_shoulder": {"ch": 8, "min": 3624, "max": 8000, "neutral": 6000,  # 906-2000 us (Nov 14 rework); 1850 straight down
                           "speed": 30, "acceleration": 6},
     "throttle_elbow": {"ch": 9, "min": 2000, "max": 10000, "neutral": 6000,
                        "speed": 70, "acceleration": 12},
