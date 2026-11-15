@@ -102,7 +102,7 @@ TOOLS = (
            {"subject_id":NULL_TEXT,"subject_reference":{"type":["string","null"],"description":"For third_party, the person's name as said in this conversation (this utterance or one in the last ten minutes); subject_id is that known person or null for someone not known yet. For self_report, null."},
             "predicate":TEXT,"value":TEXT,"kind":{"type":"string","enum":["self_report","third_party"]},"source_turn_id":TEXT,
             "other_person":OTHER_PERSON}),
-    schema("correct_claim", "Correct a specific prior claim using the current utterance; preserves its source/history. Only its supported source speaker or subject can correct it.",
+    schema("correct_claim", "Update a specific saved fact from the current utterance; its source and history are kept. For a mistake put right, and for news that a saved plan or anything saved as still underway has moved on: it happened, is finished, was cancelled or changed (November 15: told four times that a saved upgrade was installed, the saved plan stayed and kept coming up as still ahead). value restates the fact as it stands now. Its source speaker or its subject can do it. Call it even when the speaker is unresolved (Rex's own motor noise masks voices): code keeps the update as a candidate when the voice fits the person you are talking with.",
            {"claim_id":TEXT,"value":TEXT,"source_turn_id":TEXT}),
     schema("retract_claim", "Retract a prior personal factual claim. Does not cancel voice enrollment or correct a person's name; use cancel_association for rejected identity associations.", {"claim_id":TEXT,"source_turn_id":TEXT}),
     schema("recall_conversations", "Retrieve prior-session conversations for personal_memory.person_id. Use for questions about earlier chats. Time goes in period/after/before, never in query. For last night, yesterday, this morning or earlier today, set period and leave after/before null; code applies the robot's local clock (last_night is 5 PM yesterday to 5 AM today). Other relative times use numeric seconds BEFORE NOW: for about two hours ago use after=9000 and before=5400 (a window around 7200 seconds ago). Two numeric bounds define an age window in either order. For calendar dates use ISO8601 timestamps WITH UTC offset. null means no bound. A period or bounds return that stretch of conversation oldest first. query is topic words only (\"drugs\", \"telescope\"), or null for everything in the period or the most recent exchanges. Results are bounded original utterances and completed spoken replies, not established personal facts; local_time says when each happened. Respect coverage and truncation; never invent an exact greeting count or infer that an absent excerpt means no conversation happened.",
@@ -392,7 +392,8 @@ SPOKEN_RESULT_TOOLS = frozenset({'remember_followup', 'remember_interest', 'reco
                                  'voice_mode', 'callout'})
 # Owner, October 25 (a0afcf85): "He often refuses to save memories and tells me so... never talk about
 # failing to save it." Two refused facts became "I couldn't save that detail" in the continuation.
-MEMORY_SAVES = frozenset({'record_claim', 'remember_interest', 'remember_followup', 'edit_object_memory', 'callout'})
+MEMORY_SAVES = frozenset({'record_claim', 'remember_interest', 'remember_followup', 'edit_object_memory', 'callout',
+                          'correct_claim'})
 RESULT_TEXT = {'type': ['string', 'null'], 'description': 'Your whole spoken reply this turn, said only once this '
                'succeeds; answer them naturally. It may acknowledge what you were told but never claim more than '
                'this tool does. null when you need to see the result before replying.'}

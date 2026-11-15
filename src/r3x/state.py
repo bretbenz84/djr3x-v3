@@ -1177,7 +1177,8 @@ class CoreState:
         voice (.36, .54), and Rex said he couldn't save them. The fact is kept as a candidate:
         said_by stays empty and the turn keeps the acoustic evidence, so it never confirms who
         spoke, enrolls a voice or replaces an accepted fact. A clip that sounds like nobody here,
-        or another voice this visit, still keeps it off anyone's record."""
+        or another voice this visit, still keeps it off anyone's record. November 15: their news
+        that a saved fact has moved on (correct_claim) is let through on the same terms."""
         from .present import COMPANY_SECONDS, followed
         turn_id,capture,transcript,observation,attribution = self.current
         now = self.trace.clock()
@@ -1739,7 +1740,20 @@ class CoreState:
             claim = conn.execute("SELECT * FROM claims WHERE id=?",(args["claim_id"],)).fetchone()
             if not claim or claim["status"] not in {"accepted","candidate"}:
                 raise ValueError("UnknownOrRetiredClaim")
-            if not attribution.speaker_id or attribution.speaker_id not in (claim["said_by"],claim["subject_id"]):
+            speaker = attribution.speaker_id
+            if speaker is None and name == "correct_claim":
+                # Owner, November 15 (c9755a3e): "The drivetrain upgrade is complete. I've told you that
+                # multiple times." Two saved facts still had it planned and waiting on parts; his voice was
+                # unconfirmed under Rex's motors (.51, .53), so no correction could have gone through. News
+                # from the person Rex is talking with updates their fact as a candidate, on the terms of an
+                # unconfirmed fact (October 25). Retracting still needs a confirmed voice.
+                try:
+                    teller = self._unconfirmed_self(None)
+                except ValueError:
+                    raise ValueError("CorrectionNeedsSupportedSourceOrSubject") from None
+            else:
+                teller = speaker
+            if not teller or teller not in (claim["said_by"],claim["subject_id"]):
                 raise ValueError("CorrectionNeedsSupportedSourceOrSubject")
             if name == "correct_claim" and args["value"] == claim["value"]:
                 # October 15 (2f85db5c): asked which room this was, the reply "corrected" the wine
@@ -1749,11 +1763,12 @@ class CoreState:
             if name == "retract_claim":
                 return {"claim_id":claim["id"],"status":"retracted"},True
             claim_id = uuid4().hex
-            kind = "self_report" if attribution.speaker_id==claim["subject_id"] else "third_party"
+            kind = "self_report" if teller==claim["subject_id"] else "third_party"
+            status = "accepted" if speaker else "candidate"   # Unconfirmed: said_by stays empty.
             conn.execute(CLAIM_INSERT,(claim_id,claim["subject_id"],claim["predicate"],args["value"],
-                         attribution.speaker_id,attribution.track_id,turn_id,kind,"accepted",claim["id"],self.store.revision+1,
+                         speaker,attribution.track_id,turn_id,kind,status,claim["id"],self.store.revision+1,
                          self.wall_clock(),claim["mentions_id"]))
-            return {"claim_id":claim_id,"status":"accepted","supersedes":claim["id"],"subject_id":claim["subject_id"],
+            return {"claim_id":claim_id,"status":status,"supersedes":claim["id"],"subject_id":claim["subject_id"],
                     "subject_name":self.store.person(claim["subject_id"])["name"],"predicate":claim["predicate"],"value":args["value"]},True
         if name == "cancel_association":
             if not args["person_id"] and not args["track_id"]:

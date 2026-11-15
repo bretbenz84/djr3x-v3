@@ -6,6 +6,17 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## "It's done" updates a saved plan — November 15
+
+Run `c9755a3e`: Rex ended a hardware report with "The drivetrain upgrade can't come soon enough" after the
+owner had told him four times in two days that it was installed. Two saved facts (November 2 and 8) still
+had it planned and waiting on parts; no telling was saved or used to update them, and a correction needed a
+confirmed voice that Rex's motors had masked. News that a saved plan has moved on now updates that fact,
+as a candidate when the voice is unconfirmed, and a refused update is never talked about
+([details](CONVERSATION_MEMORY.md#november-15-its-done-updates-a-saved-plan)). Six synthetic checks.
+**Not yet run with the reply model or on the robot;** the two stale facts are left in place for the owner's
+live test.
+
 ## Depth sensors come back by themselves, and he says so — November 15
 
 Owner request, after the front 8x8 depth sensor kept dropping out and only a power cycle revived it.

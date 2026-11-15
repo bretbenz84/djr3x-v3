@@ -289,3 +289,43 @@ of a story" were added).
 
 Not yet run on the robot. The run left a name-only "Jennifer" person record from the mistaken introduction;
 removing it is the owner's database edit to make.
+
+## November 15: "it's done" updates a saved plan
+
+Owner, run `c9755a3e`: "The drivetrain upgrade is complete. I've told you that multiple times." Asked how his
+hardware was checking out, Rex had ended with "The drivetrain upgrade can't come soon enough, Bret." Two
+accepted facts reached every reply: November 2, "plans to install an upgraded drivetrain ... parts arrive
+tomorrow" (marked "its planned time was 12 days ago; whether it happened is unknown"), and November 8, "is
+designing a completely new motor base; the parts are waiting to be 3D printed" (no time, so it read as
+current). The owner said it was installed four times (November 14 at 10:28, 10:34 and 11:34 PM, November 15
+at 1:21 PM). Two tellings were talked over by his own next words and the reply went to the later words; two
+got a joke. No tool was called on any of them. On two of the four his voice was unconfirmed under Rex's
+motors (.51, .53), where `correct_claim` would have been refused. Across restarts Rex carries saved facts
+and the last four exchanges, and the night's last four were driving requests.
+
+Repairs:
+- **News from an unconfirmed voice updates the fact as a candidate** (`correct_claim` in `CoreState._apply`).
+  When no speaker is confirmed, the update goes through for the person Rex is talking with on the same terms
+  as an unconfirmed fact (October 25, `_unconfirmed_self`): the clip sounds most like them above the floor,
+  and nobody else was heard or recognized in ten minutes. The old fact is superseded; the new one is a
+  candidate with `said_by` empty, so it confirms no speaker and feeds no voice learning. This is the one case
+  where a candidate replaces an accepted fact (owner's choice, November 15). They can update only a fact
+  they told or that is about them. `retract_claim` still needs a confirmed voice.
+- **The reply model is told this is an update.** The `correct_claim` description and the memory guidance say
+  that hearing a saved plan, or anything saved as still underway, has happened, finished, been cancelled or
+  changed is `correct_claim` on that fact in that turn, with the reply in its text; "I already told you" is
+  the same news; and something saved as underway days ago is never talked about as still to come.
+- **A refused update is never mentioned**: `correct_claim` joins the saves whose refusal carries the
+  October 25 developer note.
+
+Verification: `tests/test_finished_plans.py`, six synthetic checks through the production state owner and
+Session: masked news replaces the plan as a candidate and reaches his memory without voice learning;
+confirmed news replaces it as accepted; a voice like nobody here, another voice this visit or another
+recognized person leaves the plan; a masked voice cannot update someone else's fact or retract his own; a
+refused update is answered without its draft or talk of saving. `run_checks.py --changed`: 1,546 synthetic
+blocked-I/O checks passed.
+
+Not verified: whether the reply model now chooses the update (no paid probe was run, and the
+`check_action_requests.py` set was not rerun after the wording change), and nothing was run on the robot.
+One update names one fact, so when two saved facts cover the same thing the other stays until it is updated
+too. The two stale drivetrain facts were left in the database at the owner's request, for a live test.
