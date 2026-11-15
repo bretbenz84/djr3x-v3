@@ -95,7 +95,7 @@ class PhysicalMotionTests(unittest.TestCase):
                     elif primitive=='wiggle':      # Alternation, level.
                         self.assertEqual([round(t/abs(t)) for _,t in poses],[1,-1,1])
                         self.assertTrue(all(abs(p)<.02 for p,_ in poses))
-                    elif primitive=='surprised':   # The head tips up and rises high while the visor flies open; all return.
+                    elif primitive=='surprised':   # The head tips up and rises high while the visor opens wide; all return.
                         self.assertAlmostEqual(pitch,.15*scale,delta=.03);self.assertAlmostEqual(tilt,0.,delta=.03)
                         lift=[value for ch,value in sent if ch==1]
                         self.assertEqual(lift,[round(before[1]+(2310*4-before[1])*scale),before[1]])

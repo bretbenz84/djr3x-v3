@@ -62,6 +62,12 @@ Synthetic pulses and a simulated gesture adapter only: how the four new moves lo
 creak, the pole's travel in `deflated`/`proud`, and an expression beginning in the middle of a line
 are **not yet seen on the robot**.
 
+**Later still: a gentler surprised visor.** Owner: the visor "is shooting up way too fast". It went to
+`VISOR_SURPRISE` at speed 70 with unlimited acceleration, about 0.2 s, while the lift took 1.5 s.
+It now goes at speed 20, acceleration 4: it eases in and out and takes about 1 s from the open
+neutral (1.2 s from the most-closed talking position), still a little ahead of the lift. The way back
+eases the same way at that pace (it was speed 20, acceleration 5). **Not yet seen on the robot.**
+
 ### Unexplained: the hero elbow chattered in the drive stance (run `c36ecba3`)
 
 Owner: after Rex tucked his arms to drive on his own (and never moved, on thick carpet) the hero

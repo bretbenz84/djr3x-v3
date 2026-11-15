@@ -19,7 +19,9 @@ than after the line, and the visor goes up just before the ready line. On a paid
 lines (38 replies) the lines with a feeling got a fitting expression, new wheels got `surprised`, and
 plain ones stayed plain. Synthetic checks (simulated board and gestures) otherwise. **Only the first
 shut-visor start has been seen on the robot,** how often he shows a feeling over a real evening is
-unmeasured, and a hero-elbow chatter in the drive stance during that run is unexplained.
+unmeasured, and a hero-elbow chatter in the drive stance during that run is unexplained. Later: the
+`surprised` visor shot up too fast (about 0.2 s, no ramp); it now eases open in about 1 s, still a
+little ahead of the lift (not yet seen on the robot).
 
 ## "It's done" updates a saved plan — November 15
 

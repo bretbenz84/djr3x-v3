@@ -615,10 +615,12 @@ HEAD_EXPRESSIONS = {
     # 1.5 s on the steepest head ramp of any expression). Each swing now eases in and out: about 3 s.
     'wiggle': {'moves': ((0., .35, .15), (0., -.35, .15), (0., .35, .15)), 'ease': (.35, .03)},
     'sympathetic': {'moves': ((-.15, .45, 1.2),), 'speed': 12, 'acceleration': 3, 'side': True},   # Slow cock, slightly down, held.
-    # The visor snaps wide open to its surprise position as the head tips up a little and the
-    # head lift rises to its surprise height; all hold, then ease back (owner, October 11: visor
-    # surprise is 1136 us; November 15: the lift goes to 2310 us).
-    'surprised': {'moves': ((.15, 0., .8),), 'speed': 40, 'visor': (VISOR_SURPRISE, 70, 0),
+    # The visor opens wide to its surprise position as the head tips up a little and the head
+    # lift rises to its surprise height; all hold, then ease back (owner, October 11: visor
+    # surprise is 1136 us; November 15: the lift goes to 2310 us). Owner, November 15: the visor
+    # shot up way too fast (speed 70, no ramp: about 0.2 s). It now eases up in about 1 s from
+    # the open neutral, a little ahead of the lift's 1.5 s.
+    'surprised': {'moves': ((.15, 0., .8),), 'speed': 40, 'visor': (VISOR_SURPRISE, 20, 4),
                   'lift': ('to', HEAD_LIFT_SURPRISE, SURPRISE_LIFT_SPEED, SURPRISE_LIFT_ACCEL)},
     # Owner, November 15: "I'd like the servo animations to be more emotionally based." Four more
     # feelings, each using the whole head: the two head servos, the lift pole and the visor.
@@ -797,7 +799,7 @@ def expressive_lanes(current, kind, target, primitive, intensity, hold_seconds, 
                                            if acceleration else _lane_seconds((there,), current)))
                 return (replace(there, dwell=stay), Beat(((ch, current[ch]),), speed=back[0], acceleration=back[1]))
             if 'visor' in spec:
-                # The surprise snaps it open (unlimited acceleration); every way back is gentle.
+                # Acceleration 0 moves it at once (unlimited); every way back is gentle.
                 target, speed, acceleration = spec['visor']
                 extra += (beside(3, round(current[3] + (target - current[3]) * scale), speed, acceleration,
                                  (min(20, speed), min(5, acceleration or 5))),)

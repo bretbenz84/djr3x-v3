@@ -244,8 +244,9 @@ class PoseTests(unittest.TestCase):
         self.run_pose('visor_up')
         self.assertEqual(self.port.pose[3], VISOR_UP)             # Lowered, it still rises again.
 
-    def test_surprised_snaps_the_visor_wide_open_and_returns_it(self):
-        from r3x.servo_poses import HEAD_PAIR, VISOR_SURPRISE, VISOR_UP, head_pose
+    def test_surprised_eases_the_visor_wide_open_and_returns_it(self):
+        from r3x.servo_poses import (HEAD_EXPRESSIONS, HEAD_LIFT_NORMAL, HEAD_PAIR, SURPRISE_LIFT_ACCEL,
+                                     SURPRISE_LIFT_SPEED, VISOR_OPEN, VISOR_SURPRISE, VISOR_UP, board_seconds, head_pose)
         self.run_pose('visor_up')
         self.assertEqual(self.run_pose('release_poses').status, 'pulses_reached')
         before = dict(self.port.pose)
@@ -253,8 +254,15 @@ class PoseTests(unittest.TestCase):
         self.assertEqual(self.run_pose('surprised').status, 'pulses_reached')
         visor = [p[2]+128*p[3] for p in self.port.targets if p[1] == 3]
         self.assertEqual(visor, [VISOR_SURPRISE, VISOR_UP])                  # Wide open, then back.
-        snap = [p for p in self.port.packets if p[0] == 0x89 and p[1] == 3][0]
-        self.assertEqual(snap[2] + 128*snap[3], 0)                           # It snaps: unlimited acceleration.
+        # Owner, November 15: it shot up way too fast (no ramp, about 0.2 s). It eases in now and
+        # takes about a second from the open neutral, still ahead of the head lift.
+        _, speed, acceleration = HEAD_EXPRESSIONS['surprised']['visor']
+        ramp = [p for p in self.port.packets if p[0] == 0x89 and p[1] == 3][0]
+        self.assertEqual(ramp[2] + 128*ramp[3], acceleration)
+        self.assertGreater(acceleration, 0)
+        opening = board_seconds(VISOR_OPEN - VISOR_SURPRISE, speed, acceleration)
+        rising = board_seconds(2310*4 - HEAD_LIFT_NORMAL, SURPRISE_LIFT_SPEED, SURPRISE_LIFT_ACCEL)
+        self.assertTrue(.8 < opening < rising, (opening, rising))
         sent = [(p[1], p[2]+128*p[3]) for p in self.port.targets if p[1] in HEAD_PAIR]
         self.assertAlmostEqual(head_pose(dict(sent[:2]))[0], .15, delta=.03)   # The head tips up a little.
         # Owner, November 15: the head lift shoots up to 2310 us and settles back to where it stood
