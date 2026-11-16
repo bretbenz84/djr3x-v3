@@ -6,6 +6,23 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Telepresence stage 2: the Rex Call Mac app — November 16
+
+Owner request. `apps/telepresence/` is a SwiftUI app that calls the robot's telepresence program. It
+connects, shows the camera, plays the room and sends the owner's voice through macOS echo cancelling,
+and its hang-up parks him. The token is kept in the keychain
+([details](TELEPRESENCE_PLAN.md#stage-2-the-mac-app--november-16)).
+
+- **Evidence:**
+  - 6 Swift checks against the Python robot's bytes;
+  - a 6-second headless call from the app's connection code to `tools/telepresence_fake_robot.py`
+    (the robot's real call code with no devices) over localhost: audio both ways, video, and the
+    hang-up;
+  - a wrong token refused;
+  - the app launched.
+- **Not yet checked:** a real call in the app (microphone, speakers, the picture) and any call with
+  the robot.
+
 ## Telepresence stages 0 and 1 — November 16
 
 Owner request: the first two stages of the [telepresence plan](TELEPRESENCE_PLAN.md#stages-0-and-1-implemented--november-16).

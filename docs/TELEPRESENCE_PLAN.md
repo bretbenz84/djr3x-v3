@@ -140,7 +140,7 @@ Each stage ends with its own checks; live checks are labeled separately from blo
    loss from off-site over WireGuard; camera capture without the face models; CPU on the M2.
 1. **Conduit only** (software November 16; not yet run on the robot). The program with audio both ways, video, lights and the visor; started by hand;
    a throwaway test client. No wheels, no head control.
-2. **Mac app, first version.** Connect, see, hear, talk, hang up.
+2. **Mac app, first version** (software November 16, [below](#stage-2-the-mac-app--november-16); not yet used on a real call). Connect, see, hear, talk, hang up.
 3. **Head, lift and visor,** with the telepresence stance.
 4. **Supervisor trigger,** status and the refusal rules.
 5. **Driving,** at the dashboard joystick's caps. No supervised stage first (owner).
@@ -231,6 +231,43 @@ network.
   - echo during talk-over;
   - playback of a 16 kHz stream on the XVF3800.
 - Whether TCP's stalls on a lossy link are acceptable is for the off-site link measurement to say.
+
+## Stage 2, the Mac app — November 16
+
+Owner request. Rex Call (`apps/telepresence/`, [how to build and use it](../apps/telepresence/README.md)) is a
+SwiftUI app with no outside dependencies. It is built by `build.sh` into an ad-hoc-signed `.app`.
+
+- **Calling:** enter the address and the token once; the token goes in the keychain. The app keeps
+  calling for up to 60 s while he wakes. A refusal is explained in words: wrong token, someone else on
+  a call, telepresence not running, the VPN down.
+- **On a call:**
+  - You see the camera, with the picture's age, the frame rate and the round trip.
+  - You hear the room through a jitter buffer with the robot's own sizes (0.12 s start, 0.4 s most).
+  - You start muted. Use the button or M to mute and unmute, and hold Space to talk. A meter shows
+    your level.
+- **Echo:** the microphone goes through macOS voice processing (echo cancelling). The room plays
+  through the same audio engine, which makes it the canceller's reference, so speakers should work.
+  If voice processing cannot start, the call view says to use headphones.
+- **Ending:** Hang Up, Esc or quitting tells Rex to park.
+- **Voice backlog:** voice still waiting to go out past 0.5 s is dropped rather than delayed. Unlike
+  the robot, the app drops the newest frame rather than the oldest.
+- **Evidence, all on the dev Mac:**
+  - 6 Swift checks of the core against reference bytes from the Python robot: the sign-in proof, an
+    audio frame and a JSON frame, plus the jitter buffer.
+  - A headless run of the app's own connection code (`rexcall-probe`) against
+    `tools/telepresence_fake_robot.py`, the robot's real call code with a synthetic room and camera,
+    over localhost for 6 s:
+    - signed in;
+    - 187 room-audio frames (6.0 s) and 81 video frames arrived;
+    - 251 voice frames went out, none dropped, and the fake robot measured them at the level sent;
+    - the hang-up ended the robot's call.
+  - A wrong token was refused with its reason.
+  - The built app launched and stayed up.
+- **Not yet checked:**
+  - a real call in the app (microphone permission, voice processing, the room through the speakers,
+    the picture on screen);
+  - a call with the robot, and from off-site;
+  - echo with speakers.
 
 ## Risks
 

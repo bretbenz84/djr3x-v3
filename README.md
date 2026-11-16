@@ -189,8 +189,9 @@ is a separately maintained reference. V3 never imports it or reads its data.
 - **Telepresence (November 16; not yet run on the robot).** `python -m r3x telepresence` turns Rex into a
   conduit for the owner over the home WireGuard VPN, with no models. The servos wake, the visor opens and
   his eyes go magenta. Room audio and the camera go to one signed-in client, and the client's voice plays
-  from his speaker with his mouth moving to it. A throwaway client is in `tools/telepresence_client.py`.
-  Head control, driving, the supervisor trigger and the Mac app are still to come ([plan and status](docs/TELEPRESENCE_PLAN.md)).
+  from his speaker with his mouth moving to it. The Rex Call Mac app ([apps/telepresence](apps/telepresence/README.md))
+  makes the call, with echo cancelling so speakers work. Head control, driving and the supervisor trigger
+  are still to come ([plan and status](docs/TELEPRESENCE_PLAN.md)).
 - **Startup.** The startup whir plays as the servos wake, a short "please wait" line is
   spoken the moment the whir and wake finish, and the droid start-up sound fills the rest
   until loading finishes and cuts it. The please-wait and ready lines are synthesized once
