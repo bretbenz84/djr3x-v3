@@ -20,11 +20,12 @@ The owner's run through the door and down the hall. Software repairs, **none yet
   ([details](LED_INTEGRATION.md#november-15-evening-the-board-drops-off-and-the-mouth-does-not-talk)).
 - **Voice check:** clear words from far away ("Try the rest.") are no longer thrown out as not a voice
   ([details](VOICE_CHECK.md#november-15-clear-words-from-far-away)).
-- **Open:** the head went offline crooked at shutdown. The board reached both head servos' park pulses
-  (1013 and 1904 us with the lift at 832 us), and powering the servos again put the head back in the same
-  crooked pose, so that pair no longer gives a level, drooped head; it needs a fresh reading. Both
-  depth matrices' "publisher stale" stalls (firmware) and turn odometry reading two thirds of the IMU's
-  angle are also open.
+- **Open:** the head went offline crooked at shutdown. Hardware, not the park pose: the owner found the
+  head-right servo (channel 11) no longer responds, most likely an extension cable come undone inside,
+  which needs a full teardown. The servo board reports only the pulses it sends, so the program could
+  not see it; every head pitch or tilt moves the left servo alone until it is fixed. Both depth
+  matrices' "publisher stale" stalls (firmware) and turn odometry reading two thirds of the IMU's angle
+  are also open.
 
 ## Feelings on the lights — November 15
 
