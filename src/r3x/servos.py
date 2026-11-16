@@ -63,6 +63,7 @@ class ServoRequest:
     hold_pose: bool = True        # Human poses persist; agency poses never acquire a hold.
     side: int = 1                 # Listening cock: -1 Rex's left, 1 his right.
     travel_seconds: float = 0.    # Sentry head moves: the curve's length (0: timed by its size).
+    look: bool = False            # Operator head moves at a person's look pace (telepresence aiming).
 
 
 @dataclass(frozen=True)
@@ -385,7 +386,7 @@ class ServoOwner:
                      expressive_lanes(current,request.kind,request.target,request.primitive,request.intensity,
                                       request.hold_seconds,self.held_channels) if request.kind in {'attention','gesture'} else
                      pose_lanes(request.pose,current,further=request.hold_pose) if request.kind == 'pose' else
-                     pose_lanes(dict(request.pose),current) if request.kind == 'operator' else
+                     pose_lanes(dict(request.pose),current,further=request.look) if request.kind == 'operator' else
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
                      sentry_lanes(request.pose, current, request.travel_seconds) if request.kind == 'sentry' else
                      listening_lanes(current, request.side, self.rng) if request.kind == 'listening' else

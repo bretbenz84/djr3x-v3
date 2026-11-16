@@ -137,10 +137,15 @@ class VideoStream:
 
 
 class Call:
+    """head and drive are the caller's controls (controls.HeadControl, controls.DriveControl), or None
+    when the servos or wheels are not running; base(now) is the status strip's base readings."""
     def __init__(self, server, mic, speaker, trace, *, video=None, camera=None, clock=time.monotonic,
-                 resources=None, connect_wait=CONNECT_WAIT_SECONDS, reconnect=RECONNECT_SECONDS):
+                 resources=None, connect_wait=CONNECT_WAIT_SECONDS, reconnect=RECONNECT_SECONDS,
+                 head=None, drive=None, base=None):
         self.server, self.mic, self.speaker, self.trace = server, mic, speaker, trace
         self.video, self.camera, self.clock = video, camera, clock
+        self.head, self.drive, self.base = head, drive, base
+        self.ping_due = False    # A new link is pinged at once: driving waits for a measured round trip.
         self.resources = resources or Resources(clock)
         self.connect_wait, self.reconnect = connect_wait, reconnect
         self.lock = threading.Lock()
@@ -159,12 +164,18 @@ class Call:
         server.on_closed = self._closed
         if video is not None:
             video.target = lambda: self.link
+        if drive is not None:
+            drive.link_slow, drive.notify = self.link_slow, self._send
+        if head is not None:
+            head.notify = self._send
+            head.wheels_busy = (lambda: drive.engaged) if drive is not None else (lambda: False)
 
     # Link callbacks (server threads) ----------------------------------------
     def _connected(self, link, source, name):
         with self.lock:
             self.link, self.connected_once, self.lost_at = link, True, None
             self.pings.clear(); self.rtts.clear()
+            self.ping_due = True
 
     def _closed(self, link, reason):
         with self.lock:
@@ -173,7 +184,26 @@ class Call:
             self.link, self.lost_at = None, self.clock()
             if reason == 'hangup':
                 self.hung_up = True
+        if self.drive is not None:
+            self.drive.link_lost()   # The wheels stop before anything else is tidied.
+        if self.head is not None:
+            self.head.clear()
         self.speaker.clear()
+
+    def _send(self, message):
+        link = self.link
+        if link is not None:
+            link.send_json(message)
+
+    def link_slow(self, now):
+        """Why the link is too slow to steer by, or None: the latest round trip, or a ping still
+        unanswered, over LINK_SLOW_SECONDS; nothing measured yet on this link counts as slow."""
+        from .controls import LINK_SLOW_SECONDS
+        with self.lock:
+            if not self.rtts:
+                return 'link_not_measured'
+            worst = max([self.rtts[-1]] + [now - at for at in self.pings.values()])
+        return 'link_too_slow' if worst > LINK_SLOW_SECONDS else None
 
     def _frame(self, link, kind, payload):
         if link is None or link is not self.link:
@@ -190,6 +220,19 @@ class Call:
             raise ProtocolError('client_sent_video')
         message = decode_json(payload)
         kind = message['type']
+        if kind == 'drive':
+            if self.drive is not None:
+                self.drive.setpoint(message)
+            return
+        if kind == 'stop':
+            if self.drive is not None:
+                self.drive.stop()
+            return
+        if kind == 'head':
+            reason = self.head.request(message) if self.head is not None else 'head_not_available'
+            if reason:
+                link.send_json({'type': 'head_state', 'status': 'refused', 'reason': reason})
+            return
         ident = message.get('id')
         if kind in ('ping', 'pong') and type(ident) is not int:
             return   # Only whole-number ids are answered or matched.
@@ -219,7 +262,10 @@ class Call:
                             'underruns': self.speaker.stats['underruns'],
                             'dropped_ms': round(1000 * self.speaker.stats['dropped_seconds'])},
                 'microphone_dropped': getattr(self.mic, 'dropped', 0),
-                'video': bool(self.video and self.video.thread)}
+                'video': bool(self.video and self.video.thread),
+                'head': self.head.status() if self.head is not None else None,
+                'drive': self.drive.status() if self.drive is not None else None,
+                'base': self.base(now) if self.base is not None else None}
 
     def _tick(self, now, last_stats):
         link = self.link
@@ -248,6 +294,8 @@ class Call:
                         bad_voice_frames=self.bad_frames, speaker=dict(self.speaker.stats),
                         microphone_dropped=getattr(self.mic, 'dropped', 0),
                         video=self.video.summary() if self.video else None,
+                        head=dict(self.head.stats) if self.head is not None else None,
+                        drive=dict(self.drive.stats) if self.drive is not None else None,
                         resources=self.resources.sample(helpers))
         return now
 
@@ -265,21 +313,34 @@ class Call:
         started = last_tick = self.clock()
         last_stats = started
         self.resources.sample()
-        self.trace.emit('telepresence_ready', connect_wait_seconds=self.connect_wait)
-        while not stop.is_set():
-            try:
-                frame = self.mic.read()
-            except Cancelled:
-                return 'stopped'
-            now = self.clock()
-            link = self.link
-            if frame is not None and link is not None:
-                link.send_audio(self.audio_sequence, frame.started_at, frame.pcm)
-                self.audio_sequence += 1
-            if now - last_tick >= PING_SECONDS:
-                last_tick = now
-                last_stats = self._tick(now, last_stats)
-            reason = self._ended(now, started)
-            if reason:
-                return reason
-        return 'stopped'
+        controls = [c for c in (self.drive, self.head) if c is not None]
+        for control in controls:
+            control.start()
+        self.trace.emit('telepresence_ready', connect_wait_seconds=self.connect_wait,
+                        head=self.head is not None, drive=self.drive is not None)
+        try:
+            while not stop.is_set():
+                try:
+                    frame = self.mic.read()
+                except Cancelled:
+                    return 'stopped'
+                now = self.clock()
+                link = self.link
+                if frame is not None and link is not None:
+                    link.send_audio(self.audio_sequence, frame.started_at, frame.pcm)
+                    self.audio_sequence += 1
+                if self.ping_due or now - last_tick >= PING_SECONDS:
+                    self.ping_due = False
+                    last_tick = now
+                    last_stats = self._tick(now, last_stats)
+                reason = self._ended(now, started)
+                if reason:
+                    return reason
+            return 'stopped'
+        finally:
+            for control in controls:   # The wheels stop and the head settles before the devices close.
+                try:
+                    control.close()
+                except Exception as exc:   # The drive and servo owners still stop and park at their close.
+                    self.trace.emit('telepresence_control_close_failed', control=type(control).__name__,
+                                    error_type=type(exc).__name__, reason=str(exc))

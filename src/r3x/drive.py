@@ -255,6 +255,28 @@ CHARGE_READING_MAX_AGE = 30.
 MANUAL_SPEED = HALLWAY_SPEED
 MANUAL_TURN = math.radians(60.)
 MANUAL_TURN_CHECK_DEG = 15.
+
+
+def ramp_toward(current: float, target: float, accel_step: float, decel_step: float) -> float:
+    """V2 motion_controller.ramp_toward: gentle up, faster (never abrupt) down; a reversal
+    decelerates through zero first."""
+    if target == current:
+        return target
+    speeding_up = abs(target) > abs(current) and (current == 0.0 or (target > 0.0) == (current > 0.0))
+    step = accel_step if speeding_up else decel_step
+    if step <= 0.0:
+        return target
+    delta = target - current
+    if delta > step:
+        return current + step
+    if delta < -step:
+        return current - step
+    return target
+
+
+# The joystick's own easing on top of the firmware's (dashboard and telepresence alike).
+RAMP_UP_SECONDS, RAMP_DOWN_SECONDS = 1.2, .5   # V2 MOTION_MANUAL_RAMP_UP/DOWN_SECS
+
 CAMERA_KINDS = {'face', 'nearest_person', 'object'}
 # Owner, November 14 (log c85e39dc): both depth matrices stopped answering before startup, the wheels
 # were locked out as front_depth_matrix_unavailable, and Rex told him his "drive controller didn't wake
@@ -716,10 +738,14 @@ class DriveBase:
             self._lock.release()
 
     # Dashboard teleop ----------------------------------------------------
-    def begin_manual(self):
+    def begin_manual(self, *, stance_held=False):
         """The dashboard joystick takes the wheels: a running plan halts, and the plan lock is
         held until end_manual, so Rex's own and requested drives are refused (DriveBusy) and
-        the back-off reflex waits. Returns (ok, reason)."""
+        the back-off reflex waits. Returns (ok, reason).
+
+        stance_held: the arms already hold the drive stance for the whole session (a telepresence
+        call, RobotServos.telepresence_stance), so no park runs before moving, the spin check uses
+        the tucked arms, and the arms are not returned at end_manual."""
         if self._manual is not None:
             return True, None
         self._halt.set()
@@ -730,9 +756,9 @@ class DriveBase:
         if not ok:
             self._lock.release()
             return False, reason
-        self._manual = {'parked': False, 'moving': False}
+        self._manual = {'parked': stance_held, 'moving': False, 'stance_held': stance_held}
         if self.trace:
-            self.trace.emit('operator_drive', status='started')
+            self.trace.emit('operator_drive', status='started', stance_held=stance_held)
         return True, None
 
     def manual(self, lin, ang, cancel):
@@ -808,7 +834,7 @@ class DriveBase:
             return
         try:
             self._manual_stop()
-            if manual['parked'] and self.servos is not None:
+            if manual['parked'] and self.servos is not None and not manual['stance_held']:
                 self.servos.finish_base_motion(keep_parked=arms_blocked(self.space()))
         finally:
             self._manual = None

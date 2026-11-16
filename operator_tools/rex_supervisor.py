@@ -37,6 +37,11 @@ The coordination that prevents a DOUBLE launch (the tricky case):
 
 Only one process listens to the mic at a time, so there is no contention.
 
+Telepresence (owner, November 16; docs/TELEPRESENCE_PLAN.md stage 4): when telepresence_listen is
+set, a small listener one port above the call's answers a signed-in caller's status, start and stop.
+A start launches `python -m r3x telepresence` in place of `live`, only while Rex is asleep, with no
+chime; it holds the same lock, so this supervisor is dormant until the call ends.
+
 Run directly for debugging:
     venv/bin/python rex_supervisor.py
 """
@@ -69,6 +74,10 @@ _WAKE_MODEL = v3_settings.WAKE_MODELS / "wakeuprex.onnx"
 # logging), which djr3x.log can't. Truncated per launch (only one controller runs at a
 # time; djr3x.log keeps the rotated history).
 _CONTROLLER_CONSOLE_LOG = v3_settings.LOGS / "controller.console.log"
+# Telepresence: how the last call ended (the call program writes it) and the battery menu bar's
+# latest reading, both reported by the trigger's status answer.
+_TELEPRESENCE_LAST_CALL = v3_settings.LOCAL / "telepresence" / "last-call.json"
+_BATTERY_READING = v3_settings.STATE / "battery.json"
 # Short chime played the instant a wake word is accepted, so there's immediate
 # feedback before the (slower) full controller finishes booting.
 _CHIME_FILE = v3_settings.SOUNDS / "startup_chime.wav"
@@ -476,8 +485,9 @@ def _play_charger_effect(charging: bool) -> None:
     ).start()
 
 
-def _launch_controller(reason: str = "Wake word heard") -> Optional[subprocess.Popen]:
-    """Start the V3 controller (python -m r3x live) in V3's venv as a detached child.
+def _launch_controller(reason: str = "Wake word heard", mode: str = "live") -> Optional[subprocess.Popen]:
+    """Start the V3 controller (python -m r3x live, or telepresence for a call) in V3's venv as a
+    detached child.
 
     The child's stdout/stderr are redirected to its OWN console log (or DEVNULL if that
     can't be opened) — NOT inherited from the supervisor — so the controller's output
@@ -506,13 +516,13 @@ def _launch_controller(reason: str = "Wake word heard") -> Optional[subprocess.P
         return subprocess.Popen(
             # Headless launch — no dashboard on wake (owner 2026-08-08; was
             # --gui, which opened the maximized window on every wake).
-            [str(_VENV_PYTHON), "-m", "r3x", "live"],
+            [str(_VENV_PYTHON), "-m", "r3x", mode],
             cwd=str(_V3_ROOT),
             stdout=child_stdout,
             stderr=subprocess.STDOUT,  # fold the controller's stderr into the same file
             # Diagnostics only: main.py logs whether a run came from here or from
             # a hand-typed `venv/bin/python main.py`. Both paths behave the same.
-            env=dict(os.environ, DJR3X_LAUNCHED_BY="supervisor"),
+            env=dict(os.environ, DJR3X_LAUNCHED_BY="supervisor" if mode == "live" else "supervisor-" + mode),
         )
     except Exception as exc:
         log.error("Failed to launch controller: %s", exc)
@@ -702,6 +712,43 @@ class WedgeRelaunchPolicy:
 
 # ── Main loop ──────────────────────────────────────────────────────────────────
 
+def _start_telepresence_trigger(requests):
+    """The telepresence trigger's listener, or None when telepresence is off or misconfigured.
+    Returns (listener, call_port)."""
+    try:
+        from r3x.settings import Secrets, Settings
+        from r3x.telepresence import trigger
+        from r3x.telepresence.protocol import parse_listen, parse_networks, valid_token
+        settings = Settings.load(v3_settings.SETTINGS) if v3_settings.SETTINGS.exists() else Settings()
+        if not settings.telepresence_listen:
+            log.info("Telepresence trigger off (telepresence_listen is empty).")
+            return None, None
+        token = Secrets.load(v3_settings.LOCAL).telepresence_token
+        if not valid_token(token):
+            log.warning("Telepresence trigger off: local/secrets.toml has no valid telepresence_token.")
+            return None, None
+        host, port = trigger.control_address(settings.telepresence_listen)
+        _, call_port = parse_listen(settings.telepresence_listen)
+        listener = trigger.TriggerListener(host, port, parse_networks(settings.telepresence_allowed_networks),
+                                           token, requests.ask,
+                                           log=lambda level, message, *args: getattr(log, level)(message, *args))
+        listener.start()
+        return listener, call_port
+    except Exception as exc:
+        log.warning("Telepresence trigger unavailable (%s: %s); wake word only.", type(exc).__name__, exc)
+        return None, None
+
+
+def _telepresence_readings():
+    """(battery, last call) for the trigger's status answer; None for either when unknown or old."""
+    try:
+        from r3x.telepresence import trigger
+        return (trigger.read_json(_BATTERY_READING, trigger.BATTERY_MAX_AGE),
+                trigger.read_json(_TELEPRESENCE_LAST_CALL, trigger.LAST_CALL_MAX_AGE))
+    except Exception:
+        return None, None
+
+
 def run() -> int:
     from utils.single_instance import lock_path, is_held_by_other
     from utils.supervisor_handoff import SupervisorHandoff
@@ -749,6 +796,7 @@ def _run(handoff) -> int:
     )
 
     child: Optional[subprocess.Popen] = None
+    child_kind: Optional[str] = None   # "live" or "telepresence": what our own child is running.
     restart_after_controller = False
     wedge_policy = WedgeRelaunchPolicy.from_env()
     stream = None
@@ -803,8 +851,37 @@ def _run(handoff) -> int:
                 continue
         raise RuntimeError(f"could not open mic with channels {chan_candidates}: {last_exc}")
 
+    try:
+        from r3x.telepresence.trigger import Requests, answer as trigger_answer
+        requests = Requests()
+    except Exception as exc:
+        log.warning("Telepresence trigger unavailable (%s); wake word only.", exc)
+        requests = trigger_answer = None
+    trigger, call_port = _start_telepresence_trigger(requests) if requests is not None else (None, None)
+
+    def _decide(request):
+        """One trigger request, answered by the loop that owns the child (docs/TELEPRESENCE_PLAN.md)."""
+        nonlocal stream, listening, child, child_kind
+        call_child = child is not None and child_kind == "telepresence" and child.poll() is None
+        battery, last_call = _telepresence_readings()
+        reply, action = trigger_answer(request, running=_controller_running(child), call_child=call_child,
+                                       call_port=call_port, battery=battery, last_call=last_call)
+        if action == "launch":
+            if stream is not None:
+                stream.close()  # A close failure raises: no call starts over a held microphone.
+                stream = None
+            listening = False
+            child = _launch_controller("Telepresence call requested", mode="telepresence")
+            if child is None:
+                return {"type": "refused", "reason": "launch_failed"}
+            child_kind = "telepresence"
+        elif action == "stop":
+            log.info("Telepresence stop requested — ending the call.")
+            child.send_signal(signal.SIGTERM)
+        return reply
+
     def _fire(reason: str):
-        nonlocal stream, listening, child, restart_after_controller, next_update_check
+        nonlocal stream, listening, child, child_kind, restart_after_controller, next_update_check
         if _controller_running(child):
             return
         log.info("Wake detected (%s) — launching controller.", reason)
@@ -824,23 +901,29 @@ def _run(handoff) -> int:
         if _controller_running(child):
             return
         child = _launch_controller()
+        child_kind = "live" if child is not None else None
         if child is None and restart_after_controller:
             _restart_supervisor()
         _stop.wait(3.0)  # let main.py take the lock so we don't double-fire
 
     try:
         while not _stop.is_set():
+            if requests is not None:
+                requests.serve(_decide)
             running = _controller_running(child)
 
             # Reap a finished child so the lock check is the single source of truth.
             if child is not None and child.poll() is not None:
                 code = child.returncode
-                child = None
+                kind, child, child_kind = child_kind, None, None
                 running = _controller_running(None)
+                if kind == "telepresence":
+                    ended = _telepresence_readings()[1] or {}
+                    log.info("Telepresence call ended (code=%s, %s).", code, ended.get("reason", "reason unknown"))
                 if restart_after_controller and not running:
                     log.info("Controller exited (code=%s). Restarting for the update.", code)
                     _restart_supervisor()
-                elif not running and wedge_policy.should_relaunch(code, time.monotonic()):
+                elif not running and kind == "live" and wedge_policy.should_relaunch(code, time.monotonic()):
                     # A wedged mic is the controller asking to be reopened, not
                     # a goodbye. The supervisor's own mic is still closed here
                     # (it never reopened while the controller ran), so nothing
@@ -856,6 +939,7 @@ def _run(handoff) -> int:
                     _stop.wait(settle)
                     if not _stop.is_set():
                         child = _launch_controller(reason="Mic wedge restart")
+                        child_kind = "live" if child is not None else None
                         _stop.wait(3.0)  # let main.py take the lock so we don't double-fire
                         continue
                 else:
@@ -891,7 +975,10 @@ def _run(handoff) -> int:
                 if listening:
                     log.info("Controller is running — supervisor dormant (mic released).")
                     listening = False
-                _stop.wait(1.0)
+                if requests is not None:
+                    requests.wake.wait(1.0)  # A trigger request (status, stop) is answered at once.
+                else:
+                    _stop.wait(1.0)
                 continue
 
             # Active: ensure the mic stream is open and scan for the wake word.
@@ -969,6 +1056,8 @@ def _run(handoff) -> int:
                          peak_score, rms)
                 peak_score = 0.0
     finally:
+        if trigger is not None:
+            trigger.close()
         if stream is not None:
             try:
                 stream.close()

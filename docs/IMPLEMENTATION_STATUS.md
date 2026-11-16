@@ -6,6 +6,31 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Telepresence stages 3-5 and the first robot calls — November 16
+
+Owner request: "implement the rest of the plan", robot side only.
+
+- **What the robot does now:**
+  - **Stance:** the arms hold the drive stance for the whole call and his own motion is refused.
+  - **Head:** the caller aims the head, lift and visor inside the calibrated limits.
+  - **Driving:** at the dashboard joystick's caps and checks, plus the network rules. Only the newest
+    setpoint counts, a stale one gives zero, a slow round trip refuses forward and turning, Stop holds
+    the wheels, and a lost link stops them.
+  - **Trigger:** the supervisor answers status, start and stop one port above the call, and starts a
+    call only while Rex is asleep.
+  - **Battery:** the battery menu bar publishes its reading for the trigger's status.
+  - Details and the app's wire messages: [plan](TELEPRESENCE_PLAN.md#stages-3-5-implemented--november-16).
+- **Evidence:**
+  - 28 new blocked-I/O checks run the software Maestro, the simulated drive controller and fake sockets.
+  - Live, before these stages: two calls from the app over WireGuard (round trip 19 ms median, voice
+    and room audio, video at about 5 frames a second), both ending in a clean park.
+    [First calls](TELEPRESENCE_PLAN.md#first-calls-on-the-robot--november-16).
+- **Not yet on the robot:**
+  - the stance;
+  - head aiming;
+  - driving over the link;
+  - a start or stop through the trigger.
+
 ## Telepresence stage 2: the Rex Call Mac app — November 16
 
 Owner request. `apps/telepresence/` is a SwiftUI app that calls the robot's telepresence program. It

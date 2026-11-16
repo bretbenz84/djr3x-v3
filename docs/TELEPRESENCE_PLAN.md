@@ -1,8 +1,10 @@
 # Telepresence mode: implementation plan
 
-Status, November 16, 2026: **stages 0 and 1 are implemented in software ([below](#stages-0-and-1-implemented--november-16));
-none of it has run on the robot. Stages 2-6 are not built.** The owner's decisions are recorded
-[below](#owner-decisions-november-16); this document authorizes no further code, firmware or hardware operation. Owner's idea: a Mac app that wakes the robot into a mode with
+Status, November 16, 2026: **stages 0-5 are implemented in software. Two calls have run on the robot over
+WireGuard: audio both ways and video, started by hand (stage 1 and the app). Head control, driving and
+the supervisor trigger ([below](#stages-3-5-implemented--november-16)) have not yet been used on the
+robot. Stage 6 is not built.** The owner's decisions are recorded [below](#owner-decisions-november-16);
+this document authorizes no further code, firmware or hardware operation. Owner's idea: a Mac app that wakes the robot into a mode with
 no personality and no models, where Rex is a conduit for the owner's voice. The owner hears the room,
 sees through the camera, drives the base and moves the head and head lift. The supervisor launches a
 separate program for it. Access is over the owner's home WireGuard VPN only.
@@ -141,9 +143,9 @@ Each stage ends with its own checks; live checks are labeled separately from blo
 1. **Conduit only** (software November 16; not yet run on the robot). The program with audio both ways, video, lights and the visor; started by hand;
    a throwaway test client. No wheels, no head control.
 2. **Mac app, first version** (software November 16, [below](#stage-2-the-mac-app--november-16); not yet used on a real call). Connect, see, hear, talk, hang up.
-3. **Head, lift and visor,** with the telepresence stance.
-4. **Supervisor trigger,** status and the refusal rules.
-5. **Driving,** at the dashboard joystick's caps. No supervised stage first (owner).
+3. **Head, lift and visor,** with the telepresence stance (software November 16, [below](#stages-3-5-implemented--november-16)).
+4. **Supervisor trigger,** status and the refusal rules (software November 16; the listener runs on the robot).
+5. **Driving,** at the dashboard joystick's caps. No supervised stage first (owner). (Software November 16.)
 6. **Later:** game controller polish, a link from a sentry alert to a telepresence session.
 
 **Contract checks to write** (fake transport and clocks, simulated ESP32, software Maestro):
@@ -269,6 +271,148 @@ SwiftUI app with no outside dependencies. It is built by `build.sh` into an ad-h
   - a call with the robot, and from off-site;
   - echo with speakers.
 
+## First calls on the robot — November 16
+
+Set up on the robot (`r3x-m2`, 192.168.1.100):
+- `telepresence_listen = "192.168.1.100:47800"` and `telepresence_allowed_networks = ["192.168.1.0/24"]`;
+- the token made by `telepresence-setup`.
+
+WireGuard clients (10.9.0.0/24) arrive from the VPN box's home address, 192.168.1.253, so the home
+network rule covers them.
+
+**Live evidence:**
+- **Before any call:** the full blocked-I/O suite passed on the robot (1,916). The link probe ran
+  against the real address from the robot itself: 8 s, nothing dropped, round trip 0.4 ms median, so
+  this says nothing about the network.
+- **The camera at the telepresence size:**
+  - started from a coding session, it produced no frame, because macOS's camera permission follows
+    whatever starts the program;
+  - started by launchd, as the supervisor starts Rex, it came up in 1.4 s at 960×540;
+  - it delivered **4.3 new frames a second**, against 15 asked for. The cause is not found; the small
+    JPEGs (13.5 kB) suggest a dim room;
+  - cost: Python 6% and ffmpeg 22% of one core.
+- **Two calls from the app over WireGuard**, the program started as a one-off launchd job:
+  - The first call signed in, then the app hung up after 3 s (cause not known on the robot's side).
+  - The second lasted 50 s:
+    - round trip 19 ms median, 27 ms at most;
+    - room audio steady, with 52 frames (about 1 s) dropped while the call began and none after;
+    - the owner's voice 4.2 s, one underrun, nothing dropped;
+    - video 248 frames, about 5 a second, encoding 5 ms each;
+    - the call program used about 10% of one core and 89 MB, ffmpeg 11-21% and 199 MB.
+  - Both ended with a clean park and the supervisor listening again.
+- **Not checked:**
+  - the magenta eyes and the mouth on the strip (only the commands' sending is known);
+  - echo during talk-over;
+  - a call from off-site.
+
+## Stages 3-5, implemented — November 16
+
+Owner request: "implement the rest of the plan", robot side only (the Mac app is done separately).
+**Software and blocked-I/O checks; nothing below has moved the robot yet.**
+
+**What a call is like now.**
+- **Starting:**
+  - The app asks the supervisor to start a call; it runs the call program only while Rex is asleep.
+  - The servos wake, the visor opens and the arms take the **telepresence stance**: the drive stance
+    (throttle parked, hero elbow and poker arm up, neck centred, head level), held all call.
+  - His own motion stays off for the whole call: idle life, talking motion, the listening cue,
+    reflexes, gestures, expressions, and the back-off reflex on the wheels.
+- **Aiming the head:**
+  - The caller moves the neck, head pitch and tilt, lift and visor at a person's look pace, inside
+    the calibrated limits. The arms never move from the stance.
+  - A look is refused while the wheels are wanted or turning.
+  - Setting off from a standstill first returns the head to the drive stance's level, centred pose.
+    The plan's open point, looks while rolling, stays closed. The reason found for the level head:
+    the owner's "level stance when moving" ruling. The other reason, camera bearings measured from
+    the base, matters only to Rex's own drives.
+- **Driving:**
+  - It is offered only once the arms hold the stance. If the servos are fitted but the stance
+    failed, the call has no wheels.
+  - Driving goes through the dashboard joystick's path. Its caps (0.26 m/s, 60°/s) apply, with its
+    smooth speed ramps (now done on the robot).
+  - The joystick's holds apply: the front path check, the spin check with the arms tucked, the
+    firmware's rear block and its 300 ms deadman.
+  - The charger lock applies: on the charger the base refuses to move, and the reason reaches the
+    caller.
+  - Added for the network:
+    - only the newest setpoint counts, and an older or repeated sequence number is dropped;
+    - a burst after a stall applies only its last setpoint;
+    - no fresh setpoint for 0.3 s gives zero at once;
+    - forward and turning are refused while the latest round trip, or a ping still unanswered, is
+      over 0.4 s, and until the first round trip is measured (a new link is pinged at once);
+      backing away still works;
+    - Stop zeroes the wheels and holds them until the caller's stick reads zero;
+    - a lost link ends the joystick at once (the wheels stop).
+- **The status strip:** every second, the status message carries:
+  - the head's position;
+  - the wheels' state and why a move was refused or held;
+  - charge, open space by direction, sensor notes and radar bodies.
+- **Ending:** the wheels are handed back, then the servos park from the stance and the lights fade.
+  Each run writes `local/telepresence/last-call.json` (how it ended, which parts failed to start) for
+  the supervisor.
+
+**The supervisor trigger.**
+- **Where it listens:** while `telepresence_listen` and the token are set, the wake-word supervisor
+  listens one port above the call (Rex: `192.168.1.100:47801`). It uses the same allowed networks
+  and the same sign-in.
+- **One request per connection:** `status`, `start` or `stop`.
+- **Start:**
+  - It launches `python -m r3x telepresence` as its child, with no chime, only while Rex is asleep.
+  - A start while Rex is awake (a conversation, Jeopardy, sentry mode, or a hand-started program) is
+    refused `rex_awake`.
+- **Stop:** sends the call program SIGTERM (park and exit), and only for a call the supervisor started.
+- **While a call runs:**
+  - The supervisor is dormant ("wake up rex" does nothing), and it answers status and stop at once.
+  - Updates are fetched, not applied, until the call ends.
+  - A call that exits is never relaunched.
+- **Launched by the supervisor:** the call runs under the same login agent as Rex, so the camera's
+  macOS permission holds. Started from a coding session, the camera failed; started this way, it
+  worked (November 16).
+- **Battery:** the battery menu bar now writes `local/operator/battery.json` every 10 s, and status
+  reports it when under 60 s old. While a call or Rex holds the drive port, that reading ages out,
+  and the call's own status carries the charge.
+
+**Wire messages for the app** (all JSON frames on the call link unless marked):
+
+| Direction | Message | Meaning |
+| --- | --- | --- |
+| robot → app | welcome `controls` | `head`: null, or `{home, fields}` (home is the level pose on the scale below). `drive`: null, or `{setpoint_hz: 10, stale_ms: 300, link_slow_ms: 400, max_lin_mps, max_turn_dps}`. Null means not offered this call. |
+| app → robot | `{"type":"head", "neck":n, "pitch":n, "tilt":n, "lift":n, "visor":n}` | Any subset. neck −1 = fully to Rex's left (the picture's left) … 1 right; pitch −1 down … 1 up; tilt −1 cocked to his left … 1 right; lift 0 lowest … 1 highest; visor 0 shut … 1 fully open. Absolute targets: the newest wins, parts left out stay. |
+| robot → app | `{"type":"head_state", "status", "reason", neck, pitch, tilt, lift, visor}` | After each move (`pulses_reached`, or the owner's refusal), or `status: "refused"` at once: `head_held_while_driving`, `not_a_number`, `head_not_available`. |
+| app → robot | `{"type":"drive", "seq":n, "lin":x, "ang":y}` | 10 a second while steering, zeros included. seq rises by one per setpoint (a new link may start again). lin and ang are −1 … 1 fractions of the caps; positive ang turns left. |
+| app → robot | `{"type":"stop"}` | Space bar: wheels to zero, held until a `drive` with lin and ang both 0. |
+| robot → app | `{"type":"drive_state", active, moving, lin_mps, ang_dps, refused, held, stopped}` | Sent when the refusal, holds or moving change. refused is one of `link_not_measured`, `link_too_slow`, `setpoint_stale`, `stopped`, `charging`, `drive_telemetry_stale`, `controller_estop`, `gamepad_in_control`, `front_depth_matrix_unavailable`, or another drive-owner reason. held lists `path_blocked`, `blocked_front`, `blocked_back`, `turn_path_blocked`, `front_clearance_unknown`. |
+| robot → app | `status` (each second) | Adds `head` (position, `held_for_driving`, last move), `drive` (as drive_state) and `base`: `{connected, battery_percent, charging, volts, blocked, clearance_m: {front_m, path_m, left_m, right_m, rear_m}, sensor_notes, radar: [{bearing_deg, range_m, moving}]}`. Unknown values are null. |
+| app → supervisor | port + 1: sign in as for a call, then one of `{"type":"status"}`, `{"type":"start"}`, `{"type":"stop"}` | Answers: `status` `{state: asleep, awake or telepresence, call_port, battery: {percent, charging, volts, seconds_ago} or null, last_call: {reason, code, failed_starts, seconds_ago} or null}`; `starting` `{call_port, already_running}`; `stopping`; `not_running`; `refused` `{reason: rex_awake, supervisor_busy, launch_failed, unknown_request}`. Then the connection closes. After `starting`, call the call port; the app's 60 s retry covers the wake. A failed start shows in `last_call`. |
+
+`tools/telepresence_trigger.py status|start|stop ROBOT_IP:PORT` asks the supervisor from a Mac with the
+token.
+
+**Evidence:** 28 new blocked-I/O checks run the real owners: the software Maestro, the simulated drive
+controller, and fake sockets and clocks. They check:
+- the stance tucks and holds the arms and refuses Rex's own motion, and the wheels wait for it;
+- head moves stay inside the limits and never move an arm;
+- the head levels before setting off, and shutdown parks from the stance;
+- out-of-order and burst setpoints are dropped;
+- a stale setpoint and a lost link zero the wheels at once;
+- a slow link refuses forward and turning but not reversing;
+- Stop holds until the stick is released;
+- an obstacle's hold and the charger's refusal reach the caller;
+- the trigger starts only while asleep, stops only its own call, and never lets an outsider or a
+  wrong token reach the main loop.
+
+**Open:**
+- On the robot:
+  - the stance and head aiming;
+  - the head's response at the look pace;
+  - driving over the link;
+  - a start and stop through the trigger;
+  - the battery file once the battery menu bar is reloaded.
+- Not built:
+  - looks while rolling;
+  - telling sentry mode apart in status (it reports `awake`);
+  - stage 6.
+
 ## Risks
 
 - **Drop-offs: not a risk here.** The base cannot sense stairs or ledges, but the owner lives on the
@@ -276,8 +420,10 @@ SwiftUI app with no outside dependencies. It is built by `build.sh` into an ad-h
 - **Echo.** If the hardware echo cancel does not hold up under talk-over, the mode is half duplex.
 - **Motor and servo noise** in the room audio while the owner moves him.
 - **Head response.** The Maestro's slow ramps suit Rex's character; aiming a camera by hand may need
-  quicker operator speeds, within the same limits.
-- **Charging.** What the base allows while on the charger needs checking before a remote drive off it.
+  quicker operator speeds, within the same limits. Telepresence uses a person's look pace (speed 40,
+  November 16); whether that is quick enough is for a robot run to say.
+- **Charging.** The base refuses every move while on the charger (`charging`, the controller's latch
+  or a full-charge voltage), so a remote drive cannot leave the charger; someone has to unplug him.
 - **Manual override.** The dashboard's joystick works on the robot (owner, November 16); its manual
   servo override, which head control builds on, has no robot report yet.
 

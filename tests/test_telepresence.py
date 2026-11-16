@@ -709,6 +709,8 @@ class ProgramTests(unittest.TestCase):
         log = parts_log
         robot = Part('robot_servos', log, fail == 'robot_servos')
         robot.open_eyes = lambda: log.append(('open_eyes',))
+        robot.telepresent = False
+        robot.telepresence_stance = lambda cancel: log.append(('stance',))   # No head control: none is offered.
         leds = Part('robot_leds', log)
         leds.telepresence = lambda: log.append(('telepresence_lights',))
         speaker = Part('telepresence_speaker', log)
@@ -735,7 +737,8 @@ class ProgramTests(unittest.TestCase):
             self.assertEqual([n[0] for n in starts], ['telepresence_speaker', 'robot_leds', 'robot_servos',
                                                       'capture', 'telepresence_link'])
             self.assertLess(log.index(('start', 'telepresence_link')), log.index(('open_eyes',)))
-            self.assertLess(log.index(('open_eyes',)), log.index(('telepresence_lights',)))
+            self.assertLess(log.index(('open_eyes',)), log.index(('stance',)))   # The visor opens, then the stance.
+            self.assertLess(log.index(('stance',)), log.index(('telepresence_lights',)))
             closes = [n for op, n in (e for e in log if len(e) == 2) if op == 'close']
             self.assertEqual(closes, ['telepresence_link', 'capture', 'robot_servos', 'robot_leds', 'telepresence_speaker'])
             handoff.acquire.assert_called_once()
@@ -743,6 +746,8 @@ class ProgramTests(unittest.TestCase):
             rows = [json.loads(l) for l in next((project / 'local/sessions').glob('*.jsonl')).read_text().splitlines()]
             shutdown = next(r for r in rows if r['event'] == 'telepresence_shutdown')
             self.assertEqual((shutdown['reason'], shutdown['lifecycle']), ('nobody_connected', 'closed'))
+            ending = json.loads((project / 'local/telepresence/last-call.json').read_text())
+            self.assertEqual((ending['reason'], ending['code'], ending['failed_starts']), ('nobody_connected', 0, []))
 
     def test_a_failed_required_start_still_parks_and_releases(self):
         with tempfile.TemporaryDirectory() as folder:

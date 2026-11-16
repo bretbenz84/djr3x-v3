@@ -14,7 +14,7 @@ from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QRadialGradient
 from PySide6.QtWidgets import (QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
                                QVBoxLayout, QWidget)
 
-from ..drive import CONFIG as DRIVE_CONFIG
+from ..drive import CONFIG as DRIVE_CONFIG, RAMP_DOWN_SECONDS, RAMP_UP_SECONDS, ramp_toward
 from . import theme
 
 class JoystickWidget(QWidget):
@@ -898,24 +898,6 @@ class AttitudeWidget(QWidget):
         p.end()
 
 
-def ramp_toward(current: float, target: float, accel_step: float, decel_step: float) -> float:
-    """V2 motion_controller.ramp_toward: gentle up, faster (never abrupt) down; a reversal
-    decelerates through zero first."""
-    if target == current:
-        return target
-    speeding_up = abs(target) > abs(current) and (current == 0.0 or (target > 0.0) == (current > 0.0))
-    step = accel_step if speeding_up else decel_step
-    if step <= 0.0:
-        return target
-    delta = target - current
-    if delta > step:
-        return current + step
-    if delta < -step:
-        return current - step
-    return target
-
-
-RAMP_UP_SECONDS, RAMP_DOWN_SECONDS = 1.2, .5   # V2 MOTION_MANUAL_RAMP_UP/DOWN_SECS
 
 
 class MotivatorControlDialog(QDialog):

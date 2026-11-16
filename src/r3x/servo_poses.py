@@ -1377,3 +1377,58 @@ def pose_lanes(name, current, further=True):
         if target:
             lanes += ((Beat(tuple(target.items()), speed=LOOK_SPEED if look else 20, acceleration=10 if look else 5),),)
     return lanes
+
+
+# Telepresence (owner, November 16; docs/TELEPRESENCE_PLAN.md): the caller aims the head, lift and
+# visor as fractions and never sees a pulse. neck -1 is fully to Rex's left (the picture's left) and
+# 1 fully right; pitch -1 down to 1 up and tilt -1 cocked to his left to 1 right (head_pulses); lift 0
+# lowest to 1 highest; visor 0 shut to 1 fully open (VISOR_UP, short of the surprise stop). The arms
+# hold the drive stance for the whole call, so only these channels move.
+TELEPRESENCE_CHANNELS = frozenset({*HEAD, 3})
+# Where the head stands while the wheels turn: the drive stance's level head, neck centred.
+TELEPRESENCE_DRIVE_HEAD = MappingProxyType({0: NECK_CENTER, **dict(DRIVE_HEAD)})
+
+
+def _fraction(value, low, high):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError('TelepresenceHeadValueNotANumber')
+    return _clamp(float(value), low, high)
+
+
+def telepresence_targets(spec, commanded) -> dict[int, int]:
+    """Pulses for a caller's head request (any of neck, pitch, tilt, lift, visor); a part left out
+    stays where it is. The pulses stay inside the calibrated limits."""
+    targets = {}
+    if 'neck' in spec:
+        neck = _fraction(spec['neck'], -1., 1.)
+        low, high = LIMITS[0]
+        targets[0] = round(NECK_CENTER + neck * ((high - NECK_CENTER) if neck >= 0 else (NECK_CENTER - low)))
+    if 'pitch' in spec or 'tilt' in spec:
+        pitch, tilt = head_pose({ch: commanded[ch] for ch in HEAD_PAIR})
+        targets.update(head_pulses(_fraction(spec.get('pitch', pitch), -1., 1.), _fraction(spec.get('tilt', tilt), -1., 1.)))
+    if 'lift' in spec:
+        low, high = LIMITS[1]
+        targets[1] = round(low + _fraction(spec['lift'], 0., 1.) * (high - low))
+    if 'visor' in spec:
+        targets[3] = round(VISOR_DOWN + _fraction(spec['visor'], 0., 1.) * (VISOR_UP - VISOR_DOWN))
+    return targets
+
+
+def telepresence_reading(commanded) -> dict:
+    """Where the head, lift and visor were last sent, on the caller's scale (None: not known yet)."""
+    def share(value, low, high):
+        return round(_clamp((value - low) / (high - low), 0., 1.), 3)
+    reading = {'neck': None, 'pitch': None, 'tilt': None, 'lift': None, 'visor': None}
+    if 0 in commanded:
+        low, high = LIMITS[0]
+        value = commanded[0]
+        reading['neck'] = round((value - NECK_CENTER) / ((high - NECK_CENTER) if value >= NECK_CENTER
+                                                         else (NECK_CENTER - low)), 3)
+    if all(ch in commanded for ch in HEAD_PAIR):
+        pitch, tilt = head_pose({ch: commanded[ch] for ch in HEAD_PAIR})
+        reading['pitch'], reading['tilt'] = round(pitch, 3) + 0., round(tilt, 3) + 0.   # Never -0.0.
+    if 1 in commanded:
+        reading['lift'] = share(commanded[1], *LIMITS[1])
+    if 3 in commanded:
+        reading['visor'] = share(VISOR_DOWN - commanded[3], 0, VISOR_DOWN - VISOR_UP)
+    return reading

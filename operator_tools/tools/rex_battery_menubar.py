@@ -404,6 +404,33 @@ def _handle_line(raw: bytes) -> None:
         mode="live",
     )
     _handle_charger_transition(effective_charging)
+    _publish_battery(msg.get("batt_soc"), effective_charging, msg.get("batt_mv"))
+
+
+# Telepresence (owner, November 16; docs/TELEPRESENCE_PLAN.md): the supervisor's status answer reports
+# the charge from this file. Rewritten at most this often; nothing else reads the drive port for it.
+_BATTERY_PUBLISH_SECS = 10.0
+_battery_published_at = 0.0
+
+
+def _publish_battery(soc, charging: bool, batt_mv, now=None) -> None:
+    """local/operator/battery.json: {percent, charging, volts, at}; percent and volts null when unknown."""
+    global _battery_published_at
+    now = time.time() if now is None else now
+    if now - _battery_published_at < _BATTERY_PUBLISH_SECS:
+        return
+    _battery_published_at = now
+    percent = min(100, int(soc)) if isinstance(soc, (int, float)) and not isinstance(soc, bool) and soc >= 0 else None
+    volts = round(batt_mv / 1000, 2) if isinstance(batt_mv, (int, float)) and batt_mv > 0 else None
+    import v3_settings
+    path = v3_settings.STATE / "battery.json"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(json.dumps({"percent": percent, "charging": bool(charging), "volts": volts, "at": now}))
+        os.replace(temporary, path)
+    except OSError as exc:
+        log.debug("battery reading not published (%s)", exc)
 
 
 def _effective_charging(msg: dict) -> bool:

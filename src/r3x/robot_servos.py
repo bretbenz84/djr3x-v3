@@ -4,8 +4,8 @@ import time
 from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
-from .servo_poses import (ARM_HOLD, HEAD, LIMITS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, pose_channels, sentry_head,
-                          visor_over_eyes)
+from .servo_poses import (ARM_HOLD, HEAD, LIMITS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
+                          pose_channels, sentry_head, telepresence_targets, visor_over_eyes)
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
 from .voice_reflex import VoiceReflex
@@ -43,6 +43,7 @@ class RobotServos:
         self.on_shutdown = lambda: None  # The power-down sound begins with the park choreography.
         self._arm_return = None
         self._speech_at = float('-inf')
+        self.telepresent = False   # A telepresence call holds the stance (telepresence_stance).
 
     def _sequence(self, kind):
         result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.),Cancellation())
@@ -288,6 +289,53 @@ class RobotServos:
                 self.trace.emit('servo_base_release', **asdict(receipt), kept_parked=sorted(keep))
         self._arm_return = threading.Thread(target=run, name='r3x-arm-return', daemon=True)
         self._arm_return.start()
+
+    # Telepresence (owner, November 16; docs/TELEPRESENCE_PLAN.md) -----------------------
+    def telepresence_stance(self, cancel):
+        """A call's stance: the arms take the drive stance (throttle parked, hero elbow and poker
+        arm up, neck centred, head level) and keep it until shutdown, and the operator override
+        goes on, so Rex's own motion (idle life, talking motion, the listening cue, reflexes,
+        gestures and expressions) is refused. Only telepresence_pose moves him after this."""
+        self.owner.end_requested_look()
+        self.idle.stop()
+        self.reflex.stop()
+        self.talking.stop()
+        receipt = self.owner.execute(ServoRequest('telepresence:stance', self.owner.version, 'base_park',
+                                                  self.owner.clock() + 30.), cancel)
+        if receipt.status == 'pulses_reached':
+            self.owner.operator = True
+            self.telepresent = True
+        if self.trace:
+            self.trace.emit('servo_telepresence', kind='stance', **asdict(receipt))
+        return receipt
+
+    def telepresence_pose(self, spec, cancel, request_id):
+        """The caller's head, lift or visor (servo_poses.telepresence_targets), at a person's look
+        pace, inside the calibrated limits. The arms are never moved from their stance."""
+        from .servos import ServoReceipt
+        if not self.telepresent:
+            return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
+                                reason='TelepresenceStanceNotHeld')
+        pose = telepresence_targets(spec, self.owner.commanded)
+        if not pose:
+            return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
+                                reason='NothingToMove')
+        return self.owner.execute(ServoRequest(request_id, self.owner.version, 'operator', self.owner.clock() + 15.,
+                                               pose=pose, look=True), cancel)
+
+    def telepresence_level(self, cancel):
+        """The head back to the drive stance (level, lift at its normal height, neck centred) before
+        the wheels turn; None when it is already there."""
+        if not self.telepresent:
+            return None
+        pose = dict(TELEPRESENCE_DRIVE_HEAD)
+        if all(abs(self.owner.commanded.get(ch, -99) - value) <= 2 for ch, value in pose.items()):
+            return None
+        receipt = self.owner.execute(ServoRequest('telepresence:level', self.owner.version, 'operator',
+                                                  self.owner.clock() + 15., pose=pose, look=True), cancel)
+        if self.trace:
+            self.trace.emit('servo_telepresence', kind='level', **asdict(receipt))
+        return receipt
 
     # Sentry mode (owner, October 22) ---------------------------------------------------
     def sentry_stance(self, cancel):

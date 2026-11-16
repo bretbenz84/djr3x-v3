@@ -1,16 +1,22 @@
 """`python -m r3x telepresence`: compose the call from the existing owners, with no models.
 
 Startup: the live lease and the controller handoff (the menu apps and supervisor step aside, and a
-running Rex is never taken over), then the speaker, lights, servo wake, microphone, camera (frames
-only), video and the listener. The visor opens and the telepresence lights come on, with no sound.
-No startup sounds, spoken lines, recognition, replies, memory or idle motion. Shutdown parks the
-servos and fades the lights as Rex's own shutdown does.
+running Rex is never taken over), then the speaker, lights, servo wake, radar, wheels (no back-off
+reflex), microphone, camera (frames only), video and the listener. The visor opens, the arms take
+the telepresence stance and the telepresence lights come on, with no sound. The caller then aims the
+head, lift and visor and drives (controls.py). No startup sounds, spoken lines, recognition,
+replies, memory, idle motion or motion of his own. Shutdown stops the wheels, parks the servos and
+fades the lights as Rex's own shutdown does. Each run leaves local/telepresence/last-call.json (how
+it ended) for the supervisor to report.
 """
 from dataclasses import asdict
 import json
+import math
+import os
 import shutil
 import signal
 import threading
+import time
 from uuid import uuid4
 
 from ..contracts import Cancellation, ProviderFailure
@@ -44,13 +50,18 @@ def compose(settings, secrets):
     from .speaker import LiveSpeaker
     speaker = LiveSpeaker(settings.output_device_name)
     mic = Microphone(settings, lambda: False)
-    leds = robot = camera = video = None
+    leds = robot = camera = video = drive = radar = None
     if settings.led_port:
         from ..leds import LEDs
         leds = LEDs(settings.led_port)
     if settings.servo_port:
         from ..robot_servos import RobotServos
         robot = RobotServos(settings.servo_port)
+    if settings.drive_port:
+        # The caller drives (stage 5); he never moves on his own, so the back-off reflex is off.
+        from ..drive import DriveBase, Radar
+        radar = Radar(settings.radar_port) if settings.radar_port else None
+        drive = DriveBase(settings.drive_port, radar=radar, reflex=False)
     if settings.camera_enabled:
         from ..adapters.camera import Camera
         camera = Camera(settings.camera_device_name, None, width=settings.camera_width, height=settings.camera_height,
@@ -62,16 +73,44 @@ def compose(settings, secrets):
         live = video is not None and video.thread is not None
         return {'audio': {'rate': AUDIO_RATE, 'channels': 1, 'format': 's16le'},
                 'video': {'width': camera.frame_width, 'height': camera.frame_height, 'fps': VIDEO_FPS,
-                          'format': 'jpeg'} if live else None}
+                          'format': 'jpeg'} if live else None,
+                'controls': controls_offer(robot, drive)}
     server = Server(host, port, parse_networks(settings.telepresence_allowed_networks),
                     secrets.telepresence_token, welcome=welcome)
     if leds:
         speaker.on_pcm = leds.pcm   # The mouth moves with the owner's voice.
         if robot:
             robot.before_shutdown = leds.cancel   # The fade runs with the park, as at Rex's own shutdown.
-    providers = tuple(p for p in (speaker, leds, robot, mic, camera, video, server) if p is not None)
-    return providers, {'speaker': speaker, 'mic': mic, 'leds': leds, 'robot': robot, 'camera': camera,
-                       'video': video, 'server': server}
+    # Closed in reverse: the listener and media first, then the wheels, then the servos park.
+    providers = tuple(p for p in (speaker, leds, robot, radar, drive, mic, camera, video, server) if p is not None)
+    return providers, {'speaker': speaker, 'mic': mic, 'leds': leds, 'robot': robot, 'radar': radar,
+                       'drive': drive, 'camera': camera, 'video': video, 'server': server}
+
+
+def controls_offer(robot, drive):
+    """What the caller may steer this call, in the welcome (the wire messages: docs/TELEPRESENCE_PLAN.md)."""
+    from ..drive import MANUAL_SPEED, MANUAL_TURN
+    from ..servo_poses import TELEPRESENCE_DRIVE_HEAD, telepresence_reading
+    from .controls import LINK_SLOW_SECONDS, SETPOINT_HZ, SETPOINT_STALE_SECONDS
+    head = robot is not None and robot.telepresent
+    wheels = drive is not None and drive.state == 'ready' and (robot is None or robot.telepresent)
+    return {'head': {'home': telepresence_reading(dict(TELEPRESENCE_DRIVE_HEAD)),
+                     'fields': ['neck', 'pitch', 'tilt', 'lift', 'visor']} if head else None,
+            'drive': {'setpoint_hz': SETPOINT_HZ, 'stale_ms': round(SETPOINT_STALE_SECONDS * 1000),
+                      'link_slow_ms': round(LINK_SLOW_SECONDS * 1000), 'max_lin_mps': MANUAL_SPEED,
+                      'max_turn_dps': round(math.degrees(MANUAL_TURN))} if wheels else None}
+
+
+def record_ending(root, ending):
+    """local/telepresence/last-call.json: how the last run ended, for the supervisor's status."""
+    folder = root / 'telepresence'
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        temporary = folder / 'last-call.json.tmp'
+        temporary.write_text(json.dumps({**ending, 'ended_at': time.time()}))
+        os.replace(temporary, folder / 'last-call.json')
+    except OSError:
+        pass   # The call's own session log keeps the ending.
 
 
 def readiness(settings, secrets, providers=(), which=shutil.which):
@@ -115,21 +154,29 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
     secrets = Secrets.load(paths.root)
     if not settings.telepresence_listen:
         print(json.dumps({'outcome': 'failed', 'missing': ['telepresence_listen']}))
+        record_ending(paths.root, {'reason': 'not_ready', 'code': 1, 'missing': ['telepresence_listen']})
         return 1
     providers, parts = compose(settings, secrets)
     missing = readiness(settings, secrets, providers)
     if missing:
         print(json.dumps({'outcome': 'failed', 'missing': missing}))
+        record_ending(paths.root, {'reason': 'not_ready', 'code': 1, 'missing': missing})
         return 1
     paths.prepare()
     lease = LiveLease(paths.root / 'sessions/live.lock')
-    lease.acquire()   # A running Rex (or another call) owns the checkout: no takeover.
+    try:
+        lease.acquire()   # A running Rex (or another call) owns the checkout: no takeover.
+    except ValueError:
+        record_ending(paths.root, {'reason': 'rex_awake', 'code': 1})
+        raise
     handoff = handoff or ControllerHandoff(HardwareLocks(), port=settings.servo_port or None,
-                                           led_ports={'leds': settings.led_port} if settings.led_port else {})
+        led_ports={zone: port for zone, port in (('leds', settings.led_port), ('drive_base', settings.drive_port),
+                                                 ('radar', settings.radar_port)) if port})
     try:
         handoff.acquire(Cancellation())
-    except BaseException:
+    except BaseException as exc:
         lease.close()
+        record_ending(paths.root, {'reason': 'handoff_failed:' + (str(exc) or type(exc).__name__), 'code': 1})
         raise
     session_id = uuid4().hex
     log_path = paths.root / 'sessions' / (session_id + '.jsonl')
@@ -138,8 +185,6 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
         if part is not None:
             part.trace = trace
     owner = ProviderOwner(providers)
-    call = Call(parts['server'], parts['mic'], parts['speaker'], trace, video=parts['video'], camera=parts['camera'],
-                **({'clock': clock} if clock else {}))
     stop = threading.Event()
     main_thread = threading.current_thread() is threading.main_thread()
 
@@ -160,8 +205,15 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
                     robot.open_eyes()   # The visor opens for the call (owner, November 16).
                 except Exception as exc:
                     trace.emit('servo_lifecycle', kind='open_eyes', status='failed', error_type=type(exc).__name__)
+                try:
+                    robot.telepresence_stance(Cancellation())   # Arms tucked and held; only the caller moves him.
+                except Exception as exc:
+                    trace.emit('servo_telepresence', kind='stance', status='failed', error_type=type(exc).__name__)
             if leds is not None and 'robot_leds' in active:
                 leds.telepresence()
+            call = Call(parts['server'], parts['mic'], parts['speaker'], trace, video=parts['video'],
+                        camera=parts['camera'], **({'clock': clock} if clock else {}),
+                        **call_controls(parts, active, clock))
             try:
                 reason = call.run(stop)
                 code = 0
@@ -180,4 +232,25 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
         trace.close()
         if main_thread:
             signal.signal(signal.SIGTERM, previous)
+        failures = [r for r in owner.results if r.outcome != 'ok' and r.operation == 'start']
+        record_ending(paths.root, {'session_id': session_id, 'reason': reason,
+                                   'code': code if owner.state == 'closed' else 1,
+                                   'failed_starts': [{'capability': r.capability, 'reason': r.reason or r.error_type}
+                                                     for r in failures]})
     return code if owner.state == 'closed' else 1
+
+
+def call_controls(parts, active, clock=None):
+    """The caller's head and wheel controls for the parts that started; none for parts that did not."""
+    from .controls import DriveControl, HeadControl, base_readings
+    robot, drive, radar = parts.get('robot'), parts.get('drive'), parts.get('radar')
+    stance = robot is not None and 'robot_servos' in active and robot.telepresent
+    head = HeadControl(robot) if stance else None
+    wheels = None
+    # The wheels need the arms tucked: with servos fitted, only once the stance holds them. With no
+    # servo board configured there are no arms to tuck and the spin check uses their untucked reach.
+    if drive is not None and 'drive_base' in active and (robot is None or stance):
+        wheels = DriveControl(drive, head=head, stance_held=stance, **({'clock': clock} if clock else {}))
+    live_radar = radar if radar is not None and 'radar' in active else None
+    base = (lambda now: base_readings(drive, live_radar, now)) if drive is not None and 'drive_base' in active else None
+    return {'head': head, 'drive': wheels, 'base': base}
