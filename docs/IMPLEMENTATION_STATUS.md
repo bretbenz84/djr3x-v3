@@ -6,6 +6,26 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Run `7261d8ce` repairs — November 15 (evening)
+
+The owner's run through the door and down the hall. Software repairs, **none yet run on the robot**:
+
+- **"Turn left and come towards me"** now turns and rolls ahead (up to 3 m) toward them when nobody is
+  in view, instead of spinning in search of a face; **"keep going"** goes on toward what he just reached;
+  false "I'm there" in doorways, a straightening turn into a door jamb, an overshot turn called stalled
+  and a single telemetry gap ending a trip are fixed ([details](DRIVE_BASE_INTEGRATION.md#run-7261d8ce-repairs-doorway-hallway-and-turn-and-come-to-me--november-15-2026-evening)).
+- **Lights:** the LED board stopped taking writes in this run and the one before, leaving every light
+  dead; Rex now notices a board reboot, repaints, and reopens the port after a failed write. The mouth
+  not moving with speech is **not explained**; `show_light_feelings.py --live --talk` tests it by eye
+  ([details](LED_INTEGRATION.md#november-15-evening-the-board-drops-off-and-the-mouth-does-not-talk)).
+- **Voice check:** clear words from far away ("Try the rest.") are no longer thrown out as not a voice
+  ([details](VOICE_CHECK.md#november-15-clear-words-from-far-away)).
+- **Open:** the head went offline crooked at shutdown. The board reached both head servos' park pulses
+  (1013 and 1904 us with the lift at 832 us), and powering the servos again put the head back in the same
+  crooked pose, so that pair no longer gives a level, drooped head; it needs a fresh reading. Both
+  depth matrices' "publisher stale" stalls (firmware) and turn odometry reading two thirds of the IMU's
+  angle are also open.
+
 ## Feelings on the lights — November 15
 
 Owner request. The feeling Rex shows with his body now shows on his eyes, mouth and chest as he

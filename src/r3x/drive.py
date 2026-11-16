@@ -83,6 +83,15 @@ LOST_AFTER_S = 2.5         # Unseen this long mid-approach: stop and look for th
 LOOK_NECK_MAX = 25.
 MAX_REACQUIRES = 3
 VOICE_LEG_M = 2.           # With only a voice to go on, roll this far toward it looking for a face.
+# Owner, November 15 (run 7261d8ce): "turn left and come towards me" with him out of face range
+# turned as asked, then spun 270-460 degrees looking for a face and never came. A turn the person
+# asked for points at them: "come to me" right after it rolls ahead this far looking for a face.
+DIRECTED_LEG_M = 3.
+# November 15 (7261d8ce): reaching the doorway (and, wrongly, the kitchen far down the hall) ended the
+# search, so "just keep going forward" and "keep going towards the kitchen" became an approach to
+# nothing, refused, after he had already said "Rolling.". What he last reached stays the thing a
+# later approach re-finds for this long.
+REACHED_KEEP_S = 180.
 # October 3 hallway run: pointed slightly into a hallway wall he refused every forward move,
 # though straight ahead was open. One short side beside an open centre is a wall to turn
 # away from before moving, not an obstacle; tight spaces are driven slower, never refused
@@ -127,6 +136,7 @@ STRAIGHTEN_MIN_DEG = 8.   # The turn away from a wall is the angle it converges 
 STRAIGHTEN_MAX_DEG = 30.
 STRAIGHTEN_MARGIN_DEG = 3.
 STRAIGHTEN_SIDE_M = .5    # A wall this near beside him that converges ahead is turned away from first.
+STRAIGHTEN_TOWARD_MIN_M = .3   # ...unless the side he would turn toward is nearer than this (a doorway).
 TIGHT_CORNER_M = .5       # A front-corner return this close is tight space too.
 # October 3, second run. A voice's direction is remembered as a room heading, so it stays
 # right after he turns and for requests spoken while he moves (the model re-used "88 degrees
@@ -156,6 +166,18 @@ NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box i
 # was reported as a failure. A thing that wide which has at least doubled in the picture
 # since he first saw it is near, whatever the sensors are stopping him on.
 GROWN_NEAR = 2.
+# November 15 (7261d8ce): the kitchen at the end of the hall "doubled" from 0.2 to 0.4 of the view while
+# he rolled 0.05 m (the locator's boxes for a room varied 0.2-0.52 standing still), and a hall wall seen
+# at an angle 0.7 m ahead, with the left of his path open 3.5 m, counted as "ahead": he reported arriving
+# in the doorway twice. Growth counts only after this much travel, and in tight space the return must
+# close his whole path.
+GROWN_TRAVEL_M = .4
+TURN_ARRIVED_DEG = 3.     # A turn whose firmware done never came is arrived within this of its angle.
+# November 15 (7261d8ce): one gap in the controller's telemetry, beside a depth sensor's recovery,
+# ended a good approach 1.99 m down the hall. The wheels are told to stop (the firmware also stops
+# them 0.3 s after its last drive command) and he carries on if telemetry is back within this.
+TELEMETRY_GRACE_S = 2.
+TELEMETRY_GRACES = 3      # Pauses like that allowed in one roll before it ends as stale.
 # Locator boxes are not distances: a hallway door 4 m away came back 40% of the view wide.
 FILLS_VIEW = .6
 # October 14 plan, step 3: a close reading where the sensors saw open floor a moment ago, with
@@ -545,6 +567,8 @@ class DriveBase:
         self.look = None              # (after) -> fresh sharp camera image, or None
         self._sought = None           # description, note and absolute heading of the last thing sought
         self._vision_calls = 0
+        self._directed = False        # The step before this one was a turn a person asked for: they are ahead.
+        self._reached = None          # (description, when) of the last sought thing he arrived at.
         self._parked = False
         self._plan_parks = False
         self._view_since = float('-inf')
@@ -876,7 +900,8 @@ class DriveBase:
         targets.append({'target_id': 'nearest_person', 'kind': 'nearest_person', 'visible_now': bool(faces),
                         'where': 'largest visible face, resolved when the step runs' if faces else
                                  'nobody in view now; facing or approaching it looks for the person first '
-                                 '(toward the last voice, radar bodies, then around)'})
+                                 '(toward the last voice, radar bodies, then around); right after a turn they asked '
+                                 'for ("turn left and come to me") it rolls straight ahead looking for them instead'})
         for row in (self.objects() if self.objects else ())[:8]:
             bearing = image_bearing(row['box'], self._neck())
             targets.append({'target_id': row['target_id'], 'kind': 'object', 'label': row['label'],
@@ -927,7 +952,7 @@ class DriveBase:
                 'sensor_notes': space['health'], 'targets': targets,
                 'radar': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
                 'vision_seek': self.locator is not None and self.look is not None,
-                'last_sought': self._sought['description'] if self._sought else None,
+                'last_sought': self._last_sought(),
                 # step_m is an internal leg length; live October 1 the model read it as the most it
                 # could ever move and answered "back up five feet" with 1.5 m.
                 'limits': {'max_move_m': LIMITS[origin]['total_m'], 'max_turn_deg': LIMITS[origin]['turn_deg'],
@@ -1047,7 +1072,7 @@ class DriveBase:
                     self.link.send({'cmd': 'stop'})
                     self._view_since = self.clock() + .3
                     self._sleep(.3, cancel)   # Let the base settle before odometry is read.
-                    return 'blocked', why, None
+                    return ('completed' if why == 'turn_arrived' else 'blocked'), why, None
                 self._check(cancel)
                 self.wait(.05)
         except Cancelled:
@@ -1059,6 +1084,26 @@ class DriveBase:
         finally:
             if self.sounds:
                 self.sounds.stop()   # The wheels reported done: the whir ends with them.
+
+    def _telemetry_back(self, cancel, used):
+        """Stopped for stale telemetry: wait briefly for it to return. used is this roll's count."""
+        if used[0] >= TELEMETRY_GRACES or self.link.failure:
+            return False
+        used[0] += 1
+        try:
+            self.link.send({'cmd': 'drive', 'lin': 0., 'ang': 0.})
+        except ProviderFailure:
+            return False
+        until = self.clock() + TELEMETRY_GRACE_S
+        while self.clock() < until:
+            self._check(cancel)
+            telemetry, _ = self.link.snapshot()
+            if telemetry and 0 <= self.clock() - telemetry['received_at'] <= .5:
+                if self.trace:
+                    self.trace.emit('drive_telemetry_resumed', pause=used[0])
+                return True
+            self.wait(.05)
+        return False
 
     def _telemetry(self):
         telemetry, _ = self.link.snapshot()
@@ -1176,6 +1221,11 @@ class DriveBase:
             if abs(wrap(heading - progress[0])) >= TURN_PROGRESS_DEG:
                 progress[:] = [heading, self.clock()]
             elif self.clock() - progress[1] > TURN_STALL_S:
+                # November 15 (7261d8ce): an 18.9 degree turn measured 24.2, the firmware never said
+                # done, and "slight left, then down the hall" ended as a stalled turn. Turned that far
+                # (or past it) is arrived; a stall short of it still stops.
+                if before is not None and abs(wrap(heading - before)) >= abs(allowed) - TURN_ARRIVED_DEG:
+                    return 'turn_arrived'
                 return 'turn_stalled'
             return None
         status, reason, _ = self._finite({'cmd': 'turn', 'deg': round(command, 1), 'rate': rate},
@@ -1449,6 +1499,16 @@ class DriveBase:
                     break
             if side is None:
                 return 0.
+        # The front corner swings toward the side he turns to: its own sensor says how near that is.
+        front_side = (tof or {}).get('rf' if side > 0 else 'lf')
+        toward = (front_side / 1000. if isinstance(front_side, (int, float)) and front_side > 0
+                  else space.get('right_m' if side > 0 else 'left_m'))
+        if toward is not None and toward < STRAIGHTEN_TOWARD_MIN_M:
+            # November 15 (7261d8ce): after the owner's "slight right" in a doorway, the right jamb in
+            # the path turned him 8 degrees back left with the left jamb 0.23 m away, and the crawl
+            # then stopped 6 cm from it. That close ahead on the side he would turn to, the crawl
+            # steers between them instead (a 1.2 m hallway, 0.34-0.40 m a side, still straightens first).
+            return 0.
         angle = wall_angle(tof, side)
         degrees = STRAIGHTEN_DEG if angle is None or angle <= 0 else angle + STRAIGHTEN_MARGIN_DEG
         return -side * max(STRAIGHTEN_MIN_DEG, min(STRAIGHTEN_MAX_DEG, degrees))
@@ -1553,6 +1613,7 @@ class DriveBase:
                               float(odom.get('y', 0)) - float(start_odom.get('y', 0)))
         status, reason = 'completed', None
         travelled, progressed_at, last_mark = 0., self.clock(), 0.
+        graces = [0]
         self._assist(True)
         self._wheels_on('move', self._origin)
         try:
@@ -1566,6 +1627,9 @@ class DriveBase:
                     raise ProviderFailure(self.link.failure)
                 telemetry, _ = self.link.snapshot()
                 if not telemetry or not 0 <= self.clock() - telemetry['received_at'] <= .5:
+                    if self._telemetry_back(cancel, graces):
+                        progressed_at = self.clock()   # The pause is not a lack of headway.
+                        continue
                     status, reason = 'blocked', 'drive_telemetry_stale'
                     break
                 self._track(telemetry)
@@ -1699,6 +1763,14 @@ class DriveBase:
         now = self._heading(telemetry) if telemetry else None
         return wrap(now - self._start_heading) if now is not None and self._start_heading is not None else 0.
 
+    def _last_sought(self):
+        """What an approach to "sought" re-finds: the thing being sought, else one just reached."""
+        if self._sought:
+            return self._sought['description']
+        if self._reached and self.clock() - self._reached[1] <= REACHED_KEEP_S:
+            return self._reached[0]
+        return None
+
     def _predicted(self, offered):
         return wrap(offered['bearing_deg'] - self._rotation()) if offered.get('bearing_deg') is not None else None
 
@@ -1767,6 +1839,12 @@ class DriveBase:
         target = self._acquire(step, plan, cancel, timeout=1.2 if anyone and not offered.get('visible_now', True) else 2.5)
         if target is not None:
             return target, 0., None
+        if anyone and self._directed and offered.get('visible_now') is False:
+            # "Turn right and come to me": the turn they asked for points at them; nobody in view
+            # means they are too far for a face, not somewhere else. Straight ahead, never a search.
+            # A person in view when the plan was made is looked for again instead (October: a turn
+            # the model added before "come here" left him facing away from someone he had seen).
+            return {'kind': 'voice_direction', 'bearing_deg': 0., 'range_m': None, 'basis': 'directed_turn'}, 0., None
         if anyone:
             # "Come here" with nobody in view is a request to find the person, never a
             # refusal (October 3: refused once, then given up on after a wrong turn).
@@ -1825,7 +1903,8 @@ class DriveBase:
         travelled, extra = 0., {}
         if kind in {'radar_body', 'voice_direction'}:
             # Priors: turn toward them, then approach a face the camera actually sees.
-            facing = self._face_target(step, plan, cancel)
+            facing = ({'status': 'completed', 'turned_deg': 0.} if target.get('basis') == 'directed_turn'
+                      else self._face_target(step, plan, cancel))
             turned = facing.get('turned_deg', 0.)
             if facing['status'] != 'completed':
                 return {**row, **{k: v for k, v in facing.items() if k not in {'action', 'target'}}, 'travelled_m': 0.}
@@ -1833,14 +1912,17 @@ class DriveBase:
             if not ahead and kind == 'voice_direction':
                 # Owner, September 27: "come towards me" needs only a voice. Roll toward it and
                 # switch to the face approach as soon as a face comes into view.
-                moved, outcome = self._toward_voice(plan, cancel, min(budget_m, VOICE_LEG_M))
+                directed = target.get('basis') == 'directed_turn'
+                moved, outcome = self._toward_voice(plan, cancel, min(budget_m, DIRECTED_LEG_M if directed else VOICE_LEG_M))
                 travelled += moved
                 ahead = self._faces_ahead()
                 if not ahead:
+                    where = 'ahead where they turned me' if directed else 'toward the voice'
                     return {**row, 'status': 'blocked' if outcome == 'blocked' else 'completed',
-                            'reason': ('path blocked on the way toward the voice; no face seen' if outcome == 'blocked'
-                                       else 'moved toward the voice; no face seen'),
-                            'travelled_m': round(travelled, 2), 'turned_deg': turned, 'toward_voice': True}
+                            'reason': (f'path blocked on the way {where}; no face seen' if outcome == 'blocked'
+                                       else f'moved {where}; no face seen'),
+                            'travelled_m': round(travelled, 2), 'turned_deg': turned,
+                            **({'directed_by_turn': True} if directed else {'toward_voice': True})}
                 extra['toward_voice_m'] = round(moved, 2)
             if ahead:
                 step = DriveStep('approach', target=max(ahead, key=lambda f: f['box'][2])['track_id'], stop_at_m=stop_at)
@@ -2233,16 +2315,19 @@ class DriveBase:
         speed = LIMITS[plan.origin]['speed_mps'] * self._pace
         outcome, travelled = 'distance', 0.
         ease = Ease()
+        graces = [0]
         self._wheels_on('move', self._origin)
         try:
             while True:
                 self._check(cancel)
                 now = self.clock()
-                telemetry = self._telemetry()
-                ok, _ = self.availability(now)
+                ok, why = self.availability(now)
+                if not ok and why == 'drive_telemetry_stale' and self._telemetry_back(cancel, graces):
+                    continue
                 if not ok:
                     outcome = 'stopped'
                     break
+                telemetry = self._telemetry()
                 odom = telemetry.get('odom') or {}
                 travelled = math.hypot(float(odom.get('x', 0)) - float(start.get('x', 0)),
                                        float(odom.get('y', 0)) - float(start.get('y', 0)))
@@ -2395,6 +2480,7 @@ class DriveBase:
         self._sought = {'description': description, 'note': found.get('note'),
                         'heading': found.get('heading'), 'box_width': found['box_width'],
                         'first_width': previous.get('first_width') or found['box_width'],
+                        'first_at': previous.get('first_at') or tuple(self._at),
                         'sightings': sightings, 'position': self._fixed_position(sightings)}
 
     @staticmethod
@@ -2503,16 +2589,19 @@ class DriveBase:
         future, latest, misses, outcome, travelled = None, None, 0, None, 0.
         looked_at = float('-inf')
         recheck_until = None
+        graces = [0]
         self._wheels_on('move', plan.origin)
         try:
             while outcome is None:
                 self._check(cancel)
                 now = self.clock()
-                telemetry = self._telemetry()
                 ok, why = self.availability(now)
+                if not ok and why == 'drive_telemetry_stale' and self._telemetry_back(cancel, graces):
+                    continue
                 if not ok:
                     outcome = ('stopped', why)
                     break
+                telemetry = self._telemetry()
                 if future is None and self._vision_calls < self._vision_budget() and now - looked_at >= CRUISE_LOOK_S:
                     future, looked_at = pool.submit(self._locate, description, cancel, self._sought, False), now
                 if future is not None and future.done():
@@ -2611,6 +2700,8 @@ class DriveBase:
         row = {'action': 'approach', 'target': 'sought'}
         if step.description and (self._sought is None or self._sought['description'] != step.description):
             self._sought = {'description': step.description}
+        if self._sought is None and self._last_sought():
+            self._sought = {'description': self._reached[0]}   # "Keep going": on toward what he reached.
         if self._sought is None:
             return {**row, 'status': 'refused', 'reason': 'nothing_sought_yet', 'travelled_m': 0.}
         stand_off = max(FRONT_MARGIN, step.stop_at_m or DEFAULT_STOP_AT['object'])
@@ -2635,7 +2726,9 @@ class DriveBase:
         def result(status, reason, **extra):
             if status == 'completed':
                 # Arrived: the search is over. October 3: a later, unrelated "come towards me"
-                # was steered back to the microwave he had already reached.
+                # was steered back to the microwave he had already reached. Only an approach to
+                # "sought" itself goes on toward it, for a few minutes ("keep going").
+                self._reached = (self._sought['description'], self.clock())
                 self._sought = None
             out = {**row, 'status': status, 'reason': reason, 'travelled_m': round(travelled, 2),
                    'turned_deg': round(turned, 1), **extra}
@@ -2694,8 +2787,13 @@ class DriveBase:
                 continue   # Blocked, off course, lost or budget: re-evaluate from the latest look.
             clearance = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in space.items()}
             ahead = space.get('front_center_m')
+            if ahead is not None and self._tight(space, STRAIGHTEN_WITHIN_M):
+                # A doorway or hall: a jamb or a wall at an angle in one band is not the thing.
+                bands = [space.get(k) for k in ('path_left_m', 'path_center_m', 'path_right_m')]
+                ahead = max([ahead, *(b for b in bands if b is not None)])
             wide = found['box_width'] >= NEAR_WIDTH and abs(bearing) <= 8
-            grown = found['box_width'] >= GROWN_NEAR * (self._sought.get('first_width') or found['box_width'])
+            grown = (found['box_width'] >= GROWN_NEAR * (self._sought.get('first_width') or found['box_width'])
+                     and math.dist(self._sought.get('first_at') or self._at, self._at) >= GROWN_TRAVEL_M)
             if wide and (grown or (ahead is not None and ahead - stand_off < NEAR_AHEAD_M)):
                 # Blocked with the thing ahead and near: arrived. Near means either something
                 # straight ahead at the stand-off, or the thing itself has at least doubled in
@@ -2774,6 +2872,7 @@ class DriveBase:
             self._notify(plan)
             self._vision_calls = 0   # The last sought thing persists across plans ("keep going").
             self._dead_ends = []
+            self._directed = False
             start = self.link.snapshot()[0]
             self._start_heading = self._heading(start) if start else None
             self._plan_parks = plan.park_arm   # The arm parks right before the first wheel command.
@@ -2809,6 +2908,8 @@ class DriveBase:
                     # Banks and back-ups inside this step's turns moved him too.
                     row = {**row, 'travelled_m': round(row.get('travelled_m', 0.) + self._turn_moved, 2)}
                 receipt.steps.append(row)
+                # A turn a person asked for, then "come to me" / "face me": they are where it pointed.
+                self._directed = plan.origin == 'requested' and step.action == 'turn' and row['status'] == 'completed'
                 if self.sounds and step.action == 'approach' and row['status'] == 'completed' and row.get('travelled_m'):
                     self.sounds.accent('arrived', plan.origin)
                 elif self.sounds and row['status'] == 'blocked':

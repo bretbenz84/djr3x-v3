@@ -1650,3 +1650,71 @@ trouble; whether they are the sensors holding the clock briefly or the controlle
 is not known. **Still open:** a longer run, driving, the spoken notices aloud, and a recovery from a
 real dropout that the firmware can actually complete.
 
+
+## Run `7261d8ce` repairs: doorway, hallway and "turn and come to me" — November 15, 2026 (evening)
+
+Owner: "he's unable to navigate tight spaces to get through doors", and "when I give directions like
+turn left and come towards me, he is too far away to see and the directional audio fails so he just
+goes in circles rather than just turning and moving forward as requested."
+
+**What the log shows.** Asked to go through the door and down the hall to the kitchen, he needed five
+requests and about five minutes. The causes, all host rules:
+
+- *"Come to me" after a turn the owner gave.* Twice "turn right/left and come towards me" turned as
+  asked and then, with the owner out of face range straight ahead, searched for a face: 381 and 273
+  degrees of spinning, no travel. The microphone gave no bearing for those lines (below).
+- *False arrivals.* Twice the approach to "the kitchen at the end of the hall" reported
+  `reached_stand_off_at_target` in the doorway (0.05 and 0.44 m travelled): the locator's box for a
+  room varied 0.2-0.52 of the view while he stood still, so it "doubled", and a hall wall seen at an
+  angle 0.7 m ahead counted as straight ahead though the left of his path was open 3.5 m.
+- *"Keep going" refused after he said he would.* Arriving ends the search, so "just keep going
+  forward" and "keep going towards the kitchen", both written as an approach to the sought thing,
+  were refused (`ApproachSoughtNeedsSeek`) after "Fine, going forward" and "Rolling." had been spoken.
+- *Turned into a door jamb.* After the owner's "slight right", the right jamb in the path made the
+  pre-move straightening turn him 8 degrees back left with the left jamb 0.23 m away; the crawl then
+  stopped 6 cm from it (`wall_too_close_left`).
+- *An overshot turn called stalled.* An 18.9 degree turn measured 24.2, the firmware's done never came,
+  and "slight left, then down the hall" ended as `turn_stalled`.
+- *One telemetry gap* ended a good approach 1.99 m down the hall (`drive_telemetry_stale`).
+
+**Changes.**
+
+- **Turn, then come.** An approach to `nearest_person` straight after a completed turn the person
+  asked for, in a plan made with nobody in view, rolls ahead up to 3 m (`DIRECTED_LEG_M`) where the
+  turn points, switching to the face approach as soon as a face appears, instead of searching. A face
+  step there counts as already facing them. Someone in view when the plan was made is still looked
+  for again (October: a turn the model added before "come here"). The tool description says so.
+- **Keep going.** What he last arrived at stays `last_sought` for 3 minutes (`REACHED_KEEP_S`), and an
+  approach to `sought` alone goes on toward it; the active search still ends on arrival, so nothing
+  else is steered back to it.
+- **Arrival.** Growth in the picture counts only after 0.4 m of travel since first seen
+  (`GROWN_TRAVEL_M`); in tight space the near return must close his whole path (the most open of the
+  three path bands), not one band.
+- **Doorways.** The straightening turn is skipped when the front side sensor on the side he would turn
+  toward reads under 0.3 m (`STRAIGHTEN_TOWARD_MIN_M`); the crawl's steering takes him between the
+  jambs. A 1.2 m hallway (0.34-0.40 m a side) still straightens first.
+- **Overshot turns.** A turn with no progress for 2 s that has reached within 3 degrees of its angle,
+  or passed it, is completed (`turn_arrived`); a stall short of it still stops.
+- **Telemetry gaps.** A crawl, an approach to a sought thing or a roll toward a voice stops the wheels
+  and carries on if telemetry is back within 2 s, up to three times a roll (`drive_telemetry_resumed`).
+
+**Not changed.** The spin geometry in the hall (a 163 degree turn cannot fit in a 1 m hall; the turn
+escape needs 0.55 m behind) is correct for the measured arm swing, but `AXLE_AFT` has not been checked
+against the November 12-13 wheels. The firmware's "publisher stale" stalls (30 in 14 minutes, both
+matrices together) did not cause these stops but briefly blind its own stop zone; that needs firmware
+work. Turn odometry read about two thirds of the IMU's angle on every turn of the run (94 measured,
+63 odometry): either a track-width constant from before the new wheels or slip; turns are steered by
+the IMU, so it did not cause these failures.
+
+**Microphone direction.** Of 5,235 direction samples in the run, 3,384 (about 500 s) were set aside;
+260 s of that was while the wheels moved and 154 s during his own playback, as designed. Most of the owner's directions
+were spoken while he drove, turned or talked, so they had no bearing. The repairs above no longer
+depend on one.
+
+Checks: real drive owner against the simulated base and room: turn-then-come with the person out of
+face range comes to them with no search; with nobody there it rolls one bounded leg and says so; "come
+here" with no turn still searches; keep-going after an arrival goes on and is forgotten after three
+minutes; an overshot turn with a lost done completes and a short one still stalls; the doorway
+straightening rule both ways. The new checks fail on the code before these changes. The false-arrival
+rule and the telemetry pause are covered only by the existing checks still passing. **Not yet run on
+the robot.**

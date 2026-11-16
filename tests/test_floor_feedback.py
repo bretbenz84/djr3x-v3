@@ -477,6 +477,23 @@ class SoughtAcrossPlansTests(SeekTests):
                 store.close()
 
 
+    def test_keep_going_after_arriving_goes_on_toward_what_he_reached(self):
+        # November 15 (7261d8ce): reaching the doorway ended the search, so "just keep going forward",
+        # written as an approach to the sought thing, was refused after he had said "Rolling.".
+        clock, fake, drive, world = self.start([('door', 'door', 2.4, 0.)])
+        first = self.run_plan(clock, drive, DriveStep('seek', description='door'), DriveStep('approach', target='sought'))
+        self.assertEqual(first.status, 'completed', first)
+        self.assertIsNone(drive._sought)
+        self.assertEqual(drive.context('requested')['last_sought'], 'door')
+        world.objects[:] = [('door', 'door', fake.x + 2.4, 0.)]   # The far end of the hall, further on.
+        settle()
+        later = self.run_plan(clock, drive, DriveStep('approach', target='sought'))
+        self.assertEqual(later.steps[0]['status'], 'completed', later)
+        self.assertGreater(later.travelled_m, .5)
+        clock.wait(200.)
+        self.assertIsNone(drive.context('requested')['last_sought'])   # Minutes later it is forgotten.
+
+
 class SoughtTargetSpellingTests(unittest.TestCase):
     def test_an_unrecognized_approach_target_after_seek_means_the_sought_thing(self):
         from tests.test_drive_session import drive_call, step
@@ -551,6 +568,45 @@ class TurnAroundAndComeTests(unittest.TestCase):
         self.assertEqual([r['action'] for r in receipt.steps], ['move', 'turn', 'approach'])
         self.assertLess(math.hypot(-2.6 - fake.x, fake.y), 1.3)
         self.assertEqual(drive.history[-1]['steps_run'], ['move:completed', 'turn:completed', 'approach:completed'])
+
+    def test_turn_and_come_to_me_rolls_ahead_when_they_are_too_far_to_see(self):
+        # Owner, November 15 (7261d8ce): "turn left and come towards me" with him out of face range
+        # turned, then spun 270-460 degrees hunting for a face and never came.
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, 0., 4.6))   # Left of him, beyond where a face is found.
+        seen = world.faces
+        world.faces = lambda now: [f for f in seen(now) if f['box'][2] > .026]   # Seen within about 3 m.
+        drive.faces = world.faces
+        settle()
+        unseen = {'nearest_person': {'target_id': 'nearest_person', 'kind': 'nearest_person', 'visible_now': False}}
+        receipt = drive.execute(DrivePlan('p', (DriveStep('turn', degrees=90.), DriveStep('approach', target='nearest_person')),
+                                          'requested', 'turn left and come to me', unseen, clock()+60), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertLess(receipt.turned_deg, 110., receipt)               # The turn asked for, no search.
+        self.assertLess(math.hypot(fake.x, 4.6 - fake.y), 1.5, receipt)   # Came to them.
+        self.assertTrue(receipt.steps[1].get('toward_voice_m'), receipt)
+
+    def test_nobody_ahead_after_the_turn_rolls_a_bounded_leg_and_says_so(self):
+        clock, fake, drive, world = self.start()
+        settle()
+        unseen = {'nearest_person': {'target_id': 'nearest_person', 'kind': 'nearest_person', 'visible_now': False}}
+        receipt = drive.execute(DrivePlan('p', (DriveStep('turn', degrees=90.), DriveStep('approach', target='nearest_person')),
+                                          'requested', 'turn left and come to me', unseen, clock()+60), Cancellation())
+        step = receipt.steps[1]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertTrue(step['directed_by_turn'])
+        self.assertIn('no face seen', step['reason'])
+        self.assertLess(receipt.turned_deg, 110., receipt)
+        self.assertLessEqual(step['travelled_m'], 3.05)
+
+    def test_come_to_me_without_a_turn_still_looks_around(self):
+        clock, fake, drive, world = self.start()
+        world.people.append(('face-1', None, -2.6, 0.))   # Behind him.
+        settle()
+        receipt = drive.execute(DrivePlan('p', (DriveStep('approach', target='nearest_person'),), 'requested',
+                                          'come here', {}, clock()+60), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertGreater(receipt.turned_deg, 90.)
 
     def test_a_voice_heard_before_he_drove_away_no_longer_says_where_they_are(self):
         # October 19 (b4ce6464): "face me" turned 166 degrees on a voice heard 90 s and 2.6 m
@@ -1241,11 +1297,18 @@ class HallwayMoveTests(SeekTests):
         self.assertGreater(receipt.steps[0]['odometry_deg'], 50.)
         self.assertAlmostEqual(drive._rotation(), 30., delta=2.)   # Where targets are now expected.
 
-    def test_arriving_ends_the_search_so_later_plans_cannot_resume_it(self):
+    def test_arriving_ends_the_search_and_only_keep_going_resumes_it_for_a_few_minutes(self):
+        # October 3: a later, unrelated request was steered back to the thing he had reached; a damaged
+        # id is still never read as it (DamagedTargetTests). November 15: "keep going" (an approach to
+        # sought itself) goes on toward it for a few minutes.
+        from r3x.drive import REACHED_KEEP_S
         clock, fake, drive, world = self.start([('door', 'door', 1.6, 0.)])
         receipt = self.run_plan(clock, drive, DriveStep('seek', description='door'),
                                 DriveStep('approach', target='sought'))
         self.assertEqual(receipt.steps[-1]['status'], 'completed', receipt)
+        self.assertIsNone(drive._sought)
+        self.assertEqual(drive.context('requested')['last_sought'], 'door')
+        clock.wait(REACHED_KEEP_S + 1)
         self.assertIsNone(drive.context('requested')['last_sought'])
 
 

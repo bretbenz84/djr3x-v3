@@ -49,6 +49,19 @@ class VoiceCheckRuntimeTests(unittest.TestCase):
         self.assertEqual(self.session.brain.calls, 1)
         self.assertFalse(any(r['event'] == 'transcript_distrusted' for r in self.trace_rows))
 
+    def test_words_heard_perfectly_from_far_away_are_not_overruled(self):
+        # November 15 (7261d8ce): the owner's "Try the rest." from the hallway behind him was recognized
+        # word for word with 0.58 s of voice, scored 0.07, and the command went unanswered.
+        self.run_checked([(True, 16, False), (False, 50, False)], [Transcript('Try the rest.', 0., True)], .07)
+        self.assertEqual(self.session.brain.calls, 1)
+        self.assertFalse(any(r['event'] == 'transcript_distrusted' for r in self.trace_rows))
+
+    def test_less_than_perfect_or_very_brief_words_are_still_checked(self):
+        self.run_checked([(True, 16, False), (False, 50, False)], [Transcript('Okay.', -.125, True)], .03)
+        self.assertEqual(self.session.brain.calls, 0)    # September's trusted cough/TV lines: -0.06 or worse.
+        self.run_checked([(True, 3, False), (False, 50, False)], [Transcript('Yeah.', 0., True)], .02)
+        self.assertEqual(self.session.brain.calls, 0)    # A tenth of a second is a motor's "word".
+
     def test_stop_and_shut_down_never_wait_on_the_check(self):
         self.run_checked([(True, 2, True), (False, 50, True)], [Transcript('Stop.', -.25, True)], .22)
         self.assertTrue(any(r['event'] == 'input_invalidated' for r in self.trace_rows))

@@ -47,6 +47,11 @@ EYE_REFRESH_SECONDS = 3.
 PRIDE_REFRESH_SECONDS = 3.
 FIRMWARE = 'djr3x_leds'             # The name the board must give before it is sent a light command.
 HELLO_ATTEMPTS = 10                 # About 3 s: each unanswered read waits out the port's 0.1 s timeout.
+# November 15 (runs de09e0b3, 7261d8ce): a write to the board failed 30 s and 11 minutes into the run
+# and every light stayed dead until shutdown. The level worker now reopens the port this often, a few
+# times, and repaints what the lights should be showing.
+RECONNECT_SECONDS = 2.
+RECONNECT_ATTEMPTS = 5
 PREFIX = {'head': 'H:', 'chest': 'C:'}
 
 
@@ -82,7 +87,7 @@ class LEDs:
     capability = Capability('robot_leds','ESP32 LED board (firmware/djr3x_leds), head and chest strips',
         'startup, playback amplitude, bounded model-selected light animations and fade',
         dependencies=('pyserial',), resources=('exclusive configured LED serial port',),
-        shutdown='latch shutdown, join level worker, fade then close')
+        shutdown='latch shutdown, join level worker, fade then close; a failed write reopens the port up to 5 times')
 
     def __init__(self, port: str, *, opener: Callable[[str], LEDPort] = open_serial,
                  clock=time.monotonic, wait=time.sleep):
@@ -114,6 +119,9 @@ class LEDs:
         self.pride_on, self.pride_sent = False, float('-inf')
         self.trace = None
         self.on_command = []              # Observers (zone, command) of each command written; the dashboard mirror.
+        self.heard = b''                  # Bytes the board sent since the last full line (a reboot prints "ready").
+        self.reconnects = 0               # Reopen attempts since the last fault.
+        self.retry_at = float('-inf')
 
     def _send(self, zone, command):
         if self.device is None:
@@ -126,8 +134,8 @@ class LEDs:
             shutting_down = command.startswith('FADEOFF')
             self.state = 'faulted'
             self.version += 1
-            # One best-effort stop of both strips. No reconnect or success claim; the
-            # firmware's own watchdog closes the mouth if this does not arrive either.
+            # One best-effort stop of both strips and no success claim; the firmware's own watchdog
+            # closes the mouth if this does not arrive either. The level worker reopens the port.
             self.speaking = self.demo = False
             if not shutting_down:
                 try: self.device.write(b'SPEAK_STOP\nH:ACTIVE\n')
@@ -143,12 +151,13 @@ class LEDs:
         for zone in PREFIX:
             self._send(zone,command)
 
-    def _identify(self):
+    def _identify(self, device=None, attempts=HELLO_ATTEMPTS):
         """The board names its firmware and version; anything else on this port is not ours."""
-        for _ in range(HELLO_ATTEMPTS):
-            self.device.write(b'HELLO\n')
+        device = device or self.device
+        for _ in range(attempts):
+            device.write(b'HELLO\n')
             for _ in range(3):
-                fields = self.device.readline().decode('ascii','replace').split()
+                fields = device.readline().decode('ascii','replace').split()
                 # "ready" is the same line, printed by a board that has just booted.
                 if len(fields) >= 3 and fields[0] in ('hello','ready') and fields[1] == FIRMWARE:
                     return fields[2]
@@ -230,11 +239,95 @@ class LEDs:
     def _levels(self):
         while not self.stop_event.wait(.05):
             try:
+                if self.state == 'faulted':
+                    self._reconnect()
+                    continue
+                self._board_news()
                 self.tick()
             except Exception as exc:
                 if self.trace:
-                    self.trace.emit('led_fault',reason=type(exc).__name__)
+                    self.trace.emit('led_fault',reason=str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__)
+                with self.lock:
+                    if self.state not in {'ready', 'faulted'}:
+                        return            # Shutting down: no reopen.
+                    self.state = 'faulted'
+                    self.retry_at = self.clock() + RECONNECT_SECONDS
+
+    def _board_news(self):
+        """Read what the board said. It speaks only at boot ("ready ..."): a reboot mid-run (power dip)
+        leaves both strips dark and the mouth deaf to levels until it is told what to show again."""
+        waiting = getattr(self.device, 'in_waiting', 0) if self.device is not None else 0
+        if not waiting:
+            return
+        with self.lock:
+            self.heard += self.device.read(waiting)
+            *lines, self.heard = self.heard.split(b'\n')
+            if any(line.split()[:2] == [b'ready', FIRMWARE.encode()] for line in lines):
+                if self.trace:
+                    self.trace.emit('led_board_restarted', speaking=self.speaking, mouth=self.mouth)
+                self._repaint()
+
+    def _repaint(self):
+        """Send what the lights should be showing now: after a board reboot or a reopened port."""
+        if self.state != 'ready':
+            return
+        self.last_level, self.last_sent, self.eyes_sent, self.pride_sent = -1, float('-inf'), self.clock(), float('-inf')
+        self._both('PRIDE:0')
+        self.pride_on = False
+        self._send('head', 'ACTIVE')
+        self._send('head', 'EYE:' + ','.join(map(str, self.eye_color)))
+        if self.speaking or self.demo:
+            self._send('head', 'SPEAK:' + self.mouth)
+            self._send('chest', 'SPEAK:' + self.mouth)
+        elif self.mouth != 'neutral':
+            for command in ('SPEAK:' + self.mouth, 'SPEAK_LEVEL:0', 'SPEAK_STOP', 'ACTIVE'):
+                self._send('head', command)   # The idle glow's colour, as react() and settle() leave it.
+            self._send('chest', 'SPEAK_STOP')
+        else:
+            self._send('chest', 'SPEAK_STOP')
+
+    def _reconnect(self):
+        """A failed write left the board faulted: reopen the port and repaint, a few times. The open and
+        the identity check run outside the lock, so a line starting meanwhile is refused at once
+        (LEDUnavailable) instead of waiting seconds for the board."""
+        with self.lock:
+            if self.state != 'faulted' or self.clock() < self.retry_at:
                 return
+            if self.reconnects >= RECONNECT_ATTEMPTS:
+                self.state = 'lost'
+                if self.trace:
+                    self.trace.emit('led_reconnect_failed', attempts=self.reconnects)
+                return
+            self.reconnects += 1
+            self.retry_at = self.clock() + RECONNECT_SECONDS
+            old, self.device = self.device, None
+        try:
+            if old is not None:
+                old.close()
+        except Exception:
+            pass
+        device = None
+        try:
+            device = self.opener(self.port)
+            firmware = self._identify(device, attempts=3)   # About 1 s: shutdown joins this worker within 2.
+        except Exception as exc:
+            if device is not None:
+                try: device.close()
+                except Exception: pass
+            if self.trace:
+                self.trace.emit('led_reconnect', status='failed', attempt=self.reconnects,
+                                reason=str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__)
+            return
+        with self.lock:
+            if self.state != 'faulted':        # Shutdown began meanwhile: never repaint over it.
+                device.close()
+                return
+            self.device, self.firmware, self.heard = device, firmware, b''
+            self.state = 'ready'
+            self._repaint()
+            if self.trace:
+                self.trace.emit('led_reconnect', status='reconnected', attempt=self.reconnects, firmware=self.firmware)
+            self.reconnects = 0
 
     def blink(self, request, cancel, valid):
         with self.lock:

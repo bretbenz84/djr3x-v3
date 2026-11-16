@@ -511,6 +511,49 @@ class DriveOwnerTests(unittest.TestCase):
         self.assertEqual([c['cmd'] for c in self.fake.commands if c['cmd'] in {'move', 'turn', 'drive'}],
                          ['turn', 'move', 'turn'])
 
+    def test_a_turn_that_got_there_without_its_done_is_completed_not_stalled(self):
+        # November 15 (7261d8ce): an 18.9 degree turn measured 24.2, the firmware never reported done,
+        # and "slight left, then down the hall" ended as a stalled turn.
+        self.start()
+        self.fake.turn_scale = 1.25
+        fake, real = self.fake, self.fake._finish
+        def finish(result, fraction=1.):
+            if fake.pending and fake.pending[1] == 'turn' and result == 'completed':
+                fake.theta += fake.pending[2] * (fraction - fake.rolled) * fake.turn_scale
+                fake.pending, fake.rolled, fake.state = None, 0., 'idle'
+                return   # Turned all the way, and the done is lost.
+            real(result, fraction)
+        fake._finish = finish
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=20.)), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertNotEqual(receipt.steps[0].get('reason'), 'turn_stalled')
+
+    def test_a_turn_stalled_short_of_its_angle_still_stops(self):
+        self.start()
+        self.fake.turn_scale = .5
+        fake, real = self.fake, self.fake._finish
+        def finish(result, fraction=1.):
+            if fake.pending and fake.pending[1] == 'turn' and result == 'completed':
+                fake.theta += fake.pending[2] * (fraction - fake.rolled) * fake.turn_scale
+                fake.pending, fake.rolled, fake.state = None, 0., 'idle'
+                return
+            real(result, fraction)
+        fake._finish = finish
+        receipt = self.drive.execute(plan(DriveStep('turn', degrees=40.)), Cancellation())
+        self.assertIn('turn_stalled', json.dumps(receipt.steps), receipt)
+
+    def test_in_a_doorway_the_straightening_turn_does_not_steer_into_the_other_jamb(self):
+        # November 15 (7261d8ce): the right jamb in the path turned him 8 degrees left with the left
+        # jamb 0.23 m away; the crawl then stopped 6 cm from it.
+        self.start()
+        self.fake.tof.update(lf=230, lb=600)            # The left jamb beside his front corner.
+        settle()
+        doorway = {'path_left_m': 3.5, 'path_center_m': 1.46, 'path_right_m': .56, 'left_m': .23, 'right_m': .3}
+        self.assertEqual(self.drive._wall_turn(doorway, .8), 0.)
+        self.fake.tof.update(lf=600, lb=230)            # Close only behind: the corner swings clear.
+        settle()
+        self.assertGreater(self.drive._wall_turn(doorway, .8), 0.)   # Turns away from the right jamb as before.
+
     def test_imu_drift_without_odometry_agreement_is_not_corrected(self):
         self.start()
         self.fake.imu_drift = 11.   # IMU says the right turn fell 11 degrees short; wheels disagree.

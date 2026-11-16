@@ -33,6 +33,13 @@ SELF_NOISE_LOGPROB = -.1       # Trust floor for a suspected capture (the usual 
 # moving or not (his motors, coughs, Max). Longer speech is not checked. docs/VOICE_CHECK.md.
 VOICE_CHECK_MAX_VOICED = 1.    # Detected voice under this many seconds makes a sound brief.
 NOT_SPEECH_SCORE = .5          # CED-Tiny's voice score below this is not a voice.
+# November 15 (7261d8ce): the owner, calling from the hallway behind him, was heard word-perfect as
+# "Try the rest." (0.58 s voiced) and "Rex." (0.54 s), and CED-Tiny scored them 0.07 and 0.02; the
+# command was never answered. Words recognized perfectly, with this much voice and no suspicion of
+# his own motors, are not overruled by it. None of that run's 36 other brief sounds came near (each
+# suspected, or recognized at -0.375 or worse), nor September's trusted cough/TV lines (-0.06 at best).
+CLEAR_WORDS_LOGPROB = -.01
+CLEAR_WORDS_VOICED = .4
 # The exact spoken shutdown, with his name as recognition often hears it (October 22, 0421a222:
 # "Red shut down." was taken as words for someone else and he stayed on).
 SHUTDOWN_COMMANDS = frozenset({'shut down', 'shutdown', 'shut down rex'} | {
@@ -375,7 +382,8 @@ class VoiceRuntime:
                 perceived_turns = self.perception.analyze_many(capture,self.asr_cancel) if self.perception else (None,)
                 cued = False   # One listening cue per capture, however many turns it splits into.
                 voice = ...    # The capture's voice score, judged at most once (None: could not judge).
-                brief = sum(b-a for a, b in capture.voiced_intervals) < VOICE_CHECK_MAX_VOICED
+                voiced = sum(b-a for a, b in capture.voiced_intervals)
+                brief = voiced < VOICE_CHECK_MAX_VOICED
                 for perceived in perceived_turns:
                     part = perceived.capture if perceived else capture
                     transcript = perceived.transcript if perceived else self.asr.transcribe(part, self.asr_cancel)
@@ -404,8 +412,10 @@ class VoiceRuntime:
                             perceived = replace(perceived, transcript=transcript)
                         self.trace.emit('transcript_distrusted', capture_id=part.capture_id,
                                         reason='brief_sound_during_own_motion', avg_logprob=transcript.avg_logprob)
+                    clear = (transcript.trusted and not capture.self_noise_risk and voiced >= CLEAR_WORDS_VOICED
+                             and transcript.avg_logprob is not None and transcript.avg_logprob >= CLEAR_WORDS_LOGPROB)
                     if (self.voice_check is not None and brief and transcript.text.strip() and not shutdown
-                            and not warning and not is_stop_command(transcript.text)
+                            and not warning and not is_stop_command(transcript.text) and not clear
                             and not (capture.channel and transcript.trusted)):
                         # Channel 1 (a Jeopardy answer, boosted, no noise suppression) is not what the check
                         # learned: it scored clear "Pass." .09-.3 (October 27); words heard clearly there stand.

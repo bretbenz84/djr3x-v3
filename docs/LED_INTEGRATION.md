@@ -359,3 +359,30 @@ a plain line leaves them in; the chest was already idle. A plain reply sends not
 sentry mode's red stays. Fake-board checks only (one new, three extended); **not yet seen on the robot**.
 Explicit light requests (`animate_lights`, the `lights_` steps) still leave their colour on the eyes
 until the next line, as before.
+
+## November 15 (evening): the board drops off, and the mouth does not talk
+
+Run `7261d8ce`. The owner: "the mouth is not animating speech anymore."
+
+- **What the log shows.** Every line has a `led_delivery` row with `commands_sent`, so the host started
+  the speaking mouth and fed it levels as before; the host's level path and the head firmware's speaking
+  code are unchanged since the single board (November 14) apart from four new colours, and both pass
+  their checks with levels. Eleven minutes in, a write to the board failed and every light was dead for
+  the rest of the run (`LEDUnavailable` on each line). The run before (`de09e0b3`) failed the same way
+  30 s after startup. Neither failure came while he was speaking or moving. The cause of the mouth not
+  moving is **not established**; that the board twice stopped taking writes points at its USB link or
+  power more than at the program.
+- **The board is watched.** The level worker reads what the board says. It speaks only when it boots
+  ("ready djr3x_leds ..."), so a reboot mid-run is now logged (`led_board_restarted`) and the lights are
+  told what to show again: eyes, idle glow and, during a line, `SPEAK:` so the mouth follows the levels.
+- **Reconnect.** A failed write no longer leaves the lights dead: the worker reopens the port every 2 s,
+  up to five times, checks the board's name and repaints (`led_reconnect`, then `led_reconnect_failed`
+  if it gives up). Lines starting meanwhile are refused at once rather than waiting on the board.
+- **Seeing whether the mouth can talk.** `tools/show_light_feelings.py --live --talk` (Rex off) drives
+  each feeling's mouth from made-up speech-like loudness through the same level path playback uses. Bars
+  rising and falling there but not in conversation would put the fault in playback's levels; still bars
+  there put it in the board, its wiring or its power.
+
+Checks: four fake-board checks (a mid-line reboot is told to speak again, other bytes change nothing,
+a failed write reopens and repaints, reopening gives up after five tries and shutdown still completes);
+the 34 LED owner checks pass. **Not yet run on the robot**, and the mouth itself not yet looked at.

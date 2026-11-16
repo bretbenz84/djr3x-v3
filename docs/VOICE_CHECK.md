@@ -66,6 +66,19 @@ Nobody has listened to the other 112 trusted lines; the 3 the check holds back w
 
 The research comparison is private, in `local/reports/Sound models better than YAMNet.md`.
 
+## November 15: clear words from far away
+
+Run `7261d8ce`. Of the 39 brief sounds the check scored as not a voice, 36 were short "Oh.",
+"Okay.", "Yes." or "Yeah." while his servos or wheels moved (nobody has listened to them), and three were
+the owner's real words, spoken from the hallway behind him: "Try the rest." (a command; scored 0.07),
+"Rex." (0.02) and "You." (0.20). The
+first two were recognized word-perfect (average log-probability 0.0) with over half a second of voice.
+Now a transcript the recognizer trusted, at -0.01 or better, with at least 0.4 s of voice and no
+suspicion of his own motors, is not overruled by the check (`CLEAR_WORDS_LOGPROB`, `CLEAR_WORDS_VOICED`).
+In that run no motor sound came near (all were suspected, or recognized at -0.375 or worse), and the
+September cough and TV lines the recognizer trusted were at -0.06 and worse. "You." (0.19 s) is still
+held back. Tuned on this one run and the September clips; synthetic runtime checks only.
+
 ## Open
 
 - **A robot run:** how often `not_a_voice` fires, the live check time, and whether a real short reply

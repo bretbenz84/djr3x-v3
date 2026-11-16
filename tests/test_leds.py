@@ -387,3 +387,77 @@ class LEDTimingTests(unittest.TestCase):
             for name in ('microphone','leds','drive_base'):
                 probe=locks.lease(name)
                 self.assertTrue(probe.acquire());probe.close()
+
+
+class LEDRecoveryTests(unittest.TestCase):
+    """November 15 (de09e0b3, 7261d8ce): one failed write left every light dead until shutdown, and a board
+    that rebooted mid-run would have stayed dark: the owner never read what the board said."""
+
+    def test_a_board_that_reboots_mid_line_is_told_to_speak_again(self):
+        clock=Clock();board=Board();said=[b'ready djr3x_leds 0.5.0 head=82@18 chest=98@19\n']
+        board.in_waiting=0
+        board.read=lambda n: said.pop(0) if said else b''
+        led=LEDs('board',opener=lambda path:board,clock=clock,wait=clock.wait)
+        led.start();led.stop_event.set();led.worker.join(1)
+        led.begin('happy',speaking=True)
+        before=len(board.lines)
+        board.in_waiting=len(said[0])
+        led._board_news()
+        repaint=board.lines[before:]
+        self.assertIn('H:ACTIVE',repaint)
+        self.assertIn('H:EYE:'+','.join(map(str,(0,255,100))),repaint)
+        self.assertIn('H:SPEAK:happy',repaint)    # The mouth listens to levels again.
+        self.assertIn('C:SPEAK:happy',repaint)
+        self.assertTrue(led.speaking)
+
+    def test_other_bytes_from_the_board_change_nothing(self):
+        clock=Clock();board=Board();said=[b'hello djr3x_leds 0.5.0 head=82@18 chest=98@19\nrea']
+        board.read=lambda n: said.pop(0) if said else b''
+        led=LEDs('board',opener=lambda path:board,clock=clock,wait=clock.wait)
+        led.start();led.stop_event.set();led.worker.join(1)
+        before=len(board.lines)
+        board.in_waiting=10
+        led._board_news()
+        self.assertEqual(board.lines[before:],[])
+        self.assertEqual(led.heard,b'rea')          # A partial line waits for the rest.
+
+    def test_a_failed_write_reopens_the_port_and_repaints(self):
+        clock=Clock();boards=[Board(),Board()];opened=[]
+        def opener(path):
+            opened.append(path);return boards[len(opened)-1]
+        trace=[]
+        class Trace:
+            def emit(self,event,**row): trace.append((event,row))
+        led=LEDs('board',opener=opener,clock=clock,wait=clock.wait)
+        led.start();led.stop_event.set();led.worker.join(1)
+        led.trace=Trace()
+        boards[0].fail=True
+        with self.assertRaises(ProviderFailure):
+            led.begin(speaking=True)
+        self.assertEqual(led.state,'faulted')
+        with self.assertRaises(ProviderFailure):
+            led.begin(speaking=True)               # Refused at once while faulted, never waits.
+        led._reconnect()
+        self.assertEqual(led.state,'ready')
+        self.assertTrue(boards[0].closed)
+        self.assertIn('H:ACTIVE',boards[1].lines)
+        self.assertIn(('led_reconnect',{'status':'reconnected','attempt':1,'firmware':'0.1.0'}),trace)
+        token=led.begin(speaking=True)            # Lines light again.
+        self.assertEqual(led.finish(token),'commands_sent')
+
+    def test_reopening_gives_up_after_a_few_tries(self):
+        clock=Clock();board=Board();tries=[]
+        def opener(path):
+            if not tries: tries.append(0);return board
+            tries.append(1);raise OSError('no such port')
+        led=LEDs('board',opener=opener,clock=clock,wait=clock.wait)
+        led.start();led.stop_event.set();led.worker.join(1)
+        board.fail=True
+        with self.assertRaises(ProviderFailure):
+            led.begin(speaking=True)
+        for _ in range(10):
+            led._reconnect();clock.wait(2.)
+        self.assertEqual(led.state,'lost')
+        self.assertEqual(len(tries)-1,5)
+        led.close()                                # Shutdown still completes with no board.
+        self.assertEqual(led.state,'closed')
