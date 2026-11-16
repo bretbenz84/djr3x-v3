@@ -2,8 +2,9 @@
 
 Status, November 16, 2026: **stages 0-5 are implemented in software. Two calls have run on the robot over
 WireGuard: audio both ways and video, started by hand (stage 1 and the app). Head control, driving and
-the supervisor trigger ([below](#stages-3-5-implemented--november-16)) have not yet been used on the
-robot. Stage 6 is not built.** The owner's decisions are recorded [below](#owner-decisions-november-16);
+the supervisor trigger ([below](#stages-3-5-implemented--november-16)): a call started through the
+trigger with head aiming works on the robot (owner, November 16); driving over the link has not been
+used yet. Stage 6 is not built.** The owner's decisions are recorded [below](#owner-decisions-november-16);
 this document authorizes no further code, firmware or hardware operation. Owner's idea: a Mac app that wakes the robot into a mode with
 no personality and no models, where Rex is a conduit for the owner's voice. The owner hears the room,
 sees through the camera, drives the base and moves the head and head lift. The supervisor launches a
@@ -459,6 +460,17 @@ controller, and fake sockets and clocks. They check:
     stance ended at 16.9 s), before the call was wired to the link, so 0 bytes went out.
   - The listener now opens only once the stance holds and the call is wired. A caller before that is
     refused by the operating system and the app's 60 s retry calls again.
+- **The first working call through the trigger (owner, November 16: "its working as expected"):**
+  - The app started it through the supervisor over WireGuard, and Rex took the call once his stance
+    held (listening at 16.6 s, the app signed in at 18.8 s).
+  - Session 3df6f3a2, after about 4 minutes:
+    - round trip 20.5 ms median, 54.7 ms at most;
+    - 106 s of the owner's voice played;
+    - 57 head moves, none refused or failed;
+    - video about 5 frames a second, encoding 6 ms each;
+    - the call program used 11% of one core, ffmpeg 14%.
+  - The app sent no drive setpoints, so driving over the link is still unused.
+  - Someone at home was surprised to see him come alive; the lights were the only cue, as decided.
 - **No radar in telepresence** (owner, November 16: there is no point to it for a robot driven by
   hand). The radar ring only tells Rex where people are, for looking and seeking; none of the
   wheels' checks use it. A call never opens or claims its port, and the status no longer has a
@@ -467,11 +479,8 @@ controller, and fake sockets and clocks. They check:
 
 **Open:**
 - On the robot:
-  - a call started through the trigger;
-  - the stance and head aiming;
-  - the head's response at the look pace;
   - driving over the link;
-  - a stop through the trigger;
+  - whether the look pace is quick enough (57 moves ran; no verdict on speed);
   - the battery file once the battery menu bar is reloaded.
 - Not built:
   - looks while rolling;

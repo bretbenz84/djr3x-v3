@@ -186,7 +186,7 @@ is a separately maintained reference. V3 never imports it or reads its data.
     mouth lights move with it; a stop said over his voice still halts him.
   - He can answer questions about battery, charging, obstructions, radar bodies, tilt
     and room climate from live readings.
-- **Telepresence (November 16; two calls with audio and video have run on the robot).** `python -m r3x telepresence` turns Rex into a
+- **Telepresence (November 16; works on the robot, driving not yet used).** `python -m r3x telepresence` turns Rex into a
   conduit for the owner over the home WireGuard VPN, with no models. The servos wake, the visor opens,
   the arms take the drive stance and his eyes go magenta. Room audio and the camera go to one signed-in
   client, and the client's voice plays from his speaker with his mouth moving to it. The caller aims
@@ -194,8 +194,8 @@ is a separately maintained reference. V3 never imports it or reads its data.
   added (newest setpoint only, zero after 0.3 s, no forward or turning on a slow link). The supervisor
   starts and stops a call on request while Rex is asleep. The Rex Call Mac app
   ([apps/telepresence](apps/telepresence/README.md)) makes the call, with echo cancelling so speakers
-  work. Head control, driving and the trigger have not yet been used on the robot
-  ([plan and status](docs/TELEPRESENCE_PLAN.md)).
+  work. A call started through the trigger, with head aiming, works on the robot (owner); driving over
+  the link has not been used yet ([plan and status](docs/TELEPRESENCE_PLAN.md)).
 - **Startup.** The startup whir plays as the servos wake, a short "please wait" line is
   spoken the moment the whir and wake finish, and the droid start-up sound fills the rest
   until loading finishes and cuts it. The please-wait and ready lines are synthesized once
