@@ -7,7 +7,7 @@ Owner request and rulings, October 22, 2026.
 - **Second run** (`dc9f7480`): the alarm talk stayed on duty, but Bret, who had armed him and stayed,
   was ignored by face and voice after the trip, and could not shut him down. Repaired too.
 
-Neither repair has run on the robot yet.
+Owner, November 16: tested on the robot since, and it works as intended.
 
 Rex guards a room while he is left alone. He holds still with red lights and a slowly sweeping
 neck, and costs nothing while nothing happens. A stranger's face, or a full sentence from a voice he
@@ -237,22 +237,6 @@ settings line costs about 40 characters each time.
   - Wrong: Bret was recognized in nearly every frame and matched by voice on "It's okay, Rex. It's
     me." four times, all ignored as "leaving". "Shut down." was ignored too. He shut down only when
     the 5 minutes ran out.
-
-## Not yet checked on the robot
-
-- The red mouth and chest on the real boards. The chest gets no levels; whether its firmware holds
-  red in speaking mode for hours is unknown.
-- Stance, sweep, aim and throttle-arm moves on the servos, and how noisy the sweep is to his own
-  microphone.
-- Face trip timing and recognition distance with the real camera, and whether real pictures are
-  caught by the survey.
-- The repaired alarm talk, and the cropped picture of a real stranger.
-- Whether a dog or household noise ever reaches four trusted words. A device voice did, on the
-  first run.
-- Hearing "stop" over his own countdown.
-- Recording CPU and disk use on the M2 over hours, and playback of `video.mov` in QuickTime. Both
-  first-run trips were speech, so nothing was recorded.
-- The time-up shutdown and wake.
 
 ## Code
 

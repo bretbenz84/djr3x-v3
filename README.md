@@ -113,14 +113,15 @@ is a separately maintained reference. V3 never imports it or reads its data.
   - One mode at a time: asking for another, or to talk some way he has no mode for ("like a
     cowboy"), ends the one before. Asking again starts the ten minutes over; "stand down pride
     mode" or "drop the accent" ends one.
-    Not yet run on the robot ([details](docs/IMPLEMENTATION_STATUS.md#speaking-modes--october-25)).
+    Run on the robot and working as intended (owner, November 16;
+    [details](docs/IMPLEMENTATION_STATUS.md#speaking-modes--october-25)).
 - **Jeopardy (October 26).** V2's game, hosted by Rex: "let's play Jeopardy" and up to four players. Real
   boards from V2's clue bank, V2's music and stings, Daily Doubles, Double Jeopardy and Final Jeopardy.
   Anyone's voice answers for the player whose turn it is. Rex's reply model judges each response,
   forgiving of sound-alikes and garbled names but not of a different answer, and responses must be
   phrased as a question. A wrong answer gives the next player one rebound; "that was right!" can
   overturn a ruling. With `--gui` the dashboard shows the board (made for the Apple TV); then the
-  categories are read once per board and again only when asked. Not yet played on the robot
+  categories are read once per board and again only when asked. Played on the robot and working as intended (owner, November 16)
   ([details](docs/JEOPARDY.md)).
 - **Celebrity callouts (October 25).** Tell Rex "PJ is a huge Kings fan, treat him like Kings royalty
   whenever he shows up" (about anyone, yourself or a saved pet) and he gives them a fresh celebrity entrance
@@ -144,7 +145,8 @@ is a separately maintained reference. V3 never imports it or reads its data.
     alarm: he roasts the intruders for about two minutes, records video and sends a phone alert with
     a photo (ntfy).
   - Someone he knows by face or voice stands him down. When the time runs out he shuts down.
-  - Not yet run on the robot ([details and phone setup](docs/SENTRY_MODE.md)).
+  - Run on the robot and working as intended (owner, November 16;
+    [details and phone setup](docs/SENTRY_MODE.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080. A look someone asks for ("look left and see if you see it") turns
   the head there first and holds it while he answers, even when they speak (October 23); about 20 s

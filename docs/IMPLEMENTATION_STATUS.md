@@ -1,10 +1,18 @@
 # Current implementation status
 
-Updated November 15, 2026. This is the consolidated
+Updated November 16, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Jeopardy, sentry mode and speaking modes on the robot — November 16
+
+Owner: all three "have all been tested on the robot and work as intended." This is the owner's report of
+real-hardware runs; no session log was reviewed for this entry. On the owner's instruction the same day,
+the lists of open items in [Jeopardy](JEOPARDY.md) and [sentry mode](SENTRY_MODE.md) were cleared without
+going through them one by one; Jeopardy's game history and the way the game is built are kept. The dated
+sections below keep what was known when they were written.
 
 ## Run `916af362` repairs — November 15 (late evening)
 
@@ -419,7 +427,8 @@ an Apple TV), with the categories read far less often when it is on screen.
   repairs 65 of 68 judged as intended, no right answer refused, no wrong one credited, no table talk ruled
   on, and 13 of 14 held-out sound-alikes; about $0.0012 a ruling, model time median 2.2 s (longest 5.4 s).
 - One partial game on the robot (October 26); afterwards picks go straight to the clue with no words of
-  Rex's own. [Details, open items](JEOPARDY.md).
+  Rex's own. [Details](JEOPARDY.md).
+- Owner, November 16: played on the robot and works as intended.
 
 ## Name spellings and the owner's name — October 26
 
@@ -618,9 +627,8 @@ Evidence:
   his own voice, the DJ on, in patter and off, Filipino to Vietnamese to Brazilian with only the newest
   on, nothing for "my cousin is a DJ in Las Vegas").
 
-**Not yet run on the robot**: the voices in conversation, the flourish, hand swings and throttle curl,
-and the rainbow on both boards are unseen; the dashboard does not mirror the rainbow. How often he
-chooses an accent line in real conversation, and on his own goal beats, is unmeasured.
+**Run on the robot and working as intended (owner, November 16).** The dashboard does not mirror the
+rainbow. How often he chooses an accent line in real conversation, and on his own goal beats, is unmeasured.
 
 ## Out of credit — October 25
 
@@ -955,7 +963,7 @@ ran out.
 - An exact "shut down" works with a clear voice match of someone he knows, or with someone he knows
   in view (the person who armed him included), in any sentry phase.
 Checks: three replays of the run fail on the code that ran and pass now; 40 sentry checks and the
-full suite pass. **Not yet run on the robot.**
+full suite pass. Sentry mode has since run on the robot and works as intended (owner, November 16).
 
 ## Sentry mode's alarm talk spoke as ordinary Rex — October 22 run a45983c1
 
@@ -973,7 +981,7 @@ first line (22 s).
 - A known face in view is checked before the cry and before every line: he stands down instead.
 - The alert has its own 10 s timer.
 Checks: 37 sentry checks (3 new) and the full suite pass. Paid probe: three voice-only alarm lines
-with a telescope conversation in history, all on guard duty. **The repair is not yet run on the robot.**
+with a telescope conversation in history, all on guard duty. Sentry mode has since run on the robot and works as intended (owner, November 16).
 
 ## Sentry mode — October 22
 
@@ -998,9 +1006,8 @@ tool. Code checks the request and keeps the clock.
 Checks: 34 new blocked-I/O checks (synthetic camera rows, voices, clocks, ports, HTTP); the full
 suite passes. ffmpeg joined synthetic frames and audio into a playable `video.mov` on this Mac.
 Paid probe (`tools/check_sentry.py --live`, real reply model): 7 of 7 requests read correctly, and
-the alarm and stand-down lines came out in words with no tool. **Not yet run on the robot**: lights,
-servo moves, real faces and noise, hearing a call-off over the countdown, recording load and phone
-delivery. Details and phone setup: [sentry mode](SENTRY_MODE.md).
+the alarm and stand-down lines came out in words with no tool. **Run on the robot and working as intended
+(owner, November 16).** Details and phone setup: [sentry mode](SENTRY_MODE.md).
 
 ## The visor fumbles were a missing tool — October 22 run e72ab522
 

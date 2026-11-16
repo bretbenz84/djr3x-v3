@@ -1,6 +1,9 @@
 # Jeopardy
 
-Status, October 26, 2026: **implemented in software; one partial game on the robot (one player, two clues).** Owner request: port
+Status, November 16, 2026: **played on the robot and working as intended (owner's report).** The dated notes
+below predate that report; the list of open items was cleared on the owner's instruction the same day.
+
+Status, October 26, 2026: implemented in software; one partial game on the robot (one player, two clues). Owner request: port
 V2's Jeopardy, keep what made it fun and forgiving, require responses phrased as a question, let anyone's
 voice answer for the player whose turn it is, let Rex's reply model judge the answers now that replies
 are faster, and include the board on the dashboard (the table plays with the Mac mirrored to an Apple TV),
@@ -126,8 +129,6 @@ would double the render cost on the robot's Mac.
   picks now carry no words of his. On the second clue a brief sound while his head servos moved was heard
   as "Okay." (untrusted, no usable voice); the think music stopped while he weighed it (two model calls,
   about 4 s, the clock waiting) and restarted from the top. It now plays on through such a turn, and words the recognizer was unsure of get no second call.
-- Not yet: a full game, several players, whether answers are heard over the thinking music and stings,
-  the clip volumes beside Rex's voice, and the dashboard on the Apple TV.
 
 ### Paid judging check
 
@@ -160,15 +161,15 @@ about 3.5-4 s after someone stops talking. Not yet measured in a game.
 - Run `ba328d49` (November 4): "Let's play Jeopardy" was dropped by the private-memory audience guard as someone
   came into view. The owed answer could not start a game and his goal planner then played at hosting one, so the
   dashboard had no game to show. The owed answer now offers `jeopardy_setup` (his own turns still cannot start a
-  game). Paid check, typed words, real model on the Fast tier: 3 of 3 started the game. Not yet seen on the robot.
+  game). Paid check, typed words, real model on the Fast tier: 3 of 3 started the game.
 
-## Not done
+## Robot games and repairs — October 26–27
 
 - Second robot game (October 26, three players, dashboard on): on the usual channel the room read -40 to
   -50 dB under the music instead of the usual -27 to -32, only fragments came through, and time ran out.
   Third game (`ff7fdce4`, three players): answers on channel 1 came through (mosquito, potato, Taj Mahal,
   each ruled within about 3 s), with `beam_gain` at its 16x ceiling throughout, so channel 1 sits at least
-  24 dB below channel 0. Four failures, each since changed and not yet replayed on the robot:
+  24 dB below channel 0. Four failures, each since changed:
   - **Freeze.** Stopping the think music for a voice cut its stream off mid-play; the board's microphone
     went silent, its automatic restart hung, and his time's-up line, his idle motion and shutdown all waited
     behind it. The music now ends by draining like any line; the cut-off is only for a stream that will not.
@@ -199,9 +200,12 @@ about 3.5-4 s after someone stops talking. Not yet measured in a game.
   - Not changed: rulings took longer than in the probe (sting about 3.5-4.5 s after speech, his words 5-7
     s), one request took over 12 s, and "Two hundred." between squares (channel 0) was also judged not a
     voice (.45).
+
+## How the game is built
+
 - Boards repeat: the clue file has 97 complete opening boards (44 for Double Jeopardy), each game draws
   one at random and nothing remembers earlier games; the second robot game drew the first one's board.
-- Resume after a restart (V2 had none either); a game lives only in memory.
+- No resume after a restart (V2 had none either); a game lives only in memory.
 - In Final Jeopardy responses are spoken in turn, so later players hear earlier ones.
 - An answer shouted while Rex is still talking is not heard (the microphone is gated while he speaks);
   "stop" and "Hey Rex" still cut him off.
