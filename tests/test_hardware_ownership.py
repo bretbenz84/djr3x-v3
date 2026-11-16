@@ -108,11 +108,22 @@ class OwnershipTests(unittest.TestCase):
 
     def test_lsof_checks_both_serial_names_and_fails_on_diagnostics(self):
         from types import SimpleNamespace
+        present = lambda path: True
         with patch('r3x.hardware_ownership.subprocess.run',return_value=SimpleNamespace(returncode=1,stdout='',stderr='')) as run:
-            self.assertTrue(serial_port_free('/dev/cu.synthetic'))
+            self.assertTrue(serial_port_free('/dev/cu.synthetic', exists=present))
             self.assertIn('/dev/tty.synthetic',run.call_args.args[0])
         with patch('r3x.hardware_ownership.subprocess.run',return_value=SimpleNamespace(returncode=1,stdout='',stderr='permission denied')):
-            with self.assertRaises(ProviderFailure): serial_port_free('/dev/cu.synthetic')
+            with self.assertRaises(ProviderFailure): serial_port_free('/dev/cu.synthetic', exists=present)
+
+    def test_an_unplugged_board_is_free_and_never_probed(self):
+        # November 16: the radar ring's missing name made lsof fail every start.
+        with patch('r3x.hardware_ownership.subprocess.run') as run:
+            self.assertTrue(serial_port_free('/dev/cu.synthetic', exists=lambda path: False))
+        run.assert_not_called()
+        from types import SimpleNamespace
+        with patch('r3x.hardware_ownership.subprocess.run',return_value=SimpleNamespace(returncode=1,stdout='',stderr='')) as run:
+            serial_port_free('/dev/cu.synthetic', exists=lambda path: path.startswith('/dev/cu.'))
+        self.assertEqual(run.call_args.args[0][-1], '/dev/cu.synthetic')   # Only the name that exists.
 
 
 class LegacyCooperationTests(unittest.TestCase):

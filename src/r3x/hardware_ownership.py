@@ -116,11 +116,19 @@ def legacy_supervisor_ready(locks: HardwareLocks) -> bool:
     return True
 
 
-def serial_port_free(path: str) -> bool:
-    """Read-only lsof check, including legacy companions; never open to probe."""
+def serial_port_free(path: str, exists=os.path.exists) -> bool:
+    """Read-only lsof check, including legacy companions; never open to probe.
+
+    A device that is not on the Mac (unplugged or switched off) has nobody holding it, so it is free.
+    November 16: the radar ring was unplugged, lsof reported its missing name as an error, and every
+    start (Rex's and a telepresence call's) failed SerialOwnershipProbeFailed. Its own provider now
+    fails to open instead, and an optional board is simply left out of that run."""
     aliases = [path]
     if path.startswith('/dev/cu.'):
         aliases.append(path.replace('/dev/cu.','/dev/tty.',1))
+    aliases = [alias for alias in aliases if exists(alias)]
+    if not aliases:
+        return True
     result = subprocess.run(['/usr/sbin/lsof','-Fpn','--',*aliases],capture_output=True,text=True,timeout=2.)
     if result.returncode not in (0,1) or result.stderr.strip():
         raise ProviderFailure('SerialOwnershipProbeFailed')

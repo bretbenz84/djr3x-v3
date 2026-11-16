@@ -442,12 +442,25 @@ controller, and fake sockets and clocks. They check:
 - the trigger starts only while asleep, stops only its own call, and never lets an outsider or a
   wrong token reach the main loop.
 
+**On the robot (November 16):**
+- The supervisor was reloaded and its trigger listened on 192.168.1.100:47801.
+- The app asked status every 15 s over WireGuard, from 192.168.1.253.
+- The app's first start, at 11:17:
+  - the supervisor launched the call program, which ended within a second at the hardware handoff
+    (`handoff_failed:SerialOwnershipProbeFailed`);
+  - the cause: the radar ring was not plugged in, and lsof reported its missing port name as an
+    error;
+  - the same check runs at Rex's own startup, so "wake up rex" would have failed the same way;
+  - the fix: an unplugged board counts as free (`hardware_ownership.serial_port_free`), its own
+    provider then fails to open, and an optional board is left out of that run.
+
 **Open:**
 - On the robot:
+  - a call started through the trigger;
   - the stance and head aiming;
   - the head's response at the look pace;
   - driving over the link;
-  - a start and stop through the trigger;
+  - a stop through the trigger;
   - the battery file once the battery menu bar is reloaded.
 - Not built:
   - looks while rolling;
