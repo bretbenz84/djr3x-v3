@@ -29,6 +29,10 @@ Owner request: "implement the rest of the plan", robot side only.
   the trigger over WireGuard. Head aiming, the owner's voice and the room ran for minutes: 57 head
   moves, none refused, and a 20 ms median round trip.
 - **Not yet on the robot:** driving over the link (the app has sent no setpoints yet).
+- **Spoken line at home** (owner, later November 16): before a call is taken, he says in his own voice
+  that the owner is calling in. The ElevenLabs clip is kept in `assets/audio/telepresence/`; it plays
+  through the call's speaker with his mouth lights, and nothing moves. Full suite passed (1,951); not
+  yet heard on the robot.
 
 ## Telepresence stage 2: the Rex Call Mac app — November 16
 

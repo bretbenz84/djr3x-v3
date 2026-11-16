@@ -1,0 +1,11 @@
+{
+  "text": "Heads up! Telepresence link established. Bret is calling in through me.",
+  "source": "ElevenLabs text-to-speech, Rex's own voice",
+  "voice_id": "no5jvDWvnx2leN3dFOS7",
+  "model": "eleven_v4_turbo",
+  "leveled": "speech_level.PCMLeveler",
+  "made": "2026-11-16",
+  "made_by": "tools/make_telepresence_clip.py",
+  "sample_rate": 16000,
+  "seconds": 4.4
+}

@@ -69,6 +69,32 @@ class LiveSpeaker:
             self.buffer.clear()
             self.priming = True
 
+    def play_clip(self, pcm: bytes, *, wait=time.sleep) -> bool:
+        """A whole recorded line through the call's stream, fed at the pace it plays (written at once,
+        the jitter buffer would cut it back to START_SECONDS). Returns once it has played: True, or
+        False when it was cut short by close or a stream that stopped playing. Its own end is not
+        counted as a gap in the call's underruns."""
+        if len(pcm) % 2:
+            raise ProviderFailure('OddPCMByteCount')
+        step = int(.1 * AUDIO_RATE) * 2
+        before = self.stats['underruns']
+        deadline = self.clock() + len(pcm) / 2 / AUDIO_RATE + 3.
+        for start in range(0, len(pcm), step):
+            while self.buffered_seconds() * AUDIO_RATE * 2 > self.max_bytes - step:   # Never trimmed.
+                if self.ending.is_set() or self.clock() > deadline:
+                    return False
+                wait(.02)
+            self.write(pcm[start:start + step])
+        while self.buffered_seconds() > 0:
+            if self.ending.is_set() or self.clock() > deadline:
+                return False
+            wait(.02)
+        wait(.15)   # The device's own buffer plays out.
+        with self.lock:
+            if self.stats['underruns'] > before:
+                self.stats['underruns'] -= 1
+        return True
+
     def buffered_seconds(self) -> float:
         with self.lock:
             return len(self.buffer) / 2 / AUDIO_RATE

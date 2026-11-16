@@ -247,6 +247,8 @@ __marimo__/
 !/assets/audio/effects/*.wav
 # Jeopardy music and stings copied from V2 (owner, October 26: commit them; not recordings of people)
 !/assets/audio/jeopardy/*.wav
+# The line Rex says at home as a telepresence call starts (tools/make_telepresence_clip.py, owner request)
+!/assets/audio/telepresence/*.wav
 # Public famous-voice reference clips for impressions (see assets/voices/README.md)
 !/assets/voices/famous/*.wav
 

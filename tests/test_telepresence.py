@@ -410,6 +410,23 @@ class SpeakerTests(unittest.TestCase):
         self.play()
         self.assertEqual(self.speaker.stats['callback_errors'], 1)
 
+    def test_a_recorded_line_plays_whole_at_its_own_pace(self):
+        clip = b''.join(i.to_bytes(2, 'little') for i in range(19200))   # 1.2 s, every sample different.
+        played = bytearray()
+
+        def wait(seconds):   # The device takes one 20 ms block for each short wait.
+            self.speaker.clock.now += seconds
+            played.extend(self.play())
+        self.assertTrue(self.speaker.play_clip(clip, wait=wait))
+        self.assertIn(clip, bytes(played))                 # Every sample, in order: nothing trimmed.
+        self.assertEqual(self.speaker.stats['dropped_seconds'], 0.)
+        self.assertEqual(self.speaker.stats['underruns'], 0)   # Its own end is not a gap in the call.
+        self.assertEqual(self.speaker.buffered_seconds(), 0.)
+
+    def test_a_recorded_line_stops_when_the_speaker_closes(self):
+        self.speaker.cancel()
+        self.assertFalse(self.speaker.play_clip(b'\x10\x00' * 32000, wait=lambda seconds: None))
+
     def test_close_stops_on_a_silent_buffer_and_aborts_only_a_stalled_stream(self):
         self.speaker.cancel()
         with self.assertRaises(Stop):
@@ -714,7 +731,7 @@ class ProgramTests(unittest.TestCase):
         self.assertEqual(missing, ['ffmpeg', 'microphone_selection', 'telepresence_listen', 'telepresence_token'])
         self.assertEqual(readiness(self.settings(), Secrets(telepresence_token='short')), ['telepresence_token'])
 
-    def run_program(self, folder, parts_log, *, fail=None, handoff=None):
+    def run_program(self, folder, parts_log, *, fail=None, handoff=None, clip=None):
         from r3x.telepresence import program
         clock = Clock()
         log = parts_log
@@ -727,6 +744,7 @@ class ProgramTests(unittest.TestCase):
         speaker = Part('telepresence_speaker', log)
         speaker.stats, speaker.clear = {'underruns': 0, 'dropped_seconds': 0.}, lambda: None
         speaker.buffered_seconds = lambda: 0.
+        speaker.play_clip = lambda pcm: log.append(('announce', len(pcm))) or True
         mic = Part('capture', log)
         mic.read = lambda: (setattr(clock, 'now', clock.now + 200.), None)[1]   # Nobody connects.
         server = Part('telepresence_link', log)
@@ -736,7 +754,8 @@ class ProgramTests(unittest.TestCase):
         providers = (speaker, leds, robot, mic, server)
         handoff = handoff or Mock()
         code = program.run(self.settings(), Path(folder), compose=lambda s, secrets: (providers, parts),
-                           handoff=handoff, display=lambda record: None, clock=clock)
+                           handoff=handoff, display=lambda record: None, clock=clock,
+                           clip=program.CALL_CLIP if clip is None else clip)
         return code, handoff
 
     def test_a_call_wakes_opens_the_visor_lights_up_and_parks_in_reverse(self):
@@ -754,6 +773,10 @@ class ProgramTests(unittest.TestCase):
             # Calls are taken only once the stance holds and the call is wired (November 16: an early
             # caller signed in to nothing and hung up).
             self.assertLess(log.index(('telepresence_lights',)), log.index(('listen',)))
+            # Owner, November 16: he says a call is starting at home before the call is taken.
+            announced = next(i for i, entry in enumerate(log) if entry[0] == 'announce')
+            self.assertLess(log.index(('telepresence_lights',)), announced)
+            self.assertLess(announced, log.index(('listen',)))
             closes = [n for op, n in (e for e in log if len(e) == 2) if op == 'close']
             self.assertEqual(closes, ['telepresence_link', 'capture', 'robot_servos', 'robot_leds', 'telepresence_speaker'])
             handoff.acquire.assert_called_once()
@@ -763,6 +786,43 @@ class ProgramTests(unittest.TestCase):
             self.assertEqual((shutdown['reason'], shutdown['lifecycle']), ('nobody_connected', 'closed'))
             ending = json.loads((project / 'local/telepresence/last-call.json').read_text())
             self.assertEqual((ending['reason'], ending['code'], ending['failed_starts']), ('nobody_connected', 0, []))
+
+    def test_a_missing_clip_leaves_the_lights_as_the_only_cue(self):
+        with tempfile.TemporaryDirectory() as folder:
+            project = self.project(folder)
+            log = []
+            code, _ = self.run_program(project, log, clip=project / 'missing.wav')
+            self.assertEqual(code, 0)
+            self.assertNotIn('announce', [entry[0] for entry in log])
+            self.assertIn(('listen',), log)   # The call is still taken.
+            rows = [json.loads(l) for l in next((project / 'local/sessions').glob('*.jsonl')).read_text().splitlines()]
+            self.assertEqual(next(r for r in rows if r['event'] == 'telepresence_announced')['status'], 'clip_missing')
+
+    def test_the_kept_clip_is_rex_saying_a_call_is_starting_at_the_call_rate(self):
+        from r3x.telepresence import program
+        pcm = program.read_call_clip(program.CALL_CLIP)
+        self.assertIsNotNone(pcm)
+        self.assertTrue(1. < len(pcm) / 2 / protocol.AUDIO_RATE < 8.)
+        provenance = json.loads(program.CALL_CLIP.with_suffix('.json').read_text())
+        self.assertIn('Telepresence', provenance['text'])
+        self.assertEqual((provenance['sample_rate'], provenance['voice_id']), (protocol.AUDIO_RATE, 'no5jvDWvnx2leN3dFOS7'))
+
+    def test_the_clip_maker_writes_what_the_program_reads(self):
+        # Its resampling loads scipy, which these checks block; the kept clip shows the real run.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('make_telepresence_clip_check',
+                                                      Path(__file__).resolve().parents[1] / 'tools' / 'make_telepresence_clip.py')
+        maker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(maker)
+        from r3x.telepresence import program
+        pcm = b''.join((i % 4000 - 2000).to_bytes(2, 'little', signed=True) for i in range(16000))
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'clip.wav'
+            maker.write_clip(path, pcm, {'text': 'synthetic'})
+            self.assertEqual(program.read_call_clip(path), pcm)
+            self.assertEqual(json.loads(path.with_suffix('.json').read_text())['seconds'], 1.)
+            path.write_bytes(b'not a wave file')
+            self.assertIsNone(program.read_call_clip(path))
 
     def test_a_failed_required_start_still_parks_and_releases(self):
         with tempfile.TemporaryDirectory() as folder:

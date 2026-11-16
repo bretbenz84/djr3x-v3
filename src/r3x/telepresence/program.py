@@ -8,16 +8,22 @@ head, lift and visor and drives (controls.py). No startup sounds, spoken lines, 
 replies, memory, idle motion or motion of his own. Shutdown stops the wheels, parks the servos and
 fades the lights as Rex's own shutdown does. Each run leaves local/telepresence/last-call.json (how
 it ended) for the supervisor to report.
+
+Owner, November 16: someone at home was startled when he came alive for a call with only the lights
+as a cue. Before the call is taken he now says so in his own voice (CALL_CLIP, made once by
+tools/make_telepresence_clip.py and kept in the repository); his mouth lights follow it, nothing moves.
 """
 from dataclasses import asdict
 import json
 import math
 import os
+from pathlib import Path
 import shutil
 import signal
 import threading
 import time
 from uuid import uuid4
+import wave
 
 from ..contracts import Cancellation, ProviderFailure
 from ..providers import ProviderOwner, dependency_status
@@ -25,7 +31,10 @@ from ..settings import ScratchPaths, Secrets
 from .call import VIDEO_FPS, VIDEO_WIDTH, Call, VideoStream
 from .protocol import AUDIO_RATE, parse_listen, parse_networks, valid_token
 
-SHOWN = {'telepresence_listening', 'telepresence_ready', 'telepresence_client_connected',
+# What he says at home as a call starts, before it is taken: 16 kHz mono, the call's own rate.
+CALL_CLIP = Path(__file__).resolve().parents[3] / 'assets' / 'audio' / 'telepresence' / 'call_connected.wav'
+
+SHOWN = {'telepresence_listening', 'telepresence_ready', 'telepresence_client_connected', 'telepresence_announced',
          'telepresence_client_refused', 'telepresence_link_closed', 'telepresence_video_failed',
          'telepresence_startup_failed', 'telepresence_shutdown', 'microphone_restarted'}
 
@@ -102,6 +111,34 @@ def controls_offer(robot, drive):
                       'max_turn_dps': round(math.degrees(MANUAL_TURN))} if wheels else None}
 
 
+def read_call_clip(path):
+    """The call's announcement as PCM at the call's rate, or None when it is missing or another format."""
+    try:
+        with wave.open(str(path), 'rb') as clip:
+            if (clip.getnchannels(), clip.getsampwidth(), clip.getframerate()) != (1, 2, AUDIO_RATE):
+                return None
+            return clip.readframes(clip.getnframes())
+    except (OSError, EOFError, wave.Error):
+        return None
+
+
+def announce(speaker, path, active, trace):
+    """He tells whoever is at home that a call is starting, before it is taken (owner, November 16)."""
+    if speaker is None or path is None or 'telepresence_speaker' not in active:
+        return
+    pcm = read_call_clip(path)
+    if pcm is None:
+        trace.emit('telepresence_announced', status='clip_missing', clip=Path(path).name)
+        return
+    try:
+        played = speaker.play_clip(pcm)
+    except Exception as exc:   # The call still goes ahead with the lights as its cue.
+        trace.emit('telepresence_announced', status='failed', error_type=type(exc).__name__)
+        return
+    trace.emit('telepresence_announced', status='played' if played else 'cut_short',
+               seconds=round(len(pcm) / 2 / AUDIO_RATE, 2))
+
+
 def record_ending(root, ending):
     """local/telepresence/last-call.json: how the last run ended, for the supervisor's status."""
     folder = root / 'telepresence'
@@ -146,8 +183,8 @@ def setup(root):
     return 'Added telepresence_token to local/secrets.toml. Copy that line into the calling Mac\'s local/secrets.toml.'
 
 
-def run(settings, project, *, compose=compose, handoff=None, display=console, clock=None) -> int:
-    """compose, handoff, display and clock are the checks' seams; the defaults are the robot's."""
+def run(settings, project, *, compose=compose, handoff=None, display=console, clock=None, clip=CALL_CLIP) -> int:
+    """compose, handoff, display, clock and clip are the checks' seams; the defaults are the robot's."""
     from ..hardware_ownership import ControllerHandoff, HardwareLocks
     from ..lease import LiveLease
     from ..trace import Trace
@@ -215,6 +252,7 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
             call = Call(parts['server'], parts['mic'], parts['speaker'], trace, video=parts['video'],
                         camera=parts['camera'], **({'clock': clock} if clock else {}),
                         **call_controls(parts, active, clock))
+            announce(parts['speaker'], clip, active, trace)   # Before the call is taken, so the caller hears none of it.
             try:
                 parts['server'].open()   # Only now: the stance holds and the call is wired to the link.
             except OSError as exc:

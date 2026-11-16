@@ -15,9 +15,9 @@ separate program for it. Access is over the owner's home WireGuard VPN only.
 - **At the owner's end:** open the app, press Connect. Within a few seconds the room is audible and
   the camera is on screen. Unmute to talk; the voice comes out of Rex's speaker. Keys, mouse or a game
   controller drive the base and aim the head. Hang Up parks him.
-- **At home:** Rex's servos wake, the visor opens, and the lights show a look used for nothing else;
-  the lights are the only cue that the owner has connected. His mouth lights move with the owner's
-  voice. He does not listen for meaning, reply, greet, remember or move on his own.
+- **At home:** Rex's servos wake, the visor opens, and the lights show a look used for nothing else.
+  Before the call is taken he says, in his own voice, that the owner is calling in through him
+  (owner, November 16; it had been the lights alone). His mouth lights move with the owner's voice. He does not listen for meaning, reply, greet, remember or move on his own.
 - **When it ends** (hang up or a lost link): wheels stop, servos park, the visor closes, lights fade,
   and the supervisor goes back to listening for "wake up rex".
 
@@ -57,7 +57,7 @@ checks, the deadman and the lost-link park are what stop the wheels.
 **Start.** Take the controller lock and wait for the services to release. Open the servo board, LED
 board, drive link, microphone, speaker and camera that settings enable (never the radar). Wake the servos to their
 awake poses and open the visor, skipping the startup sounds, the please-wait and ready lines and the
-hardware notice. Show the telepresence lights, with no sound. Then accept one client.
+hardware notice. Show the telepresence lights, play the call's spoken line, then accept one client.
 
 **Servo mode.** A new owner mode, "telepresence stance": arms held in the drive stance for the whole
 session, head yaw, pitch, side tilt, lift and visor under operator control, everything else refused
@@ -120,7 +120,8 @@ A small listener in the supervisor with three requests: status, start, stop.
   `telepresence_bind` (the address and port to listen on; never all interfaces),
   `telepresence_allowed_sources` (the WireGuard subnet), and `TELEPRESENCE_TOKEN` in `local/secrets.toml`.
 - One client at a time; a second is refused. The app keeps the token in the Keychain.
-- People at home get one sign: the lights, for the whole session. The owner's microphone starts muted.
+- People at home get two signs: the spoken line as the call starts, and the lights for the whole
+  session. The owner's microphone starts muted.
 - Camera pixels and room audio go only to the authenticated client and are not saved on either end.
 
 ## Mac app
@@ -471,6 +472,20 @@ controller, and fake sockets and clocks. They check:
     - the call program used 11% of one core, ffmpeg 14%.
   - The app sent no drive setpoints, so driving over the link is still unused.
   - Someone at home was surprised to see him come alive; the lights were the only cue, as decided.
+    That led to the spoken line below.
+- **A spoken line at home as a call starts** (owner, November 16).
+  - Before the call is taken, he says "Heads up! Telepresence link established. Bret is calling in
+    through me." in his own voice, at his usual level. It plays through the call's own speaker stream,
+    so his mouth lights follow it; no servo moves.
+  - The caller hears none of it: the listener opens only once it has played. That adds 4.4 s to the
+    wake, which the app's 60 s retry covers.
+  - The clip is kept in the repository at `assets/audio/telepresence/call_connected.wav`, with its
+    provenance in `call_connected.json` (ElevenLabs, Rex's voice, eleven_v4_turbo, leveled, 16 kHz).
+  - `tools/make_telepresence_clip.py [--text ...]` makes it again, at the cost of one ElevenLabs request.
+  - If the clip is missing, the lights stay the only cue and the call goes ahead.
+  - Checks: the clip plays whole at its own pace with nothing trimmed; it plays after the lights and
+    before the listener opens; a missing clip is skipped. The full suite passed (1,951). Not yet
+    heard on the robot.
 - **No radar in telepresence** (owner, November 16: there is no point to it for a robot driven by
   hand). The radar ring only tells Rex where people are, for looking and seeking; none of the
   wheels' checks use it. A call never opens or claims its port, and the status no longer has a
@@ -506,7 +521,7 @@ controller, and fake sockets and clocks. They check:
 | Question | Decision |
 | --- | --- |
 | Link | Plain streams to start. |
-| Cue at home | The lights; no sound or spoken line. |
+| Cue at home | The lights, and (later the same day, after someone at home was startled) a spoken line as the call starts. |
 | Stop keyword | None. No models at all in this mode. |
 | Takeover | None. A request starts telepresence only when Rex is asleep. |
 | Driving with nobody home | Allowed from the start, with no supervised runs first. |
