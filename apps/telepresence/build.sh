@@ -10,6 +10,7 @@ APP="build/Rex Call.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/RexCall" "$APP/Contents/MacOS/RexCall"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"   # Redraw with icon/make_icon.py.
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -19,6 +20,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDisplayName</key><string>Rex Call</string>
     <key>CFBundleIdentifier</key><string>local.djr3x.rexcall</string>
     <key>CFBundleExecutable</key><string>RexCall</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>1</string>

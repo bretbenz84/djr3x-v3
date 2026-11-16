@@ -271,6 +271,47 @@ SwiftUI app with no outside dependencies. It is built by `build.sh` into an ad-h
   - a call with the robot, and from off-site;
   - echo with speakers.
 
+### First call from the owner, and the sound repair — November 16
+
+The owner's first call from the dev Mac to the robot ended with "This Mac's sound could not start",
+and the app had no way to choose a microphone or speaker.
+
+**Cause.** The system log showed macOS voice processing refusing to start:
+`client-side input and output formats do not match` (-10875). With voice processing on, its
+microphone side runs at 16 kHz (4 channels) and its speaker side at 16 kHz (2 channels). The app's
+mixer had wired itself to the speaker side at 44.1 kHz the moment it was first used. That Mac's
+default devices are a 16 kHz C922 webcam microphone and 48 kHz headphones.
+
+**Repair** (`Sources/RexCallAudio`):
+- The speaker-side format is read before the mixer is touched, and the mixer is connected in it.
+- If voice processing still fails, the call starts without it and says so.
+- The microphone and speaker can be picked before or during a call.
+- A failed start shows the macOS error.
+
+**Learned on that Mac:**
+- Voice processing builds its own device pairing from the system defaults and ignores a device set
+  on the engine. The log showed it keep the C922 and headphones after the app chose others.
+- On this macOS the engine's input and output are one unit, so setting one device moves both.
+
+So a picked device uses a plain path instead: a speaker-only engine on the chosen output, and a
+capture session on the chosen microphone, which delivers 16 kHz mono itself. That path has no echo
+cancelling, so echo cancelling is offered only with both pickers on System default.
+
+**Evidence** (`rexcall-audio-check` on the dev Mac, with real devices and silence played):
+
+| Devices | Started | Echo cancelling |
+| --- | --- | --- |
+| C922 + headphones (system defaults; the pair that failed) | yes | on |
+| Defaults, echo cancelling off | yes | off |
+| C922 + Mac mini speakers | yes | off |
+| CalDigit + Dell display | yes | off |
+| C922 + headphones, picked by name | yes | off |
+
+- The speaker kept up with the stream; nothing was dropped.
+- The rebuilt app launched.
+- **Not yet checked:** a call from the app after the repair, and how well echo cancelling works with
+  speakers.
+
 ## First calls on the robot — November 16
 
 Set up on the robot (`r3x-m2`, 192.168.1.100):

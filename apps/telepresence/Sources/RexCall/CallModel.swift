@@ -3,6 +3,7 @@
 import AppKit
 import AVFoundation
 import ImageIO
+import RexCallAudio
 import RexCallCore
 
 @MainActor
@@ -23,6 +24,11 @@ final class CallModel: ObservableObject {
     @Published var level: Float = 0
     @Published var voiceProcessing = false
     @Published var robotLine = ""
+    @Published var inputs: [AudioDevice] = []
+    @Published var outputs: [AudioDevice] = []
+    @Published var audioChoice = CallModel.savedChoice() { didSet { saveChoice(); if audioChoice != oldValue { restartAudio() } } }
+    @Published var audioNote: String?
+    @Published var audioInUse = ""
 
     private var link: RexLink?
     private var audio: CallAudio?
@@ -30,6 +36,58 @@ final class CallModel: ObservableObject {
     private var framesThisSecond = 0
     private var attemptStarted = Date()
     private var ages: [Double] = []
+
+    // MARK: Sound devices
+
+    static func savedChoice() -> AudioChoice {
+        let defaults = UserDefaults.standard
+        return AudioChoice(inputUID: defaults.string(forKey: "inputUID"), outputUID: defaults.string(forKey: "outputUID"),
+                           echoCancelling: defaults.object(forKey: "echoCancelling") as? Bool ?? true)
+    }
+
+    private func saveChoice() {
+        let defaults = UserDefaults.standard
+        defaults.set(audioChoice.inputUID, forKey: "inputUID")
+        defaults.set(audioChoice.outputUID, forKey: "outputUID")
+        defaults.set(audioChoice.echoCancelling, forKey: "echoCancelling")
+    }
+
+    func refreshDevices() {
+        inputs = AudioDevices.inputs()
+        outputs = AudioDevices.outputs()
+        // A device that is gone falls back to the system default rather than failing the next call.
+        if let uid = audioChoice.inputUID, !inputs.contains(where: { $0.uid == uid }) { audioChoice.inputUID = nil }
+        if let uid = audioChoice.outputUID, !outputs.contains(where: { $0.uid == uid }) { audioChoice.outputUID = nil }
+    }
+
+    func defaultName(input: Bool) -> String { AudioDevices.defaultDevice(input: input)?.name ?? "none" }
+
+    /// A new choice during a call takes effect at once; the robot keeps the call.
+    private func restartAudio() {
+        guard phase == .inCall, let link, let old = audio else { return }
+        old.stop()
+        audio = nil
+        startAudio(for: link)
+    }
+
+    @discardableResult
+    private func startAudio(for link: RexLink) -> Bool {
+        let audio = CallAudio(audioChoice)
+        audio.muted = muted
+        audio.onVoice = { [weak link] frame in link?.sendAudio(frame) }
+        do {
+            try audio.start()
+        } catch {
+            audioNote = "This Mac's sound could not start: \(error)."
+            audioInUse = ""
+            return false
+        }
+        self.audio = audio
+        voiceProcessing = audio.voiceProcessing
+        audioNote = audio.note
+        audioInUse = "\(audio.inputName) → Rex, Rex → \(audio.outputName)"
+        return true
+    }
 
     func saveToken(_ token: String) -> Bool {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -105,19 +163,15 @@ final class CallModel: ObservableObject {
     }
 
     private func startCall(_ link: RexLink) {
-        let audio = CallAudio()
-        audio.muted = true
         muted = true
-        audio.onVoice = { [weak link] frame in link?.sendAudio(frame) }
-        do {
-            try audio.start()
-        } catch {
-            link.hangUp()
+        guard startAudio(for: link) else {
+            let detail = audioNote ?? "This Mac's sound could not start."
+            DispatchQueue.global().async { link.hangUp() }
+            self.link = nil
             endCall("audio_failed")
+            audioNote = detail
             return
         }
-        self.audio = audio
-        voiceProcessing = audio.voiceProcessing
         phase = .inCall
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
@@ -162,6 +216,8 @@ final class CallModel: ObservableObject {
         link = nil
         image = nil; videoAgeMs = nil; rttMs = nil; fps = 0; level = 0; ages.removeAll(); robotLine = ""
         muted = true
+        if reason != "audio_failed" { audioNote = nil }
+        audioInUse = ""
         phase = .ended(reason)
     }
 
@@ -175,7 +231,7 @@ final class CallModel: ObservableObject {
         case "robot_closed": return "The call ended at Rex's end."
         case "robot_silent": return "Lost the connection to Rex."
         case "microphone_denied": return "This Mac's microphone is off for Rex Call. Allow it in System Settings → Privacy & Security → Microphone."
-        case "audio_failed": return "This Mac's sound could not start."
+        case "audio_failed": return "This Mac's sound could not start. Try another microphone or speaker below."
         case "no_token": return "Paste the telepresence token first."
         case "bad_address": return "The address needs to look like 192.168.1.50:47800."
         default: return "The call ended (\(reason))."

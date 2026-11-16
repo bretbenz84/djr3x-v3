@@ -1,3 +1,4 @@
+import RexCallAudio
 import RexCallCore
 import SwiftUI
 
@@ -43,6 +44,7 @@ struct ConnectView: View {
                     }
                 }
             }
+            AudioSettings()
             HStack {
                 Button(connecting ? "Calling…" : "Call") { model.connect() }
                     .keyboardShortcut(.defaultAction)
@@ -55,11 +57,46 @@ struct ConnectView: View {
             }
             if case .ended(let reason) = model.phase {
                 Text(CallModel.explain(reason)).foregroundStyle(reason == "hung_up" ? Color.secondary : Color.red)
+                if reason == "audio_failed", let note = model.audioNote {
+                    Text(note).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                }
             }
             Spacer()
         }
         .padding(24)
-        .frame(minWidth: 480, minHeight: 320)
+        .frame(minWidth: 520, minHeight: 440)
+        .onAppear { model.refreshDevices() }
+    }
+}
+
+/// Microphone, speaker and echo cancelling; the same controls before and during a call.
+struct AudioSettings: View {
+    @EnvironmentObject var model: CallModel
+
+    var body: some View {
+        Form {
+            Picker("Microphone", selection: $model.audioChoice.inputUID) {
+                Text("System default (\(model.defaultName(input: true)))").tag(String?.none)
+                ForEach(model.inputs) { device in Text(device.name).tag(Optional(device.uid)) }
+            }
+            Picker("Speaker", selection: $model.audioChoice.outputUID) {
+                Text("System default (\(model.defaultName(input: false)))").tag(String?.none)
+                ForEach(model.outputs) { device in Text(device.name).tag(Optional(device.uid)) }
+            }
+            Toggle("Echo cancelling, so speakers work", isOn: $model.audioChoice.echoCancelling)
+                .disabled(!model.audioChoice.canCancelEcho)
+            if !model.audioChoice.canCancelEcho {
+                Text("Echo cancelling works only with both on System default (macOS's limit). Use headphones with these devices, or pick them in System Settings → Sound.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if !model.audioChoice.echoCancelling {
+                Text("Without echo cancelling, use headphones so Rex doesn't hear the room twice.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button("Refresh devices") { model.refreshDevices() }.controlSize(.small)
+            }
+        }
     }
 }
 
@@ -67,6 +104,7 @@ struct CallView: View {
     @EnvironmentObject var model: CallModel
     @FocusState private var focused: Bool
     @State private var holding = false
+    @State private var showAudio = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -94,9 +132,19 @@ struct CallView: View {
                 ProgressView(value: Double(model.level)).frame(width: 80).opacity(model.muted ? 0.3 : 1)
                 Text("M to mute or unmute · hold Space to talk").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                if !model.voiceProcessing {
-                    Text("No echo cancelling: use headphones").font(.caption).foregroundStyle(.orange)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(model.audioInUse).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if let note = model.audioNote {
+                        Text(note).font(.caption).foregroundStyle(.orange).lineLimit(2)
+                    } else if !model.voiceProcessing {
+                        Text("No echo cancelling: use headphones").font(.caption).foregroundStyle(.orange)
+                    }
                 }
+                Button { showAudio.toggle() } label: { Label("Audio", systemImage: "slider.horizontal.3") }
+                    .controlSize(.large)
+                    .popover(isPresented: $showAudio) {
+                        AudioSettings().padding().frame(width: 460).onAppear { model.refreshDevices() }
+                    }
                 Button(role: .destructive, action: model.hangUp) { Label("Hang Up", systemImage: "phone.down.fill") }
                     .controlSize(.large).buttonStyle(.borderedProminent).tint(.red)
                     .keyboardShortcut(.cancelAction)
