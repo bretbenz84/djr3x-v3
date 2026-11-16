@@ -136,6 +136,7 @@ def main():
         video.trace = trace
         video.start()
     server.start()
+    server.open()
     print(f'fake robot listening on {host}:{port}', flush=True)
     stop = threading.Event()
     reason = 'interrupted'

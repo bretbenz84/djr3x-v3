@@ -46,8 +46,14 @@ class Server:
             self.trace.emit(event, **data)
 
     def start(self):
+        """Provider start: checks only. The listener opens (open) once a call can be taken."""
         if not self.networks:
             raise ProviderFailure('TelepresenceNeedsAllowedNetworks')
+
+    def open(self):
+        """Start taking calls. November 16: the app called while he was still taking his stance, signed
+        in before the call was wired to the link, heard nothing and hung up. Until this runs, a caller is
+        refused by the operating system and the app's retry calls again."""
         self.listener = self.open_listener(self.host, self.port)
         self.thread = threading.Thread(target=self._accept, name='telepresence-accept', daemon=True)
         self.thread.start()

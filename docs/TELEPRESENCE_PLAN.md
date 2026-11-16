@@ -453,6 +453,12 @@ controller, and fake sockets and clocks. They check:
   - the same check runs at Rex's own startup, so "wake up rex" would have failed the same way;
   - the fix: an unplugged board counts as free (`hardware_ownership.serial_port_free`), its own
     provider then fails to open, and an optional board is left out of that run.
+- **The next start (11:25)** woke him and signed the app in, but the app heard nothing and hung up
+  ("Lost the connection to Rex").
+  - The listener had opened before the stance. The app signed in during the stance (14.3 s; the
+    stance ended at 16.9 s), before the call was wired to the link, so 0 bytes went out.
+  - The listener now opens only once the stance holds and the call is wired. A caller before that is
+    refused by the operating system and the app's 60 s retry calls again.
 - **No radar in telepresence** (owner, November 16: there is no point to it for a robot driven by
   hand). The radar ring only tells Rex where people are, for looking and seeking; none of the
   wheels' checks use it. A call never opens or claims its port, and the status no longer has a

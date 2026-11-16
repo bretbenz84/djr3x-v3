@@ -69,6 +69,7 @@ def serve(args, paths):
                 link.close('hangup')
     server.on_frame = on_frame
     server.start()
+    server.open()
     print(f'listening on {host}:{port}; Ctrl-C to stop', flush=True)
     try:
         while True:

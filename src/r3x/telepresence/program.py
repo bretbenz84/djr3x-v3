@@ -216,10 +216,16 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
                         camera=parts['camera'], **({'clock': clock} if clock else {}),
                         **call_controls(parts, active, clock))
             try:
-                reason = call.run(stop)
-                code = 0
-            except ProviderFailure as exc:
-                reason = 'failed:' + str(exc)
+                parts['server'].open()   # Only now: the stance holds and the call is wired to the link.
+            except OSError as exc:
+                reason = 'listen_failed:' + type(exc).__name__
+                trace.emit('telepresence_startup_failed', reason=reason)
+            else:
+                try:
+                    reason = call.run(stop)
+                    code = 0
+                except ProviderFailure as exc:
+                    reason = 'failed:' + str(exc)
     except KeyboardInterrupt:
         reason, code = 'interrupted', 0
     finally:

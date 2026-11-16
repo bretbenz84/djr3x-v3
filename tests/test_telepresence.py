@@ -306,6 +306,17 @@ class ServerTests(unittest.TestCase):
         thread.join(2)
         return result, client
 
+    def test_calls_are_taken_only_once_the_listener_is_opened(self):
+        opener = self.server.open_listener
+        opener.return_value.accept.side_effect = TimeoutError
+        self.server.start()   # The provider start checks only: a caller now is refused by the OS.
+        opener.assert_not_called()
+        self.assertEqual(self.trace.events('telepresence_listening'), [])
+        self.server.open()
+        opener.assert_called_once_with('10.0.0.5', 47800)
+        self.assertEqual(len(self.trace.events('telepresence_listening')), 1)
+        self.server.close()
+
     def test_outside_the_allowed_networks_is_closed_unanswered(self):
         result, client = self.admit('192.168.1.20')
         self.assertEqual(result, {'refused': 'closed_during_sign_in'})   # Closed with nothing said: no challenge.
@@ -719,6 +730,7 @@ class ProgramTests(unittest.TestCase):
         mic = Part('capture', log)
         mic.read = lambda: (setattr(clock, 'now', clock.now + 200.), None)[1]   # Nobody connects.
         server = Part('telepresence_link', log)
+        server.open = lambda: log.append(('listen',))
         parts = {'speaker': speaker, 'mic': mic, 'leds': leds, 'robot': robot, 'camera': None, 'video': None,
                  'server': server}
         providers = (speaker, leds, robot, mic, server)
@@ -739,6 +751,9 @@ class ProgramTests(unittest.TestCase):
             self.assertLess(log.index(('start', 'telepresence_link')), log.index(('open_eyes',)))
             self.assertLess(log.index(('open_eyes',)), log.index(('stance',)))   # The visor opens, then the stance.
             self.assertLess(log.index(('stance',)), log.index(('telepresence_lights',)))
+            # Calls are taken only once the stance holds and the call is wired (November 16: an early
+            # caller signed in to nothing and hung up).
+            self.assertLess(log.index(('telepresence_lights',)), log.index(('listen',)))
             closes = [n for op, n in (e for e in log if len(e) == 2) if op == 'close']
             self.assertEqual(closes, ['telepresence_link', 'capture', 'robot_servos', 'robot_leds', 'telepresence_speaker'])
             handoff.acquire.assert_called_once()
