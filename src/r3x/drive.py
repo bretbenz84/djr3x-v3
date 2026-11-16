@@ -28,13 +28,23 @@ from .providers import Capability
 # but he can go much faster if there are not obstacles in his way." One rule now sets how fast
 # the room lets him roll forward (DriveBase._room_speed): the nearest return beside him or at a
 # front corner, and how soon he would reach anything in his path. The pace scales only the top.
+#
+# Owner, November 15 evening (run 916af362): "his hallway speed is too slow". Down the hall to the
+# workshop he averaged 0.1 m/s (3.4 m in 35 s), the other hall trip 0.13-0.26 m/s. That rule slowed
+# him for any wall within 0.9 m beside him (0.25 m/s with a wall 0.35 m away, 0.12 m/s hugging one)
+# and for anything at the edge of his path as if it were straight ahead. A hallway is open ahead:
+# the firmware centres him between its walls (its stop zone does not use the side sensors), and the
+# gamepad drives the same halls at 0.60 m/s without touching them. Now a wall beside him slows him
+# only as it nears touching, and what is in his path slows him by how soon he would reach it.
 OPEN_SPEED = .45          # Nothing near him (the wheels reach 0.61 m/s, the gamepad 0.60).
-HALLWAY_SPEED = .25       # A hallway wall HALLWAY_GAP_M beside him; also backing up (rear sensing is narrower).
-SQUEEZE_SPEED = .12       # A door jamb SQUEEZE_GAP_M or less beside him, or something close in his path.
-OPEN_GAP_M = .9
-HALLWAY_GAP_M = .35
-SQUEEZE_GAP_M = .10
-REACH_S = 2.              # Something in his path: at least this long before it is inside the crawl's hold distance.
+HALLWAY_SPEED = .25       # Backing up (rear sensing is narrower) and the dashboard joystick.
+SQUEEZE_SPEED = .12       # Brushing past a door jamb, or about to reach something in his path.
+SIDE_SCRAPE_M = .08       # A side return this near: squeeze speed...
+SIDE_FREE_M = .22         # ...rising to full speed here: a 1 m hallway driven down the middle.
+CORNER_SCRAPE_M = .15     # The same for a front corner (a jamb he is about to pass)...
+CORNER_FREE_M = .5        # ...which slows him from half a metre out.
+AHEAD_REACH_S = 1.        # Straight ahead: at least this long before he reaches the front stand-off.
+EDGE_REACH_S = 1.         # At one edge of his path (steered past): this long before it is inside the hold.
 # Requested plans may cover 10 m in 1.5 m legs (September 27: the 3 m first-test cap cut door
 # trips short and refused 'go ten feet').
 LIMITS = {
@@ -159,6 +169,15 @@ VOICE_STRONG_SAMPLES = 8
 VOICE_STRONG_SHARE = .8
 CLOSING_M = 1.2           # Something this near straight ahead, with the target ahead too.
 CLOSING_DEG = 20.
+# November 15 evening (916af362): sent through an archway on his left, he rolled 1.2 m while it slid
+# from the middle of the picture to 34 degrees left, then stopped: a door 0.62 m straight ahead was
+# held at the archway's own 0.6 m stand-off, and the spin toward the archway was refused for the jamb
+# beside him, so he called it blocked. With the sought thing this far to one side, what is straight
+# ahead is something else and keeps only the obstacle margin, and in tight space he steers toward it
+# harder with the firmware's centring off (it pushed him away from the near jamb, the side he was
+# turning to), so he creeps on toward the opening and turns into it (owner, by hand: a foot on, then left).
+SIDE_TARGET_DEG = CLOSING_DEG
+SIDE_AIM_ANG = .3         # rad/s toward a sought thing off to one side in tight space (0.2 elsewhere).
 NEAR_AHEAD_M = .4         # Arrival: something straight ahead within this of the stand-off...
 NEAR_WIDTH = .3           # ...and the thing at least this wide in view (a box in front of a far door is not it).
 # October 3 evening: three microwave trips reached it (30-40% of the view, up from 9%) and
@@ -371,6 +390,11 @@ class Flinch:
         return False
 
 
+def least(*limits):
+    """The slowest of several (speed, what sets it) limits."""
+    return min(limits, key=lambda row: row[0])
+
+
 class Approach:
     """Mac-streamed approach (adapted from V2 intelligence/approach.py).
 
@@ -473,6 +497,29 @@ class Approach:
         return lin, ang, None, 'approaching'
 
 
+class RollSpeeds:
+    """The forward speeds a step's rolls were sent and what set each one, for its receipt.
+
+    November 15 (916af362): the log said a hallway trip was slow but not what held it down,
+    so the next run could only be guessed at. held_by is the most common reason over the
+    roll: pace, sides, front_corner, ahead, path_edge, steering, stand_off, distance, easing_in
+    (a roll toward a person speeding up gently) or reverse."""
+    def __init__(self):
+        self.sent, self.why = [], {}
+
+    def add(self, lin, why):
+        if lin > 0:
+            self.sent.append(lin)
+            self.why[why] = self.why.get(why, 0) + 1
+
+    def summary(self):
+        if not self.sent:
+            return None
+        ordered = sorted(self.sent)
+        return {'median_mps': round(ordered[len(ordered)//2], 2), 'top_mps': round(ordered[-1], 2),
+                'held_by': max(self.why, key=self.why.get)}
+
+
 class Ease:
     """Gradual speed-up for a streamed roll: each command rises at most EASE_IN per second
     above the last one sent or the measured speed, whichever is higher, so a roll that
@@ -539,6 +586,7 @@ class DriveBase:
         self._origin = 'requested'
         self._pace = 1.
         self._turn_moved = 0.   # Metres driven inside the current step's turns (banks, back-ups).
+        self._speeds = RollSpeeds()   # Forward speeds sent during the current step, for its receipt.
         self.trace = None
         self.reflex_allowed = lambda: True
         # A reason the wheels must not move at all (sentry mode, owner October 22), or None. Every
@@ -1533,35 +1581,44 @@ class DriveBase:
         return turned
 
     @staticmethod
-    def _room_speed(space, top):
-        """How fast the room lets him roll forward, never above top (the step's paced speed).
+    def _speed_limit(space, top):
+        """(how fast the room lets him roll forward, what set it), never above top (the step's
+        paced speed); what set it is 'pace', 'sides', 'front_corner', 'ahead' or 'path_edge'.
 
-        Owner, October 3: slower in tight hallways; November 14: still faster there than the
-        old crawl, and much faster with nothing in the way. The nearest return beside him or
-        at a front corner sets a speed from SQUEEZE_SPEED (a door jamb) through HALLWAY_SPEED
-        (a hallway wall) to OPEN_SPEED; with no side readings it is HALLWAY_SPEED. Anything in
-        his path then allows only a speed that takes REACH_S to bring it inside the hold
-        distance, so he slows while steering round a corner and while closing on a wall. The
+        Owner, October 3: slower in tight hallways; November 14: much faster with nothing in the
+        way; November 15: still too slow in the hallway. A wall beside him slows him only as it
+        nears touching (SIDE_SCRAPE_M to SIDE_FREE_M), a front corner from CORNER_FREE_M; with no
+        side readings he goes at HALLWAY_SPEED. In his path, something straight ahead allows only
+        a speed that takes AHEAD_REACH_S to reach the front stand-off, and something at one edge
+        only (a jamb or a corner the steering takes him past) EDGE_REACH_S to come inside the hold
+        distance, so he slows while closing on a wall and while steering round a corner. The
         firmware still slows and stops him by its own zones."""
-        near = [v for v in (space.get(k) for k in ('left_m', 'right_m', 'front_left_m', 'front_right_m')) if v is not None]
-        gap = min(near) if near else HALLWAY_GAP_M
-        if gap <= HALLWAY_GAP_M:
-            share = max(0., gap - SQUEEZE_GAP_M) / (HALLWAY_GAP_M - SQUEEZE_GAP_M)
-            speed = SQUEEZE_SPEED + share * (HALLWAY_SPEED - SQUEEZE_SPEED)
-        else:
-            share = min(1., (gap - HALLWAY_GAP_M) / (OPEN_GAP_M - HALLWAY_GAP_M))
-            speed = HALLWAY_SPEED + share * (OPEN_SPEED - HALLWAY_SPEED)
-        path = space.get('path_m')
-        if path is not None:
-            speed = min(speed, max(SQUEEZE_SPEED, (path - WALL_HOLD_M) / REACH_S))
-        return min(top, speed)
+        def ramp(value, low, high):
+            share = min(1., max(0., value - low) / (high - low))
+            return SQUEEZE_SPEED + share * (OPEN_SPEED - SQUEEZE_SPEED)
+        sides = [v for v in (space.get('left_m'), space.get('right_m')) if v is not None]
+        corners = [v for v in (space.get('front_left_m'), space.get('front_right_m')) if v is not None]
+        limits = [(top, 'pace'), (ramp(min(sides), SIDE_SCRAPE_M, SIDE_FREE_M) if sides else HALLWAY_SPEED, 'sides')]
+        if corners:
+            limits.append((ramp(min(corners), CORNER_SCRAPE_M, CORNER_FREE_M), 'front_corner'))
+        centre, path = space.get('path_center_m'), space.get('path_m')
+        if centre is not None:
+            limits.append((max(SQUEEZE_SPEED, (centre - FRONT_MARGIN) / AHEAD_REACH_S), 'ahead'))
+        if path is not None and (centre is None or path < centre):
+            limits.append((max(SQUEEZE_SPEED, (path - WALL_HOLD_M) / EDGE_REACH_S), 'path_edge'))
+        speed, why = min(limits, key=lambda row: row[0])
+        return min(top, speed), why
+
+    @classmethod
+    def _room_speed(cls, space, top):
+        return cls._speed_limit(space, top)[0]
 
     @classmethod
     def _crawl_speed(cls, space, top, ang):
-        """The room's speed for a steered roll through tight space, eased while steering hard
-        so the turn takes effect over less distance."""
-        speed = cls._room_speed(space, top)
-        return speed if abs(ang) < .3 else max(CRAWL_MIN_SPEED, speed * .6)
+        """(the room's speed for a steered roll through tight space, what set it), eased while
+        steering hard so the turn takes effect over less distance."""
+        speed, why = cls._speed_limit(space, top)
+        return (speed, why) if abs(ang) < .3 else (max(CRAWL_MIN_SPEED, speed * .6), 'steering')
 
     @staticmethod
     def _tight(space, need):
@@ -1608,6 +1665,7 @@ class DriveBase:
         start = self._telemetry()
         start_odom, start_heading = dict(start.get('odom') or {}), self._heading(start)
         row = {**row, 'commanded_m': round(meters, 2), 'slowed_for_tight_space': True, 'crawled': True}
+        speeds = RollSpeeds()
         def travelled_from(odom):
             return math.hypot(float(odom.get('x', 0)) - float(start_odom.get('x', 0)),
                               float(odom.get('y', 0)) - float(start_odom.get('y', 0)))
@@ -1617,7 +1675,10 @@ class DriveBase:
         self._assist(True)
         self._wheels_on('move', self._origin)
         try:
-            seq = self.link.send({'cmd': 'drive', 'lin': round(self._room_speed(self.space(), top), 3), 'ang': 0.})
+            lin, why = self._speed_limit(self.space(), top)
+            speeds.add(lin, why)
+            self._speeds.add(lin, why)
+            seq = self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': 0.})
             ack = self._await_ack(seq, .5, self.wait)
             if ack is not None and not ack.get('accepted'):
                 return {**row, 'status': 'refused', 'reason': 'controller_refused_' + str(ack.get('reason')), 'travelled_m': 0.}
@@ -1651,7 +1712,9 @@ class DriveBase:
                     row['stopped_by'], row['clearance_m'] = why, self._room_row(space)
                     break
                 ang = steer(space, telemetry.get('tof_mm'))
-                lin = self._crawl_speed(space, top, ang)
+                lin, why = self._crawl_speed(space, top, ang)
+                speeds.add(lin, why)
+                self._speeds.add(lin, why)
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                 self.wait(CRAWL_TICK_S)
         finally:
@@ -1670,6 +1733,8 @@ class DriveBase:
         if reason == 'path_blocked' and travelled >= .05:
             status, reason = 'completed', 'shortened_by_clearance'   # Went as far as the room ahead allowed.
         row.update(travelled_m=round(travelled, 2), status=status, reason=reason)
+        if speeds.summary():
+            row['roll_speed'] = speeds.summary()
         heading = self._heading(after) if after else None
         if start_heading is not None and heading is not None:
             row['steered_deg'] = round(wrap(heading - start_heading), 1)
@@ -1705,7 +1770,8 @@ class DriveBase:
         allowed, note = move_allowance(meters, space)   # Clearance after the park settles.
         if not allowed:
             return self._refused_move(row, note, space)
-        speed = self._room_speed(space, top) if meters > 0 else min(top, HALLWAY_SPEED)
+        speed, why = self._speed_limit(space, top) if meters > 0 else (min(top, HALLWAY_SPEED), 'reverse')
+        self._speeds.add(speed, why)
         start = self._telemetry().get('odom') or {}
         status, reason, done = self._finite({'cmd': 'move', 'dist': round(allowed, 2), 'speed': round(speed, 3)},
                                             max(8., abs(allowed)/speed + 10.), cancel)
@@ -2122,8 +2188,13 @@ class DriveBase:
                                             self._at[1] + current['range_m']*math.sin(math.radians(last['heading'])))
                 space = self.space(now)
                 lin, ang, result, reason = controller.step(now, telemetry, space, current)
-                lin = ease(now, min(lin, max(.05, self._room_speed(space, controller.speed))),
-                           max(0., float((telemetry.get('odom') or {}).get('lin', 0))))
+                room_speed, why = self._speed_limit(space, controller.speed)
+                if lin < room_speed:
+                    why = 'stand_off'
+                wanted = min(lin, max(.05, room_speed))
+                lin = ease(now, wanted, max(0., float((telemetry.get('odom') or {}).get('lin', 0))))
+                if result is None:
+                    self._speeds.add(lin, why if lin >= .95 * wanted else 'easing_in')
                 if current is not None:
                     # Near the target the firmware must slow him, not steer him off it.
                     self._assist(not self._near_target(space, current['bearing_deg'], current.get('range_m'), stop_at))
@@ -2344,10 +2415,12 @@ class DriveBase:
                     break
                 heading = self._heading(telemetry)
                 ang = 0. if hold is None or heading is None else max(-.2, min(.2, math.radians(wrap(hold - heading))*1.2))
-                lin = max(.05, min(self._room_speed(self.space(now), speed),
-                                   math.sqrt(2*EASE_OUT*max(0., min(room, distance_m - travelled))),
-                                   (distance_m - travelled)/.6))
-                lin = ease(now, lin, speed_now)
+                lin, why = least(self._speed_limit(self.space(now), speed),
+                                 (math.sqrt(2*EASE_OUT*max(0., min(room, distance_m - travelled))), 'stand_off'),
+                                 ((distance_m - travelled)/.6, 'distance'))
+                wanted = max(.05, lin)
+                lin = ease(now, wanted, speed_now)
+                self._speeds.add(lin, why if lin >= .95 * wanted else 'easing_in')
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                 self.wait(.15)
         finally:
@@ -2575,6 +2648,12 @@ class DriveBase:
         wide = [side for side, value in beside.items() if value is not None and value >= SIDE_WAY_M]
         return max(wide, key=lambda side: beside[side]) if wide else None
 
+    @staticmethod
+    def _hold_for(bearing, stand_off):
+        """The stand-off kept from what is straight ahead: the sought thing's own while it is ahead
+        (or its bearing unknown), only the obstacle margin while it is off to one side."""
+        return stand_off if bearing is None or abs(bearing) <= SIDE_TARGET_DEG else min(stand_off, FRONT_MARGIN)
+
     def _cruise(self, plan, cancel, stand_off, budget_m):
         """Roll toward the sought thing while the next locate runs (owner, September 27: one
         continuous motion instead of drive-stop-look legs). Steering follows the remembered
@@ -2626,7 +2705,8 @@ class DriveBase:
                     break
                 space = self.space(now)
                 ahead, tight = self._ahead(space, telemetry)
-                room = (ahead if ahead is not None else 0.) - stand_off
+                expected = self._expected_sought()
+                room = (ahead if ahead is not None else 0.) - self._hold_for(expected, stand_off)
                 speed_now = max(0., float(odom.get('lin', 0)))
                 brake = speed_now*speed_now/(2*CONFIG['accel_lin']) + speed_now*.3
                 firmware_blocked = telemetry.get('state') == 'blocked' and telemetry.get('blocked_dir') in ('front', 'both')
@@ -2649,19 +2729,25 @@ class DriveBase:
                     if self.trace:
                         self.trace.emit('drive_reading_rechecked', where='cruise', outcome='cleared')
                     recheck_until = None
-                expected = self._expected_sought()
                 if expected is not None and abs(expected) > 40:
                     outcome = ('off_course', 'target_outside_steering_range')
                     break
-                self._assist(not self._near_target(space, expected))
-                ang = 0. if expected is None else max(-.2, min(.2, math.radians(expected)*1.2))
+                # Turning into an opening to one side, the firmware's centring pushes him off the near jamb,
+                # which is the way he is going: as on the last stretch to a target, its steering is off and
+                # only its push inside 13 cm stays (the hold below still stops him short of a scrape).
+                aside = tight and expected is not None and abs(expected) > SIDE_TARGET_DEG
+                self._assist(not (aside or self._near_target(space, expected)))
+                aim = SIDE_AIM_ANG if aside else .2
+                ang = 0. if expected is None else max(-aim, min(aim, math.radians(expected)*1.2))
                 if tight:
                     # What the firmware cannot read, as in a crawl: a wall slanting in beside him
                     # and what the depth matrix sees across one side of the path.
                     ang = max(-STEER_MAX, min(STEER_MAX, ang + steer(space, telemetry.get('tof_mm'))))
                 slowing = CRUISE_DECEL * (math.sqrt(.09 + 2*max(0., room)/CRUISE_DECEL) - .3)
-                lin = max(.05, min(self._crawl_speed(space, speed, ang) if tight else self._room_speed(space, speed),
-                                   slowing, (budget_m - travelled)/.6))
+                lin, why = least(self._crawl_speed(space, speed, ang) if tight else self._speed_limit(space, speed),
+                                 (slowing, 'stand_off'), ((budget_m - travelled)/.6, 'distance'))
+                lin = max(.05, lin)
+                self._speeds.add(lin, why)
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
                 self.wait(.15)
         except BaseException:
@@ -2764,7 +2850,7 @@ class DriveBase:
             if budget_m - travelled < .1:
                 return result('distance_limit', 'distance_limit_reached')
             bearing = found['bearing_deg']
-            space, room = self._room(stand_off)
+            space, room = self._room(self._hold_for(bearing, stand_off))
             if abs(bearing) > AIM_DEG or (room < .1 and abs(bearing) > 3):
                 turn = self._turn(max(-90., min(90., bearing)), plan, cancel, escape=False)
                 turned += turn.get('turned_deg', 0.)
@@ -2774,12 +2860,14 @@ class DriveBase:
                     return result(turn['status'], turn['reason'])
                 else:
                     swing_refusals += 1   # Arms near something: keep going forward and aim once past it.
-                space, room = self._room(stand_off)
+                space, room = self._room(self._hold_for(bearing, stand_off))
             if not held_here and min(budget_m - travelled, room) >= .2:   # Braking stops ~0.1 m early; no creeping restarts.
                 moved, outcome, carried = self._cruise(plan, cancel, stand_off, budget_m - travelled)
                 travelled += moved
                 cruises += 1
-                held_here = outcome[0] == 'blocked' and moved < .05
+                # Also a roll that could not steer that far round: the same look from the same spot would
+                # start it again and again.
+                held_here = outcome[0] in {'blocked', 'off_course'} and moved < .05
                 if outcome[0] == 'arrived':
                     return result('completed', outcome[1])
                 if outcome[0] == 'stopped':
@@ -2885,6 +2973,7 @@ class DriveBase:
                 step_heading, step_started = self._heading(self.link.snapshot()[0] or {}), self.clock()
                 self._pace = PACE.get(step.pace, 1.)
                 self._turn_moved = 0.
+                self._speeds = RollSpeeds()
                 ok, reason = self.availability()
                 if not ok:
                     receipt.steps.append({'action': step.action, 'status': 'refused', 'reason': reason})
@@ -2907,6 +2996,8 @@ class DriveBase:
                 if step.action != 'turn' and self._turn_moved:
                     # Banks and back-ups inside this step's turns moved him too.
                     row = {**row, 'travelled_m': round(row.get('travelled_m', 0.) + self._turn_moved, 2)}
+                if self._speeds.summary():
+                    row = {**row, 'roll_speed': self._speeds.summary()}   # Every roll in the step, legs and detours too.
                 receipt.steps.append(row)
                 # A turn a person asked for, then "come to me" / "face me": they are where it pointed.
                 self._directed = plan.origin == 'requested' and step.action == 'turn' and row['status'] == 'completed'

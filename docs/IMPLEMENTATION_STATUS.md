@@ -6,6 +6,23 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Run `916af362` repairs — November 15 (late evening)
+
+Owner: the head servo is fixed, but "he still struggles to get through tight spaces and his hallway speed
+is too slow". Software repairs, **checked in the simulated base only, not yet run on the robot**:
+
+- **Hallway speed.** He had crawled the hall at 0.1-0.26 m/s. Walls beside him now slow him only as they
+  near touching, so a 1-1.2 m hallway is driven down the middle at the open-floor 0.45 m/s; what is in his
+  path still slows him by how soon he would reach it. The reply model had picked the easy or slow pace
+  for most trips people asked for; the drive tool now says those run at the normal pace.
+- **An archway to one side.** Heading for an opening beside him, a door straight ahead no longer counts as
+  the thing he is driving to: he creeps on and turns into the opening, with the firmware's wall-centring
+  off for that stretch (it pushed him away from the near jamb). Each step's receipt now says how fast he
+  rolled and what held him back ([details](DRIVE_BASE_INTEGRATION.md#run-916af362-hallway-speed-and-an-archway-to-one-side--november-15-2026-late-evening)).
+- **Open:** approaches to a person or a detected thing still stop for a jamb at a doorway's edge; backing out
+  of a corner keeps 0.30 m behind him (5 cm of "back out one foot"); the depth sensors' stalls locked the
+  wheels for 27 s at the end of the hall.
+
 ## Run `7261d8ce` repairs — November 15 (evening)
 
 The owner's run through the door and down the hall. Software repairs, **none yet run on the robot**:
@@ -20,12 +37,11 @@ The owner's run through the door and down the hall. Software repairs, **none yet
   ([details](LED_INTEGRATION.md#november-15-evening-the-board-drops-off-and-the-mouth-does-not-talk)).
 - **Voice check:** clear words from far away ("Try the rest.") are no longer thrown out as not a voice
   ([details](VOICE_CHECK.md#november-15-clear-words-from-far-away)).
-- **Open:** the head went offline crooked at shutdown. Hardware, not the park pose: the owner found the
-  head-right servo (channel 11) no longer responds, most likely an extension cable come undone inside,
-  which needs a full teardown. The servo board reports only the pulses it sends, so the program could
-  not see it; every head pitch or tilt moves the left servo alone until it is fixed. Both depth
-  matrices' "publisher stale" stalls (firmware) and turn odometry reading two thirds of the IMU's angle
-  are also open.
+- **Fixed (hardware):** the head went offline crooked at shutdown. Not the park pose: the head-right servo
+  (channel 11) had stopped responding, an extension cable come undone inside. The owner reconnected it
+  later that evening and reports everything working. The servo board reports only the pulses it sends,
+  so the program could not see it. Both depth matrices' "publisher stale" stalls (firmware) and turn
+  odometry reading two thirds of the IMU's angle are still open.
 
 ## Feelings on the lights — November 15
 

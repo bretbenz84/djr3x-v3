@@ -63,7 +63,8 @@ hallway no-reverse rule. No firmware was changed.
   - Arm-swing checks gate turns. Firmware stop zones stay active.
   - Stop phrases ("stop", "whoa", "Oh, stop!") halt the wheels and silence the motion
     sounds at once.
-  - Limits: 0.45 m/s on open floor, slower where the room is tight (November 14, below),
+  - Limits: 0.45 m/s on open floor and down a hallway's middle, slower only near touching a wall or
+    closing on something in his path (November 15, below),
     10 m per plan (3 m until the owner found it cut trips short, September 27). Since October 2, Rex's own moves share these limits: the owner ruled
     that self-initiated motion needs no permission or smaller caps, only obstacle and
     time-of-flight respect, which the clearance checks enforce for every origin.
@@ -1718,3 +1719,70 @@ minutes; an overshot turn with a lost done completes and a short one still stall
 straightening rule both ways. The new checks fail on the code before these changes. The false-arrival
 rule and the telemetry pause are covered only by the existing checks still passing. **Not yet run on
 the robot.**
+
+
+## Run `916af362`: hallway speed and an archway to one side — November 15, 2026 (late evening)
+
+Owner: "I fixed the broken servo wire in the head. Everything is working now. However, he still
+struggles to get through tight spaces and his hallway speed is too slow."
+
+**What the log shows** (13 minutes: workshop, through the archway, down the hall, the living room and
+back toward the workshop).
+
+- *Hallway speed.* Every forward roll was a tight-space crawl. "Go down to the end of the hallway" made
+  3.25 m in two legs at about 0.13 and 0.26 m/s; "go down the hallway into the other room" rolled 3.4 m
+  in 35 s (0.1 m/s), setting off 9 cm from the left wall. The November 14 rule slowed him for any wall
+  within 0.9 m beside him (0.25 m/s with one 0.35 m away, 0.12 m/s hugging it), treated anything at the
+  edge of his path like something straight ahead, and took 40% off while steering. The reply model also
+  chose the easy pace (80%) for both trips; across the last twelve runs it chose easy for 24 and slow
+  for 11 of the 46 moves and approaches people asked for.
+- *The archway.* "Go through the door, down the hall, towards the kitchen": the seek found the archway,
+  and the roll toward it went 1.19 m while the archway slid from the middle of the picture to 34 degrees
+  left. The firmware's centring pushed him off the jamb on that side harder than the host's 0.2 rad/s
+  steer toward it. Then he stopped: a door 0.62 m straight ahead was held at the archway's own 0.6 m
+  stand-off, the spin toward the archway was refused (tucked front-left arm, jamb 0.22 m beside him),
+  and the floor look saw only the door. He reported blocked. The owner then talked him through in four
+  steps (right 8 degrees, a foot on, left 25, forward).
+- *Also.* "The microwave dead ahead", asked from inside the doorway, ended after 16 cm: the right jamb
+  was 0.33 m off the edge of his path, and approaches to a detected thing do not steer past jambs. "Back
+  out one foot" backed 5 cm, then 13 cm: 0.35-0.43 m behind him less the 0.30 m rear margin. The depth
+  sensors' "publisher stale" stall locked the wheels for 27 s at the end of the hall (the right turn into
+  the living room was refused) and once more at 440 s.
+
+**Changes** (host only; the firmware's zones and steering are unchanged).
+
+- **Speed in tight space** (`DriveBase._speed_limit`). A wall beside him slows him only as it nears
+  touching: 0.12 m/s at 8 cm, full speed from 0.22 m, which is a 1 m hallway driven down the middle. A
+  front corner (a jamb ahead) slows him from 0.5 m. Something straight ahead allows a speed that takes
+  1 s to reach the 0.35 m front stand-off; something at one edge of his path (steered past) 1 s to reach
+  the 12 cm hold. Steering hard still takes 40% off. The pace still sets the top.
+- **An opening to one side** (the roll toward a sought thing). With it more than 20 degrees to one side,
+  what is straight ahead keeps only the 0.35 m obstacle margin, not the thing's stand-off. In tight space
+  he steers toward it at up to 0.3 rad/s with the firmware's centring off for that stretch, as on the
+  last stretch to a target since October 3. The firmware's push inside 13 cm stays, and the host's
+  scrape hold still stops him. A roll that cannot steer that far round is not restarted from the same
+  spot without headway.
+- **Pace wording.** The drive tool now says a trip someone asks for runs at the normal pace unless they
+  ask for slow or careful; easy and slow are for his own strolls. Not probed against the hosted model.
+- **Receipts.** Each step carries `roll_speed`: the median and top forward speed sent and what held it
+  down most (`pace`, `sides`, `front_corner`, `ahead`, `path_edge`, `steering`, `stand_off`, `distance`,
+  `easing_in`, `reverse`), so the next slow trip can be read from the log.
+
+**Checks** (simulated base; walls are ray-cast for every side, corner and rear sensor and the depth
+matrix). A 1.2 m hallway at the normal pace rolls at 0.45 m/s (0.24 before) and never comes within
+0.3 m of a wall; a 0.9 m hallway at the slow pace rolls at 0.27 m/s (0.16). The logged hall trip, from
+9 cm off the wall of a 1.1 m hallway, now takes 16 s for 5.8 m (28 s before) at a median 0.45 m/s and
+never comes nearer the wall than it started. The archway (jamb 0.22 m beside his left front, door
+0.62 m ahead) ends in the archway, turned 37 degrees, with his ring at least 6 cm off the jamb and the
+centring back on afterwards; the old code reported blocked without moving. Each of these fails on the
+code before. The 0.8 m door off his line is still passed, with 3.4 cm between his side and the jamb
+(4.5 cm before: he reaches it faster). Steering past a jamb inside approaches to people and detected
+things was tried and dropped: in simulation it passed a trash can 5 cm too close. Full blocked-I/O
+suite: 1875 checks; one voice-check timing check failed once under load and passes on its own and on
+a rerun.
+
+**Still open.** Approaches to a person or a detected thing still stop for a jamb at the edge of their
+path in a doorway. Backing out of a corner keeps 0.30 m behind him. Braking from 0.45 m/s when someone
+steps out in a hallway uses the firmware's open-floor zones. The depth sensors' stalls continue.
+**Not yet run on the robot.**
+

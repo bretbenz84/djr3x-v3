@@ -443,6 +443,46 @@ class TightHallwayTests(SeekTests):
         self.assertGreater(fake.x, .5, receipt)
 
 
+# November 15 evening (916af362): the archway out of the workshop. His passage's left wall ends in a
+# jamb 0.22 m beside his left front, a door stands open 0.62 m straight ahead, and the hallway he must
+# take goes off to the left between the jamb and the far wall.
+ARCHWAY = [((-3., .45), (.2, .45)), ((-3., -.75), (1.3, -.75)), ((1.3, -.75), (1.3, 4.)), ((.2, .45), (.2, 4.)),
+           ((.89, -.75), (.89, .15)), ((.89, .15), (1.3, .15))]
+JAMB = (.2, .45)
+
+
+class SideOpeningTests(SeekTests):
+    def test_an_archway_beside_him_is_crept_toward_and_turned_into(self):
+        """He rolled toward the archway as it slid to 34 degrees left, then stopped: the door ahead was
+        held at the archway's own 0.6 m stand-off and the spin toward it was refused for the jamb, so he
+        reported blocked with open floor ahead. The owner got him through by hand: a foot on, then left."""
+        clock, fake, drive, world = self.start([('arch', 'the doorway leading out of this room', .75, .6)])
+        drive.servos = TuckedArms()
+        record = watched(fake, walled(fake, ARCHWAY))
+        sensors, nearest = fake.sensors, [9.]
+        def jamb_watch():
+            nearest[0] = min(nearest[0], math.hypot(fake.x - JAMB[0], fake.y - JAMB[1]))
+            return sensors()
+        fake.sensors = jamb_watch
+        settle()
+        space = drive.space()
+        self.assertAlmostEqual(space['left_m'], .22, delta=.01)          # The jamb beside his left front,
+        self.assertAlmostEqual(space['path_center_m'], .62, delta=.01)   # the door straight ahead.
+        receipt = self.run_plan(clock, drive, DriveStep('approach', description='the doorway leading out of this room',
+                                                        target='sought'))
+        step = receipt.steps[-1]
+        self.assertEqual(step['status'], 'completed', receipt)              # Was blocked, obstacle_before_target.
+        self.assertGreater(step['aim_turns_refused_for_arm_clearance'], 0)  # The spin is still refused,
+        self.assertGreater(fake.theta, 25., receipt)                       # so he turned into it while rolling,
+        self.assertGreater(fake.y, .1, receipt)
+        self.assertGreater(nearest[0], .27 + .06, nearest)                 # his ring kept clear of the jamb,
+        self.assertGreaterEqual(record['side_m'], .15)
+        self.assertFalse([c for c in fake.commands if c['cmd'] == 'move' and c['dist'] < 0])   # and never reversed.
+        gains = [c['assist_gain'] for c in fake.commands if c['cmd'] == 'config' and 'assist_gain' in c]
+        self.assertIn(0., gains)               # The firmware's centring was off while he turned in,
+        self.assertEqual(gains[-1], 2.)        # and back on afterwards.
+
+
 class SoughtAcrossPlansTests(SeekTests):
     def test_keep_going_re_finds_the_last_sought_thing_in_a_new_plan(self):
         clock, fake, drive, world = self.start([('door', 'door', 3.2, 0.)])
@@ -1024,13 +1064,19 @@ class ReacquireAfterNudgeTests(unittest.TestCase):
 def hallway(fake, half_width, door=None):
     """Sensors for a straight hallway along the room's x axis, walls at y = +/- half_width.
 
-    door=(x, centre_y, half_gap) adds a wall across the hallway at x with an opening.
-    Rays leave from where each sensor sits: the matrix at the front of the ring, the
-    radials and side sensors on the ring at their own bearings."""
+    door=(x, centre_y, half_gap) adds a wall across the hallway at x with an opening."""
     segments = [((-9., half_width), (9., half_width)), ((-9., -half_width), (9., -half_width))]
     if door:
         dx, cy, gap = door
         segments += [((dx, -half_width), (dx, cy - gap)), ((dx, cy + gap), (dx, half_width))]
+    return walled(fake, segments)
+
+
+def walled(fake, segments):
+    """Sensors for walls given as room segments ((x1, y1), (x2, y2)) in metres.
+
+    Rays leave from where each sensor sits: the matrix at the front of the ring, the
+    radials and side sensors on the ring at their own bearings."""
     def ray(origin_deg, direction_deg):
         heading = fake.theta
         ox = fake.x + .27*math.cos(math.radians(heading + origin_deg))
@@ -1142,23 +1188,52 @@ class HallwayMoveTests(SeekTests):
         self.assertNotIn('slowed_for_tight_space', receipt.steps[0])
         self.assertEqual(self.moves(fake)[0]['speed'], OPEN_SPEED)   # Nothing near: full speed.
 
-    def test_a_hallway_is_driven_faster_than_the_old_crawl_and_open_floor_faster_still(self):
-        """Owner, November 14: down the hallway he averaged 3 cm/s. "If he's in a tight hallway he
-        still goes faster, but he can go much faster if there are not obstacles in his way." The
-        logged plans asked for the slow pace."""
+    def test_a_hallway_is_driven_at_open_floor_speed_and_the_pace_still_sets_the_top(self):
+        """Owner, November 14: down the hallway he averaged 3 cm/s. November 15 evening (916af362), after
+        the faster rule: "his hallway speed is too slow" (0.1-0.26 m/s). A wall beside him slows him
+        only as it nears touching; the pace the model picks still sets the top."""
         clock, fake, drive, world = self.start([])
-        record = watched(fake, hallway(fake, .45))     # About 0.2 m beside him on each side.
+        record = watched(fake, hallway(fake, .6))      # A 1.2 m hallway: 0.33 m beside him on each side.
+        settle()
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=3.))
+        self.assertEqual(receipt.status, 'completed', receipt)
+        rolled = sorted(c['lin'] for c in fake.commands if c['cmd'] == 'drive' and c['lin'] > 0)
+        self.assertGreaterEqual(rolled[len(rolled)//2], OPEN_SPEED - 1e-6)   # Was 0.24 m/s.
+        self.assertEqual(receipt.steps[0]['roll_speed']['held_by'], 'pace', receipt)
+        self.assertGreaterEqual(record['side_m'], .3)    # No nearer the walls for it.
+        # A 0.9 m hallway (0.18 m a side) at the slow pace: the pace holds him, not the walls (was 0.16 m/s).
+        fake.commands.clear()
+        record = watched(fake, hallway(fake, .45))
         settle()
         receipt = self.run_plan(clock, drive, DriveStep('move', meters=2., pace='slow'))
         self.assertEqual(receipt.status, 'completed', receipt)
         rolled = sorted(c['lin'] for c in fake.commands if c['cmd'] == 'drive' and c['lin'] > 0)
-        self.assertGreater(rolled[len(rolled)//2], .15)    # The old crawl: 0.12 m/s at most, 0.09 at this pace.
-        self.assertLessEqual(rolled[-1], HALLWAY_SPEED)    # Still slower than open floor,
-        self.assertGreaterEqual(record['side_m'], .12)     # and no nearer the walls for it.
+        self.assertGreaterEqual(rolled[len(rolled)//2], round(.6*OPEN_SPEED, 3) - 1e-6)
+        self.assertGreaterEqual(record['side_m'], .15)
         fake.sensors = None
+        fake.commands.clear()
         settle()
         self.run_plan(clock, drive, DriveStep('move', meters=1.5, pace='slow'), DriveStep('move', meters=1.5))
         self.assertEqual([m['speed'] for m in self.moves(fake)], [round(.6*OPEN_SPEED, 3), OPEN_SPEED])
+
+    def test_the_logged_hall_trip_off_the_left_wall_runs_at_hallway_speed(self):
+        """November 15 evening (916af362): "turn a slight right and go down the hallway into the other
+        room" set off 9 cm from the left wall of a hallway about 1.1 m wide and rolled 3.4 m in 35 s.
+        He eases off the wall, then runs down the middle at open floor speed."""
+        clock, fake, drive, world = self.start([('end', 'hallway leading to another room', 6., 0.)])
+        fake.y = .55 - .27 - .09
+        record = watched(fake, hallway(fake, .55))
+        settle()
+        started = clock()
+        receipt = self.run_plan(clock, drive, DriveStep('approach', description='hallway leading to another room',
+                                                        target='sought'))
+        step = receipt.steps[-1]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertGreater(fake.x, 5., receipt)
+        self.assertLess(clock() - started, 20., receipt)                # 28 s in this hallway on the old rule.
+        self.assertGreater(step['roll_speed']['median_mps'], .4, step)
+        self.assertLess(abs(fake.y), .1)                                 # Down the middle,
+        self.assertGreaterEqual(record['side_m'], .09)                   # never nearer the wall than he started.
 
     def test_an_approach_past_a_corner_at_one_side_of_his_path_keeps_rolling_without_floor_looks(self):
         """November 14 run: as he set off for the hallway the front-left sensor read 0.44 m to
