@@ -1847,8 +1847,8 @@ like a return, as V2's "you're back" did; the startup path shares the arrival gu
 `live --gui` opens V2's PySide6 dashboard, adapted to V3. It observes the trace and the
 owners' snapshots, and its manual servo override and joystick act through the servo and
 drive owners (operator mode, teleop holding the plan lock). Synthetic contract checks and a
-native render with synthetic data only; **not yet run with Rex live or on the robot's M2**.
-Details: [dashboard](GUI.md).
+native render with synthetic data only at the time. Owner, November 16: the joystick console works
+on the robot; the manual servo override has no robot report yet. Details: [dashboard](GUI.md).
 
 ## Second live run — October 14 (evening)
 

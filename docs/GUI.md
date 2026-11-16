@@ -1,6 +1,9 @@
 # Dashboard (V2 GUI port)
 
-Status, October 14, 2026: **implemented in software, not yet run with Rex live.** The owner
+Status, November 16, 2026: **the joystick console works on the robot (owner's report).** No report yet
+for the manual servo override or the render cost on the M2.
+
+Status, October 14, 2026: implemented in software, not yet run with Rex live. The owner
 asked for V2's PySide6 dashboard in V3 (no web GUI), with manual servo and drive control,
 and without Memory Banks or typed input for now. Synthetic checks and offscreen/native
 renders only; see [Evidence](#evidence).
@@ -138,6 +141,5 @@ optical-flow face-box smoother.
   V2's lighting (SSAO, shadow maps, MSAA). The robot's M2 / 16 GB cost alongside Rex's models
   is **unmeasured**.
 
-Still open: a live `--gui` run with Rex, manual override and teleop on the robot (with the
-arm park, obstacle hold and stop), and whether the render cost needs a lower avatar rate
-on the M2.
+Owner, November 16: the joystick console works on the robot. Still open: manual override on the
+robot, and whether the render cost needs a lower avatar rate on the M2.
