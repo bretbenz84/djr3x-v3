@@ -249,3 +249,7 @@ __marimo__/
 !/assets/audio/jeopardy/*.wav
 # Public famous-voice reference clips for impressions (see assets/voices/README.md)
 !/assets/voices/famous/*.wav
+
+# Telepresence Mac app (apps/telepresence): SwiftPM build products and the assembled app.
+/apps/telepresence/.build/
+/apps/telepresence/.swiftpm/
