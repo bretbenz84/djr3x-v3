@@ -68,6 +68,11 @@ class Settings:
     room_temperature_offset_f: float = -15.0
     # Owner, October 26: whole words the recognizer misspells, replaced in every transcript ("Exodia" = "Exudica").
     transcript_corrections: dict = field(default_factory=dict)
+    # Telepresence (owner, November 16; docs/TELEPRESENCE_PLAN.md): the one address `python -m r3x telepresence`
+    # listens on, "IP:port" or "[IPv6]:port" (never every interface), and the networks a client may connect
+    # from (the home WireGuard subnet, and the house's own for calls from home). Empty turns the mode off.
+    telepresence_listen: str = ""
+    telepresence_allowed_networks: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.agency_planner_model not in {"gpt-6-terra", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-terra"}:
@@ -116,6 +121,15 @@ class Settings:
         compile_table(self.transcript_corrections)   # Raises on an invalid or duplicate entry.
         value=self.room_temperature_offset_f
         if type(value) not in (int,float) or not math.isfinite(value) or not -40<=value<=40:raise ValueError('InvalidRoomTemperatureOffset')
+        from .telepresence.protocol import parse_listen, parse_networks
+        if not isinstance(self.telepresence_listen, str):
+            raise ValueError('telepresence_listen must be text')
+        parse_networks(self.telepresence_allowed_networks)
+        object.__setattr__(self, 'telepresence_allowed_networks', tuple(self.telepresence_allowed_networks))
+        if self.telepresence_listen:
+            parse_listen(self.telepresence_listen)
+            if not self.telepresence_allowed_networks:
+                raise ValueError('TelepresenceNeedsAllowedNetworks')
         if self.camera_enabled and not self.camera_device_name.strip():
             raise ValueError("Enabled camera requires a device name")
         for name, lower, upper in (("camera_width", 320, 1920), ("camera_height", 240, 1080)):
@@ -149,8 +163,11 @@ class Secrets:
     ntfy_topic: str = field(default="", repr=False)
     # One of the two model keys is needed: the one settings.llm_provider names (the app's readiness check).
     anthropic_api_key: str = field(default="", repr=False)
+    # Telepresence (owner, November 16): the token a client proves it holds. Made by `python -m r3x
+    # telepresence-setup`; the client's Mac keeps the same line. Needed only by the telepresence program.
+    telepresence_token: str = field(default="", repr=False)
 
-    OPTIONAL = frozenset({"ntfy_topic", "anthropic_api_key"})   # openai_api_key: app readiness decides.
+    OPTIONAL = frozenset({"ntfy_topic", "anthropic_api_key", "telepresence_token"})   # openai_api_key: app readiness decides.
 
     @classmethod
     def load(cls, root: Path) -> "Secrets":

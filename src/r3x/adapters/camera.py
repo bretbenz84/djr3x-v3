@@ -29,11 +29,19 @@ def select_camera(device_listing: str, name: str) -> int:
 
 
 class Camera:
-    def __init__(self, device_name, model_path, trace=None, width=1280, height=720, framerate=30.0):
+    """model_path None: capture only (telepresence video), with no face models and no analysis. An
+    output_width then has ffmpeg scale the frames down (the height keeps the aspect, rounded even)."""
+    def __init__(self, device_name, model_path, trace=None, width=1280, height=720, framerate=30.0, *,
+                 output_width=None):
         self.device_name, self.trace = device_name, trace
         self.width,self.height = width,height
         self.framerate = framerate
-        self.encoder = FaceEncoder(model_path)
+        if output_width is not None and (model_path is not None or type(output_width) is not int
+                                         or output_width % 2 or not 160 <= output_width <= width):
+            raise ValueError('OutputWidthNeedsCaptureOnlyCamera')
+        self.frame_width = output_width or width
+        self.frame_height = height if output_width is None else max(2, round(height * output_width / width / 2) * 2)
+        self.encoder = FaceEncoder(model_path) if model_path is not None else None
         self.process = self.worker = self.analysis_worker = None
         self.stop = threading.Event()
         self.ready = threading.Event()
@@ -48,7 +56,10 @@ class Camera:
         self.session_id = uuid4().hex
         self.capability = Capability("camera","AVFoundation ffmpeg + SCRFD/EdgeFace CPU",
             "optional persistent face recognition; separate from acoustic identity",NAMESPACE,
-            ("opencv-python","numpy","onnxruntime"),("named macOS camera", "ffmpeg", f"{width}x{height}@{framerate}fps; face analysis <=2fps"),required=False)
+            ("opencv-python","numpy","onnxruntime"),("named macOS camera", "ffmpeg", f"{width}x{height}@{framerate}fps; face analysis <=2fps"),required=False) \
+            if self.encoder is not None else Capability("camera","AVFoundation ffmpeg","video frames only; no face models",
+            None,(),("named macOS camera","ffmpeg",f"{width}x{height}@{framerate}fps scaled to {self.frame_width}x{self.frame_height}"),
+            required=False)
 
     def start(self):
         import subprocess
@@ -62,17 +73,21 @@ class Camera:
         except subprocess.TimeoutExpired:
             raise ProviderFailure("CameraEnumerationTimedOut") from None
         index = select_camera(listing.stderr,self.device_name)
-        self.encoder.start()
+        if self.encoder is not None:
+            self.encoder.start()
+        scale = ["-vf",f"scale={self.frame_width}:{self.frame_height}"] if (self.frame_width,self.frame_height)!=(self.width,self.height) else []
         self.process = subprocess.Popen([executable,"-nostdin","-loglevel","error","-f","avfoundation",
             "-pixel_format","uyvy422","-framerate",str(self.framerate),"-video_size",f"{self.width}x{self.height}","-i",str(index)+":none","-an",
-            "-pix_fmt","bgr24","-fps_mode","passthrough","-f","rawvideo","pipe:1"],stdin=subprocess.DEVNULL,
+            *scale,"-pix_fmt","bgr24","-fps_mode","passthrough","-f","rawvideo","pipe:1"],stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,bufsize=0)
         self.worker = threading.Thread(target=self._read,name="r3x-camera",daemon=True)
-        self.analysis_worker = threading.Thread(target=self._analyze,name="r3x-faces",daemon=True)
         self.worker.start()
-        self.analysis_worker.start()
+        if self.encoder is not None:
+            self.analysis_worker = threading.Thread(target=self._analyze,name="r3x-faces",daemon=True)
+            self.analysis_worker.start()
         if not self.ready.wait(10) or self.failure:
-            raise ProviderFailure(self.failure or "CameraDidNotProduceAnalyzedFrame")
+            raise ProviderFailure(self.failure or ("CameraDidNotProduceAnalyzedFrame" if self.encoder is not None
+                                                   else "CameraDidNotProduceFrame"))
 
     def _failed(self,exc):
         if not self.stop.is_set():
@@ -83,7 +98,7 @@ class Camera:
 
     def _read(self):
         try:
-            size = self.width*self.height*3
+            size = self.frame_width*self.frame_height*3
             previous = None
             duplicates = 0
             while not self.stop.is_set():
@@ -104,7 +119,9 @@ class Camera:
                     duplicates = 0
                     previous = current
                     self.hub.publish(Frame(uuid4().hex,self.device_name,self.session_id,time.monotonic(),
-                                           self.width,self.height,current))
+                                           self.frame_width,self.frame_height,current))
+                    if self.encoder is None:
+                        self.ready.set()   # Capture only: a frame is all startup waits for.
         except Exception as exc: self._failed(exc)
 
     def _analyze(self):
@@ -195,5 +212,6 @@ class Camera:
                 if worker.is_alive(): raise ProviderFailure("CameraWorkerDidNotStop")
         if self.process: self.process.stdout.close()
         self.invalidate()
-        self.encoder.close()
+        if self.encoder is not None:
+            self.encoder.close()
         self.process = None

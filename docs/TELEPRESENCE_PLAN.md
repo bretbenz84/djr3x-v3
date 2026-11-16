@@ -1,7 +1,8 @@
 # Telepresence mode: implementation plan
 
-Status, November 16, 2026: **plan with the owner's decisions recorded ([below](#owner-decisions-november-16));
-nothing here is built, and this document authorizes no code, firmware or hardware operation.** Owner's idea: a Mac app that wakes the robot into a mode with
+Status, November 16, 2026: **stages 0 and 1 are implemented in software ([below](#stages-0-and-1-implemented--november-16));
+none of it has run on the robot. Stages 2-6 are not built.** The owner's decisions are recorded
+[below](#owner-decisions-november-16); this document authorizes no further code, firmware or hardware operation. Owner's idea: a Mac app that wakes the robot into a mode with
 no personality and no models, where Rex is a conduit for the owner's voice. The owner hears the room,
 sees through the camera, drives the base and moves the head and head lift. The supervisor launches a
 separate program for it. Access is over the owner's home WireGuard VPN only.
@@ -135,9 +136,9 @@ A small listener in the supervisor with three requests: status, start, stop.
 
 Each stage ends with its own checks; live checks are labeled separately from blocked-I/O ones.
 
-0. **Measurements, no motion.** Talk-over echo through the XVF3800 with a file playing; link delay and
+0. **Measurements, no motion** (tools written November 16; not yet run on the robot). Talk-over echo through the XVF3800 with a file playing; link delay and
    loss from off-site over WireGuard; camera capture without the face models; CPU on the M2.
-1. **Conduit only.** The program with audio both ways, video, lights and the visor; started by hand;
+1. **Conduit only** (software November 16; not yet run on the robot). The program with audio both ways, video, lights and the visor; started by hand;
    a throwaway test client. No wheels, no head control.
 2. **Mac app, first version.** Connect, see, hear, talk, hang up.
 3. **Head, lift and visor,** with the telepresence stance.
@@ -153,6 +154,83 @@ Each stage ends with its own checks; live checks are labeled separately from blo
 - an obstacle holds forward and the reason reaches the client;
 - operator limits hold and Rex's own motion is refused;
 - supervisor states: asleep, awake, hand-started Rex, failed start, exit back to listening.
+
+## Stages 0 and 1, implemented — November 16
+
+Owner request, on the dev Mac (no supervisor there, and none installed). **Nothing below has run on the
+robot.** Evidence so far: 41 blocked-I/O contract checks (fake sockets, devices and clocks) and one
+5-second loopback run of the link probe on the dev Mac (127.0.0.1, no devices: 250 audio frames echoed,
+median round trip 0.6 ms, nothing dropped), which shows the wire format and sender work, not any real
+network.
+
+**Stage 1, the program** (`src/r3x/telepresence/`, started by hand):
+
+```sh
+.venv/bin/python -m r3x telepresence-setup          # once per robot: the token, in local/secrets.toml
+.venv/bin/python -m r3x telepresence [--camera]      # on the robot, with Rex off
+.venv/bin/python tools/telepresence_client.py ROBOT_IP:PORT   # on the calling Mac, with headphones
+```
+
+- **Settings:** `telepresence_listen` (one `IP:port`; never every interface, port from 1024) and
+  `telepresence_allowed_networks` (at least one, at most eight). The calling Mac's `local/secrets.toml`
+  needs the same `telepresence_token` line as the robot's; `TELEPRESENCE_TOKEN` overrides it.
+- **Start:** the program checks readiness before opening anything. It then takes the same live
+  lease and controller handoff as `live`, so it never takes over a running Rex. Start order:
+  - the speaker, the LED board and the servo wake (no startup sounds);
+  - the microphone and the camera (frames only, no face models, scaled to 960 px by ffmpeg);
+  - the JPEG video sender and the listener.
+
+  The visor then opens and the lights show the telepresence look.
+- **Lights:** magenta eyes (a colour no feeling uses), refreshed every 3 s. The mouth moves with
+  whatever plays, which is the owner's voice. The chest runs its plain speaking pattern. This uses
+  existing LED firmware commands; no firmware changed.
+- **Link:** one TCP connection, the format in `protocol.py`.
+  - **Sign-in:** the robot sends a challenge and the client answers with an HMAC of it under the
+    token, so the token never crosses the wire. A wrong token or a second client is refused with
+    the reason. A source outside the allowed networks is closed with nothing said.
+  - **Sending order:** JSON first, then audio, then only the newest video frame. Room audio waiting
+    over 0.5 s drops its oldest frames rather than adding delay.
+- **Audio:**
+  - Room to owner: microphone channel 0 at 16 kHz with no gate, as the plan says.
+  - Owner to room: one output stream for the whole call, behind a 0.12 s jitter buffer. It
+    restarts from silence after running dry, and anything beyond 0.4 s buffered is cut back. The
+    stream is stopped, never aborted while running (aborting silenced the reSpeaker's microphone
+    before).
+- **Video:** 15 frames a second at quality 70, each stamped with the robot's clock. The client
+  shows the frame's age using a clock offset measured from its pings.
+- **Call endings:**
+  - the client hangs up;
+  - nobody connects within 120 s;
+  - the link stays gone 30 s (a dropped link may come back meanwhile);
+  - SIGTERM or Ctrl-C.
+
+  A client silent for 5 s, or a send stuck for 5 s, is disconnected. Shutdown parks the servos with
+  the light fade, as Rex's own shutdown does.
+- **Records:** connects, refusals, link ends and a stats row every 10 s go to `local/sessions/`. A
+  stats row has round trips, dropped and late audio, video encode time, and the CPU and peak memory
+  of this process and ffmpeg. No audio or pictures are kept.
+- **Test client** (`tools/telepresence_client.py`): plays the room, shows the camera (m mutes, q
+  hangs up) and starts muted. It has no echo cancelling, so use headphones. It prints a summary of
+  round trips, frame age and underruns.
+
+**Stage 0, the measurements:** run each on the robot with Rex off. Each saves a JSON report under
+`local/telepresence/`.
+
+| Tool | Measures |
+| --- | --- |
+| `tools/measure_talkover_echo.py` | Plays a speech-like test voice (or `--wav`) through the configured output while recording every input channel. Per channel: the quiet floor, the level during the voice, its rise above the floor, and its correlation with the voice at the echo delay. On the Flex it also compares channels 0 and 1 against a raw capsule. Its full-duplex hint (within about 6 dB, correlation under 0.1) is a proposal, not a calibrated gate. |
+| `tools/measure_telepresence_link.py serve` / `call ROBOT_IP:PORT` | The real wire format with no devices: 50 audio frames a second echoed back and a video-sized frame 15 times a second acknowledged. Reports round trips (median, p95, p99, max, share over 250 ms), the longest gap and the sender's dropped audio. The echo delay leaves out the microphone, speaker and jitter buffer. |
+| `tools/measure_telepresence_camera.py` | The capture-only camera at the telepresence size: frames delivered, JPEG encode time and size, the upload that implies, and the CPU and memory of Python and ffmpeg each second. |
+
+**Open:**
+- None of the three measurements has been run on the robot or from off-site.
+- The program has not run on the robot. Not yet checked:
+  - the servo wake and visor;
+  - the magenta eyes on the strip;
+  - the mouth following the owner's voice;
+  - echo during talk-over;
+  - playback of a 16 kHz stream on the XVF3800.
+- Whether TCP's stalls on a lossy link are acceptable is for the off-site link measurement to say.
 
 ## Risks
 

@@ -33,11 +33,12 @@ def main() -> int:
                               "reason":str(exc) if isinstance(exc,(ValueError,ProviderFailure)) else None}),file=sys.stderr)
             return 1
     parser = argparse.ArgumentParser(description="DJ-R3X voice-core experiment")
-    parser.add_argument("command", choices=("doctor", "boot", "live", "scenario", "report", "replay", "push-setup", "push-test"))
+    parser.add_argument("command", choices=("doctor", "boot", "live", "scenario", "report", "replay", "push-setup", "push-test",
+                                            "telepresence", "telepresence-setup"))
     parser.add_argument("artifact", nargs="?", type=Path)
     parser.add_argument("--profile", choices=("dev-mac",), default=None)
     parser.add_argument("--config", type=Path, help="Explicit TOML settings file")
-    parser.add_argument("--camera",action="store_true",help="Explicitly enable the configured camera for live mode")
+    parser.add_argument("--camera",action="store_true",help="Explicitly enable the configured camera for live or telepresence mode")
     parser.add_argument("--gui",action="store_true",help="Open the dashboard window for live mode (needs PySide6)")
     parser.add_argument("--record-evaluation",action="store_true",help="Explicitly retain live captures for later human labeling")
     parser.add_argument("--brain",action="store_true",help="Enable paid hosted language inference during saved-audio replay")
@@ -54,7 +55,9 @@ def main() -> int:
         settings = Settings.load(config_path) if args.config or config_path.exists() else Settings()
         if args.profile is not None:
             settings = replace(settings, profile=args.profile)
-        if args.camera or args.record_evaluation:
+        if args.camera and args.command=="telepresence" and not args.record_evaluation:
+            settings = replace(settings,camera_enabled=True)
+        elif args.camera or args.record_evaluation:
             if args.command!="live":
                 raise ValueError("CameraAndRecordingFlagsRequireLive")
             settings = replace(settings,camera_enabled=args.camera or settings.camera_enabled,
@@ -79,6 +82,17 @@ def main() -> int:
                 return 0 if run(args.artifact) else 1
             from .trace import report
             print(json.dumps(report(args.artifact), indent=2))
+            return 0
+        if args.command == "telepresence":
+            # A call with no models (docs/TELEPRESENCE_PLAN.md): room audio and video out, the owner's voice in.
+            from .telepresence.program import run as telepresence
+            return telepresence(settings, project)
+        if args.command == "telepresence-setup":
+            from .telepresence.program import setup
+            from .settings import ScratchPaths
+            paths = ScratchPaths.for_project(project)
+            paths.prepare()
+            print(setup(paths.root))
             return 0
         if args.command == "push-setup":
             # Sentry mode's phone alerts: a private ntfy topic name, made once and kept in local/secrets.toml.

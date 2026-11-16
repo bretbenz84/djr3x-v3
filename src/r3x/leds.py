@@ -37,6 +37,10 @@ LIGHT_STEPS = {'blink': 'blink', **{'lights_'+p: p for p in PATTERNS if p != 'bl
 # glows at this steady level between lines, and speech keeps the same red.
 GUARD_LEVEL = 140
 AWAKE_EYES = (255,200,0)   # Warm gold, the eyes of an ordinary awake Rex.
+# Telepresence (owner, November 16: the lights are the only cue at home that the owner has called in):
+# magenta eyes, a colour no feeling uses, for the whole call; the mouth moves with the owner's voice and
+# the chest runs its plain speaking pattern.
+TELEPRESENCE_EYES = (255,0,255)
 FLASH_SECONDS = .25        # The alarm flash: eyes and mouth on and off this often.
 # October 23 (1e626e07): the eyes went dark for several seconds between lines with no command sent and no
 # board reset in the system log, and stayed dark until his next line set them. Between lines the eye
@@ -109,6 +113,7 @@ class LEDs:
         self.mouth = 'neutral'            # Emotion of the running mouth animation.
         self.chest_only = False           # The running animation leaves the head as it is.
         self.guarding = False             # Sentry mode's held red (guard).
+        self.telepresent = False          # A telepresence call holds the lights until shutdown.
         self.flash_until = float('-inf')  # The alarm's flashing, until then.
         self._flash_on = True
         self._flash_at = float('-inf')
@@ -205,6 +210,9 @@ class LEDs:
                     self._send('head', 'EYE:' + ','.join(map(str, self.eye_color)))
                     self.eyes_sent = now
                 return
+            if self.telepresent and now - self.eyes_sent >= EYE_REFRESH_SECONDS:
+                self._send('head', 'EYE:' + ','.join(map(str, self.eye_color)))   # Heals a dropped repaint.
+                self.eyes_sent = now
             while self.samples and self.samples[0][1]<=now:
                 self.sample = self.samples.popleft()
             pcm,at = self.sample
@@ -385,6 +393,24 @@ class LEDs:
                 self._send('chest','SPEAK_STOP')
             if self.trace: self.trace.emit('led_lifecycle',kind='sentry_on' if on else 'sentry_off',
                                            status='commands_sent',evidence='display_unverified')
+            return self.version
+
+    def telepresence(self):
+        """A telepresence call: magenta eyes, and the mouth follows the voice played (the owner's) for
+        the rest of the run; only shutdown ends it. Returns the version, like begin."""
+        with self.lock:
+            if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
+            self.version += 1
+            self.telepresent = True
+            self.speaking, self.demo, self.chest_only = True, False, False
+            self.last_level, self.last_sent = -1, float('-inf')
+            self.eye_color, self.mouth = TELEPRESENCE_EYES, 'neutral'
+            self._send('head','EYE:'+','.join(map(str,self.eye_color)))
+            self.eyes_sent = self.clock()
+            self._send('head','SPEAK:neutral')
+            self._send('chest','SPEAK:neutral')
+            if self.trace: self.trace.emit('led_lifecycle',kind='telepresence',status='commands_sent',
+                                           evidence='display_unverified')
             return self.version
 
     def flash(self, seconds):

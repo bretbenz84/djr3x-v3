@@ -159,6 +159,16 @@ reply_service_tier = "fast"
 llm_provider = "openai"
 claude_reply_model = "claude-sonnet-5-5"
 
+# Telepresence (owner, November 16; docs/TELEPRESENCE_PLAN.md): `python -m r3x telepresence` listens on
+# this one address, "IP:port" or "[IPv6]:port" (the robot's own LAN address, never every interface), and
+# answers only clients from these networks (the home WireGuard subnet; add the house's own to call from
+# home). The client proves telepresence_token from secrets.toml (python -m r3x telepresence-setup).
+# Empty turns the mode off. It uses the microphone, speaker, camera, servo and LED settings above.
+telepresence_listen = ""
+# telepresence_listen = "192.168.1.50:47800"
+telepresence_allowed_networks = []
+# telepresence_allowed_networks = ["10.8.0.0/24"]
+
 # Spelling fixes for names the recognizer gets wrong (owner, October 26). Each whole word, in any
 # case, is replaced in every transcript before Rex reads it; the session log keeps what was heard.
 # Spelling only: never who spoke or who is meant. At most 32. Keep this table last in the file.

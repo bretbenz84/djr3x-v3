@@ -186,6 +186,11 @@ is a separately maintained reference. V3 never imports it or reads its data.
     mouth lights move with it; a stop said over his voice still halts him.
   - He can answer questions about battery, charging, obstructions, radar bodies, tilt
     and room climate from live readings.
+- **Telepresence (November 16; not yet run on the robot).** `python -m r3x telepresence` turns Rex into a
+  conduit for the owner over the home WireGuard VPN, with no models. The servos wake, the visor opens and
+  his eyes go magenta. Room audio and the camera go to one signed-in client, and the client's voice plays
+  from his speaker with his mouth moving to it. A throwaway client is in `tools/telepresence_client.py`.
+  Head control, driving, the supervisor trigger and the Mac app are still to come ([plan and status](docs/TELEPRESENCE_PLAN.md)).
 - **Startup.** The startup whir plays as the servos wake, a short "please wait" line is
   spoken the moment the whir and wake finish, and the droid start-up sound fills the rest
   until loading finishes and cuts it. The please-wait and ready lines are synthesized once
@@ -310,6 +315,7 @@ models on its own.
 | [Voice impressions](docs/IMPERSONATION.md) | The `impersonate` tool, reference voices, the local cloning engine, checks and open acceptance. |
 | [Dashboard](docs/GUI.md) | `live --gui`: V2's PySide6 window in V3, manual servo override and joystick driving through the owners. |
 | [Operator services](docs/OPERATOR_CUTOVER.md) | Wake supervisor, menu-bar apps, auto-update, rollback. |
+| [Telepresence](docs/TELEPRESENCE_PLAN.md) | The no-model call mode: plan, owner decisions, what stages 0-1 built and how to run them. |
 | [Live test script](docs/LIVE_TEST_SCRIPT.md) | Lines to say and results to check in hands-on conversation tests. |
 | [DESIGN.md](DESIGN.md) | Who decides what, turn flow, identity and memory design. |
 | [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex initiates and participates. |

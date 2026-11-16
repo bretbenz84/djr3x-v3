@@ -6,6 +6,23 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Telepresence stages 0 and 1 — November 16
+
+Owner request: the first two stages of the [telepresence plan](TELEPRESENCE_PLAN.md#stages-0-and-1-implemented--november-16).
+**Software only, built on the dev Mac; nothing has run on the robot.**
+
+- **The program:** `python -m r3x telepresence` wakes the servos with no sounds, opens the visor and
+  shows magenta eyes. It then carries room audio and camera video to one signed-in client over one
+  TCP connection, and the client's voice to Rex's speaker. No models, memory or idle motion.
+- **The test client:** `tools/telepresence_client.py`.
+- **Three measurement tools:** talk-over echo, the link, and the camera's cost.
+- **One change outside the new package:** the camera can now run capture only, with no face models,
+  scaled down by ffmpeg.
+- **Evidence:**
+  - 41 new blocked-I/O checks (fake sockets, devices and clocks);
+  - one loopback run of the link probe on the dev Mac (no devices, no real network).
+- **Open:** every measurement on the robot and from off-site, and a first call.
+
 ## Jeopardy, sentry mode and speaking modes on the robot — November 16
 
 Owner: all three "have all been tested on the robot and work as intended." This is the owner's report of
