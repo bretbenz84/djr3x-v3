@@ -238,12 +238,12 @@ class DriveControlTests(unittest.TestCase):
     def test_base_readings_are_display_only(self):
         time.sleep(.05)
         with patch.object(self.drive.local_map, 'observe') as observe:
-            readings = base_readings(self.drive, None, self.clock())
+            readings = base_readings(self.drive, self.clock())
         observe.assert_not_called()   # The drive owner's floor memory is its own callers' to fold.
         self.assertTrue(readings['connected'])
         self.assertEqual(readings['volts'], 12.8)
         self.assertIn('front_m', readings['clearance_m'])
-        self.assertIsNone(readings['radar'])
+        self.assertNotIn('radar', readings)
 
 
 class CallControlTests(unittest.TestCase):
@@ -309,16 +309,17 @@ class CallControlTests(unittest.TestCase):
 
 
 class ProgramControlTests(unittest.TestCase):
-    def test_compose_adds_the_wheels_without_their_reflex_and_the_radar(self):
+    def test_compose_adds_the_wheels_without_their_reflex_or_the_radar(self):
         from r3x.telepresence.program import compose, controls_offer
         settings = Settings(input_device_name='Fixture mic', servo_port='/dev/cu.servo', drive_port='/dev/cu.drive',
                             radar_port='/dev/cu.radar', telepresence_listen='10.0.0.5:47800',
                             telepresence_allowed_networks=['10.8.0.0/24'])
         providers, parts = compose(settings, Secrets(telepresence_token=TOKEN))
         self.assertEqual([p.capability.name for p in providers],
-                         ['telepresence_speaker', 'robot_servos', 'radar', 'drive_base', 'capture', 'telepresence_link'])
+                         ['telepresence_speaker', 'robot_servos', 'drive_base', 'capture', 'telepresence_link'])
         self.assertFalse(parts['drive']._reflex)
-        self.assertIs(parts['drive'].radar, parts['radar'])
+        self.assertIsNone(parts['drive'].radar)   # Configured, but never opened for a call (owner, November 16).
+        self.assertNotIn('radar', parts)
         self.assertEqual(controls_offer(parts['robot'], parts['drive']), {'head': None, 'drive': None})  # Not started.
         parts['robot'].telepresent = True
         parts['drive'].state = 'ready'

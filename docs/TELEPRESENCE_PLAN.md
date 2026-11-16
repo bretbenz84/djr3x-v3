@@ -43,7 +43,7 @@ Nothing loads at import, so a command that starts no models is possible today.
 | Room audio with echo removed | ReSpeaker Flex (XVF3800) channel 0: hardware echo cancel, beamforming, noise suppression, gain. Playback through the same device gives it the echo reference | Talk-over has never been validated in V3; `live` gates the microphone while Rex plays instead. |
 | Playback | `AudioSink` / `BufferedOutput` | A small jitter buffer for a live stream; a fixed gain and limiter (the −20 LUFS leveler works per phrase). |
 | Camera frames | `adapters/camera.py` (ffmpeg AVFoundation capture) | `Camera` also loads the face models. The capture half must be usable alone. |
-| Base readings | Drive telemetry, radar, depth matrices, battery | Sent to the app as a small status message. |
+| Base readings | Drive telemetry, depth matrices, battery (not the radar: owner, November 16) | Sent to the app as a small status message. |
 | Launch, logs, update deferral | Supervisor's `_launch_controller` and child handling | A second launch reason and command; no relaunch-on-wedge for this mode. |
 
 Not started in this mode: ASR, VAD, voice and face recognition, object and room models, the reply
@@ -54,7 +54,7 @@ checks, the deadman and the lost-link park are what stop the wheels.
 ## Robot program
 
 **Start.** Take the controller lock and wait for the services to release. Open the servo board, LED
-board, drive link, radar, microphone, speaker and camera that settings enable. Wake the servos to their
+board, drive link, microphone, speaker and camera that settings enable (never the radar). Wake the servos to their
 awake poses and open the visor, skipping the startup sounds, the please-wait and ready lines and the
 hardware notice. Show the telepresence lights, with no sound. Then accept one client.
 
@@ -387,7 +387,7 @@ Owner request: "implement the rest of the plan", robot side only (the Mac app is
 - **The status strip:** every second, the status message carries:
   - the head's position;
   - the wheels' state and why a move was refused or held;
-  - charge, open space by direction, sensor notes and radar bodies.
+  - charge, open space by direction and sensor notes.
 - **Ending:** the wheels are handed back, then the servos park from the stance and the lights fade.
   Each run writes `local/telepresence/last-call.json` (how it ended, which parts failed to start) for
   the supervisor.
@@ -423,7 +423,7 @@ Owner request: "implement the rest of the plan", robot side only (the Mac app is
 | app → robot | `{"type":"drive", "seq":n, "lin":x, "ang":y}` | 10 a second while steering, zeros included. seq rises by one per setpoint (a new link may start again). lin and ang are −1 … 1 fractions of the caps; positive ang turns left. |
 | app → robot | `{"type":"stop"}` | Space bar: wheels to zero, held until a `drive` with lin and ang both 0. |
 | robot → app | `{"type":"drive_state", active, moving, lin_mps, ang_dps, refused, held, stopped}` | Sent when the refusal, holds or moving change. refused is one of `link_not_measured`, `link_too_slow`, `setpoint_stale`, `stopped`, `charging`, `drive_telemetry_stale`, `controller_estop`, `gamepad_in_control`, `front_depth_matrix_unavailable`, or another drive-owner reason. held lists `path_blocked`, `blocked_front`, `blocked_back`, `turn_path_blocked`, `front_clearance_unknown`. |
-| robot → app | `status` (each second) | Adds `head` (position, `held_for_driving`, last move), `drive` (as drive_state) and `base`: `{connected, battery_percent, charging, volts, blocked, clearance_m: {front_m, path_m, left_m, right_m, rear_m}, sensor_notes, radar: [{bearing_deg, range_m, moving}]}`. Unknown values are null. |
+| robot → app | `status` (each second) | Adds `head` (position, `held_for_driving`, last move), `drive` (as drive_state) and `base`: `{connected, battery_percent, charging, volts, blocked, clearance_m: {front_m, path_m, left_m, right_m, rear_m}, sensor_notes}`. Unknown values are null. |
 | app → supervisor | port + 1: sign in as for a call, then one of `{"type":"status"}`, `{"type":"start"}`, `{"type":"stop"}` | Answers: `status` `{state: asleep, awake or telepresence, call_port, battery: {percent, charging, volts, seconds_ago} or null, last_call: {reason, code, failed_starts, seconds_ago} or null}`; `starting` `{call_port, already_running}`; `stopping`; `not_running`; `refused` `{reason: rex_awake, supervisor_busy, launch_failed, unknown_request}`. Then the connection closes. After `starting`, call the call port; the app's 60 s retry covers the wake. A failed start shows in `last_call`. |
 
 `tools/telepresence_trigger.py status|start|stop ROBOT_IP:PORT` asks the supervisor from a Mac with the
@@ -453,6 +453,11 @@ controller, and fake sockets and clocks. They check:
   - the same check runs at Rex's own startup, so "wake up rex" would have failed the same way;
   - the fix: an unplugged board counts as free (`hardware_ownership.serial_port_free`), its own
     provider then fails to open, and an optional board is left out of that run.
+- **No radar in telepresence** (owner, November 16: there is no point to it for a robot driven by
+  hand). The radar ring only tells Rex where people are, for looking and seeking; none of the
+  wheels' checks use it. A call never opens or claims its port, and the status no longer has a
+  `radar` field. USB showed no ESP32-S3 at all: its old port (`usbmodem11301`, hub 1 port 3) is
+  empty, and it last started in Rex's run of November 15, 20:00.
 
 **Open:**
 - On the robot:

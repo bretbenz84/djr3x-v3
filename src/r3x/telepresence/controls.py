@@ -312,8 +312,8 @@ class DriveControl:
                 self.drive.end_manual()
 
 
-def base_readings(drive, radar, now):
-    """The caller's status strip: charge, open space around him and radar bodies. Display only: it
+def base_readings(drive, now):
+    """The caller's status strip: charge and open space around him. Display only: it
     reads the latest frames and never folds them into the drive owner's memory of the floor."""
     if drive is None:
         return None
@@ -321,7 +321,6 @@ def base_readings(drive, radar, now):
     space = clearance(telemetry, matrix, now, rear_matrix=drive.link.rear_snapshot()) if telemetry else None
     charge = drive.charge_reading(now)
     millivolts = (telemetry or {}).get('batt_mv')
-    bodies = radar.bodies() if radar is not None else None
     return {'connected': drive.state == 'ready' and not drive.link.failure,
             'battery_percent': charge[0] if charge else None,
             'charging': charge[1] if charge else None,
@@ -329,6 +328,4 @@ def base_readings(drive, radar, now):
             'blocked': (telemetry or {}).get('blocked_dir'),
             'clearance_m': {k: (round(space[k], 2) if _number(space.get(k)) else None) for k in CLEARANCE_KEYS}
                            if space else None,
-            'sensor_notes': list(space['health']) if space else ['drive_telemetry_missing'],
-            'radar': None if radar is None else
-                     [{k: b.get(k) for k in ('bearing_deg', 'range_m', 'moving')} for b in bodies or ()]}
+            'sensor_notes': list(space['health']) if space else ['drive_telemetry_missing']}

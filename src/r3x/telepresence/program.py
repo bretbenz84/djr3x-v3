@@ -1,8 +1,8 @@
 """`python -m r3x telepresence`: compose the call from the existing owners, with no models.
 
 Startup: the live lease and the controller handoff (the menu apps and supervisor step aside, and a
-running Rex is never taken over), then the speaker, lights, servo wake, radar, wheels (no back-off
-reflex), microphone, camera (frames only), video and the listener. The visor opens, the arms take
+running Rex is never taken over), then the speaker, lights, servo wake, wheels (no back-off reflex
+and no radar), microphone, camera (frames only), video and the listener. The visor opens, the arms take
 the telepresence stance and the telepresence lights come on, with no sound. The caller then aims the
 head, lift and visor and drives (controls.py). No startup sounds, spoken lines, recognition,
 replies, memory, idle motion or motion of his own. Shutdown stops the wheels, parks the servos and
@@ -50,7 +50,7 @@ def compose(settings, secrets):
     from .speaker import LiveSpeaker
     speaker = LiveSpeaker(settings.output_device_name)
     mic = Microphone(settings, lambda: False)
-    leds = robot = camera = video = drive = radar = None
+    leds = robot = camera = video = drive = None
     if settings.led_port:
         from ..leds import LEDs
         leds = LEDs(settings.led_port)
@@ -58,10 +58,11 @@ def compose(settings, secrets):
         from ..robot_servos import RobotServos
         robot = RobotServos(settings.servo_port)
     if settings.drive_port:
-        # The caller drives (stage 5); he never moves on his own, so the back-off reflex is off.
-        from ..drive import DriveBase, Radar
-        radar = Radar(settings.radar_port) if settings.radar_port else None
-        drive = DriveBase(settings.drive_port, radar=radar, reflex=False)
+        # The caller drives (stage 5); he never moves on his own, so the back-off reflex is off. The radar
+        # ring only tells Rex where people are to look at and seek (owner, November 16: no point for a
+        # robot driven by hand), so it is never opened and an unplugged one changes nothing.
+        from ..drive import DriveBase
+        drive = DriveBase(settings.drive_port, reflex=False)
     if settings.camera_enabled:
         from ..adapters.camera import Camera
         camera = Camera(settings.camera_device_name, None, width=settings.camera_width, height=settings.camera_height,
@@ -82,8 +83,8 @@ def compose(settings, secrets):
         if robot:
             robot.before_shutdown = leds.cancel   # The fade runs with the park, as at Rex's own shutdown.
     # Closed in reverse: the listener and media first, then the wheels, then the servos park.
-    providers = tuple(p for p in (speaker, leds, robot, radar, drive, mic, camera, video, server) if p is not None)
-    return providers, {'speaker': speaker, 'mic': mic, 'leds': leds, 'robot': robot, 'radar': radar,
+    providers = tuple(p for p in (speaker, leds, robot, drive, mic, camera, video, server) if p is not None)
+    return providers, {'speaker': speaker, 'mic': mic, 'leds': leds, 'robot': robot,
                        'drive': drive, 'camera': camera, 'video': video, 'server': server}
 
 
@@ -170,8 +171,8 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
         record_ending(paths.root, {'reason': 'rex_awake', 'code': 1})
         raise
     handoff = handoff or ControllerHandoff(HardwareLocks(), port=settings.servo_port or None,
-        led_ports={zone: port for zone, port in (('leds', settings.led_port), ('drive_base', settings.drive_port),
-                                                 ('radar', settings.radar_port)) if port})
+        led_ports={zone: port for zone, port in (('leds', settings.led_port), ('drive_base', settings.drive_port))
+                   if port})
     try:
         handoff.acquire(Cancellation())
     except BaseException as exc:
@@ -243,7 +244,7 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
 def call_controls(parts, active, clock=None):
     """The caller's head and wheel controls for the parts that started; none for parts that did not."""
     from .controls import DriveControl, HeadControl, base_readings
-    robot, drive, radar = parts.get('robot'), parts.get('drive'), parts.get('radar')
+    robot, drive = parts.get('robot'), parts.get('drive')
     stance = robot is not None and 'robot_servos' in active and robot.telepresent
     head = HeadControl(robot) if stance else None
     wheels = None
@@ -251,6 +252,5 @@ def call_controls(parts, active, clock=None):
     # servo board configured there are no arms to tuck and the spin check uses their untucked reach.
     if drive is not None and 'drive_base' in active and (robot is None or stance):
         wheels = DriveControl(drive, head=head, stance_held=stance, **({'clock': clock} if clock else {}))
-    live_radar = radar if radar is not None and 'radar' in active else None
-    base = (lambda now: base_readings(drive, live_radar, now)) if drive is not None and 'drive_base' in active else None
+    base = (lambda now: base_readings(drive, now)) if drive is not None and 'drive_base' in active else None
     return {'head': head, 'drive': wheels, 'base': base}
