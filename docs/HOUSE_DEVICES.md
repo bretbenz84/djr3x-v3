@@ -5,8 +5,8 @@ Homebridge... I should be able to ask questions about the state of things, or gi
 update things."
 
 **Status, November 17:** built and checked with a fake Homebridge. Against the real Homebridge: Rex's own
-non-admin account logs in and reads the thermostat through the tool's own check. It has never changed a
-device, so whether the non-admin account may write is not yet shown. Not yet tried in a conversation.
+non-admin account logs in, reads the thermostat, and switched the Kitchen Light on and off at the owner's
+request. Not yet tried in a conversation; the thermostat has never been changed by this code.
 
 ## What Rex does
 
@@ -97,14 +97,18 @@ for outdoors.
   the thermostat in about 30 ms (69.1 °F, set to 66 °F, mode off, idle), and an unlisted "Porch Light"
   was refused before any write. The planned writes were computed and not sent: "heat to 68" would write
   heat mode and 20.0 °C; auto, 120 °F and dimming are refused before writing.
-- **Not done:** no device has been changed by this code (the owner asked that nothing be switched that
-  night), so whether the non-admin account may write is not yet shown. Not yet used in a conversation;
+- **Real Homebridge, first change (owner's request, November 17 morning):** the Kitchen Light (a
+  switch: on and off only) through `House.run`, non-admin account. Dimming it was refused before
+  anything was sent; `turn_on` was accepted in 190 ms and read back on; `turn_off` was accepted in
+  250 ms and read back off, as it was found. Homebridge's readings matched each time; whether the
+  lamp itself lit was for the owner to see.
+- **Not done:** the thermostat has never been changed by this code. Not yet used in a conversation;
   reply latency and model cost not measured.
 
 ## Open
 
-- The first live change (it also shows whether the non-admin account may write), with the owner present, and a conversation test: a question, a light, the
-  thermostat (`set_temperature` and `heat` with a value), something it cannot do, and an unlisted name.
+- A conversation test with the owner present: a question, the Kitchen Light, the thermostat
+  (`set_temperature` and `heat` with a value), something it cannot do, and an unlisted name.
 - Hue, Kasa and Tuya devices once they are exposed; check that their names read naturally.
 - Fan speed and blinds positions are not actions yet.
 - A request whose reply was dropped and is answered later in a lull (an owed answer) gets no house

@@ -152,8 +152,8 @@ is a separately maintained reference. V3 never imports it or reads its data.
   request switches, dims and colors lights and plugs and sets the thermostat's temperature and mode. His line
   about a change is said only after Homebridge accepted it. Locks, garage doors and alarms are check-only;
   nothing changes on his own initiative. He uses his own non-admin Homebridge account and refuses an admin
-  one. Checked against a fake Homebridge; on the real one his own non-admin account logs in and reads the
-  thermostat, and no device has been changed yet ([details](docs/HOUSE_DEVICES.md)).
+  one. Checked against a fake Homebridge; on the real one his own non-admin account reads the thermostat
+  and switched the Kitchen Light on and off; not yet tried in a conversation ([details](docs/HOUSE_DEVICES.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080. A look someone asks for ("look left and see if you see it") turns
   the head there first and holds it while he answers, even when they speak (October 23); about 20 s

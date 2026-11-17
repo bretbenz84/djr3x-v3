@@ -24,9 +24,10 @@ state of things, or give commands for him to update things".
   session; the full blocked-I/O suite (1,985) passed in three of four runs, and the fourth had one uncaptured failure. Real Homebridge, reads only: the admin account was
   refused; on November 17 Rex's own non-admin account logged in, was offered only the thermostat, and
   read it through the tool's own check (about 30 ms); an unlisted name was refused before any write.
-- **Open:** the first live change with the owner present (and whether the non-admin account may
-  write); a conversation test; Hue, Kasa and Tuya devices once Homebridge exposes them.
-  [Details](HOUSE_DEVICES.md).
+  At the owner's request the account then switched the Kitchen Light on and off (accepted in about
+  0.2 s, read back each time, left as found).
+- **Open:** a conversation test; the first thermostat change with the owner present; more Hue, Kasa
+  and Tuya devices once Homebridge exposes them. [Details](HOUSE_DEVICES.md).
 
 ## LED data lines through a level shifter — November 17
 
