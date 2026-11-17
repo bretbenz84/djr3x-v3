@@ -129,6 +129,7 @@ class CoreState:
         self.observations = None
         self.weather = None          # weather.Weather: on-request lookups.
         self.systems_status = None   # Callable: battery and room readings (systems.report).
+        self.house = None            # house.House: Homebridge devices, checked and changed on request.
         self.scene_observer = None
         self.objects = None
         self.places = None
@@ -1068,6 +1069,18 @@ class CoreState:
             validate(call.name,call.arguments)
             if self.frozen and call.name not in {"recall","recall_conversations","personal_history","news_today","weather","calendar","systems_status","ask_question","ask_face_question","settle_question","remain_silent"}:
                 raise ValueError("FrozenEvaluationDisallowsMutation")
+            if call.name == 'house_devices':
+                # The house, not the store (owner, November 17): nothing is saved here, and a change counts
+                # only once Homebridge accepted it. Its line is spoken after this result, never before.
+                cancel.check()
+                if self.house is None:
+                    raise ValueError('HouseDevicesUnavailable')
+                args = call.arguments
+                outcome, reason, data = self.house.run(args['action'], args['devices'], args.get('value'),
+                                                       args.get('color'), cancel)
+                result = ToolResult(request_id, outcome, reason, revision, data)
+                self.trace.emit('tool_result', name=call.name, **asdict(result))
+                return result
             if call.name == 'respond_with_intent':
                 cancel.check()
                 if revision != expected_revision:raise ValueError('StaleStateRevision')

@@ -69,6 +69,11 @@ class App:
         scene = SceneObserver(camera) if camera and self.settings.scene_observations_enabled else None
         from .weather import Weather
         weather = Weather(self.settings) if self.settings.weather_enabled else None
+        house = None
+        if self.settings.homebridge_url:
+            # The house's devices through Homebridge (owner, November 17), with Rex's own non-admin account.
+            from .house import House
+            house = House(self.settings, secrets.homebridge_username, secrets.homebridge_password)
         from .objects import Objects
         from .adapters.objects import ObjectDetector
         objects = Objects(camera,ObjectDetector(self.paths.root / 'models/objects/rfdetr-nano.onnx'),scene=scene) if camera and self.settings.object_memory_enabled else None
@@ -112,7 +117,7 @@ class App:
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,expressions,public,weather,scene,inspection,direction,objects,places,locator,agency_planner,self.cloner,keywords,turn,voice_check,room_sounds) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,expressions,public,weather,house,scene,inspection,direction,objects,places,locator,agency_planner,self.cloner,keywords,turn,voice_check,room_sounds) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -255,11 +260,12 @@ class App:
         camera = next((p for p in optional if p.capability.name=='camera'),None)
         public = next((p for p in optional if p.capability.name=='public_observations'),None)
         weather = next((p for p in optional if p.capability.name=='weather_lookup'),None)
+        house = next((p for p in optional if p.capability.name=='house_devices'),None)
         scene = next((p for p in optional if p.capability.name=='scene_observations'),None)
         objects = next((p for p in optional if p.capability.name=='objects'),None)
         places = next((p for p in optional if p.capability.name=='places'),None)
         room_sounds = next((p for p in optional if p.capability.name=='room_sounds'),None)
-        for provider in (public,scene,objects,places,room_sounds):
+        for provider in (public,house,scene,objects,places,room_sounds):
             if provider:provider.trace=trace
         if camera:
             camera.trace = trace
@@ -412,6 +418,7 @@ class App:
                 if self.robot:
                     self.robot.talking.flair = pride
                 state.weather = weather if weather and 'weather_lookup' in active else None
+                state.house = house if house and 'house_devices' in active else None
                 if self.drive:
                     from .systems import report
                     offset = self.settings.room_temperature_offset_f

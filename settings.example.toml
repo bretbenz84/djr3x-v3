@@ -169,6 +169,16 @@ telepresence_listen = ""
 telepresence_allowed_networks = []
 # telepresence_allowed_networks = ["10.8.0.0/24"]
 
+# House devices (owner, November 17; docs/HOUSE_DEVICES.md): the Homebridge UI server on the home network.
+# Rex checks and changes its lights, plugs and thermostat when a person asks. Scheme, host and port only;
+# empty turns it off. Rex's own non-admin Homebridge account goes in secrets.toml (homebridge_username,
+# homebridge_password); an admin account is refused. Check it with `python -m r3x house` (reads only).
+homebridge_url = ""
+# homebridge_url = "http://192.168.1.211:8581"
+# Device names (as Homebridge lists them) Rex neither sees nor touches.
+homebridge_hidden_devices = []
+# homebridge_hidden_devices = ["Outside Temperature"]
+
 # Spelling fixes for names the recognizer gets wrong (owner, October 26). Each whole word, in any
 # case, is replaced in every transcript before Rex reads it; the session log keeps what was heard.
 # Spelling only: never who spoke or who is meant. At most 32. Keep this table last in the file.

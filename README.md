@@ -147,6 +147,13 @@ is a separately maintained reference. V3 never imports it or reads its data.
   - Someone he knows by face or voice stands him down. When the time runs out he shuts down.
   - Run on the robot and working as intended (owner, November 16;
     [details and phone setup](docs/SENTRY_MODE.md)).
+- **House devices (November 17).** Through Homebridge on the home network, Rex answers questions about the
+  house's devices ("what's the thermostat set to?", "is the porch light on?") from a fresh reading, and on
+  request switches, dims and colors lights and plugs and sets the thermostat's temperature and mode. His line
+  about a change is said only after Homebridge accepted it. Locks, garage doors and alarms are check-only;
+  nothing changes on his own initiative. He uses his own non-admin Homebridge account and refuses an admin
+  one. Checked against a fake Homebridge; on the real one only the login and the admin refusal so far, and
+  no device changed yet ([details](docs/HOUSE_DEVICES.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080. A look someone asks for ("look left and see if you see it") turns
   the head there first and holds it while he answers, even when they speak (October 23); about 20 s
@@ -228,6 +235,8 @@ and menus step aside automatically):
 - `--record-evaluation` also keeps endpointed WAVs for human labeling.
 - `python -m r3x doctor` checks dependencies, model files and credentials without
   opening devices.
+- `python -m r3x house` logs in to Homebridge and lists the house devices Rex would be offered,
+  with what each reads now. It changes nothing.
 
 **Always-on services.** The robot's LaunchAgents run V3's copies of V2's wake supervisor
 and servo/LED/battery menu-bar apps (`operator_tools/`). Say **"wake up rex"** to start
@@ -314,6 +323,7 @@ models on its own.
 | [Servo integration](docs/SERVO_INTEGRATION.md) | Choreography, talking and idle motion, poses, microphone hold. |
 | [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |
 | [Jeopardy](docs/JEOPARDY.md) | The game: rules, judging, the clock, sounds, the dashboard board, checks. |
+| [House devices](docs/HOUSE_DEVICES.md) | Homebridge lights, plugs and thermostat: questions and commands, the account, setup, evidence. |
 | [Sentry mode](docs/SENTRY_MODE.md) | Guarding a room alone: what trips and stands him down, recordings, phone alerts and their setup. |
 | [Room recognition](docs/ROOM_RECOGNITION.md) | Which room, asking and learning rooms, connections, exploring, the V2 import. |
 | [Voice encoder trial](docs/VOICE_ENCODER_TRIAL.md) | ERes2NetV2 against CAM++ for voice ID: the live test, how to run it, offline results. |

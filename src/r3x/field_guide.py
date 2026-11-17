@@ -153,6 +153,10 @@ GUIDE = {
                'personal_memory\'s person are listed only there (interests_and_facts, same ids). status candidate: '
                'told while the voice was not confirmed (usually your own motor noise); they are still what this '
                'person told you, so use them with them like any other fact, but never as news to anyone else.'),
+    'house': ('The house\'s smart devices through Homebridge, for house_devices: devices maps each name (use it exactly) '
+              'to its kind and the changes it takes; every device can be checked. Only what a person asks for, never '
+              'on your own. States are not listed: check before saying whether something is on or what it reads. '
+              'unavailable says why you cannot reach the house right now; say so plainly instead of pretending.'),
 }
 
 # Every guide text, for stripping from a request by value.

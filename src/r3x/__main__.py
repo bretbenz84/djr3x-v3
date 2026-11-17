@@ -34,7 +34,7 @@ def main() -> int:
             return 1
     parser = argparse.ArgumentParser(description="DJ-R3X voice-core experiment")
     parser.add_argument("command", choices=("doctor", "boot", "live", "scenario", "report", "replay", "push-setup", "push-test",
-                                            "telepresence", "telepresence-setup"))
+                                            "telepresence", "telepresence-setup", "house"))
     parser.add_argument("artifact", nargs="?", type=Path)
     parser.add_argument("--profile", choices=("dev-mac",), default=None)
     parser.add_argument("--config", type=Path, help="Explicit TOML settings file")
@@ -127,6 +127,15 @@ def main() -> int:
                                       priority="default", tags="robot")
             print(json.dumps(result))
             return 0 if result["outcome"] == "sent" else 1
+        if args.command == "house":
+            # House devices through Homebridge (docs/HOUSE_DEVICES.md): log in and list what Rex would be
+            # offered with what each reads now. Reads only; nothing in the house changes.
+            from .house import check_setup
+            from .settings import ScratchPaths, Secrets
+            secrets = Secrets.load(ScratchPaths.for_project(project).root)
+            result = check_setup(settings, secrets.homebridge_username, secrets.homebridge_password)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return 0 if result["outcome"] == "ok" else 1
         app = App(settings, project)
         if args.command == "doctor":
             app.configure_live()

@@ -73,6 +73,11 @@ class Settings:
     # from (the home WireGuard subnet, and the house's own for calls from home). Empty turns the mode off.
     telepresence_listen: str = ""
     telepresence_allowed_networks: tuple[str, ...] = ()
+    # House devices (owner, November 17; docs/HOUSE_DEVICES.md): the Homebridge UI server on the home network,
+    # "http://192.168.1.211:8581". Empty turns house control off. Rex's own non-admin account is in secrets.
+    homebridge_url: str = ""
+    # Homebridge device names Rex neither sees nor touches (a sensor that reads wrong, a room left alone).
+    homebridge_hidden_devices: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.agency_planner_model not in {"gpt-6-terra", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-terra"}:
@@ -130,6 +135,24 @@ class Settings:
             parse_listen(self.telepresence_listen)
             if not self.telepresence_allowed_networks:
                 raise ValueError('TelepresenceNeedsAllowedNetworks')
+        if not isinstance(self.homebridge_url, str):
+            raise ValueError('homebridge_url must be text')
+        if self.homebridge_url:
+            from urllib.parse import urlsplit
+            try:
+                parts = urlsplit(self.homebridge_url)
+                port = parts.port
+            except ValueError:
+                raise ValueError('InvalidHomebridgeUrl') from None
+            if (parts.scheme not in {'http', 'https'} or not parts.hostname or parts.username or parts.password
+                    or parts.path not in {'', '/'} or parts.query or parts.fragment or port == 0
+                    or any(c.isspace() for c in self.homebridge_url)):
+                raise ValueError('InvalidHomebridgeUrl')   # Scheme, host and port only: http://192.168.1.211:8581
+        hidden = self.homebridge_hidden_devices
+        if (not isinstance(hidden, (list, tuple)) or len(hidden) > 64
+                or not all(isinstance(n, str) and 0 < len(n.strip()) <= 120 for n in hidden)):
+            raise ValueError('InvalidHomebridgeHiddenDevices')
+        object.__setattr__(self, 'homebridge_hidden_devices', tuple(hidden))
         if self.camera_enabled and not self.camera_device_name.strip():
             raise ValueError("Enabled camera requires a device name")
         for name, lower, upper in (("camera_width", 320, 1920), ("camera_height", 240, 1080)):
@@ -166,8 +189,13 @@ class Secrets:
     # Telepresence (owner, November 16): the token a client proves it holds. Made by `python -m r3x
     # telepresence-setup`; the client's Mac keeps the same line. Needed only by the telepresence program.
     telepresence_token: str = field(default="", repr=False)
+    # House devices through Homebridge (owner, November 17): Rex's own non-admin Homebridge UI account.
+    # Needed only when settings.homebridge_url is set.
+    homebridge_username: str = field(default="", repr=False)
+    homebridge_password: str = field(default="", repr=False)
 
-    OPTIONAL = frozenset({"ntfy_topic", "anthropic_api_key", "telepresence_token"})   # openai_api_key: app readiness decides.
+    OPTIONAL = frozenset({"ntfy_topic", "anthropic_api_key", "telepresence_token",
+                          "homebridge_username", "homebridge_password"})   # openai_api_key: app readiness decides.
 
     @classmethod
     def load(cls, root: Path) -> "Secrets":

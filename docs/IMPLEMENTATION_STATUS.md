@@ -6,6 +6,27 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## House devices through Homebridge — November 17
+
+Owner request: "an LLM tool-call to control stuff in my house using Homebridge"; "ask questions about the
+state of things, or give commands for him to update things".
+
+- **Built:** one `house_devices` tool (`src/r3x/house.py`). It checks devices fresh, switches, dims and
+  colors lights and plugs, and sets the thermostat's target (°F) and mode ("set the heat to 68" is one
+  call). The line about a change is said only after Homebridge accepted it, and a failure goes back to
+  the model. It is offered on people's turns only. Locks, garage doors, doors, windows, blinds and alarms
+  are check-only. Rex logs in with his own non-admin account (`homebridge_username` and
+  `homebridge_password` in secrets) and refuses an admin token. `python -m r3x house` is a read-only
+  check of the setup.
+- **Settings:** `homebridge_url` (set on the robot), `homebridge_hidden_devices` (the robot hides
+  "Outside Temperature", which homebridge-tcc reports as 53.3 °C, most likely Fahrenheit).
+- **Evidence:** 23 checks against a fake Homebridge, including whole turns through the production
+  session; the full blocked-I/O suite (1,985) passed in three of four runs, and the fourth had one uncaptured failure. Real Homebridge, reads only: the login works and
+  the saved account is refused as an admin; the parser, run on the real device list, offers only the
+  thermostat.
+- **Open:** a non-admin account for Rex; the first live change with the owner present; a conversation
+  test; Hue, Kasa and Tuya devices once Homebridge exposes them. [Details](HOUSE_DEVICES.md).
+
 ## LED data lines through a level shifter — November 17
 
 Hardware only. A 74AHCT125N now raises the LED board's 3.3 V head and chest data to 5 V; the owner

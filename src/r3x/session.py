@@ -1559,6 +1559,10 @@ class Session:
                     context['weather_available'] = True
                 if not opportunity and getattr(self.state, 'systems_status', None) is not None:
                     context['systems_status_available'] = True
+                if not opportunity and getattr(self.state, 'house', None) is not None:
+                    house = self.state.house.offer()   # The house's devices: a person's turns only.
+                    if house:
+                        context['house'] = house
                 if not opportunity and self.sentry is not None and not self.sentry.active:
                     context['sentry_available'] = True
             if self.state:

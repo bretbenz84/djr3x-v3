@@ -125,6 +125,29 @@ TOOLS = (
             "timezone":NULL_TEXT}),
     # October 21 owner request: battery, charger and the room's temperature and humidity, read live.
     schema("systems_status", "Read your own live body readings from the drive controller: battery percent, volts, amps and watts, whether you are plugged in and charging, controller state and tilt, and the temperature, humidity and air pressure in the room you are in (from the climate sensor inside you, corrected for your own heat). Use it whenever someone asks about your battery, power, charge, voltage, current draw or being plugged in, or how warm, cold or humid it is in here. Answer from the values; say plainly when one is null or the controller is not connected.", {}),
+    # November 17 owner request: the house's lights, plugs and thermostat through Homebridge.
+    schema("house_devices", "Check or change the house's smart devices (lights, plugs, switches, fans, the thermostat) "
+           "listed in house.devices. Use it whenever someone asks what one is doing (is the porch light on, what the "
+           "thermostat is set to, how warm the house is by the thermostat, what is on) or asks you to switch, dim, "
+           "color or set one. Only for a person's request, never on your own initiative. devices: names exactly as "
+           "listed, one or more (\"all the lights\" is every light listed); a device not listed is not yours to "
+           "reach, so say so instead of choosing a different one. When the request could mean several devices and "
+           "they did not say which, ask. action: check reads them fresh (text null, and answer from what it reads); "
+           "turn_on and turn_off switch them (turn_off on a thermostat turns its heating and cooling off; to turn a "
+           "thermostat on, use heat or cool); set_brightness takes value 1-100 percent and turns the light on "
+           "(dimming to nothing is turn_off); set_color takes color and turns the light on; set_temperature takes "
+           "value in degrees Fahrenheit as the thermostat's target and leaves its mode as it is; heat, cool and auto "
+           "set a thermostat's mode, and with value also its target (\"set the heat to 68\" is heat with 68; "
+           "\"make it 70 in here\" is set_temperature 70). value and color are null when the action does not use "
+           "them. Do only what they asked: never switch the heating or cooling on unasked. A house "
+           "device you cannot reach or that cannot do it comes back to you with why; never say something changed, "
+           "or what it reads, before this result. say_first never claims the change happened.",
+           {"action":{"type":"string","enum":["check","turn_on","turn_off","set_brightness","set_color",
+                                              "set_temperature","heat","cool","auto"]},
+            "devices":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":24},
+            "value":{"type":["number","null"]},
+            "color":{"type":["string","null"],"enum":["red","orange","yellow","green","teal","blue","purple","pink",
+                                                       "white","warm_white","cool_white",None]}}),
     schema("personal_history", "Look up your own past before talking about it: your Star Tours piloting days, the Endor Express, R2-D2 and the crew, how you lost the job, Batuu and your DJ career at Oga's Cantina, and the real ride as park goers know it. Use it whenever someone asks about your history or flights, quizzes you on Star Tours, or gets nostalgic about the ride, instead of guessing or calling your past fictional. Sections: " + "; ".join(name+" ("+text+")" for name,text in HISTORY_SUMMARIES.items()) + ". One section per call. The result is your own memory to tell in your voice; it is not a fact about anyone here and nothing is saved.",
            {"section":{"type":"string","enum":list(HISTORY_SUMMARIES)}}),
     schema("remember_episode", "Optionally retain a concise shared-experience summary or unfinished topic from ONE retrieved exchange. Use its exact id as source_exchange_id. This is a fallible interpretation, not a personal fact. Preserve corrections and uncertainty; never invent experiences, intentions, emotions or completed actions. No mandatory summary call on ordinary turns. Source text remains attached. Save personal facts with record_claim instead.",
@@ -369,7 +392,7 @@ TOOLS += (schema('revise_agency_plan',
 # while a second model call ran. These tools carry a short lead-in, said at once (it streams as
 # the call is written), then the answer follows from the result.
 LEAD_IN_TOOLS = frozenset({'inspect_view', 'inspect_visual_memory', 'recall_conversations', 'personal_history', 'news_today',
-                           'weather', 'calendar', 'systems_status'})
+                           'weather', 'calendar', 'systems_status', 'house_devices'})
 # October 16: the lead-in was optional and left out on every look (4 of 4) and recall (1 of 1) in the
 # October 14-15 runs, which kept those replies at 6-10 s. It is now always written.
 LEAD_IN = {'type': 'string', 'description': 'A few words said aloud right away while you look or check, '
@@ -390,7 +413,7 @@ for _definition in TOOLS:
 INITIATIVE_TOOLS = frozenset({'stop_chiming_in', 'resume_chiming_in'})
 SPOKEN_RESULT_TOOLS = frozenset({'remember_followup', 'remember_interest', 'record_claim', 'correct_claim',
                                  'retract_claim', 'settle_question', 'name_room', 'correct_room', 'note_bit',
-                                 'voice_mode', 'callout'})
+                                 'voice_mode', 'callout', 'house_devices'})
 # Owner, October 25 (a0afcf85): "He often refuses to save memories and tells me so... never talk about
 # failing to save it." Two refused facts became "I couldn't save that detail" in the continuation.
 MEMORY_SAVES = frozenset({'record_claim', 'remember_interest', 'remember_followup', 'edit_object_memory', 'callout',
@@ -573,6 +596,8 @@ def grounded_tools(context):
         if name=='news_today' and not context.get('news_available'):continue
         if name=='weather' and not context.get('weather_available'):continue
         if name=='systems_status' and not context.get('systems_status_available'):continue
+        # Offered with the devices Homebridge lists, on a person's turn only (the context has it on no other).
+        if name=='house_devices' and (context.get('trigger') or not (context.get('house') or {}).get('devices')):continue
         if name=='calendar' and context.get('trigger'):continue   # Answers a person; not a lull activity.
         participation = context.get('participation', {})
         if name=='stop_chiming_in' and (participation.get('silent_until_released') or context.get('initiative_changed')):continue
@@ -813,6 +838,9 @@ def validate(name, args):
             if type(value) is not bool:raise ValueError('InvalidRulingFlag')
         elif name in {'jeopardy_pick','jeopardy_wager'} and key in {'value','amount'}:
             if type(value) is not int or not 0 <= value <= 1_000_000:raise ValueError('InvalidJeopardyAmount')
+        elif name=='house_devices' and key=='value':
+            import math
+            if type(value) not in (int,float) or not math.isfinite(value):raise ValueError('InvalidHouseValue')
         elif name=='remember_followup' and key=='due_in_minutes':
             if type(value) is not int:raise ValueError('InvalidFollowupDueMinutes')   # Range: resolve_due.
         elif name=='revise_visual' and key=='revisions':
