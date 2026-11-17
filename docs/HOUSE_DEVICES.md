@@ -23,7 +23,8 @@ request. Not yet tried in a conversation; the thermostat has never been changed 
 - **Never opened by voice.** Locks, garage doors, doors, windows, blinds and alarm systems can be checked
   ("is the front door locked?"), never changed. A voice in the room or on the TV must not open the house.
 - **No reach, no pretending.** If Homebridge refuses his login, is not answering or lists nothing he can
-  use, his context says so and he tells the person plainly instead of acting as if it worked.
+  use, his context says so. Asked anyway, he tries the house again then; if it still fails, the result
+  says why and he tells the person instead of acting as if it worked.
 
 Anyone talking to him can use it, as with Alexa. Temperatures are limited only by the thermostat's own
 range (40–99 °F for the Honeywell).
@@ -112,11 +113,20 @@ for outdoors.
   light?" Homebridge was unreachable because macOS had not yet let Python onto the home network, so
   the tool was not offered and nothing changed, as designed. But Rex spoke his reasoning before the
   reply ("House devices aren't reachable (Homebridge is not answering), and house_devices isn't among
-  this turn's tools, so I'll say so plainly."), echoing the field guide's "say so plainly". Repaired the
-  same day: the field guide's house note no longer tells him what to say, Claude's house rule says
-  what to tell people when the house is unreachable and that a reply is only what he says aloud, and an
-  unanswered Homebridge is retried after 30 s instead of five minutes. Checked with the blocked-I/O
-  suite only (house checks and changed areas, 449); the new wording has not been tried on Claude.
+  this turn's tools, so I'll say so plainly."), echoing the field guide's "say so plainly".
+- **Repair, same day.** A first repair only reworded the notes (what to tell people, and that a reply is
+  only what he says aloud); on Claude it still spoke its reasoning (1 of 1: "The house tool isn't
+  available this turn ... Before anything else, I'll answer plainly in my own voice."). The cause was
+  structural: the rule says to use the tool and the turn withheld it. Now the tool stays offered while
+  the house is out of reach, a call tries Homebridge again on the spot (so a house that just came back
+  works at once), an unanswered Homebridge is also retried in the background after 30 s instead of
+  five minutes, and the result says why when it still fails. Paid probe on Claude Sonnet through the
+  production session (`local/validation/house-unreachable/`, temporary database, synthetic audio, a
+  Homebridge that never answers, "Hey Rex, can you turn on the kitchen light?"): 8 of 8 tries called
+  the tool, said a short lead-in ("On it."), then a reply in character that the house is not answering;
+  none spoke reasoning or mentioned tools. Four of the eight said the light "stays off", which he
+  could not know. About $0.75 of credit for both rounds, estimated from token counts. Not yet tried
+  live; first-audio time not measured (the lead-in streams from the first call).
 - **Not done:** the thermostat has never been changed by this code. Not yet used in a conversation;
   reply latency and model cost not measured.
 

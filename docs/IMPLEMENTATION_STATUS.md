@@ -26,8 +26,9 @@ state of things, or give commands for him to update things".
   read it through the tool's own check (about 30 ms); an unlisted name was refused before any write.
   At the owner's request the account then switched the Kitchen Light on and off (accepted in about
   0.2 s, read back each time, left as found). The first conversation found Homebridge unreachable
-  (macOS had not yet let Python onto the home network) and Rex spoke his reasoning aloud; the wording
-  and a 30 s retry after no answer were repaired the same day, checked without the live model.
+  (macOS had not yet let Python onto the home network) and Rex spoke his reasoning aloud. Repaired the
+  same day: the tool stays offered while the house is out of reach and a call tries it again, with a
+  30 s background retry; a paid Claude probe had no spoken reasoning in 8 of 8 tries.
 - **Open:** a conversation test; the first thermostat change with the owner present; more Hue, Kasa
   and Tuya devices once Homebridge exposes them. [Details](HOUSE_DEVICES.md).
 

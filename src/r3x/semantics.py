@@ -597,7 +597,7 @@ def grounded_tools(context):
         if name=='weather' and not context.get('weather_available'):continue
         if name=='systems_status' and not context.get('systems_status_available'):continue
         # Offered with the devices Homebridge lists, on a person's turn only (the context has it on no other).
-        if name=='house_devices' and (context.get('trigger') or not (context.get('house') or {}).get('devices')):continue
+        if name=='house_devices' and (context.get('trigger') or not context.get('house')):continue
         if name=='calendar' and context.get('trigger'):continue   # Answers a person; not a lull activity.
         participation = context.get('participation', {})
         if name=='stop_chiming_in' and (participation.get('silent_until_released') or context.get('initiative_changed')):continue

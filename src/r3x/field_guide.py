@@ -156,8 +156,8 @@ GUIDE = {
     'house': ('The house\'s smart devices through Homebridge, for house_devices: devices maps each name (use it exactly) '
               'to its kind and the changes it takes; every device can be checked. Only what a person asks for, never '
               'on your own. States are not listed: check before saying whether something is on or what it reads. '
-              'unavailable, in place of devices, means the house cannot be reached right now and says why; nothing '
-              'about the house can be checked or changed then.'),
+              'unavailable, in place of devices, says why the house could not be reached at the last try; '
+              'house_devices tries it again.'),
 }
 
 # Every guide text, for stripping from a request by value.

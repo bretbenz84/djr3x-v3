@@ -159,7 +159,7 @@ class AccountTests(unittest.TestCase):
         offer = house.offer()
         self.assertNotIn('devices', offer)
         self.assertIn('admin', offer['unavailable'])
-        self.assertEqual(house.run('turn_off', ['Kitchen Light'])[:2], ('rejected', 'UnknownDevice'))
+        self.assertEqual(house.run('turn_off', ['Kitchen Light'])[:2], ('failed', 'HomebridgeAccountIsAdmin'))
         self.assertEqual(fake.writes, [])
         result = check_setup(Settings(homebridge_url=URL), 'rex', 'hunter2', transport=httpx.MockTransport(fake))
         self.assertEqual((result['outcome'], result['reason']), ('failed', 'HomebridgeAccountIsAdmin'))
@@ -176,6 +176,20 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(house.run('check', ['THERMOSTAT']), ('failed', 'HomebridgeUnreachable', {}))
         house.refresh()
         self.assertIn('devices', house.offer())   # The last good list stays; a change would report the failure.
+
+    def test_a_request_while_the_house_was_out_of_reach_tries_it_again_then(self):
+        fake = FakeHomebridge()
+        fake.down = True
+        house = started(fake)
+        self.addCleanup(house.close)
+        self.assertIn('not answering', house.offer()['unavailable'])
+        self.assertEqual(house.run('turn_on', ['Lamp']),
+                         ('failed', 'HomebridgeUnreachable', {'unavailable': 'Homebridge is not answering'}))
+        fake.down = False   # The owner allowed Python onto the home network.
+        outcome, reason, data = house.run('turn_on', ['Lamp'])
+        self.assertEqual((outcome, reason), ('ok', 'executed'))
+        self.assertEqual(fake.writes, [('lamp', 'On', True)])
+        self.assertIn('devices', house.offer())
 
     def test_a_homebridge_that_answers_again_is_used_within_the_retry_not_the_five_minute_refresh(self):
         # November 17 live run: macOS held Python off the home network until the owner allowed it; Rex would
@@ -361,14 +375,16 @@ class ConversationTests(MemoryFixture):
         self.assertEqual(result.completed_text, ['Checking.', 'About 67, and the heat is off.'])
         self.assertEqual(self.fake.writes, [])
 
-    def test_offered_only_on_a_persons_turn_with_devices_listed(self):
+    def test_offered_only_on_a_persons_turn_and_also_while_the_house_is_out_of_reach(self):
         house = self.state.house.offer()
         self.begin('Hello there.')
         base = self.state.context()
         names = lambda extra: {d['name'] for d in grounded_tools({**base, **extra})}
         self.assertIn('house_devices', names({'house': house}))
         self.assertNotIn('house_devices', names({}))
-        self.assertNotIn('house_devices', names({'house': {'unavailable': 'Homebridge is not answering'}}))
+        # November 17: withheld while Homebridge was unreachable, the tool's absence made Claude explain
+        # aloud why it could not call it. Offered, a call tries the house again.
+        self.assertIn('house_devices', names({'house': {'unavailable': 'Homebridge is not answering'}}))
         for trigger in ('conversation_lull', 'ambient', 'visual_arrival', 'reconsideration'):
             self.assertNotIn('house_devices', names({'house': house, 'trigger': trigger}))
 

@@ -469,12 +469,21 @@ class House:
             return 'failed', str(exc), {}
 
     def _run_call(self, action, names, value, color, cancel):
-        with self.lock:
-            devices = self.devices or {}
-        names = list(dict.fromkeys(names))
-        unknown = [n for n in names if n not in devices]
         if action not in ACTIONS:
             return 'rejected', 'UnknownHouseAction', {}
+        with self.lock:
+            devices = self.devices
+        if not devices:
+            # The house was out of reach at the last try (November 17: macOS had not yet let Python onto the
+            # home network). A person is asking now, so try again now rather than at the next refresh.
+            self.refresh()
+            with self.lock:
+                devices, status = self.devices, self.status
+            if not devices:
+                status = status or 'NoHouseDevices'
+                return 'failed', status, {'unavailable': UNAVAILABLE.get(status, 'Homebridge is not working right now')}
+        names = list(dict.fromkeys(names))
+        unknown = [n for n in names if n not in devices]
         if not names or unknown:
             self.wake.set()   # Perhaps added since the last refresh.
             return 'rejected', 'UnknownDevice', {'unknown': unknown, 'devices': sorted(devices)}
