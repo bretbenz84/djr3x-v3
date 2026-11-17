@@ -64,6 +64,7 @@ class ServoRequest:
     side: int = 1                 # Listening cock: -1 Rex's left, 1 his right.
     travel_seconds: float = 0.    # Sentry head moves: the curve's length (0: timed by its size).
     look: bool = False            # Operator head moves at a person's look pace (telepresence aiming).
+    arms_home: bool = False       # Park/shutdown: the poker arm's swing comes home too (a telepresence call).
 
 
 @dataclass(frozen=True)
@@ -393,7 +394,7 @@ class ServoOwner:
                      listening_lanes(current, request.side, self.rng) if request.kind == 'listening' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      telepresence_wake_lanes(current) if request.kind == 'telepresence_wake' else
-                     lifecycle_lanes(request.kind, current, request.first_look))
+                     lifecycle_lanes(request.kind, current, request.first_look, request.arms_home))
             if self._arm_returning and (request.kind in {'base_park', 'park', 'shutdown'} or any(
                     ch in self._returning_channels for lane in lanes for beat in lane for ch, _ in beat.targets)):
                 # The arms are still returning from their drive stance; callers that need

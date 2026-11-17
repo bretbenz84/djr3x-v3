@@ -4,7 +4,7 @@ import time
 from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
-from .servo_poses import (ARM_HOLD, DRIVE_ARMS, HEAD, LIMITS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
+from .servo_poses import (ARM_HOLD, HEAD, LIMITS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
                           pose_channels, sentry_head, telepresence_targets, visor_over_eyes)
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
@@ -46,8 +46,9 @@ class RobotServos:
         self.telepresence = telepresence   # A telepresence call: start runs its short wake instead.
         self.telepresent = False   # The call's wake reached its pose; only the caller moves him now.
 
-    def _sequence(self, kind):
-        result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.),Cancellation())
+    def _sequence(self, kind, arms_home=False):
+        result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.,
+                                                 arms_home=arms_home),Cancellation())
         if self.trace:
             self.trace.emit('servo_lifecycle',kind=kind,**asdict(result))
         if result.status != 'pulses_reached':
@@ -297,9 +298,9 @@ class RobotServos:
     # Telepresence (owner, November 16; docs/TELEPRESENCE_PLAN.md) -----------------------
     def _telepresence_wake(self):
         """A call's wake, in place of Rex's own (owner, November 16 evening: his wake choreography
-        made a call slow to start; the head goes level and the visor up, nothing else). The throttle
-        and poker elbow stay parked (servo_poses.telepresence_wake_lanes). Then the operator override
-        goes on, so Rex's own motion (idle life, talking motion, the listening cue, reflexes,
+        made a call slow to start, and then the first drive waited for the arms): straight to the
+        drive stance with the visor open (servo_poses.telepresence_wake_lanes), held all call, so
+        the wheels never wait for an arm. Then the operator override goes on, so Rex's own motion (idle life, talking motion, the listening cue, reflexes,
         gestures and expressions) is refused; only telepresence_pose and telepresence_level move him."""
         receipt = self.owner.execute(ServoRequest('telepresence:wake', self.owner.version, 'telepresence_wake',
                                                   self.owner.clock() + 30.), Cancellation())
@@ -326,14 +327,11 @@ class RobotServos:
 
     def telepresence_level(self, cancel):
         """The head back to the drive stance (level, lift at its normal height, neck centred) before
-        the wheels turn; None when it is already there. The first time, the hero elbow and poker arm
-        go up with it: the wheels' swing check counts on that tuck, and the wake left them be."""
+        the wheels turn; None when it is already there. The arms hold the stance from the wake."""
         if not self.telepresent:
             return None
-        commanded = self.owner.commanded
-        pose = {**TELEPRESENCE_DRIVE_HEAD,
-                **{ch: value for ch, value in DRIVE_ARMS if abs(commanded.get(ch, -99) - value) > 2}}
-        if all(abs(commanded.get(ch, -99) - value) <= 2 for ch, value in pose.items()):
+        pose = dict(TELEPRESENCE_DRIVE_HEAD)
+        if all(abs(self.owner.commanded.get(ch, -99) - value) <= 2 for ch, value in pose.items()):
             return None
         receipt = self.owner.execute(ServoRequest('telepresence:level', self.owner.version, 'operator',
                                                   self.owner.clock() + 15., pose=pose, look=True), cancel)
@@ -426,7 +424,7 @@ class RobotServos:
                     self.on_shutdown()
                 except Exception as exc:
                     if self.trace: self.trace.emit('servo_shutdown_hook_failed',error_type=type(exc).__name__)
-                self._sequence('shutdown')
+                self._sequence('shutdown', arms_home=self.telepresence)   # A call's raised poker arm too.
             elif self.started and self.owner.state not in {'parked','closed'}:
                 raise ProviderFailure('ServoParkUnavailableAfterFault')
         finally:

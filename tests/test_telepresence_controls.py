@@ -13,8 +13,9 @@ from unittest.mock import Mock, patch
 
 from r3x.contracts import Cancellation
 from r3x.drive import MANUAL_SPEED, MANUAL_TURN
-from r3x.servo_poses import (DRIVE_ARMS, LIMITS, PARK, POKER_PARK, POKER_UP, REST, TELEPRESENCE_DRIVE_HEAD, VISOR_OPEN,
-                             telepresence_reading, telepresence_targets)
+from r3x.servo_poses import (DRIVE_ARMS, LIMITS, PARK, POKER_PARK, POKER_UP, REST, TELEPRESENCE_DRIVE_HEAD,
+                             UNPOWERED_REST, VISOR_OPEN, lifecycle_lanes, telepresence_reading,
+                             telepresence_targets)
 from r3x.settings import Secrets, Settings
 from r3x.telepresence import trigger
 from r3x.telepresence.controls import (SETPOINT_STALE_SECONDS, DriveControl, HeadControl, base_readings)
@@ -49,8 +50,9 @@ class StanceTests(unittest.TestCase):
         return self.robot.owner.execute(ServoRequest(kind + '-1', self.robot.owner.version, kind,
                                                      self.clock() + 30, **data), Cancellation())
 
-    def test_the_call_wakes_with_only_the_head_level_and_the_visor_up(self):
-        # Owner, November 16 evening: no wake choreography for a call, and nothing else moves.
+    def test_the_call_wakes_straight_into_the_drive_stance_with_the_visor_up(self):
+        # Owner, November 16 evening: no wake choreography for a call, and the arms already tucked
+        # for driving (the first call's first drive waited for the hero elbow).
         robot, port, _ = servos(start=False)
         self.addCleanup(lambda: robot.closed or robot.close())
         early = robot.telepresence_pose({'neck': .5}, Cancellation(), 'early')
@@ -59,10 +61,13 @@ class StanceTests(unittest.TestCase):
         port.on_target = lambda: moved.update(ch for ch, value in port.pose.items() if value != asleep[ch])
         robot.start()
         self.assertTrue(robot.telepresent)
-        self.assertEqual(moved, {1, 2, 11, 3})   # Lift, head pair and visor; the neck sleeps centred.
+        # Lift, head pair, visor, hero elbow and poker arm; the neck sleeps centred and the throttle
+        # and poker elbow and wrist sleep parked.
+        self.assertEqual(moved, {1, 2, 11, 3, *dict(DRIVE_ARMS)})
         self.assertEqual({ch: port.pose[ch] for ch in TELEPRESENCE_DRIVE_HEAD}, dict(TELEPRESENCE_DRIVE_HEAD))
         self.assertEqual(port.pose[3], VISOR_OPEN)
-        self.assertEqual({ch: port.pose[ch] for ch in ARMS}, {ch: asleep[ch] for ch in ARMS})
+        for ch, value in (*PARK, *DRIVE_ARMS, *POKER_PARK):   # The swing check's tucked arms.
+            self.assertEqual(port.pose[ch], value, ch)
         self.assertEqual(robot.owner.state, 'active')
 
     def test_a_wake_from_untucked_arms_parks_them(self):
@@ -84,18 +89,16 @@ class StanceTests(unittest.TestCase):
         self.assertEqual({ch: self.port.pose[ch] for ch in arms}, arms)   # No arm moved.
         self.assertAlmostEqual(telepresence_reading(self.robot.owner.commanded)['pitch'], .5, places=1)
 
-    def test_the_first_drive_raises_the_drive_arms_with_the_level_head_and_shutdown_parks(self):
+    def test_driving_moves_no_arm_and_the_end_of_the_call_parks_every_one(self):
+        self.assertIsNone(self.robot.telepresence_level(Cancellation()))   # Woken level: nothing to wait for.
+        arms = {ch: self.port.pose[ch] for ch in ARMS}
         self.robot.telepresence_pose({'neck': .8, 'tilt': .6, 'visor': 1.}, Cancellation(), 'look')
         self.assertEqual(self.robot.telepresence_level(Cancellation()).status, 'pulses_reached')
         self.assertEqual({ch: self.port.pose[ch] for ch in TELEPRESENCE_DRIVE_HEAD}, dict(TELEPRESENCE_DRIVE_HEAD))
-        for ch, value in (*PARK, *DRIVE_ARMS, *POKER_PARK):   # The swing check's tucked arms.
-            self.assertEqual(self.port.pose[ch], value, ch)
-        self.assertIsNone(self.robot.telepresence_level(Cancellation()))   # Already level: nothing moves.
-        self.robot.telepresence_pose({'neck': -.5}, Cancellation(), 'look')
-        arms = {ch: self.port.pose[ch] for ch in ARMS}
-        self.assertEqual(self.robot.telepresence_level(Cancellation()).status, 'pulses_reached')
-        self.assertEqual({ch: self.port.pose[ch] for ch in ARMS}, arms)   # Only the head, from now on.
+        self.assertEqual({ch: self.port.pose[ch] for ch in ARMS}, arms)   # Only the head returns.
         self.robot.close()
+        # Owner, November 16: park positions when the call ends, the raised poker arm included.
+        self.assertEqual(self.port.pose, dict(UNPOWERED_REST))
         self.assertEqual(self.robot.owner.state, 'closed')
 
     def test_the_head_worker_aims_through_the_servo_owner_and_reports_where_it_got_to(self):
@@ -109,6 +112,12 @@ class StanceTests(unittest.TestCase):
         self.assertEqual((sent[-1]['neck'], sent[-1]['visor']), (1., 0.))
         self.assertEqual(self.port.pose[0], LIMITS[0][1])
         self.assertEqual(head.request({'neck': 'left'}), 'not_a_number')
+
+    def test_rex_s_own_shutdown_still_leaves_the_poker_arm_s_swing_where_it_is(self):
+        current = {**dict(UNPOWERED_REST), **dict(DRIVE_ARMS)}
+        touched = lambda lanes: {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
+        self.assertNotIn(6, touched(lifecycle_lanes('shutdown', current)))
+        self.assertIn(6, touched(lifecycle_lanes('shutdown', current, arms_home=True)))
 
     def test_head_requests_are_fractions_inside_the_limits(self):
         commanded = {**dict(TELEPRESENCE_DRIVE_HEAD), 3: 5732}

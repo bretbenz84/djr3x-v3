@@ -15,7 +15,7 @@ separate program for it. Access is over the owner's home WireGuard VPN only.
 - **At the owner's end:** open the app, press Connect. Within a few seconds the room is audible and
   the camera is on screen. Unmute to talk; the voice comes out of Rex's speaker. Keys, mouse or a game
   controller drive the base and aim the head. Hang Up parks him.
-- **At home:** Rex's head goes level and his visor up (nothing else moves; owner, November 16), and
+- **At home:** Rex goes straight to his driving pose with the visor up (owner, November 16), and
   the lights show a look used for nothing else.
   Before the call is taken he says, in his own voice, that the owner is calling in through him
   (owner, November 16; it had been the lights alone). His mouth lights move with the owner's voice. He does not listen for meaning, reply, greet, remember or move on his own.
@@ -57,8 +57,8 @@ checks, the deadman and the lost-link park are what stop the wheels.
 
 **Start.** Take the controller lock and wait for the services to release. Open the servo board, LED
 board, drive link, microphone, speaker and camera that settings enable (never the radar). Wake the servos with
-the call's own wake: head level, visor up, nothing else (owner, November 16 evening; no wake
-choreography). Skip the startup sounds, the please-wait and ready lines and the hardware notice. Show
+the call's own wake: straight to the drive stance with the visor up, held all call (owner, November
+16 evening; no wake choreography). Skip the startup sounds, the please-wait and ready lines and the hardware notice. Show
 the telepresence lights (the chest's start-up sparkle is never waited for), play the call's spoken
 line, then accept one client.
 
@@ -360,9 +360,9 @@ Owner request: "implement the rest of the plan", robot side only (the Mac app is
 - **Starting:**
   - The app asks the supervisor to start a call; it runs the call program only while Rex is asleep.
   - The servos' wake is the call's own (owner, November 16 evening; "A short wake for a call" below):
-    the head goes level and centred at its normal height and the visor opens. The throttle and the
-    poker elbow stay parked as he slept. The hero elbow and poker arm go up at the first drive, with
-    the head level, completing the **telepresence stance** (the drive stance), held all call.
+    one move, straight to the **telepresence stance** (the drive stance: head level and centred at
+    its normal height, hero elbow and poker arm up, throttle and poker elbow parked as he slept) with
+    the visor open. It holds all call, so driving never waits for an arm.
   - His own motion stays off for the whole call: idle life, talking motion, the listening cue,
     reflexes, gestures, expressions, and the back-off reflex on the wheels.
 - **Aiming the head:**
@@ -395,7 +395,8 @@ Owner request: "implement the rest of the plan", robot side only (the Mac app is
   - the head's position;
   - the wheels' state and why a move was refused or held;
   - charge, open space by direction and sensor notes.
-- **Ending:** the wheels are handed back, then the servos park and the lights fade.
+- **Ending:** the wheels are handed back, then the servos park (the stance's raised poker arm too)
+  and the lights fade.
   Each run writes `local/telepresence/last-call.json` (how it ended, which parts failed to start) for
   the supervisor.
 
@@ -439,7 +440,7 @@ token.
 **Evidence:** 28 new blocked-I/O checks run the real owners: the software Maestro, the simulated drive
 controller, and fake sockets and clocks. They check:
 - the stance tucks and holds the arms and refuses Rex's own motion, and the wheels wait for it
-  (since the short wake: the wake moves only the head and visor, and the first drive raises the arms);
+  (since the short wake, the wake itself takes the stance);
 - head moves stay inside the limits and never move an arm;
 - the head levels before setting off, and shutdown parks from the stance;
 - out-of-order and burst setpoints are dropped;
@@ -502,13 +503,22 @@ controller, and fake sockets and clocks. They check:
   - Now the servos' start for a call is one move: the lift to its normal height, the head pair level,
     the neck centred (it already sleeps centred) and the visor to its usual open point, all at once.
     From anywhere but asleep, the throttle and poker elbow also tuck by the drive stance's routes.
-  - The hero elbow and poker arm stay where they slept until the first drive. Their raise is part of
-    the head level that runs before the wheels turn (the wheels' swing check counts on that tuck).
   - The chest's start-up sparkle was never waited for: the board plays it out by itself, under the
     call's look.
-  - Checks: from the park pose only the lift, head pair and visor move; a wake from untucked arms
-    parks them; the first level raises the arms and later levels move only the head. Timing on the
-    robot is not yet measured.
+  - The next call (session 4b8c0a6d) was taken 8.2 s after launch. Its first drive waited for the
+    hero elbow, which was left down until then. The owner: "move directly to the move retraction
+    poses and hold them there so that driving has no delay", and "when the call ends you can go to
+    park positions".
+    - The wake now raises the hero elbow and poker arm in the same move: the full drive stance,
+      held all call. Before a drive only the head returns to level, and only if the caller moved it.
+    - Rex's shutdown leaves the poker arm's swing where it is: of the two arms the stance raises, it
+      is the one the park skips, and that call's poker arm had stayed raised since the call before.
+      A call's shutdown now brings it home too, so the call ends in the sleeping pose.
+      Rex's own shutdown is unchanged.
+  - Checks: from the park pose the wake moves only the lift, head pair, visor, hero elbow and poker
+    arm; a wake from untucked arms parks them; a level before driving moves no arm; the call's
+    shutdown ends exactly in the sleeping pose. On the dashboard's simulated board the wake takes
+    1.0 s (the old wake, visor and stance 12.2 s) and the park 1.9 s. Not yet timed on the robot.
 - **No radar in telepresence** (owner, November 16: there is no point to it for a robot driven by
   hand). The radar ring only tells Rex where people are, for looking and seeking; none of the
   wheels' checks use it. A call never opens or claims its port, and the status no longer has a

@@ -355,8 +355,12 @@ def poker_lane(current, target, speed=20, acceleration=5) -> tuple[Beat, ...]:
                  for stage in poker_route(start, target))
 
 
-def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left') -> tuple[tuple[Beat, ...], ...]:
-    """Parallel lanes, advanced by a single executor. Park never enters a gesture."""
+def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left',
+                    arms_home: bool = False) -> tuple[tuple[Beat, ...], ...]:
+    """Parallel lanes, advanced by a single executor. Park never enters a gesture.
+
+    arms_home: the park also brings the poker arm's swing back to where it sleeps (a telepresence
+    call, whose drive stance raised it; owner, November 16: park positions when the call ends)."""
     if kind not in {'startup', 'park', 'shutdown'} or first_look not in {'left', 'right'}:
         raise ValueError('UnknownServoSequence')
     validate_pose(current)
@@ -389,6 +393,9 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
                  tuple(Beat(p, throttle_duration=1.5) for p in bridge + (TUCK, PARK)))
         if any(abs(current[ch] - value) > 2 for ch, value in POKER_PARK):
             lanes += (poker_lane(current, dict(POKER_PARK), speed=12, acceleration=3),)
+        home = dict(UNPOWERED_REST)[6]
+        if arms_home and abs(current[6] - home) > 2:
+            lanes += ((Beat(((6, home),), speed=12, acceleration=3),),)
     # Reject an unsafe route BEFORE any lane begins to move.
     for lane in lanes:
         previous = dict(current)
@@ -1033,16 +1040,14 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
     return tuple(lanes)
 
 
-def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True,
-               drive_arms=True) -> tuple[tuple[Beat, ...], ...]:
+def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True) -> tuple[tuple[Beat, ...], ...]:
     """Throttle park, centered neck, raised hero elbow/poker arm and the poker elbow/wrist
     drive pose before base motion; afterwards the throttle's return to rest beside the
     hero elbow, poker arm, elbow and wrist going back to their awake poses.
 
     keep names the REACHING_ARMS that stay at their drive stance on release (an obstacle
     within reach); the hero elbow returns unless hero is False (a kept arm coming out later,
-    when the elbow is idle motion's again). drive_arms False leaves the hero elbow and poker
-    arm where they are (a telepresence call's wake raises them at the first drive instead).
+    when the elbow is idle motion's again).
 
     V2 parks the throttle arm before every non-reverse base command. The neck is
     centered so head-camera bearings are base-relative. Return uses the validated
@@ -1084,7 +1089,7 @@ def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True,
         if head:
             lanes += ((Beat(head, speed=20, acceleration=5),),)
         arms = tuple((ch, value) for ch, value in DRIVE_ARMS if abs(current.get(ch, value) - value) > 2)
-        if arms and drive_arms:
+        if arms:
             lanes += ((Beat(arms, speed=35, acceleration=8),),)
         if set(POKER).issubset(current) and any(abs(current[ch] - value) > 2 for ch, value in POKER_DRIVE):
             lanes += (poker_lane(current, dict(POKER_DRIVE)),)
@@ -1385,7 +1390,7 @@ def pose_lanes(name, current, further=True):
 # visor as fractions and never sees a pulse. neck -1 is fully to Rex's left (the picture's left) and
 # 1 fully right; pitch -1 down to 1 up and tilt -1 cocked to his left to 1 right (head_pulses); lift 0
 # lowest to 1 highest; visor 0 shut to 1 fully open (VISOR_UP, short of the surprise stop). The
-# caller moves only these channels; the arms stay tucked all call (telepresence_wake_lanes).
+# caller moves only these channels; the arms hold the drive stance all call (telepresence_wake_lanes).
 TELEPRESENCE_CHANNELS = frozenset({*HEAD, 3})
 # Where the head stands while the wheels turn: the drive stance's level head, neck centred.
 TELEPRESENCE_DRIVE_HEAD = MappingProxyType({0: NECK_CENTER, **dict(DRIVE_HEAD)})
@@ -1393,11 +1398,12 @@ TELEPRESENCE_DRIVE_HEAD = MappingProxyType({0: NECK_CENTER, **dict(DRIVE_HEAD)})
 
 def telepresence_wake_lanes(current: dict[int, int]) -> tuple[tuple[Beat, ...], ...]:
     """A telepresence call's wake (owner, November 16: Rex's wake took 9 s, then the visor and the
-    stance 5 s more, for a call): the head goes level and centred at its normal height and the visor
-    opens, nothing else. No wake choreography. Asleep, the throttle and the poker elbow and wrist
-    are already parked; from anywhere else they tuck by the drive stance's routes. The hero elbow
-    and poker arm keep their place until the first drive (RobotServos.telepresence_level)."""
-    lanes = base_lanes('base_park', current, drive_arms=False)
+    stance 5 s more, for a call): straight to the drive stance, all at once, with the visor open. No
+    wake choreography. The head goes level and centred at its normal height and the hero elbow and
+    poker arm go up (the first call's first drive waited for the elbow; owner: no delay for driving).
+    Asleep, the throttle and the poker elbow and wrist are already parked; from anywhere else they
+    tuck by the drive stance's routes. The stance holds until the call's shutdown parks him."""
+    lanes = base_lanes('base_park', current)
     if abs(current[3] - VISOR_OPEN) > 2:
         lanes += ((Beat(((3, VISOR_OPEN),), speed=20, acceleration=5),),)
     return lanes

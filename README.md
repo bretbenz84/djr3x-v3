@@ -187,8 +187,8 @@ is a separately maintained reference. V3 never imports it or reads its data.
   - He can answer questions about battery, charging, obstructions, radar bodies, tilt
     and room climate from live readings.
 - **Telepresence (November 16; works on the robot, driving not yet used).** `python -m r3x telepresence` turns Rex into a
-  conduit for the owner over the home WireGuard VPN, with no models. His head goes level and his visor
-  up (a short wake of its own, no choreography), his eyes go magenta, and he says at home that the owner is calling in. Room audio and the camera go to one signed-in
+  conduit for the owner over the home WireGuard VPN, with no models. He goes straight to his driving pose
+  with the visor up (a short wake of its own, no choreography), his eyes go magenta, and he says at home that the owner is calling in. Room audio and the camera go to one signed-in
   client, and the client's voice plays from his speaker with his mouth moving to it. The caller aims
   the head, lift and visor and drives at the dashboard joystick's caps and checks, with network rules
   added (newest setpoint only, zero after 0.3 s, no forward or turning on a slow link). The supervisor

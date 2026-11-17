@@ -3,11 +3,11 @@
 Startup: the live lease and the controller handoff (the menu apps and supervisor step aside, and a
 running Rex is never taken over), then the speaker, lights, servos, wheels (no back-off reflex and no
 radar), microphone, camera (frames only), video and the listener. The servos' wake is the call's own
-(owner, November 16 evening): the head goes level and the visor up, nothing else, with no wake
-choreography, and the chest's start-up sparkle is never waited for. The telepresence lights come on.
+(owner, November 16 evening): straight to the drive stance with the visor up, held all call, with no
+wake choreography; the chest's start-up sparkle is never waited for. The telepresence lights come on.
 The caller then aims the head, lift and visor and drives (controls.py). No startup sounds, spoken
-lines, recognition, replies, memory, idle motion or motion of his own. Shutdown stops the wheels, parks the servos and
-fades the lights as Rex's own shutdown does. Each run leaves local/telepresence/last-call.json (how
+lines, recognition, replies, memory, idle motion or motion of his own. Shutdown stops the wheels,
+parks the servos (the stance's raised poker arm too) and fades the lights as Rex's own shutdown does. Each run leaves local/telepresence/last-call.json (how
 it ended) for the supervisor to report.
 
 Owner, November 16: someone at home was startled when he came alive for a call with only the lights
@@ -284,9 +284,9 @@ def call_controls(parts, active, clock=None):
     stance = robot is not None and 'robot_servos' in active and robot.telepresent
     head = HeadControl(robot) if stance else None
     wheels = None
-    # The wheels need the arms tucked: with servos fitted, only once the call's wake holds the throttle
-    # parked (the head level raises the hero elbow and poker arm before the first drive). With no servo
-    # board configured there are no arms to tuck and the spin check uses their untucked reach.
+    # The wheels need the arms tucked: with servos fitted, only once the call's wake holds the drive
+    # stance. With no servo board configured there are no arms to tuck and the spin check uses their
+    # untucked reach.
     if drive is not None and 'drive_base' in active and (robot is None or stance):
         wheels = DriveControl(drive, head=head, stance_held=stance, **({'clock': clock} if clock else {}))
     base = (lambda now: base_readings(drive, now)) if drive is not None and 'drive_base' in active else None

@@ -744,9 +744,9 @@ class DriveBase:
         the back-off reflex waits. Returns (ok, reason).
 
         stance_held: the arms already hold the drive stance for the whole session (a telepresence
-        call: its wake parks the throttle and RobotServos.telepresence_level raises the hero elbow
-        and poker arm before the first drive), so no park runs before moving, the spin check uses
-        the tucked arms, and the arms are not returned at end_manual."""
+        call: its wake takes the drive stance, servo_poses.telepresence_wake_lanes), so no park
+        runs before moving, the spin check uses the tucked arms, and the arms are not returned at
+        end_manual."""
         if self._manual is not None:
             return True, None
         self._halt.set()

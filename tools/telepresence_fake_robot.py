@@ -4,8 +4,8 @@ robot's real code with no devices:
 - a pretend supervisor: the real trigger listener and answer() on the call's port + 1, so the app's
   status, start and stop work. Rex is "asleep" until a start, unless --call-now;
 - the real call loop, listener and video sender;
-- the real HeadControl on the dashboard's simulated servo board, after the call's real wake (head
-  level and visor up);
+- the real HeadControl on the dashboard's simulated servo board, after the call's real wake (the
+  drive stance and the visor up);
 - the real DriveControl on a small simulated base with a wall 2 m ahead of where it starts.
 
     TELEPRESENCE_TOKEN=... .venv/bin/python tools/telepresence_fake_robot.py [--listen 127.0.0.1:47800] [--call-now]
@@ -203,7 +203,7 @@ def run_call(host, port, networks, token, trace, stop):
     board = SimulatedMaestro()
     robot = RobotServos('simulation', open_port=lambda: board, telepresence=True)
     robot.trace = trace
-    robot.start()   # The call's short wake: head level, visor up.
+    robot.start()   # The call's short wake: the drive stance, visor up.
     wheels = Wheels()
     video = VideoStream(Camera(robot, wheels))
     server = Server(host, port, networks, token, welcome=lambda: {
@@ -224,7 +224,7 @@ def run_call(host, port, networks, token, trace, stop):
     finally:
         server.close()
         video.close()
-        robot.close()   # Parks.
+        robot.close()   # Parks, the raised poker arm too.
     print(json.dumps({'call_ended': reason, 'voice_seconds_received': round(voice.seconds, 2),
                       'voice_peak': voice.peak, 'base_rolled_m': round(wheels.x, 2),
                       'head_stats': dict(controls['head'].stats), 'drive_stats': dict(controls['drive'].stats)}),
