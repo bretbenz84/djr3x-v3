@@ -3,7 +3,9 @@ in-memory transport: synthetic devices shaped like the real list (the TCC thermo
 from the house on November 17), no network and no real device."""
 import base64
 import json
+import time
 import unittest
+from unittest import mock
 from urllib.parse import unquote
 
 import httpx
@@ -73,8 +75,10 @@ class FakeHomebridge:
         self.admin, self.down = admin, False
         self.services = {s['uniqueId']: s for s in house_services()}
         self.tokens, self.logins, self.writes, self.refuse = set(), 0, [], {}
+        self.requests = 0
 
     def __call__(self, request):
+        self.requests += 1
         if self.down:
             raise httpx.ConnectError('down', request=request)
         path = request.url.path
@@ -101,6 +105,15 @@ class FakeHomebridge:
             self.writes.append((uid, body['characteristicType'], body['value']))
             found['values'][body['characteristicType']] = body['value']
         return httpx.Response(200, json=found)
+
+
+def eventually(condition, seconds=2.):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(.01)
+    return False
 
 
 def started(fake, hidden=(), password='hunter2'):
@@ -163,6 +176,29 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(house.run('check', ['THERMOSTAT']), ('failed', 'HomebridgeUnreachable', {}))
         house.refresh()
         self.assertIn('devices', house.offer())   # The last good list stays; a change would report the failure.
+
+    def test_a_homebridge_that_answers_again_is_used_within_the_retry_not_the_five_minute_refresh(self):
+        # November 17 live run: macOS held Python off the home network until the owner allowed it; Rex would
+        # then have said he could not reach the house for up to five more minutes.
+        fake = FakeHomebridge()
+        fake.down = True
+        house = House(Settings(homebridge_url=URL), 'rex', 'hunter2', transport=httpx.MockTransport(fake))
+        with mock.patch('r3x.house.RETRY_SECONDS', .02), mock.patch('r3x.house.REFRESH_SECONDS', 60):
+            house.start()
+            self.addCleanup(house.close)
+            self.assertTrue(eventually(lambda: 'not answering' in (house.offer() or {}).get('unavailable', '')))
+            fake.down = False
+            self.assertTrue(eventually(lambda: 'devices' in (house.offer() or {})))
+
+    def test_a_refused_login_is_not_retried_every_thirty_seconds(self):
+        fake = FakeHomebridge()
+        house = House(Settings(homebridge_url=URL), 'rex', 'wrong', transport=httpx.MockTransport(fake))
+        with mock.patch('r3x.house.RETRY_SECONDS', .02), mock.patch('r3x.house.REFRESH_SECONDS', 60):
+            house.start()
+            self.addCleanup(house.close)
+            self.assertTrue(eventually(lambda: (house.offer() or {}).get('unavailable')))
+            time.sleep(.2)
+        self.assertEqual(fake.requests, 1)
 
     def test_an_expired_token_logs_in_again_once(self):
         fake = FakeHomebridge()

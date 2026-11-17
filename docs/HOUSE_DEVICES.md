@@ -45,7 +45,8 @@ teal, blue, purple, pink, white, warm white and cool white.
 ## How it works
 
 - `src/r3x/house.py` is the one Homebridge client. At start it makes an HTTP client and a background
-  thread that reads the device list every five minutes (about 30 ms). States are never cached for
+  thread that reads the device list every five minutes (about 30 ms), or after 30 s when Homebridge did
+  not answer (a refused login still waits five minutes). States are never cached for
   answers: a check reads the device again. Nothing is written at start, refresh or close.
 - The reply context carries `house.devices` on people's turns: each name and the changes it takes,
   such as `"THERMOSTAT": "thermostat: turn_off, heat, cool, set_temperature 40-99 F"`. States are left
@@ -77,6 +78,11 @@ teal, blue, purple, pink, white, warm white and cool white.
 
    It logs in, says whether the account is acceptable, and lists what Rex would be offered with what
    each device reads now.
+5. The first time Rex himself reaches the home network, macOS asks whether Python may find devices on
+   the local network; until someone allows it, Homebridge looks unreachable. The answer is kept in
+   System Settings → Privacy & Security → Local Network for that Python program. This Python is
+   built locally (not developer-signed), so a reinstalled or different Python may ask again. Checks run
+   from the Claude app use the app's own permission and do not show this.
 
 **November 17 note:** `homebridge-tcc` reports "Outside Temperature" as 53.3 °C (128 °F). It is most
 likely Fahrenheit labelled as Celsius. It is in `homebridge_hidden_devices`; Rex has the weather tool
@@ -102,6 +108,15 @@ for outdoors.
   anything was sent; `turn_on` was accepted in 190 ms and read back on; `turn_off` was accepted in
   250 ms and read back off, as it was found. Homebridge's readings matched each time; whether the
   lamp itself lit was for the owner to see.
+- **First conversation (November 17, 2:33 PM, run 3a09bdde):** "Hey Rex, can you turn on the kitchen
+  light?" Homebridge was unreachable because macOS had not yet let Python onto the home network, so
+  the tool was not offered and nothing changed, as designed. But Rex spoke his reasoning before the
+  reply ("House devices aren't reachable (Homebridge is not answering), and house_devices isn't among
+  this turn's tools, so I'll say so plainly."), echoing the field guide's "say so plainly". Repaired the
+  same day: the field guide's house note no longer tells him what to say, Claude's house rule says
+  what to tell people when the house is unreachable and that a reply is only what he says aloud, and an
+  unanswered Homebridge is retried after 30 s instead of five minutes. Checked with the blocked-I/O
+  suite only (house checks and changed areas, 449); the new wording has not been tried on Claude.
 - **Not done:** the thermostat has never been changed by this code. Not yet used in a conversation;
   reply latency and model cost not measured.
 

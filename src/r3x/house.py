@@ -27,6 +27,9 @@ from .contracts import ProviderFailure
 from .providers import Capability
 
 REFRESH_SECONDS = 300          # The device list (names and what each can do); states are read fresh.
+RETRY_SECONDS = 30             # After Homebridge did not answer (Pi rebooting, or macOS still asking
+                               # whether Python may reach the home network), try again soon.
+RETRY_STATUSES = frozenset({'HomebridgeUnreachable', 'HomebridgeTimeout'})
 READ_TIMEOUT, WRITE_TIMEOUT = 5., 12.   # A thermostat change goes out through Honeywell's servers.
 RESPONSE_LIMIT = 2_000_000
 MAX_PARALLEL = 6
@@ -293,7 +296,7 @@ class House:
         self.clock, self.transport = clock, transport
         self.capability = Capability('house_devices', 'Homebridge UI REST API',
             "the house's lights, plugs and thermostat, checked and changed when a person asks", None, ('httpx',),
-            ('one HTTP client on the home network; device list every 5 minutes (about 30 ms); '
+            ('one HTTP client on the home network; device list every 5 minutes (about 30 ms), 30 s after no answer; '
              '5 s reads, 12 s writes; <=2 MB per response',), required=False)
         self.trace = None
         self.client = None
@@ -438,7 +441,9 @@ class House:
     def _run(self):
         while not self.stop.is_set():
             self.refresh()
-            self.wake.wait(REFRESH_SECONDS)
+            with self.lock:
+                status = self.status
+            self.wake.wait(RETRY_SECONDS if status in RETRY_STATUSES else REFRESH_SECONDS)
             self.wake.clear()
 
     def offer(self):

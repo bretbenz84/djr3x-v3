@@ -25,7 +25,9 @@ state of things, or give commands for him to update things".
   refused; on November 17 Rex's own non-admin account logged in, was offered only the thermostat, and
   read it through the tool's own check (about 30 ms); an unlisted name was refused before any write.
   At the owner's request the account then switched the Kitchen Light on and off (accepted in about
-  0.2 s, read back each time, left as found).
+  0.2 s, read back each time, left as found). The first conversation found Homebridge unreachable
+  (macOS had not yet let Python onto the home network) and Rex spoke his reasoning aloud; the wording
+  and a 30 s retry after no answer were repaired the same day, checked without the live model.
 - **Open:** a conversation test; the first thermostat change with the owner present; more Hue, Kasa
   and Tuya devices once Homebridge exposes them. [Details](HOUSE_DEVICES.md).
 
