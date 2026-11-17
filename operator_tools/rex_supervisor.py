@@ -136,7 +136,7 @@ def _update_interval_secs() -> float:
         from utils import repo_updater
         return repo_updater.update_interval_secs()
     except Exception:
-        return 14400.0
+        return 300.0  # repo_updater.DEFAULT_INTERVAL_SECS, should the module fail to import.
 
 
 def _restart_supervisor() -> None:

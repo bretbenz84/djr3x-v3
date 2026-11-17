@@ -44,7 +44,9 @@ state, throttle sequences and measurements are in `local/operator/`.
 ## Automatic updates
 
 - **When the supervisor checks:**
-  - at startup, at each wake-up (Rex then starts on the updated code) and every 4 hours;
+  - at startup, at each wake-up (Rex then starts on the updated code) and every 5 minutes
+    (owner, November 17; it had been 4 hours). A check takes about half a second, during
+    which the wake-word listener pauses;
   - while Rex runs it only fetches, and applies the update after he exits.
 - **What it does:** fast-forwards the V3 checkout's `main` from `origin/main`.
 - **When it skips:**

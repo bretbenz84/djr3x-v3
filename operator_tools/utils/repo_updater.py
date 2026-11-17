@@ -37,12 +37,16 @@ def auto_update_enabled() -> bool:
     }
 
 
+# Every five minutes (owner, November 17; it had been four hours, too long to wait).
+DEFAULT_INTERVAL_SECS = 300.0
+
+
 def update_interval_secs() -> float:
     """Periodic fetch interval; clamped to one minute to prevent tight loops."""
     try:
-        return max(60.0, float(os.environ.get("REX_AUTO_UPDATE_INTERVAL_SECS", "14400")))
+        return max(60.0, float(os.environ.get("REX_AUTO_UPDATE_INTERVAL_SECS", DEFAULT_INTERVAL_SECS)))
     except ValueError:
-        return 14400.0
+        return DEFAULT_INTERVAL_SECS
 
 
 def _timeout_secs() -> float:
