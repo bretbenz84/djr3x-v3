@@ -7,17 +7,24 @@ uses it and what is still unverified: [LED integration](../../docs/LED_INTEGRATI
 
 ## Wiring
 
-| Signal | ESP32 pin | Strip |
-| --- | --- | --- |
-| Head data | GPIO 18 | 82 pixels: 2 eyes, then the 80-pixel mouth |
-| Chest data | GPIO 19 | 98 pixels: three panels and two chest lights |
-| Ground | any GND | joined to the LED 5 V supply ground |
+| Signal | ESP32 pin | Through the 74AHCT125N | Strip |
+| --- | --- | --- | --- |
+| Head data | GPIO 18 | in pin 2, out pin 3 | 82 pixels: 2 eyes, then the 80-pixel mouth |
+| Chest data | GPIO 19 | in pin 5, out pin 6 | 98 pixels: three panels and two chest lights |
+| Ground | any GND | pin 7 | joined to the LED 5 V supply ground |
+
+The ESP32's 3.3 V data goes through a 74AHCT125N level shifter, which sends the strips a
+5 V signal. Its other pins: 14 to the 5 V buck rail (not the ESP32's 3.3 V pin, or it
+outputs 3.3 V); 1 and 4, which switch on the two channels used, to ground; the unused
+inputs 9, 10, 12 and 13 to ground; 8 and 11 unconnected. A 74HCT245 or a breakout board
+has a different pinout.
 
 The ESP32 is powered by its USB cable and supplies data only. Both strips take 5 V from
-the buck rail; do not join that rail to the board's 5 V pin while USB is connected. The
-ground wire is required: without it the head showed one flickering light blue. The data
-pins are 3.3 V with no level shifter; the head ran correctly that way on the bench
-(November 14), with the servos still.
+the buck rail; do not join that rail to the board's 5 V pin while USB is connected. One
+ground joins the ESP32, the shifter, the buck rail and both strips: without it the head
+showed one flickering light blue. With the data straight from the 3.3 V pins the head
+looked right on the bench (November 14); with the shifter in (November 17) the owner
+reports the lights "no longer flicker at all".
 
 ## Protocol
 

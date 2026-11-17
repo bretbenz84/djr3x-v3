@@ -386,3 +386,17 @@ Run `7261d8ce`. The owner: "the mouth is not animating speech anymore."
 Checks: four fake-board checks (a mid-line reboot is told to speak again, other bytes change nothing,
 a failed write reopens and repaints, reopening gives up after five tries and shutdown still completes);
 the 34 LED owner checks pass. **Not yet run on the robot**, and the mouth itself not yet looked at.
+
+## November 17: a 5 V level shifter on the data lines
+
+The two data lines left the ESP32 at 3.3 V, below what WS2812B and WS2811 strips are specified to
+read reliably at 5 V. The owner put a 74AHCT125N between the board and the strips: GPIO 18 into
+pin 2 with the head data from pin 3, GPIO 19 into pin 5 with the chest data from pin 6, the chip
+powered from the 5 V buck rail, one ground for everything (full pin list in the
+[firmware README](../firmware/djr3x_leds/README.md#wiring)). No firmware or program change.
+
+Evidence: the owner's report only: "The lights with the 74AHCT125N no longer flicker at all.
+Everything is good." No log or run was read for it and no check was run.
+
+Still open: whether the mouth now follows speech (November 15 evening) and whether the board still
+drops off USB mid-run; a level shifter does not explain the second.

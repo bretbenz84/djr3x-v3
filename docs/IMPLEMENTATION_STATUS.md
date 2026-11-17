@@ -1,10 +1,17 @@
 # Current implementation status
 
-Updated November 16, 2026. This is the consolidated
+Updated November 17, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## LED data lines through a level shifter — November 17
+
+Hardware only. A 74AHCT125N now raises the LED board's 3.3 V head and chest data to 5 V; the owner
+reports the lights no longer flicker at all. No firmware or program change and no check run.
+Whether the mouth follows speech again and the board's USB dropouts (November 15) remain open.
+[Wiring](LED_INTEGRATION.md#november-17-a-5-v-level-shifter-on-the-data-lines).
 
 ## Run `dc1543d7` repairs: Claude's own prompt, quicker replies, spins, news, "Yogesh" — November 16 (night)
 
