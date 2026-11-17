@@ -21,11 +21,12 @@ state of things, or give commands for him to update things".
 - **Settings:** `homebridge_url` (set on the robot), `homebridge_hidden_devices` (the robot hides
   "Outside Temperature", which homebridge-tcc reports as 53.3 °C, most likely Fahrenheit).
 - **Evidence:** 23 checks against a fake Homebridge, including whole turns through the production
-  session; the full blocked-I/O suite (1,985) passed in three of four runs, and the fourth had one uncaptured failure. Real Homebridge, reads only: the login works and
-  the saved account is refused as an admin; the parser, run on the real device list, offers only the
-  thermostat.
-- **Open:** a non-admin account for Rex; the first live change with the owner present; a conversation
-  test; Hue, Kasa and Tuya devices once Homebridge exposes them. [Details](HOUSE_DEVICES.md).
+  session; the full blocked-I/O suite (1,985) passed in three of four runs, and the fourth had one uncaptured failure. Real Homebridge, reads only: the admin account was
+  refused; on November 17 Rex's own non-admin account logged in, was offered only the thermostat, and
+  read it through the tool's own check (about 30 ms); an unlisted name was refused before any write.
+- **Open:** the first live change with the owner present (and whether the non-admin account may
+  write); a conversation test; Hue, Kasa and Tuya devices once Homebridge exposes them.
+  [Details](HOUSE_DEVICES.md).
 
 ## LED data lines through a level shifter — November 17
 

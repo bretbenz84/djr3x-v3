@@ -4,9 +4,9 @@ Owner request, November 17, 2026: "build an LLM tool-call to control stuff in my
 Homebridge... I should be able to ask questions about the state of things, or give commands for him to
 update things."
 
-**Status, November 17:** built and checked with a fake Homebridge. Against the real Homebridge: the login
-works, and Rex's code refuses the saved account because it is an admin account. It has not yet read the
-thermostat through Rex's own code, and has never changed a device. Not yet tried in a conversation.
+**Status, November 17:** built and checked with a fake Homebridge. Against the real Homebridge: Rex's own
+non-admin account logs in and reads the thermostat through the tool's own check. It has never changed a
+device, so whether the non-admin account may write is not yet shown. Not yet tried in a conversation.
 
 ## What Rex does
 
@@ -90,18 +90,20 @@ for outdoors.
   and whole conversation turns through the production session (line spoken only after success, failure
   goes back to the model, check answered from the reading, not offered on his own turns, refused in
   frozen evaluation). The full blocked-I/O suite (1,985) passed in three of four runs; the fourth had one failure that was not captured.
-- **Real Homebridge, reads only:** login worked (about 0.5 s); the device list reads in about 30 ms. The
-  owner's check (`python -m r3x house`) refuses the saved account as an admin. The parser was run on the
-  real list: Rex would be offered the thermostat (71.1 °F, set to 66.9 °F, mode off) and nothing else
-  (no Hue, Kasa or Tuya devices are exposed yet).
+- **Real Homebridge, reads only:** the first saved account was refused as an admin. With Rex's own
+  non-admin account, `python -m r3x house` passed: logged in (with the first list read, about 0.5 s),
+  offered only the thermostat (no Hue, Kasa or Tuya devices are exposed yet), and left out "Outside
+  Temperature" and the thermostat's own temperature entry. Through `House.run`, the tool's `check` read
+  the thermostat in about 30 ms (69.1 °F, set to 66 °F, mode off, idle), and an unlisted "Porch Light"
+  was refused before any write. The planned writes were computed and not sent: "heat to 68" would write
+  heat mode and 20.0 °C; auto, 120 °F and dimming are refused before writing.
 - **Not done:** no device has been changed by this code (the owner asked that nothing be switched that
-  night). It has not yet read the thermostat through Rex's own code, been used in a conversation, or had
-  its reply latency or model cost measured.
+  night), so whether the non-admin account may write is not yet shown. Not yet used in a conversation;
+  reply latency and model cost not measured.
 
 ## Open
 
-- A non-admin account for Rex, then `python -m r3x house`.
-- The first live change, with the owner present, and a conversation test: a question, a light, the
+- The first live change (it also shows whether the non-admin account may write), with the owner present, and a conversation test: a question, a light, the
   thermostat (`set_temperature` and `heat` with a value), something it cannot do, and an unlisted name.
 - Hue, Kasa and Tuya devices once they are exposed; check that their names read naturally.
 - Fan speed and blinds positions are not actions yet.
