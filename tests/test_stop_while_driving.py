@@ -121,6 +121,7 @@ class CollisionWarningTests(unittest.TestCase):
             def transcribe(self, *args): return Transcript("You're gonna hit the island!", -.01, True)
         class Drive:
             def __init__(self): self.moving = threading.Event()
+            def moved_during(self, start, end): return self.moving.is_set()
         drive = Drive()
         if moving:
             drive.moving.set()
@@ -179,6 +180,7 @@ class StopPeekTests(unittest.TestCase):
                 bursts.append(capture); return Transcript(text, -.3, False)
         class Drive:
             def __init__(inner): inner.moving = threading.Event()
+            def moved_during(inner, start, end): return inner.moving.is_set()
             def cancel(inner): halted.append(True); inner.moving.clear()
         drive = Drive()
         if moving:

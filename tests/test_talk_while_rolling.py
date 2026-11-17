@@ -397,6 +397,7 @@ class StopOverHisVoiceTests(unittest.TestCase):
                 heard.append(capture); return Transcript(text, -.3, True)
         class Drive:
             def __init__(inner): inner.moving = threading.Event()
+            def moved_during(inner, start, end): return inner.moving.is_set()
             def cancel(inner): halted.append(True); inner.moving.clear()
         drive = Drive()
         if moving:

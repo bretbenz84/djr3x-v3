@@ -11,13 +11,20 @@ import time
 
 from ..contracts import Cancelled, ProviderFailure, ToolCall, ToolText
 from ..providers import Capability
-from .hosted import CHARACTER, HTTPProvider, OpenAIBrain, OpenAIVisualLocator, planner_content
+from . import claude_prompt
+from .hosted import HTTPProvider, OpenAIBrain, OpenAIVisualLocator, planner_content
 
 URL = 'https://api.anthropic.com/v1/messages'
 API_VERSION = '2026-10-21'
 MODELS = ('claude-sonnet-5-5', 'claude-haiku-5-5')
-# Sonnet 5.5 cannot switch thinking off; at low effort it thinks briefly or not at all. Haiku 5.5 can.
+# The planner, locator and news search think (adaptive; Haiku 5.5 runs without). Sonnet 5.5 refuses
+# `disabled`, and its way to answer without thinking first is `between_tools`.
 THINKING = {'claude-sonnet-5-5': {'type': 'adaptive'}, 'claude-haiku-5-5': {'type': 'disabled'}}
+# Owner, November 16: replies got slower after the switch (69% of ordinary replies over four seconds against
+# 37% on OpenAI; the first word came at 2.7 s against 2.0 s, after ~150 output tokens against ~86). A reply
+# is one short line: it starts without thinking first. Only Sonnet 5.5 takes `between_tools`, so a request
+# re-sent to another model must not carry it.
+REPLY_THINKING = {'claude-sonnet-5-5': {'type': 'between_tools'}, 'claude-haiku-5-5': {'type': 'disabled'}}
 MAX_TOKENS = 4000
 OPERATOR = '[Operator note, not said by anyone in the room]\n'
 
@@ -137,11 +144,17 @@ class ClaudeBrain(OpenAIBrain):
         self.capability = Capability('brain', 'Anthropic Messages', 'one main conversational generation',
                                      model, ('httpx',), ('network',))
 
+    def _prompt(self, name, text):
+        """Claude's own copy of the prompt (owner, November 16): OpenAI's tuned text stays as it is in
+        hosted.py, and a note claude_prompt.py does not rewrite is still the shared one."""
+        own = {'persona': claude_prompt.PERSONA, 'voice_reminder': claude_prompt.VOICE_REMINDER}
+        return own.get(name, claude_prompt.NOTES.get(name, text))
+
     def _stream_response(self, payload, snapshot, cancel, offered=None):
         model = self.capability.model
         system, messages, tools, choice, required = translate(payload, offered)
         request = {'model': model, 'max_tokens': MAX_TOKENS, 'system': system, 'messages': messages, 'stream': True,
-                   'thinking': THINKING[model], 'output_config': {'effort': 'low'}}
+                   'thinking': REPLY_THINKING[model], 'output_config': {'effort': 'low'}}
         if tools:
             request.update(tools=tools, tool_choice=choice)
         allowed = {d['name'] for d in offered} if offered else set()
@@ -192,7 +205,11 @@ class ClaudeBrain(OpenAIBrain):
             raise ProviderFailure('Claude' + type(exc).__name__) from None
 
     def _round(self, request, snapshot, cancel, allowed, out):
-        """One request and its stream. Spoken words are yielded as they arrive; the rest is left in `out`."""
+        """One request and its stream. Spoken words are yielded as they arrive; the rest is left in `out`.
+
+        Plain words with tools on offer wait for the end of the answer (November 16: considered speaking them
+        as they come; most lines are one sentence, so it would gain about 0.2 s, and with no thinking first a
+        short "Let me look." before a tool would be heard and the look dropped as a broken turn)."""
         from ..tool_text import STREAMED_FIELDS, TextField
         model = request['model']
         deadline = time.monotonic() + 200
@@ -343,13 +360,13 @@ class ClaudeAgencyPlanner(ClaudeBrain):
             ('httpx',), ('network; only at idle plan creation/revision',), required=False)
 
     def plan(self, facts, cancel, images=()):
-        from ..agency import PLANNER_INSTRUCTIONS, plan_schema
+        from ..agency import plan_schema
         from ..contracts import Snapshot
         if self.client is None: raise ProviderFailure('AgencyPlannerNotStarted')
         snapshot = Snapshot('agency', facts['request_id'], facts['revision'], ())
         model = self.capability.model
         request = {'model': model, 'max_tokens': 8000, 'stream': True, 'thinking': THINKING[model],
-                   'system': [{'type': 'text', 'text': CHARACTER + '\n' + PLANNER_INSTRUCTIONS,
+                   'system': [{'type': 'text', 'text': claude_prompt.CHARACTER + '\n' + claude_prompt.PLANNER_INSTRUCTIONS,
                                'cache_control': {'type': 'ephemeral'}}],
                    'messages': [{'role': 'user', 'content': _blocks(planner_content(facts, images))}],
                    'output_config': {'effort': 'medium', 'format': {'type': 'json_schema', 'schema': plain(plan_schema())}}}

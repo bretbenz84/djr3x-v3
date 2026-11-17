@@ -71,6 +71,24 @@ class OtherPeopleTests(MemoryFixture):
         self.assertEqual(result.data["other_person"]["record"], "new name-only record: no voice or face learned")
         self.assertEqual(self.store.person(result.data["other_person"]["person_id"])["name"], "Sam Rivera")
 
+    def test_a_person_his_saved_facts_already_name_is_linked_without_being_said_again(self):
+        # Owner, November 16: "My sister gave him to me." was refused twice because nobody had said
+        # "Jennifer" that evening, though Bret's saved facts name his sister Jennifer.
+        bret = self.enroll()
+        self.begin("I have a sister named Jennifer.")
+        sister = self.claim(bret, "has a sister named", "Jennifer", "self_report", other="Jennifer")
+        self.assertEqual(sister.outcome, "ok", sister)
+        jennifer = sister.data["other_person"]["person_id"]
+        self.at += 3600   # Another evening.
+        self.begin("My sister gave him to me.")
+        toby = self.claim(bret, "got Toby from", "his sister Jennifer", "self_report", other="Jennifer")
+        self.assertEqual(toby.outcome, "ok", toby)
+        self.assertEqual(toby.data["other_person"]["person_id"], jennifer)
+        # A name his facts do not mention, and nobody said, is still refused, and makes no record.
+        stranger = self.claim(bret, "got Toby from", "Kate", "self_report", other="Kate")
+        self.assertEqual(stranger.reason, "MentionNeedsANameSaidInThisConversation")
+        self.assertEqual(len(self.store.people()), 2)
+
     def test_unnamed_unheard_stale_and_unclear_names_are_refused(self):
         bret = self.enroll()
         sam = self.name_only("Sam Rivera")

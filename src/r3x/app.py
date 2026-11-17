@@ -312,6 +312,7 @@ class App:
             def camera_motion(moving, request_id, kind):
                 if runtime:runtime.arrivals.note_base_motion(trace.clock())
                 if scene:scene.note_motion(moving,request_id,'head:'+kind)
+                if self.drive:self.drive.note_head_motion(moving)   # Each frame keeps the neck angle it was taken at.
             self.robot.owner.on_camera_motion = camera_motion
         success = False
         import signal

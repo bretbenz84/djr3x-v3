@@ -1786,3 +1786,28 @@ path in a doorway. Backing out of a corner keeps 0.30 m behind him. Braking from
 steps out in a hallway uses the firmware's open-floor zones. The depth sensors' stalls continue.
 **Not yet run on the robot.**
 
+
+## Run `dc1543d7`: turning toward people — November 16, 2026
+
+Owner: "Rex is also driving in circles for no reason, even when I'm right in front of him." In that run
+he turned 656 degrees in two and a half minutes; three causes, none of them the model.
+
+- **Overshoot with the owner in view.** "Why, hello there, Rex.": the voice reflex was turning the head
+  24 degrees toward him when a frame caught his face at the image's left edge. That box was placed with
+  the head's new angle, so the turn counted twice; the speaker target read 62 degrees, the base swung 62,
+  and he lost the owner. Each frame is now placed with the neck angle it was taken at (the servo owner's
+  camera-motion notice, sent before a head move is commanded, gives the angle it leaves). A frame taken
+  mid-move, or before the wheels last turned him, places nothing (`_seen_bearing`).
+- **The two-minute voice memory is gone** (owner, October 20: the wrong method). "What are you doing,
+  Rex?" from the next room was unplaced and he turned 169 degrees toward where the owner had spoken 100 s
+  earlier. The speaker is now, in order: their own recognized face; this utterance's bearing, refined to a
+  face within 50 degrees or else a radar body within 30; the same person's voice from the last 15 s. An
+  unplaced voice gives no direction (`_speaker_target`).
+- **His own beats never sweep the room.** A planned "roll toward Bret" after he had left turned 356
+  degrees looking; five such searches in four runs turned 345-457 degrees. His own approach to
+  `nearest_person` with nobody in view looks only toward a recent voice or a radar body, and with neither
+  does not move (`nobody_in_view_to_go_to`). Asked to come, he still looks all round.
+
+Checks: five new blocked-I/O tests (head angle, voice age and person, radar agreement, no sweep, wheel
+timing). The face reflex timing, radar phantoms and the 15 s limit are unmeasured on the robot.
+**Not yet run on the robot.**

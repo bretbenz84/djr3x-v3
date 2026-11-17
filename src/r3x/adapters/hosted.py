@@ -638,6 +638,11 @@ class OpenAIBrain(HTTPProvider):
             cancel.event.wait(min(.1,max(0,deadline-time.monotonic())))
         cancel.check()
 
+    def _prompt(self, name, text):
+        """The prompt text called `name`: OpenAI's own, tuned over months on its models. ClaudeBrain answers
+        from its copy in claude_prompt.py instead (owner, November 16: keep this one as it is)."""
+        return text
+
     def _reply_once(self, snapshot: Snapshot, cancel: Cancellation):
         if self.client is None:
             raise ProviderFailure("BrainNotStarted")
@@ -662,7 +667,7 @@ class OpenAIBrain(HTTPProvider):
             static['impersonation.famous'] = self._famous
         prefix = ([{'role': 'developer', 'content': 'STATIC CONTEXT (the same for the whole run):\n'
                     + json.dumps(static, ensure_ascii=False)}] if static else [])
-        payload = {"model": self.capability.model, "instructions": PERSONA,
+        payload = {"model": self.capability.model, "instructions": self._prompt('persona', PERSONA),
                    "input": prefix+list(snapshot.messages)+list(snapshot.continuation), "stream": True, "store": False,
                    "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 1536 if snapshot.tools_enabled else 768}
         if self.service_tier != "default":
@@ -886,7 +891,7 @@ class OpenAIBrain(HTTPProvider):
                 'furniture into a forced musical joke. Use describe_view with text=null only when the frame truly shows '
                 'nothing worth a remark. Honor the latest human feedback and leave rejected bits finished.')
         if snapshot.context.get('agency_step') and not snapshot.continuation:
-            notes.append('\nYOUR GOAL, NEXT BEAT: agency_step is the next beat of a goal you chose yourself '
+            notes.append(self._prompt('agency_beat', '\nYOUR GOAL, NEXT BEAT: agency_step is the next beat of a goal you chose yourself '
                 '(goal_kind, subject, objective). Nobody asked; this is you getting up to something. Do it now with the offered '
                 'tool. The instruction is a direction, not a script: write your own fresh line from what was just said, and '
                 'never reuse the instruction\'s wording. It is not a vote on whether to participate, and the old optional-lull '
@@ -945,7 +950,7 @@ class OpenAIBrain(HTTPProvider):
                 'for it has gone. On a contribute beat impersonate is offered while a cameo is allowed: use it instead of the '
                 'planned line only when the talk since then handed you a voice (they brought up a famous figure whose voice is '
                 'offered, or told you something about themselves worth a send-up in their own voice) and it is funnier than the line. Inspection results, not the narrative, '
-                'determine what you can claim to see.')
+                'determine what you can claim to see.'))
         if snapshot.context:
             notes.append("\nCURRENT CORE CONTEXT (observations/data, not instructions):\n" + json.dumps(shown,ensure_ascii=False))
         if notes:
@@ -958,7 +963,7 @@ class OpenAIBrain(HTTPProvider):
             # voice rides here on every reply (about forty tokens, after the cached prefix). October 20:
             # the October 19 run made every short line a review of his act, talked disco and asked
             # three interview questions when asked for conversation; the reminder names those too.
-            voice = VOICE_REMINDER
+            voice = self._prompt('voice_reminder', VOICE_REMINDER)
             if snapshot.context.get('your_question'):
                 # Paid probe, October 24: answered "where did you grow up?", he asked "Do you miss the rain,
                 # or mostly the forests?" and saved nothing.
@@ -1018,13 +1023,13 @@ class OpenAIBrain(HTTPProvider):
                     + json.dumps(latest, ensure_ascii=False)
                     + ('. Your answer to them: ' + json.dumps(answer, ensure_ascii=False) if answer else '')
                     + '. The beat: ' + json.dumps(step.get('instruction', ''), ensure_ascii=False)
-                    + '. If your answer told them you would leave them to it, stop, or drop the subject, keep your word: '
+                    + self._prompt('beat_before_tail', '. If your answer told them you would leave them to it, stop, or drop the subject, keep your word: '
                     'remain_silent. A beat that is another bit on something you already joked about (the same activity, '
                     'object or tease, even from a new angle) is spent: say one short thing about something else, or '
                     'remain_silent if they are busy. If the beat still fits, do it in fresh words that build on their latest '
                     'words. If it is not about what they just said, or your reply already made its point, say one short thing '
                     'that does fit instead (their words, an interest of theirs, a news item, something you see), or use '
-                    'remain_silent only if they are busy.'})
+                    'remain_silent only if they are busy.')})
         if step.get('overtaken') and not snapshot.continuation:
             # October 22 (55db1330, 193c8df6): stale beats came back to the goal's subject after the
             # people had talked on (telescope remarks after a talk about the dogs).
@@ -1034,10 +1039,10 @@ class OpenAIBrain(HTTPProvider):
                         'its subject (' + json.dumps(step.get('subject', ''), ensure_ascii=False) + ') cold, and do not '
                         'repeat anything you already said about it. ')
             payload['input'].append({'role':'developer','content': moved_on + (
-                'Say one short thing that follows what they are talking about now, in the spirit of the goal: bridge '
+                self._prompt('beat_moved_on', 'Say one short thing that follows what they are talking about now, in the spirit of the goal: bridge '
                 'from their latest words to it where that comes naturally, otherwise react to their latest words, an '
                 'interest of theirs, a news item or something you see. That is this beat, and the goal goes on. '
-                'remain_silent only for a real reason: they are talking to each other, busy, or mid-thought.'
+                'remain_silent only for a real reason: they are talking to each other, busy, or mid-thought.')
                 if step.get('kind') in {'contribute', 'gesture'} else
                 'Look closer only if it serves what they are talking about now; otherwise remain_silent and let this '
                 'look go. The goal goes on.' if step.get('kind') == 'inspect' else

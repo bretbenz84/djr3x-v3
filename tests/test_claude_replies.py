@@ -3,6 +3,7 @@ streaming documentation shows; no network. What a live Claude model says is not 
 import json
 import unittest
 
+from r3x.adapters import claude_prompt
 from r3x.adapters.claude import ClaudeBrain, reply_brain, translate
 from r3x.adapters.hosted import OpenAIBrain, PERSONA
 from r3x.contracts import Cancellation, ProviderFailure, Snapshot, ToolCall, ToolText
@@ -60,8 +61,9 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(kwargs['headers']['x-api-key'], 'fixture')
         request = kwargs['json']
         self.assertEqual(request['model'], 'claude-sonnet-5-5')
-        self.assertEqual(request['system'][0], {'type': 'text', 'text': PERSONA,
+        self.assertEqual(request['system'][0], {'type': 'text', 'text': claude_prompt.PERSONA,
                                                 'cache_control': {'type': 'ephemeral', 'ttl': '1h'}})
+        self.assertEqual(request['thinking'], {'type': 'between_tools'})   # A reply starts without thinking first.
         from r3x.semantics import TOOLS
         self.assertEqual([t['name'] for t in request['tools']], [t['name'] for t in TOOLS])   # The same on every request.
         self.assertTrue(all(t['input_schema']['type'] == 'object' and t['eager_input_streaming'] for t in request['tools']))
@@ -107,6 +109,43 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(image['source'], {'type': 'base64', 'media_type': 'image/jpeg', 'data': 'QUJD'})
         self.assertEqual((choice, required), ({'type': 'none'}, False))
         self.assertEqual(tools[0]['input_schema'], {'type': 'object', 'properties': {}})
+
+
+class PromptCopyTests(unittest.TestCase):
+    """Owner, November 16: the prompt tuned over months on OpenAI's models stays as it is; Claude reads
+    its own copy (claude_prompt.py), chosen by llm_provider."""
+    BEAT = {'agency_step': {'instruction': 'Ask about Toby.', 'kind': 'contribute', 'subject': 'Toby',
+                            'people_spoke_since_planned': True, 'overtaken': True},
+            'agency_plan': {'goal_kind': 'catch_up'}, 'source_turn_id': 't'}
+
+    def payload(self, made, context):
+        captured = {}
+        def capture(payload, snapshot, cancel, offered=None):
+            captured['payload'] = payload
+            return iter(())
+        made.client, made._stream_response = object(), capture
+        list(made._reply_once(Snapshot('s', 't', 0, HEARD, context=context, tools_enabled=True), Cancellation()))
+        return json.dumps(captured['payload'], ensure_ascii=False)
+
+    def test_each_provider_reads_its_own_prompt_and_openais_keeps_its_wording(self):
+        from r3x import agency
+        from r3x.adapters import hosted
+        openai, claude = self.payload(OpenAIBrain('o'), self.BEAT), self.payload(ClaudeBrain('c'), self.BEAT)
+        self.assertIn(json.dumps(hosted.PERSONA, ensure_ascii=False)[1:-1], openai)
+        self.assertIn(json.dumps(claude_prompt.PERSONA, ensure_ascii=False)[1:-1], claude)
+        self.assertNotEqual(hosted.PERSONA, claude_prompt.PERSONA)
+        # The news fallbacks the owner complained about are Claude's to lose; OpenAI's text keeps them.
+        self.assertIn('a news item', openai)
+        self.assertNotIn('a news item', claude)
+        self.assertIn('NameHeardOverWheels', claude_prompt.PERSONA)
+        self.assertNotIn('NameHeardOverWheels', hosted.PERSONA)
+        self.assertIn('A general headline that touches nobody here', claude_prompt.PLANNER_INSTRUCTIONS)
+        self.assertNotIn('A general headline that touches nobody here', agency.PLANNER_INSTRUCTIONS)
+        # A note the copy does not rewrite is the shared one.
+        for name in ('persona', 'voice_reminder', 'agency_beat', 'beat_before_tail', 'beat_moved_on'):
+            self.assertNotEqual(ClaudeBrain('c')._prompt(name, 'shared'), 'shared', name)
+        self.assertEqual(ClaudeBrain('c')._prompt('some_other_note', 'shared'), 'shared')
+        self.assertEqual(OpenAIBrain('o')._prompt('agency_beat', 'shared'), 'shared')
 
 
 class AnswerTests(unittest.TestCase):
@@ -259,14 +298,14 @@ class HelperTests(unittest.TestCase):
 
     def test_the_planner_asks_for_one_plan_in_a_fixed_shape_and_reads_it_back(self):
         from r3x.adapters.claude import ClaudeAgencyPlanner
-        from r3x.adapters.hosted import CHARACTER
         plan = {'goal_kind': 'x', 'steps': []}
         planner = ClaudeAgencyPlanner('fixture')
         planner.client, planner.trace = Client(stream(('text', json.dumps(plan)))), Rows()
         self.assertEqual(planner.plan({'request_id': 'p', 'revision': 0, 'evidence': {}}, Cancellation(), (Image(),)), plan)
         request = sent(planner)
         self.assertEqual(request['model'], 'claude-sonnet-5-5')
-        self.assertTrue(request['system'][0]['text'].startswith(CHARACTER))
+        self.assertEqual(request['system'][0]['text'], claude_prompt.CHARACTER + '\n' + claude_prompt.PLANNER_INSTRUCTIONS)
+        self.assertEqual(request['thinking'], {'type': 'adaptive'})   # A plan is still thought through.
         self.assertNotIn('tools', request)
         shape = json.dumps(request['output_config']['format']['schema'])
         for refused in ('maxLength', 'minLength', 'maxItems', 'minItems', 'minimum', 'maximum'):

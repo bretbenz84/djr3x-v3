@@ -1641,6 +1641,12 @@ class CoreState:
                 introduction_attribution = (replace(attribution,track_id=reliable_track,state='hypothesis',
                     reason='self_introduction',learning_eligible=voice_usable and observation.voiced_seconds>=1)
                     if reliable_track and voice_usable else Attribution(reason='name_only_introduction'))
+            if not person_id and capture.wheels_risk:
+                # November 16 (dc1543d7): a second of sound while he spun 169 degrees on his wheels was
+                # written "Yogesh.", joined to the owner's "No, I was in the other room." and saved as a
+                # new person the owner had never heard of. A new name heard over his wheels is asked
+                # again once he is still; a name he already knows still goes through.
+                raise ValueError("NameHeardOverWheels")
             if not person_id:
                 person_id = self.store.add_person(conn,name_text,args["aliases"],turn_id)
             self.named_people[person_id] = self.trace.clock()
@@ -1712,7 +1718,7 @@ class CoreState:
             else:
                 # A speaker's own fact is theirs even when the subject was left out (October 25).
                 subject, subject_created = self._person(args["subject_id"] or attribution.speaker_id)["id"], False
-            mentioned, mentioned_created = self._mentioned(conn,other,None) if other else (None, False)
+            mentioned, mentioned_created = self._mentioned(conn,other,None,subject) if other else (None, False)
             if mentioned == subject:
                 raise ValueError("OtherPersonIsTheSubject")
             speaker = attribution.speaker_id
@@ -1835,15 +1841,38 @@ class CoreState:
                     return True
         return False
 
-    def _mentioned(self, conn, reference, proposed_id):
+    def _known_through(self, reference, subject_id):
+        """The one saved person this name fits whom subject_id's own saved facts already name, or None.
+
+        Owner, November 16: "My sister gave him to me." was refused twice because nobody had said
+        "Jennifer" that evening, though Bret's saved facts name his sister Jennifer and Rex used her name."""
+        if not subject_id:
+            return None
+        linked = {r["mentions_id"] for r in self.store.rows(
+            "SELECT mentions_id FROM claims WHERE subject_id=? AND mentions_id IS NOT NULL AND status IN ('accepted','candidate')",
+            (subject_id,))}
+        _, candidates, _ = self.store.name_matches(" ".join(reference.split()))
+        fits = [p["id"] for p in candidates if p["id"] in linked]
+        return fits[0] if len(fits) == 1 and len(candidates) == 1 else None
+
+    def _mentioned(self, conn, reference, proposed_id, known_through=None):
         """The person a spoken name refers to: (person_id, created).
 
         A name said in the conversation links to the one known person it fits, or makes a
         name-only record when it fits nobody. That record has no voice or face; only that
         person's own introduction can start learning them. Never the current speaker.
+        A name nobody said lately still links to a saved person whom known_through's own saved
+        facts already name (the sister Rex knew about), never to a new record.
         """
-        if not isinstance(reference,str) or not reference.strip() or not self._named_recently(reference):
+        if not isinstance(reference,str) or not reference.strip():
             raise ValueError("MentionNeedsANameSaidInThisConversation")
+        if not self._named_recently(reference):
+            known = self._known_through(reference, known_through)
+            if known is None:
+                raise ValueError("MentionNeedsANameSaidInThisConversation")
+            if known in (self.current[4].speaker_id, self.current[4].person_id):
+                raise ValueError("MentionedPersonIsTheSpeaker")
+            return known, False
         name_text = " ".join(reference.split())
         # "Sam" with both a Sam and a Sam Rivera known is a question, even though one fits exactly.
         exact, candidates, overlapping = self.store.name_matches(name_text)

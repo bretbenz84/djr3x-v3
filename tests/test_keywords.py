@@ -45,6 +45,7 @@ class StopWordRuntimeTests(unittest.TestCase):
         halted = []
         class Drive:
             def __init__(inner): inner.moving = threading.Event()
+            def moved_during(inner, start, end): return inner.moving.is_set()
             def cancel(inner): halted.append(True); inner.moving.clear()
         drive = Drive()
         if moving:
@@ -124,6 +125,7 @@ class WakeWordTests(unittest.TestCase):
         halted = []
         class Drive:
             def __init__(inner): inner.moving = threading.Event()
+            def moved_during(inner, start, end): return inner.moving.is_set()
             def cancel(inner): halted.append(True)
         drive = Drive()
         if moving:
@@ -196,6 +198,7 @@ class QuietStopWhileDrivingTests(unittest.TestCase):
         heard, halted = [], []
         class Drive:
             def __init__(inner): inner.moving = threading.Event()
+            def moved_during(inner, start, end): return inner.moving.is_set()
             def cancel(inner): halted.append(True); inner.moving.clear()
         drive = Drive()
         if moving:

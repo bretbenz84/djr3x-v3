@@ -6,6 +6,25 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Run `dc1543d7` repairs: Claude's own prompt, quicker replies, spins, news, "Yogesh" — November 16 (night)
+
+Owner: "I have no idea where Gogesh came from", replies slower since Claude, "driving in circles for no
+reason, even when I'm right in front of him", "random news headlines out of context a lot". Ruling: keep
+the prompt tuned on OpenAI as it is; Claude reads its own copy, chosen by `llm_provider`.
+
+- **Claude's prompt copy** (`src/r3x/adapters/claude_prompt.py`): character, persona, voice reminder,
+  planner instructions and three per-turn notes. OpenAI's requests are byte-identical to before (checked
+  on four built requests). In the copy only: headlines are not a reason to speak, never in a greeting, to
+  an empty room or as a "meanwhile"; the planner makes no goal of a headline that touches nobody here and
+  rolls toward people only in view; a lone word is not an introduction. [Details](CLAUDE_REPLIES.md#november-16-claudes-own-prompt-and-quicker-replies).
+- **Quicker Claude replies:** a reply starts without thinking first (`between_tools`).
+- **Turning** ([details](DRIVE_BASE_INTEGRATION.md#run-dc1543d7-turning-toward-people--november-16-2026)):
+  a camera frame keeps the head angle it was taken at (a 62° swing for someone 24° off); the two-minute
+  voice memory is gone (the owner's October 20 ruling); his own beats never sweep the room for someone.
+- **Names:** a new name heard while his wheels turn is asked again, not saved (the "Yogesh" record).
+  A saved person his facts already name (his sister Jennifer) links without being said again that evening.
+- **Evidence:** blocked-I/O checks only; 1,962 pass, 8 new. Nothing run on the robot or on a paid model.
+
 ## Telepresence stages 3-5 and the first robot calls — November 16
 
 Owner request: "implement the rest of the plan", robot side only.

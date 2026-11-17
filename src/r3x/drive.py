@@ -150,8 +150,12 @@ STRAIGHTEN_TOWARD_MIN_M = .3   # ...unless the side he would turn toward is near
 TIGHT_CORNER_M = .5       # A front-corner return this close is tight space too.
 # October 3, second run. A voice's direction is remembered as a room heading, so it stays
 # right after he turns and for requests spoken while he moves (the model re-used "88 degrees
-# left" after he had already turned to face it, and he ended up facing away).
-VOICE_MEMORY_S = 120.
+# left" after he had already turned to face it, and he ended up facing away). Owner, October 20:
+# two minutes of that memory is the wrong method (it pointed at whoever spoke last, from wherever
+# they were). It now covers only the last few seconds of an exchange; where the speaker is comes
+# from their face, this utterance's bearing and the radar (_speaker_target).
+VOICE_RECENT_S = 15.
+VOICE_RADAR_AGREE_DEG = 30.   # A heard bearing this close to a radar body is aimed at the body.
 # October 19 (b4ce6464): "face me" turned 166 degrees on a voice heard 90 s and 2.6 m of
 # driving earlier. A heading only points at the person from where he heard it; once he has
 # rolled this far the remembered voice no longer says where they are.
@@ -167,6 +171,10 @@ VOICE_MOVED_M = .5
 VOICE_FACE_AGREE_DEG = 50.
 VOICE_STRONG_SAMPLES = 8
 VOICE_STRONG_SHARE = .8
+# November 16: a frame keeps the neck angle it was taken at. This long after a head move ends (the
+# board's own ramp has stopped) or the wheels stop (they coast), frames show the new view.
+HEAD_VIEW_SETTLE_S = .3
+BASE_VIEW_SETTLE_S = 1.
 CLOSING_M = 1.2           # Something this near straight ahead, with the target ahead too.
 CLOSING_DEG = 20.
 # November 15 evening (916af362): sent through an archway on his left, he rolled 1.2 m while it slid
@@ -615,6 +623,8 @@ class DriveBase:
         # plan, his own or asked for, and the back-off reflex are refused while it holds.
         self.hold = lambda: None
         self._lock = threading.Lock()
+        self._view_lock = threading.Lock()
+        self._view_moves = deque(maxlen=24)   # [started, neck before (None: the wheels), settled]
         self._threads = []
         self._reflex = reflex
         self.state = 'new'
@@ -935,6 +945,58 @@ class DriveBase:
         except Exception:
             return 0.
 
+    def note_head_motion(self, moving):
+        """The head camera began or ended a move that changes the view (the servo owner's notice, sent
+        before the new neck target is commanded, so the angle read on a start is the one it leaves)."""
+        now = self.clock()
+        with self._view_lock:
+            if moving:
+                self._view_moves.append([now, self._neck(), None])
+            elif self._view_moves and self._view_moves[-1][2] is None:
+                self._view_moves[-1][2] = now + HEAD_VIEW_SETTLE_S
+
+    def moved_during(self, start, end):
+        """Whether the wheels turned at any time between start and end (a capture's speech)."""
+        with self._view_lock:
+            return any(before is None and started <= end and (settled is None or settled - BASE_VIEW_SETTLE_S >= start)
+                       for started, before, settled in self._view_moves)
+
+    def _note_base_view(self):
+        """The wheels started or stopped: a frame from before or during a base move shows another direction."""
+        now = self.clock()
+        with self._view_lock:
+            if self.moving.is_set():
+                if not (self._view_moves and self._view_moves[-1][1] is None and self._view_moves[-1][2] is None):
+                    self._view_moves.append([now, None, None])
+            else:
+                for move in reversed(self._view_moves):
+                    if move[1] is None and move[2] is None:
+                        move[2] = now + BASE_VIEW_SETTLE_S
+                        break
+
+    def _seen_bearing(self, row):
+        """Base-relative bearing of something in a camera frame, placed with the neck angle the head had
+        when that frame was taken; None for a frame taken while the head or the wheels moved, or before
+        the wheels last moved.
+
+        November 16 (dc1543d7): a face box from a frame taken while the voice reflex was still turning the
+        head toward Bret was placed with the head's new angle. The turn counted twice, and the base swung
+        62 degrees for a man about 24 degrees off and lost him."""
+        at, neck = row.get('at'), self._neck()
+        if at is not None:
+            with self._view_lock:
+                for started, before, settled in reversed(self._view_moves):
+                    if settled is not None and at >= settled:
+                        break            # Taken after this move and every earlier one: the angle stands.
+                    if before is None:
+                        if settled is None:
+                            continue     # A drive under way re-finds its targets after each of its own motions.
+                        return None      # Taken before or while the wheels last turned him: another direction.
+                    if at >= started:
+                        return None      # Taken while the head moved.
+                    neck = before        # Taken before this head move: the head pointed where it was then.
+        return image_bearing(row['box'], neck)
+
     def _fresh_faces(self, now):
         from .faces import VISIBLE_FACE_MAX_AGE
         if self.faces is None:
@@ -965,7 +1027,9 @@ class DriveBase:
             blocked = clear - FRONT_MARGIN < (distance - 1. if distance else 1.)
             return {'clear_to_m': round(clear, 1), 'direct_approach': 'blocked_early' if blocked else 'clear'}
         for face in faces:
-            bearing = image_bearing(face['box'], self._neck())
+            bearing = self._seen_bearing(face)
+            if bearing is None:
+                continue   # Seen mid-move: where it is now is not known until the next settled frame.
             rng = face_range(face['box'])
             targets.append({'target_id': face['track_id'], 'kind': 'face', 'person_id': face.get('identity'),
                             'bearing_deg': round(bearing), 'where': describe_bearing(bearing),
@@ -974,11 +1038,15 @@ class DriveBase:
         # turn (September 27: with no face visible the model silently dropped "come to me").
         targets.append({'target_id': 'nearest_person', 'kind': 'nearest_person', 'visible_now': bool(faces),
                         'where': 'largest visible face, resolved when the step runs' if faces else
+                                 'nobody in view now; on your own you look only toward a voice from the last few seconds '
+                                 'or a radar body, never around the room, and with neither it does not move' if origin == 'self_initiated' else
                                  'nobody in view now; facing or approaching it looks for the person first '
                                  '(toward the last voice, radar bodies, then around); right after a turn they asked '
                                  'for ("turn left and come to me") it rolls straight ahead looking for them instead'})
         for row in (self.objects() if self.objects else ())[:8]:
-            bearing = image_bearing(row['box'], self._neck())
+            bearing = self._seen_bearing(row)
+            if bearing is None:
+                continue
             targets.append({'target_id': row['target_id'], 'kind': 'object', 'label': row['label'],
                             'bearing_deg': round(bearing), 'where': describe_bearing(bearing), 'path': path(bearing)})
         bodies = self.radar.bodies() if self.radar else None
@@ -992,24 +1060,12 @@ class DriveBase:
         if heard and facing is not None and speaker_direction.get('ended_at') != self._voice_key:
             # Each utterance's bearing is taken once, against the heading he had when it was heard.
             self._voice_key = speaker_direction.get('ended_at')
-            self._note_voice(speaker_direction, facing, faces, now)
-        voice = self._voice_bearing(now)
-        if origin == 'requested' and (voice is not None or heard):
-            bearing = voice if voice is not None else float(speaker_direction['bearing_deg'])
-            targets.append({'target_id': 'speaker', 'kind': 'voice_direction', 'bearing_deg': round(bearing),
-                            'where': describe_bearing(bearing),
-                            'heard_seconds_ago': round(now - self._voice['at']) if voice is not None else 0,
-                            'basis': self._voice.get('basis', 'voice') if voice is not None else 'voice'})
-        elif origin == 'requested' and speaker_person:
-            # October 17: the microphone gave no bearing on most turns, so "turn to face me" was
-            # refused twice while the owner, identified by voice, sat recognized in view. The
-            # speaker's own recognized face stands in; it is re-found by identity as he turns.
-            own = [f for f in faces if f.get('identity') == speaker_person]
-            if len(own) == 1:
-                bearing = image_bearing(own[0]['box'], self._neck())
-                targets.append({'target_id': 'speaker', 'kind': 'face', 'person_id': speaker_person,
-                                'bearing_deg': round(bearing), 'where': describe_bearing(bearing),
-                                'basis': 'speaker_recognized_face'})
+            self._note_voice(speaker_direction, facing, faces, bodies or (), now, speaker_person)
+        if origin == 'requested':
+            speaker = self._speaker_target(now, speaker_direction if heard else None, faces, bodies or (),
+                                           speaker_person)
+            if speaker is not None:
+                targets.append(speaker)
         displacement = None
         if telemetry and self.origin:
             odom = telemetry.get('odom') or {}
@@ -1039,17 +1095,20 @@ class DriveBase:
                 'recent_motion': list(self.history),
                 'meaning': GUIDE['drive']}
 
-    def _note_voice(self, direction, facing, faces, now):
-        """Remember where a voice came from, weighing it against who is in view.
+    def _note_voice(self, direction, facing, faces, bodies, now, person=None):
+        """Remember where a voice came from, weighing it against who is in view and what the radar sees.
 
         This places a direction to turn toward. It never says that the visible person
         spoke: attribution stays with the speaker tracker."""
         bearing = float(direction['bearing_deg'])
-        seen = [image_bearing(f['box'], self._neck()) for f in faces]
+        seen = [b for b in (self._seen_bearing(f) for f in faces) if b is not None]
         nearest = min(seen, key=lambda b: abs(wrap(bearing - b)), default=None)
+        body = min((b['bearing_deg'] for b in bodies), key=lambda b: abs(wrap(bearing - b)), default=None)
         basis = 'voice'
         if nearest is not None and abs(wrap(bearing - nearest)) <= VOICE_FACE_AGREE_DEG:
             bearing, basis = nearest, 'voice_and_face'
+        elif nearest is None and body is not None and abs(wrap(bearing - body)) <= VOICE_RADAR_AGREE_DEG:
+            bearing, basis = body, 'voice_and_radar'   # The radar places a body more tightly than the array.
         elif nearest is not None and self._voice_bearing(now) is not None:
             clusters = direction.get('clusters') or [{}]
             strong = ((direction.get('samples') or 0) >= VOICE_STRONG_SAMPLES and
@@ -1061,19 +1120,53 @@ class DriveBase:
                                     samples=direction.get('samples'), nearest_face_deg=round(nearest),
                                     kept_deg=round(self._voice_bearing(now)))
                 return
-        self._voice = {'heading': wrap(facing + bearing), 'at': now, 'basis': basis, 'from': tuple(self._at)}
+        self._voice = {'heading': wrap(facing + bearing), 'at': now, 'basis': basis, 'from': tuple(self._at),
+                       'person': person}
 
-    def _voice_bearing(self, now=None):
-        """Base-relative bearing of the last located voice, while it is recent and he has
-        not driven away from where he heard it."""
+    def _voice_bearing(self, now=None, person=None):
+        """Base-relative bearing of the last located voice while it is the latest few seconds of talk,
+        he has not driven away from where he heard it, and (when both are known) it was the same person."""
         now = self.clock() if now is None else now
         telemetry, _ = self.link.snapshot()
         facing = self._heading(telemetry) if telemetry else None
-        if self._voice is None or facing is None or now - self._voice['at'] > VOICE_MEMORY_S:
+        if self._voice is None or facing is None or now - self._voice['at'] > VOICE_RECENT_S:
             return None
         if math.dist(self._voice['from'], self._at) > VOICE_MOVED_M:
             return None
+        if person and self._voice.get('person') and self._voice['person'] != person:
+            return None   # Somebody else's voice says nothing about where this speaker is.
         return wrap(self._voice['heading'] - facing)
+
+    def _speaker_target(self, now, heard, faces, bodies, person):
+        """Where whoever just spoke is, from the camera, the microphone and the radar together.
+
+        Owner, October 20: remembering the last voice's direction for two minutes is the wrong method; it
+        sent him toward Jeremy, who had spoken from behind 70 s earlier, when the array could not place
+        Bret. November 16 (dc1543d7): "What are you doing, Rex?" from the next room, unplaced, spun him 169
+        degrees toward where the owner had spoken 100 s before. The speaker's own recognized face comes
+        first; then this utterance's bearing, or the last few seconds' from the same person, each refined
+        to a face or a radar body that agrees with it (_note_voice). Otherwise nothing: an unplaced voice
+        gives no direction to turn."""
+        own = [f for f in faces if person and f.get('identity') == person]
+        bearing = self._seen_bearing(own[0]) if len(own) == 1 else None
+        if bearing is not None:
+            # October 17: the microphone gave no bearing on most turns, so "turn to face me" was refused
+            # twice while the owner, identified by voice, sat recognized in view. It is re-found by
+            # identity as he turns.
+            return {'target_id': 'speaker', 'kind': 'face', 'person_id': person, 'bearing_deg': round(bearing),
+                    'where': describe_bearing(bearing), 'basis': 'speaker_recognized_face'}
+        voice = self._voice_bearing(now, person)
+        if voice is None and heard is None:
+            return None
+        bearing = voice if voice is not None else float(heard['bearing_deg'])
+        if voice is None:
+            body = min((b['bearing_deg'] for b in bodies), key=lambda b: abs(wrap(bearing - b)), default=None)
+            if body is not None and abs(wrap(bearing - body)) <= VOICE_RADAR_AGREE_DEG:
+                bearing = body
+        return {'target_id': 'speaker', 'kind': 'voice_direction', 'bearing_deg': round(bearing),
+                'where': describe_bearing(bearing),
+                'heard_seconds_ago': round(now - self._voice['at']) if voice is not None else 0,
+                'basis': self._voice.get('basis', 'voice') if voice is not None else 'voice'}
 
     def _assist(self, on):
         """Firmware wall-steering on or off (its own slow and stop zones are untouched).
@@ -1877,8 +1970,9 @@ class DriveBase:
         def near(rows, key):
             if predicted is None:
                 return rows[0] if len(rows) == 1 else None
-            close = [r for r in rows if abs(wrap(image_bearing(r['box'], self._neck()) - predicted)) <= 20]
-            return min(close, key=lambda r: abs(wrap(image_bearing(r['box'], self._neck()) - predicted)), default=None)
+            placed = [(b, r) for r in rows if (b := self._seen_bearing(r)) is not None]
+            close = [(b, r) for b, r in placed if abs(wrap(b - predicted)) <= 20]
+            return min(close, key=lambda c: abs(wrap(c[0] - predicted)), default=(None, None))[1]
         if kind in {'face', 'nearest_person'}:
             faces = [f for f in self._fresh_faces(now) if f['at'] >= since]
             if kind == 'nearest_person':
@@ -1891,9 +1985,10 @@ class DriveBase:
                     match = same[0] if len(same) == 1 else near(same, 'identity')
                 if match is None and not identity:
                     match = near(faces, 'face')  # Track IDs change as the view rotates.
-            if match is None:
+            bearing = self._seen_bearing(match) if match is not None else None
+            if bearing is None:
                 return None
-            return {'kind': 'face', 'bearing_deg': image_bearing(match['box'], self._neck()), 'range_m': face_range(match['box']),
+            return {'kind': 'face', 'bearing_deg': bearing, 'range_m': face_range(match['box']),
                     'box_width': match['box'][2], 'track_id': match['track_id'], 'person_id': match.get('identity')}
         if kind == 'object':
             source = self.object_tracks or self.objects
@@ -1901,9 +1996,10 @@ class DriveBase:
             match = next((r for r in rows if r['target_id'] == target), None)
             if match is None:
                 match = near([r for r in rows if r['label'] == offered.get('label')], 'label')
-            if match is None:
+            bearing = self._seen_bearing(match) if match is not None else None
+            if bearing is None:
                 return None
-            return {'kind': 'object', 'bearing_deg': image_bearing(match['box'], self._neck()), 'range_m': None,
+            return {'kind': 'object', 'bearing_deg': bearing, 'range_m': None,
                     'box_width': match['box'][2], 'label': match['label']}
         if kind == 'radar_body':
             bodies = (self.radar.bodies() if self.radar else None) or []
@@ -1941,9 +2037,14 @@ class DriveBase:
         if anyone:
             # "Come here" with nobody in view is a request to find the person, never a
             # refusal (October 3: refused once, then given up on after a wrong turn).
+            # His own beat looks only where a voice or the radar says someone is (owner, November 16:
+            # "driving in circles for no reason"; a planned roll toward Bret, who had left the room,
+            # swung him 356 degrees).
             search = self._find_person(DriveStep('find_person'), plan, cancel)
             target = self._acquire(step, plan, cancel) if search['status'] == 'completed' else None
-            return target, search.get('turned_deg', 0.), None if target else 'no_person_found_after_looking_around'
+            missing = (None if target else 'nobody_in_view_to_go_to' if search['reason'] == 'nowhere_to_look'
+                       else 'no_person_found_after_looking_around')
+            return target, search.get('turned_deg', 0.), missing
         predicted = self._predicted(offered)
         if predicted is None or offered.get('kind') not in {'face', 'object'}:
             return None, 0., 'target_not_currently_detected'
@@ -2139,11 +2240,12 @@ class DriveBase:
         deadline = self.clock() + wait
         while True:
             faces = [f for f in self._fresh_faces(self.clock()) if f['at'] >= self._view_since]
-            rows = [(abs(wrap(image_bearing(f['box'], self._neck()) - expected)), f) for f in faces]
+            placed = [(b, f) for f in faces if (b := self._seen_bearing(f)) is not None]
+            rows = [(abs(wrap(b - expected)), b, f) for b, f in placed]
             rows = [r for r in rows if r[0] <= 45]
             if rows:
-                face = min(rows, key=lambda r: r[0])[1]
-                return {'track_id': face['track_id'], 'bearing_deg': image_bearing(face['box'], self._neck())}
+                _, bearing, face = min(rows, key=lambda r: r[0])
+                return {'track_id': face['track_id'], 'bearing_deg': bearing}
             if self.clock() >= deadline:
                 return None
             self._sleep(.25, cancel)
@@ -2183,7 +2285,8 @@ class DriveBase:
         return {**found, 'how': how, 'turned_deg': turned}
 
     def _faces_ahead(self):
-        return [f for f in self._fresh_faces(self.clock()) if abs(image_bearing(f['box'], self._neck())) <= 20]
+        return [f for f in self._fresh_faces(self.clock())
+                if (b := self._seen_bearing(f)) is not None and abs(b) <= 20]
 
     def _run_approach(self, step, plan, cancel, kind, stop_at, budget_m):
         """One closed-loop run toward a camera target; returns (result, reason, travel, last seen)."""
@@ -2929,6 +3032,8 @@ class DriveBase:
                 return result(detour['status'], 'detour_' + detour['status'])
 
     def _find_person(self, step, plan, cancel):
+        """Turn until a face is in view: first where the model said, the last voice and radar bodies, then,
+        when someone asked, a look to each side and behind."""
         row = {'action': 'find_person'}
         if self._fresh_faces(self.clock()):
             return {**row, 'status': 'completed', 'reason': 'person_already_visible', 'turned_deg': 0.}
@@ -2942,7 +3047,10 @@ class DriveBase:
         prior = self._resolve(step.target, plan, self.clock()) if step.target else None
         if prior is not None:
             candidates.insert(0, prior['bearing_deg'])  # The model's chosen first place to look.
-        candidates += [90., -90., 180.]
+        if plan.origin != 'self_initiated':
+            candidates += [90., -90., 180.]
+        if not candidates:
+            return {**row, 'status': 'not_found', 'reason': 'nowhere_to_look', 'turned_deg': 0.}
         heading, turned, looked = 0., 0., []
         for bearing in candidates:
             if len(looked) >= 4:
@@ -3153,6 +3261,7 @@ class DriveBase:
         }
 
     def _notify(self, plan):
+        self._note_base_view()
         for hook in self.on_motion:
             try:
                 hook(plan)

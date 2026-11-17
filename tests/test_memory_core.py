@@ -62,6 +62,24 @@ class MemoryFixture(unittest.TestCase):
         return person
 
 class MemoryTests(MemoryFixture):
+    def test_a_new_name_heard_over_his_wheels_is_asked_again_not_saved(self):
+        # November 16 (dc1543d7): a sound during a 169 degree turn was written "Yogesh." and became a person.
+        bret = self.introduce()
+        self.at += 10
+        capture = Capture(uuid4().hex, "session", uuid4().bytes*4000, self.at, self.at+2., self.at+2.,
+                          voiced_intervals=((0., 1.1),), motion_risk=True, wheels_risk=True)
+        self.state.begin(uuid4().hex, capture, Transcript("No, I was in the other room. Yogesh.", -.28, True),
+                         observation(A, 2.))
+        result = self.call("introduce_person", {"name": "Yogesh", "aliases": [], "subject": "self", "person_id": None,
+                                                "face_track_id": None})
+        self.assertEqual((result.outcome, result.reason), ("rejected", "NameHeardOverWheels"))
+        self.assertEqual([p['name'] for p in self.store.people()], ['Bret'])
+        # A name he already knows still goes through over the wheels, and once still a new one is saved.
+        again = self.call("introduce_person", {"name": "Bret", "aliases": [], "subject": "self", "person_id": bret,
+                                               "face_track_id": None})
+        self.assertNotEqual(again.reason, "NameHeardOverWheels")
+        self.introduce("Yogesh", B)
+
     def test_competing_unnamed_voice_cannot_open_a_second_chain_for_one_person(self):
         person=self.introduce()
         self.begin("My name is Bret.",B)

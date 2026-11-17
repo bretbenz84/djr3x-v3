@@ -140,3 +140,55 @@ cents at list prices; a news search about ten to fifteen); their monthly total i
 - Jeopardy, sentry mode, photo teaching, driving, impressions and callouts were not probed on Claude.
 - The hosted check tools still build the OpenAI classes themselves; Claude runs used a private launcher.
 - The Claude locator has not guided a drive, and the planner was run once.
+
+## November 16: Claude's own prompt and quicker replies
+
+Owner, after run `dc1543d7`: the time to first speech "has gotten considerably worse", Rex speaks "random
+news headlines out of context a lot", and "The switch away from OpenAI is starting to show lots of
+issues." Ruling: "keep the ChatGPT optimized one and make the program use the new Claude one, copy the
+prompt instead and branch it depending on the setting of which LLM to use. Don't remove the good prompt
+for ChatGPT."
+
+**What the logs showed** (ordinary replies, no driving or Jeopardy, end of speech to first sound):
+
+| | OpenAI, Oct 25 – Nov 9 | Claude, Nov 14 – 16 |
+| --- | ---: | ---: |
+| Replies | 183 | 68 |
+| Median | 3.7 s | 4.7 s |
+| Over four seconds | 37% | 69% |
+| Slowest tenth from | 6.1 s | 7.2 s |
+| First words from the model, median | 2.0 s | 2.7 s |
+| Output tokens before the first reply ended, median | 86 | 147 |
+
+Claude thought before answering; requests were ~96,000 tokens with ~23,000 not reused. The goal planner
+on Claude built 12 of 34 goals on headlines (OpenAI: 1 of 22), and three per-turn notes told a beat that
+no longer fit to say "a news item" instead, which Claude did ("Meanwhile, WDW News Today says..." in the
+middle of a story about the dog; snow in northern England after "hello").
+
+**What changed**
+
+- **`claude_prompt.py`** holds Claude's copy of the character, persona, voice reminder and planner
+  instructions, and Claude's versions of the notes named `agency_beat`, `beat_before_tail` and
+  `beat_moved_on`. `OpenAIBrain._prompt(name, text)` returns OpenAI's own text; `ClaudeBrain._prompt`
+  returns the copy's. A note the copy does not name is the shared one. Four built OpenAI requests (plain
+  turn, beat, inspect beat, an answered question) hash identically before and after.
+- **In the copy only:** a headline is not a reason to speak; at most one a visit, only with nobody mid-
+  subject and touching the people here or what was said, never in a greeting, to an empty room or as a
+  "meanwhile"; a beat that no longer fits never falls back on a headline; the planner makes no goal of a
+  headline that touches nobody here, none with nobody here, and plans a roll toward a person only when
+  that person is in view; a lone word after a sentence is not an introduction, `NameHeardOverWheels`
+  means ask again, and a name the person rejects is a mishearing, never another person.
+- **Replies start without thinking first:** `thinking: {"type": "between_tools"}` for Sonnet 5.5 replies
+  (the earlier note that Sonnet 5.5 could not switch thinking off was out of date). The planner, news
+  search and locator still think.
+- **Not changed:** plain words still wait for the end of the answer when tools are on offer. Most lines
+  are one sentence, so speaking them as they come would gain about 0.2 s, and without thinking first a
+  short "Let me look." before a tool would be heard and the look dropped as a broken turn.
+
+**Evidence:** blocked-I/O checks only (1,962 pass). Neither the speed nor the wording was measured on a
+paid model or the robot; quality without thinking is unjudged. The planner's change takes effect on its
+next plan; Claude's stored prompt is rebuilt once (the first reply of a run pays for it either way).
+
+**Still open:** the ~23,000 tokens read fresh on every request (the notes for the moment, ~50,000
+characters) are the next latency and cost lever. Claude's per-moment notes other than the three above
+are still the shared ones.

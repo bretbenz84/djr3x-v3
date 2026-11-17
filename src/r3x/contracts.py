@@ -52,6 +52,9 @@ class Capture:
     robot_microphone_hold: bool | None = None  # None: non-robot capture; True: bounded hold covered full PCM.
     motion_risk: bool = False
     self_noise_risk: bool = False  # Only brief sounds, all while Rex's own servos or wheels moved.
+    # His wheels were turning while it was said (November 16: a sound heard during a turn became "Yogesh."
+    # and a new person). A new name heard this way is asked again, never saved (state.introduce_person).
+    wheels_risk: bool = False
     # What ended it: "silence" (the full end-of-speech pause), "finished" (Smart Turn heard a finished
     # turn at a short pause), "truncated" (20 s) or "playback_boundary" (Rex's playback began or ended).
     ended_by: str = "silence"

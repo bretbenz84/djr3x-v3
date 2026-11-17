@@ -1008,13 +1008,16 @@ class VoiceRuntime:
                                       device=device.replace('channel=0', 'channel=1') if self._answer_beam else device)
                     if self.robot:
                         capture = replace(capture,robot_microphone_hold=self.robot.capture_held(capture))
+                    if self.drive is not None:
+                        capture = replace(capture,wheels_risk=self.drive.moved_during(capture.started_at,capture.speech_ended_at))
                     if self.recorder:
                         self.recorder.save(capture)
                     self.trace.emit("capture", capture_id=capture.capture_id,
                         started_at=capture.started_at, ended_at=capture.ended_at,
                         speech_ended_at=capture.speech_ended_at, truncated=capture.truncated,
                         echo_risk=capture.echo_risk, motion_risk=capture.motion_risk,
-                        self_noise_risk=capture.self_noise_risk, pcm_bytes=len(capture.pcm), ended_by=capture.ended_by,
+                        self_noise_risk=capture.self_noise_risk, wheels_risk=capture.wheels_risk,
+                        pcm_bytes=len(capture.pcm), ended_by=capture.ended_by,
                         vad_voiced_seconds=sum(b-a for a,b in capture.voiced_intervals),
                         robot_microphone_hold=capture.robot_microphone_hold,
                         **({'channel': 1, 'beam_gain': round(self.beam_gain.gain, 2)} if capture.channel else {}))

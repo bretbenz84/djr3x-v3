@@ -83,6 +83,10 @@ reach back into v2 through sys.path changes, symlinked mutable state, or imports
 
 ## Implementation discipline
 
+- Prompt wording has one copy per provider (owner ruling, November 16). The text in
+  `adapters/hosted.py` and `agency.PLANNER_INSTRUCTIONS` is OpenAI's, tuned over months: leave it
+  alone when tuning for Claude. Claude's wording lives in `adapters/claude_prompt.py`; to change a
+  shared per-turn note for Claude only, copy it there under its `_prompt` name first.
 - Prefer small typed Python modules and explicit interfaces. Use stable identifiers
   for people/tracks/turns; names are display and lookup data, not primary keys.
 - Keep one active implementation per responsibility. Retire replaced code, settings,

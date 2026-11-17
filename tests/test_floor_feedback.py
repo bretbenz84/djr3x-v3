@@ -1533,6 +1533,7 @@ class ComeHereTests(unittest.TestCase):
         person = (2.5*math.cos(math.radians(73)), 2.5*math.sin(math.radians(73)))
         clock, fake, drive, world, context = self.start(person, 73.)
         self.run_plan(clock, drive, context, DriveStep('face', target='speaker'))
+        clock.wait(1.5)   # The next words come after the wheels have stopped and the view has settled.
         settle()
         phantom = {'status': 'observed', 'bearing_deg': 115., 'ended_at': 2., 'samples': 6,
                    'clusters': [{'bearing_deg': 115., 'samples': 3, 'weight_share': .72}]}
@@ -1546,6 +1547,95 @@ class ComeHereTests(unittest.TestCase):
                   'clusters': [{'bearing_deg': -100., 'samples': 14, 'weight_share': 1.}]}
         speaker = next(t for t in drive.context('requested', strong)['targets'] if t['target_id'] == 'speaker')
         self.assertAlmostEqual(speaker['bearing_deg'], -100, delta=3)
+
+    def test_a_face_seen_before_the_head_turned_is_placed_with_the_old_head_angle(self):
+        # November 16 (dc1543d7): a frame taken before the voice reflex turned the head 24 degrees
+        # toward Bret was placed with the new angle; the turn counted twice and he swung 62 degrees.
+        clock, fake, drive, world = base_setup(self)
+        drive.start(); self.addCleanup(drive.close)
+        class Servos:
+            owner = type('Owner', (), {'neck_degrees': staticmethod(lambda: world.neck)})()
+        drive.servos = Servos()
+        person = (2.5*math.cos(math.radians(24)), 2.5*math.sin(math.radians(24)))
+        world.people.append(('face-1', 'person-1', *person))
+        settle()
+        before = world.faces(clock())                  # Seen with the head straight ahead.
+        clock.wait(.1)
+        drive.note_head_motion(True)                   # The reflex starts; the target is not yet commanded.
+        world.neck = 24.
+        clock.wait(.5)
+        during = world.faces(clock())                  # Mid-move (the fake camera shows the end view).
+        drive.note_head_motion(False)
+        drive.faces = lambda now: before
+        self.assertAlmostEqual(drive._seen_bearing(before[0]), 24., delta=2.)   # Not 48.
+        self.assertIsNone(drive._seen_bearing(during[0]))
+        drive.faces = lambda now: during
+        self.assertNotIn('face-1', [t['target_id'] for t in drive.context('requested')['targets']])
+        clock.wait(1.)
+        drive.faces = world.faces                      # Settled: the new frames carry the new angle.
+        face = next(t for t in drive.context('requested')['targets'] if t['target_id'] == 'face-1')
+        self.assertAlmostEqual(face['bearing_deg'], 24, delta=2)
+
+    def test_an_unplaced_voice_does_not_point_at_where_someone_spoke_long_ago(self):
+        # Owner, October 20: two minutes of remembered direction is the wrong method. November 16:
+        # "What are you doing, Rex?" from the next room spun him 169 degrees toward a voice 100 s old.
+        clock, fake, drive, world = base_setup(self)
+        drive.start(); self.addCleanup(drive.close)
+        settle()
+        context = drive.context('requested', {'status': 'observed', 'bearing_deg': 88., 'ended_at': 1.},
+                                speaker_person='person-1')
+        self.assertIn('speaker', [t['target_id'] for t in context['targets']])
+        unheard = {'status': 'unavailable', 'bearing_deg': None, 'ended_at': 2.}
+        clock.wait(5.)
+        self.assertIn('speaker', [t['target_id'] for t in drive.context('requested', unheard)['targets']])
+        self.assertNotIn('speaker', [t['target_id'] for t in
+                                     drive.context('requested', unheard, speaker_person='someone-else')['targets']])
+        clock.wait(30.)
+        self.assertNotIn('speaker', [t['target_id'] for t in drive.context('requested', unheard)['targets']])
+
+    def test_a_heard_voice_near_a_radar_body_is_aimed_at_the_body(self):
+        from tests.test_drive import FakeRadar
+        radar = FakeRadar()
+        clock, fake, drive, world = base_setup(self, radar=radar)
+        drive.start(); self.addCleanup(drive.close)
+        radar.bodies_list = [{'target_id': 'radar:+110', 'bearing_deg': 110., 'range_m': 2., 'confidence': .7,
+                              'moving': True, 'frames': 5}]
+        settle()
+        context = drive.context('requested', {'status': 'observed', 'bearing_deg': 90., 'ended_at': 1.})
+        speaker = next(t for t in context['targets'] if t['target_id'] == 'speaker')
+        self.assertEqual((speaker['bearing_deg'], speaker['basis']), (110, 'voice_and_radar'))
+
+    def test_speech_is_marked_as_heard_over_the_wheels_only_while_they_turned(self):
+        clock, fake, drive, world = base_setup(self)
+        drive.start(); self.addCleanup(drive.close)
+        settle()
+        before = clock()
+        clock.wait(5.)
+        started = clock()
+        drive.execute(DrivePlan('p', (DriveStep('turn', degrees=90.),), 'requested', 'turn',
+                                {}, clock()+60), Cancellation())
+        ended = clock()
+        self.assertFalse(drive.moved_during(before, before + 1.))
+        self.assertTrue(drive.moved_during(started - .5, started + .5))
+        self.assertTrue(drive.moved_during(ended - .5, ended + 2.))
+        self.assertFalse(drive.moved_during(ended + .5, ended + 4.))   # Said once the wheels had stopped.
+
+    def test_his_own_roll_toward_someone_out_of_view_does_not_spin_round_the_room(self):
+        # Owner, November 16: "driving in circles for no reason". A planned roll toward Bret, who
+        # had left the room, looked all the way round (356 degrees).
+        clock, fake, drive, world = base_setup(self)
+        drive.start(); self.addCleanup(drive.close)
+        settle()
+        context = drive.context('self_initiated')
+        targets = {t['target_id']: t for t in context['targets']}
+        receipt = drive.execute(DrivePlan('p', (DriveStep('approach', target='nearest_person'),), 'self_initiated',
+                                          'catch up', targets, clock()+120), Cancellation())
+        self.assertEqual(receipt.steps[0]['reason'], 'nobody_in_view_to_go_to', receipt)
+        self.assertEqual([c for c in fake.commands if c['cmd'] in {'turn', 'move'}], [])
+        # Asked to come here, he still looks around for the person.
+        receipt = self.run_plan(clock, drive, drive.context('requested'), DriveStep('approach', target='nearest_person'))
+        self.assertEqual(receipt.steps[0]['reason'], 'no_person_found_after_looking_around', receipt)
+        self.assertGreater(receipt.turned_deg, 90.)
 
     def test_a_voice_that_agrees_with_a_visible_face_is_aimed_at_the_face(self):
         # At close range the array heard a centred face 25 to 38 degrees to the right, and
