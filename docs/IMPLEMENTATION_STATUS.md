@@ -34,6 +34,20 @@ Owner request: "implement the rest of the plan", robot side only.
   through the call's speaker with his mouth lights, and nothing moves. Full suite passed (1,951); not
   yet heard on the robot.
 
+## Telepresence stages 3-5 in the Mac app — November 16
+
+Owner request. Rex Call now:
+- starts calls through the supervisor (only while Rex is asleep);
+- aims the head (drag, keys, sliders);
+- drives (W A S D, a speed slider, a game controller);
+- has a Stop button on Space, which is the caller's own control. There is still no spoken stop
+  keyword.
+- shows battery, clearance and the wheels' holds.
+
+Evidence: 10 Swift core checks, and headless calls from the app's connection code to a fake robot
+running the real trigger, call loop, head and drive controls on simulated hardware. Not checked:
+the screens by hand, a controller, the robot ([details](TELEPRESENCE_PLAN.md#stages-3-5-in-the-mac-app--november-16)).
+
 ## Telepresence stage 2: the Rex Call Mac app — November 16
 
 Owner request. `apps/telepresence/` is a SwiftUI app that calls the robot's telepresence program. It

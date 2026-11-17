@@ -12,9 +12,29 @@ open "apps/telepresence/build/Rex Call.app"
 - **First call:** enter the robot's address (its `telepresence_listen`, such as `192.168.1.50:47800`) and paste
   the `telepresence_token` value from the robot's `local/secrets.toml`. The token is saved in this Mac's
   keychain. macOS asks once for the microphone.
-- **On a call:** you start muted. Use the button or M to mute and unmute, and hold Space to talk.
-  Hang Up (or Esc, or quitting) tells Rex to park.
-- **While he wakes:** the app keeps calling for up to 60 s, as his wake takes a few seconds.
+- **Calling:** Call first asks Rex's supervisor (the call's port + 1).
+  - Asleep: it asks the supervisor to start the call, then joins once he has woken. It keeps calling
+    for up to 60 s.
+  - Already on a call: it joins.
+  - Awake (talking, playing or on guard): it says so and does nothing. A call never takes over.
+  - No supervisor answering: it calls directly, for a call started on the robot by hand.
+  - The connect screen shows what the supervisor says: asleep or not, battery, and how the last call
+    ended. "End that call" stops a call left running.
+- **On a call:** you start muted. M mutes and unmutes; hold T to talk. Hang Up (or Esc, or quitting)
+  tells Rex to park.
+- **The head**, when the robot offers it: drag the picture (right looks right, up looks up), or use
+  the arrows, Q/E to cock, R/F to raise and lower, C to centre and V for the visor. The Head panel
+  has a slider for each. The head stays level while the wheels move (the robot's rule).
+- **The wheels**, when the robot offers them: hold W A S D. The speed slider sets the share of his
+  caps.
+  - Space or the Stop button halts the wheels until you let go of the keys. This is your button on
+    this Mac; nothing listens for a spoken "stop" at home (the owner's decision: no stop keyword).
+  - The app holds the wheels itself while it isn't the front window or the picture is over 0.5 s
+    old, and the strip says why.
+  - The robot's own holds show on the strip: something ahead, the charger, a slow link.
+- **A game controller:** the left stick drives, the right stick aims, B stops, Y centres, X works the
+  visor and A talks.
+- **The keyboard button** lists every key.
 - **Sound devices:** pick the microphone and the speaker before a call, or from Audio during one.
   A change takes effect at once without dropping the call. A device that disappears falls back to
   System default.
@@ -56,5 +76,12 @@ TELEPRESENCE_TOKEN=... .venv/bin/python tools/telepresence_fake_robot.py --liste
 TELEPRESENCE_TOKEN=... apps/telepresence/.build/debug/rexcall-probe 127.0.0.1:47800 6
 ```
 
-`tools/telepresence_fake_robot.py` runs the robot's real call code with a synthetic room and camera
-and no devices. You can open the app against it too.
+`tools/telepresence_fake_robot.py` runs the robot's real code with no devices:
+- the trigger and its `answer()`, as a pretend supervisor that starts calls;
+- the call loop;
+- `HeadControl` on the dashboard's simulated servo board, after the real wake and stance;
+- `DriveControl` on a simulated base with a wall 2 m ahead.
+
+Its camera picture shows where the head points and how far the base has rolled, so the app can be
+tried end to end on any Mac. `rexcall-probe ... --start --steer` does that headless;
+`--trigger status|start|stop` asks the supervisor.

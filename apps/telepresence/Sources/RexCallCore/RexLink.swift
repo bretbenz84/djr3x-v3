@@ -21,6 +21,7 @@ public final class RexLink: @unchecked Sendable {
         case audio(Data)                       // Room PCM.
         case video(Data, age: Double?)         // JPEG, and how old it is by the robot's clock, when known.
         case status([String: Any])
+        case message([String: Any])            // head_state, drive_state and anything newer.
         case closed(String)
     }
 
@@ -36,6 +37,7 @@ public final class RexLink: @unchecked Sendable {
     private var pingID = 0
     private var audioInFlight = 0
     private var audioSequence: UInt32 = 0
+    private var driveSequence = 0           // Rises by one per setpoint; a new link starts again.
     private var finished = false
     public var onEvent: (Event) -> Void = { _ in }
 
@@ -114,6 +116,32 @@ public final class RexLink: @unchecked Sendable {
             })
         }
     }
+
+    /// One wheel setpoint: lin and ang are -1...1 fractions of the robot's caps, positive ang turning left.
+    /// Sent 10 times a second while steering, zeros included (the robot zeroes a setpoint 0.3 s old).
+    public func sendDrive(lin: Double, ang: Double) {
+        queue.async {
+            guard !self.finished, self.phase == "signed_in" else { return }
+            self.driveSequence += 1
+            let message: [String: Any] = ["type": "drive", "seq": self.driveSequence,
+                                          "lin": max(-1, min(1, lin)), "ang": max(-1, min(1, ang))]
+            if let data = try? Wire.json(message) {
+                self.connection.send(content: data, completion: .contentProcessed { _ in })
+            }
+        }
+    }
+
+    /// Stop: the wheels go to zero and stay there until a setpoint with lin and ang both 0.
+    public func sendStop() { sendJSON(["type": "stop"]) }
+
+    /// Absolute head targets on the robot's scale (neck/pitch/tilt -1...1, lift/visor 0...1); parts left out stay.
+    public func sendHead(_ targets: [String: Double]) {
+        guard !targets.isEmpty else { return }
+        sendJSON(targets.reduce(into: ["type": "head"] as [String: Any]) { $0[$1.key] = $1.value })
+    }
+
+    /// The newest round trip in seconds, or nil before the first.
+    public func latestRoundTrip() -> Double? { queue.sync { rtts.last } }
 
     /// Tell the robot the call is over (he parks), then close.
     public func hangUp() {
@@ -209,7 +237,7 @@ public final class RexLink: @unchecked Sendable {
         case ("signed_in", "status"):
             onEvent(.status(message))
         case ("signed_in", _):
-            break   // A newer robot's message this app does not know yet.
+            onEvent(.message(message))   // head_state, drive_state, or a newer robot's message.
         default:
             finish("unexpected_\(type)")
         }

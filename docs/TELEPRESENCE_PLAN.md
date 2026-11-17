@@ -502,6 +502,49 @@ controller, and fake sockets and clocks. They check:
   - telling sentry mode apart in status (it reports `awake`);
   - stage 6.
 
+## Stages 3-5 in the Mac app — November 16
+
+Owner request: bring the new robot features into Rex Call ([how it works](../apps/telepresence/README.md)).
+
+- **Calling through the supervisor:**
+  - The app asks for status first. Asleep: it starts the call and joins. Already on a call: it joins.
+    Awake: it says so and leaves him alone. No supervisor: it calls directly.
+  - The connect screen shows the supervisor's state, battery and last call, and can end a call left
+    running.
+  - A call the supervisor started but that never answers is reported with the last call's reason.
+- **Head:**
+  - Drag the picture, use the arrow keys and Q/E/R/F, a slider panel, C to centre and V for the visor.
+  - Targets go out ten times a second at most, and only the parts that changed.
+  - While the caller isn't moving the head, the app adopts the robot's reported position, since the
+    robot levels the head itself before driving.
+- **Wheels:**
+  - W A S D with a speed slider, or a game controller (left stick drives, right stick aims).
+  - Setpoints go out ten a second while steering, then half a second of zeros, then nothing.
+  - Space or the Stop button sends the wire `stop`: the caller's own control. **There is no spoken
+    stop keyword** (owner decision); nothing at home listens for one.
+  - The app holds the wheels while it isn't the front window or the picture is over 0.5 s old.
+  - Push-to-talk moved from Space to T, since Space is Stop.
+- **Status strip:** round trip, picture age, battery, clearance ahead and behind, and the wheels'
+  state with the robot's holds and refusals in words.
+
+**Evidence, dev Mac only:**
+- 10 Swift core checks, including steering, pacing and head clamps.
+- Headless calls with the app's own connection code (`rexcall-probe`) against the fake robot. The
+  fake robot runs the real trigger, call loop, `HeadControl` on the simulated servo board after the
+  wake and stance, and `DriveControl` on a simulated base. Each call:
+  - status said asleep, start woke him and the call joined;
+  - both head targets were reached (neck +0.5, then −0.5);
+  - the wheels moved, stopped, were held by Stop, then released, with no refusals;
+  - about 100 setpoints were taken;
+  - the hang-up parked him, and status then reported him asleep with `last_call: hangup`.
+- Start while already on a call answered `already_running`; a stop during the wake ended the call;
+  a wrong token was refused.
+
+**Not checked:**
+- the app's screens and keys by hand;
+- a game controller;
+- any of this on the robot.
+
 ## Risks
 
 - **Drop-offs: not a risk here.** The base cannot sense stairs or ledges, but the owner lives on the
