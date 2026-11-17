@@ -4,8 +4,8 @@ robot's real code with no devices:
 - a pretend supervisor: the real trigger listener and answer() on the call's port + 1, so the app's
   status, start and stop work. Rex is "asleep" until a start, unless --call-now;
 - the real call loop, listener and video sender;
-- the real HeadControl on the dashboard's simulated servo board, after the real wake, visor and
-  telepresence stance;
+- the real HeadControl on the dashboard's simulated servo board, after the call's real wake (head
+  level and visor up);
 - the real DriveControl on a small simulated base with a wall 2 m ahead of where it starts.
 
     TELEPRESENCE_TOKEN=... .venv/bin/python tools/telepresence_fake_robot.py [--listen 127.0.0.1:47800] [--call-now]
@@ -27,7 +27,6 @@ PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / 'src'))
 
 from r3x.capture import Frame as AudioFrame  # noqa: E402
-from r3x.contracts import Cancellation  # noqa: E402
 from r3x.settings import ScratchPaths, Secrets  # noqa: E402
 from r3x.telepresence.call import Call, VideoStream  # noqa: E402
 from r3x.telepresence.program import call_controls, controls_offer  # noqa: E402
@@ -198,15 +197,13 @@ class Printer:
 
 
 def run_call(host, port, networks, token, trace, stop):
-    """One call, as the robot's program runs it: wake, visor, stance, then the call until it ends."""
+    """One call, as the robot's program runs it: the call's wake, then the call until it ends."""
     from r3x.gui.sim import SimulatedMaestro
     from r3x.robot_servos import RobotServos
     board = SimulatedMaestro()
-    robot = RobotServos('simulation', open_port=lambda: board)
+    robot = RobotServos('simulation', open_port=lambda: board, telepresence=True)
     robot.trace = trace
-    robot.start()
-    robot.open_eyes()
-    robot.telepresence_stance(Cancellation())
+    robot.start()   # The call's short wake: head level, visor up.
     wheels = Wheels()
     video = VideoStream(Camera(robot, wheels))
     server = Server(host, port, networks, token, welcome=lambda: {
@@ -227,7 +224,7 @@ def run_call(host, port, networks, token, trace, stop):
     finally:
         server.close()
         video.close()
-        robot.close()   # Parks from the stance.
+        robot.close()   # Parks.
     print(json.dumps({'call_ended': reason, 'voice_seconds_received': round(voice.seconds, 2),
                       'voice_peak': voice.peak, 'base_rolled_m': round(wheels.x, 2),
                       'head_stats': dict(controls['head'].stats), 'drive_stats': dict(controls['drive'].stats)}),

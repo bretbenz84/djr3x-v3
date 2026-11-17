@@ -13,8 +13,8 @@ from unittest.mock import Mock, patch
 
 from r3x.contracts import Cancellation
 from r3x.drive import MANUAL_SPEED, MANUAL_TURN
-from r3x.servo_poses import (DRIVE_ARMS, LIMITS, PARK, POKER_PARK, TELEPRESENCE_DRIVE_HEAD, telepresence_reading,
-                             telepresence_targets)
+from r3x.servo_poses import (DRIVE_ARMS, LIMITS, PARK, POKER_PARK, POKER_UP, REST, TELEPRESENCE_DRIVE_HEAD, VISOR_OPEN,
+                             telepresence_reading, telepresence_targets)
 from r3x.settings import Secrets, Settings
 from r3x.telepresence import trigger
 from r3x.telepresence.controls import (SETPOINT_STALE_SECONDS, DriveControl, HeadControl, base_readings)
@@ -23,14 +23,20 @@ from tests.test_telepresence import (TOKEN, Clock as CallClock, FakeLink, FakeMi
                                      socket_pair, wait_until)
 
 
-def servos():
+def servos(start=True, asleep=()):
+    """A call's servos on the software Maestro, asleep in the park pose (plus asleep's changes)."""
     from tests.test_servos import Clock, PulsePort
     from r3x.robot_servos import RobotServos
     clock, port = Clock(), PulsePort()
-    robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait)
+    port.pose.update(dict(asleep))
+    robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait, telepresence=True)
     robot.owner.wait = clock.wait
-    robot.start()
+    if start:
+        robot.start()
     return robot, port, clock
+
+
+ARMS = (4, 5, 6, 7, 8, 9, 10, 12, 13)
 
 
 class StanceTests(unittest.TestCase):
@@ -43,16 +49,33 @@ class StanceTests(unittest.TestCase):
         return self.robot.owner.execute(ServoRequest(kind + '-1', self.robot.owner.version, kind,
                                                      self.clock() + 30, **data), Cancellation())
 
-    def test_the_stance_tucks_the_arms_and_refuses_rex_s_own_motion(self):
-        early = self.robot.telepresence_pose({'neck': .5}, Cancellation(), 'early')
+    def test_the_call_wakes_with_only_the_head_level_and_the_visor_up(self):
+        # Owner, November 16 evening: no wake choreography for a call, and nothing else moves.
+        robot, port, _ = servos(start=False)
+        self.addCleanup(lambda: robot.closed or robot.close())
+        early = robot.telepresence_pose({'neck': .5}, Cancellation(), 'early')
         self.assertEqual(early.reason, 'TelepresenceStanceNotHeld')
-        self.assertEqual(self.robot.telepresence_stance(Cancellation()).status, 'pulses_reached')
-        for ch, value in (*PARK, *DRIVE_ARMS, *POKER_PARK):
-            self.assertEqual(self.port.pose[ch], value, ch)
+        asleep, moved = dict(port.pose), set()
+        port.on_target = lambda: moved.update(ch for ch, value in port.pose.items() if value != asleep[ch])
+        robot.start()
+        self.assertTrue(robot.telepresent)
+        self.assertEqual(moved, {1, 2, 11, 3})   # Lift, head pair and visor; the neck sleeps centred.
+        self.assertEqual({ch: port.pose[ch] for ch in TELEPRESENCE_DRIVE_HEAD}, dict(TELEPRESENCE_DRIVE_HEAD))
+        self.assertEqual(port.pose[3], VISOR_OPEN)
+        self.assertEqual({ch: port.pose[ch] for ch in ARMS}, {ch: asleep[ch] for ch in ARMS})
+        self.assertEqual(robot.owner.state, 'active')
+
+    def test_a_wake_from_untucked_arms_parks_them(self):
+        robot, port, _ = servos(asleep=(*REST, *POKER_UP))   # Left awake by a program that never parked.
+        self.addCleanup(lambda: robot.closed or robot.close())
+        for ch, value in (*PARK, *POKER_PARK):
+            self.assertEqual(port.pose[ch], value, ch)
+
+    def test_the_call_refuses_rex_s_own_motion_and_moves_only_what_the_caller_asks(self):
         for kind, data in (('idle', {}), ('talking', {}), ('pose', {'pose': 'look_left'}), ('listening', {}),
                            ('gesture', {'primitive': 'nod'})):
             self.assertEqual(self.request(kind, **data).reason, 'OperatorOverride', kind)
-        arms = {ch: self.port.pose[ch] for ch in (4, 5, 6, 7, 8, 9, 10, 12, 13)}
+        arms = {ch: self.port.pose[ch] for ch in ARMS}
         receipt = self.robot.telepresence_pose({'neck': -1., 'pitch': .5, 'lift': 2., 'throttle': 1.},
                                                Cancellation(), 'look')
         self.assertEqual(receipt.status, 'pulses_reached')
@@ -61,17 +84,21 @@ class StanceTests(unittest.TestCase):
         self.assertEqual({ch: self.port.pose[ch] for ch in arms}, arms)   # No arm moved.
         self.assertAlmostEqual(telepresence_reading(self.robot.owner.commanded)['pitch'], .5, places=1)
 
-    def test_the_head_levels_for_driving_and_shutdown_parks_from_the_stance(self):
-        self.robot.telepresence_stance(Cancellation())
+    def test_the_first_drive_raises_the_drive_arms_with_the_level_head_and_shutdown_parks(self):
         self.robot.telepresence_pose({'neck': .8, 'tilt': .6, 'visor': 1.}, Cancellation(), 'look')
         self.assertEqual(self.robot.telepresence_level(Cancellation()).status, 'pulses_reached')
         self.assertEqual({ch: self.port.pose[ch] for ch in TELEPRESENCE_DRIVE_HEAD}, dict(TELEPRESENCE_DRIVE_HEAD))
+        for ch, value in (*PARK, *DRIVE_ARMS, *POKER_PARK):   # The swing check's tucked arms.
+            self.assertEqual(self.port.pose[ch], value, ch)
         self.assertIsNone(self.robot.telepresence_level(Cancellation()))   # Already level: nothing moves.
+        self.robot.telepresence_pose({'neck': -.5}, Cancellation(), 'look')
+        arms = {ch: self.port.pose[ch] for ch in ARMS}
+        self.assertEqual(self.robot.telepresence_level(Cancellation()).status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in ARMS}, arms)   # Only the head, from now on.
         self.robot.close()
         self.assertEqual(self.robot.owner.state, 'closed')
 
     def test_the_head_worker_aims_through_the_servo_owner_and_reports_where_it_got_to(self):
-        self.robot.telepresence_stance(Cancellation())
         sent = []
         head = HeadControl(self.robot, notify=sent.append)
         head.start()
@@ -229,7 +256,9 @@ class DriveControlTests(unittest.TestCase):
     def test_the_worker_steers_on_its_own_and_closing_it_hands_the_wheels_back(self):
         self.control.start()
         self.send(1.)
-        wait_until(lambda: self.drive.manual_active and self.last_drive()['lin'] > 0)
+        # The joystick can be on a moment before its first command is recorded.
+        wait_until(lambda: self.drive.manual_active and any(
+            c['cmd'] == 'drive' and c['lin'] > 0 for c in list(self.fake.commands)))
         self.control.close()
         self.assertFalse(self.drive.manual_active)
         self.assertEqual(self.fake.commands[-1]['cmd'], 'stop')

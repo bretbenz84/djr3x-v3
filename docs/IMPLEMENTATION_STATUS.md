@@ -11,7 +11,9 @@ Documentation does not authorize new hardware operation or feature expansion.
 Owner request: "implement the rest of the plan", robot side only.
 
 - **What the robot does now:**
-  - **Stance:** the arms hold the drive stance for the whole call and his own motion is refused.
+  - **Stance:** a call's own short wake (head level, visor up, nothing else; owner, November 16
+    evening) instead of Rex's wake choreography; the hero elbow and poker arm go up at the first
+    drive, completing the drive stance, which holds all call. His own motion is refused.
   - **Head:** the caller aims the head, lift and visor inside the calibrated limits.
   - **Driving:** at the dashboard joystick's caps and checks, plus the network rules. Only the newest
     setpoint counts, a stale one gives zero, a slow round trip refuses forward and turning, Stop holds

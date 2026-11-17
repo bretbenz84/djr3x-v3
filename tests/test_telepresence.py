@@ -722,6 +722,7 @@ class ProgramTests(unittest.TestCase):
         self.assertFalse({m for m in loaded if m.startswith(('r3x.adapters.asr', 'r3x.adapters.voice',
                           'r3x.adapters.hosted', 'r3x.adapters.claude', 'r3x.session', 'r3x.memory', 'onnxruntime'))})
         self.assertIsNone(parts['camera'].encoder)
+        self.assertTrue(parts['robot'].telepresence)   # The call's short wake, not Rex's (owner, November 16).
         self.assertIs(parts['speaker'].on_pcm.__self__, parts['leds'])
         self.assertEqual(parts['robot'].before_shutdown, parts['leds'].cancel)
 
@@ -736,9 +737,7 @@ class ProgramTests(unittest.TestCase):
         clock = Clock()
         log = parts_log
         robot = Part('robot_servos', log, fail == 'robot_servos')
-        robot.open_eyes = lambda: log.append(('open_eyes',))
-        robot.telepresent = False
-        robot.telepresence_stance = lambda cancel: log.append(('stance',))   # No head control: none is offered.
+        robot.telepresent = False   # Its wake (in start) did not hold: no head control is offered.
         leds = Part('robot_leds', log)
         leds.telepresence = lambda: log.append(('telepresence_lights',))
         speaker = Part('telepresence_speaker', log)
@@ -758,7 +757,7 @@ class ProgramTests(unittest.TestCase):
                            clip=program.CALL_CLIP if clip is None else clip)
         return code, handoff
 
-    def test_a_call_wakes_opens_the_visor_lights_up_and_parks_in_reverse(self):
+    def test_a_call_wakes_lights_up_and_parks_in_reverse(self):
         with tempfile.TemporaryDirectory() as folder:
             project = self.project(folder)
             log = []
@@ -767,10 +766,10 @@ class ProgramTests(unittest.TestCase):
             starts = [name for op, *name in log if op == 'start']
             self.assertEqual([n[0] for n in starts], ['telepresence_speaker', 'robot_leds', 'robot_servos',
                                                       'capture', 'telepresence_link'])
-            self.assertLess(log.index(('start', 'telepresence_link')), log.index(('open_eyes',)))
-            self.assertLess(log.index(('open_eyes',)), log.index(('stance',)))   # The visor opens, then the stance.
-            self.assertLess(log.index(('stance',)), log.index(('telepresence_lights',)))
-            # Calls are taken only once the stance holds and the call is wired (November 16: an early
+            # The servos' wake is their start (the head level and the visor up, owner, November 16
+            # evening): nothing more moves them before the call.
+            self.assertLess(log.index(('start', 'telepresence_link')), log.index(('telepresence_lights',)))
+            # Calls are taken only once he is awake and the call is wired (November 16: an early
             # caller signed in to nothing and hung up).
             self.assertLess(log.index(('telepresence_lights',)), log.index(('listen',)))
             # Owner, November 16: he says a call is starting at home before the call is taken.
@@ -830,7 +829,7 @@ class ProgramTests(unittest.TestCase):
             log = []
             code, handoff = self.run_program(project, log, fail='robot_servos')
             self.assertEqual(code, 1)
-            self.assertNotIn(('open_eyes',), log)
+            self.assertNotIn(('telepresence_lights',), log)
             self.assertIn(('close', 'robot_leds'), log)
             handoff.close.assert_called_once()
 

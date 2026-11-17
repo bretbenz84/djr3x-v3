@@ -1,11 +1,12 @@
 """`python -m r3x telepresence`: compose the call from the existing owners, with no models.
 
 Startup: the live lease and the controller handoff (the menu apps and supervisor step aside, and a
-running Rex is never taken over), then the speaker, lights, servo wake, wheels (no back-off reflex
-and no radar), microphone, camera (frames only), video and the listener. The visor opens, the arms take
-the telepresence stance and the telepresence lights come on, with no sound. The caller then aims the
-head, lift and visor and drives (controls.py). No startup sounds, spoken lines, recognition,
-replies, memory, idle motion or motion of his own. Shutdown stops the wheels, parks the servos and
+running Rex is never taken over), then the speaker, lights, servos, wheels (no back-off reflex and no
+radar), microphone, camera (frames only), video and the listener. The servos' wake is the call's own
+(owner, November 16 evening): the head goes level and the visor up, nothing else, with no wake
+choreography, and the chest's start-up sparkle is never waited for. The telepresence lights come on.
+The caller then aims the head, lift and visor and drives (controls.py). No startup sounds, spoken
+lines, recognition, replies, memory, idle motion or motion of his own. Shutdown stops the wheels, parks the servos and
 fades the lights as Rex's own shutdown does. Each run leaves local/telepresence/last-call.json (how
 it ended) for the supervisor to report.
 
@@ -65,7 +66,7 @@ def compose(settings, secrets):
         leds = LEDs(settings.led_port)
     if settings.servo_port:
         from ..robot_servos import RobotServos
-        robot = RobotServos(settings.servo_port)
+        robot = RobotServos(settings.servo_port, telepresence=True)   # The call's short wake.
     if settings.drive_port:
         # The caller drives (stage 5); he never moves on his own, so the back-off reflex is off. The radar
         # ring only tells Rex where people are to look at and seek (owner, November 16: no point for a
@@ -237,16 +238,7 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
             trace.emit('telepresence_startup_failed', results=[asdict(r) for r in owner.results])
         else:
             active = {r.capability for r in owner.results if r.operation == 'start' and r.outcome == 'ok'}
-            robot, leds = parts['robot'], parts['leds']
-            if robot is not None and 'robot_servos' in active:
-                try:
-                    robot.open_eyes()   # The visor opens for the call (owner, November 16).
-                except Exception as exc:
-                    trace.emit('servo_lifecycle', kind='open_eyes', status='failed', error_type=type(exc).__name__)
-                try:
-                    robot.telepresence_stance(Cancellation())   # Arms tucked and held; only the caller moves him.
-                except Exception as exc:
-                    trace.emit('servo_telepresence', kind='stance', status='failed', error_type=type(exc).__name__)
+            leds = parts['leds']
             if leds is not None and 'robot_leds' in active:
                 leds.telepresence()
             call = Call(parts['server'], parts['mic'], parts['speaker'], trace, video=parts['video'],
@@ -254,7 +246,7 @@ def run(settings, project, *, compose=compose, handoff=None, display=console, cl
                         **call_controls(parts, active, clock))
             announce(parts['speaker'], clip, active, trace)   # Before the call is taken, so the caller hears none of it.
             try:
-                parts['server'].open()   # Only now: the stance holds and the call is wired to the link.
+                parts['server'].open()   # Only now: he is awake for the call and it is wired to the link.
             except OSError as exc:
                 reason = 'listen_failed:' + type(exc).__name__
                 trace.emit('telepresence_startup_failed', reason=reason)
@@ -292,8 +284,9 @@ def call_controls(parts, active, clock=None):
     stance = robot is not None and 'robot_servos' in active and robot.telepresent
     head = HeadControl(robot) if stance else None
     wheels = None
-    # The wheels need the arms tucked: with servos fitted, only once the stance holds them. With no
-    # servo board configured there are no arms to tuck and the spin check uses their untucked reach.
+    # The wheels need the arms tucked: with servos fitted, only once the call's wake holds the throttle
+    # parked (the head level raises the hero elbow and poker arm before the first drive). With no servo
+    # board configured there are no arms to tuck and the spin check uses their untucked reach.
     if drive is not None and 'drive_base' in active and (robot is None or stance):
         wheels = DriveControl(drive, head=head, stance_held=stance, **({'clock': clock} if clock else {}))
     base = (lambda now: base_readings(drive, now)) if drive is not None and 'drive_base' in active else None

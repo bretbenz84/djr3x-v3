@@ -15,7 +15,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
-                          sentry_lanes,
+                          sentry_lanes, telepresence_wake_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
                           VISOR_RAISE_SECONDS, visor_over_eyes, talking_visor)
 
@@ -374,7 +374,8 @@ class ServoOwner:
                 return receipt('rejected', 'StaleServoRequest')
             if request.kind in AWAKE_KINDS and self.state != 'active':
                 return receipt('rejected', {'idle':'IdleRequiresCompletedStartup','talking':'TalkingRequiresCompletedStartup','pose':'PoseRequiresCompletedStartup'}.get(request.kind,'BaseMotionRequiresCompletedStartup'))
-            if request.kind == 'startup' and self.state != 'ready':
+            # A telepresence call's short wake stands in for the startup (telepresence_wake_lanes).
+            if request.kind in {'startup', 'telepresence_wake'} and self.state != 'ready':
                 return receipt('rejected', 'StartupAlreadyConsumed')
             self._cancel.clear()
             cancel.check()
@@ -391,6 +392,7 @@ class ServoOwner:
                      sentry_lanes(request.pose, current, request.travel_seconds) if request.kind == 'sentry' else
                      listening_lanes(current, request.side, self.rng) if request.kind == 'listening' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
+                     telepresence_wake_lanes(current) if request.kind == 'telepresence_wake' else
                      lifecycle_lanes(request.kind, current, request.first_look))
             if self._arm_returning and (request.kind in {'base_park', 'park', 'shutdown'} or any(
                     ch in self._returning_channels for lane in lanes for beat in lane for ch, _ in beat.targets)):
