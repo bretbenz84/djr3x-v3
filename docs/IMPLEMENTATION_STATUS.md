@@ -23,7 +23,11 @@ block?" He had left Rex stuck beside something on his left, facing a door open a
 - **Evidence:** two of the robot's own depth frames from that spot (read with hello only) and five
   simulated rooms; 23 new checks, 556 chosen by the change pass, full suite not run
   ([details](DRIVE_BASE_INTEGRATION.md#run-e7d8c980-a-door-standing-open-at-an-angle--november-17-2026)).
-- **Not yet run on the robot.** In the room rebuilt from that reading he now rolls 0.26 m, turns 14
+- **First floor run (log `ec829d6b`, on carpet):** one "come down the hall towards me" got him through
+  the doorway and down the hall, 6.81 m in 89 s with one camera look; about 52 s went on the doorway. One
+  leg along a surface took him the wrong way first, and he backed up twice to make room to turn. One run,
+  not an acceptance.
+- **In simulation:** in the room rebuilt from that reading he rolls 0.26 m, turns 14
   degrees toward the open side and is then refused the next turn, with 8 cm to spare: the readings put
   0.69 m between the thing beside him and the door for his 0.54 m body. What stands beside him is known
   at two points only, so whether the real spot lets him through is for the floor to say.

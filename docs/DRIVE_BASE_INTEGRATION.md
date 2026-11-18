@@ -1899,9 +1899,29 @@ spot read as above. Five simulated rooms, new code against the code before:
 detours, 160-170 degrees of turning). The 556 checks chosen by the change pass; the full suite was not
 run.
 
+**First floor run, the same evening (log `ec829d6b`, on carpet).** Owner: "he was able to get through
+the doorway and down the hall. It took a while but it worked!" One "come down the hall towards me":
+6.81 m in 89 s, one camera look, no further request (the run before took four requests and stayed put).
+About 52 s of that went on the doorway for a metre of headway, then about 4.5 m in the last 37 s.
+
+- *What the new parts did.* Two legs along a surface. After the camera's leg he crept to 0.34 m from the
+  door (the old rule held at 0.40 m), turned 10 degrees toward its open end (50 wanted; the arm-swing
+  check cut it for a remembered point beside his left arm), then 23 degrees more toward the owner, and
+  the ordinary roll toward the owner's face took him through. Whether he would have got through without
+  the change is not shown by one run.
+- *The first surface leg went the wrong way.* Just after turning 34 degrees left to face the owner, the
+  columns showed a surface 76 degrees off square-on (nearly alongside him) with its end to the right; he
+  rolled 0.68 m steering 40 degrees right, back in front of the door at the readings of the spot he had
+  been stuck in, and then had to turn left again. The leg does not consider where its target is.
+- *Other time.* Two 0.5 m back-ups to make room to turn (the older rule), a 7 s camera look whose answer
+  was nearly straight ahead, and short turns on carpet (14.6 commanded gave 9 and was called stalled).
+- *One thing to look at.* The 23 degree turn used the ordinary swing check a moment after the check with
+  remembered points refused 36 degrees at the same place; the two disagree, and the log cannot say
+  whether his left side came close there.
+
 **Limits and what is not known.**
 
-- **Not yet run on the robot.** The simulated spot is built from one reading: the door's slope and hinge
+- **Run once on the robot (above); not accepted.** The simulated spot is built from one reading: the door's slope and hinge
   end are measured, but the thing beside his left is known only at the two points its side sensors hit,
   so its length and corner are a guess. Between that point and the door's near end the readings put
   0.69 m, for a 0.54 m body with a tucked arm 6 cm proud on the left. In the rebuilt room he ends
