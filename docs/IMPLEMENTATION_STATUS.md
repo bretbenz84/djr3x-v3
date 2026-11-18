@@ -1,10 +1,26 @@
 # Current implementation status
 
-Updated November 17, 2026. This is the consolidated
+Updated November 18, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## A caller can turn him on the charger — November 18
+
+Owner request. On a telepresence call while he is on the charger, the caller can turn him in place;
+forward and back are held, so the charging cord is not pulled. Drive firmware 0.2.20 lets the wheels
+turn on the charger only for a drive with no travel at all. Rex's own drives, the dashboard joystick
+and the gamepad stay fully locked on the charger.
+- **Evidence:** 5 new native firmware checks run the real control loop with fake wheels, plus one new
+  blocked-I/O host check. Firmware checks 103 pass; the full suite passes (2,014). Synthetic only.
+- **Flashed** at the owner's request. Hello `0.2.20-charger-spin`, on the charger, sensors up, no
+  motion commanded.
+- **Not yet on the robot:** a call that turns him on the charger, and how the cord behaves.
+  Rex Call could not be rebuilt here: the Command Line Tools lack SwiftUI's macro plugin and Xcode is
+  not installed. Until it is rebuilt, the app shows the raw hold name `charging`; driving does not
+  depend on the rebuild.
+  ([details](DRIVE_BASE_INTEGRATION.md#turning-in-place-on-the-charger-for-a-telepresence-caller--november-18-2026-firmware-0220)).
 
 ## The arms wait for the range sensors at the wake — November 17 (night)
 

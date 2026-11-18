@@ -31,7 +31,8 @@ open "apps/telepresence/build/Rex Call.app"
     this Mac; nothing listens for a spoken "stop" at home (the owner's decision: no stop keyword).
   - The app holds the wheels itself while it isn't the front window or the picture is over 0.5 s
     old, and the strip says why.
-  - The robot's own holds show on the strip: something ahead, the charger, a slow link.
+  - The robot's own holds show on the strip: something ahead, a slow link. On the charger A and D
+    still turn him in place; W and S are held ("on the charger, turning only").
 - **A game controller:** the left stick drives, the right stick aims, B stops, Y centres, X works the
   visor and A talks.
 - **The keyboard button** lists every key.

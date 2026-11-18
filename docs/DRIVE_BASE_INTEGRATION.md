@@ -1947,3 +1947,47 @@ About 52 s of that went on the doorway for a metre of headway, then about 4.5 m 
   night. No calibration change; on carpet a turn toward a surface's open end will also come up short
   (14 degrees allowed gave 7-9 that night), so he may need more of his three turns there.
 
+
+## Turning in place on the charger for a telepresence caller — November 18, 2026 (firmware 0.2.20)
+
+Owner: "if someone calls into Rex and he's plugged into the charger, he can be remotely commanded to
+turn in place but not move forward or backwards. The main concern is pulling the plugged in cord,
+which is fairly long, and turns won't do that."
+
+**Before.** On the charger nothing moved: the firmware zeroed both wheel speeds while its charging
+latch was on, and the host refused every drive (`charging`) when the latch was on or the pack read
+at least 14.0 V. A caller saw "refused: he's on the charger" and could not look around.
+
+**Firmware (`0.2.20-charger-spin`, `control.cpp`, `calib.h` "Charging lockout").** On the charger
+the base still never travels. The one motion left is a turn in place from the Mac's own `drive`
+with linear exactly zero (`CHARGER_SPIN_MAX_LIN_MS`). A setpoint with any travel (an arc too) moves
+nothing, and a turn already running stops at once without coasting. Finite `turn`/`move` commands
+still end `done:aborted`; the gamepad (stick, D-pad, R3 bypass) stays fully locked.
+
+**Host.** `DriveBase.begin_manual(turns_on_charger=True)` lets the charger alone not refuse; every
+other check still applies (the arm-swing check on spins, sensor health, gamepad, estop). Each
+joystick setpoint on the charger keeps its turn and zeroes forward or back, reported as the hold
+`charging`. Only the telepresence call asks for this. Rex's own drives and the dashboard joystick
+still refuse with `charging`. Unplugging mid-call brings travel back on the next setpoint. Rex Call
+shows the hold as "on the charger, turning only".
+
+**Checks.** `firmware/tests/test_charger_spin.py` compiles the real `control.cpp` (robot build,
+`MOTION_HW_PRESENT=1`) with fake wheels. It covers: a pure spin turns on the charger; travel and an
+arc move nothing; travel asked mid-spin stops the turn at once; the gamepad and a finite turn stay
+locked (the turn ends aborted); off the charger, driving is unchanged. Against the 0.2.19 source, the
+spin case gives no motion, so the check separates the two. 103 firmware checks pass. Host: a
+telepresence check on the simulated controller (turn sent with linear exactly 0 and `charging` held,
+backing up held, dashboard stick still refused, travel back after unplugging); the full suite passes
+(2,014, 7 skipped). Synthetic only. Full four-flag build 816,501 bytes program, 91,028 globals; the
+bare build also compiles. Build kept at `local/firmware/2026-11-18-0.2.20-charger-spin.bin`.
+
+**Flashed at the owner's request.** The battery menu was stopped and the controller lock held during
+the upload. It took one attempt and all four hashes verified. Hello reported `0.2.20-charger-spin`.
+A hello-only read (no heartbeat, config or motion) showed the charging latch on at 14.38 V / +6 mA,
+the IMU, the compass and all eight ring sensors, and both depth matrices ready (47 frames in about
+6 s). Logs: `local/firmware/2026-11-18-0.2.20-flash.log`, `-boot.ndjson`. The battery menu was
+restored and has the port again.
+
+**Not yet on the robot:** no wheel has turned under this firmware. Still to try: a call that turns
+him on the charger, how the cord and the charger plug behave over several turns, and whether the
+gamepad lock and the unplug release still behave as before.

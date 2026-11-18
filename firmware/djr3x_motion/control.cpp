@@ -106,6 +106,15 @@ static MotionDir finite_travel_dir(const FiniteCmd& f) {
   }
 }
 
+// On the charger, the one motion allowed (calib.h "Charging lockout"): the Mac's own
+// velocity drive asking for a turn with no travel at all. The host sends exactly 0 for
+// linear when it means a spin; anything else is travel and stays locked. Caller holds
+// the state lock.
+static bool charger_allows_spin(const MotionContext& c) {
+  return c.owner == OWNER_AUTO && c.cmd_mode == CMD_DRIVE &&
+         fabsf(c.setpoint.lin) < CHARGER_SPIN_MAX_LIN_MS;
+}
+
 static float wrap_deg(float d) {
   while (d > 180.0f) d -= 360.0f;
   while (d <= -180.0f) d += 360.0f;
@@ -235,11 +244,15 @@ void control_tick(float dt) {
     ang_t += assist;
   }
 
-  // Charging lockout: while on the charger NOTHING moves — not manual teleop,
-  // not autonomy, and deliberately NOT the R3 sensor-bypass (full_override):
-  // the bypass exists to escape a false sensor block, but the cord is real.
-  // estop still outranks everything as usual.
-  if (c.charging) { lin_t = 0; ang_t = 0; }
+  // Charging lockout: on the charger the base never travels. The one motion left is a
+  // turn in place that the Mac's velocity drive asks for with zero linear (owner,
+  // 2026-11-18: a telepresence caller may turn him on the charger; a spin cannot pull
+  // the cord, travel can). Everything else stays locked: any setpoint with travel in it,
+  // finite commands (aborted above), the gamepad, and deliberately the R3 sensor-bypass
+  // (full_override): the bypass exists to escape a false sensor block, but the cord is
+  // real. estop still outranks everything as usual.
+  const bool charger_spin = c.charging && charger_allows_spin(c);
+  if (c.charging) { lin_t = 0; if (!charger_spin) ang_t = 0; }
 
   // Reflex gating: if blocked in the travel direction, zero that component — UNLESS
   // a gamepad operator is holding full-override (docs §11.4), which deliberately
@@ -398,7 +411,8 @@ void control_tick(float dt) {
         reflex_braking = true;
       }
     }
-    if (c.charging) { s_ramp_lin = 0; s_ramp_ang = 0; }   // charging: hard zero, no coast
+    // Charging: hard zero, no coast; only the Mac's pure spin keeps its turn ramp.
+    if (c.charging) { s_ramp_lin = 0; if (!charger_spin) s_ramp_ang = 0; }
     // Slew every ordinary command (manual drive and finite move/turn). This
     // removes the autonomous one-tick launch. Feedforward keeps the low end
     // responsive despite the gentler envelope.

@@ -380,8 +380,10 @@ Owner request: "implement the rest of the plan", robot side only (the Mac app is
     smooth speed ramps (now done on the robot).
   - The joystick's holds apply: the front path check, the spin check with the arms tucked, the
     firmware's rear block and its 300 ms deadman.
-  - The charger lock applies: on the charger the base refuses to move, and the reason reaches the
-    caller.
+  - On the charger the caller can turn him in place, and forward and back are held (`charging` in
+    held; owner, November 18: a spin cannot pull the charging cord, travel can). The firmware
+    (0.2.20) turns the wheels on the charger only for a drive with zero linear, so a host mistake
+    cannot pull the cord either. Unplugging brings travel back within the same call.
   - Added for the network:
     - only the newest setpoint counts, and an older or repeated sequence number is dropped;
     - a burst after a stall applies only its last setpoint;
@@ -430,7 +432,7 @@ Owner request: "implement the rest of the plan", robot side only (the Mac app is
 | robot → app | `{"type":"head_state", "status", "reason", neck, pitch, tilt, lift, visor}` | After each move (`pulses_reached`, or the owner's refusal), or `status: "refused"` at once: `head_held_while_driving`, `not_a_number`, `head_not_available`. |
 | app → robot | `{"type":"drive", "seq":n, "lin":x, "ang":y}` | 10 a second while steering, zeros included. seq rises by one per setpoint (a new link may start again). lin and ang are −1 … 1 fractions of the caps; positive ang turns left. |
 | app → robot | `{"type":"stop"}` | Space bar: wheels to zero, held until a `drive` with lin and ang both 0. |
-| robot → app | `{"type":"drive_state", active, moving, lin_mps, ang_dps, refused, held, stopped}` | Sent when the refusal, holds or moving change. refused is one of `link_not_measured`, `link_too_slow`, `setpoint_stale`, `stopped`, `charging`, `drive_telemetry_stale`, `controller_estop`, `gamepad_in_control`, `front_depth_matrix_unavailable`, or another drive-owner reason. held lists `path_blocked`, `blocked_front`, `blocked_back`, `turn_path_blocked`, `front_clearance_unknown`. |
+| robot → app | `{"type":"drive_state", active, moving, lin_mps, ang_dps, refused, held, stopped}` | Sent when the refusal, holds or moving change. refused is one of `link_not_measured`, `link_too_slow`, `setpoint_stale`, `stopped`, `charging`, `drive_telemetry_stale`, `controller_estop`, `gamepad_in_control`, `front_depth_matrix_unavailable`, or another drive-owner reason. held lists `path_blocked`, `blocked_front`, `blocked_back`, `turn_path_blocked`, `front_clearance_unknown`, `charging` (on the charger: turning only). |
 | robot → app | `status` (each second) | Adds `head` (position, `held_for_driving`, last move), `drive` (as drive_state) and `base`: `{connected, battery_percent, charging, volts, blocked, clearance_m: {front_m, path_m, left_m, right_m, rear_m}, sensor_notes}`. Unknown values are null. |
 | app → supervisor | port + 1: sign in as for a call, then one of `{"type":"status"}`, `{"type":"start"}`, `{"type":"stop"}` | Answers: `status` `{state: asleep, awake or telepresence, call_port, battery: {percent, charging, volts, seconds_ago} or null, last_call: {reason, code, failed_starts, seconds_ago} or null}`; `starting` `{call_port, already_running}`; `stopping`; `not_running`; `refused` `{reason: rex_awake, supervisor_busy, launch_failed, unknown_request}`. Then the connection closes. After `starting`, call the call port; the app's 60 s retry covers the wake. A failed start shows in `last_call`. |
 
@@ -587,8 +589,10 @@ Owner request: bring the new robot features into Rex Call ([how it works](../app
 - **Head response.** The Maestro's slow ramps suit Rex's character; aiming a camera by hand may need
   quicker operator speeds, within the same limits. Telepresence uses a person's look pace (speed 40,
   November 16); whether that is quick enough is for a robot run to say.
-- **Charging.** The base refuses every move while on the charger (`charging`, the controller's latch
-  or a full-charge voltage), so a remote drive cannot leave the charger; someone has to unplug him.
+- **Charging.** On the charger (the controller's latch or a full-charge voltage) a caller can only
+  turn him in place (owner, November 18); forward and back are held by the robot and by the
+  firmware, so a remote drive cannot leave the charger or pull the cord; someone has to unplug him.
+  How far a spin winds the cord around him has not been tried on the robot.
 - **Manual override.** The dashboard's joystick works on the robot (owner, November 16); its manual
   servo override, which head control builds on, has no robot report yet.
 

@@ -114,8 +114,8 @@ class Wheels:
         ahead = math.cos(self.heading)
         return max(0., (WALL_M - self.x) / ahead) if ahead > .2 else 3.
 
-    def begin_manual(self, *, stance_held=False):
-        if self.charging:
+    def begin_manual(self, *, stance_held=False, turns_on_charger=False):
+        if self.charging and not turns_on_charger:
             return False, 'charging'
         self.manual_active = True
         return True, None
@@ -126,6 +126,9 @@ class Wheels:
                 return {'status': 'refused', 'reason': 'manual_not_active'}
             self._advance()
             held = []
+            if lin and self.charging:   # On the charger he only turns in place.
+                held.append('charging')
+                lin = 0.
             if lin > 0 and self.front_m() < .4:
                 held.append('path_blocked')
                 lin = 0.

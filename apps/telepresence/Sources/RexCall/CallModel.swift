@@ -576,6 +576,7 @@ final class CallModel: ObservableObject {
         case "blocked_back": return "something behind"
         case "turn_path_blocked": return "no room to turn"
         case "front_clearance_unknown": return "can't see ahead"
+        case "charging": return "on the charger, turning only"
         default: return hold
         }
     }

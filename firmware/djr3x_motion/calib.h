@@ -533,9 +533,13 @@
 
 // ---- Charging lockout (battery.cpp detect, control.cpp gate) ----------------
 // Plugged into the bench supply/charger = the pack current goes NEGATIVE
-// (+ = discharging). While charging, ALL drive is locked out — including manual
-// and the R3 sensor-bypass. Cable state is inferred as described below.
-// Debounced on the 1 Hz battery tick; both edges emit a "charging" event.
+// (+ = discharging). While charging the base never travels — not autonomy, not the
+// gamepad, not the R3 sensor-bypass. The one exception (owner, 2026-11-18, for
+// telepresence callers): the Mac's `drive` with linear under CHARGER_SPIN_MAX_LIN_MS
+// still turns in place, since a spin cannot pull the cord. Finite turn/move commands
+// and the gamepad (stick and D-pad) stay fully locked. Cable state is inferred as
+// described below. Debounced on the 1 Hz battery tick; both edges emit a "charging" event.
+#define CHARGER_SPIN_MAX_LIN_MS  0.0001f   // a `drive` this close to zero linear is a pure spin
 #define BATT_CHARGE_DETECT_MA    250   // sustained charge current at/above this = on charger
 #define BATT_CHARGE_DETECT_MV  14000   // ENTER: charger holds ~14.2V (clearly above rest)
 // Owner-reported Oct 1 operating range: ~0.01 A at plugged-in taper, 1-3 A

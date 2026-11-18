@@ -3,8 +3,9 @@ the wheels, steered over the network link.
 
 Both owners' limits stay in force. The servo owner keeps its calibrated limits, pair routes and the
 operator override (RobotServos.telepresence_pose). The drive owner keeps the joystick's caps, front
-path check, spin check, the firmware's rear block and its 300 ms deadman (DriveBase.manual). What is
-added here is what a network link needs:
+path check, spin check, the firmware's rear block and its 300 ms deadman (DriveBase.manual). On the
+charger the caller can still turn him in place; forward and back are held (owner, November 18: a spin
+cannot pull the charging cord). What is added here is what a network link needs:
   - only the newest setpoint counts, and one that arrives out of order is dropped;
   - a setpoint older than SETPOINT_STALE_SECONDS gives zero;
   - a round trip over LINK_SLOW_SECONDS refuses forward and turning (backing away stays);
@@ -273,7 +274,7 @@ class DriveControl:
                 if self.halted:
                     cmd, wanted, refused = (0., 0.), False, 'stopped'
             if wanted and not self.drive.manual_active:
-                ok, reason = self.drive.begin_manual(stance_held=self.stance_held)
+                ok, reason = self.drive.begin_manual(stance_held=self.stance_held, turns_on_charger=True)
                 if not ok:
                     refused, cmd, wanted = reason, (0., 0.), False
             if self.drive.manual_active:

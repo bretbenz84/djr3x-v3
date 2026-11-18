@@ -774,7 +774,7 @@ class DriveBase:
             self._lock.release()
 
     # Dashboard teleop ----------------------------------------------------
-    def begin_manual(self, *, stance_held=False):
+    def begin_manual(self, *, stance_held=False, turns_on_charger=False):
         """The dashboard joystick takes the wheels: a running plan halts, and the plan lock is
         held until end_manual, so Rex's own and requested drives are refused (DriveBusy) and
         the back-off reflex waits. Returns (ok, reason).
@@ -782,18 +782,24 @@ class DriveBase:
         stance_held: the arms already hold the drive stance for the whole session (a telepresence
         call: its wake takes the drive stance, servo_poses.telepresence_wake_lanes), so no park
         runs before moving, the spin check uses the tucked arms, and the arms are not returned at
-        end_manual."""
+        end_manual.
+
+        turns_on_charger: on the charger the stick still turns him in place; forward and back are
+        held as 'charging' (owner, November 18, for telepresence callers: a spin cannot pull the
+        charging cord, travel can). The firmware turns the wheels on the charger only for a drive
+        with zero linear."""
         if self._manual is not None:
             return True, None
         self._halt.set()
         if not self._lock.acquire(timeout=5.):
             return False, 'DrivePlanStillActive'
         self._halt.clear()
-        ok, reason = self.availability()
+        ok, reason = self.availability(turns_on_charger=turns_on_charger)
         if not ok:
             self._lock.release()
             return False, reason
-        self._manual = {'parked': stance_held, 'moving': False, 'stance_held': stance_held}
+        self._manual = {'parked': stance_held, 'moving': False, 'stance_held': stance_held,
+                        'turns_on_charger': turns_on_charger}
         if self.trace:
             self.trace.emit('operator_drive', status='started', stance_held=stance_held)
         return True, None
@@ -802,7 +808,8 @@ class DriveBase:
         """One joystick setpoint (send about 10 times a second; the firmware's 300 ms deadman
         stops the wheels if they stop coming). Clamped to the planned-move speed; forward is
         held at the front path check, spins at the arm-swing check, reverse at the firmware's
-        rear block. The arms park before the first non-reverse motion. Returns what was sent."""
+        rear block, and forward and back on the charger for a turns_on_charger driver. The arms
+        park before the first non-reverse motion. Returns what was sent."""
         manual = self._manual
         if manual is None:
             return {'status': 'refused', 'reason': 'manual_not_active'}
@@ -816,10 +823,13 @@ class DriveBase:
                 return {'status': 'refused', 'reason': 'stop_requested', 'lin': 0., 'ang': 0.}
             self._halt.clear()
         if lin or ang:
-            ok, reason = self.availability()
+            ok, reason = self.availability(turns_on_charger=manual['turns_on_charger'])
             if not ok:
                 self._manual_stop()
                 return {'status': 'refused', 'reason': reason, 'lin': 0., 'ang': 0.}
+            if lin and manual['turns_on_charger'] and self.on_charger(self.link.snapshot()[0] or {}):
+                held.append('charging')   # Turning in place only: the cord stays where it is.
+                lin = 0.
             if (lin > 0 or ang) and not manual['parked'] and self.servos is not None:
                 park = self.servos.prepare_base_motion(cancel)
                 if park.status != 'pulses_reached':
@@ -988,7 +998,14 @@ class DriveBase:
         self._sleep(RECHECK_S, cancel)
         return self.space()
 
-    def availability(self, now=None):
+    @staticmethod
+    def on_charger(telemetry):
+        """The controller's charger latch, or the pack at full-charge voltage."""
+        return bool(telemetry.get('charging')) or (telemetry.get('batt_mv') or 0) >= CHARGER_MV
+
+    def availability(self, now=None, *, turns_on_charger=False):
+        """(ok, reason). turns_on_charger: the charger alone does not refuse, for a driver that
+        then holds all travel and only turns in place (a telepresence caller, owner November 18)."""
         now = self.clock() if now is None else now
         if self.state != 'ready':
             return False, 'drive_not_ready'
@@ -1006,7 +1023,7 @@ class DriveBase:
             return False, 'controller_' + telemetry['state']
         if telemetry.get('fault'):
             return False, 'controller_fault_' + str(telemetry['fault'])
-        if telemetry.get('charging') or (telemetry.get('batt_mv') or 0) >= CHARGER_MV:
+        if self.on_charger(telemetry) and not turns_on_charger:
             return False, 'charging'
         space = self.space(now)
         for reason in ('front_depth_matrix_unavailable', 'radial_ring_unavailable'):

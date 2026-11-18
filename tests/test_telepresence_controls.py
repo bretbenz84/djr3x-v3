@@ -232,13 +232,29 @@ class DriveControlTests(unittest.TestCase):
         self.assertTrue(self.messages[-1]['held'])
         self.assertEqual(self.messages[-1]['type'], 'drive_state')
 
-    def test_charging_refuses_driving_with_its_reason(self):
+    def test_on_the_charger_the_caller_turns_in_place_and_travel_is_held(self):
+        # Owner, November 18: a spin cannot pull the charging cord; forward or back could.
         self.fake.charging = True
         time.sleep(.05)
-        self.send(1.)
-        self.tick()
-        self.assertEqual(self.control.refused, 'charging')
-        self.assertFalse(self.drive.manual_active)
+        self.assertEqual(self.drive.begin_manual(), (False, 'charging'))   # The dashboard stick stays locked.
+        for _ in range(3):
+            self.send(1., .5)
+            self.tick()
+        drive = self.last_drive()
+        self.assertEqual(drive['lin'], 0.)     # Exactly zero: the firmware turns only a pure spin.
+        self.assertGreater(drive['ang'], 0.)
+        self.assertEqual(self.messages[-1]['held'], ['charging'])
+        self.assertIsNone(self.control.refused)
+        for _ in range(3):
+            self.send(-1.)
+            self.tick()
+        self.assertEqual((self.last_drive()['lin'], self.last_drive()['ang']), (0., 0.))   # Backing up too.
+        self.fake.charging = False   # Unplugged: travel comes back without a new call.
+        time.sleep(.05)
+        for _ in range(3):
+            self.send(1.)
+            self.tick()
+        self.assertGreater(self.last_drive()['lin'], 0.)
 
     def test_setting_off_levels_the_head_first_and_looks_wait_while_he_rolls(self):
         robot = FakeHeadRobot()

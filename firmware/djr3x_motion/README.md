@@ -333,6 +333,17 @@ motion, gamepad, radial ToF and matrix ToF enabled pass (811,977 bytes flash;
 reported `0.2.4-current-unplug`. Stationary telemetry retained the charging lock
 at 14.367 V / 6 mA. Physical unplug latency and loaded operation remain untested.
 
+**Turning in place on the charger (0.2.20, owner November 18).** The charger lock
+stops all travel, but a host `drive` with linear exactly zero (below
+`CHARGER_SPIN_MAX_LIN_MS`) still turns the base in place: a telepresence caller can
+look around the room without pulling the charging cord. Anything with travel in it
+(including an arc) gives no motion at all, a turn already running stops at once when
+travel is asked, finite `turn`/`move` commands still end `done:aborted`, and the
+gamepad (stick, D-pad, R3 bypass) stays fully locked. On the host only a telepresence
+call asks for this; Rex's own drives and the dashboard joystick still refuse with
+`charging`. Native check: `firmware/tests/test_charger_spin.py` compiles the real
+`control.cpp` (robot build) with fake wheels.
+
 **Rumble feedback** (`GAMEPAD_RUMBLE_*` in `calib.h`, master `GAMEPAD_RUMBLE_ENABLED`):
 the pad is a tactile echo of the collision avoidance — a **light buzz** entering the
 braking band (the taper just grabbed the throttle), a **strong thump** on a hard stop
