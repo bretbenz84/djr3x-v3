@@ -14,9 +14,10 @@ from uuid import uuid4
 
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, clearance, describe_bearing, face_range, image_bearing,
-                          move_allowance, radar_bodies, steer, wall_angle, wrap, FRONT_MARGIN, MIN_TURN, PERSON_MARGIN,
-                          SCRAPE_M, STEER_MAX, WALL_HOLD_M)
+from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, beside_gap, clearance, describe_bearing, face_range,
+                          front_room, front_surface, image_bearing, move_allowance, out_of_view, radar_bodies,
+                          seen_points, steer, wall_angle, wrap, AXLE_AFT, FRONT_MARGIN, MIN_TURN, PERSON_MARGIN,
+                          SCRAPE_M, STEER_MAX, SURFACE_HOLD_M, WALL_HOLD_M)
 from .field_guide import GUIDE
 from .local_map import LocalMap
 from .providers import Capability
@@ -148,6 +149,28 @@ STRAIGHTEN_MARGIN_DEG = 3.
 STRAIGHTEN_SIDE_M = .5    # A wall this near beside him that converges ahead is turned away from first.
 STRAIGHTEN_TOWARD_MIN_M = .3   # ...unless the side he would turn toward is nearer than this (a doorway).
 TIGHT_CORNER_M = .5       # A front-corner return this close is tight space too.
+# Owner, November 17 (run e7d8c980): beside something on his left and facing a door standing open at
+# an angle, every forward move ended "path blocked" within centimetres and each turn toward the open
+# side was cut to 7 degrees; he was talked at for three minutes and stayed put. "If he were to turn
+# right he'd pass the obstacle on the left but as he turns that way it appears like the door in front
+# is a blocker, but it's not. If he then inched forward and turned left he could clear both." A
+# slanted surface with an open end (drive_space.front_surface) is something to run along: he creeps up
+# to where his body would nearly touch it, steering toward the open end as far as what is beside him
+# allows, then turns on the spot toward that end and rolls on, at most this many times in one move.
+SURFACE_TURNS = 3
+SURFACE_TURN_MIN_DEG = 5. # A turn toward the open end that measures less than this made no difference.
+SURFACE_LEGS = 2          # Such legs in one approach before the camera is asked.
+SURFACE_LEG_M = 1.        # Past the surface's end by then; the approach re-aims at its target after it.
+SURFACE_KEEP_S = .5       # One seen this recently stands in for a frame that misses it...
+SURFACE_KEEP_DEG = 5.     # ...while he has not turned more than this since.
+# The depth columns see 45 degrees and the ring's eight beams are 45 degrees apart: as he turns along
+# a door its near end slides out between them while it is still beside his front, and the corner of
+# what stands beside him sits between two side beams. What the range sensors saw stays where it was,
+# in the room, for this long and while this near. It counts toward the room ahead (until the columns
+# look at that spot again), holds back a turn toward it, and is checked by the spin toward the open end.
+SEEN_KEEP_S = 8.
+SEEN_KEEP_M = 1.
+SEEN_NOTE_S = .1          # Noted at most this often.
 # October 3, second run. A voice's direction is remembered as a room heading, so it stays
 # right after he turns and for requests spoken while he moves (the model re-used "88 degrees
 # left" after he had already turned to face it, and he ended up facing away). Owner, October 20:
@@ -657,6 +680,9 @@ class DriveBase:
         self._voice_key = None
         self._assist_gain = None      # The firmware's wall-steering gain, as acknowledged at connect.
         self._assist_on = True
+        self._surface_seen = None    # (when, heading, front_surface) last seen.
+        self._seen = deque(maxlen=1600)   # (when, room x, room y) of what the range sensors saw.
+        self._seen_noted = float('-inf')
         self.local_map = LocalMap(clock)   # What the range sensors saw around him in the last minute.
         self._manual = None           # Dashboard teleop holding the plan lock: {'parked', 'moving'}.
         self._offered_reason = None   # The lockout last told to the model, traced when it changes.
@@ -867,11 +893,68 @@ class DriveBase:
         self._remember(telemetry, matrix, now)
         return clearance(telemetry, matrix, now, rear_matrix=self.link.rear_snapshot())
 
+    def _surface(self, now=None):
+        """The slanted surface with an open end that the front depth columns see now, or None.
+
+        room_m counts what the sensors saw a moment ago and cannot see from here, and beside_m is
+        the gap to the nearest such point beside him on the surface's open side. One seen within
+        SURFACE_KEEP_S stands in for a frame that does not show it (live, November 17: 3 of 42
+        frames of a still door did not)."""
+        now = self.clock() if now is None else now
+        telemetry, matrix = self.link.snapshot()
+        if not matrix or not telemetry or not 0 <= now - matrix['received_at'] <= 1.:
+            self._surface_seen = None
+            return None
+        self._remember(telemetry, matrix, now)
+        remembered = self._remembered(telemetry, now)
+        hidden = out_of_view(remembered, (0., 0.), 0.)
+        surface = front_surface(matrix, telemetry.get('tof_mm'), hidden)
+        heading = self._heading(telemetry)
+        if surface is not None:
+            self._surface_seen = (now, heading, surface)
+        elif self._surface_seen is not None:
+            at, was, kept = self._surface_seen
+            turned = wrap(heading - was) if heading is not None and was is not None else 0.
+            if now - at <= SURFACE_KEEP_S and abs(turned) <= SURFACE_KEEP_DEG:
+                surface = {**kept, 'room_m': round(front_room(matrix, telemetry.get('tof_mm'), hidden), 2), 'kept': True}
+        if surface is None:
+            return None
+        gap = beside_gap(remembered, surface['side'])
+        return {**surface, 'beside_m': round(gap, 2) if gap is not None else None}
+
+    def _ring_centre(self, heading):
+        """The ring's centre in the room: his tracked point is the axle's middle, behind it."""
+        h = math.radians(heading)
+        return self._at[0] + AXLE_AFT*math.cos(h), self._at[1] + AXLE_AFT*math.sin(h)
+
+    def _remembered(self, telemetry, now):
+        """What the range sensors saw in the last SEEN_KEEP_S within SEEN_KEEP_M, in his frame now."""
+        heading = self._heading(telemetry) if telemetry else None
+        if heading is None:
+            return []
+        cx, cy = self._ring_centre(heading)
+        h = math.radians(heading)
+        points = []
+        for at, px, py in self._seen:
+            dx, dy = px - cx, py - cy
+            if now - at <= SEEN_KEEP_S and math.hypot(dx, dy) <= SEEN_KEEP_M:
+                points.append((dx*math.cos(h) + dy*math.sin(h), -dx*math.sin(h) + dy*math.cos(h)))
+        return points
+
     def _remember(self, telemetry, matrix, now):
         """Fold this sensor frame into the short-term memory of the floor around him."""
         if telemetry:
             self.local_map.observe(telemetry, matrix, tuple(self._at), self._heading(telemetry), now,
                                    rear_matrix=self.link.rear_snapshot())
+            heading = self._heading(telemetry)
+            if heading is not None and matrix and now - self._seen_noted >= SEEN_NOTE_S:
+                points = seen_points(matrix, telemetry.get('tof_mm')) if 0 <= now - matrix['received_at'] <= 1. else None
+                if points is not None:
+                    self._seen_noted = now
+                    cx, cy = self._ring_centre(heading)
+                    h = math.radians(heading)
+                    self._seen.extend((now, cx + x*math.cos(h) - y*math.sin(h), cy + x*math.sin(h) + y*math.cos(h))
+                                            for x, y in points)
 
     def _doubtful(self, space, now):
         """The closest return on his straight path contradicts what was just seen there."""
@@ -893,8 +976,9 @@ class DriveBase:
 
     def _path_blocked(self, space, need):
         """A forward move would be refused for something in the path itself."""
-        if self._tight(space, need):
-            return self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm')) == 'path_blocked'
+        surface = self._surface()
+        if surface is not None or self._tight(space, need):
+            return self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm'), surface) == 'path_blocked'
         return move_allowance(need, space)[1] == 'path_blocked'
 
     def _recheck(self, where, cancel):
@@ -1342,7 +1426,7 @@ class DriveBase:
         side = 'backed up' if leg < 0 else 'pulled forward'
         return {**moved, 'why': f"{side} {abs(moved.get('travelled_m', 0.)):.1f} m to make room to turn: {why}"}
 
-    def _turn(self, degrees, plan, cancel, verify=True, escape=True, bank=False):
+    def _turn(self, degrees, plan, cancel, verify=True, escape=True, bank=False, remembered=()):
         """One turn. bank: the turn heads an approach, so with something close behind he
         drives forward round the curve instead of spinning on the spot. escape: a spin that
         is refused or stalls banks if the front is open, else backs up and spins once more."""
@@ -1354,7 +1438,7 @@ class DriveBase:
                 banked = self._banked(degrees, plan, cancel, row, 'something_close_behind')
                 if banked is not None:
                     return banked
-        allowed, note = allowed_turn(degrees, telemetry, self._arms())
+        allowed, note = allowed_turn(degrees, telemetry, self._arms(), remembered)
         if not allowed and escape and note and note.startswith('turn_path_blocked'):
             if self._bank_room(self.space(), degrees):
                 banked = self._banked(degrees, plan, cancel, row, 'spin_refused')
@@ -1372,7 +1456,7 @@ class DriveBase:
         if not self._parked and self.servos is not None and self._plan_parks:
             self._ensure_parked(cancel)
             telemetry = self._telemetry()
-            allowed, note = allowed_turn(degrees, telemetry, self._arms())
+            allowed, note = allowed_turn(degrees, telemetry, self._arms(), remembered)
             if not allowed:
                 return self._refused_turn(row, note)
         before, before_odom = self._heading(telemetry), self._odom_heading(telemetry)
@@ -1657,6 +1741,13 @@ class DriveBase:
         sensors cannot tell (a door jamb ahead rather than a wall beside)."""
         tof = (self.link.snapshot()[0] or {}).get('tof_mm')
         side = self._short_side(space, need)
+        surface = self._surface()
+        if surface is not None and side in (None, surface['side']):
+            # A slanted surface ahead with its open end on this side: turning away from what is
+            # beside him here turns him to face the surface and hides its end from the depth
+            # columns (November 17: "as he turns that way it appears like the door in front is a
+            # blocker, but it's not"). The crawl's steering holds him off the side instead.
+            return 0.
         if side is None:
             for candidate in (1, -1):
                 near = space.get('left_m' if candidate > 0 else 'right_m')
@@ -1754,15 +1845,24 @@ class DriveBase:
                         and path - FRONT_MARGIN < need))
 
     @staticmethod
-    def _crawl_hold(space, tof):
+    def _crawl_hold(space, tof, surface=None):
         """Why a crawl may not go on: something in the path straight ahead, a return inside
-        the hold distance on the path, or a side wall about to touch while it closes in."""
+        the hold distance on the path, or a side wall about to touch while it closes in.
+
+        surface: what is ahead is one slanted surface with an open end (drive_space.front_surface).
+        That is run along, not stopped short of like a wall facing him: the crawl goes on until
+        his body would be SURFACE_HOLD_M from touching anything in front. Something else straight
+        ahead (not part of that surface) keeps the ordinary front stand-off."""
         centre, path = space.get('path_center_m'), space.get('path_m')
         if centre is None or 'front_depth_matrix_unavailable' in space['health']:
             return 'front_clearance_unknown'
-        if centre - FRONT_MARGIN < .05:
+        if surface is not None:
+            other = surface.get('ahead_other_m')
+            if surface['room_m'] < SURFACE_HOLD_M or (other is not None and other - FRONT_MARGIN < .05):
+                return 'path_blocked'
+        elif centre - FRONT_MARGIN < .05:
             return 'path_blocked'
-        if path is not None and path < WALL_HOLD_M:
+        elif path is not None and path < WALL_HOLD_M:
             return 'wall_beside_path_too_close'
         for side, key in ((1, 'left'), (-1, 'right')):
             near, corner = space.get(key + '_m'), space.get('front_radial_' + key + '_m')
@@ -1770,6 +1870,47 @@ class DriveBase:
                                                          or (wall_angle(tof, side) or 0.) > 3.):
                 return 'wall_too_close_' + key
         return None
+
+    def _crawl_past(self, meters, plan, cancel, top, row):
+        """A crawl that, stopped at a slanted surface with an open end, turns on the spot toward
+        that end and rolls on (owner, November 17: inch forward, then turn, and he clears it).
+
+        The turn is the one that leaves him running along the surface, cut to what the arm-swing
+        check allows beside whatever stands next to him, and never a reverse. It ends when the
+        distance is made, the crawl stops for anything else, a turn is refused or changes
+        nothing, or SURFACE_TURNS are spent; the last stop is then the step's outcome."""
+        out, passed = None, []
+        while True:
+            space, surface = self.space(), self._surface()
+            held = self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm'), surface)
+            if held and (held != 'path_blocked' or surface is None):
+                break
+            if not held:
+                more = self._crawl(meters - (out or {}).get('travelled_m', 0.), plan, cancel, top, row)
+                out = more if out is None else {
+                    **more, 'commanded_m': out['commanded_m'],
+                    'travelled_m': round(out['travelled_m'] + more.get('travelled_m', 0.), 2),
+                    'steered_deg': round(out.get('steered_deg', 0.) + more.get('steered_deg', 0.), 1)}
+                at_surface = more.get('stopped_by') == 'path_blocked' or (more['status'], more['reason']) == ('blocked', 'blocked')
+                if not at_surface or meters - out['travelled_m'] <= .05:
+                    break
+                surface = self._surface()
+            if surface is None or len(passed) >= SURFACE_TURNS:
+                break
+            turn = self._turn(surface['along_deg'], plan, cancel, escape=False,
+                              remembered=self._remembered(self.link.snapshot()[0], self.clock()))
+            turned = math.copysign(turn.get('turned_deg', 0.), surface['along_deg'])
+            passed.append({'slant_deg': surface['slant_deg'], 'open_side': 'left' if surface['side'] > 0 else 'right',
+                           'turned_deg': round(turned, 1)})
+            if turn['status'] != 'completed' or abs(turned) < SURFACE_TURN_MIN_DEG:
+                passed[-1]['reason'] = turn.get('reason') or turn['status']
+                break
+        if out is None:
+            out = self._refused_move(row, held, space)
+        if passed:
+            out['turned_along_surface'] = passed
+            out['turned_deg'] = round(out.get('turned_deg', 0.) + sum(abs(p['turned_deg']) for p in passed), 1)
+        return out
 
     def _crawl(self, meters, plan, cancel, top, row):
         """A forward crawl through tight space as a continuous drive setpoint, at the room's
@@ -1826,12 +1967,19 @@ class DriveBase:
                     status, reason = 'blocked', 'blocked'
                     break
                 space = self.space()
-                why = self._crawl_hold(space, telemetry.get('tof_mm'))
+                surface = self._surface()
+                why = self._crawl_hold(space, telemetry.get('tof_mm'), surface)
                 if why:
                     status, reason = 'blocked', why
                     row['stopped_by'], row['clearance_m'] = why, self._room_row(space)
                     break
-                ang = steer(space, telemetry.get('tof_mm'))
+                # Running along a slanted surface, the firmware's centring between the side sensors
+                # outweighs anything the front can add (18 cm on his left against open floor on his
+                # right is a 0.5 rad/s turn to the right, into the door): as when he turns into an
+                # opening beside him, it is off for that stretch. Its push inside 13 cm stays, and so
+                # does the host's own share from the side sensors.
+                self._assist(surface is None)
+                ang = steer(space, telemetry.get('tof_mm'), surface)
                 lin, why = self._crawl_speed(space, top, ang)
                 speeds.add(lin, why)
                 self._speeds.add(lin, why)
@@ -1843,6 +1991,7 @@ class DriveBase:
                 self.link.send({'cmd': 'stop'})
             except ProviderFailure:
                 pass
+            self._assist(True)
             if self.sounds:
                 self.sounds.stop()
         self._view_since = self.clock() + .3
@@ -1877,11 +2026,9 @@ class DriveBase:
             if self.trace:
                 self.trace.emit('drive_reading_rechecked', where='move',
                                 outcome='persisted' if self._path_blocked(space, need) else 'cleared')
-        if meters > 0 and self._tight(space, need):
-            held = self._crawl_hold(space, (self.link.snapshot()[0] or {}).get('tof_mm'))
-            if held:
-                return self._refused_move(row, held, space)
-            return self._crawl(meters, plan, cancel, top, row)
+        surface = self._surface() if meters > 0 else None
+        if meters > 0 and (surface is not None or self._tight(space, need)):
+            return self._crawl_past(meters, plan, cancel, top, row)
         allowed, note = move_allowance(meters, space)
         if not allowed:
             return self._refused_move(row, note, space)
@@ -2452,6 +2599,26 @@ class DriveBase:
                      + (' (' + str(move['reason']) + ')' if move.get('reason') else ''))
         return {**row, 'status': move['status']}
 
+    def _surface_leg(self, plan, cancel, budget_m, tried):
+        """A leg along a slanted surface toward its open end, from the depth columns alone (owner,
+        November 14: the camera is for obstacles and path changes; November 17: the door standing
+        open at an angle had room on the left that the columns already showed). None when they
+        show no such surface or the leg makes no headway; the camera is asked then, as before."""
+        surface = self._surface()
+        if surface is None or budget_m < .2:
+            return None
+        side = 'left' if surface['side'] > 0 else 'right'
+        if self.trace:
+            self.trace.emit('drive_surface_leg', surface=surface)
+        move = self._move(min(SURFACE_LEG_M, budget_m), plan, cancel)
+        said = f"along a surface slanted {abs(surface['slant_deg']):.0f} degrees toward its open {side} end"
+        tried.append(said + f": rolled {move.get('travelled_m', 0.):.1f} m, {move['status']}"
+                     + (' (' + str(move['reason']) + ')' if move.get('reason') else ''))
+        if move.get('travelled_m', 0.) < .05 and not move.get('turned_along_surface'):
+            return None
+        return {'side': side, 'by': 'surface', 'status': move['status'], 'travelled_m': move.get('travelled_m', 0.),
+                'turned_deg': move.get('turned_deg', 0.), 'note': said}
+
     def _memory_leg(self, goal_bearing, plan, cancel, budget_m, tried, side):
         """A leg around the same obstacle over floor the sensors already saw open, nearest the
         target's direction, without a new hosted look. None when memory shows no such way."""
@@ -2488,8 +2655,13 @@ class DriveBase:
         return {**row, 'status': move['status']}
 
     def _go_around(self, goal, bearing, space, stand_off, plan, cancel, budget_m, detours, tried, in_view=True):
-        """The next leg around an obstacle: chosen by the camera when it can be, otherwise
-        from the range sensors alone. None when neither shows a way or the tries are spent."""
+        """The next leg around an obstacle: along a slanted surface toward its open end when the
+        depth columns show one, else chosen by the camera when it can be, otherwise from the
+        range sensors alone. None when none shows a way or the tries are spent."""
+        if sum(d.get('by') == 'surface' for d in detours) < SURFACE_LEGS:
+            leg = self._surface_leg(plan, cancel, budget_m, tried)
+            if leg is not None:
+                return leg
         if (any(d.get('by') == 'camera' for d in detours)
                 and sum(d.get('by') == 'memory' for d in detours) < MEMORY_LEGS):
             side = 1 if next(d for d in reversed(detours) if d.get('by') in {'camera', 'memory'})['side'] == 'left' else -1

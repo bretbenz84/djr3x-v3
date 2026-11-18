@@ -6,6 +6,28 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Run `e7d8c980`: a door standing open at an angle — November 17 (evening)
+
+Owner: "does the front ToF array read obstacles as a gradient at all, or is it an average or absolute
+block?" He had left Rex stuck beside something on his left, facing a door open at an angle.
+
+- **Found:** the sensor reads the slope (0.34 m on the right rising to 0.76 m, then nothing on the
+  left), but the host kept only the nearest thing in each third of the view, stopped at 0.40 m in the
+  middle third whatever the slant, and its pull toward the open side lost to the push off what was
+  beside him.
+- **Built (host only, no firmware change):** the eight depth columns are read as one surface with a
+  slant and an open end; he creeps up to where his round body would nearly touch it (15 cm), steers and
+  then turns on the spot toward the open end, and rolls on. What the range sensors saw in the last 8 s
+  is remembered where the beams no longer look, so that turn is not made into a corner between two
+  beams. "Come to me" takes a leg along such a surface before paying for a camera look.
+- **Evidence:** two of the robot's own depth frames from that spot (read with hello only) and five
+  simulated rooms; 23 new checks, 556 chosen by the change pass, full suite not run
+  ([details](DRIVE_BASE_INTEGRATION.md#run-e7d8c980-a-door-standing-open-at-an-angle--november-17-2026)).
+- **Not yet run on the robot.** In the room rebuilt from that reading he now rolls 0.26 m, turns 14
+  degrees toward the open side and is then refused the next turn, with 8 cm to spare: the readings put
+  0.69 m between the thing beside him and the door for his 0.54 m body. What stands beside him is known
+  at two points only, so whether the real spot lets him through is for the floor to say.
+
 ## House devices through Homebridge — November 17
 
 Owner request: "an LLM tool-call to control stuff in my house using Homebridge"; "ask questions about the

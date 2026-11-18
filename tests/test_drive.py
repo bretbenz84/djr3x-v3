@@ -57,6 +57,18 @@ class FakeBase:
         self.rolled = 0.                    # Fraction of the pending move already rolled.
         self.closed = False
         self.last_telemetry = 0.
+        # x, y is where the sensors are centred (the ring's centre). The real base turns about the
+        # middle of its axle, axle_aft metres behind that, so a spin also swings the ring sideways.
+        # 0 keeps the older rooms' simpler base that spins about the ring's centre.
+        self.axle_aft = 0.
+
+    def __setattr__(self, name, value):
+        if name == 'theta' and getattr(self, 'axle_aft', 0.):
+            # Turning about the axle carries the ring's centre round it.
+            old, new = math.radians(self.theta), math.radians(value)
+            object.__setattr__(self, 'x', self.x + self.axle_aft*(math.cos(new) - math.cos(old)))
+            object.__setattr__(self, 'y', self.y + self.axle_aft*(math.sin(new) - math.sin(old)))
+        object.__setattr__(self, name, value)
 
     def emit(self, **message):
         self.out.append((json.dumps({'v': 1, **message}) + '\n').encode())
@@ -224,8 +236,9 @@ class FakeBase:
     def odom(self):
         # Without slip the odometry frame is the room; with slip it is consistent only with itself.
         slipped = bool(getattr(self, 'odom_extra', 0.))
-        return {'x': round(getattr(self, 'odom_x', 0.) if slipped else self.x, 3),
-                'y': round(getattr(self, 'odom_y', 0.) if slipped else self.y, 3),
+        aft = math.radians(self.theta)   # Odometry is the axle's middle, behind the ring's centre.
+        return {'x': round(getattr(self, 'odom_x', 0.) if slipped else self.x - self.axle_aft*math.cos(aft), 3),
+                'y': round(getattr(self, 'odom_y', 0.) if slipped else self.y - self.axle_aft*math.sin(aft), 3),
                 'theta': math.radians(self.theta + getattr(self, 'odom_extra', 0.)),
                 'lin': getattr(self, 'linear', 0.), 'ang': 0.}
 

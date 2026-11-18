@@ -131,6 +131,195 @@ def matrix_path(matrix):
     return result
 
 
+# Owner, November 17 (run e7d8c980): stopped facing a door standing open at an angle, with
+# something 18 cm beside his left. The eight columns read 0.34 m on the right rising evenly to
+# 0.76 m and then nothing on the left: one flat surface about 50 degrees off square-on, ending
+# 15-20 degrees to his left. The three bands above kept only "0.34, 0.49, 0.64", so the centre
+# being under 0.40 m was a block like any wall, and the weak pull toward the open side lost to
+# the push off the thing beside him. "Does the front ToF array read obstacles as a gradient at
+# all?" It now does: the columns are read as one surface with a slant and an end.
+SURFACE_WITHIN_M = 1.2      # Only a surface whose nearest part is this close matters to the next roll.
+SURFACE_GAP_M = .25         # Neighbouring columns whose returns are farther apart are different things.
+SURFACE_MIN_COLUMNS = 3     # 17 degrees of view: fewer is a post or a corner, not a surface.
+SURFACE_FLAT_M = .04        # One flat surface: no column this far off the line between its ends.
+SURFACE_SLANT_DEG = 25.     # This far off square-on it can be run along; squarer is something ahead.
+SURFACE_OPEN_MORE_M = .3    # Past its far end the next reading is this much farther, or nothing.
+# The roll toward it ends with the body this far from touching it straight ahead (with the path's
+# margin, 15 cm). 7 cm left the spin toward its open end refused: the door was then inside the 10 cm
+# the arm-swing check keeps round his turning body.
+SURFACE_HOLD_M = .1
+SURFACE_STEER_MAX = .3      # rad/s toward its open side...
+SURFACE_CREEP_MPS = .12     # ...sized for reaching it at the creep he closes on things with.
+SURFACE_SIDE_HOLD_M = .2    # Something this near beside him on that side: no turning toward it yet...
+SURFACE_SIDE_FREE_M = .35   # ...and freely from here.
+SURFACE_PARALLEL_DEG = 8.   # Turned this far past running parallel, so the roll leads away from it.
+
+
+def front_points(matrix, tof=None):
+    """What stands in front of him as points on the floor (metres; x ahead of the ring's centre,
+    y to his left): the nearest corroborated return of each depth column, by column, and the two
+    front corner sensors. None for a column or corner that sees nothing in range."""
+    zones = matrix_zones(matrix)
+    if zones is None:
+        return None
+    columns = []
+    for col, bearing in enumerate(MATRIX_COLUMN_DEG):
+        near = min((v for i, v in zones.items() if i % 8 == col), default=None)
+        b = math.radians(bearing)
+        columns.append(None if near is None else (RING_RADIUS + near*math.cos(b), near*math.sin(b)))
+    corners = {}
+    for side, key, bearing in ((1, 'fl_radial', 22.5), (-1, 'fr_radial', -22.5)):
+        value = _meters((tof or {}).get(key))
+        corners[side] = _point(bearing, RING_RADIUS + value) if value is not None and value < MATRIX_CLEAR else None
+    return {'columns': columns, 'corners': corners, 'corner_known': {side: _meters((tof or {}).get(key)) is not None
+                                                                     for side, key in ((1, 'fl_radial'), (-1, 'fr_radial'))}}
+
+
+def body_room(points):
+    """How far he can roll straight ahead before his round body, with the path's margin, reaches
+    the nearest of these points. A point beside the body's path does not count, nor one already
+    inside that margin beside or behind his middle: he is passing it, and the side sensors'
+    own hold covers it."""
+    reach = BODY_HALF_WIDTH + PATH_MARGIN
+    rooms = [x - math.sqrt(reach*reach - y*y) for x, y in points if abs(y) < reach]
+    rooms = [room for room in rooms if room >= -PATH_MARGIN]
+    return min(rooms) if rooms else MATRIX_CLEAR
+
+
+def out_of_view(seen, centre, heading):
+    """Remembered front points (room x, y) that the depth columns cannot see from here, in his
+    frame (x ahead of the ring's centre, y left): what slid out of the 45 degree view as he turned
+    or rolled on is still where it was. centre is the ring's centre in the room, heading degrees."""
+    h = math.radians(heading)
+    points = []
+    for px, py in seen:
+        dx, dy = px - centre[0], py - centre[1]
+        x, y = dx*math.cos(h) + dy*math.sin(h), -dx*math.sin(h) + dy*math.cos(h)
+        if x > RING_RADIUS and abs(math.degrees(math.atan2(y, x - RING_RADIUS))) <= 22.5:
+            continue    # In view: what the columns read there now is the truth.
+        points.append((x, y))
+    return points
+
+
+def _flat_runs(columns, lo, hi):
+    """Column runs (lo, hi) that each lie on one flat surface: a run that bends by more than
+    SURFACE_FLAT_M off the straight line between its ends is split at the bend (a door and the
+    frame it hangs from are two surfaces)."""
+    if hi - lo < 2:
+        return [(lo, hi)]
+    (ax, ay), (bx, by) = columns[lo], columns[hi]
+    length = math.hypot(bx - ax, by - ay) or 1e-9
+    off = {c: abs((columns[c][0] - ax)*(by - ay) - (columns[c][1] - ay)*(bx - ax)) / length for c in range(lo + 1, hi)}
+    bend = max(off, key=off.get)
+    if off[bend] <= SURFACE_FLAT_M:
+        return [(lo, hi)]
+    return _flat_runs(columns, lo, bend) + _flat_runs(columns, bend, hi)
+
+
+def _front_seen(front):
+    return [p for p in front['columns'] if p is not None] + [p for p in front['corners'].values() if p is not None]
+
+
+def seen_points(matrix, tof=None):
+    """Every point the range sensors see now, in his frame: the front depth columns, the front
+    corner sensors, and the side and rear sensors on the ring."""
+    front = front_points(matrix, tof)
+    if front is None:
+        return None
+    points = _front_seen(front)
+    for key, bearing in RING[2:]:
+        value = _meters((tof or {}).get(f'{key}_radial' if f'{key}_radial' in (tof or {}) else key))
+        if value is not None and value < MATRIX_CLEAR:
+            points.append(_point(bearing, RING_RADIUS + value))
+    return points
+
+
+def beside_gap(points, side):
+    """The gap between his ring and the nearest of these points beside him on one side (+1 left,
+    -1 right): from just behind his middle to his front corner. None when there is none."""
+    gaps = [math.hypot(x, y) - RING_RADIUS for x, y in points if y * side > .1 and -.35 <= x <= .45]
+    return min(gaps) if gaps else None
+
+
+def front_room(matrix, tof=None, remembered=()):
+    """How far he can roll straight ahead before his body reaches anything the front depth
+    columns or the front corner sensors see, or a remembered point now out of their view
+    (out_of_view); None without the depth columns."""
+    front = front_points(matrix, tof)
+    return None if front is None else body_room(_front_seen(front) + list(remembered))
+
+
+def front_surface(matrix, tof=None, remembered=()):
+    """A slanted surface with an open end among what the front depth columns see, or None.
+
+    slant_deg is how far it is turned from square-on (0 faces him, 90 runs along his heading);
+    side is the side it falls away to (+1 left, -1 right), which is also where it ends: the
+    column past its far end, or the front corner sensor when it reaches the edge of the view,
+    reads well beyond it. edge_bearing_deg is where that end is from the ring's centre;
+    ahead_other_m the nearest thing straight ahead that is not part of it, if any; room_m
+    how far he can roll straight ahead before his body reaches anything in front (front_room,
+    with any remembered points passed in); along_deg the
+    turn (+ left) that leaves him running along it. None when the columns do not show that:
+    nothing near, separate things, only surfaces facing him, or no reading past the far end.
+    With two such surfaces (a corner pointing at him) it is the one with the nearer return."""
+    front = front_points(matrix, tof)
+    if front is None:
+        return None
+    columns = front['columns']
+    def reach(c):
+        return math.hypot(columns[c][0] - RING_RADIUS, columns[c][1])
+    runs, start = [], None
+    for c in range(9):
+        here = c < 8 and columns[c] is not None
+        if here and start is not None and math.dist(columns[c - 1], columns[c]) > SURFACE_GAP_M:
+            runs.append((start, c - 1))
+            start = c
+        elif here and start is None:
+            start = c
+        elif not here and start is not None:
+            runs.append((start, c - 1))
+            start = None
+    found = []
+    for lo, hi in (flat for run in runs for flat in _flat_runs(columns, *run)):
+        if hi - lo + 1 < SURFACE_MIN_COLUMNS or min(reach(c) for c in range(lo, hi + 1)) > SURFACE_WITHIN_M:
+            continue
+        (ax, ay), (bx, by) = columns[hi], columns[lo]       # From his right to his left.
+        slant = math.degrees(math.atan2(bx - ax, by - ay))   # + when it falls away to his left.
+        if abs(slant) < SURFACE_SLANT_DEG:
+            continue
+        side = 1 if slant > 0 else -1
+        end = lo if side > 0 else hi                         # Column 0 is his left.
+        past, far = end - side, reach(end)
+        if (0 <= past <= 7 and columns[past] is not None and math.dist(columns[past], columns[end]) <= SURFACE_GAP_M
+                and reach(past) < far + SURFACE_OPEN_MORE_M):
+            # A ragged end: the column half on the surface's edge reads off its line (live, November
+            # 17: the column at the door's edge read 0.57-0.80 m from one frame to the next). It is
+            # still the surface; what counts is the reading past it.
+            end, far = past, max(far, reach(past))
+            past = end - side
+        if 0 <= past <= 7:
+            beyond = columns[past]
+            open_end = beyond is None or math.hypot(beyond[0] - RING_RADIUS, beyond[1]) >= far + SURFACE_OPEN_MORE_M
+        else:
+            corner = front['corners'][side]
+            open_end = front['corner_known'][side] and (
+                corner is None or math.hypot(*corner) - RING_RADIUS >= far + SURFACE_OPEN_MORE_M)
+        if open_end:
+            found.append((min(reach(c) for c in range(lo, hi + 1)), slant, side, end, min(lo, end), max(hi, end)))
+    if not found:
+        return None
+    near, slant, side, end, lo, hi = min(found)
+    ex, ey = columns[end]
+    # What stands straight ahead that is not this surface (someone's legs, a box in front of the
+    # door) keeps the ordinary stand-off: the nearest return of the two middle columns off it.
+    other = [reach(c) for c in (3, 4) if columns[c] is not None and not lo <= c <= hi]
+    return {'slant_deg': round(slant, 1), 'side': side, 'columns': hi - lo + 1,
+            'ahead_other_m': round(min(other), 2) if other else None,
+            'edge_bearing_deg': round(math.degrees(math.atan2(ey, ex)), 1), 'edge_m': round(math.hypot(ex, ey), 2),
+            'near_m': round(near, 2), 'room_m': round(front_room(matrix, tof, remembered), 2),
+            'along_deg': round(side * (90. - abs(slant) + SURFACE_PARALLEL_DEG), 1)}
+
+
 # The rear matrix (owner, October 19) is the same module at the same height and distance
 # from the centre, turned to face straight back: its column 0 is its own left, which is
 # the robot's rear-right. Its grid arrives in that sensor frame.
@@ -341,18 +530,36 @@ def _clamp(value, limit):
     return max(-limit, min(limit, value))
 
 
-def steer(space, tof):
+def steer(space, tof, surface=None):
     """Host share of the crawl steering from the current readings; 0 when nothing slants
-    toward him and the corridor ahead is even."""
+    toward him and the corridor ahead is even.
+
+    surface (front_surface) is a slanted surface ahead with an open end: he turns toward that
+    end fast enough to be running along the surface by the time he would reach it at a creep.
+    The firmware's centring is off for that stretch (drive.py _crawl), so the host also keeps
+    him off what is beside him on the side he is turning to: no turn that way while either
+    side sensor there reads inside SURFACE_SIDE_HOLD_M, all of it from SURFACE_SIDE_FREE_M
+    (owner, November 17: the side sensors nudge him away, the front array shows the room)."""
     turn = 0.
     for side in (1, -1):
         angle = wall_angle(tof, side)
         if angle is not None and angle > 0:
             turn -= side * STEER_ANGLE_GAIN * math.radians(angle)   # Away from the wall closing in.
     pl, pr = space.get('path_left_m'), space.get('path_right_m')
-    if pl is not None and pr is not None:
-        turn += _clamp(STEER_PATH_GAIN * (min(pl, STEER_PATH_M) - min(pr, STEER_PATH_M)), STEER_TERM_MAX)
-    return _clamp(turn, STEER_MAX)
+    if surface is None:
+        if pl is not None and pr is not None:
+            turn += _clamp(STEER_PATH_GAIN * (min(pl, STEER_PATH_M) - min(pr, STEER_PATH_M)), STEER_TERM_MAX)
+        return _clamp(turn, STEER_MAX)
+    side = surface['side']
+    needed = math.radians(abs(surface['along_deg']))
+    turn = _clamp(turn + side * min(SURFACE_STEER_MAX, needed * SURFACE_CREEP_MPS / max(surface['room_m'], .05)), STEER_MAX)
+    beside = [v for v in (_meters(tof.get(key)) for key in (('lf', 'lb') if side > 0 else ('rf', 'rb')))
+              if v is not None] if isinstance(tof, dict) else []
+    if surface.get('beside_m') is not None:
+        beside.append(surface['beside_m'])   # What was beside him a moment ago, between the beams now.
+    if beside and turn * side > 0:
+        turn *= min(1., max(0., (min(beside) - SURFACE_SIDE_HOLD_M) / (SURFACE_SIDE_FREE_M - SURFACE_SIDE_HOLD_M)))
+    return turn
 
 
 def _pivot(bearing, radius):
@@ -361,12 +568,14 @@ def _pivot(bearing, radius):
     return math.hypot(x, y), math.degrees(math.atan2(y, x))
 
 
-def allowed_turn(degrees: float, telemetry, arms=ARMS) -> tuple[float, str | None]:
+def allowed_turn(degrees: float, telemetry, arms=ARMS, remembered=()) -> tuple[float, str | None]:
     """V2 swing check: largest same-sign spin keeping body and arms clear of returns.
 
     Firmware does not gate spins, and the base pivots about its rear axle with
     arms proud of the ring. Unknown sensing refuses: the host gate already
     requires a live ring, so no reading here means no evidence of clearance.
+    remembered: points seen a moment ago (his frame, from the ring's centre) that count as
+    returns too; the eight beams are 45 degrees apart and a corner sits between them unseen.
     """
     if not degrees:
         return 0., None
@@ -384,6 +593,7 @@ def allowed_turn(degrees: float, telemetry, arms=ARMS) -> tuple[float, str | Non
             returns.append((key,) + _pivot(bearing, RING_RADIUS + value))
     if not returns:
         return 0., 'turn_clearance_unknown'
+    returns += [('remembered', math.hypot(x + AXLE_AFT, y), math.degrees(math.atan2(y, x + AXLE_AFT))) for x, y in remembered]
     for label, reach, extent_bearing in extents:
         for key, distance, bearing in returns:
             if distance > reach + SWING_MARGIN:

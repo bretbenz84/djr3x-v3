@@ -38,6 +38,9 @@ hallway no-reverse rule. No firmware was changed.
   - When blocked short of the target he re-aims, then detours on an open side (at most
     twice), then reports blocked.
   - While seeking he never reverses to make arm room. Explicit turns still may.
+  - A slanted surface with an open end (a door standing open at an angle) is run along, not
+    stopped short of: the eight depth columns are read as one surface with a slant and an end
+    (November 17, [below](#run-e7d8c980-a-door-standing-open-at-an-angle--november-17-2026); simulated only).
 - **Getting around things (October 3; simulated only).** When an approach is blocked with
   the target still far, he tips his head down, photographs the floor, and a hosted look at
   that picture plus the range sensors by direction picks the next leg (up to five per
@@ -1811,3 +1814,107 @@ he turned 656 degrees in two and a half minutes; three causes, none of them the 
 Checks: five new blocked-I/O tests (head angle, voice age and person, radar agreement, no sweep, wheel
 timing). The face reflex timing, radar phantoms and the 15 s limit are unmeasured on the robot.
 **Not yet run on the robot.**
+
+
+## Run `e7d8c980`: a door standing open at an angle — November 17, 2026
+
+Owner: "does the front ToF array read obstacles as a gradient at all, or is it an average or absolute
+block? Right now the ToF sensor should show more clearance towards the left than the right, which makes
+sense because the door is at an angle. Does that get factored in?" He had left Rex where the run ended:
+something 18 cm beside his left, a door ahead standing open at an angle. "If he were to turn right he'd
+pass the obstacle on the left but as he turns that way it appears like the door in front is a blocker,
+but it's not. If he then inched forward and turned left he could clear both obstacles."
+
+**What the log and a live reading show.** "Go forward ten feet" turned 5 degrees right away from the
+thing beside him, steered 16 more degrees right over 0.77 m and stopped with the door 0.39 m ahead. Two
+left turns (45 and 20 degrees asked) were then cut to 7 by the arm-swing check and followed by 0 and
+4 cm of travel. "Come down the hallway towards me" took four camera looks, backed up twice, turned 229
+degrees in all and ended blocked 4 m short. A read-only look at the sensors
+afterwards (hello only, 42 depth frames in 6 s): the eight columns, left to right, read nothing, 0.76,
+0.64, 0.56, 0.49, 0.43, 0.39, 0.34 m, steady to a centimetre except the column on the door's edge
+(0.57-0.80 m). That is one flat surface about 54 degrees off square-on, ending 10 degrees to his left a
+metre out. The sensor does read a gradient. The code did not use it:
+
+- The firmware keeps the nearest thing in each half of the view (0.54 and 0.34 m here); the host kept
+  the nearest in each third (0.64, 0.49, 0.34 m).
+- Stopping was absolute: in tight space under 0.40 m in the middle third, elsewhere under 0.40 m in any.
+  From that spot he had 8-9 cm of travel; his round body could roll 0.29 m before reaching the door.
+- The slant fed only the crawl's steering, as left third minus right third: a 0.15 rad/s pull to the
+  left here, against 0.33 rad/s to the right from the host's side-sensor share. The firmware's own
+  centring adds about 0.5 rad/s to the right (18 cm on his left, open floor on his right; worked out
+  from its default gains, not measured), less its 0.25 lean away from the nearer front half. He was
+  steered toward the door's near end.
+- The camera look was given all eight columns and chose left three times of four, but can only order a
+  turn on the spot and a roll; the turns were refused beside the thing on his left.
+
+**Changes** (host only; the firmware, its stop and slow zones and its push inside 13 cm are unchanged).
+
+- **The columns are read as a surface** (`drive_space.front_surface`). Neighbouring columns within 0.25 m
+  of each other are one thing; a run that bends (a door and the frame it hangs from) is split at the
+  bend. A flat run of three or more columns, 25 degrees or more off square-on and within 1.2 m, whose
+  far end has a reading at least 0.3 m beyond it or none (the next column, or the front corner sensor at
+  the edge of the view), is a slanted surface with an open end: its slant, the side it falls away to,
+  where its end is, and the turn that would leave him running along it. One unsteady column at the end
+  is allowed. The live frames give 54 degrees, left, 10 degrees left at 1.0 m, turn 44 degrees left, in
+  39 of 42 frames; one seen within 0.5 s stands in for a frame that misses it.
+- **How far he can roll is his body's own reach** (`body_room`): the distance until his round body, with
+  the path's 5 cm margin, reaches the nearest point in front. At such a surface the crawl goes on until
+  that is 0.10 m (about 15 cm from touching), instead of stopping when the middle third reads 0.40 m.
+  Anything else straight ahead that is not part of the surface (legs, a box) keeps the 0.40 m rule.
+- **Steering toward the open end** (`drive_space.steer`): fast enough to be running along the surface by
+  the time he would reach it at a creep, at most 0.3 rad/s; this replaces the left-minus-right pull
+  while such a surface is in view. The firmware's centring is off for that stretch, as when he turns
+  into an archway, and back on after. The host's side-sensor share stays, and no turn toward the open
+  side is made while something is within 0.20 m beside him on that side (all of it from 0.35 m).
+- **Creep up, turn, roll on** (`DriveBase._crawl_past`). Stopped at such a surface, he turns on the spot
+  toward its open end, as far as the arm-swing check allows, and crawls on; at most three such turns in
+  a move, never a reverse. The turn away from a wall beside him before a move is skipped when it would
+  turn him away from the surface's open end: in simulation it pointed him into the corner where the
+  door hangs, where the columns no longer see the door's end.
+- **A few seconds of memory for what the sensors just saw** (`DriveBase._seen`). The depth columns see 45
+  degrees and the eight ring beams are 45 degrees apart. Points seen in the last 8 s within 1 m stay
+  where they were in the room. They count toward the room ahead once they slide out of the columns'
+  view, hold back steering toward that side, and are checked by the spin toward the open end. Added
+  because the simulation, with a base that turns about its axle like the real one, swung his side 1 cm
+  into the corner of the thing beside him on the second such spin: that corner sat between the two left
+  beams.
+- **"Come to me" past such a surface** (`DriveBase._surface_leg`): an approach blocked short of its target
+  first takes a leg along the surface (up to two), from the depth columns alone, before a camera look.
+- Receipts carry `turned_along_surface` (slant, open side, degrees turned, and why a turn was refused);
+  a `drive_surface_leg` trace row records each such leg.
+
+**Checks** (`tests/test_slanted_surface.py`, 23; the simulated base there turns about its axle, 0.23 m
+behind the ring's centre, which the older rooms' base does not). Two of the robot's own frames from that
+spot read as above. Five simulated rooms, new code against the code before:
+
+| Room | Before | Now |
+| --- | --- | --- |
+| That spot, rebuilt from the readings | 15 degrees right into the corner, refused, 0 m | 0.26 m forward, 14 degrees left, then the next turn refused for the remembered corner; nearest 8 cm |
+| The same with 12 cm more beside him | the same refusal | through, 2 m; nearest 4 cm |
+| The door alone, its middle 0.46 m ahead | through; nearest 23 cm | through; nearest 16 cm |
+| The door alone, 8 cm closer | refused, 0 m | through; nearest 14 cm |
+| The door alone, 15 cm closer | refused, 0 m | through; nearest 13 cm |
+
+"Come to me" with the door across the line: one leg along it and no camera look (before: two looks, two
+detours, 160-170 degrees of turning). The 556 checks chosen by the change pass; the full suite was not
+run.
+
+**Limits and what is not known.**
+
+- **Not yet run on the robot.** The simulated spot is built from one reading: the door's slope and hinge
+  end are measured, but the thing beside his left is known only at the two points its side sensors hit,
+  so its length and corner are a guess. Between that point and the door's near end the readings put
+  0.69 m, for a 0.54 m body with a tucked arm 6 cm proud on the left. In the rebuilt room he ends
+  honestly stuck after 0.26 m; whether the real spot has more room is for the floor to say.
+- The older code already rolled along the open door from 0.46 m: the firmware leans away from the nearer
+  front half. It refused from inside 0.40 m and with anything beside him.
+- A plain "move forward" at such a door now curves along it (60 degrees in the open-door room, where the
+  firmware's centring keeps turning him off the door once it is beside him); the receipt's
+  `steered_deg` says so.
+- The roll toward a sought thing (`_cruise`) still holds at 0.35-0.40 m from a slanted surface and then
+  takes the surface leg; its own steering does not use the surface.
+- The depth zones are taken as ranges along each column's direction, as the rest of the host does; if
+  the module reports depth instead, the slant reads a few degrees off.
+- Every turn of this run ended about 5 degrees short of what was commanded (11 of 11, median -5.5);
+  on November 14-16 each day's median was within 2 degrees (89 turns). Not changed here.
+
