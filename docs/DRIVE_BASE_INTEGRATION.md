@@ -1917,7 +1917,12 @@ About 52 s of that went on the doorway for a metre of headway, then about 4.5 m 
   was nearly straight ahead, and short turns on carpet (14.6 commanded gave 9 and was called stalled).
 - *One thing to look at.* The 23 degree turn used the ordinary swing check a moment after the check with
   remembered points refused 36 degrees at the same place; the two disagree, and the log cannot say
-  whether his left side came close there.
+  whether his left side came close there. Owner, afterwards: he was not watching closely; what stands to
+  Rex's left there is a piece of wood lying on the floor at an angle, which "likely showed up as close".
+  That fits the two left side readings (18 and 23 cm, closing on his path by 7 degrees) and is probably
+  the surface "nearly alongside him" that the first leg followed. Its height is not known. The ring
+  sensors cannot tell a low thing from a tall one, so turns refused for his raised, tucked arm beside it
+  may have been needless; turns refused for his body's own swing were not.
 
 **Limits and what is not known.**
 
