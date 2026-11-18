@@ -1916,5 +1916,7 @@ run.
 - The depth zones are taken as ranges along each column's direction, as the rest of the host does; if
   the module reports depth instead, the slant reads a few degrees off.
 - Every turn of this run ended about 5 degrees short of what was commanded (11 of 11, median -5.5);
-  on November 14-16 each day's median was within 2 degrees (89 turns). Not changed here.
+  on November 14-16 each day's median was within 2 degrees (89 turns). Owner: he was on carpet that
+  night. No calibration change; on carpet a turn toward a surface's open end will also come up short
+  (14 degrees allowed gave 7-9 that night), so he may need more of his three turns there.
 
