@@ -61,6 +61,8 @@ hallway no-reverse rule. No firmware was changed.
     the poker arm stays raised while anything is within 3.5 ft of the left side sensors
     and the throttle stays parked while anything is within 2 ft in front, until the space
     reads clear for 2 s ([servos](SERVO_INTEGRATION.md#october-11-arms-stay-tucked-beside-obstacles)).
+    Since November 17 the wake leaves both arms in the same way until these sensors read
+    their space clear ([servos](SERVO_INTEGRATION.md#november-17-the-arms-wait-for-the-range-sensors-at-the-wake)).
   - A return from the front depth matrix counts only when a neighbouring zone agrees with
     it (October 10 evening); lone zones no longer block the path.
   - Arm-swing checks gate turns. Firmware stop zones stay active.

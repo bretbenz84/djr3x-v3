@@ -210,6 +210,19 @@ class RobotServoTests(unittest.TestCase):
         for value in ('/dev/tty.bad','auto','/dev/cu.bad path','/dev/cu.bad/child'):
             with self.assertRaises(ValueError): Settings(servo_port=value)
 
+    def test_wheels_range_sensors_guard_the_arms_at_the_wake(self):
+        # Owner, November 17: with a drive base the wake leaves the reaching arms in for its sensors.
+        with tempfile.TemporaryDirectory() as temporary:
+            for drive_port, guarded in (('', False), ('/dev/cu.synthetic-drive', True)):
+                app=App(Settings(servo_port='/dev/cu.synthetic',drive_port=drive_port),Path(temporary))
+                app.configure_live()
+                self.assertEqual(app.robot.arm_guard,guarded)
+        from r3x.servo_poses import POKER,POKER_UP,REST,THROTTLE
+        self.robot.start()   # No wheels: the wake brings both arms out, as before.
+        self.assertEqual({ch:self.port.pose[ch] for ch in THROTTLE},dict(REST))
+        self.assertEqual({ch:self.port.pose[ch] for ch in POKER},dict(POKER_UP))
+        self.assertEqual(self.robot.kept_arms,frozenset())
+
     def test_isolated_audio_does_not_bypass_servo_noise_exclusion(self):
         import sys
         from types import SimpleNamespace

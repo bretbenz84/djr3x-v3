@@ -92,7 +92,8 @@ class App:
             self.leds = LEDs(self.settings.led_port)
         if self.settings.servo_port:
             from .robot_servos import RobotServos
-            self.robot = RobotServos(self.settings.servo_port)
+            # With wheels, their range sensors decide when the reaching arms first come out.
+            self.robot = RobotServos(self.settings.servo_port, arm_guard=bool(self.settings.drive_port))
         locator = None
         if self.settings.drive_port:
             from .drive import DriveBase, Radar
@@ -389,6 +390,10 @@ class App:
                     # Configured wheels that failed to start: Rex still knows he has them.
                     failure = next((r for r in self.owner.results if r.capability=='drive_base' and r.operation=='start'),None)
                     output.drive_unavailable = 'wheel_controller_not_connected' + (':'+failure.reason if failure and failure.reason else '')
+                    if self.robot and self.robot.kept_arms:
+                        # No range sensors this run: the arms the wake left in stay in (owner, October 11).
+                        trace.emit('arm_clearance', status='kept_parked', reason='drive_base_unavailable',
+                                   arms=sorted(self.robot.kept_arms))
                 if self.drive and 'drive_base' in active:
                     output.drive = self.drive
                     from .motion_sounds import MotionSounds

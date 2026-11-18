@@ -826,6 +826,65 @@ class ArmClearanceTests(unittest.TestCase):
         self.assertEqual(self.robot.kept_arms, {'throttle'})
         self.assertTrue(set(THROTTLE) <= self.robot.owner.held_channels)   # Idle and talking leave it.
 
+    def test_the_wake_leaves_the_arms_in_until_their_space_reads_clear(self):
+        # Owner, November 17: at the wake the poker arm came out into something beside him (runs
+        # e7d8c980 and ec829d6b moved its elbow and wrist out before the wheels were connected).
+        from tests.test_servos import Clock as ServoClock, PulsePort
+        from r3x.robot_servos import RobotServos
+        from r3x.servo_poses import AWAKE_ARMS, PARK, POKER, POKER_PARK, POKER_UP, REST, THROTTLE
+        clock, port = ServoClock(), PulsePort()
+        robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait, arm_guard=True)
+        robot.owner.wait = clock.wait
+        robot.start()
+        self.addCleanup(robot.close)
+        self.assertEqual(robot.owner.state, 'active')                  # The rest of the wake ran.
+        pose = lambda channels: {ch: port.pose[ch] for ch in channels}
+        self.assertEqual(pose(THROTTLE), dict(PARK))                   # Both arms where they slept.
+        self.assertEqual(pose(POKER), dict(POKER_PARK))
+        self.assertEqual(robot.kept_arms, {'poker', 'throttle'})
+        self.assertTrue({6, *POKER, *THROTTLE} <= robot.owner.held_channels)   # Idle and talking leave them.
+        out = robot.owner.execute(ServoRequestFor(robot, 'poker_out'), Cancellation())
+        self.assertEqual(out.status, 'rejected')
+        self.drive.servos = robot
+        self.fake.tof.update(lf=900, lb=1300)   # Something 3 ft to his left; the front is open.
+        settle()
+        self.assertIsNone(self.drive.tick_arm_clearance())
+        self.clock.now += 2.
+        settle()
+        self.assertEqual(self.drive.tick_arm_clearance(), {'throttle'})
+        robot._arm_return.join(5)
+        self.assertEqual(pose(THROTTLE), dict(REST))                   # The wake's throttle route, a moment later.
+        self.assertEqual(pose(POKER), dict(POKER_PARK))                # The poker arm stays in.
+        self.assertEqual(robot.kept_arms, {'poker'})
+        self.fake.tof.update(lf=1500, lb=1500)
+        settle()
+        self.assertIsNone(self.drive.tick_arm_clearance())
+        self.clock.now += 2.
+        settle()
+        self.assertEqual(self.drive.tick_arm_clearance(), {'poker'})
+        robot._arm_return.join(5)
+        self.assertEqual(pose((6, *POKER)), {6: dict(AWAKE_ARMS)[6], **dict(POKER_UP)})
+        self.assertEqual(robot.kept_arms, frozenset())
+        self.assertFalse(robot.owner.held_channels & {6, *POKER, *THROTTLE})
+
+    def test_without_range_readings_the_wake_keeps_both_arms_in(self):
+        from tests.test_servos import Clock as ServoClock, PulsePort
+        from r3x.robot_servos import RobotServos
+        clock, port = ServoClock(), PulsePort()
+        robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait, arm_guard=True)
+        robot.owner.wait = clock.wait
+        robot.start()
+        self.addCleanup(robot.close)
+        self.drive.servos = robot
+        self.fake.tof.update(lf=-1, lb=-1)   # The left sensors report nothing.
+        self.fake.front = lambda: .45
+        settle()
+        for _ in range(3):
+            self.assertIsNone(self.drive.tick_arm_clearance())
+            self.clock.now += 2.
+            settle()
+        self.assertEqual(robot.kept_arms, {'poker', 'throttle'})
+
     def test_beyond_reach_both_arms_come_out_as_before(self):
         from r3x.servo_poses import REST, THROTTLE
         self.fake.tof.update(lf=1200, lb=1200)   # Just beyond 3.5 ft.

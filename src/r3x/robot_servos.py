@@ -4,7 +4,7 @@ import time
 from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
-from .servo_poses import (ARM_HOLD, HEAD, LIMITS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
+from .servo_poses import (ARM_HOLD, HEAD, LIMITS, REACHING_ARMS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
                           pose_channels, sentry_head, telepresence_targets, visor_over_eyes)
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
@@ -22,7 +22,8 @@ class RobotServos:
         dependencies=('pyserial',),resources=('exclusive Maestro; fourteen calibrated channels',),
         shutdown='join idle/talking; park; close port; acknowledge ownership release')
 
-    def __init__(self, port, *, open_port=None, clock=time.monotonic, wait=time.sleep, telepresence=False):
+    def __init__(self, port, *, open_port=None, clock=time.monotonic, wait=time.sleep, telepresence=False,
+                 arm_guard=False):
         self.owner = ServoOwner(open_port or (lambda:open_serial(port)),medium='controller',clock=clock)
         self.idle = IdleMotion(self.owner)
         self.talking = TalkingMotion(self.owner)
@@ -45,10 +46,14 @@ class RobotServos:
         self._speech_at = float('-inf')
         self.telepresence = telepresence   # A telepresence call: start runs its short wake instead.
         self.telepresent = False   # The call's wake reached its pose; only the caller moves him now.
+        # Owner, November 17: at the wake the poker arm came out into something beside him. With a
+        # drive base (its range sensors) the wake leaves the reaching arms where they are; the drive
+        # owner brings each out once its space reads clear (DriveBase.tick_arm_clearance), as after a drive.
+        self.arm_guard = arm_guard
 
-    def _sequence(self, kind, arms_home=False):
+    def _sequence(self, kind, arms_home=False, keep_arms=frozenset()):
         result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.,
-                                                 arms_home=arms_home),Cancellation())
+                                                 arms_home=arms_home, keep_arms=keep_arms),Cancellation())
         if self.trace:
             self.trace.emit('servo_lifecycle',kind=kind,**asdict(result))
         if result.status != 'pulses_reached':
@@ -66,7 +71,9 @@ class RobotServos:
         if self.telepresence:
             self._telepresence_wake()
             return
-        self._sequence('startup')
+        self._sequence('startup', keep_arms=frozenset(REACHING_ARMS) if self.arm_guard else frozenset())
+        if self.trace and self.owner.kept_arms:
+            self.trace.emit('arm_clearance', status='kept_parked', reason='startup', arms=sorted(self.owner.kept_arms))
         # Owner, November 15: the wake leaves the visor shut over his eyes, and it stays shut (the
         # please-wait line's talking motion leaves it alone) until just before the ready line (open_eyes).
         self.owner.held_channels.add(3)

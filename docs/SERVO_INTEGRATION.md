@@ -6,6 +6,28 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 17: the arms wait for the range sensors at the wake
+
+Owner: at startup the poker arm extended until it hit something. The wake's lanes moved the
+poker elbow/wrist from `POKER_PARK` to `POKER_UP` and the throttle from `PARK` to `REST`
+unconditionally, and the wheel board (the only range sensors) connects after the wake, so
+nothing could see. Runs `e7d8c980` and `ec829d6b` both changed channels 12 and 13 at about 9 s.
+
+Now `RobotServos(arm_guard=True)` (the app sets it whenever `drive_port` is configured) sends
+the startup with `keep_arms` = both `REACHING_ARMS`: `lifecycle_lanes` leaves out the throttle
+lane and the poker lane, and on success the owner sets `kept_arms` and holds their channels,
+exactly as `return_arm(keep=...)` does after a drive. The head, neck, visor and hero elbow wake
+as before. `DriveBase.tick_arm_clearance` then brings each arm out by `base_lanes('base_release')`
+(the same throttle route as the wake, `POKER_UP` for the poker) once `arms_blocked` has read its
+space clear for 2 s; in practice that starts once the session wires the drive owner to the
+servos, about when the ready line plays. No reading counts as blocked, so with wheels that
+fail to connect the arms stay in for the run (traced `arm_clearance` `drive_base_unavailable`).
+A throttle the wake finds away from `PARK` and `REST` now returns by `throttle_route`'s checked
+waypoints instead of being refused. Without a drive base, and in telepresence calls (their own
+wake goes to the drive stance), nothing changes. Limits: only what the side and front range
+sensors see is guarded (nothing above or below their beams), and an arm already out is still
+not pulled in when something comes close. Synthetic checks only; not yet run on the robot.
+
 ## November 15: feelings on his body
 
 **Later the same day: `angry`, and the lights follow.** Owner: "if we make him mad by insulting him
@@ -464,8 +486,9 @@ channels stay held (`kept_arms`), so idle and talking skip them, an aged hold or
 clear for 2 s it walks to its awake pose (not while driving, and not while a person's
 `hold_arms` stands). The next drive's park takes kept arms as usual. The reply model sees
 `robot_pose_state.arms_tucked_for_obstacle`. Not covered: an arm already out when someone
-steps up beside him is not pulled in, and startup or requested poses with no drive before
-them are not gated. Synthetic checks only (simulated base and servo board).
+steps up beside him is not pulled in, and requested poses with no drive before them are not
+gated. Startup has been gated since November 17 (below). Synthetic checks only (simulated base
+and servo board).
 
 ## October 10: two-servo head, poker elbow and wrist, inverted visor
 

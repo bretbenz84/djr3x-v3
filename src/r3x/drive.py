@@ -3467,8 +3467,9 @@ class DriveBase:
         return self.execute(plan, Cancellation())
 
     def tick_arm_clearance(self, now=None):
-        """Bring out an arm kept tucked after a drive once its space has stayed clear for
-        ARM_CLEAR_S. Nothing while the base moves; the next drive decides afresh."""
+        """Bring out an arm kept tucked after a drive, or left in at the wake (owner, November 17),
+        once its space has stayed clear for ARM_CLEAR_S. Nothing while the base moves; the next
+        drive decides afresh."""
         kept = getattr(self.servos, 'kept_arms', None) or frozenset()
         if not kept or self.moving.is_set():
             self._arm_clear_since.clear()

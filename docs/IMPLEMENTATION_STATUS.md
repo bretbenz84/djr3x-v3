@@ -6,6 +6,21 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## The arms wait for the range sensors at the wake — November 17 (night)
+
+Owner: at startup the poker arm came out until it hit something. Both of that evening's wakes
+(`e7d8c980`, `ec829d6b`) moved the poker elbow and wrist out about 9 s in, before the wheel board and
+its range sensors were connected; the October 11 arm guard only ran after drives. In `ec829d6b` the
+first reading, after backing up half a metre, still had something 0.34 m to his left.
+
+- **Built:** with a drive base configured, the wake leaves the poker and throttle arms where they slept
+  and marks them kept, as after a drive. The drive owner's once-a-second check brings each out by the
+  same route once its space has read clear for 2 s (poker: nothing within 1.07 m of the left side
+  sensors; throttle: nothing within 0.61 m in front). The rest of the wake is unchanged. Without wheels
+  configured the wake brings them out as before; with wheels that fail to connect they stay in.
+- **Evidence:** 3 new checks; the full suite (2,014 checks, simulated base and servo board) passes.
+  **Not yet run on the robot** ([details](SERVO_INTEGRATION.md#november-17-the-arms-wait-for-the-range-sensors-at-the-wake)).
+
 ## Run `e7d8c980`: a door standing open at an angle — November 17 (evening)
 
 Owner: "does the front ToF array read obstacles as a gradient at all, or is it an average or absolute

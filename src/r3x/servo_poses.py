@@ -356,13 +356,18 @@ def poker_lane(current, target, speed=20, acceleration=5) -> tuple[Beat, ...]:
 
 
 def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left',
-                    arms_home: bool = False) -> tuple[tuple[Beat, ...], ...]:
+                    arms_home: bool = False, keep=frozenset()) -> tuple[tuple[Beat, ...], ...]:
     """Parallel lanes, advanced by a single executor. Park never enters a gesture.
 
     arms_home: the park also brings the poker arm's swing back to where it sleeps (a telepresence
-    call, whose drive stance raised it; owner, November 16: park positions when the call ends)."""
+    call, whose drive stance raised it; owner, November 16: park positions when the call ends).
+    keep: on startup, the REACHING_ARMS the wake leaves where they are (owner, November 17: the
+    poker arm came out at the wake into something beside him). The drive owner brings each out
+    once its range sensors read the arm's space clear, by base_lanes' release route."""
     if kind not in {'startup', 'park', 'shutdown'} or first_look not in {'left', 'right'}:
         raise ValueError('UnknownServoSequence')
+    if not set(keep) <= set(REACHING_ARMS) or (keep and kind != 'startup'):
+        raise ValueError('UnknownKeptArm')
     validate_pose(current)
     if set(current) != set(LIMITS):
         raise ValueError('IncompleteServoReadback')
@@ -383,8 +388,10 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
                 Beat(((0, NECK_CENTER),), speed=12, acceleration=3, dwell=.2))
         throttle = bridge + (TUCK, ((8, 5260), (9, 8000), (10, 3800)),
                              ((8, 4616), (9, 8720), (10, 5920)), REST)
-        lanes = (head, neck, tuple(Beat(p, throttle_duration=1.25) for p in throttle))
-        if any(abs(current[ch] - value) > 2 for ch, value in POKER_UP):
+        lanes = (head, neck)
+        if 'throttle' not in keep:
+            lanes += (tuple(Beat(p, throttle_duration=1.25) for p in throttle),)
+        if 'poker' not in keep and any(abs(current[ch] - value) > 2 for ch, value in POKER_UP):
             lanes += (poker_lane(current, dict(POKER_UP), speed=12, acceleration=3),)
     else:
         # V2's coordinated head/visor/elbow droop, alongside tuck then park. Decorative
@@ -1071,8 +1078,9 @@ def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True) 
             stages = [dict(REST), dict(TUCK), dict(PARK)]
     else:
         route = [dict(TUCK), {8: 5260, 9: 8000, 10: 3800}, {8: 4616, 9: 8720, 10: 5920}, dict(REST)]
+        # From anywhere else (a throttle the wake found out, lowered by a pose) by the checked waypoints.
         stages = ([] if at(REST) or 'throttle' in keep else
-                  route if at(PARK) or throttle_clear(start, route[0]) else [dict(REST)])
+                  route if at(PARK) or throttle_clear(start, route[0]) else throttle_route(start, REST))
     previous = start
     for stage in stages:
         validate_pose(stage)
