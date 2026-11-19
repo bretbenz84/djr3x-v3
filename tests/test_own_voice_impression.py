@@ -1,5 +1,5 @@
 """"Impersonate me" through ElevenLabs (owner, November 19): a repeat-after-me recording of about
-30 voiced seconds, joined into one upload, the clone kept for the run and deleted at shutdown.
+15 voiced seconds, joined into one upload, the clone kept for the run and deleted at shutdown.
 Blocked I/O: a fake clone owner stands in for ElevenLabs in the session tests, and a fake HTTP
 client for the provider tests. Synthetic audio only; nothing here shows how a real clone sounds."""
 import io
@@ -22,24 +22,25 @@ INTRO = 'Fine. I need your vocal signature first. Repeat after me.'
 LINES = ['Rex is the finest droid in the galaxy.', 'I pledge my loyalty to the DJ booth.',
          'Bring me a bigger speaker, please.', 'The cantina opens at sundown sharp.',
          'Every droid deserves a dance floor.', 'I promise to tip the band.',
-         'Rex never misses a beat.', 'Oil changes are a form of self care.',
-         'Turn it up, the walls can take it.', 'One more song, then one more after that.',
-         'My best moves come out after midnight.', 'Spare parts make the best friends.',
-         'I will not touch the volume knob.', 'Thank you, DJ Rex, for everything.']
+         'Rex never misses a beat.']
 
 
 class FakeClones:
     """The clone owner's surface: has, prepare (uploading on a voice's first take), forget."""
     def __init__(self, fail=None):
         self.voices, self.uploads, self.takes, self.forgotten, self.fail = {}, [], [], [], fail
+        self.held = {}
 
     def has(self, key):
-        return key in self.voices
+        return key in self.voices or key in self.held
+
+    def hold(self, key, audio):
+        self.held[key] = audio
 
     def prepare(self, text, reference):
         take = FakeTake(text, reference, fail=bool(self.fail))
         if not self.fail and reference.key not in self.voices:
-            self.uploads.append((reference.key, reference.audio))
+            self.uploads.append((reference.key, reference.audio or self.held.pop(reference.key, None)))
             self.voices[reference.key] = 'voice-' + uuid4().hex[:6]
         self.takes.append(take)
         return take
@@ -47,6 +48,7 @@ class FakeClones:
     def forget(self, key):
         self.forgotten.append(key)
         self.voices.pop(key, None)
+        self.held.pop(key, None)
 
 
 def call(snapshot, lines=LINES, requested=True, script=SCRIPT):
@@ -63,8 +65,8 @@ def wav_seconds(audio):
 class SittingRules(unittest.TestCase):
     def test_lines_are_checked_for_shape_only(self):
         self.assertEqual(impersonation.sitting_lines(LINES), LINES)
-        for bad in (LINES[:5], LINES + LINES, LINES[:13] + ['one two three four five six seven eight nine ten eleven'],
-                    LINES[:13] + [''], 'Repeat after me.', None):
+        for bad in (LINES[:3], LINES + LINES, LINES[:6] + ['one two three four five six seven eight nine ten eleven'],
+                    LINES[:6] + [''], 'Repeat after me.', None):
             with self.assertRaises(ValueError):
                 impersonation.sitting_lines(bad)
         with self.assertRaises(ValueError):
@@ -98,26 +100,26 @@ class SessionFlow(MemoryFixture):
         self.assertEqual(first.completed_text, [INTRO, LINES[0]])
         return first
 
-    def test_lines_are_said_one_by_one_and_the_clone_plays_after_thirty_seconds(self):
+    def test_lines_are_said_one_by_one_and_the_clone_plays_after_fifteen_seconds(self):
         self.start()
         self.assertEqual(self.clones.uploads, [])     # Nothing performed or uploaded until the recording is in.
         self.assertIn('recording', impersonation.context(self.state, 100.))
-        for index in range(9):
+        for index in range(4):
             said = self.turn(LINES[index])
             self.assertEqual(said.completed_text, [LINES[index + 1]], index)
-        last = self.turn(LINES[9])
+        last = self.turn(LINES[4])
         self.assertEqual(last.status, 'completed', last)
         self.assertEqual(last.completed_text, [SCRIPT, 'Uncanny. I scare myself sometimes.'])
         self.assertEqual(len(self.brain.requests), 1)   # One generation; code said every line.
         key, audio = self.clones.uploads[0]
         self.assertTrue(key.startswith('track:'))
-        self.assertGreaterEqual(wav_seconds(audio), 30.)   # Ten 3 s repeats, joined into one upload.
+        self.assertGreaterEqual(wav_seconds(audio), 15.)   # Five 3 s repeats, joined into one upload.
         self.assertIsNone(self.state.sitting)
         done = next(r for r in self.state.trace.rows if r['event'] == 'impression_done')
         self.assertTrue(done['performed'])
         self.assertTrue(self.clones.has(key))           # The slot is kept for the run.
         notes = [m['content'] for m in self.session.history_messages() if m.get('role') == 'developer']
-        self.assertTrue(any('repeated 10 lines' in n for n in notes))
+        self.assertTrue(any('repeated 5 lines' in n for n in notes))
         self.assertTrue(any('Impression performed' in n for n in notes))
         self.assertFalse(self.store.claims(include_candidates=True))
         # Asked again this run: the clone plays at once, no recording and no second upload.
@@ -131,6 +133,36 @@ class SessionFlow(MemoryFixture):
         bret = self.enroll('Bret', A)
         self.start(A)
         self.assertEqual(self.state.sitting.key, 'person:' + bret)
+
+    def test_a_known_persons_recording_is_kept_for_later_runs_until_forgotten(self):
+        # Owner, November 19 evening: an identified person reads the lines once, ever.
+        bret = self.enroll('Bret', A)
+        self.start(A)
+        for index in range(5):
+            self.turn(LINES[index], A)
+        uploaded = self.clones.uploads[0][1]
+        self.assertEqual(impersonation.saved_recording(self.store, bret), uploaded)
+        # A later run: no clone exists yet, but the saved recording makes the voice ready.
+        self.clones.voices.clear()
+        self.begin('Do me!', A)
+        self.assertTrue(impersonation.context(self.state, 100.)['speaker']['ready'])
+        self.brain.choose = lambda s: call(s, lines=None, script='Back again, and still this charming.')
+        again = self.turn('Do me!', A)
+        self.assertEqual(again.completed_text, [INTRO, 'Back again, and still this charming.', 'Uncanny. I scare myself sometimes.'])
+        self.assertIsNone(self.state.sitting)
+        self.assertEqual(self.clones.uploads[1], ('person:' + bret, uploaded))
+        # A stranger's recording is never kept.
+        self.assertEqual(len(self.store.rows('SELECT person_id FROM clone_recordings')), 1)
+        self.begin('Please forget me.', A)
+        self.assertEqual(self.call('forget_person', {'person_id': bret}).outcome, 'ok')
+        self.assertEqual(self.store.rows('SELECT person_id FROM clone_recordings'), [])
+
+    def test_a_strangers_recording_stays_in_memory_only(self):
+        self.start()
+        for index in range(5):
+            self.turn(LINES[index])
+        self.assertEqual(len(self.clones.uploads), 1)
+        self.assertEqual(self.store.rows('SELECT person_id FROM clone_recordings'), [])
 
     def test_saying_something_else_ends_the_recording_and_is_answered(self):
         self.start()
@@ -173,9 +205,9 @@ class SessionFlow(MemoryFixture):
     def test_a_failed_clone_gets_the_cover_line(self):
         self.setup(lambda s: call(s), FakeClones(fail=True))
         self.turn('Do me!')
-        for index in range(9):
+        for index in range(4):
             self.turn(LINES[index])
-        last = self.turn(LINES[9])
+        last = self.turn(LINES[4])
         self.assertEqual(len(last.completed_text), 1)
         self.assertIn('blew a fuse', last.completed_text[0])
         self.assertEqual(self.state.impressions.recent(), [])

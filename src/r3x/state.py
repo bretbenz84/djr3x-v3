@@ -1331,6 +1331,10 @@ class CoreState:
             if key is None:
                 raise ValueError('SpeakerVoiceNotReady')
             name = (self.store.person(attribution.person_id) or {}).get('name') if key.startswith('person:') else 'you'
+            saved = impersonation.saved_recording(self.store, attribution.person_id) \
+                if key.startswith('person:') and not self.voice_clones.has(key) else None
+            if saved is not None:
+                self.voice_clones.hold(key, saved)   # Their first take this run uploads the kept copy.
             reference = impersonation.CloneReference(key, name or 'you')
             if not self.voice_clones.has(key):
                 if not args['requested']:
@@ -1423,6 +1427,11 @@ class CoreState:
         if sitting.voiced >= impersonation.SITTING_SECONDS or (exhausted and sitting.voiced >= impersonation.SITTING_MIN_SECONDS):
             self.end_sitting('recorded')
             audio = impersonation.recording_audio(sitting.clips)
+            if sitting.person_id:
+                # Owner, November 19: a known person records once; later runs upload this copy.
+                impersonation.save_recording(self.store, sitting.person_id, audio, sitting.voiced,
+                                             len(sitting.clips), time.time())
+                self.trace.emit('voice_recording', status='saved', voice=sitting.key, lines=len(sitting.clips))
             reference = impersonation.CloneReference(sitting.key, sitting.name, audio)
             return {'kind': 'done', 'impression': {**sitting.impression, 'clone_audio': audio},
                     'reference': reference, 'lines': len(sitting.clips), 'voiced_seconds': round(sitting.voiced, 1)}
@@ -2276,6 +2285,12 @@ class CoreState:
             self.initiative.discard_association(data.get('person_id'),data.get('track_id'))
             if self.voice_clones is not None and data.get('track_id'):
                 self.voice_clones.forget('track:' + data['track_id'])
+            if data.get('person_id'):
+                # A voice tied to them by mistake may be in their recording: it goes, and the clone with it.
+                from . import impersonation
+                impersonation.drop_recording(self.store, data['person_id'])
+                if self.voice_clones is not None:
+                    self.voice_clones.forget('person:' + data['person_id'])
             if self.sitting is not None and data.get('track_id') == self.sitting.track_id:
                 self.end_sitting('association_cancelled')
             for key, proposal in self.enrollments.items():

@@ -43,11 +43,14 @@ SPONTANEOUS_MIN_GAP_SECONDS = 600.
 SPONTANEOUS_VOICE_GAP_SECONDS = 3600.
 SPONTANEOUS_MAX_PER_SESSION = 4
 # "Impersonate me" (owner, November 19): the speaker's own voice is an ElevenLabs clone made from
-# about 30 voiced seconds of short "repeat after me" lines, joined into one upload. The clone
-# stays for the run; famous voices and other people's stay on the local engine.
-SITTING_SECONDS = 30.          # Voiced seconds recorded, then the clone is made.
-SITTING_MIN_SECONDS = 10.      # ElevenLabs' floor, for lines that run out first.
-SITTING_LINES = (8, 16)        # How many lines the model writes.
+# about 15 voiced seconds of short "repeat after me" lines, joined into one upload. The clone
+# stays for the run; famous voices and other people's stay on the local engine. Owner, November 19
+# evening: half the lines (30 s of fourteen lines was cumbersome), and a known person's joined
+# recording is kept in the local store so later runs need no lines at all (CLONE_RECORDINGS).
+SITTING_SECONDS = 15.          # Voiced seconds recorded, then the clone is made (about five lines).
+SITTING_MIN_SECONDS = 10.      # The floor for lines that run out first.
+SITTING_LINES = (4, 8)         # How many lines the model writes (seven covers a fast talker).
+
 SITTING_LINE_WORDS = 10        # Short enough to remember after one hearing.
 SITTING_WAIT_SECONDS = 60.     # A line nobody repeats in this long lets the recording go.
 OWN_REPEAT_SHARE = .4          # Their own voice: this share of the line's words counts as a repeat.
@@ -299,6 +302,33 @@ def sitting_key(state, attribution):
     return None
 
 
+CLONE_RECORDINGS = """
+CREATE TABLE IF NOT EXISTS clone_recordings(
+ person_id TEXT PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,
+ audio BLOB NOT NULL,voiced_seconds REAL NOT NULL,lines INTEGER NOT NULL,recorded_at REAL NOT NULL);
+"""
+
+
+def saved_recording(store, person_id):
+    """A known person's joined "repeat after me" recording from an earlier run, or None."""
+    if not person_id:
+        return None
+    rows = store.rows('SELECT audio FROM clone_recordings WHERE person_id=?', (person_id,))
+    return bytes(rows[0]['audio']) if rows else None
+
+
+def save_recording(store, person_id, audio, voiced_seconds, lines, at):
+    """Kept in the local store (never committed) until they record again or are forgotten."""
+    with store.transaction() as conn:
+        conn.execute('INSERT OR REPLACE INTO clone_recordings VALUES(?,?,?,?,?)',
+                     (person_id, audio, float(voiced_seconds), int(lines), float(at)))
+
+
+def drop_recording(store, person_id):
+    with store.transaction() as conn:
+        conn.execute('DELETE FROM clone_recordings WHERE person_id=?', (person_id,))
+
+
 def recording_audio(clips) -> bytes:
     """The repeated lines joined into one WAV (silence trimmed, short gaps) for the upload."""
     from .adapters.eleven_voices import wav_bytes
@@ -401,7 +431,8 @@ def context(state, now: float) -> dict:
     if attribution and attribution.person_id:
         person = state.store.person(attribution.person_id)
         speaker_name = person['name'] if person else None
-    ready = bool(key and clones.has(key))
+    ready = bool(key and (clones.has(key) or (key.startswith('person:')
+                                              and saved_recording(state.store, key.split(':', 1)[1]) is not None)))
     speaker = {'target_id': 'self', 'name': speaker_name, 'ready': ready,
                'recording_needed': bool(key) and not ready,
                'available': bool(key),

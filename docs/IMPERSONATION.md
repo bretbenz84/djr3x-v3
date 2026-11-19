@@ -167,7 +167,8 @@ consent; no children use the robot). Celebrity impressions stay on the robot.
   slots are full, the clone this run used longest ago gives way. Voices are named
   `R3X impression …`, and at startup any left by a crashed run are deleted. No other voice in
   the account is touched.
-- **Data.** The clips stay in memory and are never written to disk. They are not enrollment
+- **Data.** The clips stay in memory; only a known person's joined recording is saved
+  locally (see "Shorter, and kept" below). They are not enrollment
   evidence, and a clone is never identity evidence. ElevenLabs keeps the uploaded recording
   under its own terms.
 - **Code.** `adapters/eleven_voices.py` (`VoiceClones`: create, speak, delete), the recording
@@ -190,7 +191,16 @@ lines, each kept with no model call, and Rex moved on line by line. Three things
 - After the failure Rex talked about a rejected key and payment. The failure note now gives the
   model no cause and tells it not to explain or guess why.
 
-Checks: 16 blocked-I/O checks in `tests/test_own_voice_impression.py` (a fake clone owner
+**Shorter, and kept (owner, November 19 evening).** Fourteen lines were cumbersome: Rex now
+writes 4 to 8 lines (about seven) and stops once about 15 voiced seconds are in, usually after
+five repeats. A known person's joined recording is saved in the local store (`clone_recordings`
+in `local/core.sqlite3`, never committed), so in later runs the bit plays with no lines: the
+first take of the run uploads the saved copy to a fresh clone, still deleted at shutdown.
+Forgetting the person deletes the recording (the table cascades with the person), and a
+cancelled voice association deletes theirs too, since a wrong voice may be in it. A stranger's
+recording stays in memory for the run only.
+
+Checks: 18 blocked-I/O checks in `tests/test_own_voice_impression.py` (a fake clone owner
 in the session tests, a fake HTTP client for the provider) and the impression tests updated.
 Synthetic audio only. Not yet done: a real clone from the robot's microphone, how recognizable
 it sounds, upload and synthesis time, whether people find the lines easy to repeat, and whether

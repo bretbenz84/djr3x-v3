@@ -117,6 +117,12 @@ class VoiceClones:
         with self.lock:
             return key in self.voices or key in self.recordings
 
+    def hold(self, key: str, audio: bytes) -> None:
+        """A recording kept from an earlier run (state owner, local store): uploaded on first use."""
+        with self.lock:
+            if key not in self.voices and audio:
+                self.recordings[key] = audio
+
     def forget(self, key: str) -> None:
         """A forgotten person's clone goes at once, not at shutdown."""
         with self.lock:

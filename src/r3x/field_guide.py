@@ -100,7 +100,7 @@ GUIDE = {
                       'record_claim for a lasting fact about them (subject_reference for someone else they named), '
                       'edit_object_memory notes for a pet. If they talk about something else, drop it.'),
     'impersonation': ('Voices Rex can perform. self is the current speaker\'s own cloned voice: ready means it exists '
-                      'this run; recording_needed means asking for it starts a repeat-after-me recording first (the '
+                      'this run or their recording is kept from an earlier visit; recording_needed means asking for it starts a repeat-after-me recording first (the '
                       'impersonate lines). recording, when present, is that recording under way: code says each line '
                       'and keeps their repeats; answer anything else they say normally. people are known voices on file (here: in the room, on an impression '
                       'beat); famous are target ids (the list is in the static context at the start of the '

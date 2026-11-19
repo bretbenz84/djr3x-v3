@@ -167,6 +167,8 @@ class Memory:
         self.connection.executescript(familiarity_schema)
         from .signature_lines import SCHEMA as signature_lines_schema
         self.connection.executescript(signature_lines_schema)
+        from .impersonation import CLONE_RECORDINGS
+        self.connection.executescript(CLONE_RECORDINGS)
         self.validate_schema()
 
     def validate_schema(self):

@@ -17,7 +17,8 @@ forgotten. Details: [impressions](IMPERSONATION.md). 15 new blocked-I/O checks, 
 only. First live run the same day: the recording worked, the upload was refused (key lacked
 voices write). Since then a failed upload keeps the recording for a retry, the trace keeps
 ElevenLabs' error status, the script is written in the same call, and Rex does not explain
-failures. A real clone has not yet played.
+failures. That evening: half the lines (about 15 s), and a known person's recording is kept in
+the local store so later runs need no lines; forgetting deletes it. A real clone has not yet played.
 
 ## News only in a stalled conversation; his Star Tours lines — November 19
 
