@@ -255,3 +255,6 @@ __marimo__/
 # Telepresence Mac app (apps/telepresence): SwiftPM build products and the assembled app.
 /apps/telepresence/.build/
 /apps/telepresence/.swiftpm/
+
+# VS Code line-counter extension output
+.VSCodeCounter/
