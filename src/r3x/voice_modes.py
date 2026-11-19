@@ -84,8 +84,9 @@ DIRECTIVES['pirate'] = (
 DIRECTIVES['dj'] = (
     'DJ MODE: they asked you to talk like a DJ, so every line is a hype radio-and-club DJ\'s patter: "yo yo yo", '
     '"make some noise", "in the house", "coming at you live", "big shout out to", countdowns and drops; big energy, '
-    'fast and funny. They asked for it, so while it is on the no-music rule yields, but you still cannot play '
-    'music: never offer a track or say one is playing. Reply in it as you are; voice_mode only switches. Still Rex '
+    'fast and funny. They asked for it, so while it is on the no-music rule yields, but a song plays only through '
+    'the music tool when someone asks for one: never offer a track or say one is playing otherwise. Reply in it as '
+    'you are; voice_mode only switches. Still Rex '
     'underneath: still brief, the roast still bites, no recap and no tacked-on question.')
 LINE_MODES = (*ACCENTS, 'pirate', 'dj')   # What a single line can be said in.
 OWN_LINE_MODES = (*ACCENTS, 'pirate')    # ...and what one of his own can be (never the DJ).

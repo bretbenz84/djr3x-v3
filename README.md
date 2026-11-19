@@ -154,6 +154,10 @@ is a separately maintained reference. V3 never imports it or reads its data.
   nothing changes on his own initiative. He uses his own non-admin Homebridge account and refuses an admin
   one. Checked against a fake Homebridge; on the real one his own non-admin account reads the thermostat
   and switched the Kitchen Light on and off; not yet tried in a conversation ([details](docs/HOUSE_DEVICES.md)).
+- **Music (November 18).** Asked for a song, album, artist, genre or one of the owner's playlists, Rex finds it
+  in this Mac's Apple Music library, announces it like a DJ and the Music app plays it through his speaker. While
+  it plays he hears only "Hey Rex" or "Hey DJ Rex", which pauses it; it plays again once the talk is quiet. Run on
+  the robot's Music app nearly silent; not yet tried in a conversation ([details](docs/MUSIC.md)).
 - **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
   wide ~90° lens at 1920×1080. A look someone asks for ("look left and see if you see it") turns
   the head there first and holds it while he answers, even when they speak (October 23); about 20 s
@@ -324,6 +328,7 @@ models on its own.
 | [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |
 | [Jeopardy](docs/JEOPARDY.md) | The game: rules, judging, the clock, sounds, the dashboard board, checks. |
 | [House devices](docs/HOUSE_DEVICES.md) | Homebridge lights, plugs and thermostat: questions and commands, the account, setup, evidence. |
+| [Music](docs/MUSIC.md) | Apple Music through the Music app: DJ announcements, wake-word pause, setup, evidence. |
 | [Sentry mode](docs/SENTRY_MODE.md) | Guarding a room alone: what trips and stands him down, recordings, phone alerts and their setup. |
 | [Room recognition](docs/ROOM_RECOGNITION.md) | Which room, asking and learning rooms, connections, exploring, the V2 import. |
 | [Voice encoder trial](docs/VOICE_ENCODER_TRIAL.md) | ERes2NetV2 against CAM++ for voice ID: the live test, how to run it, offline results. |

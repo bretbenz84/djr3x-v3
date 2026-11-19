@@ -71,6 +71,18 @@ class Delivery:
     gestures: list[dict] = field(default_factory=list)
     completed_at: float | None = None
     lights: list[dict] = field(default_factory=list)
+    music: str | None = None   # 'started', or why a song he announced did not start.
+
+
+@dataclass(frozen=True)
+class MusicCue:
+    """Start the music a request prepared ('start') or carry on with the paused song ('resume'), once
+    everything queued ahead of it, his announcement above all, has been heard (owner, November 18)."""
+    cue: str
+
+
+# Said in place of a song that would not start, so an announcement is never left hanging.
+MUSIC_FAILED_LINE = "Huh. My turntable just skipped. The Music app isn't playing along right now."
 
 
 @dataclass
@@ -290,6 +302,7 @@ class OutputOwner:
         self._saying = None        # The output item being said now.
         self.lines = deque(maxlen=8)   # [started, ended or None, words] of his recent lines.
         self.bed = None            # MusicBed under the room (Jeopardy), stopped before anything plays.
+        self.music = None          # music.AppleMusic: paused before he talks, started after an announcement.
 
     def execute_inspection(self, request, cancel, valid):
         if self.inspection is None:
@@ -515,6 +528,34 @@ class OutputOwner:
     def echo_risk(self) -> bool:
         return self.active.is_set() or self.trace.clock() < self.echo_until
 
+    def music_audible(self) -> bool:
+        """A song from the Music app is coming out of his speaker."""
+        return bool(self.music is not None and self.music.audible)
+
+    def _music_gives_way(self) -> None:
+        """One stream at a time: a line of his pauses the song, which plays again when the talk is quiet."""
+        if self.music is not None:
+            self.music.hold_for_talk('his_line')
+
+    def _start_music(self, cue, cancel, turn_id, delivery) -> bool:
+        """The song after his announcement. False when it did not start (the cover line is said instead)."""
+        if self.music is None:
+            delivery.music = 'MusicUnavailable'
+            self.trace.emit('music_cue', turn_id=turn_id, cue=cue.cue, status='unavailable')
+            return False
+        began = self.trace.clock()
+        try:
+            state = self.music.begin(cue.cue, cancel)
+        except ProviderFailure as exc:
+            delivery.music = str(exc)
+            self.trace.emit('music_cue', turn_id=turn_id, cue=cue.cue, status='failed', reason=str(exc),
+                            seconds=round(self.trace.clock() - began, 2))
+            return False
+        delivery.music = 'started'
+        self.trace.emit('music_cue', turn_id=turn_id, cue=cue.cue, status='started', state=state,
+                        seconds=round(self.trace.clock() - began, 2))
+        return True
+
     def cancel(self) -> None:
         if self.drive:
             self.drive.cancel()  # Stop the wheels first; speech cancellation follows.
@@ -645,6 +686,7 @@ class OutputOwner:
         """A sound effect: the room's microphone is gated while it plays, as for his speech."""
         if self.bed is not None:
             self.bed.stop()
+        self._music_gives_way()
         def pieces():
             for i in range(0, len(sound.pcm), 4096):
                 cancel.check()
@@ -688,6 +730,10 @@ class OutputOwner:
                         hushed = True
                     self._play_sound(text, cancel, turn_id)
                     continue
+                if isinstance(text, MusicCue):
+                    if self._start_music(text, cancel, turn_id, delivery):
+                        continue
+                    text = MUSIC_FAILED_LINE   # Never an announcement left hanging over silence.
                 self._saying = text
                 light = text if isinstance(text,LightPerformance) else None
                 if light:
@@ -795,6 +841,7 @@ class OutputOwner:
                 played_out = False   # The whole line played: talking motion winds down, not freezes.
                 if self.bed is not None:
                     self.bed.stop()   # One stream at a time: the think music gives way to him.
+                self._music_gives_way()
                 if sounds and not hushed:
                     sounds.hush()   # Owner, October 24: the whir goes quiet while he talks.
                     hushed = True
@@ -837,8 +884,8 @@ class OutputOwner:
                 performance = None
             cancel.check()
             if delivery.status != "suppressed":
-                delivery.status = "completed" if delivery.completed_text else "failed"
-            if not delivery.completed_text and delivery.status!="suppressed":
+                delivery.status = "completed" if delivery.completed_text or delivery.music == 'started' else "failed"
+            if delivery.status == "failed":
                 delivery.error = "EmptySpeech"
         except Cancelled:
             delivery.status = "interrupted"
@@ -890,10 +937,13 @@ class TextOutput:
     """Explicit silent replay output. Never creates an audio delivery receipt."""
     # No hardware adapters: the session reads these like OutputOwner's (October 10: the
     # hosted drive-planning check failed every turn on a missing 'attention').
-    attention = gestures = inspection = drive = None
+    attention = gestures = inspection = drive = music = None
 
     def __init__(self,trace):
         self.trace = trace
+
+    def music_audible(self):
+        return False
 
     def cancel(self):
         pass
@@ -913,9 +963,21 @@ class TextOutput:
                 if isinstance(value, Sound):
                     self.trace.emit("sound_played", turn_id=turn_id, sound=value.name, completed=False, medium="text")
                     continue
+                if isinstance(value, MusicCue):
+                    # Replay and scenarios play nothing; a test's music stand-in records the cue.
+                    music = getattr(self, 'music', None)
+                    try:
+                        if music is None:
+                            raise ProviderFailure('MusicUnavailable')
+                        music.begin(value.cue, cancel)
+                        delivery.music = 'started'
+                    except ProviderFailure as exc:
+                        delivery.music = str(exc)
+                    self.trace.emit('music_cue', turn_id=turn_id, cue=value.cue, status=delivery.music, medium='text')
+                    continue
                 delivery.completed_text.append(plain_text(value))
                 self.trace.emit("text_reply",turn_id=turn_id,text=plain_text(value),audio_played=False)
             if delivery.status != "suppressed":
-                delivery.status = "completed" if delivery.completed_text else "failed"
+                delivery.status = "completed" if delivery.completed_text or delivery.music == 'started' else "failed"
         except Cancelled:
             delivery.status = "interrupted"

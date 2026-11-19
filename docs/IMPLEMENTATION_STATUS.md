@@ -6,6 +6,20 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Music from Apple Music — November 18
+
+Owner request: "the DJ in DJ-R3X's name... like a DJ announcer upon request for a song", interruptible by the
+wake words.
+- **Built:** one `music` tool (`src/r3x/music.py`) that scripts the Music app: play a song, album, artist, genre,
+  playlist or a mix; pause, resume, stop, next, volume, what's playing. The DJ announcement is written from what was
+  found; the song starts after it is heard. While music plays only "Hey Rex"/"Hey DJ Rex" get through; they pause
+  it, and it resumes after 6 s of quiet talk unless asked to stop. Rex's own playlist "DJ R3X" holds the queue.
+  Settings `apple_music_enabled` (on, on the robot) and `music_volume` (50).
+- **Evidence:** 23 synthetic checks; the full suite passes (2,038). The module itself ran against the robot's Music
+  app at volume 1: lookups took 0.4–1.5 s, and play, pause, resume and stop worked.
+- **Open:** "Hey Rex" over a song is unmeasured; first conversation; the Automation prompt under the wake
+  supervisor. [Details](MUSIC.md).
+
 ## A caller can turn him on the charger — November 18
 
 Owner request. On a telepresence call while he is on the charger, the caller can turn him in place;

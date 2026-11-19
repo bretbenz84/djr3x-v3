@@ -123,6 +123,8 @@ class VoiceRuntime:
         self.speech_confirmed = False   # The forming capture has lasted like speech, or began in stillness.
         self.sentry = None   # sentry_guard.SentryGuard: while it is on, what Rex hears goes to it first.
         self.room_sounds = None   # room_sounds.RoomSounds: hears every frame, logs household sounds, never acts.
+        self.music = None         # music.AppleMusic: a wake word pauses it, quiet talk lets it play again.
+        self._music_quiet_since = float('-inf')   # The last moment the talk it paused for was still going.
         self.depth_watch = None   # depth_watch.DepthSensorWatch: a depth sensor lost or back is said aloud.
         session.on_shutdown = self.conversation_shutdown
 
@@ -139,6 +141,8 @@ class VoiceRuntime:
         self.cancel()
 
     def cancel(self, quiet=False):
+        if self.music is not None:
+            self.music.release_hold('stopped')   # "Stop" over a paused song keeps it paused.
         if self.robot:
             self.robot.idle.stop()
             self.robot.reflex.stop()
@@ -239,18 +243,19 @@ class VoiceRuntime:
             return
         echo_risk = getattr(self.session.output, 'echo_risk', None)
         speaking = bool(echo_risk and echo_risk())
+        music_on = bool(self.music is not None and self.music.audible)   # A song from the Music app.
         scores = getattr(self.keywords, 'last_scores', None) or {}
-        if speaking:
+        if speaking or music_on:
             if self._wake_listening is None:
-                self._wake_listening = [frame.started_at, {}]
+                self._wake_listening = [frame.started_at, {}, 'his_voice' if speaking else 'music']
             peaks = self._wake_listening[1]
             for word in (*WAKE_WORDS, 'stop'):
                 peaks[word] = max(peaks.get(word, 0.), scores.get(word, 0.))
         elif self._wake_listening is not None:
-            # Evidence for live checks: how close a wake word came while he spoke.
-            began, peaks = self._wake_listening
+            # Evidence for live checks: how close a wake word came while he spoke or music played.
+            began, peaks, over = self._wake_listening
             self.trace.emit('wake_word_listened', seconds=round(frame.ended_at - began, 2),
-                            channel=1 if frame.beam_pcm is not None else 0,
+                            channel=1 if frame.beam_pcm is not None else 0, over=over,
                             peaks={w: round(v, 3) for w, v in sorted(peaks.items())})
             self._wake_listening = None
         moving = self.drive is not None and self.drive.moving.is_set()
@@ -281,6 +286,22 @@ class VoiceRuntime:
                 return
         wake = next((w for w in fired if w in WAKE_WORDS), None)
         if wake is None:
+            return
+        if not speaking and music_on:
+            # Owner, November 18: the wake words interrupt the music. It pauses at once so the person can
+            # talk, and plays again once the talk is quiet (unless they asked to pause or stop it).
+            paused = self.music.hold_for_talk('wake_word')
+            self.trace.emit('wake_word_heard', word=wake, status='music_paused' if paused else 'nothing_to_interrupt',
+                            score=round(fired[wake], 3))
+            if paused:
+                self._wake_at = frame.ended_at   # What follows is theirs, not the song.
+                self._music_quiet_since = frame.ended_at
+                self.session.note_speech(frame.ended_at)
+                if self.robot:
+                    try:
+                        self.robot.heard()   # Show he is listening.
+                    except Exception as exc:
+                        self.trace.emit('listening_cue_skipped', reason='failed:' + type(exc).__name__)
             return
         if not speaking:   # Not over his voice: the words become an ordinary turn.
             self.trace.emit('wake_word_heard', word=wake, status='not_over_his_voice', score=round(fired[wake], 3))
@@ -518,6 +539,25 @@ class VoiceRuntime:
         return bool(self.asr_busy.is_set() or not self.captures.empty() or not self.turns.empty()
                     or self.waiting_turns or (self.speech_confirmed and self.endpoint.frames))
 
+    def music_tick(self, now):
+        """The song a wake word paused plays again once the talk has been quiet (owner, November 18). A game
+        or sentry mode keeps it paused for good."""
+        music = self.music
+        if music is None or not music.held:
+            return
+        if self.gaming() or self.guarding():
+            music.release_hold('jeopardy' if self.gaming() else 'sentry_mode')
+            return
+        output = self.session.output
+        busy = (self.endpoint.frames or self.speech_in_flight()
+                or (self.session._processing.locked() and not self.session.preparing_plan)
+                or (getattr(output, 'active', None) is not None and output.active.is_set())
+                or (getattr(output, 'echo_risk', None) is not None and output.echo_risk()))
+        if busy:
+            self._music_quiet_since = now
+            return
+        music.resume_when_quiet(self._music_quiet_since, now)
+
     def game_tick(self):
         """Jeopardy's clock and music while a game is on (owner, October 26)."""
         game = self.session.state.jeopardy
@@ -618,6 +658,8 @@ class VoiceRuntime:
             gate = ('shutdown' if self.stop.is_set() or self.session.closed else
                     'startup' if now-self.started_at < 2 else
                     'audio_unavailable' if not 0 <= now-self.audio_seen_at <= .5 else
+                    # Owner, November 18: no talk of his own over a song, or in the pause a wake word made for someone.
+                    'music_playing' if self.music is not None and (self.music.audible or self.music.held) else
                     'human_work_pending' if self.asr_busy.is_set() or not self.captures.empty() or
                         not self.turns.empty() or (self.speech_confirmed and bool(self.endpoint.frames)) else
                     'unresolved_speech' if self.session._latest_speech > self.session.resolved_audio_at and
@@ -871,6 +913,7 @@ class VoiceRuntime:
                 now = self.trace.clock()
                 if now>=next_visual:
                     self.observe_visual(now)
+                    self.music_tick(now)
                     next_visual = now+.25
                 if now>=next_resources:
                     import resource
@@ -907,7 +950,8 @@ class VoiceRuntime:
                     self.sentry.audio(frame)   # The last ten seconds wait for a face to arrive.
                 if self.room_sounds is not None:
                     bed = getattr(self.session.output, 'bed', None)
-                    self.room_sounds.feed(frame, rex_sound=bool(bed is not None and bed.playing),
+                    self.room_sounds.feed(frame, rex_sound=bool(bed is not None and bed.playing)
+                                          or bool(self.music is not None and self.music.audible),
                                           wheels=self.drive is not None and self.drive.moving.is_set())
                 if self.recorder and frame.started_at>=self.started_at:
                     try:

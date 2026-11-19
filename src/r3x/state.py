@@ -130,6 +130,7 @@ class CoreState:
         self.weather = None          # weather.Weather: on-request lookups.
         self.systems_status = None   # Callable: battery and room readings (systems.report).
         self.house = None            # house.House: Homebridge devices, checked and changed on request.
+        self.music = None            # music.AppleMusic: songs from the owner's library, on request.
         self.scene_observer = None
         self.objects = None
         self.places = None
@@ -1078,6 +1079,16 @@ class CoreState:
                 args = call.arguments
                 outcome, reason, data = self.house.run(args['action'], args['devices'], args.get('value'),
                                                        args.get('color'), cancel)
+                result = ToolResult(request_id, outcome, reason, revision, data)
+                self.trace.emit('tool_result', name=call.name, **asdict(result))
+                return result
+            if call.name == 'music':
+                # The Music app, not the store (owner, November 18): nothing is saved. A song is found and
+                # queued here; the output owner starts it once his announcement has been heard.
+                cancel.check()
+                if self.music is None:
+                    raise ValueError('MusicUnavailable')
+                outcome, reason, data = self.music.run(call.arguments, cancel)
                 result = ToolResult(request_id, outcome, reason, revision, data)
                 self.trace.emit('tool_result', name=call.name, **asdict(result))
                 return result

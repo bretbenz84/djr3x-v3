@@ -158,6 +158,11 @@ GUIDE = {
               'on your own. States are not listed: check before saying whether something is on or what it reads. '
               'unavailable, in place of devices, says why the house could not be reached at the last try; '
               'house_devices tries it again.'),
+    'music': ('The Music app\'s player, for the music tool (the owner\'s Apple Music library): state is playing, '
+              'paused, stopped, or paused for this talk (a wake word paused it; it plays again once the talk is '
+              'quiet, with no music call); song is the one it is on; volume is the Music app\'s own, 0-100. '
+              'unavailable, in place of state, says why the Music app could not be used at the last try; the music '
+              'tool tries it again. Play something only when a person asks.'),
 }
 
 # Every guide text, for stripping from a request by value.

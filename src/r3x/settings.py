@@ -78,6 +78,12 @@ class Settings:
     homebridge_url: str = ""
     # Homebridge device names Rex neither sees nor touches (a sensor that reads wrong, a room left alone).
     homebridge_hidden_devices: tuple[str, ...] = ()
+    # Apple Music (owner, November 18; docs/MUSIC.md): songs from the owner's library, announced and played by
+    # the Music app on request. Off by default: it needs the Music app signed in on this Mac.
+    apple_music_enabled: bool = False
+    # The Music app's own volume (0-100) when Rex first plays something; asking him louder or quieter changes
+    # it after that. Calibration: "Hey Rex" has to be heard over the music from his own speaker.
+    music_volume: int = 50
 
     def __post_init__(self) -> None:
         if self.agency_planner_model not in {"gpt-6-terra", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-terra"}:
@@ -153,6 +159,10 @@ class Settings:
                 or not all(isinstance(n, str) and 0 < len(n.strip()) <= 120 for n in hidden)):
             raise ValueError('InvalidHomebridgeHiddenDevices')
         object.__setattr__(self, 'homebridge_hidden_devices', tuple(hidden))
+        if type(self.apple_music_enabled) is not bool:
+            raise ValueError('apple_music_enabled must be true or false')
+        if type(self.music_volume) is not int or not 0 < self.music_volume <= 100:
+            raise ValueError('InvalidMusicVolume')   # 1-100, the Music app's own scale.
         if self.camera_enabled and not self.camera_device_name.strip():
             raise ValueError("Enabled camera requires a device name")
         for name, lower, upper in (("camera_width", 320, 1920), ("camera_height", 240, 1080)):

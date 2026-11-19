@@ -179,6 +179,13 @@ homebridge_url = ""
 homebridge_hidden_devices = []
 # homebridge_hidden_devices = ["Outside Temperature"]
 
+# Apple Music (owner, November 18; docs/MUSIC.md): asked for a song, album, artist, genre or one of your
+# playlists, Rex finds it in this Mac's Music library, announces it like a DJ and the Music app plays it.
+# "Hey Rex" pauses it to talk. The Music app must be signed in; the first use asks to allow control of Music.
+apple_music_enabled = false
+# The Music app's volume (1-100) when he first plays something; "louder"/"quieter" change it after that.
+music_volume = 50
+
 # Spelling fixes for names the recognizer gets wrong (owner, October 26). Each whole word, in any
 # case, is replaced in every transcript before Rex reads it; the session log keeps what was heard.
 # Spelling only: never who spoke or who is meant. At most 32. Keep this table last in the file.

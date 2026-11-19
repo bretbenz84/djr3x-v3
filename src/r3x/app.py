@@ -74,6 +74,11 @@ class App:
             # The house's devices through Homebridge (owner, November 17), with Rex's own non-admin account.
             from .house import House
             house = House(self.settings, secrets.homebridge_username, secrets.homebridge_password)
+        music = None
+        if self.settings.apple_music_enabled:
+            # Songs from the owner's Apple Music library, played by the Music app (owner, November 18).
+            from .music import AppleMusic
+            music = AppleMusic(self.settings)
         from .objects import Objects
         from .adapters.objects import ObjectDetector
         objects = Objects(camera,ObjectDetector(self.paths.root / 'models/objects/rfdetr-nano.onnx'),scene=scene) if camera and self.settings.object_memory_enabled else None
@@ -118,7 +123,7 @@ class App:
         for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,expressions,public,weather,house,scene,inspection,direction,objects,places,locator,agency_planner,self.cloner,keywords,turn,voice_check,room_sounds) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,expressions,public,weather,house,music,scene,inspection,direction,objects,places,locator,agency_planner,self.cloner,keywords,turn,voice_check,room_sounds) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -262,12 +267,15 @@ class App:
         public = next((p for p in optional if p.capability.name=='public_observations'),None)
         weather = next((p for p in optional if p.capability.name=='weather_lookup'),None)
         house = next((p for p in optional if p.capability.name=='house_devices'),None)
+        music = next((p for p in optional if p.capability.name=='apple_music'),None)
         scene = next((p for p in optional if p.capability.name=='scene_observations'),None)
         objects = next((p for p in optional if p.capability.name=='objects'),None)
         places = next((p for p in optional if p.capability.name=='places'),None)
         room_sounds = next((p for p in optional if p.capability.name=='room_sounds'),None)
-        for provider in (public,house,scene,objects,places,room_sounds):
+        for provider in (public,house,music,scene,objects,places,room_sounds):
             if provider:provider.trace=trace
+        if music:
+            music.clock = trace.clock   # Its pauses are timed against the listening loop's clock.
         if camera:
             camera.trace = trace
         memory = Memory(self.paths.root / "core.sqlite3")
@@ -290,7 +298,9 @@ class App:
                 self.robot.before_shutdown = self.leds.cancel
             if self.drive:
                 self.leds.charge_meter = self.drive.charge_reading   # The shutdown fade ends in the meter.
-        mic.echo_risk = output.echo_risk
+        # The Music app's songs come out of his speaker too: the conversation hears only the wake words over
+        # them (owner, November 18). output.music is set once the Music app's capability has started.
+        mic.echo_risk = lambda: output.echo_risk() or output.music_audible()
         mic.trace = trace
         if self.robot:
             self.robot.trace = trace
@@ -306,7 +316,7 @@ class App:
             direction.trace = trace
             # Only playback, the microphone arm or the wheels invalidate a bearing; talking
             # head sway and the other arms do not move the array (September 27: 0 samples).
-            direction.echo_risk = lambda: (output.echo_risk() or
+            direction.echo_risk = lambda: (output.echo_risk() or output.music_audible() or
                 (self.robot is not None and self.robot.owner.microphone_moving()) or
                 (self.drive is not None and self.drive.motion_risk()))
             if self.robot:
@@ -424,6 +434,7 @@ class App:
                     self.robot.talking.flair = pride
                 state.weather = weather if weather and 'weather_lookup' in active else None
                 state.house = house if house and 'house_devices' in active else None
+                state.music = output.music = music if music and 'apple_music' in active else None
                 if self.drive:
                     from .systems import report
                     offset = self.settings.room_temperature_offset_f
@@ -497,6 +508,7 @@ class App:
                 runtime = VoiceRuntime(mic, vad, asr, session, trace, self.settings.end_silence_seconds,perception,recorder,
                                        lull_seconds=self.settings.proactive_lull_seconds,observations=public,scene_observer=scene,robot=self.robot,
                                        drive=output.drive,keywords=keywords,turn=turn,voice_check=voice_check)
+                runtime.music = output.music   # Wake words pause it; quiet talk lets it play again.
                 if room_sounds is not None and 'room_sounds' in active:
                     runtime.room_sounds = room_sounds   # Logged only: nothing it hears reaches the conversation.
                 if output.drive is not None:

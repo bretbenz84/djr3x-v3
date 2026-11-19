@@ -148,6 +148,25 @@ TOOLS = (
             "value":{"type":["number","null"]},
             "color":{"type":["string","null"],"enum":["red","orange","yellow","green","teal","blue","purple","pink",
                                                        "white","warm_white","cool_white",None]}}),
+    # November 18 owner request: "This is the DJ in DJ-R3X's name." Songs from the owner's Apple Music library.
+    schema("music", "Play music from the Apple Music library on this Mac (the Music app), when someone asks: a song, "
+           "an album, an artist, a genre, one of their playlists, or just some music. You are DJ-R3X: this is your "
+           "old job at Oga's Cantina. Only for a person's request, never on your own initiative. play: fill in what "
+           "they named and leave the rest null (song with artist when they said both; album; artist alone for that "
+           "artist's songs; genre; playlist for one of theirs; everything null for a mix from the whole library). "
+           "Spell names as the artist does, fixing what the recognizer may have misheard. shuffle: true when they "
+           "ask for shuffle, else null. text is null for play and next: the result says what was found, and your "
+           "reply then is the DJ announcement, which plays right before the song starts. pause and stop: the "
+           "music stops and stays stopped. resume: the paused song carries on after your line. next: skips to the "
+           "next song, announced like the first. set_volume: volume 0-100, the Music app's own volume (music.volume "
+           "is where it is now; a little louder or quieter is about 10-15). now_playing: what song this is. "
+           "While music plays you hear nothing but \"Hey Rex\"; it pauses for them and plays again once the talk "
+           "is quiet, so a question asked over it needs no music call. A song that is not in their library comes "
+           "back with the closest titles they do have; say so, never pretend it is playing.",
+           {"action":{"type":"string","enum":["play","pause","resume","stop","next","set_volume","now_playing"]},
+            "song":NULL_TEXT,"artist":NULL_TEXT,"album":NULL_TEXT,"genre":NULL_TEXT,"playlist":NULL_TEXT,
+            "shuffle":{"type":["boolean","null"]},
+            "volume":{"type":["integer","null"],"minimum":0,"maximum":100}}),
     schema("personal_history", "Look up your own past before talking about it: your Star Tours piloting days, the Endor Express, R2-D2 and the crew, how you lost the job, Batuu and your DJ career at Oga's Cantina, and the real ride as park goers know it. Use it whenever someone asks about your history or flights, quizzes you on Star Tours, or gets nostalgic about the ride, instead of guessing or calling your past fictional. Sections: " + "; ".join(name+" ("+text+")" for name,text in HISTORY_SUMMARIES.items()) + ". One section per call. The result is your own memory to tell in your voice; it is not a fact about anyone here and nothing is saved.",
            {"section":{"type":"string","enum":list(HISTORY_SUMMARIES)}}),
     schema("remember_episode", "Optionally retain a concise shared-experience summary or unfinished topic from ONE retrieved exchange. Use its exact id as source_exchange_id. This is a fallible interpretation, not a personal fact. Preserve corrections and uncertainty; never invent experiences, intentions, emotions or completed actions. No mandatory summary call on ordinary turns. Source text remains attached. Save personal facts with record_claim instead.",
@@ -193,7 +212,8 @@ TOOLS = (
         'text talks that way in your own voice. While a mode is on, simply reply in it: voice_mode is only for switching. '
         'The accents: ' + accent_list() + '. pirate: they ask you to talk like a pirate: on, and text answers in a '
         'salty sea dog\'s English ("arr", "ahoy", "matey", "shiver me timbers"). dj: they ask you to talk like a DJ: '
-        'on, and text is hype DJ patter ("yo yo yo", "make some noise"); you still cannot play music. Never the dj on '
+        'on, and text is hype DJ patter ("yo yo yo", "make some noise"); a song plays only through the music tool, '
+        'when someone asks for one. Never the dj on '
         'your own: only when they ask. '
         'line: only this one line in an accent\'s (or the pirate\'s or DJ\'s) voice, then you are yourself again, nothing switched on: when '
         'someone asks for one line that way ("say that like a German"), requested true; or, requested false, now and '
@@ -392,7 +412,7 @@ TOOLS += (schema('revise_agency_plan',
 # while a second model call ran. These tools carry a short lead-in, said at once (it streams as
 # the call is written), then the answer follows from the result.
 LEAD_IN_TOOLS = frozenset({'inspect_view', 'inspect_visual_memory', 'recall_conversations', 'personal_history', 'news_today',
-                           'weather', 'calendar', 'systems_status', 'house_devices'})
+                           'weather', 'calendar', 'systems_status', 'house_devices', 'music'})
 # October 16: the lead-in was optional and left out on every look (4 of 4) and recall (1 of 1) in the
 # October 14-15 runs, which kept those replies at 6-10 s. It is now always written.
 LEAD_IN = {'type': 'string', 'description': 'A few words said aloud right away while you look or check, '
@@ -413,7 +433,7 @@ for _definition in TOOLS:
 INITIATIVE_TOOLS = frozenset({'stop_chiming_in', 'resume_chiming_in'})
 SPOKEN_RESULT_TOOLS = frozenset({'remember_followup', 'remember_interest', 'record_claim', 'correct_claim',
                                  'retract_claim', 'settle_question', 'name_room', 'correct_room', 'note_bit',
-                                 'voice_mode', 'callout', 'house_devices'})
+                                 'voice_mode', 'callout', 'house_devices', 'music'})
 # Owner, October 25 (a0afcf85): "He often refuses to save memories and tells me so... never talk about
 # failing to save it." Two refused facts became "I couldn't save that detail" in the continuation.
 MEMORY_SAVES = frozenset({'record_claim', 'remember_interest', 'remember_followup', 'edit_object_memory', 'callout',
@@ -598,6 +618,7 @@ def grounded_tools(context):
         if name=='systems_status' and not context.get('systems_status_available'):continue
         # Offered with the devices Homebridge lists, on a person's turn only (the context has it on no other).
         if name=='house_devices' and (context.get('trigger') or not context.get('house')):continue
+        if name=='music' and (context.get('trigger') or not context.get('music')):continue   # A person's turns only.
         if name=='calendar' and context.get('trigger'):continue   # Answers a person; not a lull activity.
         participation = context.get('participation', {})
         if name=='stop_chiming_in' and (participation.get('silent_until_released') or context.get('initiative_changed')):continue
@@ -838,6 +859,10 @@ def validate(name, args):
             if type(value) is not bool:raise ValueError('InvalidRulingFlag')
         elif name in {'jeopardy_pick','jeopardy_wager'} and key in {'value','amount'}:
             if type(value) is not int or not 0 <= value <= 1_000_000:raise ValueError('InvalidJeopardyAmount')
+        elif name=='music' and key=='shuffle':
+            if type(value) is not bool:raise ValueError('InvalidMusicShuffle')
+        elif name=='music' and key=='volume':
+            if type(value) is not int or not 0<=value<=100:raise ValueError('InvalidMusicVolume')
         elif name=='house_devices' and key=='value':
             import math
             if type(value) not in (int,float) or not math.isfinite(value):raise ValueError('InvalidHouseValue')

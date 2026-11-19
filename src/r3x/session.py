@@ -1220,6 +1220,7 @@ class Session:
         impression = None
         wonder_person = None   # Whose private audience a "what if" beat was asked in.
         shutdown_requested = False
+        music_cue = None          # 'start' or 'resume': the music after this turn's line (owner, November 18).
         sentry_requested = None   # The checked sentry_mode plan, started once this turn ends.
         from .sentry import SENTRY_KINDS
         sentry_kind = bool(opportunity and opportunity.kind in SENTRY_KINDS)   # Speaking for the guard.
@@ -1563,6 +1564,8 @@ class Session:
                     house = self.state.house.offer()   # The house's devices: a person's turns only.
                     if house:
                         context['house'] = house
+                if not opportunity and getattr(self.state, 'music', None) is not None:
+                    context['music'] = self.state.music.offer()   # The owner's Apple Music: a person's turns only.
                 if not opportunity and self.sentry is not None and not self.sentry.active:
                     context['sentry_available'] = True
             if self.state:
@@ -2058,6 +2061,11 @@ class Session:
                 violation = None if agency_step else greeting_violation(context, call)
                 if violation:
                     raise ProviderFailure(violation)
+                if (call.name == 'music' and call.arguments.get('action') in {'play', 'next', 'now_playing'}
+                        and call.arguments.get('text') is not None):
+                    # The announcement names what was found, so it is written from the result (owner, November 18).
+                    from dataclasses import replace
+                    call = replace(call, arguments={**call.arguments, 'text': None})
                 self.trace.emit("tool_proposed",turn_id=turn_id,call_id=call.call_id,name=call.name,arguments=dict(call.arguments))
                 with self._lock:
                     cancel.check()
@@ -2142,6 +2150,8 @@ class Session:
                             result = ToolResult(attention_intent.request_id, 'ok', 'AttentionProposed', self.state.store.revision)
                         else:
                             result = self.state.execute_opportunity(call,context,cancel) if opportunity else self.state.execute(call,context["state_revision"],cancel,context=context)
+                            if call.name == 'music' and result.outcome == 'ok':
+                                music_cue = result.data.get('cue')   # Queued after the line this turn says.
                     except ValueError as exc:
                         if opportunity and agency_step and call.name == 'shift_attention':
                             # October 22 (1072c10a): a look beat aimed at a person id failed its whole
@@ -2950,6 +2960,9 @@ class Session:
             tail = splitter.finish()
             if tail:
                 put_phrase(phrases, tail, cancel)
+            if music_cue:
+                from .output import MusicCue
+                put_phrase(phrases, MusicCue(music_cue), cancel)   # After his announcement has been heard.
             put_phrase(phrases, None, cancel)
             worker.join(timeout=5 * (40 + 30) + 5)  # Five queued/active phrases: audio plus transport bounds.
             if worker.is_alive():
