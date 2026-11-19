@@ -9,9 +9,11 @@ The program runs on a Mac inside the robot. Speech recognition, voice and face r
 most vision run on the Mac itself. Rex's replies come from a hosted AI model (OpenAI or Claude,
 your choice) and his voice comes from ElevenLabs.
 
-An earlier version of Rex, [djr3x-v2](https://github.com/bretbenz84/djr3x-v2), is kept as a
-separate project. This version borrows some of its sounds, models and ideas but never depends on it
-while running.
+The earlier version of Rex, [djr3x-v2](https://github.com/bretbenz84/djr3x-v2), is no longer
+maintained. Its design didn't hold up: many separate pieces each listened and reacted to speech on
+their own, so they fought over what Rex said and did and were hard to fix. This version replaces it
+from the ground up. It reuses some of v2's sounds, models and ideas but never depends on it while
+running.
 
 ## What Rex can do
 
@@ -117,12 +119,30 @@ The terminal shows the conversation as it happens. A detailed log of each sessio
 ### What you need
 - An Apple Silicon Mac with Python 3.11.
 - A microphone array (Rex uses a ReSpeaker) and a speaker.
-- Accounts for ElevenLabs (his voice) and either OpenAI or Anthropic (his replies).
+- An ElevenLabs account (his voice) and an OpenAI or Anthropic account (his brain). See
+  [AI and voice services](#ai-and-voice-services) below.
 - Optional: a camera, a Pololu Maestro servo controller, the LED board, the drive base and radar,
   Homebridge, and the [ntfy](https://ntfy.sh) phone app for sentry alerts. Rex works without any of
   these; he just won't do the things that need them.
 - A copy of [djr3x-v2](https://github.com/bretbenz84/djr3x-v2), set up per its own instructions, but
   only if you want room recognition or smile detection (they reuse its model files).
+
+### AI and voice services
+
+Rex needs two paid services: one AI model to think and talk, and ElevenLabs for his voice.
+
+**OpenAI or Anthropic (Claude).** Either one can run Rex; pick it with `llm_provider` in
+`local/settings.toml`. Whichever you choose handles his replies, his plans for what to do next, and
+his camera looks. Put that service's API key in `local/secrets.toml`. If you use Claude and also add
+an OpenAI key, Rex switches to OpenAI when the Claude credit runs out, and tells you he has.
+
+- **Claude Max subscribers:** the Max plan includes $100 a month of Anthropic API credit, which you
+  can use for Rex. Create an API key in the Anthropic Console under the account that has the credit,
+  and set `llm_provider = "claude"`.
+- **OpenAI:** pay-as-you-go API billing through the OpenAI platform.
+
+**ElevenLabs.** Rex's voice, and his accents and character voices, come from ElevenLabs. A
+**Creator** plan is enough. Normal use doesn't usually go over its monthly credits.
 
 ### Install
 
