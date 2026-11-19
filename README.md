@@ -226,7 +226,8 @@ on its own. The program on the Mac does all of that and tells the model what is 
 2. The program packs up everything the model needs into one request:
    - **Who Rex is:** his personality and how he talks.
    - **The rules:** what he may and may not do, and how to use his abilities.
-   - **His tools:** a list of about 60 things he can do besides talk, each with a short description.
+   - **His tools:** a list of 61 things he can do besides talk, each with a short description (all
+    listed [below](#rexs-tools)).
      Examples: look through his camera, drive, move his arms, change the lights, save a fact about
      someone, play a song, check the thermostat, start Jeopardy or sentry mode.
    - **The conversation so far.**
@@ -240,6 +241,89 @@ on its own. The program on the Mac does all of that and tells the model what is 
 
 Most lines take one model request. When nobody is talking, a separate, occasional request plans
 what Rex might do next on his own.
+
+### Rex's tools
+
+Every request offers the model the full list below. For each moment, the program says which of them it
+may actually use; Jeopardy's tools, for example, only work during a game. The program checks every tool
+request before carrying it out.
+
+**Talking and taking turns**
+- `respond_with_gesture`: say a line with a matching feeling shown on his body (a head tilt, a gesture, lights).
+- `respond_with_intent`: reply, and set or change what this conversation is about.
+- `remain_silent`: say nothing, when someone is mid-thought, talking to a pet, or talking to someone else.
+- `ask_question`: ask someone a question.
+- `settle_question`: mark a question he asked as answered, declined or no longer needed.
+- `stop_chiming_in`: stop starting conversations (or stop talking altogether) when asked to.
+- `resume_chiming_in`: start talking again when invited.
+- `conversation_feedback`: note when someone turns down his idea or closes a topic, so he drops it.
+- `note_bit`: note whether a joke landed or flopped, so good ones can become running gags.
+- `voice_mode`: switch an accent or character voice on or off.
+- `impersonate`: do a voice impression of a celebrity, someone he knows, or the speaker.
+- `callout`: set up, pause or delete a celebrity-entrance bit for a person or pet.
+- `shut_down`: power down.
+
+**People and identity**
+- `introduce_person`: learn someone's name when they are introduced, or add a nickname.
+- `ask_face_question`: ask who a face in view belongs to, or ask them to come closer.
+- `rename_person`: fix the spelling of someone's name.
+- `reset_face_identity`: forget a face that was matched to the wrong person.
+- `cancel_association`: stop learning a voice when someone says it isn't who he thought.
+- `forget_person`: forget a person entirely, with their recordings and facts.
+
+**Remembering**
+- `record_claim`: save a fact about someone, with who said it.
+- `correct_claim`: update a saved fact, for example a plan that has now happened.
+- `retract_claim`: withdraw a saved fact.
+- `recall`: look up what he knows about someone, and who told him.
+- `recall_conversations`: look up earlier conversations ("what did we talk about last night?").
+- `remember_interest`: save something a person is into, which also gets them their own news.
+- `remember_followup`: save a plan, birthday or celebration to ask about later.
+- `remember_episode`: save a short summary of a shared moment from an earlier conversation.
+- `retract_episode`: withdraw one of those summaries.
+- `use_memory_opportunity`: bring up something he remembers when the moment suits it.
+
+**Seeing**
+- `inspect_view`: take a fresh picture (turning his head first if asked) and answer from it.
+- `describe_view`: describe what's in the picture, and optionally remember the description.
+- `use_visual_memory`: answer from something he saw recently, without taking a new picture.
+- `revise_visual`: correct a description of something he saw.
+- `retract_visual`: withdraw a wrong description of something he saw.
+- `inspect_visual_memory`: look closely at a pet or object and compare it with ones he's been taught.
+- `remember_object`: save a pet, object or room someone teaches him.
+- `edit_object_memory`: correct or forget a pet or object he was taught.
+- `defer_photo_teaching`: hold off saving a pet or object when it isn't clear which one was meant.
+- `name_room`: learn the name of the room he's in.
+- `correct_room`: fix or forget a room he got wrong.
+
+**Moving and lights**
+- `set_robot_pose`: move his head, visor or arms into named poses, one after another ("look down and wave").
+- `set_robot_joints`: move any of his 16 servos to an exact position when asked.
+- `shift_attention`: glance somewhere on his own, silently.
+- `animate_lights`: play a light animation (sparkle, blink, or a mood colour).
+- `drive_base`: drive the wheels: turn, move, face or approach a person or thing, or go find something.
+
+**Information and the house**
+- `weather`: look up current weather and the forecast.
+- `news_today`: read the headlines and stories already fetched today.
+- `use_observation`: bring up a news story or the weather in a lull.
+- `calendar`: work out dates, weekdays and times exactly ("how many days until Christmas?").
+- `systems_status`: read his battery, charging, tilt and the room's temperature and humidity.
+- `house_devices`: check or change lights, plugs and the thermostat through Homebridge.
+- `music`: play, pause or skip music from Apple Music.
+- `personal_history`: look up his own backstory (Star Tours, the Cantina) before talking about it.
+- `sentry_mode`: start guarding the room.
+
+**His own goals**
+- `wait_for`: hold off on the next step of his goal until the moment is right.
+- `revise_agency_plan`: drop his current goal when it no longer fits, so a new one is planned.
+
+**Jeopardy**
+- `jeopardy_setup`: start a game and set the players.
+- `jeopardy_pick`: take the square a player chose.
+- `jeopardy_wager`: take a Daily Double or Final Jeopardy wager.
+- `jeopardy_ruling`: rule an answer right or wrong.
+- `jeopardy_control`: repeat a clue, read the board, move to the next round, and so on.
 
 ### How many tokens a line uses
 
