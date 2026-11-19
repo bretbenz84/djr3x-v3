@@ -99,9 +99,10 @@ GUIDE = {
                       'a feeling, a story of your own), without tacking on another question. Save what they told you in the same reply: '
                       'record_claim for a lasting fact about them (subject_reference for someone else they named), '
                       'edit_object_memory notes for a pet. If they talk about something else, drop it.'),
-    'impersonation': ('Voices Rex can perform through the local cloning engine. self is the current speaker and '
-                      'is usable only when ready is true (otherwise Rex needs to hear more of them in ordinary '
-                      'conversation first). people are known voices on file (here: in the room, on an impression '
+    'impersonation': ('Voices Rex can perform. self is the current speaker\'s own cloned voice: ready means it exists '
+                      'this run; recording_needed means asking for it starts a repeat-after-me recording first (the '
+                      'impersonate lines). recording, when present, is that recording under way: code says each line '
+                      'and keeps their repeats; answer anything else they say normally. people are known voices on file (here: in the room, on an impression '
                       'beat); famous are target ids (the list is in the static context at the start of the '
                       'request). spontaneous_allowed covers cameos and impression beats. Parody is never a fact '
                       'about anyone.'),

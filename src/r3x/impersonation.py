@@ -7,12 +7,13 @@ machinery replaced by V3's owners:
   (one generation, no separate script call) and decides, from context, whether an
   impression was asked for or is a rare surprise cameo.
 - Famous voices are tracked public clips under assets/voices/famous. A known person's
-  voice comes from the accepted enrollment recordings the core already keeps; a
-  stranger's comes from the clean samples of their own current voice track. Nothing
-  is captured specially for impressions and nothing enrolls from them.
+  voice comes from the accepted enrollment recordings the core already keeps. Both play
+  through the local engine (Breeze); nothing enrolls from them.
+- "Impersonate me" (owner, November 19) is the speaker's own ElevenLabs clone, made from
+  about 30 voiced seconds of short "repeat after me" lines (VoiceSitting), kept in memory,
+  joined into one upload and kept in its voice slot until shutdown.
 - Derived reference WAVs live in ignored local/cache/voice_refs. Person references are
-  registered store artifacts so forgetting a person removes them; a stranger's
-  reference lasts for the session only.
+  registered store artifacts so forgetting a person removes them.
 - Generated parody is performance, never biography: it is recorded as an impression
   with its subject, never as a claim.
 """
@@ -22,7 +23,6 @@ from collections import deque
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import wave
 
 FAMOUS_DIR = Path(__file__).resolve().parents[2] / 'assets' / 'voices' / 'famous'
@@ -42,6 +42,16 @@ CAMEO_MAX_SCRIPT_WORDS = 28
 SPONTANEOUS_MIN_GAP_SECONDS = 600.
 SPONTANEOUS_VOICE_GAP_SECONDS = 3600.
 SPONTANEOUS_MAX_PER_SESSION = 4
+# "Impersonate me" (owner, November 19): the speaker's own voice is an ElevenLabs clone made from
+# about 30 voiced seconds of short "repeat after me" lines, joined into one upload. The clone
+# stays for the run; famous voices and other people's stay on the local engine.
+SITTING_SECONDS = 30.          # Voiced seconds recorded, then the clone is made.
+SITTING_MIN_SECONDS = 10.      # ElevenLabs' floor, for lines that run out first.
+SITTING_LINES = (8, 16)        # How many lines the model writes.
+SITTING_LINE_WORDS = 10        # Short enough to remember after one hearing.
+SITTING_WAIT_SECONDS = 60.     # A line nobody repeats in this long lets the recording go.
+OWN_REPEAT_SHARE = .4          # Their own voice: this share of the line's words counts as a repeat.
+UNSURE_REPEAT_SHARE = .7       # A voice the tracker did not tie to them must repeat it closely.
 
 
 @dataclass(frozen=True)
@@ -184,20 +194,14 @@ def recording_clips(store, person_id):
     return clips
 
 
-def sample_clips(samples):
-    """Clean conversational samples of one unnamed track (Enrollment.samples rows)."""
-    return [(capture.pcm, float(observation.voiced_seconds), transcript.text, capture.sample_rate)
-            for capture, transcript, observation, _ in samples]
-
-
 class ReferenceStore:
     """Derived reference clips under local/cache/voice_refs; never a second voice archive."""
     def __init__(self, root: Path):
         self.root = Path(root)
-        self._session_dirs = set()
 
     def person_reference(self, store, conn, person_id: str, name: str):
-        """One reference per person, rebuilt when their accepted recordings change."""
+        """One reference per person, rebuilt when their accepted recordings change. (The speaker's
+        own voice is an ElevenLabs clone instead, from a recording made for it: VoiceSitting.)"""
         chosen, voiced = select_clips(recording_clips(store, person_id))
         if voiced < MIN_VOICED_SECONDS:
             return None
@@ -218,30 +222,88 @@ class ReferenceStore:
         text = ' '.join(path.with_suffix('.txt').read_text(encoding='utf-8').split())
         return VoiceReference(str(path), text, 'person:' + person_id, name)
 
-    def track_reference(self, samples, track_id: str, session_id: str, name: str):
-        """A stranger's own voice, from this session's clean samples; removed at close()."""
-        chosen, voiced = select_clips(sample_clips(samples))
-        if voiced < MIN_VOICED_SECONDS:
-            return None
-        directory = self.root / ('session-' + session_id)
-        self._session_dirs.add(directory)
-        digest = hashlib.sha256(b''.join(hashlib.sha256(pcm).digest() for pcm, *_ in chosen)).hexdigest()[:16]
-        path = directory / f'track-{track_id}-{digest}.wav'
-        if not path.is_file() or not path.with_suffix('.txt').is_file():
-            audio, rate, text = reference_audio(chosen)
-            write_reference(path, audio, rate, text)
-        text = ' '.join(path.with_suffix('.txt').read_text(encoding='utf-8').split())
-        return VoiceReference(str(path), text, 'track:' + track_id, name)
+@dataclass(frozen=True)
+class CloneReference:
+    """The speaker's ElevenLabs clone: their key, a display name and, for a new voice, the recording."""
+    key: str              # person:<id> | track:<id>
+    name: str
+    audio: bytes | None = None
 
-    def forget_track(self, track_id: str) -> None:
-        for directory in self._session_dirs:
-            for path in directory.glob(f'track-{track_id}-*'):
-                path.unlink(missing_ok=True)
 
-    def close(self) -> None:
-        for directory in self._session_dirs:
-            shutil.rmtree(directory, ignore_errors=True)
-        self._session_dirs.clear()
+@dataclass
+class VoiceSitting:
+    """One "repeat after me" recording for an impression of the speaker (owner, November 19).
+
+    Held by the state owner. Only clips Rex heard them repeat count; nothing is written to disk
+    and nothing here is identity evidence: the recording only ever becomes their clone."""
+    key: str
+    name: str
+    person_id: str | None
+    track_id: str | None
+    lines: list
+    impression: dict            # The performance waiting for the clone (script, outro, ...).
+    index: int = 0              # The line being waited for.
+    clips: list = None          # (pcm, voiced seconds, transcript, sample rate)
+    voiced: float = 0.
+    prompted_at: float | None = None   # When the awaited line was heard; None until it was.
+
+    def __post_init__(self):
+        self.clips = [] if self.clips is None else self.clips
+
+    def view(self) -> dict:
+        return {'active': True, 'awaiting_line': self.lines[self.index] if self.prompted_at is not None else None,
+                'lines_repeated': len(self.clips), 'lines_total': len(self.lines),
+                'voiced_seconds': round(self.voiced, 1), 'needed_seconds': SITTING_SECONDS}
+
+
+def sitting_lines(lines) -> list:
+    """The model's "repeat after me" lines, checked for shape only; their wording is the model's."""
+    from .output import plain_text
+    if not isinstance(lines, list) or not SITTING_LINES[0] <= len(lines) <= SITTING_LINES[1]:
+        raise ValueError('InvalidRecordingLines')
+    kept = []
+    for line in lines:
+        text = ' '.join(plain_text(line).split()) if isinstance(line, str) else ''
+        if not text or len(text.split()) > SITTING_LINE_WORDS:
+            raise ValueError('InvalidRecordingLines')
+        kept.append(text)
+    return kept
+
+
+def repeated_share(heard: str, line: str) -> float:
+    """How much of the line they said back: the share of its words found in what was heard."""
+    import re
+    from collections import Counter
+    said = Counter(re.findall(r"[a-z0-9']+", (heard or '').lower()))
+    wanted = re.findall(r"[a-z0-9']+", (line or '').lower())
+    if not wanted:
+        return 0.
+    found = 0
+    for word in wanted:
+        if said[word]:
+            said[word] -= 1
+            found += 1
+    return found / len(wanted)
+
+
+def sitting_key(state, attribution):
+    """Whose clone this would be: a known person's for the run, else this voice track's."""
+    if attribution is None:
+        return None
+    if attribution.person_id:
+        person = state.store.person(attribution.person_id)
+        if person and person['status'] == 'supported':
+            return 'person:' + attribution.person_id
+    if attribution.track_id and attribution.reason != 'tentative_continuity':
+        return 'track:' + attribution.track_id
+    return None
+
+
+def recording_audio(clips) -> bytes:
+    """The repeated lines joined into one WAV (silence trimmed, short gaps) for the upload."""
+    from .adapters.eleven_voices import wav_bytes
+    samples, rate, _ = reference_audio(clips)
+    return wav_bytes(samples, rate)
 
 
 class Impressions:
@@ -328,34 +390,24 @@ def beat_context(state, now: float, scope: str, here=()):
             'recent': state.impressions.recent(), 'meaning': GUIDE['impersonation']}
 
 
-def speaker_readiness(state):
-    """How much clean voice the current speaker has on file: supported recordings, or
-    the clean samples of their own unnamed track. (ready, voiced seconds, basis)."""
-    if state.current is None:
-        return False, 0., 'no_speech'
-    attribution = state.current[4]
-    if attribution.person_id:
-        person = state.store.person(attribution.person_id)
-        if person and person['status'] == 'supported':
-            _, voiced = select_clips(recording_clips(state.store, attribution.person_id))
-            return voiced >= MIN_VOICED_SECONDS, round(voiced, 1), 'accepted_recordings'
-    proposal = state.evidence.get(attribution.track_id) if attribution.track_id else None
-    if proposal is None or attribution.reason == 'tentative_continuity':
-        return False, 0., 'no_clean_track_samples'
-    _, voiced = select_clips(sample_clips(proposal.samples))
-    return voiced >= MIN_VOICED_SECONDS, round(voiced, 1), 'this_voice_track'
-
-
 def context(state, now: float) -> dict:
-    """The impersonation block of the conversation context; offered only with a cloner."""
-    ready, voiced, basis = speaker_readiness(state)
+    """The impersonation block of the conversation context. Famous voices and people's voices
+    come with the local engine (voice_references); the speaker's own, with ElevenLabs clones."""
     attribution = state.current[4] if state.current else None
+    local = state.voice_references is not None
+    clones = state.voice_clones
+    key = sitting_key(state, attribution) if clones is not None else None
     speaker_name = None
     if attribution and attribution.person_id:
         person = state.store.person(attribution.person_id)
         speaker_name = person['name'] if person else None
+    ready = bool(key and clones.has(key))
+    speaker = {'target_id': 'self', 'name': speaker_name, 'ready': ready,
+               'recording_needed': bool(key) and not ready,
+               'available': bool(key),
+               'record_seconds': SITTING_SECONDS, 'lines': list(SITTING_LINES), 'line_max_words': SITTING_LINE_WORDS}
     people = []
-    if attribution is not None:
+    if attribution is not None and local:
         for person in state.store.people():
             if person['status'] != 'supported' or person['id'] == attribution.person_id:
                 continue
@@ -363,12 +415,11 @@ def context(state, now: float) -> dict:
             if seconds >= MIN_VOICED_SECONDS:
                 people.append({'target_id': person['id'], 'name': person['name']})
     allowed, reason = state.impressions.spontaneous_allowed(now)
-    return {'available': True,
-            'speaker': {'target_id': 'self', 'ready': ready, 'name': speaker_name,
-                        'voiced_seconds_on_file': voiced, 'required_voiced_seconds': MIN_VOICED_SECONDS,
-                        'basis': basis},
-            'people': people,
-            'famous': sorted(famous_voices()),
-            'spontaneous_allowed': allowed, 'spontaneous_blocked_reason': reason,
-            'recent': state.impressions.recent(),
-            'meaning': GUIDE['impersonation']}
+    block = {'available': True, 'speaker': speaker, 'people': people,
+             'famous': sorted(famous_voices()) if local else [],
+             'spontaneous_allowed': allowed, 'spontaneous_blocked_reason': reason,
+             'recent': state.impressions.recent(),
+             'meaning': GUIDE['impersonation']}
+    if state.sitting is not None:
+        block['recording'] = state.sitting.view()
+    return block

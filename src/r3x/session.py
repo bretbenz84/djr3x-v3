@@ -1053,10 +1053,15 @@ class Session:
         there says nothing at all. On a person's turn the thinking chirps fill any wait after
         his line, for a cameo as for a request: live, takes needed 13-31 s to render.
         """
-        from .impersonation import VoiceReference
+        from .impersonation import CloneReference, VoiceReference
         from .output import ClonedPhrase
-        reference = VoiceReference(data['reference_wav'],data['reference_text'],data['voice'],data['subject'])
-        take = self.output.cloner.prepare(data['script'],reference)
+        if data.get('engine') == 'elevenlabs':
+            # The speaker's own clone (November 19); its first take uploads their recording.
+            take = self.output.voice_clones.prepare(data['script'],
+                CloneReference(data['voice'],data['subject'],data.get('clone_audio')))
+        else:
+            reference = VoiceReference(data['reference_wav'],data['reference_text'],data['voice'],data['subject'])
+            take = self.output.cloner.prepare(data['script'],reference)
         record = {'take':take,'data':data,'status':'preparing','heard_before':len(delivery.completed_text)}
         self.trace.emit('impression_started',turn_id=turn_id,voice=data['voice'],subject=data['subject'],
                         requested=data['requested'],occasion=data.get('occasion'),words=len(data['script'].split()),
@@ -1222,6 +1227,8 @@ class Session:
         setback = [False]   # A refused move, failed look or rejected tool this turn: no joke material.
         action_outcome = None
         impression = None
+        sitting_line = None   # A repeat-after-me line said this turn (owner, November 19).
+        sitting_note = None
         wonder_person = None   # Whose private audience a "what if" beat was asked in.
         shutdown_requested = False
         music_cue = None          # 'start' or 'resume': the music after this turn's line (owner, November 18).
@@ -1354,7 +1361,45 @@ class Session:
             if not opportunity and transcript.trusted and self.state:
                 with self._lock:
                     self.state.initiative.cancel_schedule("human_turn")
+            if not opportunity and self.state is not None and self.state.sitting is not None:
+                with self._lock:
+                    sitting_step = self.state.sitting_heard(self.trace.clock())
+                if sitting_step and sitting_step['kind'] != 'ended':
+                    # Owner, November 19: "repeat after me" for an impression of the speaker. Code says the
+                    # model's next line with no model call; the last repeat makes their clone and plays the bit.
+                    phrases = Queue(maxsize=4)
+                    line_worker = threading.Thread(target=self.output.run, args=(phrases, cancel, turn_id, delivery),
+                                                   name="r3x-output", daemon=True)
+                    if sitting_step['kind'] == 'done':
+                        worker = line_worker   # The bit is heard speech: it enters history like a reply.
+                    self.output_worker = line_worker
+                    line_worker.start()
+                    if sitting_step['kind'] == 'done':
+                        self.history.begin_turn()
+                        self.history.append({'role': 'developer', 'content':
+                            f"They repeated {sitting_step['lines']} lines ({sitting_step['voiced_seconds']} s of their voice) "
+                            'for the impression of them; their cloned voice is being made now and the impression follows.'})
+                        impression = self._perform_impression(sitting_step['impression'], phrases, delivery, cancel,
+                                                              line_worker, turn_id)
+                    else:
+                        sitting_line = sitting_step['line']
+                        put_phrase(phrases, sitting_line, cancel)
+                    put_phrase(phrases, None, cancel)
+                    line_worker.join(timeout=5 * (40 + 30) + 5)
+                    if line_worker.is_alive():
+                        raise ProviderFailure("OutputWorkerTimeout")
+                    return delivery
+                if sitting_step:
+                    sitting_note = ('The repeat-after-me recording for the impression of them has stopped ('
+                                    + {'said_something_else': 'what they just said was not the line',
+                                       'no_repeat_in_time': 'nobody repeated the last line for a minute',
+                                       'too_little_voice': 'the lines ran out before enough of their voice was in'
+                                       }.get(sitting_step['reason'], sitting_step['reason'])
+                                    + '); nothing was kept. Answer them normally; if they still want it, impersonate '
+                                      'self with new lines starts again.')
             if not planning_only: self.history.begin_turn()
+            if sitting_note:
+                self.history.append({'role': 'developer', 'content': sitting_note})
             if opportunity:
                 import json
                 last_reply = next((m['content'] for m in reversed(self.history_messages())
@@ -1467,12 +1512,15 @@ class Session:
                     and self.trace.clock() - self.last_hypothetical['at'] <= OPEN_SECONDS):
                 context['your_hypothetical'] = {'asked': self.last_hypothetical['text'],
                                                 'meaning': GUIDE['your_hypothetical']}
-            if (self.state and not self.state.frozen and getattr(self.output,'cloner',None) is not None
-                    and self.state.voice_references is not None):
+            local_voices = getattr(self.output,'cloner',None) is not None and self.state is not None \
+                and self.state.voice_references is not None
+            own_voices = getattr(self.output,'voice_clones',None) is not None and self.state is not None \
+                and self.state.voice_clones is not None
+            if self.state and not self.state.frozen and (local_voices or own_voices):
                 if not opportunity and not game_on:
                     from . import impersonation
                     context['impersonation'] = impersonation.context(self.state, self.trace.clock())
-                elif not sentry_kind:
+                elif not sentry_kind and local_voices:
                     # Rex's own impression beats (October 23); the voices are looked up only when one runs.
                     context['impression_enabled'] = True
             # Awake: 'moving' while any motion runs, the listening cue as a person finishes above all. October 22:
@@ -2798,6 +2846,12 @@ class Session:
                         put_phrase(phrases,result.data['text'],cancel)
                     else:
                         delivery.status, delivery.medium = 'suppressed', 'none'
+                elif result.outcome=='ok' and call.name=='impersonate' and result.data.get('recording'):
+                    # The impression waits for a repeat-after-me recording: his setup, then the first line.
+                    if result.data['intro']:
+                        put_phrase(phrases,result.data['intro'],cancel)
+                    sitting_line = result.data['line']
+                    put_phrase(phrases,sitting_line,cancel)
                 elif result.outcome=='ok' and call.name=='impersonate':
                     impression = self._perform_impression(result.data,phrases,delivery,cancel,worker,turn_id)
                 elif result.outcome=='ok' and call.name=='use_visual_memory':
@@ -3133,6 +3187,14 @@ class Session:
                             'selected_text':visual_proposed_text or generated[:1200],
                             'heard_text':' '.join(delivery.completed_text) if delivery.medium=='audio' else '',
                             'delivery_status':delivery.status,'at':self.trace.clock()})
+            if sitting_line is not None and self.state is not None:
+                # The wait for their repeat starts only once the line was heard to its end.
+                from .output import plain_text
+                heard = ' '.join(plain_text(sitting_line).split()) in ' '.join(delivery.completed_text)
+                with self._lock:
+                    self.state.sitting_prompted(heard, self.trace.clock())
+                    if heard:   # No chiming in while they get ready to say it back.
+                        self.proactive_hold_until = max(self.proactive_hold_until, self.trace.clock() + 20.)
             if impression is not None:
                 performed = self._finish_impression(impression,delivery,turn_id)
                 if agency_step:

@@ -56,7 +56,7 @@ class Settings:
     object_memory_enabled: bool = False
     place_recognition_enabled: bool = False  # Camera room recognition (local MobileCLIP-S2); needs the camera and model.
     face_expressions_enabled: bool = False  # What faces show (local MediaPipe); needs the camera and model.
-    impersonation_enabled: bool = True  # Local Breeze voice cloning for model-chosen impressions.
+    impersonation_enabled: bool = True  # Impressions: famous and known voices on local Breeze, "impersonate me" as an ElevenLabs clone.
     news_feed_urls: tuple[str, ...] = ("https://feeds.bbci.co.uk/news/rss.xml",)
     news_search_enabled: bool = True  # Daily web-searched stories and interest news (paid OpenAI searches).
     weather_enabled: bool = True

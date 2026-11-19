@@ -169,6 +169,8 @@ class CoreState:
         from .impersonation import Impressions
         self.impressions = Impressions()
         self.voice_references = None   # ReferenceStore when a voice cloner is composed.
+        self.voice_clones = None       # ElevenLabs VoiceClones for "impersonate me" (November 19).
+        self.sitting = None            # The "repeat after me" recording under way, if any.
 
     def apply_photo(self,call,context,cancel):
         cancel.check()
@@ -566,6 +568,7 @@ class CoreState:
             self.trace.emit("pending_cancelled", enrollments=0, question=True)
         self.pending = None
         self.jeopardy.hold(self.trace.clock())   # A stop pauses the answer clock until someone carries on.
+        self.end_sitting('explicit_stop')
 
     def resume(self, current):
         """Make an earlier trusted turn current again, so the reply it is owed is that turn's: its words, its
@@ -1306,14 +1309,14 @@ class CoreState:
                 "text":args["text"],"reason":"conversation_feedback"},True
 
     def _impersonate(self, conn, args, context):
-        """Resolve the chosen voice to a reference clip the cloner can use. Nothing here
-        is a fact or an identity: the parody is bounded, the voice comes only from
-        offered targets, and a stranger's voice is this session's own clean samples."""
+        """Resolve the chosen voice for the engine that performs it. Nothing here is a fact or
+        an identity: the parody is bounded and the voice comes only from offered targets. The
+        speaker's own voice is their ElevenLabs clone, recorded for it first when there is none."""
         from . import impersonation
         turn_id,capture,transcript,observation,attribution = self.current
         self._source_allowed(args,'impersonate')
         offered = (context or {}).get('impersonation') or {}
-        if self.frozen or self.voice_references is None or not offered.get('available') or offered.get('beat'):
+        if self.frozen or not offered.get('available') or offered.get('beat'):
             raise ValueError('ImpersonationUnavailable')
         if not args['requested']:
             allowed, reason = self.impressions.spontaneous_allowed(self.trace.clock())
@@ -1322,19 +1325,21 @@ class CoreState:
         target = args['target']
         reference = None
         if target == 'self':
-            if not offered.get('speaker',{}).get('ready'):
+            # Owner, November 19: the speaker's own voice is an ElevenLabs clone, made once a run
+            # from "repeat after me" lines; asking for it is their consent.
+            key = impersonation.sitting_key(self, attribution) if self.voice_clones is not None else None
+            if key is None:
                 raise ValueError('SpeakerVoiceNotReady')
-            if attribution.person_id and self.store.person(attribution.person_id)['status']=='supported':
-                person = self.store.person(attribution.person_id)
-                reference = self.voice_references.person_reference(self.store,conn,person['id'],person['name'])
-            else:
-                proposal = self.evidence.get(attribution.track_id) if attribution.track_id else None
-                if proposal is None or attribution.reason=='tentative_continuity':
+            name = (self.store.person(attribution.person_id) or {}).get('name') if key.startswith('person:') else 'you'
+            reference = impersonation.CloneReference(key, name or 'you')
+            if not self.voice_clones.has(key):
+                if not args['requested']:
                     raise ValueError('SpeakerVoiceNotReady')
-                reference = self.voice_references.track_reference(proposal.samples,attribution.track_id,
-                                                                  capture.session_id,'you')
-            kind = 'speaker'
-        elif any(p['target_id']==target for p in offered.get('people',[])):
+                return self._start_sitting(args, reference, attribution)
+            return self._impression(args, reference, 'speaker', 'requested' if args['requested'] else 'cameo')
+        if self.voice_references is None:
+            raise ValueError('ImpressionTargetNotOffered')
+        if any(p['target_id']==target for p in offered.get('people',[])):
             person = self._person(target)
             if person['status']!='supported': raise ValueError('VoiceReferenceUnavailable')
             reference = self.voice_references.person_reference(self.store,conn,person['id'],person['name'])
@@ -1345,6 +1350,86 @@ class CoreState:
         else:
             raise ValueError('ImpressionTargetNotOffered')
         return self._impression(args, reference, kind, 'requested' if args['requested'] else 'cameo')
+
+    def _start_sitting(self, args, reference, attribution):
+        """The model's "repeat after me" lines start a recording; the impression waits for it.
+        Nothing is performed or saved now: Rex says the intro and the first line, and each line
+        they repeat in their own voice is kept in memory until the clone is made."""
+        from . import impersonation
+        from .output import plain_text
+        lines = impersonation.sitting_lines(args.get('lines'))
+        pending = self._impression({**args, 'intro': None}, reference, 'speaker', 'requested')
+        intro = args.get('intro')
+        intro = intro if intro is not None and plain_text(intro) else None
+        self.sitting = impersonation.VoiceSitting(reference.key, reference.name, attribution.person_id
+            if reference.key.startswith('person:') else None, attribution.track_id, lines, pending)
+        self.trace.emit('voice_recording', status='started', voice=reference.key, lines=len(lines))
+        return {'recording': True, 'voice': reference.key, 'subject': reference.name, 'intro': intro, 'line': lines[0],
+                'meaning': 'A "repeat after me" recording started; the impression plays once about '
+                           f'{int(impersonation.SITTING_SECONDS)} seconds of their voice are recorded.'}
+
+    def end_sitting(self, reason: str):
+        if self.sitting is not None:
+            sitting, self.sitting = self.sitting, None
+            self.trace.emit('voice_recording', status='ended', reason=reason, voice=sitting.key,
+                            lines_repeated=len(sitting.clips), voiced_seconds=round(sitting.voiced, 1))
+            return sitting
+        return None
+
+    def sitting_prompted(self, heard: bool, now: float):
+        """The awaited line was said to its end (the wait starts), or it was not (the recording stops)."""
+        if self.sitting is None:
+            return
+        if heard:
+            self.sitting.prompted_at = now
+        else:
+            self.end_sitting('line_not_heard')
+
+    def sitting_heard(self, now: float):
+        """Whether the current utterance is their repeat of the awaited line, and what follows.
+
+        None: not part of the recording (someone else talking); it is answered as usual and the
+        recording waits. kind 'next' (say this line), 'again' (say the same line: overlapping voices),
+        'done' (the clone's impression, with the joined recording) or 'ended' (their words were
+        something else, or the wait ran out: answered as usual with a note)."""
+        from . import impersonation
+        sitting = self.sitting
+        if sitting is None or sitting.prompted_at is None or self.current is None:
+            return None
+        turn_id, capture, transcript, observation, attribution = self.current
+        if now - sitting.prompted_at > impersonation.SITTING_WAIT_SECONDS:
+            self.end_sitting('no_repeat_in_time')
+            return {'kind': 'ended', 'reason': 'no_repeat_in_time'}
+        own = bool((sitting.person_id and attribution.person_id == sitting.person_id)
+                   or (attribution.track_id and attribution.track_id == sitting.track_id))
+        share = impersonation.repeated_share(transcript.text, sitting.lines[sitting.index])
+        if not own:
+            other = attribution.person_id and (self.store.person(attribution.person_id) or {}).get('status') == 'supported'
+            if other or share < impersonation.UNSURE_REPEAT_SHARE:
+                return None
+        if share < impersonation.OWN_REPEAT_SHARE:
+            self.end_sitting('said_something_else')
+            return {'kind': 'ended', 'reason': 'said_something_else'}
+        if observation.mixed:
+            return {'kind': 'again', 'line': sitting.lines[sitting.index]}
+        voiced = float(observation.voiced_seconds or 0.) or sum(end - start for start, end in capture.voiced_intervals)
+        sitting.clips.append((capture.pcm, voiced, transcript.text, capture.sample_rate))
+        sitting.voiced += voiced
+        sitting.index += 1
+        sitting.prompted_at = None
+        self.trace.emit('voice_recording', status='line_repeated', turn_id=turn_id, voice=sitting.key,
+                        line=sitting.index, voiced_seconds=round(sitting.voiced, 1), share=round(share, 2))
+        exhausted = sitting.index >= len(sitting.lines)
+        if sitting.voiced >= impersonation.SITTING_SECONDS or (exhausted and sitting.voiced >= impersonation.SITTING_MIN_SECONDS):
+            self.end_sitting('recorded')
+            audio = impersonation.recording_audio(sitting.clips)
+            reference = impersonation.CloneReference(sitting.key, sitting.name, audio)
+            return {'kind': 'done', 'impression': {**sitting.impression, 'clone_audio': audio},
+                    'reference': reference, 'lines': len(sitting.clips), 'voiced_seconds': round(sitting.voiced, 1)}
+        if exhausted:
+            self.end_sitting('too_little_voice')
+            return {'kind': 'ended', 'reason': 'too_little_voice'}
+        return {'kind': 'next', 'line': sitting.lines[sitting.index]}
 
     def _beat_impression(self, args, context):
         """An impression beat of Rex's own (October 23): nobody asked, so the cameo budget
@@ -1390,7 +1475,8 @@ class CoreState:
         return {'subject':reference.name,'voice':reference.key,'target_kind':kind,'script':script,
                 'script_capped':script!=' '.join(plain_text(args['script']).split()),
                 'intro':intro,'outro':outro,'requested':args['requested'],'occasion':occasion,
-                'reference_wav':reference.wav_path,'reference_text':reference.text,
+                **({'engine':'elevenlabs'} if isinstance(reference, impersonation.CloneReference) else
+                   {'engine':'breeze','reference_wav':reference.wav_path,'reference_text':reference.text}),
                 'meaning':'Voice reference resolved; nothing has been performed yet.'}
 
     def _apply(self, conn, name, args, context=None):
@@ -2188,8 +2274,10 @@ class CoreState:
             self.newcomers.pop(data.get("person_id"), None)
         if name=='cancel_association':
             self.initiative.discard_association(data.get('person_id'),data.get('track_id'))
-            if self.voice_references is not None and data.get('track_id'):
-                self.voice_references.forget_track(data['track_id'])
+            if self.voice_clones is not None and data.get('track_id'):
+                self.voice_clones.forget('track:' + data['track_id'])
+            if self.sitting is not None and data.get('track_id') == self.sitting.track_id:
+                self.end_sitting('association_cancelled')
             for key, proposal in self.enrollments.items():
                 if proposal.person_id==data.get('person_id'):
                     self.initiative.discard_association(None,key)
@@ -2206,8 +2294,10 @@ class CoreState:
             self.tracker.forget(data["person_id"])
             self.voices_taken = {k: p for k, p in self.voices_taken.items() if p != data["person_id"]}
             self.impressions = type(self.impressions)()   # Performed parody of a forgotten person is not kept.
-            if self.voice_references is not None:
-                self.voice_references.close()
+            if self.voice_clones is not None:
+                self.voice_clones.forget('person:' + data['person_id'])
+            if self.sitting is not None and self.sitting.person_id == data['person_id']:
+                self.end_sitting('forgotten')
             self.pending = None
             self.attention.clear()
             self.attention.recent.clear()

@@ -6,6 +6,16 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## "Impersonate me" through ElevenLabs — November 19
+
+Owner: rebuild "impersonate me" with ElevenLabs, in character, from about 30 seconds of short
+"repeat after me" lines joined into one upload, the voice slot kept until shutdown, no age or
+consent checks. Celebrity impressions stay on the robot. Rex writes the lines in his one
+`impersonate` call, says them one at a time while code keeps the person's repeats, then plays
+the parody in their new voice. The clone is deleted at shutdown, or at once when the person is
+forgotten. Details: [impressions](IMPERSONATION.md). 15 new blocked-I/O checks, synthetic audio
+only. Not yet run with a real clone or on the robot.
+
 ## News only in a stalled conversation; his Star Tours lines — November 19
 
 Owner: Rex brings up "the news randomly ... even if I've said nothing to him", reading headlines with jokes;
@@ -2756,7 +2766,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 | Implemented; in live use | V2 speech leveling (−20 LUFS) on every phrase; V2 startup sounds with servo wake-up, short cached please-wait/ready lines and spoken hardware notice; V2 power-down sound while the servos park; stop phrases wrapped or repeated ("Oh, stop!"); unreliable noise transcripts kept but never answered; one-time microphone recovery after a silent input | [V2 reference](../V2_REFERENCE.md#speech-leveling-and-startup-audio--september-27-2026), [drive repairs](DRIVE_BASE_INTEGRATION.md#talkative-arrivals-noise-replies-surroundings--september-27) |
 | Installed and running | Wake supervisor ("wake up rex", chimes, charger cues, mic-wedge relaunch, V3 auto-update) and servo/LED/battery menu-bar apps copied from V2 and run by the four LaunchAgents; no-motion handover measured at 0.7 s | [Operator services](OPERATOR_CUTOVER.md) |
 | Implemented | Action continuity after interruption, bounded outcome history, no automatic resumption of abandoned work | [Integration pass](CORE_INTEGRATION_PASS.md) |
-| Implemented; live playback pending | Model-chosen voice impressions (famous clips, known people, the current speaker) and budgeted cameos through the local Breeze engine, the one output owner and the shared MLX lock | [Voice impressions](IMPERSONATION.md) |
+| Implemented; live playback pending | Model-chosen voice impressions (famous clips and known people on the local Breeze engine with the shared MLX lock; the current speaker as an ElevenLabs clone from a repeat-after-me recording, November 19) and budgeted cameos through the one output owner | [Voice impressions](IMPERSONATION.md) |
 | Implemented | External-review repairs, scene-change cutoff repair and introduction recovery | [Review follow-up](REVIEW_2026_09_13.md), [introduction recovery](INTRODUCTION_RECOVERY.md) |
 
 The agreed core software slices have no outstanding feature implementation stage.

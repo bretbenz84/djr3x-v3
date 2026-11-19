@@ -271,6 +271,7 @@ class OutputOwner:
                  speech_motion=None, leds=None, robot=None, drive=None, cloner=None):
         self.tts, self.sink, self.trace = tts, sink, trace
         self.cloner = cloner     # Optional voice cloner for model-chosen impressions.
+        self.voice_clones = None # ElevenLabs clones for "impersonate me" (November 19); set at composition.
         self.attention = attention
         self.gestures = gestures
         self.inspection = inspection

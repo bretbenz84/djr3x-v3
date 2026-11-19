@@ -30,12 +30,10 @@ audio, the real local engine synthesizing to files, and a small paced hosted pro
   In the October 6 hosted probe the model declined a cameo on the first opportunity; in
   132 live runs up to October 23 there were five requested impressions and no cameo.
 - **Whose voices.** Twenty-six famous clips under `assets/voices/famous`
-  ([provenance](../assets/voices/README.md)); any person with a supported voice profile
-  (their accepted enrollment recordings, at least six voiced seconds); and the current
-  speaker, including a stranger, once their own voice track holds six clean voiced
-  seconds this session. Until then "do me" gets a plain answer that Rex needs to hear
-  more of them, and ordinary conversation supplies it. Nothing is recorded for impressions
-  specifically.
+  ([provenance](../assets/voices/README.md)) and any person with a supported voice profile
+  (their accepted enrollment recordings, at least six voiced seconds) play on the local
+  engine. The current speaker's own voice ("impersonate me") is an ElevenLabs clone made
+  from a short recording for it (November 19, below).
 - **What is remembered.** A performed impression is noted in history as performed parody
   (subject, requested or cameo) and kept in a short per-run list so the next bit differs.
   It is never a claim about anyone and never evidence of their voice. The playback is
@@ -142,6 +140,49 @@ the interpreter). The weights themselves load with no hold over 0.1 s.
 Real model on saved text and a famous clip, no speaker; startup time and memory with the
 full live workload are not yet measured on the robot.
 
+## November 19: "impersonate me" through ElevenLabs
+
+Owner: rebuild "impersonate me" with ElevenLabs, keep it in character, have the person speak
+only about 30 seconds in short repeat-after-me lines, join the recordings before uploading,
+keep the voice slot until the program shuts down, and no age or consent checks (asking is
+consent; no children use the robot). Celebrity impressions stay on the robot.
+
+- **The recording.** When someone asks Rex to do them and he has no clone of them this run,
+  the model's one `impersonate` call also writes 8 to 16 short `lines` (up to 10 words each)
+  in character. Rex says his setup line and the first line; each time they say it back, code
+  keeps that clip and Rex says the next line, with no model call. Once about 30 voiced seconds
+  are in (or the lines run out with at least 10), the clips are trimmed, joined into one WAV
+  and uploaded as an ElevenLabs instant voice clone; the thinking chirps cover the upload and
+  synthesis, then the parody plays in their voice and Rex reacts.
+- **Whose clips count.** Only their own voice: the same known person, or the same voice
+  track, saying back at least 40% of the line's words. A voice the tracker did not tie to them
+  counts only when it repeats the line closely (70%); a known person who is someone else never
+  does. Overlapping voices get the line said again. If they say something else, nobody repeats
+  the line for a minute, or someone says stop, the recording ends, nothing is kept, and Rex
+  answers normally. Rex does not chime in on his own while waiting for a repeat.
+- **The clone.** One per person per run: a known person's is theirs across voice tracks, a
+  stranger's belongs to their voice track. Asking again plays at once, and a cameo in their own
+  voice is possible once the clone exists. The clone stays in its ElevenLabs slot until shutdown,
+  when every voice the run made is deleted. Forgetting a person deletes theirs at once. If the
+  slots are full, the clone this run used longest ago gives way. Voices are named
+  `R3X impression …`, and at startup any left by a crashed run are deleted. No other voice in
+  the account is touched.
+- **Data.** The clips stay in memory and are never written to disk. They are not enrollment
+  evidence, and a clone is never identity evidence. ElevenLabs keeps the uploaded recording
+  under its own terms.
+- **Code.** `adapters/eleven_voices.py` (`VoiceClones`: create, speak, delete), the recording
+  in `impersonation.py` (`VoiceSitting`) and `state.py` (`sitting_heard`), the repeats in
+  `session.py` before the model call, and the `lines` field on `impersonate`. The old on-device
+  "do me" path (six seconds of the speaker's voice track or profile on Breeze) is retired.
+  ElevenLabs uses Rex's own speech model (`eleven_v4_turbo`) for the clone, with background
+  noise removal off.
+
+Checks: 15 new blocked-I/O checks in `tests/test_own_voice_impression.py` (a fake clone owner
+in the session tests, a fake HTTP client for the provider) and the impression tests updated.
+Synthetic audio only. Not yet done: a real clone from the robot's microphone, how recognizable
+it sounds, upload and synthesis time, whether people find the lines easy to repeat, and whether
+a 40% match is the right bar for real speech recognition.
+
 ## Open acceptance and limitations
 
 - Live playback on the robot: loudness against ElevenLabs lines (both pass the same
@@ -155,4 +196,6 @@ full live workload are not yet measured on the robot.
   deleted on forget, not when individual recordings are retired by other means.
 - Breeze's generated speech is English/Mandarin only; the engine does not speak Rex's
   own lines (ElevenLabs remains his voice; there is no offline fallback).
+- "Impersonate me" needs ElevenLabs: without the key or network it is not offered, and there
+  is no local fallback. The ElevenLabs key needs text to speech and voices (write).
 - The research/non-commercial license of the Breeze weights applies to this home use.

@@ -145,24 +145,7 @@ class ReferenceTests(MemoryFixture):
         person = self.introduce()
         with self.store.transaction() as conn:
             self.assertIsNone(self.refs.person_reference(self.store, conn, person, 'Bret'))
-        ready, voiced, basis = impersonation.speaker_readiness(self.state)
-        self.assertFalse(ready)
-
-    def test_stranger_reference_uses_their_own_clean_track_samples_for_this_session_only(self):
-        for text in ('I drove up from the valley this morning, took the back roads the whole way.',
-                     'The bakery on the corner was already sold out of everything worth eating.',
-                     'So I am running on coffee and spite, which is my natural state anyway.'):
-            self.begin(text, B, seconds=3.)
-        ready, voiced, basis = impersonation.speaker_readiness(self.state)
-        self.assertTrue(ready, (voiced, basis))
-        self.assertEqual(basis, 'this_voice_track')
-        track = self.state.current[4].track_id
-        reference = self.refs.track_reference(self.state.evidence[track].samples, track, 'session', 'you')
-        self.assertEqual(reference.key, 'track:' + track)
-        self.assertTrue(Path(reference.wav_path).is_file())
-        self.assertFalse(self.store.rows('SELECT path FROM artifacts'))
-        self.refs.close()
-        self.assertFalse(Path(reference.wav_path).exists())
+        self.assertEqual(impersonation.people_with_voices(self.store), [])
 
     def test_reference_audio_trims_silence_joins_with_gaps_and_pads_the_tail(self):
         clips = [(tone(2.5), 2.5, 'first clip', 16000), (tone(1.0), 1.0, 'too short', 16000), (tone(4.), 4., 'second clip', 16000)]
@@ -240,29 +223,25 @@ class StateTests(MemoryFixture):
         self.assertEqual(self.call_impersonate(context, requested=False).reason, 'SpontaneousImpressionCooldown:recent_cameo')
         self.assertEqual(self.call_impersonate(context, requested=True).outcome, 'ok')
 
-    def test_self_and_known_people_are_offered_only_with_enough_accepted_voice(self):
+    def test_known_people_are_offered_only_with_enough_accepted_voice_and_self_needs_clones(self):
         bret = self.enroll('Bret', A)
         self.begin('Do an impression of me.', A)
         context = self.context()
         offered = context['impersonation']
-        self.assertTrue(offered['speaker']['ready'])
-        self.assertEqual(offered['speaker']['basis'], 'accepted_recordings')
-        self.assertEqual(offered['speaker']['name'], 'Bret')
-        self.assertEqual(offered['people'], [])
-        result = self.call_impersonate(context, target='self')
-        self.assertEqual(result.outcome, 'ok', result)
-        self.assertEqual(result.data['voice'], 'person:' + bret)
-        self.assertEqual(result.data['subject'], 'Bret')
-        tools = {t['name']: t for t in grounded_tools(context)}
-        self.assertEqual(tools['impersonate']['parameters']['properties']['target']['enum'][0], 'self')
-        # Somebody else asks for Bret: his voice is a listed person, not "self".
-        self.begin('Do an impression of Bret.', C)
-        context = self.context()
-        self.assertFalse(context['impersonation']['speaker']['ready'])
-        self.assertEqual(context['impersonation']['people'], [{'target_id': bret, 'name': 'Bret'}])
-        self.assertEqual(self.call_impersonate(context, target=bret).data['voice'], 'person:' + bret)
+        # Without ElevenLabs clones there is no own-voice impression (November 19); no local fallback.
+        self.assertFalse(offered['speaker']['available'])
+        self.assertEqual(self.call_impersonate(context, target='self').reason, 'SpeakerVoiceNotReady')
         enum = {t['name']: t for t in grounded_tools(context)}['impersonate']['parameters']['properties']['target']['enum']
         self.assertNotIn('self', enum)
+        self.assertEqual(offered['people'], [])
+        # Somebody else asks for Bret: his voice is a listed person on the local engine.
+        self.begin('Do an impression of Bret.', C)
+        context = self.context()
+        self.assertEqual(context['impersonation']['people'], [{'target_id': bret, 'name': 'Bret'}])
+        result = self.call_impersonate(context, target=bret)
+        self.assertEqual(result.data['voice'], 'person:' + bret)
+        self.assertEqual(result.data['engine'], 'breeze')
+        enum = {t['name']: t for t in grounded_tools(context)}['impersonate']['parameters']['properties']['target']['enum']
         self.assertIn(bret, enum)
 
     def test_tool_is_not_offered_without_a_cloner_or_during_opportunities(self):
@@ -351,18 +330,6 @@ class SessionTests(MemoryFixture):
         result = self.turn('We are driving down to Plains, Georgia.')
         self.assertEqual(result.completed_text, [SCRIPT, 'Sorry, he gets like that.'])
         self.assertFalse(self.state.impressions.performed[0]['requested'])
-
-    def test_own_voice_impression_uses_the_speakers_accepted_recordings(self):
-        self.enroll('Bret', A)
-        self.setup_session(lambda s: impersonate(s, target='self', intro='Oh, this is going to be good.', outro=None))
-        result = self.turn('Do an impression of me.', A)
-        self.assertEqual(result.status, 'completed', result)
-        self.assertEqual(result.completed_text, ['Oh, this is going to be good.', SCRIPT])
-        take = self.cloner.takes[0]
-        self.assertTrue(take.reference.key.startswith('person:'))
-        self.assertTrue(Path(take.reference.wav_path).is_file())
-        self.assertEqual(take.reference.name, 'Bret')
-
 
 class OutputTests(unittest.TestCase):
     def test_await_take_returns_when_ready_and_fails_on_timeout(self):
