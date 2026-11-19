@@ -214,7 +214,60 @@ These tests use fake hardware and fake AI services. They never move the robot, u
 or spend money. Scripts in `tools/` named `check_*.py` that talk to real AI services cost a little
 money each run and are run separately.
 
-## How it's put together
+## How the program works
+
+Rex's brain is a hosted AI model (a large language model, or LLM). The model can't hear, see or move
+on its own. The program on the Mac does all of that and tells the model what is going on.
+
+**What happens when you talk to him:**
+
+1. The Mac hears you, works out when you've finished, turns your speech into text, and works out who
+   is speaking from your voice and face.
+2. The program packs up everything the model needs into one request:
+   - **Who Rex is:** his personality and how he talks.
+   - **The rules:** what he may and may not do, and how to use his abilities.
+   - **His tools:** a list of about 60 things he can do besides talk, each with a short description.
+     Examples: look through his camera, drive, move his arms, change the lights, save a fact about
+     someone, play a song, check the thermostat, start Jeopardy or sentry mode.
+   - **The conversation so far.**
+   - **The moment right now:** who is in the room and who is speaking, what he sees, what he knows
+     about the people present, the room he's in, the time and weather, and anything he's in the middle
+     of doing.
+3. The model sends back either words to say or a tool to use. If it picks a tool, the program checks
+   the request is sensible and safe, carries it out, and tells the model how it went. The model then
+   decides what to say about it.
+4. The words go to ElevenLabs, and Rex speaks them while his mouth lights and head move.
+
+Most lines take one model request. When nobody is talking, a separate, occasional request plans
+what Rex might do next on his own.
+
+### How many tokens a line uses
+
+AI services charge by the **token**, a chunk of text about three-quarters of a word long. Because the
+program sends Rex's whole picture of the moment every time, the requests are large. In recent sessions on
+Claude:
+
+- A typical request was about **90,000 to 100,000 tokens** going in, and about 200 tokens coming back.
+- Averaged over everything (including the background planning), that works out to about **80,000
+  tokens sent for each line Rex speaks**.
+
+### How prompt caching keeps that affordable
+
+Most of a request is the same every time: his personality, the rules, the tool list, and the earlier
+part of the conversation. Only the end, the moment right now and the latest thing said, is new.
+
+Both OpenAI and Anthropic offer **prompt caching**. The service remembers the start of a recent request,
+and when the next request begins exactly the same way it reuses that part instead of reading it again.
+Reused tokens cost about a tenth of the normal price. The program is careful to keep the unchanging
+parts first and identical between requests so they get reused. On Claude, the personality and tools are
+kept for an hour and the conversation for five minutes.
+
+In recent sessions about **three-quarters of the tokens sent were reused from the cache**. Only about
+20,000 tokens per request were read fresh. That makes the input side of each request cost roughly a
+third of what it would without caching. The first request after Rex starts, or after a long quiet
+spell, pays full price to fill the cache.
+
+### Ground rules the code enforces
 
 - **One brain.** A single AI conversation decides what Rex says and does. Separate parts of the
   program handle hearing, recognizing people, remembering, and driving the hardware, and each one
