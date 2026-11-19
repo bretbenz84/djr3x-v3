@@ -164,7 +164,8 @@ is a separately maintained reference. V3 never imports it or reads its data.
   after his answer his head moves normally again (October 31). Asked what he is looking at, he answers
   about what is straight ahead of his head, not someone at the side of his view, and keeps his head
   there while he answers (October 31; not yet run on the robot).
-- **Body (Pololu Maestro, 14 servos).**
+- **Body (Pololu Maestro, 16 servos).** The throttle arm's hand (wrist twist and pincher, November 19)
+  is in the code but not yet assembled.
   - Startup and park choreography, and talking motion driven by actual playback.
   - The moment he has understood what was said, his head cocks to one side while he
     thinks (October 11; not yet run on the robot).

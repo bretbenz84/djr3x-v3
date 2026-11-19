@@ -20,13 +20,19 @@ from types import MappingProxyType
 # microseconds x 4) are the limits of the two head servos and the poker elbow/wrist.
 # Head lift (1): owner, November 12, 832-2496 us (was 656-1936).
 # Throttle shoulder (8): owner, November 14, after its rework, 906-2000 us (was 544-2272).
+# Throttle hand (14 wrist twist, 15 two-finger pincher): owner, November 19, before it is assembled
+# or set up on the Maestro: a conservative 1000-2000 us until the full range is measured.
 LIMITS = MappingProxyType({
     0: (1984, 8960), 1: (3328, 9984), 2: (4032, 8128), 3: (4544, 6976),
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
     8: (3624, 8000), 9: (2048, 9984), 10: (2048, 9984),
     11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
+    14: (4000, 8000), 15: (4000, 8000),
 })
 THROTTLE = (8, 9, 10)
+# The throttle hand's wrist twist and pincher. Each moves on its own: the throttle clearance rule
+# (shoulder, elbow, wrist bend) does not cover them, and no collision with the hand is measured yet.
+THROTTLE_HAND = (14, 15)
 HEAD_PAIR = (2, 11)          # head_left, head_right: always commanded together.
 POKER = (12, 13)             # Poker elbow and wrist: always commanded together (clearance).
 HEAD = (0, 1, *HEAD_PAIR)    # Everything the camera rides on.
@@ -165,12 +171,13 @@ JOINT_RANGES = {
     'hero_arm': (7, 3968, 8000),
     'throttle_shoulder': (8, *LIMITS[8]), 'throttle_elbow': (9, 2048, 9984), 'throttle_wrist': (10, 2048, 9984),
     'poker_elbow': (12, POKER_ELBOW_DOWN, POKER_ELBOW_UP), 'poker_wrist': (13, POKER_WRIST_DOWN, POKER_WRIST_IN),
+    'throttle_twist': (14, *LIMITS[14]), 'throttle_pincher': (15, *LIMITS[15]),
 }
 JOINTS = tuple(JOINT_RANGES)
 # Body parts named to the model when their channels are held.
 HELD_PARTS = (('neck', {0}), ('head_lift', {1}), ('head_pitch_and_tilt', {2, 11}), ('visor', {3}),
               ('hero_elbow', {4}), ('hero_wrist', {5}), ('poker_arm', {6}), ('hero_arm', {7}),
-              ('throttle_arm', {8, 9, 10}), ('poker_elbow_and_wrist', {12, 13}))
+              ('throttle_arm', {8, 9, 10}), ('poker_elbow_and_wrist', {12, 13}), ('throttle_hand', {14, 15}))
 
 
 def joint_targets(positions):
@@ -228,6 +235,9 @@ PARK = ((8, SHOULDER_DOWN), (9, 9984), (10, 2048))
 TUCK = ((8, 6132), (9, 8400), (10, 2048))
 REST = ((8, SHOULDER_45), (9, 7720), (10, 5120))
 FULL_DOWN = ((8, SHOULDER_DOWN), (9, 5589), (10, 9511))
+# The throttle hand parks, and rests while awake, at the middle of each joint's range (owner,
+# November 19, until it is assembled); it follows the limits when they are measured.
+HAND_PARK = tuple((ch, sum(LIMITS[ch]) // 2) for ch in THROTTLE_HAND)
 # Neck pulse where the head physically faces straight along the base. The owner
 # saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
 # driving on September 27; set this from the servo console reading.
@@ -264,14 +274,14 @@ AWAKE_ARMS = ((4, 6720), (6, 6000))
 # The arms that reach out from the body, by the channels that carry them. Owner, October 11:
 # either stays at its drive stance after a drive while something is within its reach
 # (drive_space.arms_blocked); base_lanes 'base_release' then leaves it where it is.
-REACHING_ARMS = MappingProxyType({'poker': (6, *POKER), 'throttle': THROTTLE})
+REACHING_ARMS = MappingProxyType({'poker': (6, *POKER), 'throttle': (*THROTTLE, *THROTTLE_HAND)})
 # The head lift parks at its lowest pulse, never below: the board's own range clamps anything
 # lower, so a park under it never arrives (shutdown ServoArrivalTimeout:ch1@2624->2600,
 # October 10 run b954c14c). Owner, November 12: 3328 (832 us), the new low limit.
 HEAD_PARK = ((0, NECK_CENTER), (1, LIMITS[1][0]), (2, HEAD_FULL_DOWN[0]), (11, HEAD_FULL_DOWN[1]),
              (3, VISOR_DOWN), (4, 6300))
 # Where each joint hangs once the robot has been powered off (the board then reads 0).
-UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK, *POKER_PARK)
+UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK, *POKER_PARK, *HAND_PARK)
 
 
 def validate_pose(pose: dict[int, int]) -> None:
@@ -355,6 +365,40 @@ def poker_lane(current, target, speed=20, acceleration=5) -> tuple[Beat, ...]:
                  for stage in poker_route(start, target))
 
 
+def hand_home(current, speed=12, acceleration=3) -> tuple[tuple[Beat, ...], ...]:
+    """The throttle hand's lane back to its park (the middle), or none when it is already there."""
+    if all(abs(current[ch] - value) <= 2 for ch, value in HAND_PARK):
+        return ()
+    return ((Beat(HAND_PARK, speed=speed, acceleration=acceleration),),)
+
+
+# The throttle hand's living motion (owner, November 19): a little while idle, a little more while
+# he speaks. Twist and pincher always move together, as every arm's joints do (October 12), each
+# within this share of its half range either side of the park, eased on one curve like the hero arm.
+HAND_IDLE_REACH = {14: .3, 15: .25}
+HAND_TALK_REACH = {14: .5, 15: .45}
+HAND_IDLE_SECONDS, HAND_IDLE_DWELL = (1.1, 2.), (0., 0.)
+HAND_TALK_SECONDS, HAND_TALK_DWELL = (.6, 1.), (.1, .3)
+
+
+def hand_span(ch, reach) -> tuple[int, int]:
+    middle, half = dict(HAND_PARK)[ch], (LIMITS[ch][1] - LIMITS[ch][0]) / 2
+    return round(middle - half * reach[ch]), round(middle + half * reach[ch])
+
+
+def hand_moves(rng, start, reach, count, seconds, dwell, pace=1.) -> tuple[Beat, ...]:
+    """count eased moves of the twist and pincher together, each somewhere new inside reach."""
+    at, lane = {ch: start[ch] for ch in THROTTLE_HAND}, []
+    for _ in range(count):
+        aim = []
+        for ch in THROTTLE_HAND:
+            low, high = hand_span(ch, reach)
+            aim.append((ch, _elsewhere(rng, low, high, at[ch], max(1, (high - low) // 6), max(2, (high - low) // 2))))
+        lane.append(eased_beat(at, aim, rng.uniform(*seconds) * pace, rng.uniform(*dwell)))
+        at.update(aim)
+    return tuple(lane)
+
+
 def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left',
                     arms_home: bool = False, keep=frozenset()) -> tuple[tuple[Beat, ...], ...]:
     """Parallel lanes, advanced by a single executor. Park never enters a gesture.
@@ -393,6 +437,8 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
             lanes += (tuple(Beat(p, throttle_duration=1.25) for p in throttle),)
         if 'poker' not in keep and any(abs(current[ch] - value) > 2 for ch, value in POKER_UP):
             lanes += (poker_lane(current, dict(POKER_UP), speed=12, acceleration=3),)
+        if 'throttle' not in keep:
+            lanes += hand_home(current)
     else:
         # V2's coordinated head/visor/elbow droop, alongside tuck then park. Decorative
         # channels 5–7 keep their current pose; the poker elbow/wrist return to their park.
@@ -403,6 +449,7 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         home = dict(UNPOWERED_REST)[6]
         if arms_home and abs(current[6] - home) > 2:
             lanes += ((Beat(((6, home),), speed=12, acceleration=3),),)
+        lanes += hand_home(current)
     # Reject an unsafe route BEFORE any lane begins to move.
     for lane in lanes:
         previous = dict(current)
@@ -567,7 +614,15 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
                 break
             poker += (replace(more, dwell=rng.uniform(*TALK_TAIL_PAUSE)),)
         poker = (replace(poker[0], wait=rng.uniform(.2, .5)), *poker[1:])
-    lanes = (tuple(head),visor,arm,throttle,poker)
+    # The throttle hand twists and works its fingers with the line, then comes back to where it began,
+    # so the lane can repeat while slower lanes finish.
+    hand = ()
+    if not set(THROTTLE_HAND).intersection(held):
+        hand = hand_moves(rng, current, HAND_TALK_REACH, rng.randint(3, 4), HAND_TALK_SECONDS, HAND_TALK_DWELL)
+        reached = {**current, **{ch: value for beat in hand for ch, value in beat.targets}}
+        hand += (eased_beat(reached, tuple((ch, current[ch]) for ch in THROTTLE_HAND), rng.uniform(*HAND_TALK_SECONDS)),)
+        hand = (replace(hand[0], wait=rng.uniform(.2, .6)), *hand[1:])
+    lanes = (tuple(head),visor,arm,throttle,poker,hand)
     lanes = tuple(lane for lane in lanes if lane and not set(dict(lane[0].targets)).intersection(held))
     for lane in lanes:
         for beat in lane:
@@ -601,7 +656,9 @@ class IdlePhrase:
 
 # Each arm is one part: when it moves, all of its joints move a little together (owner,
 # October 12: the joints had moved one at a time, which no real arm does).
-IDLE_CHANNELS = {'head': HEAD, 'visor': (3,), 'hero': (4, 5, 7), 'poker': (6, *POKER), 'throttle': THROTTLE}
+# The throttle hand moves with its arm (November 19): as its own part it took phrase slots from the other arms.
+IDLE_CHANNELS = {'head': HEAD, 'visor': (3,), 'hero': (4, 5, 7), 'poker': (6, *POKER),
+                 'throttle': (*THROTTLE, *THROTTLE_HAND)}
 THROTTLE_IDLE = (((8,5060),(9,7480),(10,4760)), ((8,4776),(9,8080),(10,5600)),
                  ((8,4880),(9,7840),(10,4920)), ((8,5100),(9,7640),(10,5360)), REST)
 POKER_IDLE = {12: (5200, 6800), 13: (2900, 4700)}   # Around the awake 45-degree pose; under the ceiling.
@@ -930,7 +987,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
         phrase = IdlePhrase(tuple((part, 0.) for part in IDLE_CHANNELS), swing=True)
     clamp = lambda ch, value: max(LIMITS[ch][0], min(LIMITS[ch][1], round(value)))
     quicken = lambda by: 1 - by * phrase.energy   # Just after speech the arms still move near its pace.
-    lanes, head_at = [], None
+    lanes, head_at, extra = [], None, []
     for part, wait in phrase.parts:
         channels = IDLE_CHANNELS[part]
         if set(channels).intersection(held):
@@ -1008,6 +1065,13 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
             # Firmer than the old 2-3.2 s glide, which let the stiff joints slip (October 21).
             lane += tuple(Beat(tuple(stage.items()), throttle_duration=rng.uniform(1.3, 2.) * quicken(.3),
                                wrist_speed=THROTTLE_WRIST_SPEED) for stage in stages)
+            # Its hand moves with it in a lane of its own (added after the parts' lanes): a small
+            # twist and flex of the fingers together, or back to the middle as the arm lowers to rest.
+            if phrase.throttle_rest:
+                hand = (eased_beat(current, HAND_PARK, rng.uniform(*HAND_IDLE_SECONDS)),)
+            else:
+                hand = hand_moves(rng, current, HAND_IDLE_REACH, 1, HAND_IDLE_SECONDS, HAND_IDLE_DWELL, pace=quicken(.4))
+            extra.append((replace(hand[0], wait=wait + rng.uniform(0., .4)), *hand[1:]))
         else:
             raise ValueError('UnknownIdlePart')
         if wait > 0:
@@ -1044,7 +1108,10 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 break
             lane += (more,)
         lanes[head_at] = lane
-    return tuple(lanes)
+    for lane in extra:
+        for beat in lane:
+            validate_pose(dict(beat.targets))
+    return tuple(lanes) + tuple(extra)
 
 
 def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True) -> tuple[tuple[Beat, ...], ...]:
@@ -1101,6 +1168,8 @@ def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True) 
             lanes += ((Beat(arms, speed=35, acceleration=8),),)
         if set(POKER).issubset(current) and any(abs(current[ch] - value) > 2 for ch, value in POKER_DRIVE):
             lanes += (poker_lane(current, dict(POKER_DRIVE)),)
+        if set(THROTTLE_HAND).issubset(current):
+            lanes += hand_home(current, speed=20, acceleration=5)
     else:
         # The other arms the stance moved come back beside the throttle's walk: the hero
         # elbow and the poker arm's swing to their awake mid points, the poker elbow and
@@ -1166,7 +1235,7 @@ GAZE = ('look_at_people',)
 # hold_arms moves nothing: every arm stays where it is until a person says it may move.
 # The array arm (7) is left to the microphone lease, which only ever rests it at its centre;
 # idle movement stops swinging it while the arms are held (idle_motion).
-ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE)
+ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND)
 POSE_COMMANDS = (*NAMED_POSES, *NECK_POSES, *HEAD_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses')
 
 
@@ -1328,7 +1397,7 @@ def listening_lanes(current, side, rng=None):
 # sweeps slowly from stop to stop. The stance rests the throttle arm (a held-out arm strains its servo
 # for hours; it swings out only at an intruder), lowers the poker arm and levels the head.
 SENTRY_STANCE = MappingProxyType(dict((*REST, (12, POKER_ELBOW_DOWN), (13, POKER_WRIST_STRAIGHT),
-                                       *AWAKE_ARMS, (0, NECK_CENTER), *DRIVE_HEAD)))
+                                       *AWAKE_ARMS, (0, NECK_CENTER), *DRIVE_HEAD, *HAND_PARK)))
 SENTRY_ARM_OUT = MappingProxyType(dict(NAMED_POSES['throttle_offer']))   # The throttle arm held out at them.
 SENTRY_SECONDS_PER_DEG = .2   # A 15-degree sweep step takes about 3 s: slow, one smooth curve.
 

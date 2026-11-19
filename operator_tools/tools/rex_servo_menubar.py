@@ -3,7 +3,7 @@
 rex_servo_menubar.py — macOS menu bar servo console for the Pololu Maestro.
 
 A small always-on menu bar app (rumps/Cocoa, sibling of rex_battery_menubar.py)
-titled "Servo Control". The dropdown shows all 14 of Rex's servos as live sliders
+titled "Servo Control". The dropdown shows all 16 of Rex's servos as live sliders
 (labelled with the current position in Maestro microseconds) plus a "Restart
 Pololu" action. Slide a slider and the servo moves — the same Pololu compact
 protocol `set target` commands hardware/servos.py sends for the main GUI's
@@ -39,6 +39,10 @@ elbow (ch 12) and wrist (ch 13): the elbow can rise fully only with the wrist at
 below 1564 µs; curled further in, the elbow's ceiling drops (2496 µs → 1597 µs).
 The visor servo is inverted: low pulses raise it, high pulses lower it (open 1433 µs,
 surprise 1136 µs, closed 1744 µs).
+
+November 19, 2026: the throttle hand gains a wrist twist (ch 14) and a two-finger pincher
+(ch 15), conservatively 1000–2000 µs until the assembled hand's full range is measured. Both
+get nudges (in measurement mode) to help find that range.
 
 Run directly for debugging:
     venv/bin/python tools/rex_servo_menubar.py
@@ -106,15 +110,27 @@ _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
                        "speed": 70, "acceleration": 12},
     "throttle_wrist": {"ch": 10, "min": 2000, "max": 10000, "neutral": 6000,
                        "speed": 70, "acceleration": 12},
+    # Throttle hand (Nov 19): conservative 1000-2000 us until measured; park is the middle.
+    "throttle_twist": {"ch": 14, "min": 4000, "max": 8000, "neutral": 6000,
+                       "speed": 20, "acceleration": 4},
+    "throttle_pincher": {"ch": 15, "min": 4000, "max": 8000, "neutral": 6000,
+                         "speed": 20, "acceleration": 4},
 }
 _THROTTLE_DIRECTIONS = {
     "throttle_shoulder": "low ↑ / high ↓",
     "throttle_elbow": "low ↓ / high ↑",
     "throttle_wrist": "low ↑ / high ↓",
 }
+# The throttle hand's directions are not measured yet; its joints get nudges too.
+_HAND_DIRECTIONS = {
+    "throttle_twist": "wrist twist (direction unmeasured)",
+    "throttle_pincher": "fingers (direction unmeasured)",
+}
+_NUDGED = (*_THROTTLE_DIRECTIONS, *_HAND_DIRECTIONS)
 # Slider label hints for the reworked joints (the throttle hints above also get nudges).
 _DIRECTIONS = {
     **_THROTTLE_DIRECTIONS,
+    **_HAND_DIRECTIONS,
     "headleft": "low ↓ / high ↑ (pair with headright)",
     "headright": "low ↑ / high ↓ (pair with headleft)",
     "visor": "low ↑ / high ↓ (inverted)",
@@ -682,7 +698,7 @@ def run_app() -> int:
                 self._labels[name] = label
                 self._sliders[name] = slider
                 menu += [label, slider]
-                if name in _THROTTLE_DIRECTIONS:
+                if name in _NUDGED:
                     nudges = rumps.MenuItem(f"Nudge {name.removeprefix('throttle_')} (µs)")
                     for delta in (-10, -5, -1, 1, 5, 10):
                         nudges.add(rumps.MenuItem(f"{delta:+d} µs", callback=self._make_nudge_cb(cfg["ch"], delta)))

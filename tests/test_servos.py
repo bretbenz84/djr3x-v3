@@ -133,7 +133,7 @@ class ServoTests(unittest.TestCase):
     def test_powered_off_robot_holds_unpowered_rest_then_wakes(self):
         self.port.pose = {ch: 0 for ch in self.port.pose}
         self.owner.start()
-        self.assertEqual(self.owner.energized_channels, tuple(range(11)) + (11, 12, 13))
+        self.assertEqual(self.owner.energized_channels, tuple(range(16)))
         self.assertEqual(self.port.pose, dict(UNPOWERED_REST))
         self.assertEqual(self.owner.commanded, dict(UNPOWERED_REST))
         self.assertEqual(self.execute().status, 'pulses_reached')
@@ -323,7 +323,7 @@ class ServoTests(unittest.TestCase):
         self.port.packets.clear()
         result = self.execute('talking')
         self.assertEqual(result.status,'pulses_reached')
-        self.assertEqual(result.completed_lanes,(0,1,2,3,4))
+        self.assertEqual(result.completed_lanes,(0,1,2,3,4,5))   # Head, visor, hero arm, throttle, poker, throttle hand.
         def targets(ch):
             return [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,ch))]
         self.assertGreater(len(targets(3)),4)

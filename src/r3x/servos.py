@@ -13,14 +13,16 @@ from typing import Callable
 from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
-from .servo_poses import (LIMITS, THROTTLE, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
+from .servo_poses import (LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
                           sentry_lanes, telepresence_wake_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
                           VISOR_RAISE_SECONDS, visor_over_eyes, talking_visor)
 
-BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle.
-ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})   # The arms the drive stance moved: walked back after the wheels stop.
+BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE, *THROTTLE_HAND})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle and its hand.
+# The arms the drive stance moved: walked back after the wheels stop. The throttle hand stays still
+# until its arm is back (it is part of that arm, and kept with it beside an obstacle).
+ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE, *THROTTLE_HAND})
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
 # Owner ruling October 23: a look a person asked for holds until he has answered from it, and about
 # this long after, even when they speak. October 31 (f6d5a0b7): asked to look left and up, his head
@@ -38,7 +40,7 @@ SETTLE_SECONDS = .5   # Motion risk lasts this long after the servos stop.
 # Owner, October 21: at the end of a line every arm froze mid-move. When a line finishes
 # normally the arms and visor run on to the targets already sent (the head and microphone arm
 # are still held); motion risk covers that run.
-COAST = frozenset({3, 4, 5, 6, *THROTTLE, *POKER})
+COAST = frozenset({3, 4, 5, 6, *THROTTLE, *POKER, *THROTTLE_HAND})
 COAST_SECONDS = 2.
 # October 25 (c5ad0deb): loading the impression voice held the interpreter for 0.4 s. An idle
 # move's send then raised a write timeout (pyserial checks its deadline after the bytes have

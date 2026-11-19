@@ -6,6 +6,37 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 19: a hand for the throttle arm (code only, not assembled)
+
+Owner: the throttle arm gains a hand with two servos, a wrist twist on channel 14 and a
+two-finger pincher on 15. Neither is assembled or set up on the Maestro yet; the owner will
+measure the real range once it is built. Until then both run a conservative 1000–2000 µs
+(`LIMITS[14]`, `LIMITS[15]` 4000–8000), and the park is the middle of the range (`HAND_PARK`,
+derived from the limits, so it follows them when they change).
+
+- *Where it rests:* the hand parks at the middle when switched on (`UNPOWERED_REST`), at the
+  wake, at park and shutdown, for the drive stance and in the sentry stance. It moves on its
+  own, outside the throttle clearance rule (shoulder, elbow, wrist bend), which does not know
+  the hand: no collision between the hand and the body is measured.
+- *Idle:* it moves with its arm (as every arm's joints move together, October 12): each idle
+  throttle move also twists the wrist and flexes the fingers a little (within 30% and 25% of
+  their half range either side of the middle), and when the throttle lowers to rest the hand
+  eases back to the middle. As a part of its own it took phrase slots from the other arms.
+- *Speaking:* a lane of its own, three or four quicker moves (within 50% and 45%) and back to
+  where it began, so it repeats smoothly while slower lanes finish; it runs on after a line ends.
+- *Holds:* part of the throttle arm everywhere a hold applies: `hold_arms`, a person's pose,
+  the drive stance (still until its arm has walked back), and an arm kept in beside an obstacle
+  (`REACHING_ARMS['throttle']`). The model reaches it as `throttle_twist` and `throttle_pincher`
+  in the joint tool (0–100 of the range; which end is which way is not yet known) and sees
+  `throttle_hand` among held parts. The dashboard sliders pick up both from `JOINT_RANGES`.
+- *Servo menu:* `throttle_twist` (ch 14) and `throttle_pincher` (ch 15) sliders at 1000–2000 µs,
+  speed 20 and acceleration 4, with nudges in measurement mode for finding the range.
+
+The Maestro's stored range for channels 14 and 15 must allow 1000–2000 µs (its factory range
+does) or targets outside it never arrive (`ServoArrivalTimeout`). When the real range is known,
+update `LIMITS[14]`/`LIMITS[15]` and the menu's `_SERVO_DEFAULTS`; idle and talking reach, and
+the park, are shares of the range and follow. Synthetic checks only; nothing has moved.
+
 ## November 17: the arms wait for the range sensors at the wake
 
 Owner: at startup the poker arm extended until it hit something. The wake's lanes moved the

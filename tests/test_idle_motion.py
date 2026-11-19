@@ -191,12 +191,12 @@ class IdleTests(unittest.TestCase):
         # moved them; alive, then suddenly not. Now they move at once and slow down over time.
         self.execute('startup');self.clock.wait(30.)
         for part in self.idle._due:self.idle._due[part]=self.clock()+60.   # Nothing due on its own.
-        self.idle.after_speech()
+        self.idle.after_speech();ended=self.clock()
         early=self.run_scheduler(3.)
-        self.assertTrue(early and early[0][0]-self.clock()+3.<=.3,early)     # Moving within moments...
+        self.assertTrue(early and early[0][0]-ended<=.5,early)   # Moving within moments (timed as the phrase ends)...
         self.assertTrue(any({4,5}&channels for _,channels in early))         # ...the hero arm among them,
         self.assertTrue(any({6,12,13}&channels for _,channels in early))     # and the poker arm.
-        self.assertGreater(self.idle.energy(self.clock()-3.),.95)
+        self.assertGreater(self.idle.energy(ended+.3),.95)   # The last phrase can run past the 3 s window.
         self.assertLess(self.idle.energy(self.clock()+20.),.05)              # About 20 s later: idle pace.
         def arm_moves(seconds):
             return sum(bool({4,5,8,9,10}&channels) for _,channels in self.run_scheduler(seconds))
@@ -357,7 +357,7 @@ class IdleTests(unittest.TestCase):
         self.assertGreater(len(phrases),30)       # Was 15 moves in ten minutes of the October 3 run.
         gaps=[b[0]-a[0] for a,b in zip(phrases,phrases[1:])]
         self.assertLess(max(gaps),8.)             # Never "motionless for a while".
-        parts={0:'head',1:'head',2:'head',11:'head',3:'visor',4:'hero',5:'hero',6:'poker',12:'poker',13:'poker',7:'hero',8:'throttle',9:'throttle',10:'throttle'}
+        parts={0:'head',1:'head',2:'head',11:'head',3:'visor',4:'hero',5:'hero',6:'poker',12:'poker',13:'poker',7:'hero',8:'throttle',9:'throttle',10:'throttle',14:'throttle',15:'throttle'}
         for _,channels in phrases:
             self.assertLessEqual(len({parts[ch] for ch in channels}),3)   # Never every servo at once.
         moved=set().union(*(channels for _,channels in phrases))
