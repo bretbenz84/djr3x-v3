@@ -192,3 +192,12 @@ next plan; Claude's stored prompt is rebuilt once (the first reply of a run pays
 **Still open:** the ~23,000 tokens read fresh on every request (the notes for the moment, ~50,000
 characters) are the next latency and cost lever. Claude's per-moment notes other than the three above
 are still the shared ones.
+
+## November 19: news in a stalled conversation, ride lines, the first-flight goodbye
+
+Told in the copy was not enough: run `a37ed477` planned a goal on a headline with nobody in the room. Code now
+offers headlines only once a conversation has stalled (`observations.news_moment`), so neither provider sees
+one at startup or in a greeting. Claude's copy asks him to share one as "have you heard about...?" rather than
+reading it with a joke, and to give a shutdown goodbye in the shape of the ride's closing apology. Two notes
+of Claude's own, `signature_line_bad_feeling` and `signature_line_meant_to`, ride on the voice reminder only
+while `signature_lines` says that line has rested; OpenAI's `_prompt` returns nothing for them.

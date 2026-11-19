@@ -742,10 +742,14 @@ class VoiceRuntime:
             if self.observations:
                 # Interest news is searched and offered only for the recognized people in view.
                 from .news import interest_topics
+                from .observations import news_moment
                 with self.session._lock:
                     topics = interest_topics(self.session.state.store, self.arrivals.faces)
+                    news = news_moment(event.kind, present.someone_around(now, self.started_at),
+                                       now - self.session.last_trusted_speech_at,
+                                       self.session.state.since_news_spoken())
                 self.observations.want_topics(topics)
-                cues = tuple(c for c in self.observations.candidates(topics=topics)
+                cues = tuple(c for c in self.observations.candidates(topics=topics, news=news)
                              if self.session.state.observation_available(c.public(), self.arrivals.faces))
             # The planner gets the current frame even when it was already offered or the view
             # is unchanged; review October 3 found it planning blind after the first goal.

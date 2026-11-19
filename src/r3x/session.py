@@ -315,8 +315,9 @@ class Session:
 
     def _talked_about(self, heard, context, turn_id):
         """The words of a heard line of his, counted across days so what he keeps saying wears out
-        (owner, October 31: the telescope at every start). Names of people and pets are never spent."""
-        from . import familiarity
+        (owner, October 31: the telescope at every start). Names of people and pets are never spent.
+        A Star Tours line heard here starts its rest (signature_lines)."""
+        from . import familiarity, signature_lines
         from .output import plain_text
         album = self.state.photo_memory.catalog() if getattr(self.state, 'photo_memory', None) else ()
         keep = {w for row in [*self.state.store.people(), *album] for w in str(row.get('name') or '').lower().split()}
@@ -324,6 +325,9 @@ class Session:
             with self.state.store.transaction() as conn:
                 familiarity.record(conn, plain_text(heard), (context.get('personal_memory') or {}).get('person_id'),
                                    self.state.wall_clock(), keep)
+                said = signature_lines.heard(conn, plain_text(heard), self.state.wall_clock())
+            if said:
+                self.trace.emit('signature_line_heard', turn_id=turn_id, lines=list(said))
         except Exception as exc:
             self.trace.emit('state_finalize_failed', turn_id=turn_id, error_type=type(exc).__name__)
 

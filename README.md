@@ -84,7 +84,9 @@ is a separately maintained reference. V3 never imports it or reads its data.
 - **News (October 11).** BBC headlines, Sacramento weather and, once a day, about five
   web-searched stories (at most one about AI or tech) that Rex may bring up in a lull,
   stating when each event happens. Interests people tell him about themselves are saved
-  and, while they are here, get their own daily news search. Live use is pending
+  and, while they are here, get their own daily news search. Since November 19 a headline is offered only
+  once a conversation has stalled (never to an empty room or in a greeting, about once a visit), shared as
+  "have you heard about...". Live use is pending
   ([details](docs/OBSERVATION_SOURCES.md#searched-daily-stories-and-interest-news-october-11-2026)).
 - **Voice impressions (October 6).** Ask for an impression of Jimmy Carter, of a known
   person or of yourself, and Rex writes a short parody and performs it in that cloned

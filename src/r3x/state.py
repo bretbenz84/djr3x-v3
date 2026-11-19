@@ -753,6 +753,7 @@ class CoreState:
         from .face_attribution import public_face
         modes = self.voice_modes.context(self.trace.clock())
         accent_line = self.voice_modes.line_allowed(self.trace.clock()) and not self.sentry.active
+        signature = self._signature_lines()
         game = self.jeopardy.context(self.trace.clock(), voice_onset(capture)) if self.jeopardy.active else None
         return self.note_audience({"source_turn_id":turn_id,"state_revision":self.store.revision,
                 **({"jeopardy":game} if game else {}),
@@ -760,6 +761,7 @@ class CoreState:
                 "participation":self.initiative.context(self.trace.clock()),
                 **({"voice_mode":modes} if modes else {}),
                 **({"accent_line_allowed":True} if accent_line else {}),
+                **({"signature_lines_ready":list(signature)} if signature else {}),
                 "identity_action_targets":{name:self.identity_targets(name) for name in ("rename_person","forget_person")},
                 "speaker":{**asdict(attribution),"speaker_id":attribution.speaker_id,
                            "display_name":speaker_person["name"] if speaker_person else None,
@@ -850,6 +852,7 @@ class CoreState:
                 'participation':self.initiative.context(self.trace.clock()),
                 **({'voice_mode':modes} if modes else {}),   # His own lines keep a mode's delivery too.
                 **({'accent_line_allowed':True} if accent_line else {}),
+                **({'signature_lines_ready':list(signature)} if (signature := self._signature_lines()) else {}),
                 'opportunity':{'kind':event.kind,'source_turn_id':event.source_turn_id,
                                'quiet_seconds':event.quiet_seconds,
                                'audience':'arrival_target' if event.kind=='visual_arrival' else
@@ -1009,6 +1012,24 @@ class CoreState:
         window=7*86400 if cue['kind'] in {'story','interest_news'} else 86400
         return not self.store.rows('SELECT 1 FROM observation_delivery WHERE cue_id=? AND delivered_at>?',
                                    (cue['cue_id'],self.wall_clock()-window))
+
+    def _signature_lines(self):
+        """His Star Tours lines that have rested (signature_lines); none in sentry mode or a frozen evaluation."""
+        if self.sentry.active or self.frozen: return ()
+        from . import signature_lines
+        try:
+            return signature_lines.ready(self.store, self.wall_clock())
+        except Exception as exc:   # A missing table in an old snapshot offers nothing rather than failing a reply.
+            self.trace.emit('signature_lines_unavailable', error_type=type(exc).__name__)
+            return ()
+
+    def since_news_spoken(self):
+        """Seconds since Rex last spoke a headline (any NEWS_KINDS cue), inf when not in the last week."""
+        from .observations import NEWS_KINDS
+        rows = self.store.rows('SELECT MAX(delivered_at) AS at FROM observation_delivery WHERE kind IN (%s)'
+                               % ','.join('?' * len(NEWS_KINDS)), tuple(sorted(NEWS_KINDS)))
+        at = rows[0]['at'] if rows else None
+        return float('inf') if at is None else max(0., self.wall_clock() - at)
 
     def observation_delivered(self, cue):
         with self.store.transaction() as conn:

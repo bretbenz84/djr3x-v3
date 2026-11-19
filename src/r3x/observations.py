@@ -45,6 +45,25 @@ class Cue:
     def public(self):return {**asdict(self),'published_utc':datetime.fromtimestamp(self.published_at,timezone.utc).isoformat()}
 
 
+# Owner, November 19: "bringing up the news randomly ... even if I've said nothing to him." Run a37ed477
+# planned a goal on a lightsaber auction twenty seconds after startup with nobody in the room, and its
+# next beat read a Van Gogh headline, although the planner was told never to. Told is not enough: a
+# headline (feed, searched story or interest news) is now offered only when a conversation has stalled.
+NEWS_KINDS = frozenset({'news', 'story', 'interest_news'})
+NEWS_QUIET_SECONDS = 45.          # Nobody has spoken this long (the planner's own lull).
+NEWS_CONVERSATION_SECONDS = 600.  # ...after someone did, within this long: a conversation to stall.
+NEWS_GAP_SECONDS = 1800.          # One headline spoken holds the rest back this long (about once a visit).
+
+
+def news_moment(kind, someone_around, since_speech, since_news):
+    """Whether a headline may be offered to this opportunity. `kind` is the opportunity's kind (never a
+    greeting), `since_speech` seconds since a person's trusted speech (inf when nobody spoke this run),
+    `since_news` seconds since Rex last spoke a headline."""
+    return (kind in {'reconsideration', 'conversation_lull'} and someone_around
+            and NEWS_QUIET_SECONDS <= since_speech <= NEWS_CONVERSATION_SECONDS
+            and since_news >= NEWS_GAP_SECONDS)
+
+
 def news_items(data: bytes, source_url: str, now: float) -> tuple[Cue,...]:
     if len(data)>1_000_000 or b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():
         raise ValueError('InvalidBoundedFeed')
@@ -221,14 +240,15 @@ class PublicObservations:
         while not self.stop.is_set():
             self.refresh();self.wake.wait(900);self.wake.clear()
 
-    def candidates(self, include_offered=False, topics=()):
-        """Interest news is offered only for topics of people in view (`topics`)."""
+    def candidates(self, include_offered=False, topics=(), news=True):
+        """Interest news is offered only for topics of people in view (`topics`); news False offers
+        weather alone (see news_moment)."""
         from datetime import date
         from .news import local_day, with_timing
         with self.lock:
             now=self.clock();topics=set(topics)
             rows=[r for group in self.rows.values() for r in group if r.expires_at>now and
-                  (r.kind!='interest_news' or r.topic in topics) and
+                  (r.kind!='interest_news' or r.topic in topics) and (news or r.kind not in NEWS_KINDS) and
                   (include_offered or now-self.offered.get(r.cue_id,float('-inf'))>=900)]
             # Interleave sources so a long news feed cannot hide weather or another feed.
             groups={k:[r for r in rows if r.kind==k] for k in ('interest_news','story','news','weather')}

@@ -994,6 +994,10 @@ class OpenAIBrain(HTTPProvider):
                           'a German car, the royals), now and then a one-line accent (voice_mode line, requested false) '
                           'in THAT place\'s accent beats a plain line when the moment is light. Do it or do not; never '
                           'offer or announce it.')
+            for line in snapshot.context.get('signature_lines_ready') or ():
+                # Owner, November 19: his Star Tours lines, rationed by code (signature_lines). The wording is
+                # Claude's alone (claude_prompt.NOTES); OpenAI's prompt adds nothing here.
+                voice += self._prompt('signature_line_' + line, '')
             if snapshot.context.get('visor_over_eyes'):
                 # October 22 (0421a222): told only in the instructions, he never noticed his own dark.
                 voice += (' Your visor is shut over your eyes right now: you see nothing. Now and then, when it fits, '

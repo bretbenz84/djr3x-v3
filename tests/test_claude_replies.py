@@ -147,6 +147,15 @@ class PromptCopyTests(unittest.TestCase):
         self.assertEqual(ClaudeBrain('c')._prompt('some_other_note', 'shared'), 'shared')
         self.assertEqual(OpenAIBrain('o')._prompt('agency_beat', 'shared'), 'shared')
 
+    def test_a_rested_star_tours_line_is_mentioned_to_claude_only(self):
+        # Owner, November 19: his ride lines, rationed by code; OpenAI's prompt gains nothing.
+        context = {**self.BEAT, 'signature_lines_ready': ['bad_feeling', 'meant_to']}
+        claude, openai = self.payload(ClaudeBrain('c'), context), self.payload(OpenAIBrain('o'), context)
+        self.assertIn('Your Star Tours line is free', claude)
+        self.assertIn('Your other Star Tours line is free', claude)
+        self.assertNotIn('Star Tours line is free', openai)
+        self.assertNotIn('Star Tours line is free', self.payload(ClaudeBrain('c'), self.BEAT))   # Resting: unmentioned.
+
 
 class AnswerTests(unittest.TestCase):
     def ask(self, response, **context):

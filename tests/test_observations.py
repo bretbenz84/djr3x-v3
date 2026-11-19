@@ -158,11 +158,48 @@ class ObservationCoreTests(MemoryFixture):
         runtime.camera.latest=lambda now:runtime.arrivals.faces
         for at in (97,98,99,100):runtime.arrivals.observe([face(at)],at)
         runtime.arrivals.seen['face']['used']=True
+        self.session.last_trusted_speech_at=40   # A conversation that stalled a minute ago.
         try:
             runtime.proactive_tick();self.assertEqual(self.brain.calls,1)
             self.assertEqual(self.brain.snapshots[-1].context['trigger'],'reconsideration')
             runtime.proactive_tick();self.assertEqual(self.brain.calls,1)
         finally:self.session.close();source.close()
+
+    def offered_kinds(self, last_speech, delivered_news_at=None):
+        """The cue kinds the production scheduler hands Rex's next beat."""
+        self.setup_core();source=PublicObservations(Settings(),clock=lambda:NOW)
+        source.rows={'test':(self.cue,),'weather':(weather_item(weather(),'Sacramento',URL,NOW),)}
+        self.state.observations=source
+        if delivered_news_at is not None:
+            with self.store.transaction() as conn:
+                conn.execute('INSERT OR REPLACE INTO observation_delivery VALUES(?,?,?)',('news:earlier','story',delivered_news_at))
+        class Look(Brain):
+            def reply(self,snapshot,cancel):
+                self.calls+=1;self.snapshots.append(snapshot)
+                yield ToolCall(uuid4().hex,'remain_silent',dict(reason='no_response_needed',invitation_update=None))
+        self.session.brain=self.brain=Look()
+        runtime=VoiceRuntime(SimpleNamespace(),SimpleNamespace(),None,self.session,self.state.trace,
+            perception=SimpleNamespace(camera=SimpleNamespace()),observations=source)
+        from tests.test_agency_plan import Planner
+        self.session.agency_planner = Planner()
+        runtime.started_at=0;runtime.audio_seen_at=100
+        runtime.camera.latest=lambda now:runtime.arrivals.faces
+        for at in (97,98,99,100):runtime.arrivals.observe([face(at)],at)
+        runtime.arrivals.seen['face']['used']=True
+        self.session.last_trusted_speech_at=last_speech
+        try:
+            runtime.proactive_tick()
+            return sorted(c['kind'] for c in self.brain.snapshots[-1].context.get('observations',()))
+        finally:self.session.close();source.close()
+
+    def test_a_headline_waits_for_a_conversation_to_stall(self):
+        # Owner, November 19 (run a37ed477): a headline twenty seconds after startup, nobody having spoken.
+        self.assertEqual(self.offered_kinds(float('-inf')),['weather'])   # Nobody has spoken this run.
+        self.assertEqual(self.offered_kinds(80),['weather'])              # They spoke twenty seconds ago.
+        self.assertEqual(self.offered_kinds(100-700),['weather'])         # Talk ended long ago: no conversation.
+        self.assertEqual(self.offered_kinds(40),['news','weather'])       # Stalled a minute ago.
+        self.assertEqual(self.offered_kinds(40,delivered_news_at=NOW-600),['weather'])   # One headline a visit.
+        self.assertEqual(self.offered_kinds(40,delivered_news_at=NOW-3600),['news','weather'])
 
     def test_a_new_audience_or_a_human_floor_cancels_ambient_participation(self):
         self.setup_core()

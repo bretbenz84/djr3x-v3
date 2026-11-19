@@ -6,6 +6,25 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## News only in a stalled conversation; his Star Tours lines — November 19
+
+Owner: Rex brings up "the news randomly ... even if I've said nothing to him", reading headlines with jokes;
+news should come up at a lull as "Hey, have you heard about...". He never says his ride lines ("I have a
+very bad feeling about this!", "Uh... I meant to do that!"), and a shutdown could be the end-of-ride apology
+("It was my first flight, and I'm still getting used to my programming!"). Run `a37ed477`: twenty seconds
+after startup, nobody having spoken, the planner built a goal on a lightsaber auction and the next beat read
+a Van Gogh headline, although Claude's planner was told never to.
+- **Built:** headlines (feed, searched stories, interest news) reach the planner and beats only when someone
+  spoke 45 seconds to 10 minutes ago, someone is around, it is not a greeting, and no headline was spoken in
+  the last 30 minutes (`observations.news_moment`); weather is unchanged. Claude's copy now has him share one
+  as something he came across ("have you heard about...?"), his take, then their turn. `signature_lines.py`
+  rests each ride line two hours after he is heard saying it, across restarts; only a rested line is
+  mentioned, in a Claude-only note on when it fits (bad or unfortunate news short of grief, a risky drive; his
+  own goof). Claude's shut_down goodbye retells the first-flight apology for what happened that visit.
+- **Evidence:** 4 new synthetic checks; the changed-file run passed (1804 tests). No model calls, nothing live.
+- **Open:** whether Claude picks good moments for the lines (or ever does), and how the news offer and the
+  goodbye sound on the robot. OpenAI's prompt is unchanged and gets no ride-line note.
+
 ## A hand for the throttle arm — November 19
 
 Owner request: two more servos for the throttle arm's hand, a wrist twist (channel 14) and a two-finger

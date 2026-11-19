@@ -165,6 +165,8 @@ class Memory:
         self.connection.executescript(callouts_schema)
         from .familiarity import SCHEMA as familiarity_schema
         self.connection.executescript(familiarity_schema)
+        from .signature_lines import SCHEMA as signature_lines_schema
+        self.connection.executescript(signature_lines_schema)
         self.validate_schema()
 
     def validate_schema(self):
