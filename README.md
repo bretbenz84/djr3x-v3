@@ -1,374 +1,225 @@
 # DJ-R3X v3
 
-The conversation core for Rex, the DJ-R3X droid. One conversational owner uses a stronger model for saved activity plans and
-a cheaper model for replies and plan-step execution. Code validates and executes those decisions, keeps uncertainty honest,
-and enforces physical limits.
+This is the software that brings Rex to life. Rex is a life-size DJ-R3X droid (the DJ robot
+from Star Wars' Oga's Cantina) built on a wheeled base. He listens, talks, recognizes the
+people he knows, remembers what they tell him, looks around with his camera, moves his head
+and arms, lights up, and drives around the house.
 
-**Status, October 1, 2026:** the core conversation software and the robot's
-hardware integrations are implemented and in daily live use on the robot: voice,
-camera, servos, LEDs, wheels and radar. Live acceptance is still open for group
-identity (two people alternating), the new persistent agency plans and the newest drive changes.
-[docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) is the checklist of
-what is finished, what is only simulated and what remains. The October 14
-[improvement plan](docs/IMPROVEMENT_PLAN.md) is implemented in software and awaits its
-first robot run.
+The program runs on a Mac inside the robot. Speech recognition, voice and face recognition and
+most vision run on the Mac itself. Rex's replies come from a hosted AI model (OpenAI or Claude,
+your choice) and his voice comes from ElevenLabs.
 
-V2, the earlier DJ-R3X program ([bretbenz84/djr3x-v2](https://github.com/bretbenz84/djr3x-v2)),
-is a separately maintained reference. V3 never imports it or reads its data.
+An earlier version of Rex, [djr3x-v2](https://github.com/bretbenz84/djr3x-v2), is kept as a
+separate project. This version borrows some of its sounds, models and ideas but never depends on it
+while running.
 
-## What Rex does today
+## What Rex can do
 
-- **Conversation.** Listens through the ReSpeaker array, transcribes locally (Qwen3-ASR),
-  replies with one reply-model call per turn (`gpt-6-luna`, or Claude Sonnet 5.5 with `llm_provider = "claude"`, which also moves the planner, locator and news search: [replies from Claude](docs/CLAUDE_REPLIES.md)) and speaks through ElevenLabs. Speech is
-  leveled to V2's −20 LUFS target.
-  - Speech ends after 0.5 s of silence. Since October 26, Smart Turn v3.2 (local, 21 ms a check) can
-    end finished-sounding speech after 0.2 s instead. The owner turned it on that day, with 1.0 s as the
-    longest wait for speech that sounds unfinished. On saved robot audio it ended 158 of 163 turns early
-    and split 22 into more pieces; not yet run on the robot
-    ([details](docs/TURN_DETECTION.md)).
-  - Audible speech is never cut off except by an explicit stop phrase ("stop",
-    "shut up", "be quiet", "whoa", repeated or wrapped as in "Oh, stop!"), or by "Hey Rex"
-    or "Hey DJ Rex" said over him (since October 25), which cuts his line so you can talk.
-  - "Be quiet", "quiet", "shut up" and "hush" also keep him from starting talk or
-    movement on his own until someone invites him to talk again; "stop" pauses that for
-    two minutes.
-  - Out of credit (October 25): when OpenAI or ElevenLabs has no credit left, someone speaking to him
-    gets a saved line saying which account to top up, at most every ten minutes, instead of silence.
-  - Transcripts the recognizer marks unreliable are kept but never answered. These are
-    usually his own motors heard as "Oh.", and since October 18 such a sound no longer cuts
-    off a line he is preparing; only words do. Since October 26 (owner), a brief sound that CED-Tiny
-    (local, about 8 ms) does not hear as a human voice is treated the same way, moving or not. On saved
-    audio that held back all of his motor sounds the recognizer had trusted, Max's bark and his own sound
-    effect, and kept every line the owner had listened to; not yet run on the robot
-    ([details](docs/VOICE_CHECK.md)).
-  - Room sounds (owner, October 26): the same model listens to the room all the time and logs
-    doorbells, knocks, dogs and alarms, each with a short clip, so false alarms can be counted. He does
-    not react to them yet. Not yet run on the robot ([details](docs/ROOM_SOUNDS.md)).
-- **Who is speaking.** CAM++ voice tracks, natural introductions and enrollment, and
-  face recognition (SCRFD-10G + EdgeFace-S). Speaker, visible face, microphone direction
-  and addressee stay separate.
-  - Motion lowers confidence rather than discarding evidence. Motion-flagged speech is
-    matched with stricter thresholds and never enrolls.
-- **Memory.** Source-linked personal facts, corrections and forgetting in a local SQLite
-  store, cross-session exchange recall and optional source-linked shared memories
-  ([details](docs/CONVERSATION_MEMORY.md)). Named pet/object photo memory (RF-DETR Nano detection).
-  Since October 25 a fact said while his own motor noise masks the voice is still kept, as a candidate
-  fact about the person he is talking with, and he never tells anyone a save failed.
-- **Initiative (goals, October 2).** People come first: anyone talking to Rex gets an
-  ordinary reply, and someone who arrives is greeted (by name, with "how are you", when
-  known). When nothing is happening, Rex pursues a goal of his own: catching up with a
-  known person from saved facts, getting to know a stranger, investigating something in
-  the room (drive over, reach out, look closely, ask about it) or livening up a dead
-  moment. GPT-5.6 Terra plans each goal once, in the background, from the conversation,
-  saved facts and one camera frame; GPT-6 Luna performs one beat per lull. Since October 24 he is
-  curious on his own turns: he is offered what he does not know yet about the person he is with and
-  each saved pet (their work, where they grew up, how Max came home), asks about one when the moment
-  fits, saves the answer and does not ask it again for a few days. A pet walking in gets a hello, then
-  his question about it; someone far away gets a goal that rolls over to them. His replies to what
-  people say end without a tacked-on follow-up question ([details](docs/IMPLEMENTATION_STATUS.md#curious-about-people-and-pets--october-24)). Conversation
-  steers a goal instead of discarding it; it ends when its beats are used, its person
-  leaves, someone redirects it or a new arrival replaces it. He eases off when nobody
-  answers and, with nobody seen or heard for five minutes, starts no new goals. After 45 seconds with
-  nobody talking (him included) and someone in view, he asks one "Do you ever think..." question, once
-  per quiet stretch (October 23). Talk he leaves to others (to each other, a pet, a device) holds
-  his goal only until nobody has spoken for 20 seconds (October 24). Live acceptance is pending
-  ([design](docs/AGENCY_IMPLEMENTATION_PLAN.md)).
-- **Familiarity (October 31).** Rex remembers across days and restarts what he keeps saying, how often
-  he has seen the view in front of him, and when he last saw each person. Code counts the words of his
-  own heard lines with the latest counting most, so something he keeps bringing up (the workshop telescope
-  opened 8 of 35 runs) is off limits for days and comes back once it has rested. A view he has seen on four
-  of the last fourteen days is everyday: its usual things are home, not news. A greeting is told how long it
-  has been and how often they come by, so twenty minutes and twenty days sound different. Switched off in
-  one place and on in another, he notices the move and wonders aloud how he got there, even in a room he
-  knows. No extra model calls. Not yet run on the robot ([details](docs/IMPLEMENTATION_STATUS.md#familiarity-what-he-keeps-saying-everyday-views-and-time-apart--october-31)).
-- **News (October 11).** BBC headlines, Sacramento weather and, once a day, about five
-  web-searched stories (at most one about AI or tech) that Rex may bring up in a lull,
-  stating when each event happens. Interests people tell him about themselves are saved
-  and, while they are here, get their own daily news search. Since November 19 a headline is offered only
-  once a conversation has stalled (never to an empty room or in a greeting, about once a visit), shared as
-  "have you heard about...". Live use is pending
-  ([details](docs/OBSERVATION_SOURCES.md#searched-daily-stories-and-interest-news-october-11-2026)).
-- **Voice impressions (October 6).** Ask for an impression of Jimmy Carter, of a known
-  person or of yourself, and Rex writes a short parody and performs it in that cloned
-  voice through the local Breeze engine, framed by lines in his own voice. Now and then,
-  when someone brings up a person whose voice he has (a famous one, someone he knows, or
-  the speaker's own), he slips in a short surprise cameo of that person butting into the
-  conversation. Since October 23 he also does impressions on his own, as a beat of one of
-  his goals ("off to the Reagan library?" gets Reagan's opinion), with the voice rendered
-  before he speaks; both share one budget, about one every ten minutes at most. "Do me"
-  works once Rex has heard about six seconds of your clean speech; a stranger's voice lasts
-  for the session only. Parody is never stored as a fact. Live acceptance pending
-  ([details](docs/IMPERSONATION.md)).
-- **Speaking modes (October 25).** Each speaks in an ElevenLabs voice of its own, listed in
-  `src/r3x/voice_modes.py`.
-  The reply model decides when; nothing matches words.
-  - **Pride and AAVE (from V2).** Ask Rex whether he is gay and he says a proud yes and goes full
-    camp for ten minutes ("Yasss, sis!"), with a rainbow mouth and chest, a head-down, visor-up
-    flourish as it starts and bigger hand gestures while he talks. Greet him "what's up my homie"
-    and he talks in African American Vernacular English for ten minutes.
-  - **Accents and characters.** Ask for British, French, Italian, German, Spanish, Russian,
-    Scandinavian, Japanese, Chinese, Nigerian, Indian, Arabic, Filipino, Vietnamese, Brazilian,
-    Dutch, Irish or Scottish, or a pirate, and he speaks English the way someone from there (or a sea dog) does, for
-    ten minutes. "Talk like a DJ" gets hype DJ patter, only ever when asked. "Say that like a German" gets a single line in it, and now and
-    then, at most every five minutes and never in a serious moment, he says one line in an accent
-    on his own when the talk brings up a place.
-  - One mode at a time: asking for another, or to talk some way he has no mode for ("like a
-    cowboy"), ends the one before. Asking again starts the ten minutes over; "stand down pride
-    mode" or "drop the accent" ends one.
-    Run on the robot and working as intended (owner, November 16;
-    [details](docs/IMPLEMENTATION_STATUS.md#speaking-modes--october-25)).
-- **Jeopardy (October 26).** V2's game, hosted by Rex: "let's play Jeopardy" and up to four players. Real
-  boards from V2's clue bank, V2's music and stings, Daily Doubles, Double Jeopardy and Final Jeopardy.
-  Anyone's voice answers for the player whose turn it is. Rex's reply model judges each response,
-  forgiving of sound-alikes and garbled names but not of a different answer, and responses must be
-  phrased as a question. A wrong answer gives the next player one rebound; "that was right!" can
-  overturn a ruling. With `--gui` the dashboard shows the board (made for the Apple TV); then the
-  categories are read once per board and again only when asked. Played on the robot and working as intended (owner, November 16)
-  ([details](docs/JEOPARDY.md)).
-- **Celebrity callouts (October 25).** Tell Rex "PJ is a huge Kings fan, treat him like Kings royalty
-  whenever he shows up" (about anyone, yourself or a saved pet) and he gives them a fresh celebrity entrance
-  when they arrive, at most every three hours, and now and then a callback while they are around, in new words
-  each time. "Stop that bit" switches it off ("bring it back" restores it); "never call me that again" deletes
-  it. Since the same day, jokes about people's bodies are fair game. Not yet run on the robot
-  ([details](docs/IMPLEMENTATION_STATUS.md#celebrity-callouts-and-body-jokes--october-25)).
-- **What faces show (November 3).** With `face_expressions_enabled`, Rex sees a smile at his joke and his next
-  line knows it landed; also surprise and frowns. Local, about 8 ms a face, and nothing is saved. Checked on saved
-  pictures and a robot clip, not yet run live ([details](docs/FACE_EXPRESSIONS.md)).
-- **Rooms (October 11).** With `place_recognition_enabled`, V2's room model (run locally)
-  tells Rex which room he is in. In an unfamiliar room he asks what it is and learns it
-  when told, remembers which rooms he has moved between, and may set off to explore. V2's
-  three taught rooms were imported and the owner taught a bedroom. On the robot since October 16:
-  confident on 42% of readings, and he confuses the living room and the bedroom even standing
-  still ([details](docs/ROOM_RECOGNITION.md)).
-- **Sentry mode (October 22).** "Activate sentry mode until 7pm" (or for an hour, silent, with a 60
-  second activation): a spoken countdown, then red lights, still arms, a slowly sweeping neck and
-  locked wheels, with no paid calls while nothing happens.
-  - A stranger's face held a few seconds, or a full sentence from an unknown voice, sets off the
-    alarm: he roasts the intruders for about two minutes, records video and sends a phone alert with
-    a photo (ntfy).
-  - Someone he knows by face or voice stands him down. When the time runs out he shuts down.
-  - Run on the robot and working as intended (owner, November 16;
-    [details and phone setup](docs/SENTRY_MODE.md)).
-- **House devices (November 17).** Through Homebridge on the home network, Rex answers questions about the
-  house's devices ("what's the thermostat set to?", "is the porch light on?") from a fresh reading, and on
-  request switches, dims and colors lights and plugs and sets the thermostat's temperature and mode. His line
-  about a change is said only after Homebridge accepted it. Locks, garage doors and alarms are check-only;
-  nothing changes on his own initiative. He uses his own non-admin Homebridge account and refuses an admin
-  one. Checked against a fake Homebridge; on the real one his own non-admin account reads the thermostat
-  and switched the Kitchen Light on and off; not yet tried in a conversation ([details](docs/HOUSE_DEVICES.md)).
-- **Music (November 18).** Asked for a song, album, artist, genre or one of the owner's playlists, Rex finds it
-  in this Mac's Apple Music library, announces it like a DJ and the Music app plays it through his speaker. While
-  it plays he hears only "Hey Rex" or "Hey DJ Rex", which pauses it; it plays again once the talk is quiet. Run on
-  the robot's Music app nearly silent; not yet tried in a conversation ([details](docs/MUSIC.md)).
-- **Seeing.** Deliberate camera looks use a sharp 1280 px frame. The robot camera is a
-  wide ~90° lens at 1920×1080. A look someone asks for ("look left and see if you see it") turns
-  the head there first and holds it while he answers, even when they speak (October 23); about 20 s
-  after his answer his head moves normally again (October 31). Asked what he is looking at, he answers
-  about what is straight ahead of his head, not someone at the side of his view, and keeps his head
-  there while he answers (October 31; not yet run on the robot).
-- **Body (Pololu Maestro, 16 servos).** The throttle arm's hand (wrist twist and pincher, November 19)
-  is in the code but not yet assembled.
-  - Startup and park choreography, and talking motion driven by actual playback.
-  - The moment he has understood what was said, his head cocks to one side while he
-    thinks (October 11; not yet run on the robot).
-  - The head turns toward whoever he is answering, and since October 10 can cock to a
-    side (two facing servos pitch and tilt it) for curious or playful moments.
-  - Idle life: slow, staggered movement of one to three parts at a time whenever he
-    is not talking; the head follows the nearest face with glances away, or holds a
-    direction the model chose (October 3; not yet run on the robot).
-  - Model-selected poses and a microphone hold for enrollment. "Dance with your arms" gets a short dance
-    of all three arms that keeps the hands up and ends where it began (October 31; not yet run on the robot).
-- **Lights** (one ESP32 for the head and chest strips, firmware in `firmware/djr3x_leds`, November 14;
-  not yet run on the robot). Head and chest startup/shutdown, speaking lights and model-selected
-  animations. The chest blends between its states, wakes from the charge meter with a spark,
-  and fades at shutdown straight into the meter. On the charger the mouth is a rainbow meter
-  with a pulse climbing it. The feeling his body shows on a line (angry, surprised, proud and
-  seven more) colours his eyes and mouth and runs a matching chest pattern (firmware 0.5.0,
-  flashed November 15; shown on the lights once, not yet run in a conversation).
-- **Wheels and radar** (drive firmware in `firmware/djr3x_motion`, moved from V2 October 23; radar firmware still V2's):
-  - The model plans turns, moves, facing and approaching people or objects, finding a
-    person, and seeking things the detector cannot name ("find the door and go to it").
-  - Approaches to a sought thing roll continuously while hosted vision looks run in the
-    background. He goes around obstacles and never reverses to make arm room on the way.
-  - Safety: throttle-arm park, hero elbow and poker arm raised and head levelled while
-    driving (the arms walk back to their awake poses when the wheels stop), arm-swing and
-    path-clearance checks, and an immediate halt on stop (since October 25 also heard in
-    fainter sound, and by the owner's `stop.onnx` stop word, while the wheels run).
-  - V2's motion sounds play at 50% while the wheels move, and pause while he talks.
-  - He talks while he rolls (October 24, not yet run on the robot): the wheels start while his
-    opening line plays, and a short line can be timed to the moment they do. Only the visor and
-    mouth lights move with it; a stop said over his voice still halts him.
-  - He can answer questions about battery, charging, obstructions, radar bodies, tilt
-    and room climate from live readings.
-- **Telepresence (November 16; works on the robot, driving not yet used).** `python -m r3x telepresence` turns Rex into a
-  conduit for the owner over the home WireGuard VPN, with no models. He goes straight to his driving pose
-  with the visor up (a short wake of its own, no choreography), his eyes go magenta, and he says at home that the owner is calling in. Room audio and the camera go to one signed-in
-  client, and the client's voice plays from his speaker with his mouth moving to it. The caller aims
-  the head, lift and visor and drives at the dashboard joystick's caps and checks, with network rules
-  added (newest setpoint only, zero after 0.3 s, no forward or turning on a slow link). The supervisor
-  starts and stops a call on request while Rex is asleep. The Rex Call Mac app
-  ([apps/telepresence](apps/telepresence/README.md)) makes the call, with echo cancelling so speakers
-  work. A call started through the trigger, with head aiming, works on the robot (owner); driving over
-  the link has not been used yet ([plan and status](docs/TELEPRESENCE_PLAN.md)).
-- **Startup.** The startup whir plays as the servos wake, a short "please wait" line is
-  spoken the moment the whir and wake finish, and the droid start-up sound fills the rest
-  until loading finishes and cuts it. The please-wait and ready lines are synthesized once
-  and kept on disk; any still missing are filled in quietly after startup, so later
-  launches never wait on the voice service. A spoken hardware notice follows when something failed to
-  connect, then a short ready line (a statement, never an invitation).
-- **Shutdown.** V2's power-down sound plays while the servos move to their parked
-  positions and the lights fade.
+### Talk with people
+- Just talk to him. He waits until you've finished your sentence, answers in his own voice, and
+  his mouth lights and head move as he speaks.
+- He keeps talking until he's finished his line. To cut him off, say "stop", "shut up", "be quiet"
+  or "whoa", or say "Hey Rex" to get his attention.
+- "Be quiet" or "shut up" also stops him from chatting or wandering off on his own until you invite
+  him to talk again. "Stop" pauses that for a couple of minutes.
+- He ignores sounds that aren't really speech, like his own motors or the dog barking.
+- If one of the paid services runs out of credit, he tells you which account needs topping up
+  instead of going silent.
 
-## Run it
+### Know who he's talking to
+- He learns people's voices and faces, so he can greet you by name and know who said what.
+- Introduce someone ("Rex, this is Jeremy") and he starts learning that person's voice and face.
+- He's careful about it: if he isn't sure who's speaking, he doesn't guess.
 
-Say "wake up rex", or start Rex by hand from the root of the V3 checkout (the supervisor
-and menus step aside automatically):
+### Remember things
+- Tell him about yourself or someone else ("Jeremy loves the Kings") and he remembers it, along
+  with who told him. He brings these things up later, in other conversations.
+- You can correct something he got wrong, or ask him to forget it.
+- Name a pet or an object and he remembers what it looks like.
+- He remembers what he's said lately, so he doesn't keep repeating the same topics, and he notices
+  how long it has been since he last saw you.
+
+### Have a mind of his own
+- When nobody needs him, he picks something to do: catch up with someone he knows, get to know a
+  stranger, go look at something interesting in the room, or liven up a quiet moment.
+- He's curious about people and pets, asks them about their lives now and then, and remembers the
+  answers.
+- If you ignore him he moves on, usually with a joke at his own expense.
+- He can bring up news headlines, local weather and stories about things you've told him you're
+  interested in, but only when a conversation has run out of steam.
+
+### Put on a show
+- **Impressions.** "Do an impression of Jimmy Carter" (or of someone he knows, or of you) and he
+  writes a short parody and performs it in that person's voice. Every so often he slips a surprise
+  cameo into the conversation too.
+- **Accents and characters.** Ask him to talk with an accent (British, French, Irish and many more),
+  like a pirate, or like a hype DJ, and he keeps it up for ten minutes. Ask whether he's gay and he
+  goes full proud, rainbow lights and all. "Drop the accent" ends it.
+- **Jeopardy.** "Let's play Jeopardy" for up to four players, with real boards, music, Daily Doubles
+  and Final Jeopardy. Rex hosts and judges the answers. The board can be shown on a TV.
+- **Celebrity entrances.** Tell him "treat PJ like Kings royalty whenever he shows up" and that person
+  gets a grand entrance when they arrive. "Stop that bit" turns it off.
+- **Music.** Ask for a song, album, artist, genre or playlist. He introduces it like a DJ and plays it
+  from the Mac's Apple Music library. Say "Hey Rex" to pause it.
+- He can tell when someone smiles at his jokes, and reacts accordingly.
+
+### See and move
+- He sees through his camera: ask "what do you see?" or "look left and see if the cup is there".
+- His head turns toward whoever he's talking to and follows faces. When he's not talking his body
+  keeps moving slowly so he feels alive. He can also pose, gesture and dance with his arms.
+- The lights in his head and chest show when he's talking and how he's feeling.
+- He drives on request ("come here", "turn around", "find the door and go to it") and sometimes on
+  his own. He steers around obstacles and stops right away when told to. **He can't see stairs or
+  ledges, so keep him away from them.**
+- He can tell which room he's in and learns new rooms when you tell him.
+- He can answer questions about his battery, charging, tilt, and the room's temperature.
+
+### Help around the house
+- **House devices.** Through Homebridge, he can tell you what the thermostat is set to or whether a
+  light is on, and switch, dim or color lights and plugs or change the thermostat when asked. Locks,
+  garage doors and alarms are look-only. He never changes anything on his own.
+- **Sentry mode.** "Activate sentry mode until 7pm" and he guards the room: red lights, sweeping head.
+  If a stranger shows up he roasts them, records video and sends a phone alert with a photo. Someone
+  he knows can stand him down. When the time is up he shuts down.
+- **Telepresence.** Call in from another Mac over the home VPN using the Rex Call app
+  ([apps/telepresence](apps/telepresence/README.md)) to see and hear through Rex, talk through his
+  speaker, aim his head and drive him.
+
+## Using Rex
+
+**Starting him.** Say **"wake up rex"**. A small background program on the robot listens for that
+phrase, starts Rex, and also keeps his software up to date. You can also start him by hand from this
+folder:
 
 ```sh
 .venv/bin/python -m r3x live
 ```
 
-- Hardware is enabled by `local/settings.toml`: `camera_enabled`, `servo_port`,
-  `led_port`, `drive_port` and `radar_port` (all set on the
-  robot). `--camera` turns the camera on for a single run. Every setting is documented
-  in [settings.example.toml](settings.example.toml).
-- Say "shut down" to exit; Enter or `stop` + Enter in the terminal cancels the current
-  reply; `quit` or Ctrl-C exits.
-- `--gui` opens V2's dashboard: camera, actuators with manual override, scene, logs, the
-  3D droid, the transcript and the Motivator joystick console. It needs `requirements-gui.txt`;
-  the supervisor's wake launch stays headless ([dashboard](docs/GUI.md)).
-- The terminal shows the conversation. Detailed JSON diagnostics go to the session file
-  printed at startup, under `local/sessions/`.
-- `--record-evaluation` also keeps endpointed WAVs for human labeling.
-- `python -m r3x doctor` checks dependencies, model files and credentials without
-  opening devices.
-- `python -m r3x house` logs in to Homebridge and lists the house devices Rex would be offered,
-  with what each reads now. It changes nothing.
+**Stopping him.** Say **"shut down"**. In the terminal, `quit` or Ctrl-C also exits, and pressing
+Enter cancels the line he's working on.
 
-**Always-on services.** The robot's LaunchAgents run V3's copies of V2's wake supervisor
-and servo/LED/battery menu-bar apps (`operator_tools/`). Say **"wake up rex"** to start
-Rex; the supervisor also keeps the V3 checkout updated from GitHub (fast-forward only,
-never over uncommitted changes). See [operator services](docs/OPERATOR_CUTOVER.md).
+**Useful options and commands:**
 
-**The wheels move when asked, or when Rex decides to go somewhere as part of his own goal**
-(no smaller limits for his own moves; obstacle and time-of-flight checks apply to every move).
-The base cannot sense drop-offs; the owner keeps him away from stairs and ledges. Leave `drive_port` empty for conversation-only tests. Floor tests are
-described in [DRIVE_BASE_INTEGRATION.md](docs/DRIVE_BASE_INTEGRATION.md).
+| Command | What it does |
+| --- | --- |
+| `python -m r3x live --gui` | Opens a dashboard window with the camera view, the transcript, manual control of every motor, and a joystick for driving. |
+| `python -m r3x live --camera` | Turns the camera on for this run only. |
+| `python -m r3x doctor` | Checks that everything is installed and set up, without touching the hardware. |
+| `python -m r3x house` | Lists the house devices Rex can see and how each one reads right now. Changes nothing. |
+| `python -m r3x telepresence` | Starts telepresence mode so someone can call in. |
+| `python -m r3x profiles list` | Lists the people Rex knows. See [core operations](docs/CORE_OPERATIONS.md) for reviewing and deleting people and recordings. |
 
-## Check
+The terminal shows the conversation as it happens. A detailed log of each session is saved under
+`local/sessions/`.
 
-```sh
-.venv/bin/python tools/run_checks.py                      # blocked-I/O contract checks (about 2 min)
-.venv/bin/python tools/run_checks.py --changed            # only the checks that use what changed
-.venv/bin/python tools/run_firmware_checks.py             # drive and LED firmware, compiled natively
-.venv/bin/python -m r3x scenario tests/fixtures/core_memory.json
-.venv/bin/python -m r3x replay local/dataset/manifest.json
-.venv/bin/python -m r3x report local/sessions/SESSION_ID.jsonl
-```
+## Setting up
 
-- `run_checks.py` blocks network, audio, serial and native libraries, and uses fake
-  clocks, a simulated ESP32 and synthetic providers. It never calls a paid service or
-  moves hardware. `--changed` (with `--since REF` for committed work, `--list` to only
-  see the choice) runs the test files that used a changed function, from a map in
-  `local/checks/`; a change it cannot place widens the choice up to every check.
-- `run_firmware_checks.py` compiles drive-firmware headers with clang++ and runs them;
-  only the compiler and the programs it builds may start.
-- `scenario` drives the production session with scripted providers. `replay` runs real
-  VAD/ASR/CAM++ on saved audio.
-- Hosted-model evaluations (for example `tools/check_drive_planning.py`) are paid, paced
-  runs kept separate from the contract suite.
-- A clean synthetic suite is not live acceptance. Reports say which evidence was
-  synthetic, saved audio, hosted or real hardware.
+### What you need
+- An Apple Silicon Mac with Python 3.11.
+- A microphone array (Rex uses a ReSpeaker) and a speaker.
+- Accounts for ElevenLabs (his voice) and either OpenAI or Anthropic (his replies).
+- Optional: a camera, a Pololu Maestro servo controller, the LED board, the drive base and radar,
+  Homebridge, and the [ntfy](https://ntfy.sh) phone app for sentry alerts. Rex works without any of
+  these; he just won't do the things that need them.
+- A copy of [djr3x-v2](https://github.com/bretbenz84/djr3x-v2), set up per its own instructions, but
+  only if you want room recognition or smile detection (they reuse its model files).
 
-## Setup (fresh environment)
+### Install
 
-Python 3.11 (tested with 3.11.9). Only the expression and room models need V2: set `V2` to a
-set-up copy of [djr3x-v2](https://github.com/bretbenz84/djr3x-v2). Its model files and
-`venv` are not in the repository, so a fresh clone needs V2's own setup first:
+From this folder:
 
 ```sh
-V2=/path/to/djr3x-v2
 python3.11 -m venv .venv
 .venv/bin/python -m pip install -r requirements-build.txt
 .venv/bin/python -m pip install -r requirements-live.txt
 .venv/bin/python -m pip install --no-build-isolation --no-deps -e .
-.venv/bin/python -m pip install --no-deps -r requirements-expressions.txt   # Only for face_expressions_enabled
-.venv/bin/python tools/prepare_core_models.py      # pinned public CAM++ assets
-.venv/bin/python tools/prepare_face_models.py      # face models from the offline cache
-.venv/bin/python tools/prepare_face_models.py --landmarker "$V2/assets/models/face/face_landmarker.task"   # adds the expression model
-.venv/bin/python tools/prepare_voice_cloning.py    # Breeze TTS 2 8-bit for impressions (about 4.6 GB; --source DIR copies a local snapshot)
-# Room recognition: export V2's MobileCLIP-S2 with any Python that has torch, open_clip and onnx
+.venv/bin/python tools/prepare_core_models.py
+.venv/bin/python tools/prepare_face_models.py
+```
+
+Optional extras:
+
+```sh
+# Dashboard window (--gui)
+.venv/bin/python -m pip install -r requirements-gui.txt
+
+# Impressions in other people's voices (a download of about 4.6 GB)
+.venv/bin/python tools/prepare_voice_cloning.py
+
+# Smile detection (needs the v2 copy; set V2 to its folder)
+V2=/path/to/djr3x-v2
+.venv/bin/python -m pip install --no-deps -r requirements-expressions.txt
+.venv/bin/python tools/prepare_face_models.py --landmarker "$V2/assets/models/face/face_landmarker.task"
+
+# Room recognition (needs the v2 copy)
 "$V2/venv/bin/python" -I tools/export_place_model.py --cache "$V2/assets/models/mobileclip" --out local/models/places/mobileclip-s2.onnx
 ```
 
-Credentials live in ignored `local/secrets.toml` (`OPENAI_API_KEY` and `ELEVENLABS_API_KEY`
-environment variables override them). Rex's ElevenLabs voices, his own and each speaking mode's, are
-in `src/r3x/voice_modes.py`. Startup verifies model digests and never substitutes or downloads
-models on its own.
+### Configure
+1. Copy [secrets.example.toml](secrets.example.toml) to `local/secrets.toml` and fill in your keys.
+2. Copy [settings.example.toml](settings.example.toml) to `local/settings.toml`. Every setting is
+   explained in that file. The main ones:
+   - `llm_provider`: `"openai"` or `"claude"`, which service writes his replies.
+   - `camera_enabled`, `servo_port`, `led_port`, `drive_port`, `radar_port`: which hardware is
+     connected. Leave a port empty to run without that part (for example, leave `drive_port` empty to
+     keep the wheels off while testing).
+   - Optional features such as `face_expressions_enabled` and `place_recognition_enabled`.
+3. Run `.venv/bin/python -m r3x doctor` to check everything is in place.
 
-## Data rules
+To have "wake up rex" and the menu-bar helper apps run all the time, see
+[operator services](docs/OPERATOR_CUTOVER.md). For phone alerts, see [sentry mode](docs/SENTRY_MODE.md).
 
-- Everything private is under ignored `local/`: settings, credentials, the store
-  (`local/core.sqlite3`), recordings, voiceprints, visual memory, caches and session
-  traces. Never commit or publish it.
-- Bundled audio (`assets/audio/startup`, `assets/audio/motion`, `assets/audio/effects`,
-  `assets/audio/jeopardy`) is V2's sound effects converted to WAV, and `assets/jeopardy/clues.tsv` is V2's
-  clue bank. They contain no personal recordings. The famous
-  reference voices in `assets/voices/famous` are public clips ([provenance](assets/voices/README.md));
-  references to people Rex knows are derived under `local/` and never tracked.
-- No V2 personal data has been imported. Any import makes independent copies with a
-  source digest and explicit ID mapping. Nothing opens a writable connection to V2's
-  databases.
+## Your data stays private
 
-## Documents
+Everything personal lives in the `local/` folder, which is never uploaded to GitHub: settings,
+keys, the people Rex knows, their voices and faces, what he remembers, recordings and session logs.
+The sounds and famous-voice clips that ship with the project contain nothing personal
+([where the voice clips come from](assets/voices/README.md)).
 
-| Document | What it answers |
+## Testing
+
+```sh
+.venv/bin/python tools/run_checks.py              # the full automated test suite (about 2 minutes)
+.venv/bin/python tools/run_checks.py --changed    # only the tests affected by your changes
+.venv/bin/python tools/run_firmware_checks.py     # tests for the drive and LED board firmware
+```
+
+These tests use fake hardware and fake AI services. They never move the robot, use the microphone,
+or spend money. Scripts in `tools/` named `check_*.py` that talk to real AI services cost a little
+money each run and are run separately.
+
+## How it's put together
+
+- **One brain.** A single AI conversation decides what Rex says and does. Separate parts of the
+  program handle hearing, recognizing people, remembering, and driving the hardware, and each one
+  checks the brain's decisions before acting on them.
+- **No pretending.** Rex never says he saved something, moved somewhere or did something until it has
+  actually happened.
+- **No guessing who's talking.** A voice that only sort of sounds like you doesn't become you.
+- **Safety first.** Code, not the AI, enforces physical limits: obstacle checks, arm clearance while
+  driving, and an instant stop when told.
+
+## More detail
+
+| Document | About |
 | --- | --- |
-| [Implementation status](docs/IMPLEMENTATION_STATUS.md) | What is finished, simulated only, or still open. |
-| [Improvement plan](docs/IMPROVEMENT_PLAN.md) | The October 14 plan: steps, owner rulings, baseline and per-step evidence. |
-| [Drive base](docs/DRIVE_BASE_INTEGRATION.md) | Wheels, radar, safety gates, vision seek and floor-run repairs. |
-| [Servo integration](docs/SERVO_INTEGRATION.md) | Choreography, talking and idle motion, poses, microphone hold. |
-| [LED integration](docs/LED_INTEGRATION.md) | Head/chest lights and animations. |
-| [Jeopardy](docs/JEOPARDY.md) | The game: rules, judging, the clock, sounds, the dashboard board, checks. |
-| [House devices](docs/HOUSE_DEVICES.md) | Homebridge lights, plugs and thermostat: questions and commands, the account, setup, evidence. |
-| [Music](docs/MUSIC.md) | Apple Music through the Music app: DJ announcements, wake-word pause, setup, evidence. |
-| [Sentry mode](docs/SENTRY_MODE.md) | Guarding a room alone: what trips and stands him down, recordings, phone alerts and their setup. |
-| [Room recognition](docs/ROOM_RECOGNITION.md) | Which room, asking and learning rooms, connections, exploring, the V2 import. |
-| [Voice encoder trial](docs/VOICE_ENCODER_TRIAL.md) | ERes2NetV2 against CAM++ for voice ID: the live test, how to run it, offline results. |
-| [Voice impressions](docs/IMPERSONATION.md) | The `impersonate` tool, reference voices, the local cloning engine, checks and open acceptance. |
-| [Dashboard](docs/GUI.md) | `live --gui`: V2's PySide6 window in V3, manual servo override and joystick driving through the owners. |
-| [Operator services](docs/OPERATOR_CUTOVER.md) | Wake supervisor, menu-bar apps, auto-update, rollback. |
-| [Telepresence](docs/TELEPRESENCE_PLAN.md) | The no-model call mode: plan, owner decisions, what stages 0-1 built and how to run them. |
-| [Live test script](docs/LIVE_TEST_SCRIPT.md) | Lines to say and results to check in hands-on conversation tests. |
-| [DESIGN.md](DESIGN.md) | Who decides what, turn flow, identity and memory design. |
-| [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex initiates and participates. |
-| [Agency implementation plan](docs/AGENCY_IMPLEMENTATION_PLAN.md) | Goal-based initiative (October 2): what starts, steers and ends a goal, and the failed live runs that led to it; live acceptance remains open. |
-| [Core operations](docs/CORE_OPERATIONS.md) | Enrollment, profiles, review, deletion and diagnostics. |
-| [Future features](docs/FUTURE_FEATURES.md) | Owner-requested work not yet scoped. |
-| [V2_REFERENCE.md](V2_REFERENCE.md) | Where each V2 extraction came from and what it preserved. |
-| [AGENTS.md](AGENTS.md) | Rules for people and coding agents working here. |
-
-## Principles
-
-- **One owner per responsibility.**
-  - One conversational owner interprets language and chooses replies or tools.
-  - One speaker tracker owns acoustic evidence.
-  - One state owner validates writes.
-  - One output owner schedules speech, lights, servos and wheels, and records what
-    actually happened.
-- **Evidence, not guesses.** No regex turns speech into names, facts or answers. The
-  model cannot promote weak acoustic evidence to identity. Mouth motion is never used
-  for attribution. A close voice while one recognized person is alone in view is
-  `inferred` as them, never used for learning.
-- **Honest receipts.** Rex never claims a save, a move, an arrival or speech before its
-  executor reports success.
-- **Small and replaceable.** No model or device loads at import. Every capability
-  declares its dependencies and start/cancel/close. A replacement retires its
-  predecessor.
-- **Cost.** Ordinary replies use one `gpt-6-luna` call with low reasoning, or one Claude call
-  ([replies from Claude](docs/CLAUDE_REPLIES.md), November 10).
-  See the [character/model comparison](docs/CHARACTER_EVALUATION.md) for measured
-  costs, latency and remaining humor limitations. Stronger models run only
-  narrowly: `gpt-5.6-terra` plans one goal at a time (at least eight seconds apart, never
-  per reply), within the owner's roughly
-  $45/month budget. Live goal-planning cost is not yet measured.
+| [DESIGN.md](DESIGN.md) | How the program is designed: who decides what, and how identity and memory work. |
+| [Drive base](docs/DRIVE_BASE_INTEGRATION.md) | Wheels, radar and driving safety. |
+| [Servos](docs/SERVO_INTEGRATION.md) | Head and arm movement. |
+| [Lights](docs/LED_INTEGRATION.md) | Head and chest lights. |
+| [Dashboard](docs/GUI.md) | The `--gui` window. |
+| [Conversation memory](docs/CONVERSATION_MEMORY.md) | What Rex remembers and how. |
+| [Proactive conversation](docs/PROACTIVE_CONVERSATION.md) | How Rex starts conversations and joins in. |
+| [Impressions](docs/IMPERSONATION.md) | Voice impressions and cameos. |
+| [Jeopardy](docs/JEOPARDY.md) | The Jeopardy game. |
+| [Music](docs/MUSIC.md) | Playing music from Apple Music. |
+| [House devices](docs/HOUSE_DEVICES.md) | Homebridge lights, plugs and thermostat. |
+| [Sentry mode](docs/SENTRY_MODE.md) | Guarding a room and phone alerts. |
+| [Room recognition](docs/ROOM_RECOGNITION.md) | Knowing which room he's in. |
+| [Telepresence](docs/TELEPRESENCE_PLAN.md) | Calling in through Rex. |
+| [Replies from Claude](docs/CLAUDE_REPLIES.md) | Using Claude instead of OpenAI. |
+| [Core operations](docs/CORE_OPERATIONS.md) | Managing the people Rex knows and their recordings. |
+| [Operator services](docs/OPERATOR_CUTOVER.md) | The always-on wake word and menu-bar apps. |
+| [Implementation status](docs/IMPLEMENTATION_STATUS.md) | What's finished and what's still being tested. |
+| [Future features](docs/FUTURE_FEATURES.md) | Ideas for later. |
+| [AGENTS.md](AGENTS.md) | Rules for anyone (or any AI) working on the code. |
