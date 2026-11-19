@@ -1403,6 +1403,10 @@ mixed over his voice as the board hears it; it never fired on 80 saved captures 
 cached lines (once on "Rex, let's talk about..."). No "Hey DJ Rex" was ever recorded, so that one is
 untried on the owner. Checks: `tests/test_keywords.py` (synthetic). **Not yet run on the robot.**
 
+November 19: his own voice tripped it (21 cuts since, often on "Bret"), so over his voice a wake word now
+cuts only after the recognizer hears "Rex" in the ~2.3 s around it
+([status](IMPLEMENTATION_STATUS.md#hey-rex-over-his-voice-must-be-heard-by-the-recognizer--november-19)).
+
 Owner's live test, runs `ffaa244f` and `1ef35235`: "Hey Rex", shouted over him, never fired; the
 spotter started and was fed, and nothing was logged. It listened to channel 0, the board's
 Conference output, which V2 measured ducking about 20 dB while Rex plays (residual-echo

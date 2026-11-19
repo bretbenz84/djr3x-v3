@@ -6,6 +6,23 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## "Hey Rex" over his voice must be heard by the recognizer — November 19
+
+Owner: lines keep stopping mid-sentence, maybe from wake-word hallucinations; raise the bar so his speech is
+never randomly cut. Run `89d66b1c`: "Hey Rex" fired at .959 one word into his own "Bret, you're the one
+holding the screwdriver." The same happened November 16 (`ebd781c4`, .858, "Bret, you're an IT admin...", then
+"Why did you stop talking?"). Since October 25 the detector cut his line 21 times, many on his own voice
+(often on "Bret"), at .61-.998, so no score threshold separates them from real calls.
+- **Built:** a wake word heard over his voice no longer cuts at once. Code waits 0.3 s for the word to finish,
+  has the speech recognizer transcribe the last ~2.3 s of channel-1 sound, and cuts only if it hears "Rex"
+  (and his own line in that sound did not say it). Otherwise it logs `wake_word_heard` `not_heard` with what
+  was heard. The cut now comes about 0.5-1 s after the word instead of instantly. Music pausing, stop words
+  and the driving rule are unchanged.
+- **Evidence:** 2 new synthetic checks (`tests/test_keywords.py`); 747 checks pass via `--changed`.
+- **Open:** not run on the robot. Whether the recognizer hears a real "Hey Rex" over his voice is unmeasured
+  (no such recording is kept); a miss means he finishes the line, and "stop" still cuts it. Words said in the
+  half-second while it checks may be set aside as his echo. Watch `wake_word_heard` `heard=` in the next runs.
+
 ## "Impersonate me" through ElevenLabs — November 19
 
 Owner: rebuild "impersonate me" with ElevenLabs, in character, from about 30 seconds of short

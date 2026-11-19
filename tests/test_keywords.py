@@ -105,7 +105,7 @@ class StopWordRuntimeTests(unittest.TestCase):
 class WakeWordTests(unittest.TestCase):
     """Owner, October 25: "Hey Rex" or "Hey DJ Rex" said over him cuts his line so he can listen."""
     def speak_and_wake(self, moving=False, line='The thing about hyperdrives is that nobody reads the manual.',
-                       word='Hey_rex'):
+                       word='Hey_rex', heard='Hey Rex.'):
         from r3x.contracts import Capture, Transcript as T
         trace = Trace()
         played, cut = threading.Event(), threading.Event()
@@ -146,10 +146,14 @@ class WakeWordTests(unittest.TestCase):
             last_probability = 0.
             def reset(inner): pass
             def is_speech(inner, pcm): return False
-        class ASR:
-            def transcribe(inner, capture, cancel): return T('', None, False)
+        checked = []
+        class ASR:   # Only the wake check transcribes here: the speech detector hears nothing.
+            def transcribe(inner, capture, cancel):
+                checked.append(capture)
+                return T(heard, -.01, True)
         runtime = VoiceRuntime(Mic(), VAD(), ASR(), session, trace, drive=drive,
                                keywords=Spotter(fire_at={5}, word=word))
+        self.checked = checked
         with patch('sys.stdin.isatty', return_value=False):
             runtime.run()
         reply.join(5)
@@ -180,6 +184,25 @@ class WakeWordTests(unittest.TestCase):
         rows, cut, halted, session = self.speak_and_wake(moving=True)
         self.assertFalse(cut)
         self.assertEqual([r['status'] for r in rows if r['event'] == 'wake_word_heard'], ['driving'])
+
+    def test_the_cut_waits_for_the_recognizer_to_hear_rex_in_the_sound_around_it(self):
+        rows, cut, halted, session = self.speak_and_wake()
+        self.assertEqual(len(self.checked), 1)
+        sound = self.checked[0]
+        self.assertGreaterEqual(sound.ended_at - 200 - 5 * .032, .3 - .032)   # The word's tail is included.
+        self.assertEqual(sound.started_at, 200.)                               # And what came before it.
+        heard = next(r for r in rows if r['event'] == 'wake_word_heard')
+        self.assertEqual((heard['status'], heard['heard']), ('interrupted', 'Hey Rex.'))
+
+    def test_his_own_voice_saying_bret_never_cuts_his_line(self):
+        # Owner, November 19 (session 89d66b1c): "Hey Rex" fired at .959 on his own "Bret, you're the
+        # one holding the screwdriver." and the line stopped after a word.
+        rows, cut, halted, session = self.speak_and_wake(line="Bret, you're the one holding the screwdriver.",
+                                                         heard="Bret, you're the one")
+        self.assertFalse(cut)
+        self.assertEqual([r['status'] for r in rows if r['event'] == 'wake_word_heard'], ['not_heard'])
+        self.assertFalse(any(m.get('content', '').startswith('They said "Hey Rex" over you')
+                             for m in session.history.messages()))
 
     def test_his_own_line_saying_rex_does_not_cut_it(self):
         rows, cut, halted, session = self.speak_and_wake(line='Hey, Rex here, reporting for duty as always.')

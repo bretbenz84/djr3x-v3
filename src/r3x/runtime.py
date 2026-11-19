@@ -58,6 +58,13 @@ STOP_WORD_OWN_SECONDS = 1.5
 WAKE_CUT_SECONDS = .1
 WAKE_LISTEN_SECONDS = 3.
 WAKE_SPEAKING_AGAIN_SECONDS = .5   # Playing after this long is a new line of his.
+# Owner, November 19: his lines were cut mid-sentence by "Hey Rex" heard in his own voice (21 cuts
+# over his voice since October 25, scores .61-.998; "Bret, you're..." twice that day). The detector
+# score cannot tell them apart, so a wake word over his voice cuts only once the recognizer hears
+# "Rex" in the last couple of seconds of sound; his own "Bret" is heard as "Bret".
+WAKE_CONFIRM_BEFORE_SECONDS = 2.   # Sound kept before the wake word fired (the words themselves).
+WAKE_CONFIRM_AFTER_SECONDS = .3    # Sound waited for after it fired, so the word is whole.
+WAKE_HEARD = re.compile(r"\brex\b")
 # While the wheels run the board turns everything down (October 25: the processed channel's quietest
 # tenth of moving seconds was -55 to -65 dBFS, a still room -47 to -52), and a "stop" from across the
 # room rarely lifts the speech detector to its usual .5. A sound this likely to be speech is taken.
@@ -84,6 +91,9 @@ class VoiceRuntime:
         self._spot_peak = 0.
         self._wake_at = None         # When a wake word last cut his line: later sound is the person's.
         self._wake_listening = None  # [began, {word: peak score}] while he speaks.
+        self._keyword_audio = deque()  # (started, ended, pcm) the keyword spotter heard lately.
+        self._wake_pending = None    # A wake word over his voice waiting for its last sound.
+        self._wake_checking = False  # The recognizer is checking one; others wait for it.
         self.endpoint = Endpoint(session.session_id, silence, self.turn_check if turn else None)
         self.silence = silence       # The usual end-of-speech pause (a Jeopardy clue allows a longer one).
         self._music_off_for = None   # The Jeopardy answer whose think music a voice stopped (not restarted).
@@ -258,6 +268,15 @@ class VoiceRuntime:
                             channel=1 if frame.beam_pcm is not None else 0, over=over,
                             peaks={w: round(v, 3) for w, v in sorted(peaks.items())})
             self._wake_listening = None
+        pcm = frame.beam_pcm or frame.pcm
+        self._keyword_audio.append((frame.started_at, frame.ended_at, pcm))
+        while self._keyword_audio and self._keyword_audio[0][1] < frame.ended_at - (
+                WAKE_CONFIRM_BEFORE_SECONDS + WAKE_CONFIRM_AFTER_SECONDS):
+            self._keyword_audio.popleft()
+        if self._wake_pending is not None and frame.ended_at >= self._wake_pending['until']:
+            if not self.guarding() and not self.stop.is_set():
+                self._confirm_wake(self._wake_pending)
+            self._wake_pending = None
         moving = self.drive is not None and self.drive.moving.is_set()
         if moving:
             if self._spotting is None:
@@ -307,16 +326,53 @@ class VoiceRuntime:
             self.trace.emit('wake_word_heard', word=wake, status='not_over_his_voice', score=round(fired[wake], 3))
             return
         status = ('driving' if moving else 'his_own_line' if re.search(r"\brex\b", own.lower()) else
-                  'interrupted' if self.session.interrupt_speech(wake) else 'nothing_to_interrupt')
-        self.trace.emit('wake_word_heard', word=wake, status=status, score=round(fired[wake], 3))
-        if status == 'interrupted':
-            self._wake_at = frame.ended_at   # What follows is theirs, not his echo.
-            self.session.note_speech(frame.ended_at)
-            if self.robot:
+                  'already_checking' if self._wake_pending is not None or self._wake_checking else None)
+        if status is not None:
+            self.trace.emit('wake_word_heard', word=wake, status=status, score=round(fired[wake], 3))
+            return
+        self._wake_pending = {'word': wake, 'score': round(fired[wake], 3), 'at': frame.ended_at,
+                              'until': frame.ended_at + WAKE_CONFIRM_AFTER_SECONDS,
+                              'cancel': getattr(self.session, '_cancel', None)}
+
+    def _confirm_wake(self, pending):
+        """Cut his line for a wake word only if the recognizer hears "Rex" in the sound around it
+        (owner, November 19: never cut mid-sentence by his own voice). His own words in that sound
+        never count. Runs beside the listening loop; the line it was heard over must still play."""
+        chunks = [c for c in self._keyword_audio if c[1] > pending['at'] - WAKE_CONFIRM_BEFORE_SECONDS]
+        if not chunks:
+            return
+        capture = Capture(uuid4().hex, self.session.session_id, b''.join(c[2] for c in chunks),
+                          chunks[0][0], chunks[-1][1], chunks[-1][1], echo_risk=True)
+        said_between = getattr(self.session.output, 'said_between', None)
+        own = (said_between(capture.started_at, capture.ended_at) if said_between else '') or ''
+        self._wake_checking = True
+        def run():
+            began = self.trace.clock()
+            try:
                 try:
-                    self.robot.heard()   # Show he is listening.
+                    heard = self.asr.transcribe(capture, Cancellation()).text or ''
                 except Exception as exc:
-                    self.trace.emit('listening_cue_skipped', reason='failed:' + type(exc).__name__)
+                    self.trace.emit('wake_word_heard', word=pending['word'], status='check_failed',
+                                    score=pending['score'], error_type=type(exc).__name__)
+                    return
+                called = bool(WAKE_HEARD.search(heard.lower())) and not WAKE_HEARD.search(own.lower())
+                same_line = pending['cancel'] is getattr(self.session, '_cancel', None)
+                status = ('not_heard' if not called else 'stopped' if self.stop.is_set() else
+                          'nothing_to_interrupt' if not same_line else
+                          'interrupted' if self.session.interrupt_speech(pending['word']) else 'nothing_to_interrupt')
+                self.trace.emit('wake_word_heard', word=pending['word'], status=status, score=pending['score'],
+                                heard=heard, check_seconds=round(self.trace.clock() - began, 3))
+                if status == 'interrupted':
+                    self._wake_at = pending['at']   # What follows is theirs, not his echo.
+                    self.session.note_speech(pending['at'])
+                    if self.robot:
+                        try:
+                            self.robot.heard()   # Show he is listening.
+                        except Exception as exc:
+                            self.trace.emit('listening_cue_skipped', reason='failed:' + type(exc).__name__)
+            finally:
+                self._wake_checking = False
+        threading.Thread(target=run, name='r3x-wake-check', daemon=True).start()
 
     def flush_turns(self):
         """Move waiting transcripts into the conversation queue, in order, as room appears."""
