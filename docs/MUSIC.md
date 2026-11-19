@@ -96,6 +96,20 @@ stopped. Not yet tried in a conversation; nobody has said "Hey Rex" over a song 
     "Forrest Gump: The Soundtrack" its 14 songs in order. "Thriller" the album, which the library has only as
     a song, is said to be a song.
 
+## DJ intros instead of commentary — November 18
+
+- **The problem:** run `a37ed477`'s two intros were his everyday roast, aimed at the song. Freedom got "Bret, you
+  picked a song about breaking chains for a droid on a leash." Bohemian Rhapsody got a joke about its length.
+  The owner wants a real DJ.
+- **The change:** Claude's prompt only (`adapters/claude_prompt.py`; the OpenAI copy is unchanged). The intro is a
+  performance for the room as his cantina crowd: no roast, joke, review or explanation of the song. It builds
+  toward the drop and ends on the artist and title, so the song hits right behind them. A set is announced as a
+  set, and the lead-in is a DJ taking a request, never a lyric.
+- **Paid probe** (`local/validation/dj-intros/`): production session, Claude Sonnet, a fake Music app, three
+  requests twice each. 6 of 6 intros hyped the room and ended on the artist and title, with no roasts, and every
+  song started. Some wording repeated ("Ooh, a classic request" opened 3 of 6, "make some noise" came twice).
+  12 model calls, about $0.60 estimated from token counts. Not yet heard on the robot.
+
 ## Open
 
 - **Hearing "Hey Rex" over a song** from his own speaker is unmeasured. `wake_word_listened` events with
