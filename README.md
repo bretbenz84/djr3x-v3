@@ -54,6 +54,11 @@ running.
 - **Impressions.** "Do an impression of Jimmy Carter" (or of someone he knows, or of you) and he
   writes a short parody and performs it in that person's voice. Every so often he slips a surprise
   cameo into the conversation too.
+  - Celebrities and people he knows are voiced on the Mac itself, with no service needed. That's slow:
+    a line can take 15 to 30 seconds to make, and he fills the wait with thinking chirps.
+  - "Impersonate me" is different. He has you repeat a few lines after him, then makes a copy of your
+    voice at ElevenLabs. That's quick, but it takes one of your ElevenLabs account's voice slots
+    while Rex is running. He deletes the copy when he shuts down.
 - **Accents and characters.** Ask him to talk with an accent (British, French, Irish and many more),
   like a pirate, or like a hype DJ, and he keeps it up for ten minutes. Ask whether he's gay and he
   goes full proud, rainbow lights and all. "Drop the accent" ends it.
@@ -142,7 +147,8 @@ an OpenAI key, Rex switches to OpenAI when the Claude credit runs out, and tells
 - **OpenAI:** pay-as-you-go API billing through the OpenAI platform.
 
 **ElevenLabs.** Rex's voice, and his accents and character voices, come from ElevenLabs. A
-**Creator** plan is enough. Normal use doesn't usually go over its monthly credits.
+**Creator** plan is enough. Normal use doesn't usually go over its monthly credits. Leave one voice
+slot free for "impersonate me", which makes a temporary copy of your voice there.
 
 ### Install
 
