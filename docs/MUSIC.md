@@ -74,6 +74,28 @@ stopped. Not yet tried in a conversation; nobody has said "Hey Rex" over a song 
   order), Beyoncé (50, shuffled), Disney, the TikTok Songs playlist, Thriller and a 50-song mix were each
   found and queued in 0.4–1.5 s. Get Lucky started in 0.5 s, paused and resumed, then stopped.
 
+## First conversation — November 18, run `a37ed477`
+
+- **Worked:** "a random Beyoncé song" queued 50 shuffled songs in 1.4 s, and Freedom started 0.5 s after his
+  announcement. "Hey Rex" over the song scored 0.98 and paused it; "stop the music" stopped it.
+- **The first request** for Beethoven's Seventh got no answer from the Music app for 10 s, most likely macOS's
+  first Automation prompt for the Rex process.
+- **Two albums refused** that were in the library: "Beethoven's Seventh Symphony" and "Forrest Gump: The
+  Soundtrack" (the library has "Forrest Gump (The Soundtrack)"). Two faults:
+  - A search that matched nothing made the Music app raise an error. Rex then said the app "refused" instead
+    of offering the closest titles.
+  - Matching was letter for letter.
+- **Repair, same day:**
+  - An empty search returns nothing.
+  - A missed request is matched by words: punctuation does not count, "seventh" and "7th" are 7, and
+    "symphonies" is "symphony".
+  - An album must have every word asked for in its own name, then in its name with its artists (an orchestra's
+    name says "Symphony" too), else in its songs' titles. A number asked for keeps only songs whose titles
+    carry it.
+  - On the real library, "Beethoven's Seventh Symphony" now queues Kleiber's four movements of the 7th, and
+    "Forrest Gump: The Soundtrack" its 14 songs in order. "Thriller" the album, which the library has only as
+    a song, is said to be a song.
+
 ## Open
 
 - **Hearing "Hey Rex" over a song** from his own speaker is unmeasured. `wake_word_listened` events with

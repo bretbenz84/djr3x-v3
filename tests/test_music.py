@@ -24,6 +24,18 @@ LIBRARY = (
     Song('B1', 'Halo', 'Beyoncé', 'I Am... Sasha Fierce', 2008, 'R&B/Soul', 261, 1, 2),
     Song('C1', 'Cantina Band', 'John Williams', 'Star Wars (Original Soundtrack)', 1977, 'Soundtrack', 166, 1, 4),
     Song('C2', 'Main Title', 'John Williams', 'Star Wars (Original Soundtrack)', 1977, 'Soundtrack', 330, 1, 1),
+    # November 18, run a37ed477: both albums were in the library under other wording.
+    Song('F1', 'Hound Dog', 'Elvis Presley', 'Forrest Gump (The Soundtrack)', 1994, 'Rock', 136, 1, 1),
+    Song('F2', 'Mrs. Robinson', 'Simon & Garfunkel', 'Forrest Gump (The Soundtrack)', 1994, 'Rock', 244, 2, 3),
+    Song('F3', 'Forrest Gump Suite', 'Alan Silvestri', 'Forrest Gump (Original Motion Picture Score)', 1994, 'Rock', 500, 1, 1),
+    Song('K1', 'Symphony No. 5 in C Minor, Op. 67: I. Allegro con brio', 'Vienna Philharmonic & Carlos Kleiber',
+         'Beethoven: Symphonies Nos. 5 & 7', 1975, 'Classical', 440, 1, 1),
+    Song('K5', 'Symphony No. 7 in A Major, Op. 92: I. Poco sostenuto - Vivace', 'Vienna Philharmonic & Carlos Kleiber',
+         'Beethoven: Symphonies Nos. 5 & 7', 1976, 'Classical', 820, 1, 5),
+    Song('K6', 'Symphony No. 7 in A Major, Op. 92: II. Allegretto', 'Vienna Philharmonic & Carlos Kleiber',
+         'Beethoven: Symphonies Nos. 5 & 7', 1976, 'Classical', 500, 1, 6),
+    Song('M1', 'Symphony No. 7 in A Major, Op. 92: I. Poco sostenuto - Vivace',
+         'Moscow Radio Symphony Orchestra & Vladimir Fedoseyev', "7 Conductors vs. Beethoven's 7th", 1990, 'Classical', 800, 1, 1),
 )
 NAMES = {script: name for name, script in SCRIPTS.items()}
 
@@ -146,6 +158,22 @@ class FindingTests(unittest.TestCase):
         self.assertEqual((outcome, {s.song_id for s in app.playlists[PLAYLIST]}), ('ok', {'C1', 'C2'}))
         outcome, _, data = music.run(play(playlist='road trip'))
         self.assertEqual((outcome, data['playlist'], data['cue']), ('ok', 'Road Trip', 'start'))
+
+    def test_an_album_asked_for_in_other_words_is_still_found(self):
+        app, music = player()
+        outcome, _, data = music.run(play(album='Forrest Gump: The Soundtrack'))
+        self.assertEqual((outcome, [s.song_id for s in app.playlists[PLAYLIST]]), ('ok', ['F1', 'F2']))
+        self.assertNotIn('note', data)
+        outcome, _, data = music.run(play(album="Beethoven's Seventh Symphony"))
+        # The album named for it, only the 7th's movements; not a set whose orchestra says "Symphony".
+        self.assertEqual((outcome, [s.song_id for s in app.playlists[PLAYLIST]]), ('ok', ['K5', 'K6']))
+        self.assertEqual(music.run(play(song='mrs robinson'))[2]['first']['title'], 'Mrs. Robinson')
+
+    def test_an_album_that_is_only_a_song_here_says_so(self):
+        app, music = player()
+        outcome, _, data = music.run(play(album='Get Lucky'))
+        self.assertEqual((outcome, data['first']['title']), ('ok', 'Get Lucky'))
+        self.assertIn('no album by that name', data['note'])
 
     def test_play_something_is_a_mix_from_the_whole_library(self):
         app, music = player()

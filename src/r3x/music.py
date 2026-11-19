@@ -71,7 +71,8 @@ SCRIPTS = {
     # argv: songs, artists, albums, genre or all; the words. Accents and punctuation do not count.
     **{f'find_{k}': _JOINED + 'on run argv\n' + _PRELUDE + 'set q to item 1 of argv\n'
        'tell application "Music"\n\tignoring diacriticals, punctuation and hyphens\n'
-       f'\t\tset r to a reference to (every track of library playlist 1 whose {w})\n' + _COLUMNS +
+       f'\t\tset r to a reference to (every track of library playlist 1 whose {w})\n'
+       '\t\ttry\n' + _COLUMNS.replace('\t\t', '\t\t\t') + '\t\ton error number -1728\n\t\t\treturn ""\n\t\tend try\n'
        '\tend ignoring\nend tell\nreturn my joined(out, US, RS)\nend run\n' for k, w in _FIND.items()},
     'genres': 'on run argv\n' + _PRELUDE + 'tell application "Music" to set found to genre of every track of library playlist 1\n'
               + _JOIN,
@@ -204,6 +205,80 @@ def _fits(asked, have) -> bool:
     return bool(asked) and (asked == have or asked in have or (len(have) >= 3 and have in asked))
 
 
+ORDINALS = {'first': '1', 'second': '2', 'third': '3', 'fourth': '4', 'fifth': '5', 'sixth': '6',
+            'seventh': '7', 'eighth': '8', 'ninth': '9', 'tenth': '10'}
+SMALL = frozenset({'the', 'a', 'an', 'of', 'and', 'by', 'in', 'no', 'nos', 'op', 'vs', 'v', 's', 'feat', 'ft'})
+
+
+def words(text) -> set:
+    """The words that identify something, so a request need not match a title letter for letter
+    (November 18, run a37ed477: "Forrest Gump: The Soundtrack" for "Forrest Gump (The Soundtrack)", and
+    "Beethoven's Seventh Symphony" for "Symphony No. 7 in A Major, Op. 92")."""
+    found = set()
+    for word in plain(text).split():
+        word = ORDINALS.get(word, word)
+        word = re.sub(r'^(\d+)(st|nd|rd|th)$', r'\1', word)
+        if word.endswith('ies') and len(word) > 4:
+            word = word[:-3] + 'y'
+        elif word.endswith('s') and len(word) > 3 and not word.endswith('ss'):
+            word = word[:-1]
+        if word not in SMALL:
+            found.add(word)
+    return found
+
+
+def key_word(text):
+    """The most telling word of a request, for a broad library search: its longest that is not a number."""
+    candidates = sorted((w for w in plain(text).split() if not w.isdigit() and w not in SMALL and w not in ORDINALS),
+                        key=len, reverse=True)
+    return candidates[0] if candidates else None
+
+
+def loosely(found, song=None, artist=None, album=None):
+    """(songs, other albums, whether an album's own name fits) for a request the exact search missed: every
+    word asked for must be there. An album request takes an album whose own name has all the words, then one
+    whose name and artists do (an orchestra's name says "Symphony" too), else the songs whose title, album
+    and artist together do; a number asked for keeps only the songs whose titles carry it."""
+    want_artist = words(artist) if artist else set()
+    fits_artist = lambda s: not want_artist or want_artist <= words(s.artist + ' ' + s.album)
+    if song:
+        want = words(song)
+        if not want:
+            return [], []
+        hits = [s for s in found if fits_artist(s) and want <= words(s.title)]
+        hits.sort(key=lambda s: len(words(s.title) - want))   # The closest title: the fewest extra words.
+        return hits[:1], [], True
+    want = words(album)
+    if not want:
+        return [], [], False
+    albums = {}
+    for s in found:
+        if fits_artist(s):
+            albums.setdefault(s.album, []).append(s)
+    whole = ([name for name in albums if want <= words(name)] or
+             [name for name, group in albums.items() if want <= words(name + ' ' + ' '.join({x.artist for x in group}))])
+    if whole:
+        groups = {name: albums[name] for name in whole}
+    else:
+        groups = {}
+        for name, group in albums.items():
+            hits = [s for s in group if want <= words(' '.join((s.title, s.album, s.artist)))]
+            if hits:
+                groups[name] = hits
+    numbers = {w for w in want if w.isdigit()}
+    if numbers:
+        for name, group in list(groups.items()):
+            titled = [s for s in group if numbers <= words(s.title)]
+            if titled:
+                groups[name] = titled
+    if not groups:
+        return [], [], False
+    best = max(groups, key=lambda name: (all(numbers <= words(s.title) for s in groups[name]) if numbers else 0,
+                                         -len(words(name) - want), len(groups[name])))
+    return (sorted(groups[best], key=lambda s: (s.disc, s.number)), [n for n in groups if n != best][:5],
+            bool(whole))
+
+
 def pick_playlist(asked, names):
     """The owner's playlist they named: exact words first, then one that contains them."""
     want = plain(asked)
@@ -211,6 +286,10 @@ def pick_playlist(asked, names):
     if exact:
         return exact[0]
     near = [n for n in names if want and (want in plain(n) or plain(n) in want)]
+    if len(near) == 1:
+        return near[0]
+    asked_words = words(asked)
+    near = [n for n in names if asked_words and asked_words <= words(n)]
     return near[0] if len(near) == 1 else None
 
 
@@ -418,13 +497,22 @@ class AppleMusic:
                 return 'rejected', 'NoSuchPlaylist', {'playlists': names[:40]}
             self._script('stop', cancel=cancel)
             return self._prepared(None, name, shuffle, {'playlist': name})
+        others, extra = [], {}
         if song:
             found = self._search('songs', song, cancel)
             chosen = choose(found, song=song, artist=artist, album=album)
             if not chosen and artist:   # "Hey Ya by OutKast" said as the artist heard it.
                 chosen = choose(self._search('artists', artist, cancel), song=song)
+            if not chosen and key_word(song):
+                chosen, _, _ = loosely(self._search('all', key_word(song), cancel), song=song, artist=artist)
         elif album:
             chosen = choose(self._search('albums', album, cancel), artist=artist, album=album)
+            if not chosen and key_word(album):
+                chosen, others, named = loosely(self._search('all', key_word(album), cancel), artist=artist, album=album)
+                if chosen and not named:
+                    extra['note'] = 'no album by that name in the library; these songs carry its words'
+                if others:
+                    extra['other_albums_that_fit'] = others
         elif artist:
             chosen = choose(self._search('artists', artist, cancel), artist=artist)
             shuffle = True if arguments.get('shuffle') is None else shuffle
@@ -454,7 +542,7 @@ class AppleMusic:
         queued = songs(self._script('queue', [s.song_id for s in chosen], cancel=cancel))
         if not queued:
             return 'failed', 'QueueEmpty', {}
-        return self._prepared(queued, PLAYLIST, False, {})
+        return self._prepared(queued, PLAYLIST, False, extra)
 
     def _closest(self, words, cancel):
         """What the library has near a request it lacks: all its words, else its longest single words."""
