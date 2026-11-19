@@ -51,7 +51,7 @@ class PetArrivalRules(unittest.TestCase):
 
 
 class PetArrivalTurn(MemoryFixture):
-    def test_max_coming_into_view_gets_looked_at_and_greeted_by_name(self):
+    def greet_max(self, provider=None):
         album = PhotoMemory(Path(self.temp.name).resolve() / 'photos'); album.start()
         self.state.photo_memory = album
         album.data['entities']['max-id'] = {'name': 'Max', 'kind': 'pet', 'notes': 'Dark coat, white blaze.',
@@ -61,6 +61,8 @@ class PetArrivalTurn(MemoryFixture):
             inspect=lambda target: (image(), {'target_id': 'object-dog', 'label': 'dog', 'box': [.4, .4, .2, .2]}, image()))
         seen = []
         class Brain:
+            if provider is not None:
+                _prompt = provider._prompt
             def reply(brain, snapshot, cancel):
                 seen.append(snapshot)
                 if not snapshot.continuation:
@@ -89,6 +91,20 @@ class PetArrivalTurn(MemoryFixture):
         self.assertEqual(result.completed_text, ["Oh look, it's Max, back to inspect the premises."])
         self.assertEqual(seen[0].context['pet_arrival']['saved_pets'], [{'entity_id': 'max-id', 'name': 'Max'}])
         self.assertEqual(len(seen[1].images), 2)          # The view and the dog, compared with Max.
+        return [m['content'] for m in seen[1].messages if m.get('role') == 'developer']
+
+    def test_max_coming_into_view_gets_looked_at_and_greeted_by_name(self):
+        notes = self.greet_max()
+        self.assertTrue(any(n.startswith('This look is at an animal that just came into view') for n in notes))
+
+    def test_claude_reads_its_own_note_that_keeps_the_comparison_unsaid(self):
+        # November 18 (run afb21eba): after the look Claude said "The scene shows two dogs... The callout
+        # says Max is the one to announce". Its own wording of the note keeps the working-out unsaid.
+        from r3x.adapters import claude_prompt
+        from r3x.adapters.claude import ClaudeBrain
+        notes = self.greet_max(ClaudeBrain('c'))
+        self.assertIn(claude_prompt.NOTES['pet_arrival_look'], notes)
+        self.assertFalse(any(n.startswith('This look is at an animal that just came into view. Greet it') for n in notes))
 
 
 class AnimalAside(MemoryFixture):

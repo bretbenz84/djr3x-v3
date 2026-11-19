@@ -129,11 +129,14 @@ def run(session,call,snapshot,generate,cancel):
             'pet or thing they mean, ask that plainly.'})
     if data.get('outcome')=='ok' and snapshot.context.get('trigger')=='pet_arrival':
         # October 13 probe: the first reaction to the dog walking in was a report on image clarity.
-        messages=(*messages,{'role':'developer','content':
+        # November 18 (run afb21eba): Claude read its own comparison and the callout rule aloud; it has its
+        # own wording of this note (claude_prompt.NOTES), the one below is OpenAI's.
+        prompt=getattr(session.brain,'_prompt',lambda name,text:text)
+        messages=(*messages,{'role':'developer','content':prompt('pet_arrival_look',
             'This look is at an animal that just came into view. Greet it the way a friend would when the dog walks '
             'in, then ask the person something about it. If it clearly is a saved pet, use its name ("Oh look, it\'s '
             'Max! How\'s he behaving tonight?"); if you are not sure, ask playfully ("Is that Max? Hey there, buddy!"). '
-            'Never talk about image quality or how confident the match is.'})
+            'Never talk about image quality or how confident the match is.')})
     elif data.get('outcome')=='ok' and data.get('intent')=='look' and data.get('subject')=='thing':
         messages=(*messages,{'role':'developer','content':
             'This look is about a thing, not an animal: answer about the thing they mean, from the current view. If '
