@@ -14,7 +14,10 @@ consent checks. Celebrity impressions stay on the robot. Rex writes the lines in
 `impersonate` call, says them one at a time while code keeps the person's repeats, then plays
 the parody in their new voice. The clone is deleted at shutdown, or at once when the person is
 forgotten. Details: [impressions](IMPERSONATION.md). 15 new blocked-I/O checks, synthetic audio
-only. Not yet run with a real clone or on the robot.
+only. First live run the same day: the recording worked, the upload was refused (key lacked
+voices write). Since then a failed upload keeps the recording for a retry, the trace keeps
+ElevenLabs' error status, the script is written in the same call, and Rex does not explain
+failures. A real clone has not yet played.
 
 ## News only in a stalled conversation; his Star Tours lines — November 19
 

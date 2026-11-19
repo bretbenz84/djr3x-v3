@@ -177,7 +177,20 @@ consent; no children use the robot). Celebrity impressions stay on the robot.
   ElevenLabs uses Rex's own speech model (`eleven_v4_turbo`) for the clone, with background
   noise removal off.
 
-Checks: 15 new blocked-I/O checks in `tests/test_own_voice_impression.py` (a fake clone owner
+**First live run (November 19, afternoon).** The recording itself worked: Bret repeated ten
+lines, each kept with no model call, and Rex moved on line by line. Three things failed:
+- The upload was refused (HTTP 401): the new restricted key lacked the voices write permission.
+  The trace now keeps ElevenLabs' own error status (`ElevenLabsCloneHTTP401:missing_permissions`).
+- The recording was then lost, so a retry would have meant every line again. A recording whose
+  upload fails is now held in memory (`VoiceClones.recordings`) until shutdown or forgetting, and
+  asking again goes straight to the upload. Only a voice needing verification drops it.
+- The model first sent an empty script (rejected) and then the word "Placeholder." as the bit,
+  reading the script as something written later. The tool text now says the script is the bit
+  played the moment the recording is done, written in full in the same call.
+- After the failure Rex talked about a rejected key and payment. The failure note now gives the
+  model no cause and tells it not to explain or guess why.
+
+Checks: 16 blocked-I/O checks in `tests/test_own_voice_impression.py` (a fake clone owner
 in the session tests, a fake HTTP client for the provider) and the impression tests updated.
 Synthetic audio only. Not yet done: a real clone from the robot's microphone, how recognizable
 it sounds, upload and synthesis time, whether people find the lines easy to repeat, and whether
@@ -197,5 +210,5 @@ a 40% match is the right bar for real speech recognition.
 - Breeze's generated speech is English/Mandarin only; the engine does not speak Rex's
   own lines (ElevenLabs remains his voice; there is no offline fallback).
 - "Impersonate me" needs ElevenLabs: without the key or network it is not offered, and there
-  is no local fallback. The ElevenLabs key needs text to speech and voices (write).
+  is no local fallback. The ElevenLabs key needs text to speech and voices write (a key without it gets 401 `missing_permissions` on upload).
 - The research/non-commercial license of the Breeze weights applies to this home use.

@@ -282,6 +282,21 @@ class ProviderTests(unittest.TestCase):
         self.assertIn(('DELETE', 'v'), http.calls)
         self.assertFalse(clones.has('track:t'))
 
+    def test_a_refused_upload_keeps_the_recording_for_a_retry(self):
+        # Live, November 19: a key without voices_write got 401 after all fourteen lines were repeated.
+        refused = Response(401, {'detail': {'status': 'missing_permissions', 'message': 'missing voices_write'}})
+        http = FakeHTTP(add=[refused])
+        clones = self.provider(http)
+        take = self.take(clones, 'person:p1')
+        self.assertEqual(take.error, 'ElevenLabsCloneHTTP401:missing_permissions')
+        self.assertTrue(clones.has('person:p1'))   # Asking again goes straight to the upload.
+        retry = self.take(clones, 'person:p1', audio=None)
+        self.assertIsNone(retry.error)
+        self.assertTrue(retry.stats['new_voice'])
+        self.assertEqual([c[1] for c in http.calls if c[0] == 'POST'].count('voices/add'), 2)
+        clones.forget('person:p1')
+        self.assertFalse(clones.has('person:p1'))
+
     def test_no_key_means_no_start(self):
         from r3x.adapters.eleven_voices import VoiceClones
         with self.assertRaises(ProviderFailure):

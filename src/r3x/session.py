@@ -1130,9 +1130,11 @@ class Session:
                 ' was spoken in '+data['subject']+"'s cloned voice ("+occasion+
                 '). It is parody you performed, not something they said and not a fact about them.'})
         elif record['status']=='failed':
+            # The cause stays in the trace: Rex does not explain keys, credit or engines (November 19 run).
             self.history.append({'role':'developer','content':'The impression of '+data['subject']+
-                ' could not be rendered ('+str(record.get('error'))+'); '+
-                ('nothing was said.' if data.get('occasion')=='beat' else 'only the cover line was spoken.')})
+                ' did not play; '+('nothing was said.' if data.get('occasion')=='beat' else 'only the cover line was spoken.')+
+                ' Do not explain or guess why.'+(' Their recording is kept, so asking again goes straight to the bit.'
+                if data.get('engine')=='elevenlabs' else '')})
         return bool(performed)
 
     def process_turn(self, capture: Capture, transcript: Transcript, submitted_revision: int, observation=None, faces=(), *, latest_faces=None) -> Delivery:

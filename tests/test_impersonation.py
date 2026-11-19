@@ -298,7 +298,7 @@ class SessionTests(MemoryFixture):
         done = next(r for r in self.state.trace.rows if r['event'] == 'impression_done')
         self.assertFalse(done['performed'])
         self.assertEqual(done['reason'], 'EmptyCloneAudio')
-        self.assertTrue(any('could not be rendered' in m.get('content', '') for m in self.session.history_messages() if m.get('role') == 'developer'))
+        self.assertTrue(any('did not play' in m.get('content', '') for m in self.session.history_messages() if m.get('role') == 'developer'))
 
     def test_stop_during_preparation_closes_the_take_and_speaks_nothing_more(self):
         owner = self

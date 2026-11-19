@@ -44,6 +44,16 @@ def wav_bytes(samples, rate: int) -> bytes:
     return buffer.getvalue()
 
 
+def _error_status(response) -> str:
+    """ElevenLabs' own error status (missing_permissions, quota_exceeded, ...) for the trace."""
+    try:
+        detail = response.json().get('detail')
+    except Exception:
+        return ''
+    status = detail.get('status') if isinstance(detail, dict) else None
+    return ':' + status if isinstance(status, str) and status.replace('_', '').isalnum() else ''
+
+
 class VoiceClones:
     """Owner of the clones Rex made this run: create from a recording, speak, delete at close."""
     def __init__(self, key: str, level=None, client=None):
@@ -54,6 +64,7 @@ class VoiceClones:
         self.trace = None
         self.lock = threading.Lock()
         self.voices = {}            # speaker key -> {'voice_id', 'created_at', 'used_at'}
+        self.recordings = {}        # speaker key -> joined WAV whose upload failed; a retry reuses it.
         self.capability = Capability('voice_clones', 'ElevenLabs instant voice cloning',
             '"impersonate me" in the speaker\'s own cloned voice', MODEL, ('httpx',), ('network', 'ElevenLabs voice slots'),
             required=False, startup='delete voices left by an earlier run (name prefix only)',
@@ -90,6 +101,7 @@ class VoiceClones:
     def close(self):
         with self.lock:
             voices, self.voices = self.voices, {}
+            self.recordings = {}
         for key, row in voices.items():
             self._delete(row['voice_id'])
         if voices:
@@ -99,13 +111,17 @@ class VoiceClones:
             self.client = None
 
     def has(self, key: str) -> bool:
+        """Whether an impression of this speaker needs no new recording: their clone exists, or
+        their recording is still held after a failed upload (owner, November 19: a failure must not
+        make them repeat every line again)."""
         with self.lock:
-            return key in self.voices
+            return key in self.voices or key in self.recordings
 
     def forget(self, key: str) -> None:
         """A forgotten person's clone goes at once, not at shutdown."""
         with self.lock:
             row = self.voices.pop(key, None)
+            self.recordings.pop(key, None)
         if row:
             threading.Thread(target=self._delete, args=(row['voice_id'],), name='r3x-voice-forget', daemon=True).start()
             self._emit('voice_clone_deleted', voice=key, reason='forgotten')
@@ -131,7 +147,7 @@ class VoiceClones:
             body = response.text[:400] if hasattr(response, 'text') else ''
             if 'voice_limit' in body or 'voice_add_edit_limit' in body:
                 raise ProviderFailure('ElevenLabsVoiceSlotsFull')
-            raise ProviderFailure(f'ElevenLabsCloneHTTP{response.status_code}')
+            raise ProviderFailure(f'ElevenLabsCloneHTTP{response.status_code}' + _error_status(response))
         result = response.json()
         voice_id = result.get('voice_id')
         if not voice_id:
@@ -157,17 +173,28 @@ class VoiceClones:
             row = self.voices.get(key)
         if row:
             return row['voice_id']
+        with self.lock:
+            if audio:
+                self.recordings[key] = audio
+            audio = self.recordings.get(key)
         if not audio:
             raise ProviderFailure('VoiceCloneRecordingMissing')
         began = time.monotonic()
         try:
-            voice_id = self._create(key, audio)
+            try:
+                voice_id = self._create(key, audio)
+            except ProviderFailure as exc:
+                if str(exc) != 'ElevenLabsVoiceSlotsFull' or not self._make_room(key):
+                    raise
+                voice_id = self._create(key, audio)
         except ProviderFailure as exc:
-            if str(exc) != 'ElevenLabsVoiceSlotsFull' or not self._make_room(key):
-                raise
-            voice_id = self._create(key, audio)
+            if str(exc) == 'ElevenLabsCloneNeedsVerification':
+                with self.lock:   # That recording can never become a voice: a retry records anew.
+                    self.recordings.pop(key, None)
+            raise
         now = time.monotonic()
         with self.lock:
+            self.recordings.pop(key, None)
             self.voices[key] = {'voice_id': voice_id, 'created_at': now, 'used_at': now}
         self._emit('voice_clone_created', voice=key, upload_bytes=len(audio), seconds=round(now - began, 2))
         return voice_id
@@ -183,7 +210,7 @@ class VoiceClones:
             body = response.content[:400] if hasattr(response, 'content') else b''
             if response.status_code in (401, 402) and b'quota_exceeded' in body:
                 raise ProviderFailure('ElevenLabsCreditExhausted')
-            raise ProviderFailure(f'ElevenLabsHTTP{response.status_code}')
+            raise ProviderFailure(f'ElevenLabsHTTP{response.status_code}' + _error_status(response))
         pcm = response.content
         if not pcm or len(pcm) % 2:
             raise ProviderFailure('InvalidPCMResponse')
@@ -207,7 +234,8 @@ class VoiceClones:
 
         def render(take):
             began = time.monotonic()
-            new = not self.has(reference.key)
+            with self.lock:
+                new = reference.key not in self.voices
             voice_id = self.ensure(reference.key, getattr(reference, 'audio', None))
             cloned = time.monotonic()
             if take.stop.is_set():
