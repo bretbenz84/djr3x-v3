@@ -200,6 +200,13 @@ Forgetting the person deletes the recording (the table cascades with the person)
 cancelled voice association deletes theirs too, since a wrong voice may be in it. A stranger's
 recording stays in memory for the run only.
 
+**Live validated (owner, November 19 evening, session 89d66b1c).** Rex wrote seven lines; Bret
+repeated all seven (each a full match, 16.4 voiced seconds, since six reached only 14.6). The
+recording was saved for him, the clone was made in 3.0 s (637 KB upload), the 32-word bit was
+synthesized in 2.9 s (11.2 s of audio) and played in his voice, and the clone was deleted at
+shutdown. Bret: it worked. Not yet seen live: a later run using the saved recording, a stranger's
+recording, and someone else talking during the lines.
+
 Checks: 18 blocked-I/O checks in `tests/test_own_voice_impression.py` (a fake clone owner
 in the session tests, a fake HTTP client for the provider) and the impression tests updated.
 Synthetic audio only. Not yet done: a real clone from the robot's microphone, how recognizable

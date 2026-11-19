@@ -18,7 +18,9 @@ only. First live run the same day: the recording worked, the upload was refused 
 voices write). Since then a failed upload keeps the recording for a retry, the trace keeps
 ElevenLabs' error status, the script is written in the same call, and Rex does not explain
 failures. That evening: half the lines (about 15 s), and a known person's recording is kept in
-the local store so later runs need no lines; forgetting deletes it. A real clone has not yet played.
+the local store so later runs need no lines; forgetting deletes it. Live validated the same
+evening: seven lines repeated (16.4 s), clone made in 3.0 s, bit synthesized in 2.9 s and played
+in Bret's voice, clone deleted at shutdown. A later run from the saved recording is not yet seen live.
 
 ## News only in a stalled conversation; his Star Tours lines — November 19
 
@@ -2770,7 +2772,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 | Implemented; in live use | V2 speech leveling (−20 LUFS) on every phrase; V2 startup sounds with servo wake-up, short cached please-wait/ready lines and spoken hardware notice; V2 power-down sound while the servos park; stop phrases wrapped or repeated ("Oh, stop!"); unreliable noise transcripts kept but never answered; one-time microphone recovery after a silent input | [V2 reference](../V2_REFERENCE.md#speech-leveling-and-startup-audio--september-27-2026), [drive repairs](DRIVE_BASE_INTEGRATION.md#talkative-arrivals-noise-replies-surroundings--september-27) |
 | Installed and running | Wake supervisor ("wake up rex", chimes, charger cues, mic-wedge relaunch, V3 auto-update) and servo/LED/battery menu-bar apps copied from V2 and run by the four LaunchAgents; no-motion handover measured at 0.7 s | [Operator services](OPERATOR_CUTOVER.md) |
 | Implemented | Action continuity after interruption, bounded outcome history, no automatic resumption of abandoned work | [Integration pass](CORE_INTEGRATION_PASS.md) |
-| Implemented; live playback pending | Model-chosen voice impressions (famous clips and known people on the local Breeze engine with the shared MLX lock; the current speaker as an ElevenLabs clone from a repeat-after-me recording, November 19) and budgeted cameos through the one output owner | [Voice impressions](IMPERSONATION.md) |
+| Implemented; live playback pending | Model-chosen voice impressions (famous clips and known people on the local Breeze engine with the shared MLX lock; the current speaker as an ElevenLabs clone from a repeat-after-me recording, November 19, live validated) and budgeted cameos through the one output owner | [Voice impressions](IMPERSONATION.md) |
 | Implemented | External-review repairs, scene-change cutoff repair and introduction recovery | [Review follow-up](REVIEW_2026_09_13.md), [introduction recovery](INTRODUCTION_RECOVERY.md) |
 
 The agreed core software slices have no outstanding feature implementation stage.
