@@ -201,3 +201,17 @@ one at startup or in a greeting. Claude's copy asks him to share one as "have yo
 reading it with a joke, and to give a shutdown goodbye in the shape of the ride's closing apology. Two notes
 of Claude's own, `signature_line_bad_feeling` and `signature_line_meant_to`, ride on the voice reminder only
 while `signature_lines` says that line has rested; OpenAI's `_prompt` returns nothing for them.
+
+## November 19: his working-out is never spoken
+
+Answering without thinking first, Claude now and then writes its reasoning ahead of the line, a paragraph and
+a blank line before what Rex says. Run `45da7ce9` read out "The speaker is unresolved... It's addressed to me in
+context." before the joke; runs `ea8011d1` and `3a09bdde` had the same shape. Of 928 replies since October 25,
+those three were the only ones with a paragraph break. When a reply waits for the end of the answer (tools on
+offer) and has a paragraph break, only the last paragraph is spoken; the rest goes to the log as
+`reply_working_out_unsaid`. Claude's copy also says decisions about who spoke, who is addressed and which tools
+are offered are made silently. OpenAI's wording is unchanged.
+
+**Evidence:** blocked-I/O checks with a faked stream only. **Still open:** a reply with no tools on offer is
+spoken as it arrives and is not filtered; check `reply_working_out_unsaid` rows in coming runs for any real
+line that was dropped.

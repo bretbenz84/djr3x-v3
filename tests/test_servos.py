@@ -114,6 +114,32 @@ class ServoTests(unittest.TestCase):
         self.assertEqual(self.execute('talking').status, 'rejected')
         self.assertEqual(len(self.port.targets), count)
 
+    def wake_with_arms_kept(self, throttle):
+        self.port.pose.update(throttle)
+        self.owner.start()
+        wake = self.owner.execute(self.request(keep_arms=frozenset({'throttle', 'poker'})), Cancellation())
+        self.assertEqual(wake.status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, throttle)
+
+    def test_shutdown_parks_a_throttle_arm_the_tuck_cannot_reach_straight(self):
+        # November 19 (runs 6c1f1cdf, 89d66b1c, 45da7ce9): the arm, kept where it was at each wake, sat
+        # where a straight fold to the tuck is not clear, and every shutdown park was refused outright.
+        self.wake_with_arms_kept({8: 4624, 9: 2848, 10: 6048})
+        result = self.execute('shutdown')
+        self.assertEqual((result.status, result.reason), ('pulses_reached', None))
+        for ch, value in HEAD_PARK + PARK:
+            self.assertEqual(self.port.pose[ch], value)
+
+    def test_shutdown_parks_the_rest_when_the_throttle_arm_has_no_clear_route(self):
+        stranded = {8: 3624, 9: 2048, 10: 9048}
+        self.wake_with_arms_kept(stranded)
+        result = self.execute('shutdown')
+        self.assertEqual((result.status, result.reason), ('pulses_reached', 'ThrottleArmLeftWhereItWas'))
+        for ch, value in HEAD_PARK:
+            self.assertEqual(self.port.pose[ch], value)
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, stranded)
+        self.assertEqual(self.owner.state, 'parked')
+
     def test_arrival_timeout_names_the_channel_that_never_arrived(self):
         # First live run October 10: shutdown failed with a bare ServoArrivalTimeout, so the
         # channel the board would not move (its stored range clamps targets) was unknown.

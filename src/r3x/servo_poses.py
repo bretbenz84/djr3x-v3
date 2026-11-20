@@ -399,6 +399,34 @@ def hand_moves(rng, start, reach, count, seconds, dwell, pace=1.) -> tuple[Beat,
     return tuple(lane)
 
 
+def throttle_park_stages(current) -> list[dict[int, int]] | None:
+    """Clearance-checked throttle stages to PARK for a park or shutdown, or None when none is clear.
+
+    November 19: the shutdown park had one route (tuck, then park; the full-down bridge first). From
+    anywhere a straight move to the tuck was not clear it was refused before anything moved, the head
+    and visor included, and the arm, kept where it was at each wake, refused every shutdown after
+    (runs 6c1f1cdf, 89d66b1c, 45da7ce9). That route is still tried first; then through the rest pose,
+    then the throttle_route waypoints. None leaves the arm where it is and the rest still parks."""
+    start = {ch: current[ch] for ch in THROTTLE}
+    first = [dict(TUCK), dict(PARK)]
+    if full_down_corridor(start):
+        first = [{8: RAISED, 9: 5589, 10: 9511}, {8: RAISED, 9: 8400, 10: 2048}, *first]
+    routes = [first, [dict(REST), dict(TUCK), dict(PARK)]]
+    try:
+        routes.append(throttle_route(start, dict(PARK)))
+    except ValueError:
+        pass
+    for stages in routes:
+        try:
+            for stage in stages:
+                validate_pose(stage)
+        except ValueError:
+            continue
+        if all(throttle_clear(a, b) for a, b in zip([start, *stages], stages)):
+            return stages
+    return None
+
+
 def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left',
                     arms_home: bool = False, keep=frozenset()) -> tuple[tuple[Beat, ...], ...]:
     """Parallel lanes, advanced by a single executor. Park never enters a gesture.
@@ -442,8 +470,10 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
     else:
         # V2's coordinated head/visor/elbow droop, alongside tuck then park. Decorative
         # channels 5–7 keep their current pose; the poker elbow/wrist return to their park.
-        lanes = ((Beat(HEAD_PARK, speed=12, acceleration=3, dwell=.8),),
-                 tuple(Beat(p, throttle_duration=1.5) for p in bridge + (TUCK, PARK)))
+        lanes = ((Beat(HEAD_PARK, speed=12, acceleration=3, dwell=.8),),)
+        stages = throttle_park_stages(current)
+        if stages is not None:
+            lanes += (tuple(Beat(tuple(stage.items()), throttle_duration=1.5) for stage in stages),)
         if any(abs(current[ch] - value) > 2 for ch, value in POKER_PARK):
             lanes += (poker_lane(current, dict(POKER_PARK), speed=12, acceleration=3),)
         home = dict(UNPOWERED_REST)[6]

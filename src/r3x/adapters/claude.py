@@ -198,7 +198,18 @@ class ClaudeBrain(OpenAIBrain):
             elif required:
                 raise ProviderFailure('ToolRequired')
             else:
-                yield from texts
+                # November 19: answering without thinking first, Claude now and then writes its working-out
+                # ahead of the line ("The speaker is unresolved... It's addressed to me in context.", run
+                # 45da7ce9), a paragraph and a blank line before what Rex says, and all of it was spoken. Of
+                # 928 replies since October 25 the three with a paragraph break were all that shape, so only
+                # the last paragraph is said; the rest is kept in the log, never spoken.
+                working, gap, line = ''.join(texts).strip().rpartition('\n\n')
+                if gap and working.strip() and line.strip():
+                    if self.trace:
+                        self.trace.emit('reply_working_out_unsaid', turn_id=snapshot.turn_id, text=working.strip())
+                    yield line.strip()
+                else:
+                    yield from texts
         except (Cancelled, ProviderFailure):
             raise
         except Exception as exc:

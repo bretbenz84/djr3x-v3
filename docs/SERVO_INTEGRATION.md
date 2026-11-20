@@ -1184,3 +1184,17 @@ now takes the neck back from an earlier held look. Synthetic checks only.
   to the neck's travel; `servo_poses.NECK_PER_DEG` stays as the size unit for idle and talking
   motion, which were tuned by eye. The "33-degree" look poses are about 19 degrees.
 Synthetic serial only; not yet run on the robot.
+
+## November 19: the shutdown park finds a route for the throttle arm
+
+Runs `6c1f1cdf`, `89d66b1c` and `45da7ce9` all ended with the shutdown park refused
+(`ThrottleRouteOutsideClearance`) before anything moved, head and visor included. The park had one throttle
+route, straight to the tuck and then to `PARK`, and the arm sat where that first move is not clear. The wake
+leaves the arms where they are until the range sensors read clear (November 17), so the arm never moved and
+every later shutdown failed the same way. The park and shutdown now try that route first, then through
+`REST`, then `throttle_route`'s waypoints (`throttle_park_stages`); each stage passes the same clearance rule.
+If none is clear, everything else parks, the throttle arm stays exactly where it is and the receipt says
+`ThrottleArmLeftWhereItWas`.
+
+**Evidence:** synthetic Maestro checks only; the stranded live pose was not read. **Still open:** the first
+real shutdown after this change, and where the arm sits now.

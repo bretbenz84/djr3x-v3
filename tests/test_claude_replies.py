@@ -183,6 +183,17 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(heard, 'Ooh, hang on.')
         self.assertIsInstance(items[-1], ToolCall)
 
+    def test_working_out_written_ahead_of_the_line_is_never_spoken(self):
+        # November 19, run 45da7ce9: the paragraph before the blank line was read out word for word.
+        working = ('The speaker is unresolved and the words could be aimed at me or at someone else. '
+                   "It's addressed to me in context.")
+        made, reply = self.ask(stream(('text', working + '\n\n'), ('text', "Still the afternoon, and I'm luggage.")))
+        self.assertEqual(list(reply), ["Still the afternoon, and I'm luggage."])
+        self.assertEqual([r['text'] for r in made.trace.rows if r['event'] == 'reply_working_out_unsaid'], [working])
+        made, reply = self.ask(stream(('text', 'Two sentences. '), ('text', 'One paragraph.')))
+        self.assertEqual(''.join(reply), 'Two sentences. One paragraph.')
+        self.assertFalse([r for r in made.trace.rows if r['event'] == 'reply_working_out_unsaid'])
+
     def test_a_tool_the_moment_does_not_offer_a_refusal_and_a_cut_off_answer_fail_as_structured_results(self):
         for response, failure in (
                 (stream(('text', 'No.'), stop='refusal'), 'ClaudeRefusal'),
