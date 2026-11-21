@@ -120,24 +120,30 @@ class HandDriveTests(unittest.TestCase):
         return self.owner.execute(ServoRequest(kind, self.owner.version, kind, self.clock() + 120., **kwargs),
                                   Cancellation())
 
-    def test_drive_parks_and_holds_the_hand_until_the_arm_is_back(self):
+    def test_drive_centres_the_hand_and_leaves_it_free(self):
+        # Owner, November 20: the twist and fingers move freely with the arm folded.
         self.assertEqual(self.execute('pose', pose={14: 3000, 15: 7200}, hold_pose=False).status, 'pulses_reached')
         self.assertEqual(self.execute('base_park').status, 'pulses_reached')
         self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE_HAND}, dict(HAND_PARK))
-        self.assertTrue(set(THROTTLE_HAND) <= self.owner.held_channels)
-        self.owner.begin_arm_return()
-        self.assertTrue(set(THROTTLE_HAND) <= self.owner.held_channels)   # Still while its arm walks back.
-        self.assertEqual(self.owner.return_arm().status, 'pulses_reached')
+        self.assertTrue(set(THROTTLE) <= self.owner.held_channels)
         self.assertFalse(set(THROTTLE_HAND) & self.owner.held_channels)
+        self.owner.begin_arm_return()
+        self.assertFalse(set(THROTTLE_HAND) & self.owner.held_channels)   # Free while its arm walks back.
+        self.assertEqual(self.owner.return_arm().status, 'pulses_reached')
 
-    def test_a_kept_throttle_keeps_its_hand_still(self):
+    def test_a_kept_throttle_arm_leaves_its_hand_free_to_idle(self):
         self.assertEqual(self.execute('base_park').status, 'pulses_reached')
         self.owner.begin_arm_return()
         self.owner.return_arm(keep={'throttle'})
-        self.assertTrue(set(THROTTLE_HAND) <= self.owner.held_channels)
-        self.owner.begin_arm_return()
-        self.assertEqual(self.owner.return_arm().status, 'pulses_reached')   # The space read clear.
+        self.assertTrue(set(THROTTLE) <= self.owner.held_channels)
         self.assertFalse(set(THROTTLE_HAND) & self.owner.held_channels)
+        import random
+        from r3x.servo_poses import IdlePhrase, idle_lanes
+        current = dict(self.port.pose)
+        lanes = idle_lanes(current, random.Random(3), frozenset(self.owner.held_channels),
+                           IdlePhrase((('throttle', 0.),)))
+        moved = {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
+        self.assertTrue(moved and moved <= set(THROTTLE_HAND), moved)   # The arm stays; the hand moves.
 
     def test_hold_arms_holds_the_hand(self):
         self.assertEqual(self.execute('pose', pose='hold_arms').status, 'pulses_reached')

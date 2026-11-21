@@ -413,6 +413,8 @@ class App:
                     from .motion_sounds import MotionSounds
                     self.drive.sounds = MotionSounds(sink, trace)   # Plays only while the output owner runs a drive.
                     self.drive.servos = self.robot if self.robot and 'robot_servos' in active else None
+                    if self.drive.servos is not None:
+                        self.robot.arm_space = self.drive.space
                     self.drive.faces = camera.latest if camera else None
                     self.drive.objects = objects.snapshot if objects else None
                     # After motion every track restarts; re-finding a target cannot wait two samples.

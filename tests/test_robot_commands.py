@@ -413,3 +413,36 @@ class HeldPoseContinuationTests(MemoryFixture):
         brain.text='Moving normally.'
         turn(3,'Hello again.')
         self.assertEqual(brain.snapshots[-1].context['robot_pose_state']['held_parts'],[])
+
+
+class ThrottleSpaceTests(unittest.TestCase):
+    """Owner, November 20: the throttle arm is on his right and reaches straight ahead."""
+    # Read-only reading on the charger, November 20: open at the front left, 0.46 m at the front right.
+    NOV20 = {'front_m': .472, 'front_left_m': 1.088, 'front_center_m': .62, 'front_right_m': .472,
+             'front_radial_right_m': .456, 'left_m': .421, 'right_m': .701}
+
+    def test_only_the_front_right_keeps_the_throttle_in_and_under_a_third_of_a_metre(self):
+        from r3x.drive_space import arms_blocked
+        self.assertNotIn('throttle', arms_blocked(self.NOV20))
+        self.assertNotIn('throttle', arms_blocked({**self.NOV20, 'right_m': .05}))   # Flush side sensors.
+        self.assertIn('throttle', arms_blocked({**self.NOV20, 'front_radial_right_m': .25}))
+        self.assertIn('throttle', arms_blocked({**self.NOV20, 'front_right_m': None, 'front_radial_right_m': None}))
+        self.assertIn('poker', arms_blocked(self.NOV20))   # Its left side reads 0.42 m.
+
+    def robot(self, space):
+        clock, port = Clock(), PulsePort()
+        robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait)
+        robot.owner.wait = clock.wait
+        robot.start(); robot.open_eyes(); self.addCleanup(robot.close)
+        robot.arm_space = lambda: space
+        return robot, port
+
+    def test_a_fully_extended_throttle_needs_half_a_metre_at_the_front_right(self):
+        robot, port = self.robot(self.NOV20)
+        before = {ch: port.pose[ch] for ch in THROTTLE}
+        receipt = robot.execute_pose('throttle_offer', Cancellation(), 'offer')
+        self.assertEqual((receipt.status, receipt.reason), ('rejected', 'ThrottleExtensionBlocked:front_right_0.46m'))
+        self.assertEqual({ch: port.pose[ch] for ch in THROTTLE}, before)
+        self.assertEqual(robot.execute_pose('throttle_high_five', Cancellation(), 'five').status, 'pulses_reached')
+        robot.arm_space = lambda: {**self.NOV20, 'front_right_m': .9, 'front_radial_right_m': .8}
+        self.assertEqual(robot.execute_pose('throttle_offer', Cancellation(), 'offer2').status, 'pulses_reached')

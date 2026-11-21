@@ -818,7 +818,8 @@ class ArmClearanceTests(unittest.TestCase):
 
     def test_something_close_in_front_keeps_the_throttle_parked(self):
         from r3x.servo_poses import AWAKE_ARMS, PARK, POKER, POKER_UP, THROTTLE
-        self.fake.front = lambda: .45    # Something 1.5 ft in front of the sensors, wherever he faces.
+        # Owner, November 20: the folded awake throttle needs only 0.3 m at the front right.
+        self.fake.front = lambda: .25    # Something 10 in in front of the sensors, wherever he faces.
         settle()
         self.drive_and_return()
         self.assertEqual(self.pose(THROTTLE), dict(PARK))
@@ -877,7 +878,7 @@ class ArmClearanceTests(unittest.TestCase):
         self.addCleanup(robot.close)
         self.drive.servos = robot
         self.fake.tof.update(lf=-1, lb=-1)   # The left sensors report nothing.
-        self.fake.front = lambda: .45
+        self.fake.front = lambda: .25
         settle()
         for _ in range(3):
             self.assertIsNone(self.drive.tick_arm_clearance())

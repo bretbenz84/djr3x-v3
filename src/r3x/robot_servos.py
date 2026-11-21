@@ -4,7 +4,7 @@ import time
 from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
-from .servo_poses import (ARM_HOLD, HEAD, LIMITS, REACHING_ARMS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
+from .servo_poses import (throttle_extends, ARM_HOLD, HEAD, LIMITS, REACHING_ARMS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
                           pose_channels, sentry_head, telepresence_targets, visor_over_eyes)
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
@@ -50,6 +50,9 @@ class RobotServos:
         # drive base (its range sensors) the wake leaves the reaching arms where they are; the drive
         # owner brings each out once its space reads clear (DriveBase.tick_arm_clearance), as after a drive.
         self.arm_guard = arm_guard
+        # The drive owner's range reading, when he has wheels: a fully extended throttle pose needs
+        # its front-right space clear (owner, November 20).
+        self.arm_space = None
 
     def _sequence(self, kind, arms_home=False, keep_arms=frozenset()):
         result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.,
@@ -179,6 +182,17 @@ class RobotServos:
                 aim = None
             if aim:
                 name = {0: max(LIMITS[0][0], min(LIMITS[0][1], int(aim['neck'])))}
+        if self.arm_space is not None and throttle_extends(name, self.owner.commanded):
+            from .drive_space import THROTTLE_EXTEND_CLEAR_M, throttle_front_m
+            try:
+                ahead = throttle_front_m(self.arm_space())
+            except Exception:
+                ahead = None
+            if ahead is None or ahead < THROTTLE_EXTEND_CLEAR_M:
+                from .servos import ServoReceipt
+                return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
+                                    reason='ThrottleExtensionBlocked:' + ('front_right_unknown' if ahead is None
+                                                                          else f'front_right_{ahead:.2f}m'))
         receipt = self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
             self.owner.clock()+60,pose=name,hold_pose=hold_pose),cancel)
         if receipt.status == 'pulses_reached':

@@ -456,11 +456,23 @@ def clearance(telemetry, matrix, now, *, rear_matrix=None, telemetry_age=.5, mat
 
 
 # Owner, October 11: the poker arm reaches about 2 ft (0.61 m) out from the left side
-# sensors and stays at its drive stance while anything is within 3.5 ft of them; the
-# throttle arm reaches about 2 ft ahead of the front sensors and stays parked while
-# anything is that close in front.
+# sensors and stays at its drive stance while anything is within 3.5 ft of them.
+# Owner, November 20: the throttle arm is on his right and reaches straight ahead; only the
+# front-right sensors see its space (the right side sensors are flush with it in every pose).
+# Segmented, it barely reaches out in its awake and idle poses: something nearer than 0.3 m
+# there keeps it parked, and nearer than 0.5 m rules out a fully extended throttle pose. The
+# whole-front reading used before kept it in for something ahead of his left side.
 POKER_KEEP_CLEAR_M = 1.07
-THROTTLE_KEEP_CLEAR_M = .61
+THROTTLE_KEEP_CLEAR_M = .30
+THROTTLE_EXTEND_CLEAR_M = .50
+
+
+def throttle_front_m(space: dict) -> float | None:
+    """Nearest front-right reading (radial, forward-facing sensor or the depth matrix's right
+    band), or None when none reads."""
+    values = [space.get(k) for k in ('front_right_m', 'front_radial_right_m')]
+    values = [v for v in values if isinstance(v, (int, float))]
+    return min(values) if values else None
 
 
 def arms_blocked(space: dict) -> frozenset[str]:
@@ -469,7 +481,8 @@ def arms_blocked(space: dict) -> frozenset[str]:
     blocked = set()
     if space.get('left_m') is None or space['left_m'] < POKER_KEEP_CLEAR_M:
         blocked.add('poker')
-    if space.get('front_m') is None or space['front_m'] < THROTTLE_KEEP_CLEAR_M:
+    ahead = throttle_front_m(space)
+    if ahead is None or ahead < THROTTLE_KEEP_CLEAR_M:
         blocked.add('throttle')
     return frozenset(blocked)
 

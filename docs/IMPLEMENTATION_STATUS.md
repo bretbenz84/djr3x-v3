@@ -6,6 +6,20 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## The throttle arm's space is its front right; its hand moves while it is in — November 20
+
+Owner: the throttle arm stayed in at the wake with plenty of room. Run `25cd7cda` kept both arms in and never
+released the throttle; a read-only drive-sensor reading on the charger gave 1.09 m at the front left, 0.62 m
+ahead and 0.46 m at the front right, while the rule wanted 0.61 m across the whole front. The owner: the
+throttle arm is on his right and reaches straight ahead, the right side sensors are flush with it, and folded
+it barely reaches out. **Built:** `drive_space.throttle_front_m` (front-right radial, forward sensor and depth
+band); under 0.3 m keeps it in (`arms_blocked`), under 0.5 m refuses a fully extended throttle pose
+(elbow opened past 6000, as `throttle_offer`; `ThrottleExtensionBlocked`), and no reading still keeps it in.
+The hand's twist and fingers are no longer held with the arm (kept, drive stance or return): idle moves
+them alone while the arm is held. **Evidence:** synthetic checks, including that reading; not run on the
+robot. **Open:** the turn-swing estimate (`drive_space.ARMS`, V2's left-arm figures) does not model a
+throttle arm left out on the right.
+
 ## Run `a5963bfa` repairs: a refused turn, an invented obstacle, Joy called "Bret" — November 20
 
 Owner: he refused to turn despite enough clearance, called Joy "Bret" and made other gaffes.

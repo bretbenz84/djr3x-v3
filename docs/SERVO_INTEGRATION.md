@@ -1217,3 +1217,11 @@ Run `a5963bfa`: both asked-for turns were refused (`ArmParkFailed:ThrottleRouteO
 clear route the rest of the stance still runs, the throttle stays where it is and the receipt says
 `ThrottleArmLeftWhereItWas`; the drive owner then checks turns with the arms-out reach (`drive_space.ARMS`),
 and `base_release` leaves an arm with no clear way to rest where it is. Synthetic checks only; nothing moved.
+
+## November 20: the throttle arm's keep-clear is its front right
+
+Owner: the throttle arm is on his right and reaches straight ahead; the right side sensors are flush with it.
+`arms_blocked` keeps it in only while the front-right reading (`throttle_front_m`) is under 0.3 m (it was the
+nearest of the whole front under 0.61 m); `RobotServos.execute_pose` refuses a fully extended throttle pose
+under 0.5 m. The throttle hand (14, 15) is out of `REACHING_ARMS`, `BASE_HELD` and `ARM_RETURN`, and idle moves
+it alone while its arm is held. Synthetic checks only.

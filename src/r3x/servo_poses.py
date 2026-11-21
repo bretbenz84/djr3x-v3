@@ -275,7 +275,9 @@ AWAKE_ARMS = ((4, 6720), (6, 6000))
 # The arms that reach out from the body, by the channels that carry them. Owner, October 11:
 # either stays at its drive stance after a drive while something is within its reach
 # (drive_space.arms_blocked); base_lanes 'base_release' then leaves it where it is.
-REACHING_ARMS = MappingProxyType({'poker': (6, *POKER), 'throttle': (*THROTTLE, *THROTTLE_HAND)})
+# Owner, November 20: the throttle hand's twist and fingers move freely with the arm folded, so a
+# kept throttle arm keeps only its shoulder, elbow and wrist bend; the hand goes on moving.
+REACHING_ARMS = MappingProxyType({'poker': (6, *POKER), 'throttle': THROTTLE})
 # The head lift parks at its lowest pulse, never below: the board's own range clamps anything
 # lower, so a park under it never arrives (shutdown ServoArrivalTimeout:ch1@2624->2600,
 # October 10 run b954c14c). Owner, November 12: 3328 (832 us), the new low limit.
@@ -1028,6 +1030,10 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
     for part, wait in phrase.parts:
         channels = IDLE_CHANNELS[part]
         if set(channels).intersection(held):
+            if part == 'throttle' and not set(THROTTLE_HAND).intersection(held):
+                # The arm is held (kept in, parked for a drive); its hand still twists and flexes.
+                hand = hand_moves(rng, current, HAND_IDLE_REACH, 1, HAND_IDLE_SECONDS, HAND_IDLE_DWELL, pace=quicken(.4))
+                extra.append((replace(hand[0], wait=wait + rng.uniform(0., .4)), *hand[1:]))
             continue
         if part == 'head':
             head_at = len(lanes)
@@ -1291,6 +1297,22 @@ def neck_target(name, current, further=True) -> int:
     if side * (neck - pose) >= -2:          # Already at the pose or beyond it on that side.
         return (LIMITS[0][1] if side > 0 else LIMITS[0][0]) if further else neck
     return pose
+
+
+# Owner, November 20: a fully extended throttle needs 0.5 m clear at the front right. Every awake,
+# idle and talking pose keeps the elbow folded at 7480 or more; the offer opens it to 2601.
+# Lowered fully, the shoulder points the arm at the floor, not ahead.
+THROTTLE_EXTENDED_ELBOW = 6000
+
+
+def throttle_extends(name, current) -> bool:
+    """Whether this pose request ends with the throttle arm reaching out ahead."""
+    pose = dict(name) if isinstance(name, dict) else dict(NAMED_POSES.get(name, ()))
+    if not set(pose).intersection(THROTTLE):
+        return False
+    arm = {**{ch: current.get(ch) for ch in THROTTLE}, **{ch: v for ch, v in pose.items() if ch in THROTTLE}}
+    return (arm[9] is not None and arm[9] < THROTTLE_EXTENDED_ELBOW
+            and (arm[8] is None or arm[8] < SHOULDER_DOWN - 600))
 
 
 def pose_channels(name) -> tuple[int, ...]:

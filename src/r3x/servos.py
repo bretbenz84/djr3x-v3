@@ -19,10 +19,10 @@ from .servo_poses import (throttle_parks_nowhere, LIMITS, THROTTLE, THROTTLE_HAN
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
                           VISOR_RAISE_SECONDS, visor_over_eyes, talking_visor)
 
-BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE, *THROTTLE_HAND})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle and its hand.
-# The arms the drive stance moved: walked back after the wheels stop. The throttle hand stays still
-# until its arm is back (it is part of that arm, and kept with it beside an obstacle).
-ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE, *THROTTLE_HAND})
+BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle (its hand moves on).
+# The arms the drive stance moved: walked back after the wheels stop. The throttle hand is not among
+# them (owner, November 20: it moves freely with the arm folded).
+ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
 # Owner ruling October 23: a look a person asked for holds until he has answered from it, and about
 # this long after, even when they speak. October 31 (f6d5a0b7): asked to look left and up, his head
