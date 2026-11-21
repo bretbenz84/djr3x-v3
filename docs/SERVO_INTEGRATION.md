@@ -17,7 +17,11 @@ speed 20), `hand_grip` and `hand_let_go` (channel 15 only). `RobotServos` follow
 front-right reading and the widest face to `hand_hold.HandWatch` and closes the fingers in a worker thread when
 it says so. `ServoOwner.grip_channels` (14 and 15 while gripping) survive `yield_stale_hold` and
 `release_poses`, and the drive stance's lanes leave them out. After a let go or a wait in vain the arm goes to
-`REST` and the hand to `HAND_PARK` (not while `hold_arms` holds). Synthetic checks only; nothing has moved.
+`REST` and the hand to `HAND_PARK` (not while `hold_arms` holds). Later the same day: a closed hand folds the
+arm to `PARK` and `grip_channels` covers the arm too; `return_arm` leaves a holding throttle at `PARK`; `grip_strip`
+removes the gripped channels from every request but the hand's own (`HAND_STEPS`, ids `hand:`) and park/shutdown
+(a person's arm pose and the drive stance may still move the arm, never the fingers). `hand_let_go` while holding
+goes out to `THROTTLE_GRAB` first and opens on `HandWatch`. Synthetic checks only; nothing has moved.
 
 ## November 20: the throttle hand's real limits
 

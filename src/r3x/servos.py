@@ -13,7 +13,7 @@ from typing import Callable
 from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
-from .servo_poses import (throttle_parks_nowhere, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
+from .servo_poses import (throttle_parks_nowhere, HAND_STEPS, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
                           sentry_lanes, telepresence_wake_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
@@ -228,6 +228,21 @@ class ServoOwner:
         """A servo request, including a quiet hold, owns the board."""
         return self._lock.locked()
 
+    def grip_strip(self, request) -> frozenset[int]:
+        """The channels this request may not move while the hand holds something (owner, November 20:
+        idle movement must not let it go). The hand's own steps and moves, and the park at shutdown,
+        move them; a person's arm pose and the drive stance may move the arm but never the fingers or
+        wrist; idle, talking, gestures, release_poses and Rex's own poses move neither."""
+        if not self.grip_channels or request.kind in {'park', 'shutdown'}:
+            return frozenset()
+        if request.kind == 'pose' and (request.pose in HAND_STEPS or request.request_id.startswith('hand:')):
+            return frozenset()
+        strip = self.grip_channels & set(THROTTLE_HAND)
+        person_arm = request.kind == 'pose' and request.hold_pose and request.pose != 'release_poses'
+        if not (person_arm or request.kind == 'base_park'):
+            strip |= self.grip_channels & set(THROTTLE)
+        return frozenset(strip)
+
     def human_hold_active(self):
         """A pose a person asked for blocks Rex's own movement only while it is recent.
 
@@ -401,10 +416,11 @@ class ServoOwner:
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      telepresence_wake_lanes(current) if request.kind == 'telepresence_wake' else
                      lifecycle_lanes(request.kind, current, request.first_look, request.arms_home, request.keep_arms))
-            if self.grip_channels and request.kind == 'base_park':
-                # Holding something, the drive stance folds the arm and leaves the closed fingers be.
+            strip = self.grip_strip(request)
+            if strip:
+                # Holding something (owner, November 20): nothing but the hand's own steps opens the fingers.
                 lanes = tuple(lane for lane in (tuple(beat for beat in (
-                    replace(beat, targets=tuple((ch, v) for ch, v in beat.targets if ch not in self.grip_channels))
+                    replace(beat, targets=tuple((ch, v) for ch, v in beat.targets if ch not in strip))
                     for beat in lane) if beat.targets) for lane in lanes) if lane)
             if self._arm_returning and (request.kind in {'base_park', 'park', 'shutdown'} or any(
                     ch in self._returning_channels for lane in lanes for beat in lane for ch, _ in beat.targets)):
@@ -650,8 +666,11 @@ class ServoOwner:
             current = self._bus.positions(sorted(ARM_RETURN))
             keep = frozenset(keep)
             # Later, the arms already out (and the hero elbow) belong to idle and talking again.
-            lanes = (base_lanes('base_release', current, keep) if self._after_drive else
-                     base_lanes('base_release', current, frozenset(REACHING_ARMS) - (self.kept_arms - keep), hero=False))
+            # Holding something, the throttle stays folded at its drive park (owner, November 20).
+            holding = frozenset({'throttle'}) if self.grip_channels & set(THROTTLE) else frozenset()
+            lanes = (base_lanes('base_release', current, keep | holding) if self._after_drive else
+                     base_lanes('base_release', current, frozenset(REACHING_ARMS) - (self.kept_arms - keep) | holding,
+                                hero=False))
             indices = [0] * len(lanes)
             active = {}   # lane -> arrival deadline
             while any(index < len(lane) for index, lane in zip(indices, lanes)):
@@ -711,7 +730,7 @@ class ServoOwner:
             if done:
                 self.held_channels.difference_update(ARM_RETURN)
                 self.kept_arms = keep
-                self.held_channels.update(self.kept_channels)
+                self.held_channels.update(self.kept_channels | self.grip_channels)
             self.motion_until = max(self.motion_until, self.clock() + .5)
             self._arm_returning = False
             self._returning_channels = frozenset()

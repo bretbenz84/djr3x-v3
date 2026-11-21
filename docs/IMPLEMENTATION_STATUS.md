@@ -26,6 +26,13 @@ close the fingers close (the lowest pulse) and hold; "you can let it go now" ope
   menu's neutral; idle and talking twist around it), and the grab position is shoulder 1242, elbow 1720, wrist 887 µs
   (`THROTTLE_GRAB`) instead of `throttle_offer`. Its elbow is not a full extension, but `hand_take` keeps the
   0.5 m front-right check.
+- **Then (owner):** once it closes, the arm folds in to the drive stance's park (`PARK`), fingers still
+  closed, and stays there through drives. Asked to give it back or let go, it reaches out to the grab position
+  first (front-right check again; refused, it keeps holding), looks at the hand, and the fingers open once
+  someone comes close (the same `HandWatch`); nobody within 30 s folds it back in. While he holds something
+  `ServoOwner.grip_strip` keeps idle, talking, gestures, `release_poses`, Rex's own poses and the drive stance
+  off the fingers and wrist, and all but a person's arm pose and the drive stance off the arm. Evidence: 18
+  synthetic hand checks; the changed-file run passed (1930 tests).
 - **Evidence:** 14 synthetic checks (`tests/test_hand_hold.py`), including a scripted conversation through the
   production session; the changed-file run passed (1928 tests). Three probe cases added to
   `check_action_requests.py` (`hold_this`, `grab_this`, `let_it_go`) but not run (paid). Not run on the robot.

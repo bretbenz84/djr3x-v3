@@ -12,7 +12,7 @@ from r3x.output import OutputOwner
 from r3x.robot_servos import RobotServos
 from r3x.scenario import SyntheticSink, SyntheticTTS
 from r3x.servo_poses import (FINGERS_CLOSED, FINGERS_OPEN, HAND_PARK, HAND_STEPS, LIMITS, NAMED_POSES, NECK_CENTER,
-                             POSE_COMMANDS, REST, THROTTLE, THROTTLE_GRAB, THROTTLE_HAND, head_pose)
+                             PARK, POSE_COMMANDS, REST, THROTTLE, THROTTLE_GRAB, THROTTLE_HAND, head_pose)
 from r3x.servos import ServoRequest
 from r3x.session import Session
 from tests.test_memory_core import MemoryFixture
@@ -83,6 +83,14 @@ class HandPoseTests(unittest.TestCase):
     def hand(self):
         return {ch: self.port.pose[ch] for ch in THROTTLE_HAND}
 
+    def arm(self):
+        return {ch: self.port.pose[ch] for ch in THROTTLE}
+
+    def holding(self):
+        self.take()
+        self.assertEqual(self.robot.execute_pose('hand_grip', Cancellation(), 'grip').status, 'pulses_reached')
+        self.assertEqual((self.arm(), self.port.pose[15]), (dict(PARK), FINGERS_CLOSED))
+
     def take(self):
         receipt = self.robot.execute_pose('hand_take', Cancellation(), 'take')
         self.assertEqual(receipt.status, 'pulses_reached', receipt.reason)
@@ -118,39 +126,73 @@ class HandPoseTests(unittest.TestCase):
         self.frames(.5)
         self.assertEqual(self.port.pose[15], FINGERS_CLOSED)
         self.assertEqual(self.robot.hand_state(), 'holding')
+        self.assertEqual(self.arm(), dict(PARK))                            # Folded in as for a drive.
         self.assertFalse(self.robot.owner.holding_requested_look())        # Eyes back to the people.
         self.assertTrue(set(THROTTLE_HAND) <= self.robot.owner.held_channels)
         self.clock.now += 200.   # Long past the 90 s yield of a person's pose.
         self.robot.owner.yield_stale_hold()
         self.assertTrue(set(THROTTLE_HAND) <= self.robot.owner.held_channels)
 
-    def test_relax_and_the_drive_stance_keep_the_grip(self):
-        self.take()
-        self.assertEqual(self.robot.execute_pose('hand_grip', Cancellation(), 'grip').status, 'pulses_reached')
-        self.assertEqual(self.robot.execute_pose('release_poses', Cancellation(), 'relax').status, 'pulses_reached')
-        self.assertEqual(self.port.pose[15], FINGERS_CLOSED)
-        self.assertTrue(set(THROTTLE_HAND) <= self.robot.owner.held_channels)
+    def test_relax_the_drive_and_idle_never_let_it_go(self):
+        # Owner, November 20: while he holds something, idle movement must not let it go either.
+        import random
+        from r3x.servo_poses import IdlePhrase
+        self.holding()
         owner = self.robot.owner
-        self.assertEqual(owner.execute(ServoRequest('park', owner.version, 'base_park', self.clock() + 120.),
-                                       Cancellation()).status, 'pulses_reached')
+        def request(kind, **kw):
+            return owner.execute(ServoRequest(kind, owner.version, kind, self.clock() + 120., **kw), Cancellation())
+        self.assertEqual(self.robot.execute_pose('release_poses', Cancellation(), 'relax').status, 'pulses_reached')
+        self.assertEqual(request('talking').status, 'pulses_reached')
+        for seed in range(5):
+            owner.rng = random.Random(seed)
+            self.assertEqual(request('idle', idle=IdlePhrase((('throttle', 0.),), throttle_rest=True)).status,
+                             'pulses_reached')
+        self.assertEqual(self.robot.execute_pose('arm_dance', Cancellation(), 'dance').status, 'pulses_reached')
+        self.clock.now += 200.   # Past every hold's yield.
+        owner.yield_stale_hold()
+        self.assertEqual(request('base_park').status, 'pulses_reached')
+        owner.begin_arm_return()
+        self.assertEqual(owner.return_arm().status, 'pulses_reached')
         self.assertEqual(self.port.pose[15], FINGERS_CLOSED)
+        self.assertEqual(self.arm(), dict(PARK))   # Still folded in after the drive.
         self.assertEqual(self.robot.hand_state(), 'holding')
+        self.assertTrue({*THROTTLE, *THROTTLE_HAND} <= owner.held_channels)
 
-    def test_let_go_opens_then_the_arm_rests(self):
-        self.take()
-        self.robot.execute_pose('hand_grip', Cancellation(), 'grip')
+    def test_give_back_reaches_out_and_opens_when_someone_comes(self):
+        self.holding()
         self.assertEqual(self.robot.execute_pose('hand_let_go', Cancellation(), 'go').status, 'pulses_reached')
+        self.assertEqual((self.arm(), self.port.pose[15]), (dict(THROTTLE_GRAB), FINGERS_CLOSED))
+        self.assertEqual(self.robot.hand_state(), 'offering')
+        self.assertTrue(self.robot.owner.holding_requested_look())   # Looking at the hand.
+        self.frames(1.)
+        self.assertEqual(self.port.pose[15], FINGERS_CLOSED)          # Nobody near yet.
+        self.space = {'front_right_m': .3, 'front_radial_right_m': .32}
+        self.frames(.4)
         self.assertEqual(self.port.pose[15], FINGERS_OPEN)
-        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(THROTTLE_GRAB))
+        self.space = dict(CLEAR)
         self.frames(LET_GO_S + .3)
-        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
+        self.assertEqual(self.arm(), dict(REST))
         self.assertEqual(self.hand(), dict(HAND_PARK))
         self.assertEqual(self.robot.hand_state(), 'empty')
         self.assertFalse({*THROTTLE, *THROTTLE_HAND} & self.robot.owner.held_channels)
 
+    def test_nobody_coming_for_it_folds_it_back_in(self):
+        self.holding()
+        self.robot.execute_pose('hand_let_go', Cancellation(), 'go')
+        self.frames(WAIT_S + 1., step=.5)
+        self.assertEqual((self.arm(), self.port.pose[15]), (dict(PARK), FINGERS_CLOSED))
+        self.assertEqual(self.robot.hand_state(), 'holding')
+
+    def test_give_back_needs_room_and_keeps_holding_otherwise(self):
+        self.holding()
+        self.space = {'front_right_m': .4, 'front_radial_right_m': .42}
+        self.assertEqual(self.robot.execute_pose('hand_let_go', Cancellation(), 'go').status, 'rejected')
+        self.assertEqual((self.arm(), self.port.pose[15]), (dict(PARK), FINGERS_CLOSED))
+        self.assertEqual(self.robot.hand_state(), 'holding')
+
     def test_nothing_brought_puts_the_arm_back(self):
         self.take()
-        self.frames(WAIT_S + .5, step=.5)
+        self.frames(WAIT_S + 1., step=.5)
         self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
         self.assertEqual(self.hand(), dict(HAND_PARK))
         self.assertEqual(self.robot.hand_state(), 'empty')
@@ -195,9 +237,17 @@ class HandConversationTests(MemoryFixture):
         brain.text = 'Got it.'
         turn(1, 'Thanks.')
         self.assertIn('holding', brain.snapshots[-1].context['robot_pose_state']['throttle_hand'])
+        space['front_right_m'] = .9   # They step back before asking for it.
         brain.text = ToolCall('go', 'set_robot_pose', {'poses': ['hand_let_go'], 'look_after': None,
                                                        'say_before': None, 'text': 'All yours.'})
         self.assertEqual(turn(2, 'You can let it go now.').completed_text, ['All yours.'])
+        self.assertEqual(port.pose[15], FINGERS_CLOSED)   # Out again, opening once they come for it.
+        for reading in (.9, .9, .9, .9, .9, .9, .9, .3, .3):
+            space['front_right_m'] = reading
+            robot.before_frame()
+            if robot._hand_worker is not None:
+                robot._hand_worker.join(5.)
+            clock.now += .1
         self.assertEqual(port.pose[15], FINGERS_OPEN)
 
     def test_his_own_beats_cannot_hold_out_the_hand(self):

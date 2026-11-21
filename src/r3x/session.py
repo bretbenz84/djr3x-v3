@@ -1555,7 +1555,8 @@ class Session:
                     # Owner, November 20: holding something light, like a card.
                     context['robot_pose_state']['throttle_hand'] = {
                         'open': 'held out open, waiting for something to be put in it; it closes by itself when it comes',
-                        'holding': 'holding what a person gave you, fingers closed, until told to let go (hand_let_go)',
+                        'holding': 'holding what a person gave you, fingers closed, arm folded in, until asked to give it back or let go (hand_let_go)',
+                        'offering': 'holding it out to give it back; the fingers open by themselves when someone comes close',
                         'letting_go': 'fingers just opened to let go; the arm goes back to rest in a moment'}[hand]
                 own_visor = bool(getattr(owner, 'may_raise_visor', lambda: False)())
                 if visor_over_eyes(commanded):
