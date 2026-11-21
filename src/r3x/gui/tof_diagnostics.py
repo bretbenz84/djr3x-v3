@@ -184,7 +184,7 @@ class SensorStrips(QWidget):
             if span is None:
                 detail = 'no reading in the last minute'
             elif span[0] >= sensor.clear_mm:
-                detail = 'nothing in range all minute'
+                detail = 'nothing all minute'
             else:
                 detail = f'{distance(span[0])} to ' + ('nothing' if span[1] >= sensor.clear_mm else distance(span[1]))
             if sensor.silent_since is not None and status in ('silent', 'discarded'):
