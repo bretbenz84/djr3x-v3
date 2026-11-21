@@ -15,7 +15,11 @@ LATE_REPLY_SECONDS = .05   # A failed query's answer can still be on its way bac
 def open_serial(path: str) -> Port:
     """Call only after confirmed handoff; no discovery, probing or reconnect."""
     import serial
-    return serial.Serial(path, 9600, timeout=.1, write_timeout=.1, exclusive=True)
+    # A second to write, not a tenth. Since November 20 the models load beside the servo wake, and
+    # twice in four starts a write then took over 0.1 s of wall time while this thread waited its
+    # turn (SerialTimeoutException with the board answering straight after), which ended the start.
+    # A few bytes go out at once on a working link; only a starved thread or a dead port waits.
+    return serial.Serial(path, 9600, timeout=.1, write_timeout=1., exclusive=True)
 
 
 class Port(Protocol):
