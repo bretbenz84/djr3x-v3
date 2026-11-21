@@ -192,7 +192,9 @@ class RobotServos:
                 aim = None
             if aim:
                 name = {0: max(LIMITS[0][0], min(LIMITS[0][1], int(aim['neck'])))}
-        if self.arm_space is not None and throttle_extends(name, self.owner.commanded):
+        # The grab position (elbow 1720 us) is not a full extension, but holding something still needs
+        # the room in front of the hand (owner, November 20: "if there's clearance").
+        if self.arm_space is not None and (name == 'hand_take' or throttle_extends(name, self.owner.commanded)):
             from .drive_space import THROTTLE_EXTEND_CLEAR_M, throttle_front_m
             try:
                 ahead = throttle_front_m(self.arm_space())

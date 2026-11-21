@@ -235,10 +235,11 @@ PARK = ((8, SHOULDER_DOWN), (9, 9984), (10, 2048))
 TUCK = ((8, 6132), (9, 8400), (10, 2048))
 REST = ((8, SHOULDER_45), (9, 7720), (10, 5120))
 FULL_DOWN = ((8, SHOULDER_DOWN), (9, 5589), (10, 9511))
-# The throttle hand parks, and rests while awake, here. The wrist at the middle of its range (owner,
-# November 19); the fingers at 1525 us from the owner's notes (November 20), a little short of their
-# middle (1560 us). Idle and talking motion centre on these.
-HAND_PARK = ((14, sum(LIMITS[14]) // 2), (15, 6100))
+# The throttle hand parks, and rests while awake, here. The wrist at 1415 us, where the hand is level
+# (owner, November 20: its mid point, at all times; not the middle of its range, 1208 us); the fingers at
+# 1525 us from the owner's notes (November 20), a little short of their middle (1560 us). Idle and
+# talking motion centre on these.
+HAND_PARK = ((14, 5660), (15, 6100))
 # Neck pulse where the head physically faces straight along the base. The owner
 # saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
 # driving on September 27; set this from the servo console reading.
@@ -1286,13 +1287,14 @@ GAZE = ('look_at_people',)
 ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND)
 # Holding something light, like a card (owner, November 20). The fingers close at the lowest pulse
 # the Maestro allows and open at the highest (the owner: closed is the lowest value). hand_take reaches
-# the throttle arm out as throttle_offer does (the only calibrated reach; it needs the front right clear)
-# with the wrist at its middle and the fingers open; RobotServos also looks down and to the right and
+# the throttle arm to the owner's grab position (shoulder 1242, elbow 1720, wrist 887 us; it needs the
+# front right clear) with the hand level and the fingers open; RobotServos also looks down and to the right and
 # closes the fingers when something comes into reach (hand_hold.HandWatch). hand_grip closes them now;
 # hand_let_go opens them, and the arm goes back to rest a moment later.
 FINGERS_CLOSED, FINGERS_OPEN = LIMITS[15][0], LIMITS[15][1]
+THROTTLE_GRAB = ((8, 4968), (9, 6880), (10, 3548))   # Owner, November 20: 1242 / 1720 / 887 us.
 HAND_POSES = {
-    'hand_take': (*NAMED_POSES['throttle_offer'], (14, dict(HAND_PARK)[14]), (15, FINGERS_OPEN)),
+    'hand_take': (*THROTTLE_GRAB, (14, dict(HAND_PARK)[14]), (15, FINGERS_OPEN)),
     'hand_grip': ((15, FINGERS_CLOSED),),
     'hand_let_go': ((15, FINGERS_OPEN),),
 }

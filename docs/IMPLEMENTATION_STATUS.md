@@ -12,7 +12,7 @@ Owner request: "can you hold this?" or "can you grab this?" reaches the throttle
 opens the fingers and looks down and to his right; when something is brought to the hand or someone comes
 close the fingers close (the lowest pulse) and hold; "you can let it go now" opens them.
 - **Built:** three `set_robot_pose` steps, offered to OpenAI and Claude alike (the tool description is shared):
-  `hand_take` (the arm to `throttle_offer`, the only calibrated reach, wrist at its middle, fingers fully open
+  `hand_take` (the arm to the grab position, the hand level, fingers fully open
   at 1856 µs, then `look_right` and `look_down`, held while he waits), `hand_grip` (fingers to 1264 µs now) and
   `hand_let_go` (open; 2.5 s later the arm goes to rest and the hand to its park). `hand_hold.HandWatch` closes
   the hand on two front-right readings under 0.45 m and 0.1 m nearer than once the hand settled, or on a face
@@ -22,12 +22,16 @@ close the fingers close (the lowest pulse) and hold; "you can let it go now" ope
   `hand_let_go` (or shutdown's park) opens it. Another arm pose or a drive ends an open wait. The model sees
   `robot_pose_state.throttle_hand` while the hand is open, holding or letting go. His own beats (planner and
   proactive turns) cannot use the hand steps.
+- **Later the same day (owner):** the wrist's level, its mid point at all times, is 1415 µs (`HAND_PARK`, the servo
+  menu's neutral; idle and talking twist around it), and the grab position is shoulder 1242, elbow 1720, wrist 887 µs
+  (`THROTTLE_GRAB`) instead of `throttle_offer`. Its elbow is not a full extension, but `hand_take` keeps the
+  0.5 m front-right check.
 - **Evidence:** 14 synthetic checks (`tests/test_hand_hold.py`), including a scripted conversation through the
   production session; the changed-file run passed (1928 tests). Three probe cases added to
   `check_action_requests.py` (`hold_this`, `grab_this`, `let_it_go`) but not run (paid). Not run on the robot.
 - **Open:** whether the front-right sensors see a hand bringing a card (and do not see the outstretched arm
   itself), whether the camera looking down and right sees the hand, whether 1264 µs grips a card without
-  straining the servo, and whether `throttle_offer`'s forward-and-down reach is a good height to take things.
+  straining the servo, and how the grab position looks with the head turned to it.
 
 ## The throttle arm's space is its front right; its hand moves while it is in — November 20
 

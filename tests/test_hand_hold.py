@@ -12,7 +12,7 @@ from r3x.output import OutputOwner
 from r3x.robot_servos import RobotServos
 from r3x.scenario import SyntheticSink, SyntheticTTS
 from r3x.servo_poses import (FINGERS_CLOSED, FINGERS_OPEN, HAND_PARK, HAND_STEPS, LIMITS, NAMED_POSES, NECK_CENTER,
-                             POSE_COMMANDS, REST, THROTTLE, THROTTLE_HAND, head_pose)
+                             POSE_COMMANDS, REST, THROTTLE, THROTTLE_GRAB, THROTTLE_HAND, head_pose)
 from r3x.servos import ServoRequest
 from r3x.session import Session
 from tests.test_memory_core import MemoryFixture
@@ -93,8 +93,10 @@ class HandPoseTests(unittest.TestCase):
         self.assertEqual((FINGERS_CLOSED, FINGERS_OPEN), LIMITS[15])
 
     def test_take_reaches_out_open_and_looks_down_to_the_right(self):
+        self.assertEqual(dict(THROTTLE_GRAB), {8: 1242 * 4, 9: 1720 * 4, 10: 887 * 4})   # Owner's grab position.
+        self.assertEqual(dict(HAND_PARK)[14], 1415 * 4)                              # The hand level.
         self.take()
-        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(NAMED_POSES['throttle_offer']))
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(THROTTLE_GRAB))
         self.assertEqual(self.hand(), {14: dict(HAND_PARK)[14], 15: FINGERS_OPEN})
         self.assertGreater(self.port.pose[0], NECK_CENTER)                    # To his right.
         self.assertLess(head_pose(self.port.pose)[0], 0)                      # And down.
@@ -139,7 +141,7 @@ class HandPoseTests(unittest.TestCase):
         self.robot.execute_pose('hand_grip', Cancellation(), 'grip')
         self.assertEqual(self.robot.execute_pose('hand_let_go', Cancellation(), 'go').status, 'pulses_reached')
         self.assertEqual(self.port.pose[15], FINGERS_OPEN)
-        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(NAMED_POSES['throttle_offer']))
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(THROTTLE_GRAB))
         self.frames(LET_GO_S + .3)
         self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
         self.assertEqual(self.hand(), dict(HAND_PARK))
