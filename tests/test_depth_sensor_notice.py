@@ -62,6 +62,15 @@ class WatchRuleTests(unittest.TestCase):
         self.assertEqual(first, Notice('failed', ('front',)))
         self.assertEqual(self.look(20., front=1.), first)       # He was mid-sentence: still owed.
 
+    def test_a_line_that_was_tried_and_not_heard_waits_before_it_is_tried_again(self):
+        # November 20: the line failed in playback each time and was restarted every five seconds.
+        self.look(0.)
+        first = self.look(1. + FRESH + FAIL_AFTER, front=1.)
+        self.watch.tried(10.)
+        self.assertIsNone(self.look(15., front=1.))
+        self.assertIsNone(self.look(10. + REPEAT_AFTER - 1., front=1.))
+        self.assertEqual(self.look(10. + REPEAT_AFTER + 1., front=1.), first)       # Still owed.
+
     def test_a_loss_first_noticed_late_counts_from_the_last_frame(self):
         self.look(0.)
         # A long reply kept him from looking for half a minute: the sensor has been dark all that time.
@@ -172,6 +181,22 @@ class SpokenNoticeTests(unittest.TestCase):
         self.fake.matrix, self.fake.rear_grid = False, None
         self.assertTrue(self.pass_time(FAIL_AFTER + 1.5))
         self.assertEqual(self.spoken(), [LINES[('failed', ('front', 'rear'))][0]])
+
+    def test_a_notice_cut_off_in_playback_is_not_said_again_at_once(self):
+        self.fake.matrix = False
+        self.pass_time(1.)
+        real = self.session.output.run
+        def failing(*args, **kwargs):
+            raise RuntimeError('PlaybackDrainTimeout')
+        self.session.output.run = failing
+        self.assertFalse(self.pass_time(6.))
+        self.assertEqual([heard for _, _, heard in self.notices()], [False])
+        for _ in range(5):
+            self.assertFalse(self.pass_time(2.))
+        self.assertEqual(len(self.notices()), 1)                 # Not restarted every tick.
+        self.session.output.run = real
+        self.assertTrue(self.pass_time(30.))
+        self.assertEqual([heard for _, _, heard in self.notices()], [False, True])
 
     def test_he_waits_for_a_free_moment(self):
         self.assertFalse(self.pass_time(1.))                    # Streaming.

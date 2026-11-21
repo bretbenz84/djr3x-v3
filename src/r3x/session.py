@@ -891,14 +891,15 @@ class Session:
 
     def say_notice(self, text, kind, **facts):
         """A hardware notice at an idle moment (a depth sensor lost or back; owner, November 15): one of
-        the code's own lines, no model call. Never over a turn in progress. Whether it was heard."""
+        the code's own lines, no model call. Never over a turn in progress. Whether it was heard:
+        None when he was busy and nothing was tried, False when it was started and not heard."""
         if not self._processing.acquire(blocking=False):
-            return False
+            return None
         try:
             turn_id = kind + '-' + uuid4().hex[:12]
             outcome = self._say_saved(text, turn_id)
             if outcome is None:
-                return False
+                return None
             said, error = outcome
             heard = error is None and bool(said.completed_text)
             self.trace.emit('hardware_notice', turn_id=turn_id, kind=kind, text=text, heard=heard,

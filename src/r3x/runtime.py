@@ -580,8 +580,11 @@ class VoiceRuntime:
         notice = self.depth_watch.due(now, self.drive.depth_sensor_ages(now))
         if notice is None or self.speech_in_flight() or self.session.output.active.is_set():
             return False
-        if not self.session.say_notice(self.depth_watch.line(notice), 'depth_sensor_' + notice.kind,
-                                       sensors=list(notice.sensors)):
+        heard = self.session.say_notice(self.depth_watch.line(notice), 'depth_sensor_' + notice.kind,
+                                        sensors=list(notice.sensors))
+        if not heard:
+            if heard is False:
+                self.depth_watch.tried(self.drive.clock())   # Started and not heard: owed, but not at once.
             return False
         self.depth_watch.said(notice, self.drive.clock())
         return True

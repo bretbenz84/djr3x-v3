@@ -80,6 +80,7 @@ class DepthSensorWatch:
         self.choose = choose
         self._sensors = {name: _Sensor() for name in SENSORS}
         self._reporting_since = None    # When the controller's current spell of reporting was first seen.
+        self._retry_at = float('-inf')  # After a line that was tried and not heard: not before this.
 
     def due(self, now: float, ages) -> Notice | None:
         """ages: {'front': seconds since its last frame or None (never), 'rear': likewise}, or None
@@ -93,6 +94,8 @@ class DepthSensorWatch:
             return None
         if self._reporting_since is None:
             self._reporting_since = now
+        if now < self._retry_at:
+            return None
         for name, sensor in self._sensors.items():
             age = ages.get(name)
             if age is not None and 0 <= age <= FRESH_SECONDS:
@@ -121,6 +124,12 @@ class DepthSensorWatch:
 
     def line(self, notice: Notice) -> str:
         return self.choose(LINES[(notice.kind, notice.sensors)])
+
+    def tried(self, now: float) -> None:
+        """A notice was started and not heard to the end (playback failed, or he was cut off). It
+        stays owed, but not at once: November 20, a line that kept failing was restarted every five
+        seconds for as long as the sensor was out."""
+        self._retry_at = now + REPEAT_AFTER
 
     def said(self, notice: Notice, now: float) -> None:
         """The notice was heard."""

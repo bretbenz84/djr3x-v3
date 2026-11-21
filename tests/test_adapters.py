@@ -258,6 +258,14 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(b"".join(observed)[:len(expected)],expected)
         self.assertEqual(len(starts), 1)
         self.assertIsNone(sink.stream)
+        # A saved line arrives in one piece. One longer than five seconds must play to its end: the wait
+        # for the last sound allows for what is still queued (November 20: the eight-second depth
+        # sensor notices were cut off as PlaybackDrainTimeout and said again and again).
+        captured.clear()
+        sink.clock = lambda: len(captured) / 2 / 22050      # Time passes as sound comes out.
+        long_line = b"\x03\x04" * (22050 * 8)
+        receipt = sink.play(iter([long_line]), Cancellation(), starts.append)
+        self.assertEqual(receipt.frames, 22050 * 8)
 
 
 

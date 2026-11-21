@@ -410,6 +410,7 @@ class AudioSink:
             self.stream.start()
 
         remainder = b""
+        fed = 0        # Bytes handed over: a saved line arrives whole, far ahead of what has played.
         try:
             for chunk in chunks:
                 cancel.check()
@@ -425,6 +426,7 @@ class AudioSink:
                         raise ProviderFailure("PlaybackStalled")
                     try:
                         queue.put(piece, timeout=.05)
+                        fed += len(piece)
                         break
                     except Full:
                         continue
@@ -438,7 +440,11 @@ class AudioSink:
                 if queue.empty():
                     raise ProviderFailure("EmptyAudio")
                 open_stream()
-            deadline = self.clock() + 5
+            # Five seconds beyond the sound still to come out. It was five seconds flat until November
+            # 20: a saved line arrives in one piece, so one longer than that (the depth sensor notices,
+            # about eight) was cut off as PlaybackDrainTimeout, counted as unheard and said again, over
+            # and over.
+            deadline = self.clock() + 5 + max(0, fed // 2 - frames) / 22050
             while not finished.wait(.05):
                 cancel.check()
                 announce()
