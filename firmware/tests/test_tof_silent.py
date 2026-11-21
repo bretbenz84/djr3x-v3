@@ -1,7 +1,6 @@
 """A ring sensor that stops answering must not hold up the others (November 20, 2026).
 
-Compiles the firmware's own tof_silent.h and tof_fr_filter.h and runs the ring's round the way
-tof.cpp does: one short and one long sensor each 20 ms tick, a read that gets no answer costing
+Compiles the firmware's own tof_silent.h and runs the ring's round the way tof.cpp does: one short and one long sensor each 20 ms tick, a read that gets no answer costing
 the read timeout. No I/O."""
 from pathlib import Path
 import subprocess
@@ -14,7 +13,6 @@ SOURCE = r'''
 #include <iostream>
 #include <string>
 #include "calib.h"
-#include "tof_fr_filter.h"
 #include "tof_silent.h"
 
 // argv: mode ("steps" | "ring"), then for ring: backoff(0/1) seconds start_ms, and on stdin one
@@ -34,7 +32,7 @@ int main(int, char** argv) {
   const uint32_t end = (uint32_t)std::stoul(argv[3]) * 1000u, start = (uint32_t)std::stoul(argv[4]);
   long long stops[8], returns[8];
   for (int i = 0; i < 8; i++) std::cin >> stops[i] >> returns[i];
-  TofSilent silent[8]; TofFrHealth health;
+  TofSilent silent[8];
   uint32_t now = start; int next = 0;
   auto answers = [&](int i, uint32_t at) {
     const long long t = (long long)(uint32_t)(at - start);
@@ -47,9 +45,7 @@ int main(int, char** argv) {
       const bool answered = answers(i, now);
       if (!answered) now += TOF_TIMEOUT_MS;     // the blocking read waits out its timeout
       const bool back = tof_silent_note(silent[i], answered, now, offset);
-      std::cout << (uint32_t)(now - start) << ' ' << i << ' ' << answered << ' ' << back;
-      if (i == 5) std::cout << ' ' << tof_fr_health_step(health, answered, now);
-      std::cout << '\n';
+      std::cout << (uint32_t)(now - start) << ' ' << i << ' ' << answered << ' ' << back << '\n';
     }
     next = (next + 1) % 4;
     now += 20;                                  // the 50 Hz sensor task
@@ -75,7 +71,7 @@ class SilentSensorTests(unittest.TestCase):
         return [tuple(map(int, line.split())) for line in done.stdout.splitlines()]
 
     def ring(self, sensors, *, backoff=True, seconds=20, start=0):
-        """sensors: {index: (stops_ms, returns_ms or -1)}. Rows of (ms, sensor, answered, back[, fr healthy])."""
+        """sensors: {index: (stops_ms, returns_ms or -1)}. Rows of (ms, sensor, answered, back)."""
         table = ''.join('{} {}\n'.format(*sensors.get(i, (-1, -1))) for i in range(8))
         done = subprocess.run([str(self.binary), 'ring', str(int(backoff)), str(seconds), str(start)],
                               input=table, text=True, capture_output=True, check=True)
@@ -129,14 +125,6 @@ class SilentSensorTests(unittest.TestCase):
         for sensor in (6, 7):
             tries = self.gaps(after, sensor)[12:]
             self.assertTrue(tries and all(2000 <= gap <= 2200 for gap in tries), (sensor, tries))
-
-    def test_the_front_right_stays_published_beside_silent_sensors_with_or_without_the_backoff(self):
-        for backoff in (False, True):
-            with self.subTest(backoff=backoff):
-                rows = self.ring({6: (0, -1), 7: (0, -1)}, backoff=backoff)
-                healthy = [row[4] for row in rows if row[1] == 5]
-                self.assertGreater(len(healthy), 60)
-                self.assertEqual(set(healthy), {1})      # 0.2.20: quarantined from the first slow round on.
 
     def test_a_sensor_that_comes_back_is_noticed_and_the_round_returns_to_normal(self):
         rows = self.ring({6: (1000, 9000)}, seconds=14)

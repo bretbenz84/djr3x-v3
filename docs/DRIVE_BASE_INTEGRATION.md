@@ -1997,7 +1997,7 @@ him on the charger, how the cord and the charger plug behave over several turns,
 gamepad lock and the unplug release still behave as before.
 
 
-## Run `d32ba628`: stuck at the open door, and the corner sensors — November 20, 2026 (firmware 0.2.21)
+## Run `d32ba628`: stuck at the open door, and the corner sensors — November 20, 2026 (firmware 0.2.21, 0.2.22)
 
 Owner: "Rex is no longer able to get through a door way he's navigated through before. It's like he's
 hitting one close ToF and giving up", and later "why are we discarding front right? can we not do that?
@@ -2033,12 +2033,18 @@ round. Details, checks and the flash are in the firmware's
 After the flash the front-right published in every frame (544-553 mm). The two rear corner sensors
 failed at start, so reversing has the rear depth sensor alone, as when they were silent.
 
+**Firmware 0.2.22**, the same evening, removes the front-right's own quarantine and filter, left from
+the faulty module replaced in October (owner: "that vestige is still there"). It is read exactly like
+the other three corner sensors: a doubtful reading counts as nothing there instead of silencing it.
+Flashed; published in every frame again. The README has the checks, among them the real sensor
+driver compiled against scripted sensors.
+
 A window for all of this, opened from the battery menu, is described in
 [the dashboard notes](GUI.md#tof-diagnostics-window--november-20-2026).
 
 **Still open.** Rolling and turning together past something close on the open end's side. The rear
-corner sensors (cabling, or their modules). No floor run on 0.2.21: nothing has driven under it. The
-front-right's rule for doubtful readings is unchanged, so it will still go quiet in stretches as it
-did before November 19. The Bluetooth text that garbles the serial line after a controller start
+corner sensors (cabling, or their modules). No floor run on 0.2.21 or 0.2.22: nothing has driven under
+either, and the front-right has not been seen in a doubtful stretch since the change. The host's own
+`front_right_radial_unavailable` handling stays for a sensor that truly gives nothing. The Bluetooth text that garbles the serial line after a controller start
 (firmware README).
 

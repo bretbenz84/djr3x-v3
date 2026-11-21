@@ -300,22 +300,6 @@
 #define TOF_ATTACK_DROP_MM        400
 #define TOF_ATTACK_CONFIRM_MM     300
 
-// Front-right radial only: false close bursts survived the two-frame guard.
-// At the measured 80 ms cadence, 300 ms needs five agreeing fresh readings.
-// Ordinary smooth approaches still attack immediately. Reject invalid frames
-// as evidence of clearance; require a short clear run before a large release.
-#define TOF_FR_NEAR_CONFIRM_MS       300
-#define TOF_FR_CLEAR_CONFIRM_MS      160
-#define TOF_FR_SAMPLE_GAP_MS         200
-// The health rule's own bound on a pause between samples (tof_fr_filter.h). It shared the
-// 200 ms above until November 20 2026, when a round slowed to about 230 ms by silent sensors
-// made every sample of a healthy front-right count as a fault. A pause this long only
-// restarts the run of good samples a quarantined channel needs.
-#define TOF_FR_HEALTH_GAP_MS         1000
-#define TOF_FR_CONFIRM_TOLERANCE_MM  200
-#define TOF_FR_NEAR_MM              300
-#define TOF_FR_NEAR_DROP_MM         100
-
 // VL53L0X (short range, ~1.2 m reliable):
 #define TOF_L0X_TIMING_BUDGET_US  33000 // 33 ms measurement budget (speed vs accuracy)
 #define TOF_L0X_OUT_OF_RANGE_MM   2000  // clamp "nothing in range" to a far/clear value

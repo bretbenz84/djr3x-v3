@@ -484,7 +484,10 @@ battery lead, then build with `-DBATT_SHUNT_MICROOHM=2000`; telemetry gains a
 real `batt_ma` and the Mac side can coulomb-count true state of charge (LiFePO4
 voltage is too flat mid-pack for voltage-only percentages).
 
-## Front-right radial persistence (firmware 0.2.1)
+## Front-right radial persistence (firmware 0.2.1; retired in 0.2.22)
+
+*History. This filter was for the faulty module replaced on October 19, 2026 and was removed in
+0.2.22 with its checks; see the end of this file.*
 
 The front-right VL53L1X (mux channel 5, `fr_radial`) has its own filter in
 `tof_fr_filter.h`. The original shared guard accepted a sudden drop after two
@@ -525,7 +528,9 @@ really reported a sustained near range in that capture, so this filter must keep
 that range; it cannot certify what physical object produced it. Raw fixture and
 compiled-firmware regressions: `firmware/tests/test_tof_fr_filter.py`.
 
-## Front-right quality quarantine (firmware 0.2.2)
+## Front-right quality quarantine (firmware 0.2.2; retired in 0.2.22)
+
+*History. Removed in 0.2.22 with its checks and recorded fixture; see the end of this file.*
 
 The September 15 stationary capture shows a different fault from short range
 spikes: most front-right observations are `WrapTargetFail`, interleaved with
@@ -956,10 +961,9 @@ gave a valid 476-481 mm in 129 of 129 raw samples.
   already publishes -1. It is then tried every `TOF_SILENT_RETRY_MS` (2 s), each sensor at its own
   offset, and only waited on if it acknowledges its address. Its first answer brings it back
   (`tof[6] rl: answering again`), with its filter reset.
-- Unchanged: the front-right still goes to -1 while half of its recent readings are doubtful,
-  and comes back after sixteen good ones (up to twelve times a session on November 15-19).
-  Its jump filter still assumes samples no more than 200 ms apart. A sensor that fails at start
-  is skipped until the next controller start, as before.
+- Left alone in 0.2.21 and removed an hour later in 0.2.22 (below): the front-right still went
+  to -1 while half of its recent readings were doubtful. A sensor that fails at start is skipped
+  until the next controller start, as before.
 
 Checks: 114 native firmware checks pass. Eleven are new: `test_tof_silent.py` runs the ring's
 round as `tof.cpp` does with the two rear sensors silent (the other six back to 80 ms, never more
@@ -984,4 +988,47 @@ twice a second, which garbles about one line in ten (34 of 405 telemetry frames 
 The same text is in the boot captures of October 19, November 12 and November 15; reads earlier
 that evening, 44 hours after the previous start, lost none (1,205 of 1,205 and 107 of 107). Cause and how long it lasts
 are not known.
+
+## The front-right is read like the other three corner sensors (firmware 0.2.22, November 20, 2026)
+
+Owner, asked whether the front-right should stop going quiet when its readings are doubtful: "yes,
+I think we only did that because of a bad sensor, and eventually we disabled it completely until I
+got a new one installed ... I guess that vestige is still there."
+
+Channel 5 had its own handling from the faulty module's time: a quarantine that published -1 while
+eight of its last sixteen readings were doubtful and until sixteen good ones followed, and a
+persistence filter that wanted 300 ms of agreeing readings before believing a close one. Both are
+gone. All four long-range sensors now share one path in `tof.cpp`: a valid reading goes through
+`tof_filter.h` (nearer at once, a sudden drop of 400 mm or more confirmed by the next reading,
+farther at 300 mm a visit), and any other status counts as nothing in range.
+
+- Retired: `TofFrHealth`, `TofFrFilter` and `tof_fr_input_mm`; the seven `TOF_FR_*` settings in
+  `calib.h`; `test_tof_fr_filter.py`, `test_tof_fr_health.py` and their two recorded fixtures; the
+  log lines `tof[5] fr: unreliable range status; quarantined` and `quality recovered`.
+- `tof_fr_filter.h` is now `tof_xtalk.h` and holds only the crosstalk register helpers (still
+  used at start for a channel with a measured figure; all four are 0).
+- The firmware's own reflex loses nothing: it already treated -1 as clear. What changes for the
+  host is that a doubtful stretch on that corner reads "open" rather than "unknown", as on the
+  front-left.
+
+Checks: 93 native firmware checks pass. Seven are new (`test_tof_driver.py`): the real `tof.cpp`,
+robot build, compiled against scripted sensors behind a fake multiplexer. Given the same answers
+the front-right publishes exactly what the front-left does (steady, half doubtful, mostly
+doubtful, a close burst, nothing in range, something arriving); half-doubtful readings never
+silence it; something close is reported by its second reading; two sensors that stop answering
+report -1 and the other six are back to 80 ms with at most one timeout in a round; an unplugged
+sensor costs no waiting and returns when plugged back; one that fails at start is never read. With
+the old behaviours put back in a copy, five of the seven fail. Full four-flag build 816,089 bytes
+program, 91,068 globals; the bare build compiles. Build kept at
+`local/firmware/2026-11-20-0.2.22-fr-like-the-rest.bin` (SHA-256
+`c0571dcd6e057618f2ecc6ffd4337023a7eea63997c5217f3dec13d8ea7eaab4`).
+
+Flashed at the owner's request, as 0.2.21 was: one attempt, all four hashes verified, hello
+`0.2.22-fr-like-the-rest`, wheels still, no motion commanded. The front-right published in 168 of
+168 frames and, half a minute later, 115 of 115 (545-554 mm, every raw sample valid). The rear
+corner sensors failed at start again (6/8). During the first read the front-left read a steady,
+strong 90-102 mm and the controller's zone was `stop`: something stood 10 cm from it, and it was
+gone in the second read. **Not shown on the robot:** the front-right in a doubtful stretch (its
+readings were all valid in this spot), and any driving on this firmware. Logs:
+`local/firmware/2026-11-20-0.2.22-flash.log`, `-boot.ndjson`.
 

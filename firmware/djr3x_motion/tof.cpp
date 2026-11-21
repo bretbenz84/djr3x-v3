@@ -47,7 +47,7 @@ static inline int16_t tof_matrix_combine(int16_t radial, int16_t matrix) {
 #include "pins.h"
 #include "calib.h"
 #include "tof_filter.h"
-#include "tof_fr_filter.h"
+#include "tof_xtalk.h"
 #include "tof_silent.h"
 #include "proto_io.h"       // emit_log — per-sensor bring-up diagnostics
 #include "i2c_trunk.h"
@@ -98,8 +98,6 @@ static inline int diag_slot(int i) { return i == 4 ? 0 : (i == 5 ? 1 : -1); }
 // Per-sensor filter (tof_filter.h): fast-attack / slow-release + big-drop
 // confirmation, so a single-frame phantom near return can't flap the reflex.
 static TofFilt s_filt[TOF_COUNT];
-static TofFrFilter s_fr_filter;
-static TofFrHealth s_fr_health;
 
 static inline uint8_t mux_ch(int i) { return (uint8_t)i; }   // sensor index -> mux channel
 
@@ -154,7 +152,8 @@ void hal_tof_init() {
     const int i = TOF_SHORT_COUNT + j;
     // Channel 5 (front-right) was disabled 2026-10-10 for a faulty module that read
     // a steady phantom 5-11 cm; re-enabled 2026-10-19 for the owner's replacement.
-    // Its persistence filter and quality quarantine (tof_fr_filter.h) still apply.
+    // Since 0.2.22 it is read exactly like the other three (its own quarantine and
+    // persistence filter, written for the faulty module, are retired).
     mux_select(mux_ch(i));
     s_long[j].setTimeout(TOF_TIMEOUT_MS);
     s_ok[i] = s_long[j].init();
@@ -237,14 +236,8 @@ static int read_mm(int i) {
   const VL53L1X::RangeStatus rs = s.ranging_data.range_status;
   const bool valid = (rs == VL53L1X::RangeValid ||
                       rs == VL53L1X::RangeValidMinRangeClipped);
-  // The 2026-09-07 stationary raw capture had 150–168 mm returns throughout,
-  // but ten WrapTargetFail frames were converted into 4000 mm "clear". On this
-  // noisy channel an invalid phase/quality result must break confirmation and
-  // hold the last range, not manufacture clearance. OutOfBoundsFail explicitly
-  // means no target in range; it can still supply a clear observation.
-  // RANGEIGNORETHRESHOLD (XtalkSignalFail): the only near return was weaker than the
-  // channel's own crosstalk allows for a real surface, so nothing is near (calib.h).
-  if (i == 5) return tof_fr_input_mm(mm, valid, rs == VL53L1X::OutOfBoundsFail || rs == VL53L1X::XtalkSignalFail);
+  // Every other status (nothing in range, a failed wrap check, a return too weak or below a
+  // compensated channel's own crosstalk) is "nothing in range" for all four long sensors.
   if (!valid || mm >= TOF_L1X_OUT_OF_RANGE_MM) return TOF_L1X_OUT_OF_RANGE_MM;
   return mm;
 }
@@ -273,30 +266,14 @@ static void poll_one(int i) {
     emit_log("info", buf);
   }
   if (diag_slot(i) >= 0) s_diag[diag_slot(i)].input_mm = mm;
-  if (i == 5) {
-    const bool was_quarantined = s_fr_health.quarantined;
-    const bool healthy = tof_fr_health_step(s_fr_health, mm >= 0, millis());
-    if (was_quarantined != s_fr_health.quarantined)
-      emit_log(healthy ? "info" : "warn", healthy
-          ? "tof[5] fr: quality recovered after 16 valid samples"
-          : "tof[5] fr: unreliable range status; quarantined, reporting -1");
-    if (!healthy) {
-      s_dist[i] = -1;
-      s_fr_filter = TofFrFilter();
-      s_err_streak[i] = 0;
-      return;
-    }
-  }
   if (mm >= 0) {
     s_err_streak[i] = 0;
     // tof_filter.h: nearer readings attack fast (a big one-frame drop needs a
     // confirming 2nd frame — anti-phantom), farther ones release at a bounded
     // rate. Kills both edge-of-beam strobing and single-frame speckle dips.
-    s_dist[i] = i == 5 ? tof_fr_filter_step(s_fr_filter, (int16_t)mm, millis())
-                      : tof_filter_step(s_filt[i], (int16_t)mm);
+    s_dist[i] = tof_filter_step(s_filt[i], (int16_t)mm);
     return;
   }
-  if (i == 5) tof_fr_filter_step(s_fr_filter, -1, millis());
   // Failed read: hold the last-good value through a TRANSIENT error, but not forever —
   // a sensor that dies while reading "clear" would otherwise freeze that clear distance
   // and silently disable the stop reflex in its direction. After a solid failure streak
@@ -305,7 +282,6 @@ static void poll_one(int i) {
   if (s_err_streak[i] < 255) s_err_streak[i]++;
   if (s_err_streak[i] == TOF_ERR_STREAK_STALE && s_dist[i] != -1) {
     s_dist[i] = -1;
-    if (i == 5) s_fr_filter = TofFrFilter();
     char buf[72];
     snprintf(buf, sizeof(buf), "tof[%d] %s: %u consecutive read errors - reporting -1",
              i, TOF_LABEL[i], (unsigned)TOF_ERR_STREAK_STALE);

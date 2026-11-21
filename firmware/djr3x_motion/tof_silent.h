@@ -3,8 +3,8 @@
 // Each read of a sensor that does not answer waits TOF_TIMEOUT_MS. Live, November 20 2026:
 // the two rear corner sensors had stopped answering the evening before, and the round that
 // visits every ring sensor went from about 80 ms to about 230 ms. Every other ring sensor was
-// three times staler, and the front-right's health rule, which read any pause over 200 ms as
-// a fault, discarded a sensor that was giving a clean valid range in every sample.
+// three times staler, and the front-right's health rule of the time (retired in 0.2.22), which
+// read any pause over 200 ms as a fault, discarded a sensor giving a clean valid range.
 //
 // A sensor that has missed TOF_ERR_STREAK_STALE reads in a row already publishes -1. From
 // then on it is tried once every TOF_SILENT_RETRY_MS (each sensor at its own offset, so two
