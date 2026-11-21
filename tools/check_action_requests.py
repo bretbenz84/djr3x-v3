@@ -132,9 +132,10 @@ HOLD = 'Can you hold this card for me?'
 
 
 def ready_only(calls):
-    """Owner, November 20: holding it out he says "Okay, ready." and nothing more; the hand closes 4 s later."""
+    """Owner, November 20: holding it out he says only "Okay, ready.", which the session adds once the hand is
+    out (run b6249519: said before a refusal); the model's own words stay empty."""
     words = ' '.join(str(c['arguments'].get(k) or '') for c in calls for k in ('say_before', 'say_while', 'text'))
-    return pose('hand_take')(calls) and len(words.split()) <= 3 and 'ready' in words.lower()
+    return pose('hand_take')(calls) and not words.strip()
 
 
 CASES.update({
@@ -153,7 +154,7 @@ CASES.update({
                   pose('hand_let_go')),
     # The hand closed by itself after four seconds and they missed it: it opens and reaches out again.
     'missed_it': (((HOLD, 'Okay, ready.'),), VISOR_OPEN, False, "Wait, I didn't make it in time.",
-                  'action', pose('hand_take')),
+                  'action', ready_only),
 })
 # What robot_pose_state.throttle_hand says before the request (RobotServos.hand_state); the rest: empty.
 HANDS = {'there_you_go': 'open', 'let_it_go': 'holding', 'put_it_down': 'holding', 'i_have_it': 'offering',

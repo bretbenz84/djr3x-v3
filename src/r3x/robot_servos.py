@@ -234,7 +234,7 @@ class RobotServos:
         # the room in front of the hand (owner, November 20: "if there's clearance").
         if (name == 'hand_take' and not self._at_grab()) or throttle_extends(name, self.owner.commanded):
             # Already out at the grab position, the reading in front is his own arm or the person handing it over.
-            blocked = self._reach_blocked(request_id)
+            blocked = self._reach_blocked(request_id, hand=name == 'hand_take')
             if blocked is not None:
                 return blocked
         def run():
@@ -289,16 +289,19 @@ class RobotServos:
         finally:
             self._hand_superseded.clear()
 
-    def _reach_blocked(self, request_id):
-        """A refusal when the throttle may not reach out: its front-right space is not clear (owner, November 20)."""
+    def _reach_blocked(self, request_id, hand=False):
+        """A refusal when the throttle may not reach out: its front-right space is not clear (owner, November 20).
+        hand: out to the grab position to take or give back, which is not a full extension and needs only the room
+        that lets the arm out at all (run b6249519: 0.48 m with Bret three feet away refused "let go" twice; the
+        sensor read 0.52 m with nobody near in run 17e088f3)."""
         if self.arm_space is None:
             return None
-        from .drive_space import THROTTLE_EXTEND_CLEAR_M, throttle_front_m
+        from .drive_space import THROTTLE_EXTEND_CLEAR_M, THROTTLE_KEEP_CLEAR_M, throttle_front_m
         try:
             ahead = throttle_front_m(self.arm_space())
         except Exception:
             ahead = None
-        if ahead is not None and ahead >= THROTTLE_EXTEND_CLEAR_M:
+        if ahead is not None and ahead >= (THROTTLE_KEEP_CLEAR_M if hand else THROTTLE_EXTEND_CLEAR_M):
             return None
         return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
                             reason='ThrottleExtensionBlocked:' + ('front_right_unknown' if ahead is None
@@ -310,6 +313,11 @@ class RobotServos:
     # (fingers open) -> empty (the arm at rest). Moves he makes by himself run in a worker thread.
     def hand_state(self) -> str:
         return self._hand_state
+
+    def hand_ready_said(self):
+        """"Okay, ready." has played: the four seconds count from now (owner, November 20)."""
+        if self._hand_state == 'open':
+            self._opened_at = self.owner.clock()
 
     def hand_closed_on_time(self) -> bool:
         """Holding because the open hand's four seconds ran out, not because a person said it was in."""
@@ -423,7 +431,7 @@ class RobotServos:
         looking at the hand; they open once someone comes close (owner, November 20)."""
         from .hand_hold import HandWatch
         from .servo_poses import THROTTLE_GRAB
-        blocked = self._reach_blocked(request_id)
+        blocked = self._reach_blocked(request_id, hand=True)
         if blocked is not None:
             return blocked
         receipt = self._hand_execute(f'hand:offer:{request_id}', THROTTLE_GRAB)

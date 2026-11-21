@@ -137,9 +137,9 @@ class HandPoseTests(HandRig):
         self.assertTrue(self.robot.owner.holding_requested_look())
 
     def test_no_room_at_the_front_right_refuses_it(self):
-        self.space = {'front_right_m': .4, 'front_radial_right_m': .42}
+        self.space = {'front_right_m': .25, 'front_radial_right_m': .42}
         receipt = self.robot.execute_pose('hand_take', Cancellation(), 'take')
-        self.assertEqual((receipt.status, receipt.reason), ('rejected', 'ThrottleExtensionBlocked:front_right_0.40m'))
+        self.assertEqual((receipt.status, receipt.reason), ('rejected', 'ThrottleExtensionBlocked:front_right_0.25m'))
         self.assertEqual(self.robot.hand_state(), 'empty')
         self.assertEqual(self.hand(), dict(HAND_PARK))
 
@@ -211,9 +211,21 @@ class HandPoseTests(HandRig):
         self.assertEqual((self.arm(), self.port.pose[15]), (dict(PARK), FINGERS_CLOSED))
         self.assertEqual(self.robot.hand_state(), 'holding')
 
+    def test_the_hand_reaches_with_the_room_the_sensor_reads_when_nobody_is_near(self):
+        # Run b6249519: with Bret three feet away the front right read 0.48-0.49 m and "let go" was refused
+        # twice; with nobody near it read 0.52 m (run 17e088f3). Not a full extension: 0.3 m is enough.
+        self.space = {'front_right_m': .48, 'front_radial_right_m': .49}
+        self.take()
+        self.robot.execute_pose('hand_grip', Cancellation(), 'grip')
+        receipt = self.robot.execute_pose('hand_let_go', Cancellation(), 'go')
+        self.assertEqual(receipt.status, 'pulses_reached', receipt.reason)
+        self.assertEqual(self.robot.hand_state(), 'offering')
+        offer = self.robot.execute_pose('throttle_offer', Cancellation(), 'offer')   # A full extension still wants 0.5 m.
+        self.assertEqual(offer.reason, 'ThrottleExtensionBlocked:front_right_0.48m')
+
     def test_give_back_needs_room_and_keeps_holding_otherwise(self):
         self.holding()
-        self.space = {'front_right_m': .4, 'front_radial_right_m': .42}
+        self.space = {'front_right_m': .25, 'front_radial_right_m': .42}
         self.assertEqual(self.robot.execute_pose('hand_let_go', Cancellation(), 'go').status, 'rejected')
         self.assertEqual((self.arm(), self.port.pose[15]), (dict(PARK), FINGERS_CLOSED))
         self.assertEqual(self.robot.hand_state(), 'holding')
@@ -519,7 +531,7 @@ class HandConversationTests(MemoryFixture):
         robot.arm_space = lambda: space
         # A line after the reach would keep them standing there: only "Okay, ready." is said.
         take = ToolCall('take', 'set_robot_pose', {'poses': ['hand_take'], 'look_after': None,
-                                                   'say_before': 'Okay, ready.', 'text': 'Pop it in my hand.'})
+                                                   'say_before': None, 'text': 'Pop it in my hand.'})
         brain = Brain(take)
         output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, robot=robot)
         session = Session('s', brain, output, self.state.trace, self.state); self.addCleanup(session.close)
@@ -538,7 +550,11 @@ class HandConversationTests(MemoryFixture):
         result = turn(0, 'Can you hold this card?')
         self.assertEqual(result.completed_text, ['Okay, ready.'])
         self.assertEqual(port.pose[15], FINGERS_OPEN)
-        wait(CLOSE_AFTER_S + .3)
+        clock.now += 30.   # The look and the line took a while: the four seconds count from the line.
+        robot.hand_ready_said()
+        wait(CLOSE_AFTER_S - .3)
+        self.assertEqual(port.pose[15], FINGERS_OPEN)
+        wait(.6)
         self.assertEqual(port.pose[15], FINGERS_CLOSED)
         brain.text = take   # "I didn't make it": the hand opens and reaches out again.
         self.assertEqual(turn(1, "Wait, I didn't make it in time.").completed_text, ['Okay, ready.'])
@@ -595,7 +611,7 @@ class HandConversationTests(MemoryFixture):
         robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait)
         robot.owner.wait = clock.wait
         robot.start(); robot.open_eyes(); self.addCleanup(robot.close)
-        robot.arm_space = lambda: {'front_right_m': .3, 'front_radial_right_m': .3}
+        robot.arm_space = lambda: {'front_right_m': .25, 'front_radial_right_m': .25}
         brain = Brain(ToolCall('take', 'set_robot_pose', {'poses': ['hand_take'], 'look_after': None,
                                                           'say_before': None, 'text': 'Pop it in my hand.'}))
         output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, robot=robot)

@@ -13,7 +13,7 @@ how things were once the hand had settled. Nothing here moves a servo; RobotServ
 from dataclasses import dataclass, field
 import time
 
-# The extended hand needs 0.5 m clear at the front right (drive_space.THROTTLE_EXTEND_CLEAR_M);
+# The hand reaches out only with 0.3 m clear at the front right (drive_space.THROTTLE_KEEP_CLEAR_M);
 # something nearer than this has come within the arm's reach.
 NEAR_M = .45
 DROP_M = .10          # ...and at least this much nearer than the settled reading.

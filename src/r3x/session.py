@@ -85,6 +85,9 @@ REACH_BLOCKED_MEANING = ('The arm did not move: something is within half a metre
                          'the person standing close to hand you something. Ask them to step back a little so your arm '
                          'has room; do not blame the charger, a wall or the room.')
 REACH_BLOCKED_LINE = 'Step back a little so my arm has room.'
+# Owner, November 20: holding the hand out he says this and nothing more; the fingers close four seconds after it.
+# Said only once the hand is out (run b6249519: a streamed "Okay, ready." came before "My hand's full.").
+HAND_READY_LINE = 'Okay, ready.'
 # Review, November 20: every other refused hand step was spoken as "I couldn't complete that movement.", which
 # told nobody what to do next. Each refusal has a line he says and its meaning for the model (the reason's start).
 HAND_REFUSALS = {
@@ -1581,7 +1584,7 @@ class Session:
                     'open': 'held out open for them to put it in; it closes by itself four seconds after it got there. You cannot see or feel your hand: if they say it is in sooner ("there you go", "okay", "I did"), close it with hand_grip at once',
                     'holding': 'holding what a person gave you, fingers closed, arm folded in, until asked to give it back or let go (hand_let_go) or put it down (hand_put_down)',
                     # Owner, November 20: "If I didn't make it in time I can say so and he should open his hand to try again."
-                    'closed_on_time': 'fingers closed by themselves four seconds after the hand was out, arm folded in; you cannot feel whether anything is in it. If they say they missed it or were not ready ("I didn\'t make it", "too fast", "again"), hand_take opens it and reaches out again for another four seconds. Otherwise treat it as holding what they gave you (hand_let_go, hand_put_down)',
+                    'closed_on_time': 'fingers closed by themselves four seconds after the hand was out, arm folded in; you cannot feel whether anything is in it. If they say they missed it or were not ready ("I didn\'t make it", "too fast", "again"), hand_take, with say_before and text null, opens it and reaches out again for another four seconds (you say "Okay, ready." by yourself). Otherwise treat it as holding what they gave you (hand_let_go, hand_put_down)',
                     # Review, November 20: giving back opened only when a sensor saw someone come close, and the
                     # same sensors had not seen a book brought to the hand (run fe1d4fea).
                     'offering': 'holding it out to give it back, fingers still closed; you cannot see or feel your hand: when they say they have hold of it or tell you to let go ("got it", "I have it", "okay, let go"), open it with hand_let_go at once. It also opens by itself if your range sensors see someone come close',
@@ -2773,8 +2776,18 @@ class Session:
                             delivery.status,delivery.medium='suppressed','none'
                         else:
                             put_phrase(phrases,(hand_refusal(refusal) or ("I couldn't complete that movement.",))[0],cancel)
-                    elif call.arguments['text'] is not None and 'hand_take' not in steps:
-                        # Owner, November 20: holding it out, he says "Okay, ready." and nothing more.
+                    elif 'hand_take' in steps:
+                        # Owner, November 20: holding it out, he says "Okay, ready." and nothing more, and the
+                        # four seconds start once it has played.
+                        delivery.status, delivery.medium = 'requested', 'audio'
+                        heard, said_by = len(delivery.completed_text), time.monotonic() + 6.
+                        put_phrase(phrases, HAND_READY_LINE, cancel)
+                        while (len(delivery.completed_text) <= heard and worker.is_alive() and not delivery.error
+                               and time.monotonic() < said_by):
+                            cancel.check()
+                            time.sleep(.02)
+                        getattr(self.output.robot, 'hand_ready_said', lambda: None)()
+                    elif call.arguments['text'] is not None:
                         put_phrase(phrases,call.arguments['text'],cancel)
                     elif not look_question and not call.arguments.get('say_before'):
                         delivery.status,delivery.medium='suppressed','none'

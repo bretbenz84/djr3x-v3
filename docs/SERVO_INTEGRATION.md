@@ -14,7 +14,7 @@ owner's grab position `THROTTLE_GRAB`, shoulder 1242, elbow 1720, wrist 887 µs,
 check; the hand level at its park, fingers open; routed by `throttle_route`, the hand in its own lane at
 speed 20), `hand_grip` and `hand_let_go` (channel 15 only). `RobotServos` follows `hand_take` with
 `look_right` and `look_down`; each frame `before_frame` closes the fingers in a worker thread once the hand has been
-open `hand_hold.CLOSE_AFTER_S` (4 s; owner, later November 20), and `hand_take` reopens a hand closed that way
+open `hand_hold.CLOSE_AFTER_S` (4 s from the session's "Okay, ready.", `hand_ready_said`; owner, later November 20; the reach out to `THROTTLE_GRAB` needs only `THROTTLE_KEEP_CLEAR_M`), and `hand_take` reopens a hand closed that way
 (`hand_closed_on_time`). Held out to give back, it feeds the front-right reading and the widest face to
 `hand_hold.HandWatch` and opens the fingers when it says so. `ServoOwner.grip_channels` (14 and 15 while gripping) survive `yield_stale_hold` and
 `release_poses`, and the drive stance's lanes leave them out. After a let go the arm goes to

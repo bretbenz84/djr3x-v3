@@ -32,6 +32,20 @@ on the robot.
 
 ## Holding something light in the throttle hand — November 20
 
+**Run `b6249519` repairs (owner, three feet away).** The remembered hold from run `17e088f3` (a sensor close)
+kept the throttle arm folded and closed at the wake, so "hold this" was refused as a full hand, after a streamed
+"Okay, ready."; "let go" was then refused twice for 0.49 and 0.48 m at the front right. That sensor read 0.52 m
+with the arm out and nobody near (`17e088f3`) and 0.46 m on the charger, so the 0.5 m full-extension rule sat at
+its empty-room reading. **Built:** the hand's reach to the grab position (take and give back, not a full extension)
+needs only `THROTTLE_KEEP_CLEAR_M` (0.3 m), the room that lets the arm out at all; `throttle_offer` and other full
+extensions and `hand_put_down` keep 0.5 m. The model leaves say_before and text empty for `hand_take`; the session
+says "Okay, ready." (`HAND_READY_LINE`) only once the hand is out, and the four seconds count from when it has
+played (`RobotServos.hand_ready_said`). **Evidence:** synthetic checks (42 hand checks; the changed-file run passed,
+1748 tests); paid probe on Claude (6 calls, about $0.45): `hold_this` and `grab_this` with nothing said by the model,
+`missed_it` 2 of 2 after its note was tightened (first try added "Slowpoke. Again, then."). The remembered hold is
+still set (`held_item` holding since run `17e088f3`): "let go" at the next start should now reach out and open.
+Not run on the robot. **Open:** `throttle_offer` and `hand_put_down` are likely refused at that sensor's usual reading.
+
 **"Okay, ready", then it closes (owner, later November 20).** He talked too long holding the hand out: Bret could
 stand there holding the thing through a whole sentence. **Built:** with `hand_take` the tool wording has him say
 only "Okay, ready." (say_before), and the session drops any line after the reach; the open hand closes by itself
