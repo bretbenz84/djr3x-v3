@@ -1284,7 +1284,20 @@ GAZE = ('look_at_people',)
 # The array arm (7) is left to the microphone lease, which only ever rests it at its centre;
 # idle movement stops swinging it while the arms are held (idle_motion).
 ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND)
-POSE_COMMANDS = (*NAMED_POSES, *NECK_POSES, *HEAD_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses')
+# Holding something light, like a card (owner, November 20). The fingers close at the lowest pulse
+# the Maestro allows and open at the highest (the owner: closed is the lowest value). hand_take reaches
+# the throttle arm out as throttle_offer does (the only calibrated reach; it needs the front right clear)
+# with the wrist at its middle and the fingers open; RobotServos also looks down and to the right and
+# closes the fingers when something comes into reach (hand_hold.HandWatch). hand_grip closes them now;
+# hand_let_go opens them, and the arm goes back to rest a moment later.
+FINGERS_CLOSED, FINGERS_OPEN = LIMITS[15][0], LIMITS[15][1]
+HAND_POSES = {
+    'hand_take': (*NAMED_POSES['throttle_offer'], (14, dict(HAND_PARK)[14]), (15, FINGERS_OPEN)),
+    'hand_grip': ((15, FINGERS_CLOSED),),
+    'hand_let_go': ((15, FINGERS_OPEN),),
+}
+HAND_STEPS = tuple(HAND_POSES)
+POSE_COMMANDS = (*NAMED_POSES, *NECK_POSES, *HEAD_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses', *HAND_STEPS)
 
 
 def neck_target(name, current, further=True) -> int:
@@ -1307,7 +1320,7 @@ THROTTLE_EXTENDED_ELBOW = 6000
 
 def throttle_extends(name, current) -> bool:
     """Whether this pose request ends with the throttle arm reaching out ahead."""
-    pose = dict(name) if isinstance(name, dict) else dict(NAMED_POSES.get(name, ()))
+    pose = dict(name) if isinstance(name, dict) else dict(NAMED_POSES.get(name, HAND_POSES.get(name, ())))
     if not set(pose).intersection(THROTTLE):
         return False
     arm = {**{ch: current.get(ch) for ch in THROTTLE}, **{ch: v for ch, v in pose.items() if ch in THROTTLE}}
@@ -1323,7 +1336,7 @@ def pose_channels(name) -> tuple[int, ...]:
         return ((1,) if 'lift' in HEAD_POSES[name] else ()) + HEAD_PAIR
     if name in NECK_POSES:
         return (0,)
-    return tuple(ch for ch, _ in NAMED_POSES.get(name, ()))
+    return tuple(ch for ch, _ in NAMED_POSES.get(name, HAND_POSES.get(name, ())))
 
 
 # Owner, October 22: once a person has shut his visor and this long has passed with no newer pose
@@ -1506,6 +1519,8 @@ def pose_lanes(name, current, further=True):
         target = head_targets(HEAD_POSES[name], current)
     elif name in NECK_POSES:
         target = {0: neck_target(name, current, further)}
+    elif name in HAND_POSES:
+        target = dict(HAND_POSES[name])
     else:
         if name not in NAMED_POSES: raise ValueError('UnknownRobotPose')
         target = dict(NAMED_POSES[name])

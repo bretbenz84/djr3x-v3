@@ -250,6 +250,9 @@ class CoreState:
         from .leds import LIGHT_STEPS
         poses = call.arguments['poses']
         if not poses or any(p not in POSE_COMMANDS and p not in LIGHT_STEPS for p in poses): raise ValueError('UnknownRobotPose')
+        from .servo_poses import HAND_STEPS
+        if (context.get('agency_step') or context.get('trigger')) and set(poses) & set(HAND_STEPS):
+            raise ValueError('HandStepsOnlyWhenAsked')   # Holding something is a person's request, never his own beat.
         if (context.get('agency_step') or {}).get('kind', 'pose') != 'pose' and list(poses) not in (['visor_normal'], ['visor_up']):
             raise ValueError('OnlyHisOwnVisorThisBeat')   # A pose on another kind of beat raises the visor, nothing else.
         if any(p in LIGHT_STEPS and not (context.get('led_enabled') and LIGHT_STEPS[p] in context.get('led_patterns',()))

@@ -1,10 +1,11 @@
 """Explicit robot lifecycle, with park before port release."""
 from dataclasses import asdict
+import threading
 import time
 from .adapters.maestro import open_serial
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
-from .servo_poses import (throttle_extends, ARM_HOLD, HEAD, LIMITS, REACHING_ARMS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
+from .servo_poses import (throttle_extends, ARM_HOLD, HAND_PARK, HAND_STEPS, HEAD, LIMITS, THROTTLE, THROTTLE_HAND, REACHING_ARMS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
                           pose_channels, sentry_head, telepresence_targets, visor_over_eyes)
 from .servos import ServoOwner, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
@@ -53,6 +54,14 @@ class RobotServos:
         # The drive owner's range reading, when he has wheels: a fully extended throttle pose needs
         # its front-right space clear (owner, November 20).
         self.arm_space = None
+        # Holding something light (owner, November 20): the widths in pixels of the faces in view now,
+        # when he has a camera, and the open hand's wait (hand_hold.HandWatch).
+        self.hand_faces = None
+        self._hand = None
+        self._hand_state = 'empty'   # 'open' (waiting for it), 'holding', 'letting_go'.
+        self._let_go_at = None
+        self._hand_worker = None
+        self._hand_moves = 0
 
     def _sequence(self, kind, arms_home=False, keep_arms=frozenset()):
         result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.,
@@ -148,6 +157,7 @@ class RobotServos:
         if self.owner.operator:
             self.idle.tick(False)
             return
+        self._tick_hand()
         self.idle.tick(allow_idle and self.talking._thread is None, calm)
         if (not capturing and self.talking._thread is None and self.idle._thread is None and
                 not (self.reflex._thread and self.reflex._thread.is_alive())):
@@ -204,7 +214,119 @@ class RobotServos:
                 if requested:
                     self.owner.hold_look(pose_channels(name))   # A person's head pose lasts as their look does.
                 self.idle.posed(receipt.changed_channels or pose_channels(name), own=not hold_pose)
+            if isinstance(name, str) and name in HAND_STEPS:
+                self._hand_step(name, request_id)
+            elif (self._hand_state in ('open', 'letting_go') and
+                  (name == 'release_poses' or set(receipt.changed_channels or pose_channels(name)) & set(THROTTLE))):
+                self._hand_reset('arm_moved')   # Another arm pose: no closing on, or resting from, a wait.
         return receipt
+
+    # Holding something light (owner, November 20) --------------------------------------------
+    def hand_state(self) -> str:
+        return self._hand_state
+
+    def _hand_step(self, name, request_id):
+        """A hand step's pulses arrived: what the hand is doing now."""
+        from .hand_hold import HandWatch, WAIT_S
+        if name == 'hand_take':
+            self.owner.grip_channels = frozenset()
+            self._let_go_at = None
+            # He looks down and to his right, at the hand, while he waits for it.
+            for step in ('look_right', 'look_down'):
+                look = self.execute_pose(step, Cancellation(), f'{request_id}:{step}')
+                if look.status != 'pulses_reached':
+                    if self.trace:
+                        self.trace.emit('hand_hold', status='look_failed', step=step, reason=look.reason)
+                    break
+            self.owner.hold_look(HEAD, WAIT_S)
+            self._hand = HandWatch(self.owner.clock())
+            self._hand_state = 'open'
+        elif name == 'hand_grip':
+            self._hand, self._hand_state = None, 'holding'
+            self.owner.grip_channels = frozenset(THROTTLE_HAND)
+            self.owner.held_channels.update(THROTTLE_HAND)
+            self.owner.end_requested_look()   # Got it: his eyes go back to the people.
+            self.idle.look_at_people()
+        else:   # hand_let_go
+            self._hand, self._hand_state = None, 'letting_go'
+            self.owner.grip_channels = frozenset()
+            self._let_go_at = self.owner.clock()
+        if self.trace:
+            self.trace.emit('hand_hold', status=self._hand_state, step=name, request_id=request_id)
+
+    def _hand_reset(self, why):
+        if self._hand_state == 'open':
+            self.owner.end_requested_look()
+            self.idle.look_at_people()
+        self._hand, self._hand_state, self._let_go_at = None, 'empty', None
+        self.owner.grip_channels = frozenset()
+        if self.trace:
+            self.trace.emit('hand_hold', status='empty', reason=why)
+
+    def _tick_hand(self):
+        """Each frame: close the open hand on what is brought to it, or rest the arm after a wait or a let go."""
+        from .hand_hold import LET_GO_S
+        if self._hand_state not in ('open', 'letting_go') or (self._hand_worker and self._hand_worker.is_alive()):
+            return
+        now = self.owner.clock()
+        if self._hand_state == 'letting_go':
+            if now - self._let_go_at >= LET_GO_S:
+                self._hand_work(self._rest_hand, 'let_go')
+            return
+        front = face = None
+        if self.arm_space is not None:
+            from .drive_space import throttle_front_m
+            try:
+                front = throttle_front_m(self.arm_space())
+            except Exception:
+                front = None
+        if self.hand_faces is not None:
+            try:
+                face = max(self.hand_faces(), default=None)
+            except Exception:
+                face = None
+        decision = self._hand.observe(now, front, face)
+        if decision == 'grip':
+            if self.trace:
+                self.trace.emit('hand_hold', status='closing', front_right_m=front, face_px=face,
+                                baseline_m=self._hand.baseline_m)
+            self._hand_work(self._grip_hand)
+        elif decision == 'timeout':
+            self._hand_work(self._rest_hand, 'nothing_brought')
+
+    def _hand_work(self, work, *args):
+        self._hand_moves += 1
+        self._hand_worker = threading.Thread(target=work, args=args, daemon=True, name='throttle-hand')
+        self._hand_worker.start()
+
+    def _grip_hand(self):
+        receipt = self.execute_pose('hand_grip', Cancellation(), f'hand:grip:{self._hand_moves}')
+        if receipt.status != 'pulses_reached' and self.trace:   # Busy: the next frame tries again.
+            self.trace.emit('hand_hold', status='grip_failed', reason=receipt.reason or receipt.status)
+
+    def _rest_hand(self, why):
+        """The arm back to rest and the hand to its park, after letting go or waiting in vain."""
+        if self.owner.hold_until_released:   # "Hold your arms there": the arm stays out.
+            self._hand_reset(why)
+            return
+        self.idle.stop()
+        self.reflex.stop()
+        self.talking.stop()
+        channels = {*THROTTLE, *THROTTLE_HAND}
+        held = channels & self.owner.held_channels
+        self.owner.held_channels.difference_update(channels)
+        receipt = self.owner.execute(ServoRequest(f'hand:rest:{self._hand_moves}', self.owner.version, 'pose',
+                                                  self.owner.clock() + 60., pose={**dict(REST), **dict(HAND_PARK)},
+                                                  hold_pose=False), Cancellation())
+        if receipt.reason == 'ServoBusy':
+            self.owner.held_channels.update(held)   # The next frame tries again.
+            return
+        if self.trace:
+            self.trace.emit('hand_hold', status='arm_rest', reason=why, **{k: v for k, v in asdict(receipt).items()
+                                                                           if k in ('status', 'reason')})
+        if receipt.status == 'pulses_reached':
+            self.idle.posed(receipt.changed_channels, own=True)
+        self._hand_reset(why)
 
     def keep_view(self, seconds):
         """A person asked what he sees where his head already points: it stays there while he answers.
@@ -255,6 +377,8 @@ class RobotServos:
         """Park the throttle arm and center the neck before any non-reverse base motion.
         A line said as he sets off keeps its visor moving (the stance leaves the visor alone)."""
         self.owner.end_requested_look()   # The drive centres the head: a held look is over.
+        if self._hand_state in ('open', 'letting_go'):
+            self._hand_reset('drive')   # The stance folds the arm; what he holds stays held.
         self.idle.stop()
         self.reflex.stop()
         if not self.talking.visor_only:
@@ -430,6 +554,8 @@ class RobotServos:
         self.idle.close()
         self.reflex.close()
         self.talking.stop()  # Failure retains ownership; no close under a worker.
+        if self._hand_worker is not None:
+            self._hand_worker.join(15.)
         if self._arm_return is not None:
             self._arm_return.join(15.)
             if self._arm_return.is_alive():

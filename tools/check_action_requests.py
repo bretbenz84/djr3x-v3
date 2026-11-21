@@ -127,6 +127,14 @@ CASES.update({
                     'Put your arm back up.', 'action', hand_up),
     'raise_your_hands': ((), VISOR_OPEN, False, 'Raise your hands.', 'action', hands_up),
 })
+# Owner, November 20: holding something light, like a card, in the throttle hand.
+HOLD = 'Can you hold this card for me?'
+CASES.update({
+    'hold_this': ((), VISOR_OPEN, False, HOLD, 'action', pose('hand_take')),
+    'grab_this': ((), VISOR_OPEN, False, 'Can you grab this?', 'action', pose('hand_take')),
+    'let_it_go': (((HOLD, 'Sure. Pop it in my hand.'), ('There you go.', 'Got it.')), VISOR_OPEN, False,
+                  'You can let it go now.', 'action', pose('hand_let_go')),
+})
 ARMS = {'arm_back_up': 'throttle_offer'}   # Where the throttle arm stands before the request.
 
 

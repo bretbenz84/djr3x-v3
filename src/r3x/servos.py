@@ -3,7 +3,7 @@
 RobotServos supplies this owner only after explicit live handoff. The supplied port
 must have exclusive ownership and bounded I/O. No automatic reconnect or replay.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 import random
 import threading
@@ -103,6 +103,9 @@ class ServoOwner:
         self.held_channels = set()
         self.pose_held_at = float('-inf')  # When a human-requested pose hold was last set.
         self.hold_until_released = False   # "Leave your hand there until I say": no 90-second yield.
+        # The throttle fingers closed on something a person gave him (owner, November 20): they stay
+        # closed through aged holds, release_poses and the drive stance until he is told to let go.
+        self.grip_channels: frozenset[int] = frozenset()
         self._base_held = False
         self._arm_returning = False        # The throttle arm is walking back to rest after a drive.
         # The channels that return is moving: every drive-stance arm right after a drive, only
@@ -243,7 +246,7 @@ class ServoOwner:
             # A shut visor stays shut: let go, idle motion would drift it open without a word.
             # Rex raises it himself when he wants to see again (may_raise_visor).
             shut = {3} if 3 in self.held_channels and visor_over_eyes(self.commanded) else set()
-            self.held_channels.intersection_update(kept | shut)   # An arm kept clear of an obstacle stays.
+            self.held_channels.intersection_update(kept | shut | self.grip_channels)   # An arm kept clear of an obstacle stays.
             return True
         return False
 
@@ -398,6 +401,11 @@ class ServoOwner:
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      telepresence_wake_lanes(current) if request.kind == 'telepresence_wake' else
                      lifecycle_lanes(request.kind, current, request.first_look, request.arms_home, request.keep_arms))
+            if self.grip_channels and request.kind == 'base_park':
+                # Holding something, the drive stance folds the arm and leaves the closed fingers be.
+                lanes = tuple(lane for lane in (tuple(beat for beat in (
+                    replace(beat, targets=tuple((ch, v) for ch, v in beat.targets if ch not in self.grip_channels))
+                    for beat in lane) if beat.targets) for lane in lanes) if lane)
             if self._arm_returning and (request.kind in {'base_park', 'park', 'shutdown'} or any(
                     ch in self._returning_channels for lane in lanes for beat in lane for ch, _ in beat.targets)):
                 # The arms are still returning from their drive stance; callers that need
@@ -525,7 +533,7 @@ class ServoOwner:
             if request.kind == 'pose' and request.pose == 'release_poses':
                 self.held_channels.clear()
                 self.hold_until_released = False
-                self.held_channels.update(self.kept_channels)
+                self.held_channels.update(self.kept_channels | self.grip_channels)   # What he holds stays held.
                 if self._arm_returning:
                     self.held_channels.update(self._returning_channels)
             if request.kind == 'base_release':

@@ -548,7 +548,7 @@ class Session:
     def _planning_job(self, turn_id, context, planning_context, audience, capabilities, opportunity):
         """Everything the planner sees, captured now; planning itself may finish later."""
         from .agency import evidence_catalog, recent_dialogue
-        from .servo_poses import POSE_COMMANDS
+        from .servo_poses import HAND_STEPS, POSE_COMMANDS
         from . import jokes
         agency = self.state.agency
         now = self.trace.clock()
@@ -596,7 +596,7 @@ class Session:
             'evidence': evidence, 'capabilities': capabilities,
             'capability_contract': {'gesture': 'A short spoken thought with a finite head expression that shows its feeling (nod, tilt, perplexed, wiggle, sympathetic, surprised, laugh, skeptical, deflated, proud, angry) that your lights show too; not a silent pose.',
                 'attention_mode': context.get('attention', {}).get('mode'),
-                'pose': {'enabled': 'pose' in capabilities, 'commands': list(POSE_COMMANDS),
+                'pose': {'enabled': 'pose' in capabilities, 'commands': [c for c in POSE_COMMANDS if c not in HAND_STEPS],
                          'reach_out_hand': 'throttle_offer', 'look_and_comment': 'pose with look_after',
                          **context.get('robot_pose_state', {})},
                 'drive': context.get('drive'),
@@ -1550,6 +1550,13 @@ class Session:
                     'arms_held_until_told': bool(getattr(owner,'hold_until_released',False)),
                     # October 11: tucked after a drive because something is within reach.
                     'arms_tucked_for_obstacle': sorted(getattr(owner,'kept_arms',()))}
+                hand = getattr(self.output.robot, 'hand_state', lambda: 'empty')()
+                if hand != 'empty':
+                    # Owner, November 20: holding something light, like a card.
+                    context['robot_pose_state']['throttle_hand'] = {
+                        'open': 'held out open, waiting for something to be put in it; it closes by itself when it comes',
+                        'holding': 'holding what a person gave you, fingers closed, until told to let go (hand_let_go)',
+                        'letting_go': 'fingers just opened to let go; the arm goes back to rest in a moment'}[hand]
                 own_visor = bool(getattr(owner, 'may_raise_visor', lambda: False)())
                 if visor_over_eyes(commanded):
                     context['visor_over_eyes'] = {'closed': True, 'yours_to_raise': own_visor, 'meaning':

@@ -297,7 +297,8 @@ request before carrying it out.
 - `correct_room`: fix or forget a room he got wrong.
 
 **Moving and lights**
-- `set_robot_pose`: move his head, visor or arms into named poses, one after another ("look down and wave").
+- `set_robot_pose`: move his head, visor or arms into named poses, one after another ("look down and wave"). It also holds something light: "can you hold this?" reaches his throttle hand out open while he
+  looks down at it, the fingers close when something comes into reach, and "you can let it go now" opens them.
 - `set_robot_joints`: move any of his 16 servos to an exact position when asked.
 - `shift_attention`: glance somewhere on his own, silently.
 - `animate_lights`: play a light animation (sparkle, blink, or a mood colour).

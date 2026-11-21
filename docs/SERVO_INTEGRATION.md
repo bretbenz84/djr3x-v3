@@ -6,6 +6,18 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 20: holding something in the throttle hand
+
+Owner: the fingers close at the lowest pulse, so `FINGERS_CLOSED` is `LIMITS[15][0]` (1264 µs) and
+`FINGERS_OPEN` `LIMITS[15][1]` (1856 µs). `HAND_POSES` adds three pose steps: `hand_take` (the
+`throttle_offer` arm, wrist at its park, fingers open; routed by `throttle_route`, the hand in its own lane at
+speed 20), `hand_grip` and `hand_let_go` (channel 15 only). `RobotServos` follows `hand_take` with
+`look_right` and `look_down` and holds the look for the 30 s wait; each frame `before_frame` feeds the
+front-right reading and the widest face to `hand_hold.HandWatch` and closes the fingers in a worker thread when
+it says so. `ServoOwner.grip_channels` (14 and 15 while gripping) survive `yield_stale_hold` and
+`release_poses`, and the drive stance's lanes leave them out. After a let go or a wait in vain the arm goes to
+`REST` and the hand to `HAND_PARK` (not while `hold_arms` holds). Synthetic checks only; nothing has moved.
+
 ## November 20: the throttle hand's real limits
 
 Owner, with the hand installed and its limits programmed into the Maestro: channel 14

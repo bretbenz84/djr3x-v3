@@ -6,6 +6,29 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Holding something light in the throttle hand — November 20
+
+Owner request: "can you hold this?" or "can you grab this?" reaches the throttle arm out if there is room,
+opens the fingers and looks down and to his right; when something is brought to the hand or someone comes
+close the fingers close (the lowest pulse) and hold; "you can let it go now" opens them.
+- **Built:** three `set_robot_pose` steps, offered to OpenAI and Claude alike (the tool description is shared):
+  `hand_take` (the arm to `throttle_offer`, the only calibrated reach, wrist at its middle, fingers fully open
+  at 1856 µs, then `look_right` and `look_down`, held while he waits), `hand_grip` (fingers to 1264 µs now) and
+  `hand_let_go` (open; 2.5 s later the arm goes to rest and the hand to its park). `hand_hold.HandWatch` closes
+  the hand on two front-right readings under 0.45 m and 0.1 m nearer than once the hand settled, or on a face
+  growing to 300 px wide (not one already that close); after 30 s with nothing brought the arm goes back to
+  rest. The open reach needs 0.5 m clear at the front right like any full extension (`ThrottleExtensionBlocked`).
+  A closed hand stays closed through aged holds, `release_poses`, another arm pose and the drive stance; only
+  `hand_let_go` (or shutdown's park) opens it. Another arm pose or a drive ends an open wait. The model sees
+  `robot_pose_state.throttle_hand` while the hand is open, holding or letting go. His own beats (planner and
+  proactive turns) cannot use the hand steps.
+- **Evidence:** 14 synthetic checks (`tests/test_hand_hold.py`), including a scripted conversation through the
+  production session; the changed-file run passed (1928 tests). Three probe cases added to
+  `check_action_requests.py` (`hold_this`, `grab_this`, `let_it_go`) but not run (paid). Not run on the robot.
+- **Open:** whether the front-right sensors see a hand bringing a card (and do not see the outstretched arm
+  itself), whether the camera looking down and right sees the hand, whether 1264 µs grips a card without
+  straining the servo, and whether `throttle_offer`'s forward-and-down reach is a good height to take things.
+
 ## The throttle arm's space is its front right; its hand moves while it is in — November 20
 
 Owner: the throttle arm stayed in at the wake with plenty of room. Run `25cd7cda` kept both arms in and never
