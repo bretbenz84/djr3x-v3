@@ -201,6 +201,10 @@ earlier version that opened it during the line): the wake left channel 3 alone a
 it. The before-the-line order is covered at the robot level by synthetic checks; the `App` call
 order itself is **not yet run on the robot**.
 
+November 20: the please-wait line is retired and the models load during the wake
+([startup](STARTUP_HEALTH.md)). The visor still stays shut from the wake until everything has loaded,
+then goes up just before the ready line, which is now one of the owner's fifteen new lines.
+
 ## November 15: head-lift normal height, surprise rise and pace
 
 Owner: the head lift's normal height is 1093 µs (`HEAD_LIFT_NORMAL` 4372; was the range's midpoint,

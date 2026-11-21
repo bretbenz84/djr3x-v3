@@ -24,6 +24,7 @@ class App:
         self.hardware_handoff = None
         self.cloner = None
         self.voice_clones = None
+        self.early = None
         self.model_switch = None
 
     def configure_live(self):
@@ -140,22 +141,53 @@ class App:
         # tuple indexing stable for core composition; only lifecycle order changes.
         # Wheels connect after servo wake; connecting never moves the base.
         wheels = tuple(p for p in (self.radar, self.drive) if p)
-        # V2 startup sounds start as soon as speech output is ready and play over
-        # servo wake and model loading; live() stops them before the ready line.
+        # The startup whir plays with the servo wake and a short ready line is said once he can
+        # listen; the same owner keeps his saved lines and the power-down clip. The please-wait
+        # line and the droid filler are retired (owner, November 20).
         from .startup_audio import StartupAudio
-        self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache', robot=self.robot, leds=self.leds)
+        self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache', wake_motion=self.robot is not None)
         if self.robot:
             self.robot.on_startup = self.startup_audio.motion_started
             self.robot.on_shutdown = self.startup_audio.shutdown_started   # Power-down clip over the park.
-        # The voice cloner builds its text tokenizer at start, holding the interpreter about
-        # 0.4 s (October 25): it starts before the microphone, so no heard audio is lost to it.
         started = [p for p in self.live_components if p not in (tts,sink,self.cloner,turn,voice_check,room_sounds)]
         for checker in (turn, voice_check, room_sounds):
             if checker:
-                started.insert(started.index(mic), checker)   # Ready before anything is heard.
+                started.insert(started.index(mic), checker)
         if self.cloner:
             started.insert(started.index(mic), self.cloner)
-        self.owner = ProviderOwner((tts,sink,self.startup_audio) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(started))
+        from .providers import Alongside, Preload
+        present = lambda *group: tuple(p for p in group if p)
+        # The face, smile, object and room models need no camera to load, only to be used (owner,
+        # November 20: in run b28d62e8 they loaded after the camera's first picture, about a second
+        # he waited for). Listed before the providers that own them, so it closes after they have.
+        self.early = Preload('camera_models', present(camera.encoder, expressions, objects and objects.detector,
+                                                      places and places.encoder),
+                             'face, smile, object and room models loaded while the servos wake') if camera else None
+        if self.early:
+            started.insert(started.index(mic), self.early)
+        # Owner, November 20: startup was one queue, 27 s to listening over 23 launches, of which the
+        # servo wake is 8.7 s and every local model together about 6 s. Nothing waits its turn now
+        # unless it has to. The order below is still the closing order, reversed; only these groups
+        # start beside it:
+        # - the models and hosted clients, from the first moment, done before the microphone opens
+        #   (the voice cloner's tokenizer holds the interpreter about 0.4 s, October 25: it goes
+        #   first, before a servo moves, and no heard audio is lost to a load); the camera-side
+        #   models follow them, ahead of the camera;
+        # - the lookups that reach the network or another app, so a slow one holds up nothing else;
+        # - once his body is awake: the wheels, and the camera with what watches through it, beside
+        #   the microphone. The servo wake still comes before the microphone and the camera.
+        awake = self.robot or self.leds or self.startup_audio   # The last of his body to start.
+        beside = (
+            Alongside(present(self.cloner, asr, vad, encoder, brain, turn, voice_check, room_sounds, keywords,
+                              agency_planner, locator, self.early), after=self.startup_audio, before=mic),
+            Alongside(present(public, weather, house, music, self.voice_clones), after=self.startup_audio),
+            Alongside(wheels, after=awake),
+            Alongside(present(camera, scene, inspection), after=awake),
+            Alongside(present(expressions), after=awake),
+            Alongside(present(objects), after=awake),
+            Alongside(present(places), after=awake),
+        )
+        self.owner = ProviderOwner((tts,sink,self.startup_audio) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(started), beside)
 
     def readiness(self):
         missing = []
@@ -366,10 +398,16 @@ class App:
                 self.startup_audio.stop()
                 announce(self.settings,self.owner,output,trace,failed=True)
             if not self.owner.start(on_required_failure=failed_notice):
+                trace.emit("startup_timing", **self.owner.timings())
                 trace.emit("startup_failed", report=self.doctor())
             else:
+                # When each part began starting and how long it took: what to read before changing the order.
+                trace.emit("startup_timing", **self.owner.timings())
                 trace.emit("startup", report=self.doctor(), evidence="live", models=[p.capability.model for p in self.live_components if p.capability.model])
                 active = {r.capability for r in self.owner.results if r.operation=='start' and r.outcome=='ok'}
+                if 'camera' not in active and 'camera_models' in active:
+                    # No camera this run: nothing will use the models loaded ahead of it.
+                    self.owner.close_only({'camera_models'})
                 camera = camera if 'camera' in active else None
                 scene = scene if 'scene_observations' in active else None
                 objects = objects if 'objects' in active else None
@@ -379,8 +417,8 @@ class App:
                 voice_check = next((p for p in optional if p.capability.name=='voice_check' and 'voice_check' in active
                                     and self.settings.voice_check_enabled),None)
                 output.inspection = inspection if 'current_view' in active else None
-                self.startup_audio.stop()   # Cut the filler; readiness never waits for it.
-                # The ready line gets the usual talking motion and speaking lights.
+                self.startup_audio.stop()   # The whir ended long ago; the speaker is live speech's alone from here.
+                # The ready line (and a hardware notice before it) gets the usual talking motion and speaking lights.
                 output.robot = self.robot if self.robot and 'robot_servos' in active else None
                 if output.robot:
                     from .physical_attention import PhysicalAttention, PhysicalGesture
@@ -389,7 +427,7 @@ class App:
                 output.speech_motion = output.robot.talking if output.robot else None
                 output.leds = self.leds if self.leds and 'robot_leds' in active else None
                 try:
-                    ready = self.startup_audio.ready(Cancellation())
+                    ready = self.startup_audio.ready()   # Chosen and fetched while everything started.
                 except Exception as exc:
                     ready = None
                     trace.emit('startup_audio',status='ready_line_failed',error_type=type(exc).__name__)
@@ -399,18 +437,21 @@ class App:
                         output.robot.open_eyes()
                     except Exception as exc:
                         trace.emit('servo_lifecycle',kind='open_eyes',status='failed',error_type=type(exc).__name__)
+                # Unavailable hardware is said first. Without a ready line (run b28d62e8) nothing told
+                # someone out of his view that he was up, and the start felt no faster.
                 startup_delivery = announce(self.settings,self.owner,output,trace,ready=ready)
                 mic.discard_pending()
                 from .sentry import canned_lines
                 from .session import CREDIT_LINES
                 from . import depth_watch
                 wheels = bool(self.drive and 'drive_base' in active)
-                # Uncached lines, paced, never over speech; sentry mode's when it can run (camera), the
+                # Uncached lines, paced, never over speech; the ready lines, sentry mode's when it can run (camera), the
                 # out-of-credit notices, saved while the voice service still works, and the depth sensor
                 # notices when he has wheels.
-                self.startup_audio.warm(busy=output.active.is_set,
-                                        extra=tuple(CREDIT_LINES.values()) + (canned_lines() if camera else ())
-                                              + (depth_watch.canned_lines() if wheels else ()))
+                from .startup_audio import READY_LINES
+                self.startup_audio.warm(READY_LINES + tuple(CREDIT_LINES.values()) + (canned_lines() if camera else ())
+                                        + (depth_watch.canned_lines() if wheels else ()),
+                                        busy=output.active.is_set)
                 if self.drive and 'drive_base' not in active:
                     # Configured wheels that failed to start: Rex still knows he has them.
                     failure = next((r for r in self.owner.results if r.capability=='drive_base' and r.operation=='start'),None)

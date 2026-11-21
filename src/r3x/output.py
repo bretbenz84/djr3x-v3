@@ -754,7 +754,7 @@ class OutputOwner:
                 accent = text if isinstance(text, AccentLine) else None
                 if accent:
                     text = accent.text
-                prerecorded = getattr(text, 'pcm', None)   # Cached canned line (startup ready line).
+                prerecorded = getattr(text, 'pcm', None)   # Cached canned line (the ready line, an out-of-credit notice).
                 if prerecorded is not None:
                     text = text.text
                 text = speech_text(text)

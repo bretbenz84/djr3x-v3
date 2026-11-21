@@ -6,6 +6,30 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Quicker startup and new ready lines — November 20
+
+Owner: the wait for the models and the startup sound effect had become annoying. Over 23 launches the
+program took 26.9 s (median) to start listening; the local models are about 6 s of that and the servo wake
+8.7 s, and startup ran everything one after another, then spent 5 s on the filler, the visor and the ready
+line. **Built:** the models and hosted clients start beside the lights and the servo wake and are done
+before the microphone opens; lookups (news, weather, house, music, voice clones) start on a thread of their
+own; once his body is awake the wheels, the camera and what watches through it start beside the microphone
+(`providers.Alongside`). The please-wait line and the droid filler are retired; the whir stays, and a short
+ready line is said once he can listen, from fifteen the owner picked. Unavailable hardware is still said
+aloud. Every start is
+timed in a `startup_timing` row. **Not done:** listening before the camera and wheels are up, and opening
+the hosted connections early (an idle one is dropped after 5 s). Measurements, the per-model load and memory
+table and limits: [startup](STARTUP_HEALTH.md). **Evidence:** synthetic checks (8 new for startup groups and
+Rex's own start order; the startup-sound checks rewritten); the full blocked-I/O suite passed (2,152 at the end of the day); each
+local model timed on the robot's Mac with real weights and no hardware, then loaded on a background thread
+and used from another. **Wake-word run `b28d62e8`:** listening 16.0 s after the wake word (27.2 to
+29.3 s in the four runs before). That run had no ready line: the owner, out of his view, could not tell he was up
+and spoke at 23 s, so it felt no faster. The ready line was put back the same day with the owner's lines,
+fetched during startup; listening then begins about 2 s later (not yet run on the robot).
+**Later the same day:** the face, smile, object and room models also load during the wake
+(`providers.Preload`), ahead of the camera that uses them; about a second sooner is expected, not yet run
+on the robot.
+
 ## Holding something light in the throttle hand — November 20
 
 **Review repairs (a read of the day's code and of run `fe1d4fea`'s trace; not a robot run).** Six faults, each
@@ -2936,7 +2960,7 @@ Camera-only recognition passed; combined conversation/group acceptance remains o
 | Implemented; in live use, acceptance pending | Head/chest startup/fade, playback-driven speaking LEDs and validated LLM animation tool including requested eye blinks | [LED integration and gates](LED_INTEGRATION.md) |
 | Implemented; in live use, acceptance pending | Servo lifecycle including throttle/elbow, playback-driven talking motion with addressee gaze, quiet-time idle hero/poker/throttle arms and head looks (face in front or around the room), spoken normal exit, LLM-selected held poses and bounded control of all sixteen servo channels (two-servo head pitch/side tilt, poker elbow/wrist with clearance since October 10), bounded microphone holds, cross-version resource handoff | [Servo integration and gates](SERVO_INTEGRATION.md), [operator services](OPERATOR_CUTOVER.md) |
 | Implemented; floor-tested, newest changes simulated only | LLM-selected drive-base plans (turn, move, face, approach, find person, vision seek of described things), continuous approach while hosted looks run, path-aware clearance and detours, radar bodies as bearing priors, arm/head drive stance, swing/clearance gates, truthful receipts, self-initiated moves including unseen radar presence, back-off reflex, blocked-path route planner, V2 motion sounds, and live battery/obstruction/radar/climate readings for the model | [Drive base integration](DRIVE_BASE_INTEGRATION.md) |
-| Implemented; in live use | V2 speech leveling (−20 LUFS) on every phrase; V2 startup sounds with servo wake-up, short cached please-wait/ready lines and spoken hardware notice; V2 power-down sound while the servos park; stop phrases wrapped or repeated ("Oh, stop!"); unreliable noise transcripts kept but never answered; one-time microphone recovery after a silent input | [V2 reference](../V2_REFERENCE.md#speech-leveling-and-startup-audio--september-27-2026), [drive repairs](DRIVE_BASE_INTEGRATION.md#talkative-arrivals-noise-replies-surroundings--september-27) |
+| Implemented; in live use | V2 speech leveling (−20 LUFS) on every phrase; V2 startup whir with servo wake-up and spoken hardware notice (models load beside the wake, the please-wait line and filler are retired and the ready lines are the owner's new fifteen, November 20: listening 16 s after the wake word in one run before the ready line was put back); V2 power-down sound while the servos park; stop phrases wrapped or repeated ("Oh, stop!"); unreliable noise transcripts kept but never answered; one-time microphone recovery after a silent input | [V2 reference](../V2_REFERENCE.md#speech-leveling-and-startup-audio--september-27-2026), [drive repairs](DRIVE_BASE_INTEGRATION.md#talkative-arrivals-noise-replies-surroundings--september-27) |
 | Installed and running | Wake supervisor ("wake up rex", chimes, charger cues, mic-wedge relaunch, V3 auto-update) and servo/LED/battery menu-bar apps copied from V2 and run by the four LaunchAgents; no-motion handover measured at 0.7 s | [Operator services](OPERATOR_CUTOVER.md) |
 | Implemented | Action continuity after interruption, bounded outcome history, no automatic resumption of abandoned work | [Integration pass](CORE_INTEGRATION_PASS.md) |
 | Implemented; live playback pending | Model-chosen voice impressions (famous clips and known people on the local Breeze engine with the shared MLX lock; the current speaker as an ElevenLabs clone from a repeat-after-me recording, November 19, live validated) and budgeted cameos through the one output owner | [Voice impressions](IMPERSONATION.md) |

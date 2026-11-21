@@ -159,6 +159,9 @@ about 1.5 s ahead through PortAudio's buffered stream, so playback levels arrive
 their predicted play times; the mailbox holds 48 samples (was 8), still bounded. Synthetic
 checks only; the boot-line mouth has not been seen on hardware.
 
+November 20: the please-wait line is retired ([startup](STARTUP_HEALTH.md)); the ready line still
+lights the mouth like any other line.
+
 ## October 23: eyes resent between lines
 
 In run 1e626e07 the eyes went dark for several seconds between lines; no command had been sent

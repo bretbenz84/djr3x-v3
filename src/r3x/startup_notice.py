@@ -27,7 +27,7 @@ def notice_text(settings, results, *, failed=False):
 
 
 def announce(settings, owner, output, trace, *, failed=False, ready=None):
-    """Hardware notice, then the cached "I'm ready" line (V2 order) when startup succeeded."""
+    """Unavailable hardware said aloud, then the ready line when startup succeeded."""
     text = notice_text(settings,owner.results,failed=failed)
     if failed:
         ready = None

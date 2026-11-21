@@ -5,6 +5,7 @@ PIL (shorter side to 256 with antialiased bilinear, center crop, RGB in [0,1], n
 this reproduces that resampling in numpy (no PIL dependency); parity is in docs/ROOM_RECOGNITION.md.
 """
 from functools import lru_cache
+import threading
 from hashlib import sha256
 from ..contracts import ProviderFailure
 from ..providers import Capability
@@ -53,21 +54,27 @@ def preprocess(frame):
 class PlaceEncoder:
     def __init__(self, path):
         self.path, self.session = path, None
+        self._loading = threading.Lock()
         self.capability = Capability('place_encoder', 'MobileCLIP-S2 ONNX CPU', 'which known room the camera sees',
                                      'mobileclip-s2:' + DIGEST[:12], ('numpy', 'onnxruntime'),
                                      ('256x256; CPU threads=1; one frame every 1.5 s at most; no fallback',),
                                      required=False)
 
     def start(self):
-        if self.path.resolve() != self.path or sha256(self.path.read_bytes()).hexdigest() != DIGEST:
-            raise ProviderFailure('PlaceModelDigestMismatch')
-        import onnxruntime as ort
-        options = ort.SessionOptions(); options.intra_op_num_threads = 1; options.inter_op_num_threads = 1
-        # The default memory arena kept ~525 MB resident on the M2; without it ~300 MB, same speed.
-        options.enable_cpu_mem_arena = False; options.enable_mem_pattern = False
-        self.session = ort.InferenceSession(str(self.path), sess_options=options, providers=['CPUExecutionProvider'])
-        if self.session.get_inputs()[0].shape != [1, 3, SIZE, SIZE]:
-            raise ProviderFailure('PlaceModelShapeMismatch')
+        """Loads once: a second start (its owner's, after an early load) finds the model there."""
+        with self._loading:
+            if self.session is not None:
+                return
+            if self.path.resolve() != self.path or sha256(self.path.read_bytes()).hexdigest() != DIGEST:
+                raise ProviderFailure('PlaceModelDigestMismatch')
+            import onnxruntime as ort
+            options = ort.SessionOptions(); options.intra_op_num_threads = 1; options.inter_op_num_threads = 1
+            # The default memory arena kept ~525 MB resident on the M2; without it ~300 MB, same speed.
+            options.enable_cpu_mem_arena = False; options.enable_mem_pattern = False
+            session = ort.InferenceSession(str(self.path), sess_options=options, providers=['CPUExecutionProvider'])
+            if session.get_inputs()[0].shape != [1, 3, SIZE, SIZE]:
+                raise ProviderFailure('PlaceModelShapeMismatch')
+            self.session = session   # Only a checked model counts as loaded.
 
     def embed(self, frame):
         """L2-normalized float32 vector."""

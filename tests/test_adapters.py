@@ -347,3 +347,24 @@ class LookImageTests(unittest.TestCase):
         brain.client=Client(Response(events))
         with self.assertRaisesRegex(ProviderFailure,'InvalidSceneImages'):
             list(brain.reply(Snapshot("s","t",0,(),images=(SceneImage('f',1.,'data:image/gif;base64,abcd'),)),Cancellation()))
+
+
+class LoadOnceTests(unittest.TestCase):
+    """The camera-side models may be loaded ahead of their owners (during the servo wake): a second
+    start must find the model there, not read and build it again."""
+    def test_a_loaded_model_is_not_loaded_again(self):
+        from pathlib import Path
+        from r3x.adapters.expression import ExpressionReader
+        from r3x.adapters.face import FaceEncoder
+        from r3x.adapters.objects import ObjectDetector
+        from r3x.adapters.places import PlaceEncoder
+        missing = Path('/nonexistent/model')          # Loading from here would fail.
+        loaded = object()
+        for model, attribute in ((FaceEncoder(missing), 'session'), (ObjectDetector(missing), 'session'),
+                                 (PlaceEncoder(missing), 'session'), (ExpressionReader(missing), 'landmarker')):
+            with self.assertRaises(Exception):
+                model.start()                         # Not loaded: it really tries.
+            self.assertIsNone(getattr(model, attribute))   # A failed load never looks loaded.
+            setattr(model, attribute, loaded)
+            model.start()                             # Loaded: nothing is read or built.
+            self.assertIs(getattr(model, attribute), loaded)

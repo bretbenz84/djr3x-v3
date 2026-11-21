@@ -81,7 +81,10 @@ the canned-line PCM cache live in ignored `local/cache/`. October 10: like V2's
 `tts.ensure_cached` before the clips, the chosen line is fetched while the whir and
 wake play; unlike V2, every boot and ready line not yet cached is synthesized once in
 the background after startup (paced, paused while Rex speaks), so later launches read
-all of them from disk. Spoken intro clips are copied
+all of them from disk. November 20 (owner): the please-wait lines and the `droid_startup`
+filler are retired from V3, and V2's ready lines are replaced by fifteen the owner picked; the whir,
+the no-repeat cycling, the canned-line cache and the power-down clip remain, and the filler clip stays
+among the copied clips unplayed (docs/STARTUP_HEALTH.md). Spoken intro clips are copied
 but unplayed (V2 default `PLAY_STARTUP_SPEECH_CLIP = False`). October 10: the shutdown
 clip (`SHUTDOWN_AUDIO_FILE`, started by V2 `_shutdown` alongside the LED fade and servo
 droop) plays from the servo owner's park hook, after the LED fade command and before

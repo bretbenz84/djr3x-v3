@@ -50,26 +50,31 @@ class ExpressionReader:
         self.path = path
         self.landmarker = self.mediapipe = None
         self.lock = threading.Lock()   # close() must not free the model under a read on the faces thread.
+        self._loading = threading.Lock()
         self.capability = Capability('expressions', 'MediaPipe Face Landmarker CPU',
             "what faces in view are showing, for the conversation; never identity or attribution",
             NAMESPACE, ('mediapipe', 'absl-py', 'matplotlib'), ('face_landmarker.task', 'camera face pass'),
             required=False, requires=('camera',))
 
     def start(self):
-        if self.path.resolve() != self.path.absolute() or not self.path.is_file() or file_digest(self.path) != LANDMARKER_SHA:
-            raise ProviderFailure('ExpressionModelMissingOrDigestMismatch')
-        os.environ.setdefault('MPLBACKEND', 'Agg')   # mediapipe imports pyplot; Rex draws nothing with it.
-        import mediapipe
-        from mediapipe.tasks.python.core.base_options import BaseOptions
-        from mediapipe.tasks.python.vision import face_landmarker
-        from mediapipe.tasks.python.vision.core.vision_task_running_mode import VisionTaskRunningMode
-        options = face_landmarker.FaceLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=str(self.path)),
-            running_mode=VisionTaskRunningMode.IMAGE, num_faces=1,
-            min_face_detection_confidence=.3, min_face_presence_confidence=.3,
-            output_face_blendshapes=True)
-        self.landmarker = face_landmarker.FaceLandmarker.create_from_options(options)
-        self.mediapipe = mediapipe
+        """Loads once: a second start (the provider's, after an early load) finds the model there."""
+        with self._loading:
+            if self.landmarker is not None:
+                return
+            if self.path.resolve() != self.path.absolute() or not self.path.is_file() or file_digest(self.path) != LANDMARKER_SHA:
+                raise ProviderFailure('ExpressionModelMissingOrDigestMismatch')
+            os.environ.setdefault('MPLBACKEND', 'Agg')   # mediapipe imports pyplot; Rex draws nothing with it.
+            import mediapipe
+            from mediapipe.tasks.python.core.base_options import BaseOptions
+            from mediapipe.tasks.python.vision import face_landmarker
+            from mediapipe.tasks.python.vision.core.vision_task_running_mode import VisionTaskRunningMode
+            options = face_landmarker.FaceLandmarkerOptions(
+                base_options=BaseOptions(model_asset_path=str(self.path)),
+                running_mode=VisionTaskRunningMode.IMAGE, num_faces=1,
+                min_face_detection_confidence=.3, min_face_presence_confidence=.3,
+                output_face_blendshapes=True)
+            self.mediapipe = mediapipe
+            self.landmarker = face_landmarker.FaceLandmarker.create_from_options(options)
 
     def read(self, image, box):
         """Blendshape scores for the face in this box, or None if it could not be read."""

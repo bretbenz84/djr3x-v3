@@ -1,4 +1,5 @@
 """Pinned RF-DETR Nano ONNX; one CPU thread, no torch/runtime downloads."""
+import threading
 from hashlib import sha256
 from ..providers import Capability
 from ..contracts import ProviderFailure
@@ -11,16 +12,21 @@ LABELS = dict(zip((1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,22,23,24,2
 class ObjectDetector:
     def __init__(self,path):
         self.path,self.session=path,None
+        self._loading=threading.Lock()
         self.capability=Capability('object_detector','RF-DETR Nano ONNX CPU','shared animal/object detection',
             'rfdetr-nano:'+DIGEST[:12],('numpy','opencv-python','onnxruntime'),('384x384; CPU threads=1; no fallback',))
 
     def start(self):
-        if self.path.resolve()!=self.path or sha256(self.path.read_bytes()).hexdigest()!=DIGEST:
-            raise ProviderFailure('ObjectModelDigestMismatch')
-        import onnxruntime as ort
-        options=ort.SessionOptions();options.intra_op_num_threads=1;options.inter_op_num_threads=1
-        self.session=ort.InferenceSession(str(self.path),sess_options=options,providers=['CPUExecutionProvider'])
-        if self.session.get_inputs()[0].shape!=[1,3,384,384]:raise ProviderFailure('ObjectModelShapeMismatch')
+        """Loads once: a second start (its owner's, after an early load) finds the model there."""
+        with self._loading:
+            if self.session is not None:return
+            if self.path.resolve()!=self.path or sha256(self.path.read_bytes()).hexdigest()!=DIGEST:
+                raise ProviderFailure('ObjectModelDigestMismatch')
+            import onnxruntime as ort
+            options=ort.SessionOptions();options.intra_op_num_threads=1;options.inter_op_num_threads=1
+            session=ort.InferenceSession(str(self.path),sess_options=options,providers=['CPUExecutionProvider'])
+            if session.get_inputs()[0].shape!=[1,3,384,384]:raise ProviderFailure('ObjectModelShapeMismatch')
+            self.session=session   # Only a checked model counts as loaded.
 
     def detect(self,frame):
         if self.session is None:raise ProviderFailure('ObjectDetectorNotStarted')

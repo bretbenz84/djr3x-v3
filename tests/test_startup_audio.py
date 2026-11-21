@@ -1,4 +1,6 @@
-"""V2 startup sounds and canned lines through V3's owners; synthetic TTS and sink only."""
+"""The startup whir, the ready line, the power-down clip and saved canned lines through V3's owners;
+synthetic TTS and sink only."""
+import json
 from pathlib import Path
 import random
 import tempfile
@@ -9,7 +11,7 @@ from r3x.contracts import Cancellation, Playback
 from r3x.output import OutputOwner
 from r3x.providers import LifecycleResult
 from r3x.settings import Settings
-from r3x.startup_audio import ASSETS, BOOT_LINES, READY_LINES, LineCycle, StartupAudio, read_clip
+from r3x.startup_audio import ASSETS, READY_LINES, LineCycle, StartupAudio, read_clip
 from r3x.startup_notice import announce
 from tests.test_voice_core import Trace
 
@@ -65,22 +67,64 @@ class StartupAudioTests(unittest.TestCase):
     def setUp(self):
         self.dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
-    def test_whir_then_line_then_filler_which_readiness_drains_gently(self):
-        filler = read_clip('droid_startup.wav')
+    def test_only_the_whir_plays_while_he_starts(self):
+        # Owner, November 20: the please-wait line and the droid filler are retired.
         tts, sink = CountingTTS(), RecordingSink(pace=.004)
-        audio = StartupAudio(tts, sink, self.dir, rng=random.Random(1))
+        audio = StartupAudio(tts, sink, self.dir)
         audio.start()
-        deadline = time.monotonic() + 3
-        while len(sink.played) < 3 and time.monotonic() < deadline:
-            time.sleep(.01)
-        time.sleep(.05)
+        self.assertTrue(audio.stop())                              # Waits the whir out; never cuts it.
+        self.assertFalse(audio._cancel.event.is_set())
+        self.assertEqual(sink.played, [read_clip('startup_whir.wav')])   # Nothing is said while he starts.
+
+    def test_the_ready_line_is_chosen_and_fetched_while_he_starts(self):
+        # Said the moment he can listen: its sound must already be in hand, even a line never made before.
+        class SlowTTS(CountingTTS):
+            def synthesize(self, text, cancel):
+                time.sleep(.3)                                     # The voice service's round trip.
+                return super().synthesize(text, cancel)
+        tts = SlowTTS()
+        audio = StartupAudio(tts, RecordingSink(pace=.004), self.dir, rng=random.Random(2))
         began = time.monotonic()
-        self.assertTrue(audio.stop())
-        self.assertLess(time.monotonic() - began, 1.)             # Readiness does not wait out the clip.
-        self.assertFalse(audio._cancel.event.is_set())             # Starved and drained, never force-stopped.
-        self.assertEqual(sink.played[0], read_clip('startup_whir.wav'))
-        self.assertIn(tts.texts[0], BOOT_LINES)
-        self.assertTrue(filler.startswith(sink.played[2]) and 0 < len(sink.played[2]) < len(filler))
+        audio.start()
+        self.assertLess(time.monotonic() - began, .2)              # Startup never waits for the voice service.
+        time.sleep(.5)                                             # Everything else starts meanwhile.
+        began = time.monotonic()
+        ready = audio.ready()
+        self.assertLess(time.monotonic() - began, .1)              # In hand: no pause before he speaks.
+        self.assertIn(ready.text, READY_LINES)
+        self.assertEqual(ready.pcm, b'\x01\x00' * 400)
+        self.assertEqual(tts.texts, [ready.text])                  # Made once.
+        self.assertEqual(audio.ready().text, ready.text)           # One line a launch.
+        audio.stop()
+        again = StartupAudio(tts, RecordingSink(), self.dir, rng=random.Random(2))
+        self.assertNotEqual(again.ready().text, ready.text)        # The next launch says a different one.
+
+    def test_a_ready_line_that_cannot_be_made_is_reported_not_waited_for(self):
+        class DownTTS(CountingTTS):
+            def synthesize(self, text, cancel):
+                raise RuntimeError('provider down')
+        audio = StartupAudio(DownTTS(), RecordingSink(), self.dir)
+        audio.start()
+        with self.assertRaises(RuntimeError):
+            audio.ready()                                          # Live startup logs it and goes on in silence.
+        audio.stop()
+
+    def test_ready_lines_are_the_owners_fifteen_and_short(self):
+        self.assertEqual(len(READY_LINES), 15)
+        self.assertEqual(len(set(READY_LINES)), 15)
+        self.assertIn('Please state the nature of the medical emergency.', READY_LINES)
+        self.assertIn('First flight for me too, folks.', READY_LINES)
+        self.assertTrue(all(len(line.split()) <= 8 for line in READY_LINES))   # He cannot listen while he says one.
+
+    def test_lines_do_not_repeat_until_every_line_has_played(self):
+        state = self.dir / 'state.json'
+        state.write_text(json.dumps({'ready': [3, 7, 1], 'boot': [2]}))       # The retired lists' numbered state.
+        picks = [LineCycle(state).pick('ready', READY_LINES) for _ in READY_LINES]
+        self.assertEqual(sorted(picks), sorted(READY_LINES))    # Every line once, across new instances (launches).
+        self.assertIn(LineCycle(state, random.Random(3)).pick('ready', READY_LINES), READY_LINES)   # Then round again.
+        fewer = READY_LINES[:3]
+        picks = [LineCycle(state).pick('ready', fewer) for _ in fewer]
+        self.assertTrue(set(picks) <= set(fewer))                # A changed list is followed, never an old line.
 
     def test_clips_are_fed_in_small_pieces(self):
         pieces = []
@@ -92,216 +136,87 @@ class StartupAudioTests(unittest.TestCase):
         self.assertGreater(len(pieces), 10)
         self.assertLessEqual(max(pieces), 4410)
 
-    def test_whir_waits_for_servo_wake_and_the_line_gets_talking_motion(self):
-        events = []
-        class Talking:
-            def start(self, turn_id, cancel): events.append('talk_start')
-            def stop(self): events.append('talk_stop')
-        class Robot:
-            owner = type('Owner', (), {'state': 'ready'})()
-            talking = Talking()
-        class Sink(RecordingSink):
-            def play(inner, chunks, cancel, on_start, visualize=True):
-                events.append('play')
-                return RecordingSink.play(inner, chunks, cancel, on_start, visualize)
-        robot, sink = Robot(), Sink()
-        audio = StartupAudio(CountingTTS(), sink, self.dir, robot=robot)
+    def test_whir_waits_for_the_servo_wake(self):
+        sink = RecordingSink()
+        audio = StartupAudio(CountingTTS(), sink, self.dir, wake_motion=True)
         audio.start()
         time.sleep(.15)
-        self.assertEqual(events, [])            # Nothing plays before the servos move.
+        self.assertEqual(sink.played, [])       # Nothing plays before the servos move.
         audio.motion_started()
-        deadline = time.monotonic() + 2
-        while 'play' not in events and time.monotonic() < deadline:
-            time.sleep(.01)
-        time.sleep(.1)
-        self.assertEqual(events, ['play'])      # Whir with the wake-up; line waits for it to finish.
-        robot.owner.state = 'active'
-        deadline = time.monotonic() + 2
-        while events.count('play') < 3 and time.monotonic() < deadline:
-            time.sleep(.01)
-        audio.stop()
-        self.assertEqual(events[:4], ['play', 'talk_start', 'play', 'talk_stop'])
-
-    def test_readiness_lets_the_line_finish_but_cuts_the_filler(self):
-        line_bytes = b'\x01\x00' * 400
-        outcome = {}
-        filler = read_clip('droid_startup.wav')
-        class Sink(RecordingSink):
-            def play(inner, chunks, cancel, on_start, visualize=True):
-                data = b''
-                for chunk in chunks:
-                    data += chunk
-                if data == line_bytes:
-                    outcome['line_started'] = True
-                    time.sleep(.3)   # The line is audible while startup finishes.
-                    outcome['line_cut'] = cancel.event.is_set()
-                if filler.startswith(data) and data:
-                    outcome['filler_started'] = True
-                return Playback(len(data)//2, 0., 0., 0)
-        audio = StartupAudio(CountingTTS(), Sink(), self.dir)
-        audio.start()
-        deadline = time.monotonic() + 3
-        while 'line_started' not in outcome and time.monotonic() < deadline:
-            time.sleep(.005)
         self.assertTrue(audio.stop())
-        self.assertFalse(outcome['line_cut'])
-        self.assertNotIn('filler_started', outcome)   # Readiness arrived before the filler: it never starts.
+        self.assertEqual(sink.played, [read_clip('startup_whir.wav')])
 
-    def test_line_is_fetched_during_the_whir_and_wake_so_it_follows_them_without_a_pause(self):
-        events = []
-        class SlowTTS(CountingTTS):
-            def synthesize(self, text, cancel):
-                events.append(('synthesis_started', time.monotonic()))
-                time.sleep(.5)                                  # An uncached line: a hosted round trip.
-                return super().synthesize(text, cancel)
-        class Robot:
-            owner = type('Owner', (), {'state': 'ready'})()
-            talking = type('Talking', (), {'start': lambda s, t, c: None, 'stop': lambda s: None})()
-        class Sink(RecordingSink):
-            def play(inner, chunks, cancel, on_start, visualize=True):
-                events.append(('play_started', time.monotonic()))
-                result = RecordingSink.play(inner, chunks, cancel, on_start, visualize)
-                events.append(('play_finished', time.monotonic()))
-                return result
-        robot, sink = Robot(), Sink(pace=.02)                   # The whir takes about 0.8 s.
-        audio = StartupAudio(SlowTTS(), sink, self.dir, robot=robot)
-        audio.start()
-        audio.motion_started()
-        deadline = time.monotonic() + 3
-        while sum(1 for kind, _ in events if kind == 'play_finished') < 1 and time.monotonic() < deadline:
-            time.sleep(.01)
-        robot.owner.state = 'active'                            # The wake finishes as the whir ends.
-        deadline = time.monotonic() + 3
-        while sum(1 for kind, _ in events if kind == 'play_started') < 2 and time.monotonic() < deadline:
-            time.sleep(.005)
-        audio.stop()
-        kinds = [kind for kind, _ in events]
-        self.assertEqual(kinds[:4], ['synthesis_started', 'play_started', 'play_finished', 'play_started'])
-        whir_finished = events[2][1]
-        line_started = events[3][1]
-        self.assertLess(line_started - whir_finished, .25)      # No synthesis gap after the whir.
-
-    def test_power_down_clip_follows_stopped_startup_sound_while_the_servos_park(self):
-        filler, clip = read_clip('droid_startup.wav'), read_clip('robot_power_down.wav')
+    def test_power_down_clip_follows_the_whir_while_the_servos_park(self):
+        whir, clip = read_clip('startup_whir.wav'), read_clip('robot_power_down.wav')
         sink = RecordingSink(pace=.004)
-        audio = StartupAudio(CountingTTS(), sink, self.dir, rng=random.Random(1))
+        audio = StartupAudio(CountingTTS(), sink, self.dir)
         audio.start()
         deadline = time.monotonic() + 3
-        while len(sink.played) < 3 and time.monotonic() < deadline:
+        while not sink.played and time.monotonic() < deadline:
             time.sleep(.01)
         began = time.monotonic()
         audio.shutdown_started()                                  # The servo owner's park hook.
-        self.assertLess(time.monotonic() - began, 1.)             # The park never waits for the sound.
+        self.assertLess(time.monotonic() - began, 1.)             # The park never waits for the power-down sound.
         self.assertTrue(audio._shutdown_thread.is_alive())        # It plays while the servos move.
         audio.close()                                             # After the park, before the sink closes.
         self.assertFalse(audio._shutdown_thread.is_alive())
-        self.assertFalse(audio._cancel.event.is_set())            # Startup filler was starved, not cut.
-        self.assertTrue(filler.startswith(sink.played[2]) and len(sink.played[2]) < len(filler))
-        self.assertEqual(sink.played[3], clip)                    # The whole power-down clip, after the filler.
-        self.assertEqual(sink.visualized[3], False)               # No speaking lights on a power-down sound.
-        self.assertEqual(len(sink.played), 4)
+        self.assertFalse(audio._cancel.event.is_set())            # The whir finished; it was not cut.
+        self.assertEqual(sink.played, [whir, clip])               # One clip at a time, each whole.
+        self.assertEqual(sink.visualized[1], False)               # No speaking lights on a power-down sound.
         audio.shutdown_started()                                  # A second park request does not replay it.
-        self.assertEqual(len(sink.played), 4)
+        self.assertEqual(len(sink.played), 2)
 
-    def test_startup_sound_shares_one_buffered_stream_closed_before_live_speech(self):
-        # October 22: the filler stuttered while models loaded; startup sound is buffered by the driver.
+    def test_the_whir_uses_one_buffered_stream_closed_before_live_speech(self):
+        # October 22: startup sound stuttered while models loaded; it is buffered by the driver.
         sink = RecordingSink(pace=.004)
-        audio = StartupAudio(CountingTTS(), sink, self.dir, rng=random.Random(1))
+        audio = StartupAudio(CountingTTS(), sink, self.dir)
         audio.start()
-        deadline = time.monotonic() + 3
-        while len(sink.played) < 3 and time.monotonic() < deadline:
-            time.sleep(.01)
         self.assertTrue(audio.stop())
         self.assertEqual(len(sink.streams), 1)
-        self.assertEqual(sink.streams[0].clips, 3)              # Whir, line and filler.
-        self.assertTrue(sink.streams[0].closed)                 # Closed before the ready line plays.
+        self.assertEqual(sink.streams[0].clips, 1)              # The whir.
+        self.assertTrue(sink.streams[0].closed)                 # Closed before any live speech.
         audio.shutdown_started()
         audio.close()
-        self.assertEqual(sink.streams[0].clips, 3)              # Power-down uses ordinary playback.
-        self.assertEqual(len(sink.played), 4)
+        self.assertEqual(sink.streams[0].clips, 1)              # Power-down uses ordinary playback.
+        self.assertEqual(len(sink.played), 2)
 
-    def test_the_please_wait_line_lights_the_mouth_like_any_line(self):
-        # October 22 (owner): the mouth LEDs stayed dark through the boot line.
-        events, line = [], b'\x01\x00' * 400
-        class LEDs:
-            def clear_pcm(self): events.append('clear')
-            def begin(self, pattern, speaking=False, request=None):
-                events.append(('begin', pattern, speaking)); return 7
-            def finish(self, token): events.append(('finish', token)); return 'commands_sent'
-        class Sink(RecordingSink):
-            def play(inner, chunks, cancel, on_start, visualize=True):
-                result = RecordingSink.play(inner, chunks, cancel, on_start, visualize)
-                events.append(('play', inner.played[-1] == line))
-                return result
-        audio = StartupAudio(CountingTTS(), Sink(), self.dir, leds=LEDs())
-        audio.start()
-        deadline = time.monotonic() + 3
-        while ('finish', 7) not in events and time.monotonic() < deadline:
-            time.sleep(.01)
-        audio.stop()
-        self.assertEqual(events[:5], [('play', False), 'clear', ('begin', 'neutral', True), ('play', True), ('finish', 7)])
-
-    def test_a_dark_led_board_does_not_stop_the_line(self):
-        class LEDs:
-            def clear_pcm(self): pass
-            def begin(self, pattern, speaking=False, request=None):
-                from r3x.contracts import ProviderFailure
-                raise ProviderFailure('LEDUnavailable')
-        trace, sink = Trace(), RecordingSink()
-        audio = StartupAudio(CountingTTS(), sink, self.dir, leds=LEDs(), trace=trace)
-        audio.start()
-        deadline = time.monotonic() + 3
-        while len(sink.played) < 2 and time.monotonic() < deadline:
-            time.sleep(.01)
-        audio.stop()
-        self.assertEqual(sink.played[1], b'\x01\x00' * 400)
-        self.assertIn('speaking_lights_failed', [r.get('status') for r in trace.rows if r['event'] == 'startup_audio'])
-
-    def test_startup_lines_are_short(self):
-        self.assertTrue(all(len(line.split()) <= 7 for line in BOOT_LINES + READY_LINES))
-
-    def test_lines_do_not_repeat_until_every_line_has_played(self):
-        cycle = LineCycle(self.dir / 'state.json', random.Random(3))
-        picks = [LineCycle(self.dir / 'state.json').pick('ready', READY_LINES) for _ in READY_LINES]
-        self.assertEqual(sorted(picks), sorted(READY_LINES))   # Survives new instances (launches).
-        self.assertIn(cycle.pick('ready', READY_LINES), READY_LINES)
-
-    def test_every_boot_and_ready_line_is_cached_in_the_background_without_talking_over_speech(self):
+    def test_canned_lines_are_cached_in_the_background_without_talking_over_speech(self):
+        lines = ('Out of credit.', 'Intruder alert.', 'A sensor went dark.')
         tts = CountingTTS()
         audio = StartupAudio(tts, RecordingSink(), self.dir)
-        audio.speech(BOOT_LINES[0], Cancellation())              # One line already cached by a launch.
+        audio.speech(lines[0], Cancellation())                   # One line already cached by a launch.
         busy = {'speaking': True}
-        thread = audio.warm(busy=lambda: busy['speaking'], interval=0.)
+        thread = audio.warm(lines + lines[:1], busy=lambda: busy['speaking'], interval=0.)
         time.sleep(.3)
-        self.assertEqual(tts.texts, [BOOT_LINES[0]])             # Nothing is synthesized while Rex speaks.
+        self.assertEqual(tts.texts, [lines[0]])                  # Nothing is synthesized while Rex speaks.
         busy['speaking'] = False
         thread.join(5.)
         self.assertFalse(thread.is_alive())
-        expected = list(BOOT_LINES + READY_LINES)
-        self.assertEqual(sorted(tts.texts), sorted(expected))    # Each line exactly once.
-        self.assertEqual(len(list(self.dir.glob('startup-tts/*.pcm'))), len(expected))
-        self.assertIsNone(StartupAudio(tts, RecordingSink(), self.dir).warm())   # A warm cache: no work.
+        self.assertEqual(sorted(tts.texts), sorted(lines))       # Each line exactly once.
+        self.assertEqual(len(list(self.dir.glob('startup-tts/*.pcm'))), len(lines))
+        self.assertIsNone(StartupAudio(tts, RecordingSink(), self.dir).warm(lines))   # A warm cache: no work.
         again = StartupAudio(tts, RecordingSink(), self.dir)
-        for line in expected:
+        for line in lines:
             again.speech(line, Cancellation())
-        self.assertEqual(len(tts.texts), len(expected))          # Later launches never synthesize.
+        self.assertEqual(len(tts.texts), len(lines))             # Later launches never synthesize.
 
     def test_warming_stops_at_close_and_after_a_provider_failure(self):
+        lines = tuple('Line %d.' % n for n in range(12))
         class FailingTTS(CountingTTS):
             def synthesize(self, text, cancel):
                 self.texts.append(text)
                 raise RuntimeError('provider down')
         tts = FailingTTS()
-        thread = StartupAudio(tts, RecordingSink(), self.dir).warm(interval=0.)
+        thread = StartupAudio(tts, RecordingSink(), self.dir).warm(lines, interval=0.)
         thread.join(2.)
         self.assertEqual(len(tts.texts), 1)                      # One failure ends the pass; no retries.
         slow = CountingTTS()
         audio = StartupAudio(slow, RecordingSink(), self.dir)
-        audio.warm(interval=.2)
+        audio.warm(lines, interval=.2)
         time.sleep(.05)
         audio.close()
         self.assertFalse(audio._warm_thread.is_alive())
-        self.assertLess(len(slow.texts), len(BOOT_LINES + READY_LINES))
+        self.assertLess(len(slow.texts), len(lines))
 
     def test_canned_lines_are_synthesized_once_then_cached(self):
         tts = CountingTTS()
@@ -315,11 +230,14 @@ class StartupAudioTests(unittest.TestCase):
         trace = Trace()
         output = OutputOwner(SyntheticTTS(), SyntheticSink(), trace)
         audio = StartupAudio(CountingTTS(), RecordingSink(), self.dir)
-        ready = audio.ready(Cancellation())
-        owner = type('Owner', (), {'results': [LifecycleResult('drive_base', 'start', 'failed', 'ProviderFailure'),
-                                               LifecycleResult('tts', 'start', 'ok'), LifecycleResult('playback', 'start', 'ok')]})()
-        delivery = announce(Settings(), owner, output, trace, ready=ready)
+        ready = audio.ready()
+        healthy = type('Owner', (), {'results': [LifecycleResult('tts', 'start', 'ok'), LifecycleResult('playback', 'start', 'ok')]})()
+        delivery = announce(Settings(), healthy, output, trace, ready=ready)
         self.assertEqual(delivery.status, 'completed')
+        self.assertEqual(delivery.completed_text, [ready.text])              # A healthy start says only that he is ready.
+        self.assertIsNone(announce(Settings(), healthy, output, trace))      # No line in hand: silence, not a stall.
+        owner = type('Owner', (), {'results': healthy.results + [LifecycleResult('drive_base', 'start', 'failed', 'ProviderFailure')]})()
+        delivery = announce(Settings(), owner, output, trace, ready=ready)
         self.assertEqual(delivery.completed_text, ['Hardware unavailable: wheel controller.', ready.text])
         self.assertIn(ready.text, READY_LINES)
         failed = announce(Settings(), owner, output, trace, failed=True, ready=ready)

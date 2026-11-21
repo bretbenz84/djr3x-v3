@@ -1,4 +1,6 @@
 """Pinned CPU SCRFD + EdgeFace. Explicit loading; static alignment only."""
+import threading
+
 from ..visual_evaluation import file_digest
 from ..contracts import ProviderFailure
 
@@ -83,28 +85,34 @@ class FaceEncoder:
     def __init__(self, root):
         self.root = root
         self.detector = self.session = None
+        self._loading = threading.Lock()
 
     def start(self):
-        import cv2
-        import onnxruntime as ort
-        cv2.setNumThreads(1)
-        for name, digest in (("scrfd_10g.onnx", DETECTOR_SHA),
-                             ("edgeface_s_gamma_05.onnx", RECOGNIZER_SHA)):
-            path = self.root / name
-            if path.resolve() != path.absolute() or not path.is_file() or file_digest(path) != digest:
-                raise ProviderFailure("FaceModelMissingOrDigestMismatch")
-        self.detector = Detector(self.root / "scrfd_10g.onnx", 960)
-        options = ort.SessionOptions()
-        # M5 changing-frame regression: ORT #28231. Keep bounded standard CPU kernels.
-        options.add_session_config_entry("mlas.disable_kleidiai", "1")
-        options.enable_cpu_mem_arena = False
-        options.intra_op_num_threads = options.inter_op_num_threads = 1
-        self.session = ort.InferenceSession(str(self.root / "edgeface_s_gamma_05.onnx"),
-            sess_options=options, providers=["CPUExecutionProvider"])
-        inp = self.session.get_inputs()[0]
-        if inp.type != "tensor(float)" or list(inp.shape)[1:] != [3,112,112]:
-            raise ProviderFailure("FaceRecognizerContractMismatch")
-        self.input_name = inp.name
+        """Loads once: a second start (the camera's, after an early load) finds the models there."""
+        with self._loading:
+            if self.session is not None:
+                return
+            import cv2
+            import onnxruntime as ort
+            cv2.setNumThreads(1)
+            for name, digest in (("scrfd_10g.onnx", DETECTOR_SHA),
+                                 ("edgeface_s_gamma_05.onnx", RECOGNIZER_SHA)):
+                path = self.root / name
+                if path.resolve() != path.absolute() or not path.is_file() or file_digest(path) != digest:
+                    raise ProviderFailure("FaceModelMissingOrDigestMismatch")
+            detector = Detector(self.root / "scrfd_10g.onnx", 960)
+            options = ort.SessionOptions()
+            # M5 changing-frame regression: ORT #28231. Keep bounded standard CPU kernels.
+            options.add_session_config_entry("mlas.disable_kleidiai", "1")
+            options.enable_cpu_mem_arena = False
+            options.intra_op_num_threads = options.inter_op_num_threads = 1
+            session = ort.InferenceSession(str(self.root / "edgeface_s_gamma_05.onnx"),
+                sess_options=options, providers=["CPUExecutionProvider"])
+            inp = session.get_inputs()[0]
+            if inp.type != "tensor(float)" or list(inp.shape)[1:] != [3,112,112]:
+                raise ProviderFailure("FaceRecognizerContractMismatch")
+            self.input_name = inp.name
+            self.detector, self.session = detector, session   # Only a checked pair counts as loaded.
 
     def embed(self, aligned):
         import cv2
