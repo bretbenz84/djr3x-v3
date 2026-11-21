@@ -1032,3 +1032,13 @@ gone in the second read. **Not shown on the robot:** the front-right in a doubtf
 readings were all valid in this spot), and any driving on this firmware. Logs:
 `local/firmware/2026-11-20-0.2.22-flash.log`, `-boot.ndjson`.
 
+**After a power cut the same evening** (the robot and the Mac were both power cycled before this was
+committed). A hello-only read 163 s after the controller started: still `0.2.22-fr-like-the-rest`;
+all eight ring sensors reporting, the rear corner pair included (545-553 and 962-971 mm); the
+front-right valid in 138 of 138 raw samples and published in every frame; each ring sensor read
+every 82-83 ms with the raw stream running. **The front 8x8 did not come up**: `tof_matrix front: no
+ACK at 0x33`, 161 attempts and counting, while the rear 8x8 on the same bus streamed normally. The
+depth sensor code is unchanged in 0.2.21 and 0.2.22, and both sensors were ready at the 21:52 start
+before the power cut. The firmware keeps probing once a second and sets the sensor up again by
+itself when it answers.
+

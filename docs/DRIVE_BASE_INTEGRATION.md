@@ -2042,8 +2042,13 @@ driver compiled against scripted sensors.
 A window for all of this, opened from the battery menu, is described in
 [the dashboard notes](GUI.md#tof-diagnostics-window--november-20-2026).
 
-**Still open.** Rolling and turning together past something close on the open end's side. The rear
-corner sensors (cabling, or their modules). No floor run on 0.2.21 or 0.2.22: nothing has driven under
+**After a power cut that evening** (robot and Mac power cycled): the controller is on 0.2.22, all eight
+ring sensors report again, the rear corner pair included, and the front 8x8 depth sensor does not
+answer (`no ACK at 0x33`; the rear one streams). Without it the host refuses every forward move.
+
+**Still open.** The front 8x8 since the power cut. Rolling and turning together past something close on
+the open end's side. Why the rear corner sensors dropped out on November 19 and failed twice at start
+(they came back with the power cycle). No floor run on 0.2.21 or 0.2.22: nothing has driven under
 either, and the front-right has not been seen in a doubtful stretch since the change. The host's own
 `front_right_radial_unavailable` handling stays for a sensor that truly gives nothing. The Bluetooth text that garbles the serial line after a controller start
 (firmware README).
