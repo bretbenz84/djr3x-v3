@@ -1995,3 +1995,50 @@ restored and has the port again.
 **Not yet on the robot:** no wheel has turned under this firmware. Still to try: a call that turns
 him on the charger, how the cord and the charger plug behave over several turns, and whether the
 gamepad lock and the unplug release still behave as before.
+
+
+## Run `d32ba628`: stuck at the open door, and the corner sensors — November 20, 2026 (firmware 0.2.21)
+
+Owner: "Rex is no longer able to get through a door way he's navigated through before. It's like he's
+hitting one close ToF and giving up", and later "why are we discarding front right? can we not do that?
+fix and flash the firmware."
+
+**What the log and a live reading show** (two minutes, hello only, nothing moved; captures in
+`local/validation/doorway-tof-20261120/`).
+
+- *No sensor was giving a false close reading.* The left side sensors read 146-155 and 161-170 mm
+  for the whole two minutes: a board lying beside him. The eight depth columns read, right to left,
+  0.45, 0.50, 0.56, 0.62, 0.70, 0.81 and 0.94 m and then nothing, each steady to a centimetre or two,
+  and were read as a door 51 degrees off square-on with its open end to the left in 725 of 757 frames.
+- *Why he stops.* The doorway code has not changed since November 17. While anything is within 0.20 m
+  on the open end's side, the steering toward that end is zero (`SURFACE_SIDE_HOLD_M`; all of it only
+  from 0.35 m), so with the board at 0.15 m he rolls straight at the door, and once he was steered 8
+  degrees toward it by the push off the board. Stopped there he only turns on the spot, and the
+  arm-swing check refuses every left turn beside the board (10, 20, 30 and 46 degrees, replayed on the
+  live frames). The run shows exactly that three times: 0.39, 0.35 and 0.24 m rolled, then 21, 46 and
+  55 degrees refused; "go left ten degrees" was refused too and he backed up 0.33 m. On November 17
+  the gap was 0.21-0.27 m when he turned and he was following the owner's face; tonight the model
+  chose plain forward moves. **Not changed.** Owner: a spin there would touch the board, "but if he
+  moved and turned at the same time he could make it."
+- *The corner sensors.* Since November 19 at 19:05 both rear corner sensors had stopped answering and
+  the front-right had published nothing, although its raw readings were clean (below). The front-left
+  swings between about 1.2 m and nothing while he sits still: a weak reflection that the firmware reads
+  as valid in a quarter of its samples and as "nothing there" in the rest. Both depth sensors still
+  stall for about a second roughly once a minute.
+
+**Firmware 0.2.21** stops a healthy front-right from being discarded: a slow round no longer counts
+against it, and a ring sensor that stops answering is asked every 2 s instead of being waited on every
+round. Details, checks and the flash are in the firmware's
+[README](../firmware/djr3x_motion/README.md#ring-sensors-a-silent-one-no-longer-holds-up-the-rest-firmware-0221-november-20-2026).
+After the flash the front-right published in every frame (544-553 mm). The two rear corner sensors
+failed at start, so reversing has the rear depth sensor alone, as when they were silent.
+
+A window for all of this, opened from the battery menu, is described in
+[the dashboard notes](GUI.md#tof-diagnostics-window--november-20-2026).
+
+**Still open.** Rolling and turning together past something close on the open end's side. The rear
+corner sensors (cabling, or their modules). No floor run on 0.2.21: nothing has driven under it. The
+front-right's rule for doubtful readings is unchanged, so it will still go quiet in stretches as it
+did before November 19. The Bluetooth text that garbles the serial line after a controller start
+(firmware README).
+

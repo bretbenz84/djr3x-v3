@@ -25,6 +25,13 @@ static inline int16_t tof_fr_input_mm(int mm, bool valid, bool out_of_range) {
 // Quality hysteresis, independent of distance. A phase-failing channel must
 // not be resurrected by occasional valid-looking near returns. -1 is unavailable,
 // never a synthetic clear range. Recovery requires fresh, uninterrupted evidence.
+//
+// November 20 2026: a pause between samples used to quarantine the channel outright, at
+// TOF_FR_SAMPLE_GAP_MS (200 ms). Two silent rear sensors slowed the ring's round to about
+// 230 ms, so every sample came after such a pause: the replacement module read a valid
+// 476-481 mm in 129 of 129 raw samples and was published as -1 for a day. Only bad readings
+// quarantine now. A long pause (TOF_FR_HEALTH_GAP_MS) still restarts the run of good samples
+// recovery needs, and recovery works at whatever pace the ring is being read.
 struct TofFrHealth {
   uint16_t failures = 0;
   uint8_t count = 0, good_run = 0;
@@ -34,10 +41,7 @@ struct TofFrHealth {
 
 static inline bool tof_fr_health_step(TofFrHealth& h, bool valid, uint32_t now_ms) {
   if (h.count && now_ms == h.last_ms) return !h.quarantined;
-  if (h.count && (uint32_t)(now_ms - h.last_ms) > TOF_FR_SAMPLE_GAP_MS) {
-    h.quarantined = true;
-    h.good_run = 0;
-  }
+  if (h.count && (uint32_t)(now_ms - h.last_ms) > TOF_FR_HEALTH_GAP_MS) h.good_run = 0;
   h.last_ms = now_ms;
   h.failures = (uint16_t)((h.failures << 1) | (valid ? 0 : 1));
   if (h.count < 16) ++h.count;

@@ -128,7 +128,8 @@ the firmware was discarding a healthy front-right one, and nothing on screen sai
     lost while a cable is moved stays on screen.
   - Both 8×8 grids (the rear one in its own frame: its left is his right), frames a second and stalls.
   - The two front corner sensors' raw answers: what the sensor says and how sure it is, against what
-    the controller passes on, and how often the ring is being read (about 80 ms when all eight answer).
+    the controller passes on, and how often the ring is being read (about 110 ms with this stream
+    running; 227 ms on November 20 with two silent sensors waited on every round).
   - What stands out, in words: which sensors do not answer (with channels), one that answers but is
     discarded, a slow ring, doubtful readings, depth sensor stalls, dropouts while watching.
   - The controller's own messages.

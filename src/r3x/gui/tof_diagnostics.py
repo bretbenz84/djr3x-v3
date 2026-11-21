@@ -372,7 +372,7 @@ class TofDiagnosticsWindow(QDialog):
         else:
             colour = theme.WARN if poll >= POLL_SLOW_MS else theme.TEXT_DIM
             self._poll.setText(f'<span style="color:{colour}">Each ring sensor is read every {poll:.0f} ms</span> '
-                               f'(about {POLL_NORMAL_MS} ms when all eight answer).')
+                               f'(about {POLL_NORMAL_MS} ms when none holds up the rest).')
         fused = model.fused
         if fused and live:
             names = (('fl', 'front-left'), ('fr', 'front-right'), ('rl', 'rear-left'), ('rr', 'rear-right'))

@@ -936,3 +936,52 @@ the controller's unexplained restart at 04:02 that day: the clock line is held l
 controller. Unverified on hardware: the recovery once the line is free, the module's real
 behaviour after its reset button, and `Wire1.end()`/`begin()` at run time on the Bluepad32
 core's I2C driver.
+
+## Ring sensors: a silent one no longer holds up the rest (firmware 0.2.21, November 20, 2026)
+
+Owner: "why are we discarding front right? can we not do that? fix and flash the firmware."
+
+On 0.2.20 the two rear corner sensors (mux 6 and 7) stopped answering on November 19 at 19:05.
+Each read of a sensor that does not answer waits `TOF_TIMEOUT_MS` (100 ms), so the round that
+visits every ring sensor went from about 80 ms to about 230 ms. The front-right's health rule
+(`tof_fr_filter.h`) quarantined the channel on any pause over 200 ms between samples and needed
+sixteen pause-free samples to recover, so from then on it published -1 while the sensor itself
+gave a valid 476-481 mm in 129 of 129 raw samples.
+
+- **A pause is not a fault.** Only bad readings quarantine the front-right now (8 of the last 16,
+  as before). A pause longer than `TOF_FR_HEALTH_GAP_MS` (1 s, its own setting now) only restarts
+  the run of sixteen good samples a quarantined channel needs, so recovery works at any pace.
+- **A silent sensor is asked less often** (`tof_silent.h`, pure). After `TOF_ERR_STREAK_STALE` (8)
+  reads in a row with no answer (a timeout or no multiplexer; a doubtful range is an answer) it
+  already publishes -1. It is then tried every `TOF_SILENT_RETRY_MS` (2 s), each sensor at its own
+  offset, and only waited on if it acknowledges its address. Its first answer brings it back
+  (`tof[6] rl: answering again`), with its filter reset.
+- Unchanged: the front-right still goes to -1 while half of its recent readings are doubtful,
+  and comes back after sixteen good ones (up to twelve times a session on November 15-19).
+  Its jump filter still assumes samples no more than 200 ms apart. A sensor that fails at start
+  is skipped until the next controller start, as before.
+
+Checks: 114 native firmware checks pass. Eleven are new: `test_tof_silent.py` runs the ring's
+round as `tof.cpp` does with the two rear sensors silent (the other six back to 80 ms, never more
+than one timeout in a round, a returning sensor noticed, a missing multiplexer, the clock
+wrapping), and `test_tof_fr_health.py` gains the slow round (healthy throughout; quarantined and
+recovering at 227 ms; a long pause restarting recovery). Full four-flag build 816,905 bytes
+program, 91,100 globals; the bare build compiles. Build kept at
+`local/firmware/2026-11-20-0.2.21-ring-backoff.bin` (SHA-256
+`0bb16d40fa3cc6e4cefe6698d47599330128558559caa4879829763ac157d931`).
+
+Flashed at the owner's request with the battery menu stopped and the controller lock held: one
+attempt, all four hashes verified, hello `0.2.21-ring-backoff`, wheels still before and after, no
+motion commanded. The front-right published in 166 of 166 and then 371 of 371 telemetry frames
+(544-553 mm). **The two rear corner sensors failed at start this time** (`tof[6] rl … FAIL`,
+`tof[7] rr … FAIL`, 6/8 up), so they are skipped rather than silent: the less-often asking has
+run only in the native checks, and with them skipped 0.2.20 would also have published the
+front-right after a restart. Logs: `local/firmware/2026-11-20-0.2.21-flash.log`, `-boot.ndjson`.
+
+Seen in the same read, and not new: after a controller start the gamepad's Bluetooth stack prints
+`Failed to disconnect HIDS client for hids_cid=0, status=2` straight to the serial line about
+twice a second, which garbles about one line in ten (34 of 405 telemetry frames lost in 40 s).
+The same text is in the boot captures of October 19, November 12 and November 15; reads earlier
+that evening, 44 hours after the previous start, lost none (1,205 of 1,205 and 107 of 107). Cause and how long it lasts
+are not known.
+

@@ -19,8 +19,11 @@ import statistics
 HISTORY_S = 60.          # How much of each ring sensor is kept and drawn.
 STALE_S = 1.5            # No telemetry for this long: the link is not live.
 STALL_S = .5             # A depth sensor silent this long has stalled (the firmware's own bound).
-POLL_NORMAL_MS = 80      # The firmware visits each ring sensor about this often when all answer...
-POLL_SLOW_MS = 150       # ...and a round this slow means a sensor is holding the others up.
+# How often the firmware gets round to each ring sensor, as the raw stream shows it. The stream itself
+# costs time on the serial line: 113 ms measured on 0.2.21 with none holding the others up (about
+# 80 ms without the stream), 227 ms on 0.2.20 with two silent sensors waited on every round.
+POLL_NORMAL_MS = 110
+POLL_SLOW_MS = 170       # A round this slow means a sensor is holding the others up.
 RAW_RECENT = 20          # Raw samples of a front corner sensor that decide how it is doing.
 MATRIX_CLEAR_MM = 3500
 
@@ -251,8 +254,8 @@ class TofDiagnostics:
                                      'the controller is discarding them. Its cabling is not the problem.'))
         poll = self.poll_ms()
         if poll is not None and poll >= POLL_SLOW_MS:
-            rows.append(('warn', f'Each ring sensor is being read every {poll:.0f} ms (about {POLL_NORMAL_MS} ms when all '
-                                 'answer): a sensor that does not answer holds up the rest.'))
+            rows.append(('warn', f'Each ring sensor is being read every {poll:.0f} ms (about {POLL_NORMAL_MS} ms when none '
+                                 'holds up the rest): a sensor that does not answer is being waited on.'))
         for key, raw in self.raw.items():
             share = raw.doubtful_share()
             if share is not None and share >= .3 and self.status(key, now) in ('reading', 'open'):

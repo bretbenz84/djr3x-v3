@@ -273,6 +273,11 @@
 // drops to -1: an honest error the GUI radar/telemetry can show. safety.cpp still
 // fails OPEN on -1 by documented choice (min2_valid skips it; the pair partner covers).
 #define TOF_ERR_STREAK_STALE  8
+// A sensor that has gone that long without ANSWERING (a timeout or no multiplexer, not a
+// doubtful range) is then asked only this often: each failed read waits TOF_TIMEOUT_MS, and
+// asking two silent sensors every round made the round three times slower for the other six
+// (tof_silent.h, November 20 2026).
+#define TOF_SILENT_RETRY_MS   2000
 
 // Fast-attack / slow-release output filter (field fix 2026-07-11): the published
 // distance drops to a NEARER reading INSTANTLY (danger is never filtered) but rises
@@ -302,6 +307,11 @@
 #define TOF_FR_NEAR_CONFIRM_MS       300
 #define TOF_FR_CLEAR_CONFIRM_MS      160
 #define TOF_FR_SAMPLE_GAP_MS         200
+// The health rule's own bound on a pause between samples (tof_fr_filter.h). It shared the
+// 200 ms above until November 20 2026, when a round slowed to about 230 ms by silent sensors
+// made every sample of a healthy front-right count as a fault. A pause this long only
+// restarts the run of good samples a quarantined channel needs.
+#define TOF_FR_HEALTH_GAP_MS         1000
 #define TOF_FR_CONFIRM_TOLERANCE_MM  200
 #define TOF_FR_NEAR_MM              300
 #define TOF_FR_NEAR_DROP_MM         100

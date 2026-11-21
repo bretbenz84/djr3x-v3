@@ -46,6 +46,25 @@ while(std::cin >> t >> valid) std::cout << tof_fr_health_step(h, valid, t) << '\
         rows=[(i*80,False) for i in range(8)]+[(640,True)]*30+[(1000,True)]
         self.assertEqual(self.replay(rows)[7:],[0]*(len(rows)-7))
 
+    def test_a_slow_round_is_not_a_fault(self):
+        # November 20: two silent rear sensors slowed the round to ~227 ms; the replacement module
+        # read a valid 476-481 mm in every sample and 0.2.20 published -1 for a day.
+        self.assertEqual(self.replay([(i*227,True) for i in range(120)]),[1]*120)
+        self.assertEqual(self.replay([(i*80,True) for i in range(20)]+[(1600+i*227,True) for i in range(60)]),[1]*80)
+
+    def test_bad_readings_still_quarantine_and_recovery_works_at_a_slow_round(self):
+        vals=[False]*8+[True]*15+[False]+[True]*16
+        out=self.replay([(i*227,v) for i,v in enumerate(vals)])
+        self.assertEqual(out[7:-1],[0]*(len(vals)-8))
+        self.assertEqual(out[-1],1)
+
+    def test_a_long_pause_restarts_the_run_of_good_samples(self):
+        rows=[(i*80,False) for i in range(8)]+[(640+i*80,True) for i in range(15)]
+        rows+=[(3000+i*80,True) for i in range(16)]            # 1.2 s with no sample, then sixteen more.
+        out=self.replay(rows)
+        self.assertEqual(out[7:-1],[0]*(len(rows)-8))
+        self.assertEqual(out[-1],1)
+
     def test_healthy_start_and_clock_wrap(self):
         rows=[((0xffffff00+i*80)&0xffffffff,True) for i in range(30)]
         self.assertEqual(self.replay(rows),[1]*30)

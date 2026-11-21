@@ -48,6 +48,7 @@ static inline int16_t tof_matrix_combine(int16_t radial, int16_t matrix) {
 #include "calib.h"
 #include "tof_filter.h"
 #include "tof_fr_filter.h"
+#include "tof_silent.h"
 #include "proto_io.h"       // emit_log — per-sensor bring-up diagnostics
 #include "i2c_trunk.h"
 #include <Arduino.h>
@@ -85,6 +86,8 @@ static bool    s_ok[TOF_COUNT] = {false};  // did this sensor init? gates reads 
 // keep their last value. -1 = error / not present.
 static int16_t s_dist[TOF_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 static uint8_t s_err_streak[TOF_COUNT] = {0};   // consecutive failed reads per sensor
+static TofSilent s_silent[TOF_COUNT];           // a sensor that stopped answering is asked less often
+static bool    s_answered = false;              // did the last read_mm get any answer from its sensor?
 static int     s_next = 0;                  // round-robin cursor
 // Raw diagnostics for the two front radials (index 4 = fl, 5 = fr): what the sensor
 // itself reported before any host-side filtering. Emitted only under tof_debug.
@@ -186,17 +189,29 @@ void hal_tof_init() {
 #endif
 }
 
+// Is this sensor on the bus at all? One address probe behind its mux channel (well under a
+// millisecond), so retrying a sensor that is unplugged does not cost a TOF_TIMEOUT_MS wait.
+static bool tof_on_bus(int i) {
+  if (!mux_select(mux_ch(i))) return false;
+  Wire.beginTransmission(i < TOF_SHORT_COUNT ? s_short[i].getAddress()
+                                             : s_long[i - TOF_SHORT_COUNT].getAddress());
+  return Wire.endTransmission() == 0;
+}
+
 // Read one sensor by index. Returns mm, or -1 on a genuine read error / no comms.
 // A value at/over the per-type out-of-range cap means "nothing in range = clear".
+// s_answered says whether the sensor gave any result at all (a doubtful range is an answer).
 static int read_mm(int i) {
   const int d = diag_slot(i);
   if (d >= 0) s_diag[d] = TofRawDiag();
+  s_answered = false;
   if (!s_ok[i]) return -1;                        // dead sensor: skip the blocking I²C wait
   if (!mux_select(mux_ch(i))) return -1;           // mux NACK: channel didn't switch — don't trust it
 
   if (i < TOF_SHORT_COUNT) {                       // VL53L0X
     const int mm = s_short[i].readRangeContinuousMillimeters();
     if (s_short[i].timeoutOccurred()) return -1;
+    s_answered = true;
     if (mm >= TOF_L0X_OUT_OF_RANGE_MM) return TOF_L0X_OUT_OF_RANGE_MM;
     return mm;
   }
@@ -211,6 +226,7 @@ static int read_mm(int i) {
       s_diag[d].spads = s.readReg16Bit(VL53L1X::RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0) / 256.f;
   }
   if (s.timeoutOccurred()) return -1;
+  s_answered = true;
   // Accept only plain valid + min-range-clipped. RangeValidNoWrapCheckFail is
   // REJECTED (treated as out-of-range): field data 2026-07-21 showed it is the
   // wrap-around phantom status — sensors staring into open space aliased far/no
@@ -238,7 +254,24 @@ static void poll_one(int i) {
     s_dist[i] = -1;                               // not present -> honest error/no-data
     return;
   }
+  // A sensor that stopped answering already publishes -1. It is tried again only every
+  // TOF_SILENT_RETRY_MS, and only waited on if it is on the bus (tof_silent.h): asking it
+  // every round held up the seven that do answer.
+  const uint32_t now = millis();
+  const uint32_t offset = (uint32_t)i * 137u;     // spreads retries across rounds
+  const bool skip = !tof_silent_ask(s_silent[i], now);
+  if (skip || (tof_silent(s_silent[i]) && !tof_on_bus(i))) {
+    if (!skip) tof_silent_note(s_silent[i], false, now, offset);
+    if (diag_slot(i) >= 0) s_diag[diag_slot(i)] = TofRawDiag();   // nothing was read: no stale raw sample
+    return;
+  }
   const int mm = read_mm(i);
+  if (tof_silent_note(s_silent[i], s_answered, now, offset)) {
+    tof_filter_reset(s_filt[i]);                  // its last range is from before it went quiet
+    char buf[48];
+    snprintf(buf, sizeof(buf), "tof[%d] %s: answering again", i, TOF_LABEL[i]);
+    emit_log("info", buf);
+  }
   if (diag_slot(i) >= 0) s_diag[diag_slot(i)].input_mm = mm;
   if (i == 5) {
     const bool was_quarantined = s_fr_health.quarantined;
