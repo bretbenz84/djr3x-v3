@@ -8,6 +8,7 @@ in the sensor's view, nor a person who was already standing near can close it: e
 against how things were once the hand had settled. Nothing here moves a servo; RobotServos acts.
 """
 from dataclasses import dataclass, field
+import time
 
 # The extended hand needs 0.5 m clear at the front right (drive_space.THROTTLE_EXTEND_CLEAR_M);
 # something nearer than this has come within the arm's reach.
@@ -47,3 +48,25 @@ class HandWatch:
                  and (self.baseline_m is None or front_m <= self.baseline_m - DROP_M))
         self.near = self.near + 1 if close else 0
         return 'grip' if self.near >= NEAR_READINGS else None
+
+
+# Whether the throttle hand holds something, kept across launches (owner, November 20: "so he doesn't
+# drop" it). One row; while it says holding, the wake, the board's first pulses, idle and the shutdown
+# park all leave the fingers closed and the arm folded, until he gives it back or puts it down.
+SCHEMA = """CREATE TABLE IF NOT EXISTS held_item(
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    holding INTEGER NOT NULL CHECK(holding IN (0, 1)),
+    changed_at REAL NOT NULL,
+    reason TEXT NOT NULL);"""
+
+
+def held(store) -> bool:
+    rows = store.rows("SELECT holding FROM held_item WHERE id = 1")
+    return bool(rows and rows[0]['holding'])
+
+
+def set_held(store, holding: bool, reason: str, at: float | None = None) -> None:
+    with store.transaction() as db:
+        db.execute("INSERT INTO held_item(id, holding, changed_at, reason) VALUES(1, ?, ?, ?) "
+                   "ON CONFLICT(id) DO UPDATE SET holding = excluded.holding, changed_at = excluded.changed_at, "
+                   "reason = excluded.reason", (int(bool(holding)), time.time() if at is None else at, reason[:80]))

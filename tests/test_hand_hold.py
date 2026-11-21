@@ -7,11 +7,11 @@ him something.
 import unittest
 
 from r3x.contracts import Cancellation, Capture, ToolCall, Transcript
-from r3x.hand_hold import FACE_NEAR_PX, LET_GO_S, SETTLE_S, WAIT_S, HandWatch
+from r3x.hand_hold import held, set_held, FACE_NEAR_PX, LET_GO_S, SETTLE_S, WAIT_S, HandWatch
 from r3x.output import OutputOwner
 from r3x.robot_servos import RobotServos
 from r3x.scenario import SyntheticSink, SyntheticTTS
-from r3x.servo_poses import (FINGERS_CLOSED, FINGERS_OPEN, HAND_PARK, HAND_STEPS, LIMITS, NAMED_POSES, NECK_CENTER,
+from r3x.servo_poses import (FULL_DOWN, FINGERS_CLOSED, FINGERS_OPEN, HAND_PARK, HAND_STEPS, LIMITS, NAMED_POSES, NECK_CENTER,
                              PARK, POSE_COMMANDS, REST, THROTTLE, THROTTLE_GRAB, THROTTLE_HAND, head_pose)
 from r3x.servos import ServoRequest
 from r3x.session import Session
@@ -204,6 +204,76 @@ class HandPoseTests(unittest.TestCase):
         self.space = {'front_right_m': .3, 'front_radial_right_m': .3}
         self.frames(1.)
         self.assertEqual(self.port.pose[15], FINGERS_OPEN)   # Nothing closes it now.
+
+
+    def test_put_it_on_the_floor_lowers_then_opens_then_rests(self):
+        self.holding()
+        receipt = self.robot.execute_pose('hand_put_down', Cancellation(), 'down')
+        self.assertEqual(receipt.status, 'pulses_reached', receipt.reason)
+        self.assertEqual((self.arm(), self.port.pose[15]), (dict(FULL_DOWN), FINGERS_OPEN))
+        self.assertEqual(self.robot.hand_state(), 'letting_go')
+        self.frames(LET_GO_S + .3)
+        self.assertEqual(self.arm(), dict(REST))
+        self.assertEqual(self.robot.hand_state(), 'empty')
+
+    def test_put_down_needs_something_held_and_room(self):
+        self.assertEqual(self.robot.execute_pose('hand_put_down', Cancellation(), 'down').reason, 'NotHoldingAnything')
+        self.holding()
+        self.space = {'front_right_m': .4, 'front_radial_right_m': .42}
+        self.assertEqual(self.robot.execute_pose('hand_put_down', Cancellation(), 'down').status, 'rejected')
+        self.assertEqual((self.arm(), self.port.pose[15]), (dict(PARK), FINGERS_CLOSED))
+
+    def test_holding_never_opens_to_take_another(self):
+        self.holding()
+        self.assertEqual(self.robot.execute_pose('hand_take', Cancellation(), 'take2').reason, 'AlreadyHoldingSomething')
+        self.assertEqual(self.port.pose[15], FINGERS_CLOSED)
+
+
+class RememberedHoldTests(MemoryFixture):
+    """Owner, November 20: holding something survives a shutdown and the next launch."""
+
+    def robot(self, port):
+        clock = Clock()
+        robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait)
+        robot.owner.wait = clock.wait
+        robot.held_memory = (lambda: held(self.store), lambda holding, why: set_held(self.store, holding, why))
+        robot.arm_space = lambda: dict(CLEAR)
+        return robot, clock
+
+    def test_the_table_starts_empty_and_keeps_one_row(self):
+        self.assertFalse(held(self.store))
+        set_held(self.store, True, 'owner')
+        set_held(self.store, True, 'gripped')
+        self.assertTrue(held(self.store))
+        self.assertEqual(len(self.store.rows('SELECT * FROM held_item')), 1)
+
+    def test_a_grip_lasts_through_shutdown_and_the_next_wake(self):
+        port = PulsePort()
+        robot, clock = self.robot(port)
+        robot.start(); robot.open_eyes()
+        self.assertEqual(robot.execute_pose('hand_take', Cancellation(), 'take').status, 'pulses_reached')
+        robot.execute_pose('hand_grip', Cancellation(), 'grip')
+        self.assertTrue(held(self.store))
+        robot.close()
+        self.assertEqual(port.pose[15], FINGERS_CLOSED)            # The shutdown park leaves it closed.
+        self.assertEqual({ch: port.pose[ch] for ch in THROTTLE}, dict(PARK))
+        again, clock = self.robot(port)
+        again.start(); again.open_eyes(); self.addCleanup(again.close)
+        self.assertEqual(port.pose[15], FINGERS_CLOSED)            # The wake leaves it closed too.
+        self.assertEqual({ch: port.pose[ch] for ch in THROTTLE}, dict(PARK))   # And the arm folded.
+        self.assertEqual(again.hand_state(), 'holding')
+        self.assertTrue({*THROTTLE, *THROTTLE_HAND} <= again.owner.held_channels)
+        self.assertEqual(again.execute_pose('hand_put_down', Cancellation(), 'down').status, 'pulses_reached')
+        self.assertFalse(held(self.store))
+
+    def test_a_board_switched_off_closes_the_fingers_first_when_holding(self):
+        set_held(self.store, True, 'owner')
+        port = PulsePort()
+        port.pose = {ch: 0 for ch in port.pose}   # Off since power-up.
+        robot, clock = self.robot(port)
+        robot.start(); robot.open_eyes(); self.addCleanup(robot.close)
+        self.assertEqual(port.pose[15], FINGERS_CLOSED)
+        self.assertEqual(robot.hand_state(), 'holding')
 
 
 class HandConversationTests(MemoryFixture):

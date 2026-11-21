@@ -352,6 +352,10 @@ class App:
         previous_sigterm = signal.signal(signal.SIGTERM,terminate) if main_thread else None
         try:
             memory.start()
+            if self.robot:
+                # Holding something when he last stopped keeps the fingers closed from the first pulse.
+                from .hand_hold import held, set_held
+                self.robot.held_memory = (lambda: held(memory), lambda holding, why: set_held(memory, holding, why))
             if camera:
                 from .adapters.face import NAMESPACE as FACE_NAMESPACE
                 camera.session_id = session_id

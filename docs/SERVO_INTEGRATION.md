@@ -21,7 +21,10 @@ it says so. `ServoOwner.grip_channels` (14 and 15 while gripping) survive `yield
 arm to `PARK` and `grip_channels` covers the arm too; `return_arm` leaves a holding throttle at `PARK`; `grip_strip`
 removes the gripped channels from every request but the hand's own (`HAND_STEPS`, ids `hand:`) and park/shutdown
 (a person's arm pose and the drive stance may still move the arm, never the fingers). `hand_let_go` while holding
-goes out to `THROTTLE_GRAB` first and opens on `HandWatch`. Synthetic checks only; nothing has moved.
+goes out to `THROTTLE_GRAB` first and opens on `HandWatch`. The `held_item` row (`hand_hold.held`/`set_held`,
+wired by the app as `RobotServos.held_memory`) sets `grip_channels` before the board starts: `_energize_unpowered`
+sends `FINGERS_CLOSED`, `grip_strip` takes the arm and hand out of the wake and the hand out of park/shutdown.
+`hand_put_down` goes to `FULL_DOWN` (front-right check), then opens. Synthetic checks only; nothing has moved.
 
 ## November 20: the throttle hand's real limits
 

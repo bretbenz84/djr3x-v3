@@ -33,6 +33,14 @@ close the fingers close (the lowest pulse) and hold; "you can let it go now" ope
   `ServoOwner.grip_strip` keeps idle, talking, gestures, `release_poses`, Rex's own poses and the drive stance
   off the fingers and wrist, and all but a person's arm pose and the drive stance off the arm. Evidence: 18
   synthetic hand checks; the changed-file run passed (1930 tests).
+- **Kept across launches (owner):** a one-row `held_item` table (`hand_hold.SCHEMA`: holding, changed_at,
+  reason) says whether he holds something. Set when the fingers close, cleared when they open to let go or put
+  it down. While it says holding, the board's first pulses close the fingers, the wake leaves the arm and hand
+  where they are, and the shutdown park folds the arm but leaves the fingers closed. `hand_put_down` ("put it
+  on the floor") lowers the arm all the way (`throttle_down`'s pose, by way of a raised arm, so the front right
+  must be clear), opens the fingers and rests the arm; `hand_take` while holding is refused
+  (`AlreadyHoldingSomething`). Evidence: 26 synthetic hand checks; the changed-file run passed (1938 tests).
+  Open: whether the Maestro keeps the fingers closed while the Mac is off depends on the board staying powered.
 - **Evidence:** 14 synthetic checks (`tests/test_hand_hold.py`), including a scripted conversation through the
   production session; the changed-file run passed (1928 tests). Three probe cases added to
   `check_action_requests.py` (`hold_this`, `grab_this`, `let_it_go`) but not run (paid). Not run on the robot.

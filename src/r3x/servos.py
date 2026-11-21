@@ -13,7 +13,7 @@ from typing import Callable
 from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
-from .servo_poses import (throttle_parks_nowhere, HAND_STEPS, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
+from .servo_poses import (throttle_parks_nowhere, FINGERS_CLOSED, HAND_STEPS, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
                           sentry_lanes, telepresence_wake_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
@@ -180,6 +180,8 @@ class ServoOwner:
             validate_pose(readback)
             return readback
         rest = dict(UNPOWERED_REST)
+        if self.grip_channels:
+            rest[15] = FINGERS_CLOSED   # Still holding something from the last run (hand_hold.held).
         targets = {ch: rest[ch] for ch in self.energized_channels}
         for pair in PAIRS:   # The throttle arm, the head pair and the poker elbow/wrist move together.
             if set(targets).intersection(pair):
@@ -230,11 +232,14 @@ class ServoOwner:
 
     def grip_strip(self, request) -> frozenset[int]:
         """The channels this request may not move while the hand holds something (owner, November 20:
-        idle movement must not let it go). The hand's own steps and moves, and the park at shutdown,
-        move them; a person's arm pose and the drive stance may move the arm but never the fingers or
+        idle movement must not let it go). The hand's own steps and moves move them; the park at
+        shutdown folds the arm but leaves the fingers closed; a person's arm pose and the drive stance may move the arm but never the fingers or
         wrist; idle, talking, gestures, release_poses and Rex's own poses move neither."""
-        if not self.grip_channels or request.kind in {'park', 'shutdown'}:
+        if not self.grip_channels:
             return frozenset()
+        if request.kind in {'park', 'shutdown'}:
+            # The arm parks folded, as it holds; the fingers stay closed for the next launch.
+            return frozenset(self.grip_channels & set(THROTTLE_HAND))
         if request.kind == 'pose' and (request.pose in HAND_STEPS or request.request_id.startswith('hand:')):
             return frozenset()
         strip = self.grip_channels & set(THROTTLE_HAND)

@@ -62,6 +62,8 @@ class RobotServos:
         self._let_go_at = None
         self._hand_worker = None
         self._hand_moves = 0
+        # (read, write) for the remembered hold (hand_hold.held/set_held), when the app has its database.
+        self.held_memory = None
 
     def _sequence(self, kind, arms_home=False, keep_arms=frozenset()):
         result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.,
@@ -72,6 +74,11 @@ class RobotServos:
             raise ProviderFailure('Servo'+kind.title()+':'+(result.reason or result.status))
 
     def start(self):
+        if self._remembered_hold():
+            # Still holding something from the last run: the board's first pulses, the wake and idle
+            # keep the fingers closed and the arm where it is (owner, November 20).
+            self.owner.grip_channels = frozenset((*THROTTLE, *THROTTLE_HAND))
+            self._hand_state = 'holding'
         self.owner.start()
         self.started = True
         if self.trace and self.owner.energized_channels:
@@ -86,6 +93,10 @@ class RobotServos:
         self._sequence('startup', keep_arms=frozenset(REACHING_ARMS) if self.arm_guard else frozenset())
         if self.trace and self.owner.kept_arms:
             self.trace.emit('arm_clearance', status='kept_parked', reason='startup', arms=sorted(self.owner.kept_arms))
+        if self.owner.grip_channels:
+            self.owner.held_channels.update(self.owner.grip_channels)
+            if self.trace:
+                self.trace.emit('hand_hold', status='holding', reason='remembered_at_startup')
         # Owner, November 15: the wake leaves the visor shut over his eyes, and it stays shut (the
         # please-wait line's talking motion leaves it alone) until just before the ready line (open_eyes).
         self.owner.held_channels.add(3)
@@ -194,6 +205,12 @@ class RobotServos:
                 name = {0: max(LIMITS[0][0], min(LIMITS[0][1], int(aim['neck'])))}
         if name == 'hand_let_go' and self._hand_state == 'holding':
             return self._give_back(request_id)   # Out to the grab position first; it opens once someone is close.
+        if name == 'hand_put_down':
+            return self._put_down(request_id)
+        if name == 'hand_take' and self._hand_state in ('holding', 'offering'):
+            from .servos import ServoReceipt   # Opening to take another would drop what he holds.
+            return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
+                                reason='AlreadyHoldingSomething')
         # The grab position (elbow 1720 us) is not a full extension, but holding something still needs
         # the room in front of the hand (owner, November 20: "if there's clearance").
         if name == 'hand_take' or throttle_extends(name, self.owner.commanded):
@@ -241,6 +258,25 @@ class RobotServos:
     def hand_state(self) -> str:
         return self._hand_state
 
+    def _remembered_hold(self) -> bool:
+        if self.held_memory is None:
+            return False
+        try:
+            return bool(self.held_memory[0]())
+        except Exception as exc:
+            if self.trace:
+                self.trace.emit('hand_hold', status='memory_read_failed', error_type=type(exc).__name__)
+            return False
+
+    def _remember_hold(self, holding, why):
+        if self.held_memory is None:
+            return
+        try:
+            self.held_memory[1](holding, why)
+        except Exception as exc:
+            if self.trace:
+                self.trace.emit('hand_hold', status='memory_write_failed', error_type=type(exc).__name__)
+
     def _look_at_hand(self, request_id):
         """Down and to his right, at the hand, held while he waits."""
         from .hand_hold import WAIT_S
@@ -269,6 +305,7 @@ class RobotServos:
             self._hand, self._hand_state = None, 'holding'
             self.owner.grip_channels = frozenset((*THROTTLE, *THROTTLE_HAND))
             self.owner.held_channels.update(self.owner.grip_channels)
+            self._remember_hold(True, 'gripped')
             self._eyes_back()   # Got it: his eyes go back to the people,
             self._fold_held(request_id)   # and the arm folds in to its drive park with it.
         else:   # hand_let_go
@@ -277,6 +314,7 @@ class RobotServos:
             self._hand, self._hand_state = None, 'letting_go'
             self.owner.grip_channels = frozenset()
             self._let_go_at = self.owner.clock()
+            self._remember_hold(False, 'let_go')
         if self.trace:
             self.trace.emit('hand_hold', status=self._hand_state, step=name, request_id=request_id)
 
@@ -307,6 +345,34 @@ class RobotServos:
             self.trace.emit('hand_hold', status=self._hand_state, step='hand_let_go', request_id=request_id,
                             reason=receipt.reason)
         return receipt
+
+    def _put_down(self, request_id):
+        """Put what he holds on the floor (owner, November 20): the arm lowers all the way (throttle_down's
+        pose, by way of a raised arm, so the front right must be clear), then the fingers open and the
+        arm rests a moment later."""
+        from .servo_poses import FINGERS_OPEN, FULL_DOWN
+        from .servos import ServoReceipt
+        if self._hand_state not in ('holding', 'offering'):
+            return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
+                                reason='NotHoldingAnything')
+        blocked = self._reach_blocked(request_id)
+        if blocked is not None:
+            return blocked
+        if self._hand_state == 'offering':
+            self._hand, self._hand_state = None, 'holding'
+            self._eyes_back()
+        lowered = self.owner.execute(ServoRequest(f'hand:down:{request_id}', self.owner.version, 'pose',
+                                                  self.owner.clock() + 60., pose=dict(FULL_DOWN)), Cancellation())
+        if self.trace:
+            self.trace.emit('hand_hold', status='lowered' if lowered.status == 'pulses_reached' else 'lower_failed',
+                            reason=lowered.reason, request_id=request_id)
+        if lowered.status != 'pulses_reached':
+            return lowered
+        opened = self.owner.execute(ServoRequest(f'hand:release:{request_id}', self.owner.version, 'pose',
+                                                 self.owner.clock() + 60., pose={15: FINGERS_OPEN}), Cancellation())
+        if opened.status == 'pulses_reached':
+            self._hand_step('hand_let_go', request_id)
+        return opened
 
     def _hand_reset(self, why):
         """Another arm pose or a drive ends a wait. What he holds stays held."""

@@ -1290,13 +1290,15 @@ ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND)
 # the throttle arm to the owner's grab position (shoulder 1242, elbow 1720, wrist 887 us; it needs the
 # front right clear) with the hand level and the fingers open; RobotServos also looks down and to the right and
 # closes the fingers when something comes into reach (hand_hold.HandWatch). hand_grip closes them now;
-# hand_let_go opens them, and the arm goes back to rest a moment later.
+# hand_let_go opens them, and the arm goes back to rest a moment later; hand_put_down lowers it to the floor first.
 FINGERS_CLOSED, FINGERS_OPEN = LIMITS[15][0], LIMITS[15][1]
 THROTTLE_GRAB = ((8, 4968), (9, 6880), (10, 3548))   # Owner, November 20: 1242 / 1720 / 887 us.
 HAND_POSES = {
     'hand_take': (*THROTTLE_GRAB, (14, dict(HAND_PARK)[14]), (15, FINGERS_OPEN)),
     'hand_grip': ((15, FINGERS_CLOSED),),
     'hand_let_go': ((15, FINGERS_OPEN),),
+    # Put it on the floor: RobotServos lowers the arm here (throttle_down), then opens the fingers.
+    'hand_put_down': FULL_DOWN,
 }
 HAND_STEPS = tuple(HAND_POSES)
 POSE_COMMANDS = (*NAMED_POSES, *NECK_POSES, *HEAD_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses', *HAND_STEPS)
