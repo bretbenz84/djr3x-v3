@@ -105,6 +105,13 @@ class App:
             from .drive import DriveBase, Radar
             self.radar = Radar(self.settings.radar_port) if self.settings.radar_port else None
             self.drive = DriveBase(self.settings.drive_port, radar=self.radar)
+            if self.robot:
+                # Owner, November 20: the throttle arm comes out at the wake when its space reads clear.
+                # The wheels connect right after the wake; joined only once everything had loaded (about
+                # 20 s), the arm came out after the ready line (run b048ba2f, 27.7 s). Joined here, the
+                # drive owner reads the front right as soon as it connects. Nothing moves the base before live.
+                self.drive.servos = self.robot
+                self.robot.arm_space = self.drive.space
             if camera:
                 locator = hosted_models.visual_locator(self.settings, secrets, self.model_switch)
         from .adapters.keywords import WORDS
@@ -404,6 +411,8 @@ class App:
                     # Configured wheels that failed to start: Rex still knows he has them.
                     failure = next((r for r in self.owner.results if r.capability=='drive_base' and r.operation=='start'),None)
                     output.drive_unavailable = 'wheel_controller_not_connected' + (':'+failure.reason if failure and failure.reason else '')
+                    if self.robot:
+                        self.robot.arm_space = None   # No range sensors: poses are not gated on them.
                     if self.robot and self.robot.kept_arms:
                         # No range sensors this run: the arms the wake left in stay in (owner, October 11).
                         trace.emit('arm_clearance', status='kept_parked', reason='drive_base_unavailable',

@@ -217,6 +217,13 @@ class RobotServoTests(unittest.TestCase):
                 app=App(Settings(servo_port='/dev/cu.synthetic',drive_port=drive_port),Path(temporary))
                 app.configure_live()
                 self.assertEqual(app.robot.arm_guard,guarded)
+                if guarded:
+                    # Owner, November 20: joined before startup, so the drive owner can bring the
+                    # throttle out as soon as the wheels connect, right after the wake (b048ba2f: 27.7 s).
+                    self.assertIs(app.drive.servos,app.robot)
+                    self.assertEqual(app.robot.arm_space,app.drive.space)
+                    names=[p.capability.name for p in app.owner.providers]
+                    self.assertEqual(names.index('drive_base'),names.index('robot_servos')+1)
         from r3x.servo_poses import POKER,POKER_UP,REST,THROTTLE
         self.robot.start()   # No wheels: the wake brings both arms out, as before.
         self.assertEqual({ch:self.port.pose[ch] for ch in THROTTLE},dict(REST))

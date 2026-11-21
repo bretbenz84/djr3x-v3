@@ -19,6 +19,10 @@ The hand's twist and fingers are no longer held with the arm (kept, drive stance
 them alone while the arm is held. **Evidence:** synthetic checks, including that reading; not run on the
 robot. **Open:** the turn-swing estimate (`drive_space.ARMS`, V2's left-arm figures) does not model a
 throttle arm left out on the right.
+Then (run `b048ba2f`) the arm came out only at 27.7 s, after the ready line: the wheels connect right after
+the wake (9 s), but the drive owner was joined to the servos only once everything had loaded. **Built:** they
+are joined when the app is composed, so the arm should come out about 3 s after the wake by its usual startup
+route (2 s of clear front-right readings); startup is not lengthened. Not run on the robot.
 
 ## Run `a5963bfa` repairs: a refused turn, an invented obstacle, Joy called "Bret" — November 20
 
