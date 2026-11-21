@@ -301,8 +301,8 @@ request before carrying it out.
 
 **Moving and lights**
 - `set_robot_pose`: move his head, visor or arms into named poses, one after another ("look down and wave"). It also holds something light: "can you hold this?" reaches his throttle hand out open while he
-  looks down at it, the fingers close when you say it is in ("there you go") or he senses someone come close,
-  and the arm folds in holding it. "Give it back" or "let it go" reaches it back out, and the fingers open when
+  looks down at it and says "Okay, ready."; the fingers close four seconds later (sooner if you say "there you go"),
+  and the arm folds in holding it. "I didn't make it" opens it to try again. "Give it back" or "let it go" reaches it back out, and the fingers open when
   you say you have it or someone comes to take it. "Put it on the floor" lowers the hand and lets go. He
   remembers holding something between runs, so a restart never drops it.
 - `set_robot_joints`: move any of his 16 servos to an exact position when asked.

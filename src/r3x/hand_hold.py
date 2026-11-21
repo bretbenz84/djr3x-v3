@@ -1,12 +1,13 @@
-"""When the open throttle hand closes on what it is given (owner, November 20).
+"""When the throttle hand closes on what it is given, and opens to give it back (owner, November 20).
 
-"Can you hold this?" reaches the hand out with its fingers open (servo_poses.HAND_POSES). The person
-saying they have put it in ("there you go", "I did") is the main sign: the model closes the hand at once
-(hand_grip). This watches for two more: the front-right range reading (the arm reaches out at his front
-right) coming in close and nearer than when the hand arrived, or a face that was not close at the start
-coming close. Run fe1d4fea (November 20): the range sensors sit low on the base and never saw a book
-brought to the hand; the camera cannot see the hand either (owner). Neither the arm itself, already in
-the sensor's view, nor a person who was already standing near can close it: each is measured against
+"Can you hold this?" reaches the hand out with its fingers open (servo_poses.HAND_POSES) while he says
+only "Okay, ready.", and the fingers close by themselves CLOSE_AFTER_S later (owner, November 20: Bret
+stood holding the book out through a whole sentence; "after 4 seconds the hand closes, no need to speak
+more"). Told sooner that it is in, the model closes it at once (hand_grip); told they missed it, hand_take
+opens it and reaches out again. Giving it back, HandWatch watches for someone coming to take it: the
+front-right range reading (the arm reaches out at his front right) coming in close and nearer than when
+the hand arrived, or a face that was not close at the start coming close. Neither the arm itself, already
+in the sensor's view, nor a person who was already standing near can open it: each is measured against
 how things were once the hand had settled. Nothing here moves a servo; RobotServos acts.
 """
 from dataclasses import dataclass, field
@@ -25,16 +26,16 @@ NEAR_S = .15
 FACE_NEAR_PX = 300
 FACE_LOOKS = 2        # Looks by the camera in a row (about two a second) that show it, not one read again.
 SETTLE_S = .6         # After the hand arrives, readings for this long set the baseline.
-WAIT_S = 30.          # Nothing brought in this long: the arm goes back to rest.
+CLOSE_AFTER_S = 4.    # The open hand closes this long after it is out and he is looking at it.
+WAIT_S = 30.          # Held out to give back and nobody takes it in this long: the arm folds back in.
 LET_GO_S = 2.5        # After the fingers open to let go, the arm rests this much later.
 GRIP_SETTLE_S = 1.     # After the fingers' pulse arrives, they finish closing on it before the arm moves.
-# After a wait ran out, the model is told so for this long: brought late, the thing needs the hand out again.
-GAVE_UP_TOLD_S = 120.
 
 
 @dataclass
 class HandWatch:
-    """The open hand's wait: observe() returns 'grip', 'timeout' or None."""
+    """The wait while it is held out to give back: observe() returns 'grip' (someone is at the hand: open it),
+    'timeout' or None."""
     opened_at: float
     baseline_m: float | None = None
     baseline_face_px: float = 0.

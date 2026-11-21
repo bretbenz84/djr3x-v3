@@ -94,8 +94,8 @@ HAND_REFUSALS = {
         'fact empty, or they want it back, hand_let_go (give it back) or hand_put_down empties it; hand_take then '
         'reaches out again.'),
     'HandNotOut': ("My hand's not out. Ask me to hold it again.",
-        'Nothing closed: your hand was not held out. A wait for something ends after half a minute and the arm goes '
-        'back to rest. Reach out again with hand_take, then close on their word.'),
+        'Nothing closed: your hand was not held out. Reach out again with hand_take; it closes by itself four '
+        'seconds later.'),
     'NotHoldingAnything': ("I'm not holding anything.", 'Nothing moved: your hand holds nothing.'),
 }
 
@@ -1578,15 +1578,15 @@ class Session:
                 hand = {
                     # Owner, November 20: holding something light, like a card.
                     'taking': 'reaching out open and turning to look at it; nothing is in it yet',
-                    'open': 'held out open, waiting for something to be put in it; you cannot see or feel your hand: when they say it is in ("there you go", "okay", "I did"), close it with hand_grip at once',
+                    'open': 'held out open for them to put it in; it closes by itself four seconds after it got there. You cannot see or feel your hand: if they say it is in sooner ("there you go", "okay", "I did"), close it with hand_grip at once',
                     'holding': 'holding what a person gave you, fingers closed, arm folded in, until asked to give it back or let go (hand_let_go) or put it down (hand_put_down)',
+                    # Owner, November 20: "If I didn't make it in time I can say so and he should open his hand to try again."
+                    'closed_on_time': 'fingers closed by themselves four seconds after the hand was out, arm folded in; you cannot feel whether anything is in it. If they say they missed it or were not ready ("I didn\'t make it", "too fast", "again"), hand_take opens it and reaches out again for another four seconds. Otherwise treat it as holding what they gave you (hand_let_go, hand_put_down)',
                     # Review, November 20: giving back opened only when a sensor saw someone come close, and the
                     # same sensors had not seen a book brought to the hand (run fe1d4fea).
                     'offering': 'holding it out to give it back, fingers still closed; you cannot see or feel your hand: when they say they have hold of it or tell you to let go ("got it", "I have it", "okay, let go"), open it with hand_let_go at once. It also opens by itself if your range sensors see someone come close',
                     'letting_go': 'fingers just opened to let go; the arm goes back to rest in a moment',
-                    # Review, November 20: brought late, "there you go" closed the fingers at rest on nothing.
-                    'gave_up': 'back at rest and empty: you held it out and nothing was put in it within half a minute. If they bring it now ("there you go", "here it is"), reach out again with hand_take; hand_grip would close on nothing',
-                }.get('gave_up' if getattr(self.output.robot, 'hand_gave_up', lambda: False)() else
+                }.get('closed_on_time' if getattr(self.output.robot, 'hand_closed_on_time', lambda: False)() else
                       getattr(self.output.robot, 'hand_state', lambda: 'empty')())
                 if hand:
                     context['robot_pose_state']['throttle_hand'] = hand
@@ -2773,7 +2773,8 @@ class Session:
                             delivery.status,delivery.medium='suppressed','none'
                         else:
                             put_phrase(phrases,(hand_refusal(refusal) or ("I couldn't complete that movement.",))[0],cancel)
-                    elif call.arguments['text'] is not None:
+                    elif call.arguments['text'] is not None and 'hand_take' not in steps:
+                        # Owner, November 20: holding it out, he says "Okay, ready." and nothing more.
                         put_phrase(phrases,call.arguments['text'],cancel)
                     elif not look_question and not call.arguments.get('say_before'):
                         delivery.status,delivery.medium='suppressed','none'

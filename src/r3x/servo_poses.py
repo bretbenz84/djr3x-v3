@@ -1289,7 +1289,7 @@ ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND)
 # the Maestro allows and open at the highest (the owner: closed is the lowest value). hand_take reaches
 # the throttle arm to the owner's grab position (shoulder 1242, elbow 1720, wrist 887 us; it needs the
 # front right clear) with the hand level and the fingers open; RobotServos also looks down and to the right and
-# closes the fingers when something comes into reach (hand_hold.HandWatch). hand_grip closes them now;
+# closes the fingers four seconds later (hand_hold.CLOSE_AFTER_S). hand_grip closes them now;
 # hand_let_go opens them, and the arm goes back to rest a moment later; hand_put_down lowers it to the floor first.
 FINGERS_CLOSED, FINGERS_OPEN = LIMITS[15][0], LIMITS[15][1]
 THROTTLE_GRAB = ((8, 4968), (9, 6880), (10, 3548))   # Owner, November 20: 1242 / 1720 / 887 us.

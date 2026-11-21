@@ -129,27 +129,35 @@ CASES.update({
 })
 # Owner, November 20: holding something light, like a card, in the throttle hand.
 HOLD = 'Can you hold this card for me?'
+
+
+def ready_only(calls):
+    """Owner, November 20: holding it out he says "Okay, ready." and nothing more; the hand closes 4 s later."""
+    words = ' '.join(str(c['arguments'].get(k) or '') for c in calls for k in ('say_before', 'say_while', 'text'))
+    return pose('hand_take')(calls) and len(words.split()) <= 3 and 'ready' in words.lower()
+
+
 CASES.update({
-    'hold_this': ((), VISOR_OPEN, False, HOLD, 'action', pose('hand_take')),
-    'grab_this': ((), VISOR_OPEN, False, 'Can you grab this?', 'action', pose('hand_take')),
-    'let_it_go': (((HOLD, 'Sure. Pop it in my hand.'), ('There you go.', 'Got it.')), VISOR_OPEN, False,
+    'hold_this': ((), VISOR_OPEN, False, HOLD, 'action', ready_only),
+    'grab_this': ((), VISOR_OPEN, False, 'Can you grab this?', 'action', ready_only),
+    'let_it_go': (((HOLD, 'Okay, ready.'), ('There you go.', 'Got it.')), VISOR_OPEN, False,
                   'You can let it go now.', 'action', pose('hand_let_go')),
-    'there_you_go': (((HOLD, 'Hand out. Pop it in.'),), VISOR_OPEN, False, 'There you go.', 'action',
+    'there_you_go': (((HOLD, 'Okay, ready.'),), VISOR_OPEN, False, 'There you go.', 'action',
                      pose('hand_grip')),
-    'put_it_down': (((HOLD, 'Sure. Pop it in my hand.'), ('There you go.', 'Got it.')), VISOR_OPEN, False,
+    'put_it_down': (((HOLD, 'Okay, ready.'), ('There you go.', 'Got it.')), VISOR_OPEN, False,
                     'Can you put it on the floor?', 'action', pose('hand_put_down')),
     # Review, November 20: giving back opened only when a sensor saw someone come close. Holding it out,
     # their word that they have it opens the hand.
-    'i_have_it': (((HOLD, 'Sure. Pop it in my hand.'), ('There you go.', 'Got it.'),
+    'i_have_it': (((HOLD, 'Okay, ready.'), ('There you go.', 'Got it.'),
                    ('Can I have it back?', 'Here, take it.')), VISOR_OPEN, False, 'Okay, I have it.', 'action',
                   pose('hand_let_go')),
-    # The wait ran out and the arm went back to rest: their word then reaches out again, not a grip on nothing.
-    'there_you_go_late': (((HOLD, 'Hand out. Pop it in.'),), VISOR_OPEN, False, 'Sorry, I had to find it. There you go.',
-                          'action', pose('hand_take')),
+    # The hand closed by itself after four seconds and they missed it: it opens and reaches out again.
+    'missed_it': (((HOLD, 'Okay, ready.'),), VISOR_OPEN, False, "Wait, I didn't make it in time.",
+                  'action', pose('hand_take')),
 })
 # What robot_pose_state.throttle_hand says before the request (RobotServos.hand_state); the rest: empty.
 HANDS = {'there_you_go': 'open', 'let_it_go': 'holding', 'put_it_down': 'holding', 'i_have_it': 'offering',
-         'there_you_go_late': 'gave_up'}
+         'missed_it': 'holding'}
 ARMS = {'arm_back_up': 'throttle_offer'}   # Where the throttle arm stands before the request.
 
 
@@ -244,7 +252,8 @@ def run(case, key, folder, round_=0, provider='openai'):
                 owner.commanded.update(NAMED_POSES[ARMS[case]])
             output.robot = SimpleNamespace(owner=owner, idle=SimpleNamespace(mode=lambda: 'people',
                                                                              activity=('following_people', 0.)),
-                                           hand_state=lambda: HANDS.get(case, 'empty'))
+                                           hand_state=lambda: HANDS.get(case, 'empty'),
+                                           hand_closed_on_time=lambda: case == 'missed_it')
             if case in LOOK_CASES:
                 # As on the robot: the camera's current view, head looks, a photo album with the two dogs' names.
                 from r3x.servo_poses import NECK_LEFT

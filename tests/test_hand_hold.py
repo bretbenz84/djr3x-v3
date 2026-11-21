@@ -1,5 +1,8 @@
 """Holding something light, like a card (owner, November 20): hand_take, hand_grip, hand_let_go.
 
+Owner, later November 20: he says "Okay, ready." and the open hand closes four seconds later, nothing more
+said; told they missed it, hand_take opens it to try again.
+
 Synthetic pulse transport, fake clock and fake range readings only; nothing here shows how the
 hand looks, whether the fingers grip a card, or what the real sensors read when someone hands
 him something.
@@ -7,7 +10,7 @@ him something.
 import unittest
 
 from r3x.contracts import Cancellation, Capture, ToolCall, Transcript
-from r3x.hand_hold import held, set_held, FACE_NEAR_PX, LET_GO_S, SETTLE_S, WAIT_S, HandWatch
+from r3x.hand_hold import held, set_held, CLOSE_AFTER_S, FACE_NEAR_PX, LET_GO_S, SETTLE_S, WAIT_S, HandWatch
 from r3x.output import OutputOwner
 from r3x.robot_servos import RobotServos
 from r3x.scenario import SyntheticSink, SyntheticTTS
@@ -23,6 +26,7 @@ CLEAR = {'front_right_m': .9, 'front_radial_right_m': .85}
 
 
 class HandWatchTests(unittest.TestCase):
+    """Held out to give it back: 'grip' means someone is at the hand to take it."""
     def settle(self, watch, front, face=None):
         for t in (0., .2, .4):
             self.assertIsNone(watch.observe(t, front, face))
@@ -139,14 +143,17 @@ class HandPoseTests(HandRig):
         self.assertEqual(self.robot.hand_state(), 'empty')
         self.assertEqual(self.hand(), dict(HAND_PARK))
 
-    def test_something_brought_closes_the_fingers_and_he_holds_it(self):
+    def test_it_closes_four_seconds_after_it_is_out_and_he_holds_it(self):
+        self.assertEqual(CLOSE_AFTER_S, 4.)
         self.take()
-        self.frames(1.)
-        self.assertEqual(self.port.pose[15], FINGERS_OPEN)
-        self.space = {'front_right_m': .3, 'front_radial_right_m': .32}   # A hand with a card comes in.
-        self.frames(.5)
+        self.space = {'front_right_m': .3, 'front_radial_right_m': .32}   # A hand with a card comes in:
+        self.faces = [(FACE_NEAR_PX + 50, self.clock())]                  # nothing closes it early.
+        self.frames(CLOSE_AFTER_S - .2)
+        self.assertEqual((self.robot.hand_state(), self.port.pose[15]), ('open', FINGERS_OPEN))
+        self.frames(.4)
         self.assertEqual(self.port.pose[15], FINGERS_CLOSED)
         self.assertEqual(self.robot.hand_state(), 'holding')
+        self.assertTrue(self.robot.hand_closed_on_time())
         self.assertEqual(self.arm(), dict(PARK))                            # Folded in as for a drive.
         self.assertFalse(self.robot.owner.holding_requested_look())        # Eyes back to the people.
         self.assertTrue(set(THROTTLE_HAND) <= self.robot.owner.held_channels)
@@ -211,12 +218,24 @@ class HandPoseTests(HandRig):
         self.assertEqual((self.arm(), self.port.pose[15]), (dict(PARK), FINGERS_CLOSED))
         self.assertEqual(self.robot.hand_state(), 'holding')
 
-    def test_nothing_brought_puts_the_arm_back(self):
+    def test_missed_it_opens_the_hand_to_try_again(self):
+        remembered = []
+        self.robot.held_memory = (lambda: False, lambda holding, why: remembered.append((holding, why)))
         self.take()
-        self.frames(WAIT_S + 1., step=.5)
-        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(REST))
-        self.assertEqual(self.hand(), dict(HAND_PARK))
-        self.assertEqual(self.robot.hand_state(), 'empty')
+        self.frames(CLOSE_AFTER_S + .5)
+        self.assertEqual((self.robot.hand_state(), self.arm(), self.port.pose[15]), ('holding', dict(PARK), FINGERS_CLOSED))
+        self.take()                                                          # "I didn't make it."
+        self.assertEqual((self.robot.hand_state(), self.arm(), self.port.pose[15]), ('open', dict(THROTTLE_GRAB), FINGERS_OPEN))
+        self.assertFalse(self.robot.hand_closed_on_time())
+        self.assertEqual(remembered, [(True, 'gripped'), (False, 'try_again')])
+        self.frames(CLOSE_AFTER_S + .5)                                      # Another four seconds.
+        self.assertEqual((self.robot.hand_state(), self.port.pose[15]), ('holding', FINGERS_CLOSED))
+
+    def test_closed_on_their_word_it_is_not_opened_to_try_again(self):
+        self.take()
+        self.robot.execute_pose('hand_grip', Cancellation(), 'there-you-go')   # Said before the four seconds.
+        self.assertFalse(self.robot.hand_closed_on_time())
+        self.assertEqual(self.robot.execute_pose('hand_take', Cancellation(), 'again').reason, 'AlreadyHoldingSomething')
 
     def test_another_arm_pose_ends_the_wait(self):
         self.take()
@@ -290,10 +309,10 @@ class Run471f4739Tests(HandRig):
         self.robot.trace = type('T', (), {'emit': lambda _, event, **kw: rows.append((event, kw))})()
         self.robot._hand_state, self.robot._let_go_at = 'letting_go', None   # As during the third try's looks.
         self.robot.before_frame()
-        self.robot._hand_state = 'open'
+        self.robot._hand_state = 'offering'
         self.robot._hand = type('Broken', (), {'observe': lambda *a: 1 / 0})()
         self.robot.before_frame()
-        self.assertIn(('hand_hold', {'status': 'tick_failed', 'error_type': 'ZeroDivisionError', 'state': 'open'}), rows)
+        self.assertIn(('hand_hold', {'status': 'tick_failed', 'error_type': 'ZeroDivisionError', 'state': 'offering'}), rows)
 
     def test_hold_this_again_right_after_a_let_go(self):
         self.let_go_from_grab()
@@ -399,15 +418,14 @@ class WrongHoldTests(HandRig):
         remembered = []
         self.robot.held_memory = (lambda: False, lambda holding, why: remembered.append(holding))
         self.take()
-        self.frames(WAIT_S + 1., step=.5)                      # Nothing brought: the arm went back to rest.
+        self.robot.execute_pose('throttle_high_five', Cancellation(), 'five')   # Another arm pose ended the wait.
+        self.robot.execute_pose('release_poses', Cancellation(), 'relax')
         self.assertEqual(self.robot.hand_state(), 'empty')
-        self.assertTrue(self.robot.hand_gave_up())             # The model is told the wait ran out,
         receipt = self.robot.execute_pose('hand_grip', Cancellation(), 'late')   # "There you go", too late.
         self.assertEqual((receipt.status, receipt.reason), ('rejected', 'HandNotOut'))
-        self.assertEqual((self.robot.hand_state(), self.hand(), self.arm()), ('empty', dict(HAND_PARK), dict(REST)))
+        self.assertEqual(self.robot.hand_state(), 'empty')
+        self.assertNotEqual(self.port.pose[15], FINGERS_CLOSED)
         self.assertEqual(remembered, [])
-        self.take()                                            # and reaching out again ends that.
-        self.assertFalse(self.robot.hand_gave_up())
 
     def test_told_to_relax_while_holding_it_out_folds_it_back_in(self):
         self.holding()
@@ -499,31 +517,42 @@ class HandConversationTests(MemoryFixture):
         robot.start(); robot.open_eyes(); self.addCleanup(robot.close)
         space = dict(CLEAR)
         robot.arm_space = lambda: space
-        brain = Brain(ToolCall('take', 'set_robot_pose', {'poses': ['hand_take'], 'look_after': None,
-                                                          'say_before': 'Sure.', 'text': 'Pop it in my hand.'}))
+        # A line after the reach would keep them standing there: only "Okay, ready." is said.
+        take = ToolCall('take', 'set_robot_pose', {'poses': ['hand_take'], 'look_after': None,
+                                                   'say_before': 'Okay, ready.', 'text': 'Pop it in my hand.'})
+        brain = Brain(take)
         output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, robot=robot)
         session = Session('s', brain, output, self.state.trace, self.state); self.addCleanup(session.close)
 
         def turn(index, text):
             return session.process_turn(Capture(str(index), 's', bytes(1024), 98 + index * 10, 99 + index * 10,
                                                 99.6 + index * 10), Transcript(text, -.01, True), session.revision)
+
+        def wait(seconds):
+            end = clock() + seconds
+            while clock() < end:
+                robot.before_frame()
+                if robot._hand_worker is not None:
+                    robot._hand_worker.join(5.)
+                clock.now += .1
         result = turn(0, 'Can you hold this card?')
-        self.assertEqual(result.completed_text, ['Sure.', 'Pop it in my hand.'])
+        self.assertEqual(result.completed_text, ['Okay, ready.'])
         self.assertEqual(port.pose[15], FINGERS_OPEN)
-        for reading in (.9, .9, .9, .9, .9, .9, .9, .3, .3, .3):
-            space['front_right_m'] = reading
-            robot.before_frame()
-            if robot._hand_worker is not None:
-                robot._hand_worker.join(5.)
-            clock.now += .1
+        wait(CLOSE_AFTER_S + .3)
+        self.assertEqual(port.pose[15], FINGERS_CLOSED)
+        brain.text = take   # "I didn't make it": the hand opens and reaches out again.
+        self.assertEqual(turn(1, "Wait, I didn't make it in time.").completed_text, ['Okay, ready.'])
+        self.assertIn('missed it', brain.snapshots[-1].context['robot_pose_state']['throttle_hand'])
+        self.assertEqual(port.pose[15], FINGERS_OPEN)
+        wait(CLOSE_AFTER_S + .3)
         self.assertEqual(port.pose[15], FINGERS_CLOSED)
         brain.text = 'Got it.'
-        turn(1, 'Thanks.')
-        self.assertIn('holding', brain.snapshots[-1].context['robot_pose_state']['throttle_hand'])
+        turn(2, 'Thanks.')
+        self.assertIn('closed by themselves', brain.snapshots[-1].context['robot_pose_state']['throttle_hand'])
         space['front_right_m'] = .9   # They step back before asking for it.
         brain.text = ToolCall('go', 'set_robot_pose', {'poses': ['hand_let_go'], 'look_after': None,
                                                        'say_before': None, 'text': 'All yours.'})
-        self.assertEqual(turn(2, 'You can let it go now.').completed_text, ['All yours.'])
+        self.assertEqual(turn(3, 'You can let it go now.').completed_text, ['All yours.'])
         self.assertEqual(port.pose[15], FINGERS_CLOSED)   # Out again, opening once they come for it.
         for reading in (.9, .9, .9, .9, .9, .9, .9, .3, .3, .3):
             space['front_right_m'] = reading

@@ -32,6 +32,20 @@ on the robot.
 
 ## Holding something light in the throttle hand — November 20
 
+**"Okay, ready", then it closes (owner, later November 20).** He talked too long holding the hand out: Bret could
+stand there holding the thing through a whole sentence. **Built:** with `hand_take` the tool wording has him say
+only "Okay, ready." (say_before), and the session drops any line after the reach; the open hand closes by itself
+`CLOSE_AFTER_S` (4 s) after it is out and he has looked down at it, then folds in as before. Nothing is said when it
+closes. Said sooner ("there you go"), `hand_grip` still closes it at once, silently. The range and face triggers no
+longer close the open hand (they could close it as someone leaned in); they still open it to give it back. A close
+on the four seconds is marked (`RobotServos.hand_closed_on_time`, throttle_hand `closed_on_time`): told "I didn't
+make it", `hand_take` opens it and reaches out for another four seconds, and the remembered hold is cleared. A hand
+closed on their word still refuses `hand_take`. The 30 s wait and its "wait ran out" note are retired.
+**Evidence:** synthetic checks (41 hand checks; the changed-file run passed, 1954 tests). Paid probe on Claude
+(`check_action_requests.py --provider claude`, 5 calls, about $0.40): `hold_this` and `grab_this` said "Okay,
+ready.", `there_you_go` closed with nothing said, `missed_it` reached out again, `let_it_go` 5 of 5. The 4 s
+starts after the reach and the look, so the real gap from "ready" to closing is not measured. Not run on the robot.
+
 **Review repairs (a read of the day's code and of run `fe1d4fea`'s trace; not a robot run).** Six faults, each
 reproduced on the synthetic board before its repair.
 - *His own looks stopped while he held something.* The closed hand's channels stay held, and the session switched
