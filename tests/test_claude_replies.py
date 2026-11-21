@@ -194,6 +194,29 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(''.join(reply), 'Two sentences. One paragraph.')
         self.assertFalse([r for r in made.trace.rows if r['event'] == 'reply_working_out_unsaid'])
 
+    def test_the_answer_after_a_look_thinks_first_and_only_its_words_are_spoken(self):
+        # November 20, run b048ba2f: the dog walked in and the comparison with Max's saved views was read out.
+        from r3x.scene import SceneImage
+        look = (SceneImage('f', 1., 'data:image/png;base64,abcd'),)
+        thought = Response([{'type': 'message_start', 'message': {'usage': {}}},
+                            {'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'thinking', 'thinking': ''}},
+                            {'type': 'content_block_delta', 'index': 0,
+                             'delta': {'type': 'thinking_delta', 'thinking': 'Shaggy, tan legs: Max, not Toby.'}},
+                            {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'signature_delta', 'signature': 'x'}},
+                            {'type': 'content_block_stop', 'index': 0},
+                            *[{**e, 'index': 1} if 'index' in e else e
+                              for e in stream(('text', "Max! Look who's here.")).events[1:]]])
+        made = brain(thought)
+        continuation = ({'type': 'function_call', 'call_id': 'c1', 'name': 'inspect_visual_memory', 'arguments': '{}'},
+                        {'type': 'function_call_output', 'call_id': 'c1', 'output': '{"outcome": "ok"}'})
+        said = list(made.reply(Snapshot('s', 't', 0, HEARD, context={'source_turn_id': 't', 'trigger': 'pet_arrival'},
+                                        continuation=continuation, images=look), Cancellation()))
+        self.assertEqual(''.join(said), "Max! Look who's here.")
+        self.assertEqual(sent(made)['thinking'], {'type': 'adaptive'})
+        made = brain(stream(('text', 'Hi.')))   # Without pictures to compare, a reply still starts straight away.
+        list(made.reply(Snapshot('s', 't', 0, HEARD, context={'source_turn_id': 't'}, continuation=continuation), Cancellation()))
+        self.assertEqual(sent(made)['thinking'], {'type': 'between_tools'})
+
     def test_a_tool_the_moment_does_not_offer_a_refusal_and_a_cut_off_answer_fail_as_structured_results(self):
         for response, failure in (
                 (stream(('text', 'No.'), stop='refusal'), 'ClaudeRefusal'),

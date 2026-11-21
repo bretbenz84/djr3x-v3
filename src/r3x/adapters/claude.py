@@ -153,8 +153,13 @@ class ClaudeBrain(OpenAIBrain):
     def _stream_response(self, payload, snapshot, cancel, offered=None):
         model = self.capability.model
         system, messages, tools, choice, required = translate(payload, offered)
+        # November 20 (run b048ba2f): told twice in the copy not to, Claude still spoke its comparison when the
+        # dog walked in ("...looks a lot like the earlier Max photos... I'll go with Max"). The answer after a
+        # look has pictures to compare and, with no thinking first, nowhere to compare them but out loud; it
+        # is spoken as it streams, so no filter can catch it. Those answers think first.
+        looked = bool(snapshot.images and snapshot.continuation)
         request = {'model': model, 'max_tokens': MAX_TOKENS, 'system': system, 'messages': messages, 'stream': True,
-                   'thinking': REPLY_THINKING[model], 'output_config': {'effort': 'low'}}
+                   'thinking': (THINKING if looked else REPLY_THINKING)[model], 'output_config': {'effort': 'low'}}
         if tools:
             request.update(tools=tools, tool_choice=choice)
         allowed = {d['name'] for d in offered} if offered else set()

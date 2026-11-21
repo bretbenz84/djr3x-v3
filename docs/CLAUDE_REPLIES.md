@@ -215,3 +215,18 @@ are offered are made silently. OpenAI's wording is unchanged.
 **Evidence:** blocked-I/O checks with a faked stream only. **Still open:** a reply with no tools on offer is
 spoken as it arrives and is not filtered; check `reply_working_out_unsaid` rows in coming runs for any real
 line that was dropped.
+
+## November 20: the answer after a look thinks first
+
+The open case above happened: in run `b048ba2f` the dog walked in, Rex looked closely, and the answer was spoken
+as it streamed: "...it looks a lot like the earlier Max photos. It's blurry and moving, but it fits Max and not
+Toby or the white Nova. I'll go with Max and give him the entrance." The copy had said not to twice (November 18
+and 19). The answer after a look (a request carrying pictures and a tool result) had pictures to compare and, with
+no thinking first, nowhere to compare them but aloud. Those answers now think first (adaptive, low effort); every
+other reply still starts straight away (`between_tools`). The extra cost is the thinking tokens and the message
+cache that request does not share with ordinary replies, a few cents per look. Claude's copy also says saved views
+are his memory of seeing, never "photos", "pictures" or "references".
+
+**Evidence:** one tiny live Sonnet 5.5 request confirmed the API accepts adaptive thinking after a tool result;
+the rest is blocked-I/O checks with a faked stream. **Still open:** whether a real pet arrival now greets the
+dog with no comparison spoken, and how much the look answer's first word slows.
