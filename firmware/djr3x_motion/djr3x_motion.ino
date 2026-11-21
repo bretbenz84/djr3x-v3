@@ -13,6 +13,7 @@
 // Upload: arduino-cli upload  --fqbn esp32:esp32:esp32 -p /dev/cu.usbserial-10 firmware/djr3x_motion
 // See firmware/djr3x_motion/README.md for the manual protocol test recipe.
 
+#include "bt_log.h"
 #include <Arduino.h>
 #include <esp_random.h>
 #include "context.h"
@@ -149,5 +150,6 @@ void loop() {
   // loopTask polls the Bluetooth gamepad here (BP32.update needs frequent calls); with
   // the gamepad feature off, gamepad_tick() is a no-op and this idles slowly.
   gamepad_tick();
+  bt_log_service(millis());   // What the Bluetooth stack had to say, as one of our own lines.
   vTaskDelay(pdMS_TO_TICKS(GAMEPAD_POLL_MS));
 }

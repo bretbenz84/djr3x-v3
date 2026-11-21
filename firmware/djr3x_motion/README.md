@@ -1042,3 +1042,25 @@ depth sensor code is unchanged in 0.2.21 and 0.2.22, and both sensors were ready
 before the power cut. The firmware keeps probing once a second and sets the sensor up again by
 itself when it answers.
 
+
+## The Bluetooth stack no longer prints into the serial line (firmware 0.2.23, November 20, 2026)
+
+Owner, shown that one line in eight reached the Mac unreadable: "Yes, look into it."
+
+The Bluepad32 board package starts its Bluetooth stack whether or not `MOTION_GAMEPAD_PRESENT`
+is set, and prints from its own task straight to the serial port. With no pad switched on it
+printed `Failed to disconnect HIDS client for hids_cid=0, status=2` about three times every two
+seconds, into the middle of our JSON lines. Measured over one minute, read-only: 159 unreadable
+lines on 0.2.22; the same with our gamepad code left out; 1 on a build with the plain board
+package (no Bluetooth stack). The package is pre-built with its logging at "errors", but its
+print routine `uni_log` is a weak symbol, so `bt_log.cpp` replaces it: the stack's task only
+stores the newest message and a count, and the Arduino loop reports them as an ordinary log
+line (`bluetooth (59 since the last report): ...`) at most every 30 s.
+
+Checks: 94 native firmware checks pass (one new, `test_bt_log.py`). Full four-flag build 816,357
+bytes program, 91,172 globals. Flashed at the owner's request: one attempt, hashes verified,
+hello `0.2.23-bt-quiet`, 8/8 ring sensors and both 8x8 ready. One minute afterwards: 1 unreadable
+line of about 1,300, two summary lines 30 s apart. **Not changed:** why the stack keeps trying
+(nothing was paired or switched on), and the 8x8 stalls, which the same test showed are not
+caused by Bluetooth (they happened on the build with no Bluetooth stack). Not tried: a pad
+connecting on this build. Build kept at `local/firmware/2026-11-20-0.2.23-bt-quiet.bin`.
