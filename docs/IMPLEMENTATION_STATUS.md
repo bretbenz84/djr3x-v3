@@ -8,6 +8,19 @@ Documentation does not authorize new hardware operation or feature expansion.
 
 ## Holding something light in the throttle hand — November 20
 
+**Run `471f4739` repairs (first try on the robot).** The remembered hold made him give back the "book" first,
+as it should; the fingers opened when Bret came close. Then the arm never went back to rest: its single try
+lost the board to idle motion every frame for a minute (each try also cut off his talking motion), so the hand
+stayed "letting go". The next "hold this" was refused for 0.30 m at the front right (his own arm still out, or
+Bret), and the model said he was "on the charger and boxed in". The third try reached out, and the frame
+loop's hand check met the unset let-go time (`TypeError`), stopped the runtime and shut him down. **Built:** the
+hand's own moves wait their turn for up to 20 s instead of one try, without stopping talking motion; idle starts
+no phrase while one runs; the per-frame check and the hand's moves can no longer raise into the frame loop
+(failures are traced); nothing acts on the hand while he turns to look at it; a hand already out at the grab
+position is not refused for what is in front of it; and a refused reach is explained as "step back a little so
+my arm has room" (spoken, and its meaning given to the model). Evidence: 4 new synthetic checks reproducing the
+run; the changed-file run passed (1731 tests). Not yet re-run on the robot.
+
 Owner request: "can you hold this?" or "can you grab this?" reaches the throttle arm out if there is room,
 opens the fingers and looks down and to his right; when something is brought to the hand or someone comes
 close the fingers close (the lowest pulse) and hold; "you can let it go now" opens them.

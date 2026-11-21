@@ -35,7 +35,9 @@ class RobotServos:
             self.reflex.stop()
         self.talking.before_start = quiet
         self.talking.after_speech = self.idle.after_speech
-        self.idle.busy = lambda: self.talking._thread is not None
+        # Idle never starts a phrase while talking motion or the hand's own move needs the servos
+        # (run 471f4739: the arm's return after a let go lost the board to idle every frame for a minute).
+        self.idle.busy = lambda: self.talking._thread is not None or self._hand_busy()
         self.trace = None
         self.wait = wait
         self.closed = False
@@ -213,7 +215,8 @@ class RobotServos:
                                 reason='AlreadyHoldingSomething')
         # The grab position (elbow 1720 us) is not a full extension, but holding something still needs
         # the room in front of the hand (owner, November 20: "if there's clearance").
-        if name == 'hand_take' or throttle_extends(name, self.owner.commanded):
+        if (name == 'hand_take' and not self._at_grab()) or throttle_extends(name, self.owner.commanded):
+            # Already out at the grab position, the reading in front is his own arm or the person handing it over.
             blocked = self._reach_blocked(request_id)
             if blocked is not None:
                 return blocked
@@ -258,6 +261,27 @@ class RobotServos:
     def hand_state(self) -> str:
         return self._hand_state
 
+    def _hand_busy(self) -> bool:
+        return self._hand_worker is not None and self._hand_worker.is_alive()
+
+    def _at_grab(self) -> bool:
+        from .servo_poses import THROTTLE_GRAB
+        return all(abs(self.owner.commanded.get(ch, -10000) - v) <= 2 for ch, v in THROTTLE_GRAB)
+
+    def _hand_execute(self, request_id, pose, patience=20.):
+        """One of the hand's own moves, waiting its turn while talking motion, a reflex or a listening cue
+        has the board (run 471f4739: a single try lost to them every frame). Held like a person's pose
+        while it runs, so nothing else moves those joints, without restarting the person-pose clock."""
+        deadline = self.owner.clock() + patience
+        held_at = self.owner.pose_held_at
+        while True:
+            receipt = self.owner.execute(ServoRequest(request_id, self.owner.version, 'pose', self.owner.clock() + 60.,
+                                                      pose=dict(pose)), Cancellation())
+            if receipt.reason != 'ServoBusy' or self.owner.clock() >= deadline or self.closed:
+                self.owner.pose_held_at = held_at
+                return receipt
+            self.wait(.05)
+
     def _remembered_hold(self) -> bool:
         if self.held_memory is None:
             return False
@@ -297,7 +321,8 @@ class RobotServos:
         from .hand_hold import HandWatch
         if name == 'hand_take':
             self.owner.grip_channels = frozenset()
-            self._let_go_at = None
+            # Nothing per frame acts on the hand while he turns to look at it (run 471f4739 crashed here).
+            self._hand, self._hand_state, self._let_go_at = None, 'taking', None
             self._look_at_hand(request_id)
             self._hand = HandWatch(self.owner.clock())
             self._hand_state = 'open'
@@ -321,8 +346,7 @@ class RobotServos:
     def _fold_held(self, request_id):
         """Holding something, the throttle arm folds in to the drive stance's park; the fingers stay closed."""
         from .servo_poses import PARK
-        receipt = self.owner.execute(ServoRequest(f'hand:fold:{request_id}', self.owner.version, 'pose',
-                                                  self.owner.clock() + 60., pose=dict(PARK)), Cancellation())
+        receipt = self._hand_execute(f'hand:fold:{request_id}', PARK)
         if self.trace:
             self.trace.emit('hand_hold', status='folded' if receipt.status == 'pulses_reached' else 'fold_failed',
                             reason=receipt.reason)
@@ -336,8 +360,7 @@ class RobotServos:
         blocked = self._reach_blocked(request_id)
         if blocked is not None:
             return blocked
-        receipt = self.owner.execute(ServoRequest(f'hand:offer:{request_id}', self.owner.version, 'pose',
-                                                  self.owner.clock() + 60., pose=dict(THROTTLE_GRAB)), Cancellation())
+        receipt = self._hand_execute(f'hand:offer:{request_id}', THROTTLE_GRAB)
         if receipt.status == 'pulses_reached':
             self._look_at_hand(request_id)
             self._hand, self._hand_state = HandWatch(self.owner.clock()), 'offering'
@@ -361,15 +384,13 @@ class RobotServos:
         if self._hand_state == 'offering':
             self._hand, self._hand_state = None, 'holding'
             self._eyes_back()
-        lowered = self.owner.execute(ServoRequest(f'hand:down:{request_id}', self.owner.version, 'pose',
-                                                  self.owner.clock() + 60., pose=dict(FULL_DOWN)), Cancellation())
+        lowered = self._hand_execute(f'hand:down:{request_id}', FULL_DOWN)
         if self.trace:
             self.trace.emit('hand_hold', status='lowered' if lowered.status == 'pulses_reached' else 'lower_failed',
                             reason=lowered.reason, request_id=request_id)
         if lowered.status != 'pulses_reached':
             return lowered
-        opened = self.owner.execute(ServoRequest(f'hand:release:{request_id}', self.owner.version, 'pose',
-                                                 self.owner.clock() + 60., pose={15: FINGERS_OPEN}), Cancellation())
+        opened = self._hand_execute(f'hand:release:{request_id}', {15: FINGERS_OPEN})
         if opened.status == 'pulses_reached':
             self._hand_step('hand_let_go', request_id)
         return opened
@@ -389,14 +410,22 @@ class RobotServos:
 
     def _tick_hand(self):
         """Each frame: close the open hand on what is brought, open the offered one when someone comes
-        close, or rest or fold the arm after a wait or a let go."""
+        close, or rest or fold the arm after a wait or a let go. Never raises into the frame loop
+        (run 471f4739: a TypeError here stopped the runtime and shut him down)."""
+        try:
+            self._tick_hand_now()
+        except Exception as exc:
+            if self.trace:
+                self.trace.emit('hand_hold', status='tick_failed', error_type=type(exc).__name__, state=self._hand_state)
+
+    def _tick_hand_now(self):
         from .hand_hold import LET_GO_S
         if (self._hand_state not in ('open', 'offering', 'letting_go')
                 or (self._hand_worker and self._hand_worker.is_alive())):
             return
         now = self.owner.clock()
         if self._hand_state == 'letting_go':
-            if now - self._let_go_at >= LET_GO_S:
+            if self._let_go_at is not None and now - self._let_go_at >= LET_GO_S:
                 self._hand_work(self._rest_hand, 'let_go')
             return
         front = face = None
@@ -411,6 +440,8 @@ class RobotServos:
                 face = max(self.hand_faces(), default=None)
             except Exception:
                 face = None
+        if self._hand is None:
+            return
         decision = self._hand.observe(now, front, face)
         offering = self._hand_state == 'offering'
         if decision == 'grip':   # Someone is at the hand.
@@ -423,7 +454,14 @@ class RobotServos:
 
     def _hand_work(self, work, *args):
         self._hand_moves += 1
-        self._hand_worker = threading.Thread(target=work, args=args, daemon=True, name='throttle-hand')
+        def run():
+            try:
+                work(*args)
+            except Exception as exc:   # Seen in the trace, never silent; the next frame may try again.
+                if self.trace:
+                    self.trace.emit('hand_hold', status='move_failed', error_type=type(exc).__name__,
+                                    state=self._hand_state)
+        self._hand_worker = threading.Thread(target=run, daemon=True, name='throttle-hand')
         self._hand_worker.start()
 
     def _hand_move(self, step):
@@ -438,26 +476,22 @@ class RobotServos:
         self._fold_held(f'hand:{why}:{self._hand_moves}')
 
     def _rest_hand(self, why):
-        """The arm back to rest and the hand to its park, after letting go or waiting in vain."""
+        """The arm back to rest and the hand to its park, after letting go or waiting in vain. It waits
+        for a line's talking motion to finish rather than cutting it off."""
         if self.owner.hold_until_released:   # "Hold your arms there": the arm stays out.
             self._hand_reset(why)
             return
-        self.idle.stop()
         self.reflex.stop()
-        self.talking.stop()
-        channels = {*THROTTLE, *THROTTLE_HAND}
-        held = channels & self.owner.held_channels
-        self.owner.held_channels.difference_update(channels)
-        receipt = self.owner.execute(ServoRequest(f'hand:rest:{self._hand_moves}', self.owner.version, 'pose',
-                                                  self.owner.clock() + 60., pose={**dict(REST), **dict(HAND_PARK)},
-                                                  hold_pose=False), Cancellation())
+        receipt = self._hand_execute(f'hand:rest:{self._hand_moves}', {**dict(REST), **dict(HAND_PARK)})
         if receipt.reason == 'ServoBusy':
-            self.owner.held_channels.update(held)   # The next frame tries again.
-            return
+            if self.trace:
+                self.trace.emit('hand_hold', status='rest_waiting', reason=why)
+            return   # Still busy after its patience: a later frame tries again.
         if self.trace:
             self.trace.emit('hand_hold', status='arm_rest', reason=why, **{k: v for k, v in asdict(receipt).items()
                                                                            if k in ('status', 'reason')})
         if receipt.status == 'pulses_reached':
+            self.owner.held_channels.difference_update({*THROTTLE, *THROTTLE_HAND})
             self.idle.posed(receipt.changed_channels, own=True)
         self._hand_reset(why)
 

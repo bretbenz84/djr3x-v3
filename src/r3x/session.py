@@ -79,6 +79,12 @@ LOOK_FAILED = ('The look failed: no picture was taken. Say plainly that you coul
 ARM_PARK_MEANING = ('Rex did not move: his own arm could not get into its driving position, so the wheels were '
                     'never started. Nothing in the room blocked him and no distance reading caused this; the '
                     'reason names the arm problem. Do not blame an obstacle or ask anyone to clear space or move him.')
+# Run 471f4739 (November 20): a reach refused for room at the front right was explained as "on the charger and
+# boxed in". The reading is whatever is within half a metre of his right hand: often the person handing him something.
+REACH_BLOCKED_MEANING = ('The arm did not move: something is within half a metre in front of your right hand, usually '
+                         'the person standing close to hand you something. Ask them to step back a little so your arm '
+                         'has room; do not blame the charger, a wall or the room.')
+REACH_BLOCKED_LINE = 'Step back a little so my arm has room.'
 # October 23 (1e626e07): finding the duckling droid on the table took six asks. Two of the three look
 # tools could not move the head, and the one that could looked only when its question was filled in.
 # Every look now takes a direction; the head moves there first and the picture is taken after.
@@ -2651,7 +2657,7 @@ class Session:
                             if not worker.is_alive() or delivery.error:
                                 raise ProviderFailure('OutputWorkerStopped')
                             time.sleep(.02)
-                    moved, last_at = True, self.trace.clock()
+                    moved, last_at, refusal = True, self.trace.clock(), None
                     changed_channels = set()
                     look_question = call.arguments.get('look_after')
                     steps = pose if isinstance(pose, tuple) else (pose,)
@@ -2694,8 +2700,12 @@ class Session:
                             receipt = self.output.execute_pose(step,cancel,turn_id+':'+call.call_id+suffix,
                                 hold_pose=not bool(opportunity))
                             self.trace.emit('robot_pose_result',turn_id=turn_id,pose=step,**asdict(receipt))
-                            self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps({'pose':step,**asdict(receipt)})})
+                            shown = {'pose':step,**asdict(receipt)}
+                            if (receipt.reason or '').startswith('ThrottleExtensionBlocked'):
+                                shown['meaning'] = REACH_BLOCKED_MEANING
+                            self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps(shown)})
                             moved, last_at = receipt.status == 'pulses_reached', receipt.at
+                            refusal = receipt.reason
                             changed_channels.update(receipt.changed_channels)
                             if moved and step == 'visor_down':
                                 went_dark[0] = True
@@ -2728,7 +2738,8 @@ class Session:
                         if opportunity:
                             delivery.status,delivery.medium='suppressed','none'
                         else:
-                            put_phrase(phrases,"I couldn't complete that movement.",cancel)
+                            put_phrase(phrases,REACH_BLOCKED_LINE if (refusal or '').startswith('ThrottleExtensionBlocked')
+                                       else "I couldn't complete that movement.",cancel)
                     elif call.arguments['text'] is not None:
                         put_phrase(phrases,call.arguments['text'],cancel)
                     elif not look_question and not call.arguments.get('say_before'):

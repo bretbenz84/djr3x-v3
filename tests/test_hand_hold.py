@@ -61,7 +61,7 @@ class HandWatchTests(unittest.TestCase):
         self.assertEqual(watch.observe(WAIT_S, .9, None), 'timeout')
 
 
-class HandPoseTests(unittest.TestCase):
+class HandRig(unittest.TestCase):
     def setUp(self):
         self.clock, self.port = Clock(), PulsePort()
         self.robot = RobotServos('fake', open_port=lambda: self.port, clock=self.clock, wait=self.clock.wait)
@@ -96,6 +96,8 @@ class HandPoseTests(unittest.TestCase):
         self.assertEqual(receipt.status, 'pulses_reached', receipt.reason)
         return receipt
 
+
+class HandPoseTests(HandRig):
     def test_steps_are_offered_and_closed_is_the_lowest_pulse(self):
         self.assertTrue(set(HAND_STEPS) <= set(POSE_COMMANDS))
         self.assertEqual((FINGERS_CLOSED, FINGERS_OPEN), LIMITS[15])
@@ -229,6 +231,61 @@ class HandPoseTests(unittest.TestCase):
         self.assertEqual(self.port.pose[15], FINGERS_CLOSED)
 
 
+class Run471f4739Tests(HandRig):
+    """Run 471f4739 (November 20): after a let go the arm never rested, the next "hold this" was refused
+    for room, and the third crashed the frame loop and shut him down."""
+
+    def let_go_from_grab(self):
+        self.holding()
+        self.robot.execute_pose('hand_let_go', Cancellation(), 'go')
+        self.robot.execute_pose('hand_let_go', Cancellation(), 'go-now')   # Asked again: open now.
+        self.assertEqual((self.robot.hand_state(), self.port.pose[15]), ('letting_go', FINGERS_OPEN))
+
+    def test_the_rest_waits_for_a_busy_board_instead_of_giving_up(self):
+        self.let_go_from_grab()
+        owner, real, busy = self.robot.owner, self.robot.owner.execute, [6]
+        def busy_execute(request, cancel):
+            if request.request_id.startswith('hand:rest') and busy[0]:
+                busy[0] -= 1
+                from r3x.servos import ServoReceipt
+                return ServoReceipt(request.request_id, 'rejected', owner.version, self.clock(), 'simulation',
+                                    reason='ServoBusy')
+            return real(request, cancel)
+        owner.execute = busy_execute
+        self.frames(LET_GO_S + .3)
+        self.assertEqual(busy[0], 0)
+        self.assertEqual(self.arm(), dict(REST))
+        self.assertEqual(self.robot.hand_state(), 'empty')
+
+    def test_idle_does_not_compete_with_the_hands_own_move(self):
+        import threading
+        gate = threading.Event()
+        self.robot._hand_worker = threading.Thread(target=gate.wait, daemon=True)
+        self.robot._hand_worker.start()
+        self.assertTrue(self.robot.idle.busy())
+        gate.set(); self.robot._hand_worker.join()
+        self.assertFalse(self.robot.idle.busy())
+
+    def test_the_frame_loop_never_sees_a_hand_error(self):
+        rows = []
+        self.robot.trace = type('T', (), {'emit': lambda _, event, **kw: rows.append((event, kw))})()
+        self.robot._hand_state, self.robot._let_go_at = 'letting_go', None   # As during the third try's looks.
+        self.robot.before_frame()
+        self.robot._hand_state = 'open'
+        self.robot._hand = type('Broken', (), {'observe': lambda *a: 1 / 0})()
+        self.robot.before_frame()
+        self.assertIn(('hand_hold', {'status': 'tick_failed', 'error_type': 'ZeroDivisionError', 'state': 'open'}), rows)
+
+    def test_hold_this_again_right_after_a_let_go(self):
+        self.let_go_from_grab()
+        self.space = {'front_right_m': .30, 'front_radial_right_m': .33}   # Bret close with the next thing.
+        receipt = self.robot.execute_pose('hand_take', Cancellation(), 'take-again')
+        self.assertEqual(receipt.status, 'pulses_reached', receipt.reason)   # The arm is already out there.
+        self.assertEqual((self.robot.hand_state(), self.port.pose[15]), ('open', FINGERS_OPEN))
+        self.frames(1.)
+        self.assertEqual(self.robot.hand_state(), 'open')   # Not closed by the person already standing there.
+
+
 class RememberedHoldTests(MemoryFixture):
     """Owner, November 20: holding something survives a shutdown and the next launch."""
 
@@ -319,6 +376,22 @@ class HandConversationTests(MemoryFixture):
                 robot._hand_worker.join(5.)
             clock.now += .1
         self.assertEqual(port.pose[15], FINGERS_OPEN)
+
+    def test_no_room_asks_them_to_step_back(self):
+        clock, port = Clock(), PulsePort()
+        robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait)
+        robot.owner.wait = clock.wait
+        robot.start(); robot.open_eyes(); self.addCleanup(robot.close)
+        robot.arm_space = lambda: {'front_right_m': .3, 'front_radial_right_m': .3}
+        brain = Brain(ToolCall('take', 'set_robot_pose', {'poses': ['hand_take'], 'look_after': None,
+                                                          'say_before': None, 'text': 'Pop it in my hand.'}))
+        output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, robot=robot)
+        session = Session('s', brain, output, self.state.trace, self.state); self.addCleanup(session.close)
+        result = session.process_turn(Capture('0', 's', bytes(1024), 98, 99, 99.6),
+                                      Transcript('Can you hold this?', -.01, True), session.revision)
+        self.assertEqual(result.completed_text, ['Step back a little so my arm has room.'])
+        receipt = [m for m in session.history if 'Robot pose controller receipt' in str(m.get('content'))][-1]
+        self.assertIn('step back', receipt['content'])
 
     def test_his_own_beats_cannot_hold_out_the_hand(self):
         call = ToolCall('take', 'set_robot_pose', {'poses': ['hand_take'], 'look_after': None, 'say_before': None,
