@@ -40,9 +40,9 @@ below 1564 µs; curled further in, the elbow's ceiling drops (2496 µs → 1597 
 The visor servo is inverted: low pulses raise it, high pulses lower it (open 1433 µs,
 surprise 1136 µs, closed 1744 µs).
 
-November 19, 2026: the throttle hand gains a wrist twist (ch 14) and a two-finger pincher
-(ch 15), conservatively 1000–2000 µs until the assembled hand's full range is measured. Both
-get nudges (in measurement mode) to help find that range.
+November 19, 2026: the throttle hand gains a wrist twist (ch 14, the Maestro's "throttlehandwrst")
+and a two-finger pincher (ch 15, "throttlefingers"). November 20: their programmed Maestro limits,
+560–1856 µs and 1264–1856 µs. Both get nudges (in measurement mode).
 
 Run directly for debugging:
     venv/bin/python tools/rex_servo_menubar.py
@@ -110,10 +110,10 @@ _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
                        "speed": 70, "acceleration": 12},
     "throttle_wrist": {"ch": 10, "min": 2000, "max": 10000, "neutral": 6000,
                        "speed": 70, "acceleration": 12},
-    # Throttle hand (Nov 19): conservative 1000-2000 us until measured; park is the middle.
-    "throttle_twist": {"ch": 14, "min": 4000, "max": 8000, "neutral": 6000,
+    # Throttle hand (Nov 20): the Maestro's programmed limits; neutral is the park, the middle.
+    "throttle_twist": {"ch": 14, "min": 2240, "max": 7424, "neutral": 4832,   # Maestro "throttlehandwrst", 560-1856 us
                        "speed": 20, "acceleration": 4},
-    "throttle_pincher": {"ch": 15, "min": 4000, "max": 8000, "neutral": 6000,
+    "throttle_pincher": {"ch": 15, "min": 5056, "max": 7424, "neutral": 6240,  # Maestro "throttlefingers", 1264-1856 us
                          "speed": 20, "acceleration": 4},
 }
 _THROTTLE_DIRECTIONS = {

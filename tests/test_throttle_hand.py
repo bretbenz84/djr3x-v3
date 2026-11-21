@@ -30,8 +30,8 @@ def hand_targets(lanes):
 
 class HandRangeTests(unittest.TestCase):
     def test_conservative_range_and_middle_park(self):
-        self.assertEqual({ch: LIMITS[ch] for ch in THROTTLE_HAND}, {14: (4000, 8000), 15: (4000, 8000)})   # 1000-2000 us.
-        self.assertEqual(dict(HAND_PARK), {14: 6000, 15: 6000})
+        self.assertEqual({ch: LIMITS[ch] for ch in THROTTLE_HAND}, {14: (2240, 7424), 15: (5056, 7424)})   # 560-1856, 1264-1856 us.
+        self.assertEqual(dict(HAND_PARK), {14: 4832, 15: 6100})   # Wrist middle; fingers 1525 us (owner's notes).
         self.assertEqual({ch: dict(UNPOWERED_REST)[ch] for ch in THROTTLE_HAND}, dict(HAND_PARK))
         self.assertEqual({ch: SENTRY_STANCE[ch] for ch in THROTTLE_HAND}, dict(HAND_PARK))
         self.assertIn(('throttle_hand', {14, 15}), HELD_PARTS)
@@ -39,9 +39,9 @@ class HandRangeTests(unittest.TestCase):
     def test_the_joint_tool_reaches_both_ends(self):
         positions = {name: None for name in JOINTS}
         targets = joint_targets({**positions, 'throttle_twist': 0, 'throttle_pincher': 100})
-        self.assertEqual(targets, {14: 4000, 15: 8000})
-        self.assertEqual({k: v for k, v in joint_percents({14: 6000, 15: 6000}).items()},
-                         {'throttle_twist': 50, 'throttle_pincher': 50})
+        self.assertEqual(targets, {14: 2240, 15: 7424})
+        self.assertEqual({k: v for k, v in joint_percents(dict(HAND_PARK)).items()},
+                         {'throttle_twist': 50, 'throttle_pincher': 44})   # Fingers rest at 1525 us.
 
     def test_the_servo_menu_mirrors_the_limits(self):
         # Read the menu's table as written: importing the app would load its serial and menu machinery.
@@ -79,12 +79,12 @@ class HandMotionTests(unittest.TestCase):
             targets = [dict(beat.targets) for beat in hand[0]]
             self.within(targets[:-1], HAND_TALK_REACH)
             self.assertEqual(targets[-1], {ch: self.current[ch] for ch in THROTTLE_HAND})   # Repeats smoothly.
-            talk_spread += [abs(t[ch] - 6000) for t in targets for ch in THROTTLE_HAND]
+            talk_spread += [abs(t[ch] - dict(HAND_PARK)[ch]) for t in targets[:-1] for ch in THROTTLE_HAND]
             phrase = IdlePhrase((('throttle', 0.),))
             idle = hand_targets(idle_lanes(self.current, random.Random(seed), phrase=phrase))
             self.assertEqual(len(idle), 1)
             self.within(idle, HAND_IDLE_REACH)
-            idle_spread += [abs(t[ch] - 6000) for t in idle for ch in THROTTLE_HAND]
+            idle_spread += [abs(t[ch] - dict(HAND_PARK)[ch]) for t in idle for ch in THROTTLE_HAND]
         self.assertGreater(max(talk_spread), max(idle_spread))
         self.assertGreater(sum(talk_spread) / len(talk_spread), sum(idle_spread) / len(idle_spread))
 
@@ -101,7 +101,7 @@ class HandMotionTests(unittest.TestCase):
         self.assertEqual(hand_targets(lanes), [dict(HAND_PARK)])
 
     def test_park_brings_the_hand_back_and_a_kept_arm_leaves_it(self):
-        moved = {**self.current, 14: 7000, 15: 5000}
+        moved = {**self.current, 14: 7000, 15: 5300}
         self.assertIn(dict(HAND_PARK), hand_targets(lifecycle_lanes('shutdown', moved)))
         self.assertEqual(hand_targets(lifecycle_lanes('park', self.current)), [])   # Already at its park.
         self.assertEqual(hand_targets(lifecycle_lanes('startup', moved, keep=frozenset({'throttle'}))), [])
@@ -121,7 +121,7 @@ class HandDriveTests(unittest.TestCase):
                                   Cancellation())
 
     def test_drive_parks_and_holds_the_hand_until_the_arm_is_back(self):
-        self.assertEqual(self.execute('pose', pose={14: 7200, 15: 4800}, hold_pose=False).status, 'pulses_reached')
+        self.assertEqual(self.execute('pose', pose={14: 3000, 15: 7200}, hold_pose=False).status, 'pulses_reached')
         self.assertEqual(self.execute('base_park').status, 'pulses_reached')
         self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE_HAND}, dict(HAND_PARK))
         self.assertTrue(set(THROTTLE_HAND) <= self.owner.held_channels)

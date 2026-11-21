@@ -43,6 +43,12 @@ PRIVATE_CARRY_SECONDS = 90.
 # After two faces are seen together, only direct recognition opens private memory for this
 # long (October 3: a guest briefly alone in view was answered as the owner).
 COMPANY_SECONDS = 600.
+# November 19 (a5963bfa): Joy's face, about 100 px wide and followed for up to two seconds at a
+# time, scored -0.1 to 0.13 against every saved face (Bret's own face scored .5 to .76 that run),
+# yet nothing counted her as company and four lines were credited to Bret. A followed face that
+# looks like nobody he knows, below this, is someone else here. Bret's followed frames that did not
+# yet resemble him scored .29 and .42 that run; a far face too small to compare has no embedding.
+STRANGER_FACE_BELOW = .12
 # A detector drops and relabels animals (dog, cat, nothing) from one frame to the next.
 PET_LABELS = frozenset({'dog', 'cat'})
 PET_RECALL_SECONDS = 10.    # A pet seen this recently is still targetable between detections.
@@ -145,6 +151,14 @@ def across_view(row):
     if x is None:
         return None
     return 'on his left' if x < .38 else 'on his right' if x > .62 else 'in the middle of his view'
+
+
+def stranger(face):
+    """A face compared against the saved faces that resembles none of them: not a far face too
+    small to tell, not one this track has ever looked like someone on."""
+    similarity = face.get('similarity')
+    return (not face.get('identity') and not face.get('resembles') and bool(face.get('embedding_available'))
+            and isinstance(similarity, (int, float)) and similarity < STRANGER_FACE_BELOW)
 
 
 def followed(faces):
@@ -258,6 +272,8 @@ class Present:
                 self.face_at = max(self.face_at, at)
                 if id(face) in people:
                     seen.append(at)
+                    if stranger(face):
+                        self.company_at = max(self.company_at, at)
                 if face.get('identity'):
                     self._recognize(face['identity'], at)
             if len(seen) > 1:

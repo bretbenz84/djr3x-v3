@@ -352,6 +352,11 @@ def unavailable_meaning(reason):
     return f'The wheels are locked out ({reason}).'
 
 
+# November 19 (run a5963bfa): with no clear fold the park leaves the throttle arm out and the drive
+# goes ahead; turns then check the room for the arms-out reach instead of the tucked one.
+ARM_LEFT_OUT = 'ThrottleArmLeftWhereItWas'
+
+
 class ArmParkFailed(ProviderFailure):
     """The throttle arm did not park before wheel motion; the plan is refused unmoved."""
 
@@ -674,6 +679,7 @@ class DriveBase:
         self._reached = None          # (description, when) of the last sought thing he arrived at.
         self._parked = False
         self._plan_parks = False
+        self._throttle_out = False    # The park found no clear fold for the throttle arm; it stayed out.
         self._view_since = float('-inf')
         self._start_heading = None
         self._voice = None            # Room heading and time of the last located voice.
@@ -835,7 +841,7 @@ class DriveBase:
                 if park.status != 'pulses_reached':
                     return {'status': 'refused', 'reason': 'ArmParkFailed:' + str(park.reason or park.status),
                             'lin': 0., 'ang': 0.}
-                manual['parked'] = True
+                manual['parked'] = 'arm_out' if park.reason == ARM_LEFT_OUT else True
             telemetry = self.link.snapshot()[0] or {}
             blocked = telemetry.get('blocked_dir')
             if lin > 0:
@@ -847,7 +853,7 @@ class DriveBase:
                 held.append('blocked_back')
                 lin = 0.
             if ang:
-                arms = ARMS_TUCKED if manual['parked'] else ARMS
+                arms = ARMS_TUCKED if manual['parked'] is True else ARMS
                 if not allowed_turn(math.copysign(MANUAL_TURN_CHECK_DEG, ang), telemetry, arms)[0]:
                     held.append('turn_path_blocked')
                     ang = 0.
@@ -1708,7 +1714,7 @@ class DriveBase:
     def _arms(self):
         """Arm reach for the swing check: tucked when the servo owner parks them before any
         wheel command of this plan; V2's arms-out estimate when their position is unknown."""
-        return ARMS_TUCKED if self.servos is not None and self._plan_parks else ARMS
+        return ARMS_TUCKED if self.servos is not None and self._plan_parks and not self._throttle_out else ARMS
 
     def _wheels_on(self, kind, origin):
         """A wheel command is going out: the whir loops while they run, and the plan is rolling."""
@@ -1725,6 +1731,7 @@ class DriveBase:
         if park.status != 'pulses_reached':
             raise ArmParkFailed('ArmParkFailed:' + str(park.reason or park.status))
         self._parked = True
+        self._throttle_out = park.reason == ARM_LEFT_OUT
         self._view_since = self.clock() + .3   # Only detections of the centred-neck view.
         self._sleep(.6, cancel)
 
@@ -3288,6 +3295,7 @@ class DriveBase:
             start = self.link.snapshot()[0]
             self._start_heading = self._heading(start) if start else None
             self._plan_parks = plan.park_arm   # The arm parks right before the first wheel command.
+            self._throttle_out = False
             self._origin = plan.origin
             self._view_since = self.clock()
             budget = LIMITS[plan.origin]['total_m']

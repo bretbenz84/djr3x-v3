@@ -7,7 +7,7 @@ import unittest
 from r3x.adapters.maestro import Maestro
 from r3x.contracts import Cancellation, Playback, ProviderFailure
 from r3x.output import Delivery, OutputOwner
-from r3x.servo_poses import RAISED, AWAKE_ARMS, HEAD_LIFT_NORMAL, HEAD_PARK, NECK_PER_DEG, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
+from r3x.servo_poses import NECK_CENTER, RAISED, AWAKE_ARMS, HEAD_LIFT_NORMAL, HEAD_PARK, NECK_PER_DEG, PARK, POKER, POKER_DRIVE, POKER_UP, REST, FULL_DOWN, THROTTLE, TUCK, UNPOWERED_REST
 from r3x.servos import ARM_RETURN
 from r3x.servos import ServoOwner, ServoRequest, TalkingMotion
 
@@ -139,6 +139,25 @@ class ServoTests(unittest.TestCase):
             self.assertEqual(self.port.pose[ch], value)
         self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, stranded)
         self.assertEqual(self.owner.state, 'parked')
+
+    def test_a_drive_parks_the_rest_and_leaves_a_throttle_arm_with_no_clear_route(self):
+        # November 19 (run a5963bfa): from where the arm sat, both asked-for turns were refused
+        # before a wheel moved (ArmParkFailed:ThrottleRouteOutsideClearance).
+        stranded = {8: 3624, 9: 2048, 10: 9048}
+        self.wake_with_arms_kept(stranded)
+        park = self.execute('base_park')
+        self.assertEqual((park.status, park.reason), ('pulses_reached', 'ThrottleArmLeftWhereItWas'))
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, stranded)
+        self.assertEqual(self.port.pose[0], NECK_CENTER)
+        self.owner.begin_arm_return()
+        self.assertEqual(self.owner.return_arm().status, 'pulses_reached')
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, stranded)
+
+    def test_a_drive_park_folds_a_throttle_arm_the_tuck_cannot_reach_straight(self):
+        self.wake_with_arms_kept({8: 4624, 9: 2848, 10: 6048})
+        park = self.execute('base_park')
+        self.assertEqual((park.status, park.reason), ('pulses_reached', None))
+        self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(PARK))
 
     def test_arrival_timeout_names_the_channel_that_never_arrived(self):
         # First live run October 10: shutdown failed with a bare ServoArrivalTimeout, so the

@@ -20,14 +20,14 @@ from types import MappingProxyType
 # microseconds x 4) are the limits of the two head servos and the poker elbow/wrist.
 # Head lift (1): owner, November 12, 832-2496 us (was 656-1936).
 # Throttle shoulder (8): owner, November 14, after its rework, 906-2000 us (was 544-2272).
-# Throttle hand (14 wrist twist, 15 two-finger pincher): owner, November 19, before it is assembled
-# or set up on the Maestro: a conservative 1000-2000 us until the full range is measured.
+# Throttle hand (14 wrist twist, 15 two-finger pincher): owner, November 20, once installed, the
+# limits programmed into the Maestro ("throttlehandwrst" 560-1856 us, "throttlefingers" 1264-1856 us).
 LIMITS = MappingProxyType({
     0: (1984, 8960), 1: (3328, 9984), 2: (4032, 8128), 3: (4544, 6976),
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
     8: (3624, 8000), 9: (2048, 9984), 10: (2048, 9984),
     11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
-    14: (4000, 8000), 15: (4000, 8000),
+    14: (2240, 7424), 15: (5056, 7424),
 })
 THROTTLE = (8, 9, 10)
 # The throttle hand's wrist twist and pincher. Each moves on its own: the throttle clearance rule
@@ -235,9 +235,10 @@ PARK = ((8, SHOULDER_DOWN), (9, 9984), (10, 2048))
 TUCK = ((8, 6132), (9, 8400), (10, 2048))
 REST = ((8, SHOULDER_45), (9, 7720), (10, 5120))
 FULL_DOWN = ((8, SHOULDER_DOWN), (9, 5589), (10, 9511))
-# The throttle hand parks, and rests while awake, at the middle of each joint's range (owner,
-# November 19, until it is assembled); it follows the limits when they are measured.
-HAND_PARK = tuple((ch, sum(LIMITS[ch]) // 2) for ch in THROTTLE_HAND)
+# The throttle hand parks, and rests while awake, here. The wrist at the middle of its range (owner,
+# November 19); the fingers at 1525 us from the owner's notes (November 20), a little short of their
+# middle (1560 us). Idle and talking motion centre on these.
+HAND_PARK = ((14, sum(LIMITS[14]) // 2), (15, 6100))
 # Neck pulse where the head physically faces straight along the base. The owner
 # saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
 # driving on September 27; set this from the servo console reading.
@@ -425,6 +426,12 @@ def throttle_park_stages(current) -> list[dict[int, int]] | None:
         if all(throttle_clear(a, b) for a, b in zip([start, *stages], stages)):
             return stages
     return None
+
+
+def throttle_parks_nowhere(current) -> bool:
+    """Not already parked, and no clear route there: a park leaves the throttle where it is."""
+    at_park = all(abs(current[ch] - value) <= 2 for ch, value in PARK)
+    return not at_park and throttle_park_stages(current) is None
 
 
 def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left',
@@ -1165,19 +1172,24 @@ def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True) 
     start = {ch: current[ch] for ch in THROTTLE}
     at = lambda pose: all(abs(start[ch] - value) <= 2 for ch, value in pose)
     if kind == 'base_park':
-        if at(PARK):
-            stages = []
-        elif full_down_corridor(start):
-            stages = [{8: RAISED, 9: 5589, 10: 9511}, {8: RAISED, 9: 8400, 10: 2048}, dict(TUCK), dict(PARK)]
-        elif throttle_clear(start, dict(TUCK)):
-            stages = [dict(TUCK), dict(PARK)]
-        else:
-            stages = [dict(REST), dict(TUCK), dict(PARK)]
+        # November 19 (run a5963bfa): this park had one fallback route, so from where the arm sat
+        # every drive was refused before a wheel moved. It now tries the shutdown park's routes;
+        # with none clear the throttle stays where it is and the drive goes ahead with the swing
+        # check counting that arm as out (drive owner, throttle_parks).
+        stages = [] if at(PARK) else (throttle_park_stages(current) or [])
     else:
         route = [dict(TUCK), {8: 5260, 9: 8000, 10: 3800}, {8: 4616, 9: 8720, 10: 5920}, dict(REST)]
-        # From anywhere else (a throttle the wake found out, lowered by a pose) by the checked waypoints.
-        stages = ([] if at(REST) or 'throttle' in keep else
-                  route if at(PARK) or throttle_clear(start, route[0]) else throttle_route(start, REST))
+        # From anywhere else (a throttle the wake found out, lowered by a pose) by the checked waypoints;
+        # one the park left where it was, with no clear way to rest, stays there.
+        if at(REST) or 'throttle' in keep:
+            stages = []
+        elif at(PARK) or throttle_clear(start, route[0]):
+            stages = route
+        else:
+            try:
+                stages = throttle_route(start, REST)
+            except ValueError:
+                stages = []
     previous = start
     for stage in stages:
         validate_pose(stage)

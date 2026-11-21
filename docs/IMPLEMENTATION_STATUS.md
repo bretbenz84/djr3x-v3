@@ -1,10 +1,37 @@
 # Current implementation status
 
-Updated November 19, 2026. This is the consolidated
+Updated November 20, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Run `a5963bfa` repairs: a refused turn, an invented obstacle, Joy called "Bret" — November 20
+
+Owner: he refused to turn despite enough clearance, called Joy "Bret" and made other gaffes.
+- **Refused turn.** Both asked-for turns ended `ArmParkFailed:ThrottleRouteOutsideClearance` before a wheel
+  moved: the drive stance's throttle fold had one fallback route and none was clear from where the arm sat
+  (the November 19 shutdown fix had not reached it; that shutdown also left the arm out). **Built:** the drive
+  park tries the shutdown park's routes (`throttle_park_stages`); with none clear, everything else takes the
+  stance, the throttle stays where it is (`ThrottleArmLeftWhereItWas`), the drive goes ahead and turns are
+  checked for the arms-out reach (`ARMS`); the return afterwards leaves that arm where it is. Read-only
+  Maestro check November 20: the throttle now reads exactly `PARK` (the board was restarted; last night's
+  position is not logged), and that day's 4:25 PM shutdown parked it fully.
+- **Invented obstacle.** The model read "Clearance" in that reason as the room's, took a 0.4 m front-right
+  reading and said he was boxed in, four inches from something, and asked to be picked up. **Built:** an
+  arm-park refusal's result carries a `meaning` saying it is his own arm and nothing in the room (data, not
+  prompt wording; both providers' prompts unchanged).
+- **Joy as "Bret".** Joy has a name on file but no saved voice or face. Four lines were credited to Bret by
+  the October 16 carry rule at .32-.51 (his clear matches that run .62-.69; his own carried lines on other
+  days went as low as .33, so no voice floor separates them). Her face, about 100 px and followed for up
+  to two seconds at a time, scored -0.1 to .13 against every saved face, but only two faces or another
+  recognized person counted as company. **Built:** a followed, comparable face that looks like nobody he
+  knows (similarity under .12, no resemblance on its track) marks company in the picture for ten minutes,
+  which ends the carry and presence deduction as the rulings intend; a far face too small to compare does not.
+- **Evidence:** 5 new synthetic checks (servos, drive, drive session, speaker presence); 1971 checks pass
+  via `--changed`. **Open:** not run on the robot. Bret's face at an angle scoring under .12 would stop
+  his carry for ten minutes (abstention, never a wrong name). Worn-out words (Voyager, telescopes) still
+  reached his lines; not addressed here.
 
 ## "Hey Rex" over his voice must be heard by the recognizer — November 19
 
@@ -62,12 +89,13 @@ a Van Gogh headline, although Claude's planner was told never to.
 
 Owner request: two more servos for the throttle arm's hand, a wrist twist (channel 14) and a two-finger
 pincher (15), not yet assembled or set up on the Maestro.
-- **Built:** a conservative 1000–2000 µs range with the park at the middle; a small twist and finger flex with
+- **Built:** the Maestro's programmed limits (November 20: wrist 560–1856 µs, fingers 1264–1856 µs) with the park
+  at the wrist's middle and the fingers at 1525 µs; a small twist and finger flex with
   each idle throttle move (back to the middle as the arm rests), a livelier lane of its own while he speaks;
   held with its arm (hold, drive stance, kept beside an obstacle); `throttle_twist`/`throttle_pincher` in the
   joint tool, the dashboard and the servo menu (with nudges).
 - **Evidence:** 10 synthetic checks; nothing has moved.
-- **Open:** the real range and directions once assembled; any collision between the hand and the body.
+- **Open:** which way each end moves; how the motion looks on the robot; any collision between the hand and the body.
   [Details](SERVO_INTEGRATION.md).
 
 ## Music from Apple Music — November 18

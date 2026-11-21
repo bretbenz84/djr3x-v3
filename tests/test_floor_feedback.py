@@ -938,6 +938,29 @@ class TuckedArmTurnTests(unittest.TestCase):
         drive._plan_parks = False                   # Straight reflex reverse: arms not parked.
         self.assertIs(drive._arms(), ARMS)
 
+    def test_a_throttle_arm_the_park_left_out_still_drives_with_the_arms_out_reach(self):
+        # November 19 (run a5963bfa): "Turn to your right and come down the hall" was refused
+        # twice because the throttle arm had no clear fold; nothing in the room was in the way.
+        from r3x.drive_space import ARMS
+        clock, fake, drive, world = base_setup(self)
+        reaches = []
+        class Servos:
+            def prepare_base_motion(self, cancel):
+                return type('R', (), {'status': 'pulses_reached', 'reason': 'ThrottleArmLeftWhereItWas'})()
+            def finish_base_motion(self, look_pending=False, keep_parked=frozenset()):
+                pass
+        drive.servos = Servos()
+        arms = drive._arms
+        drive._arms = lambda: reaches.append(arms()) or reaches[-1]
+        drive.start()
+        self.addCleanup(drive.close)
+        settle()
+        receipt = drive.execute(DrivePlan('p', (DriveStep('turn', degrees=-90.),), 'requested',
+                                          'turn right', {}, clock()+60), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        self.assertGreater(abs(fake.theta), 60.)
+        self.assertIs(reaches[-1], ARMS)   # Rechecked after the park, with the arm counted as out.
+
 
 class VoiceAndObstacleApproachTests(unittest.TestCase):
     """September 27: "come towards my voice" needed a face; a trash can stopped "come to me"."""

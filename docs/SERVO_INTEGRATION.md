@@ -6,6 +6,17 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 20: the throttle hand's real limits
+
+Owner, with the hand installed and its limits programmed into the Maestro: channel 14
+("throttlehandwrst", the wrist twist) 560–1856 µs and channel 15 ("throttlefingers", the
+pincher) 1264–1856 µs. `LIMITS[14]` is now 2240–7424 and `LIMITS[15]` 5056–7424, and the servo
+menu's sliders match. The wrist parks at its middle, 1208 µs; the fingers at 1525 µs from the owner's
+notes (their middle is 1560). Idle moves the wrist up to about ±194 µs and the fingers ±74 µs
+around the park; speaking up to ±324 and ±133 µs. Which
+end opens the fingers or turns the wrist which way is still unmeasured. Synthetic checks only;
+the hand has not been moved by Rex.
+
 ## November 19: a hand for the throttle arm (code only, not assembled)
 
 Owner: the throttle arm gains a hand with two servos, a wrist twist on channel 14 and a
@@ -1198,3 +1209,11 @@ If none is clear, everything else parks, the throttle arm stays exactly where it
 
 **Evidence:** synthetic Maestro checks only; the stranded live pose was not read. **Still open:** the first
 real shutdown after this change, and where the arm sits now.
+
+## November 20: the drive stance uses the same throttle routes, and goes ahead without them
+
+Run `a5963bfa`: both asked-for turns were refused (`ArmParkFailed:ThrottleRouteOutsideClearance`) because
+`base_lanes('base_park')` still had its own single fallback. It now uses `throttle_park_stages`. With no
+clear route the rest of the stance still runs, the throttle stays where it is and the receipt says
+`ThrottleArmLeftWhereItWas`; the drive owner then checks turns with the arms-out reach (`drive_space.ARMS`),
+and `base_release` leaves an arm with no clear way to rest where it is. Synthetic checks only; nothing moved.

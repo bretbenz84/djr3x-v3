@@ -13,7 +13,7 @@ from typing import Callable
 from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
-from .servo_poses import (throttle_park_stages, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
+from .servo_poses import (throttle_parks_nowhere, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
                           sentry_lanes, telepresence_wake_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
@@ -537,7 +537,7 @@ class ServoOwner:
                 # leave them, until the drive owner reads their space clear (owner, November 17).
                 self.kept_arms = frozenset(request.keep_arms)
                 self.held_channels.update(self.kept_channels)
-            if request.kind in {'park', 'shutdown'} and throttle_park_stages(current) is None:
+            if request.kind in {'park', 'shutdown', 'base_park'} and throttle_parks_nowhere(current):
                 # Everything else parked; the throttle arm had no clear route and stayed where it was.
                 return receipt('pulses_reached', 'ThrottleArmLeftWhereItWas')
             return receipt('pulses_reached')

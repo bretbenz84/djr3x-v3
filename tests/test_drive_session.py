@@ -121,6 +121,23 @@ class DriveSessionTests(MemoryFixture):
         self.assertEqual((output['outcome'], output['reason']), ('rejected', 'DriveMoveOutOfRange'))
         self.assertFalse(any(c['cmd'] in {'move', 'turn', 'drive'} for c in self.fake.commands))
 
+    def test_an_arm_park_refusal_is_explained_as_his_arm_not_the_room(self):
+        # November 19 (a5963bfa): "ArmParkFailed:ThrottleRouteOutsideClearance" was read as room
+        # clearance; he said something 40 cm away boxed him in and asked to be picked up.
+        self.setup_drive(drive_call(step('turn', degrees=-90.), text='Turning right.'),
+                         followup='My arm would not fold, so I stayed put.')
+        class Servos:
+            def prepare_base_motion(self, cancel):
+                return type('R', (), {'status': 'rejected', 'reason': 'ServoBusy'})()
+            def finish_base_motion(self, look_pending=False, keep_parked=frozenset()):
+                pass
+        self.drive.servos = Servos()
+        self.turn('Turn to your right.')
+        output = json.loads(self.brain.snapshots[-1].continuation[-1]['output'])
+        self.assertEqual(output['drive']['reason'], 'ArmParkFailed:ServoBusy')
+        self.assertIn('Nothing in the room blocked him', output['meaning'])
+        self.assertFalse(any(c['cmd'] in {'move', 'turn', 'drive'} for c in self.fake.commands))
+
     def test_unoffered_target_is_rejected(self):
         self.setup_drive(drive_call(step('approach', target='face-invented')), followup='I cannot see you.')
         self.turn('Come here.')

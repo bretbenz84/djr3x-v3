@@ -209,6 +209,24 @@ class CarriedSpeakerTests(MemoryFixture):
         finally:
             fresh.tearDown()
 
+    def test_a_face_that_looks_like_nobody_he_knows_ends_the_carry(self):
+        # November 19 (a5963bfa): Joy, never enrolled, sat in view scoring about 0 against every saved
+        # face while her short lines (.32-.51 against Bret's voice) were all credited to Bret.
+        self.sure()
+        stranger = {**face(None, 'joy', width=100), 'resembles': None, 'similarity': .02, 'embedding_available': True}
+        self.assertEqual(self.speak('You feel stuck in a workshop.', MOTION_MASKED, faces=[stranger], motion=True).state,
+                         'unresolved')
+        self.assertEqual(self.speak('You better watch your mouth.', MOTION_MASKED, motion=True).state,
+                         'unresolved')                        # Out of view, she is still here.
+
+    def test_his_own_turned_face_does_not_end_the_carry(self):
+        self.sure()
+        turned = {**face(None, 'bret', width=100), 'resembles': self.person, 'similarity': .69,
+                  'embedding_available': True}
+        self.assertEqual(self.speak('Licking your face.', MOTION_MASKED, faces=[turned], motion=True).state, 'inferred')
+        far = {**face(None, 'far', width=40), 'similarity': None, 'embedding_available': False}
+        self.assertEqual(self.speak('Look over here.', MOTION_MASKED, faces=[far], motion=True).state, 'inferred')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -75,6 +75,10 @@ REPEAT_RUN = 5      # Words in a row that count as repeating one of them.
 # described a telescope that was not there.
 LOOK_FAILED = ('The look failed: no picture was taken. Say plainly that you could not look just now. Do not '
                'describe, guess or confirm anything about what is there, and do not say a path is clear or blocked.')
+# November 19 (a5963bfa): an arm-park refusal is about Rex's own arm, never the room.
+ARM_PARK_MEANING = ('Rex did not move: his own arm could not get into its driving position, so the wheels were '
+                    'never started. Nothing in the room blocked him and no distance reading caused this; the '
+                    'reason names the arm problem. Do not blame an obstacle or ask anyone to clear space or move him.')
 # October 23 (1e626e07): finding the duckling droid on the table took six asks. Two of the three look
 # tools could not move the head, and the one that could looked only when its question was filled in.
 # Every look now takes a direction; the head moves there first and the picture is taken after.
@@ -2581,6 +2585,10 @@ class Session:
                             setback[0] = True
                             output = {'drive':receipt} if receipt else {**asdict(result),'nothing_moved':True,
                                   'meaning':'The plan was rejected before any motion. Rex did not move.'}
+                            if receipt and str(receipt.get('reason') or '').startswith('ArmParkFailed'):
+                                # November 19 (run a5963bfa): "...RouteOutsideClearance" was read as the room's
+                                # clearance; Rex said he was boxed in by something 40 cm away and asked to be cleared.
+                                output['meaning'] = ARM_PARK_MEANING
                             followup, retry_calls = drive_followup(call,output,retry=depth==0)
                             if retry_calls:
                                 chosen = retry_calls[0]
