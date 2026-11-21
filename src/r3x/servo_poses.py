@@ -27,7 +27,7 @@ LIMITS = MappingProxyType({
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
     8: (3624, 8000), 9: (2048, 9984), 10: (2048, 9984),
     11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
-    14: (2240, 7424), 15: (5056, 7424),
+    14: (2240, 7424), 15: (6160, 7900),
 })
 THROTTLE = (8, 9, 10)
 # The throttle hand's wrist twist and pincher. Each moves on its own: the throttle clearance rule
@@ -235,11 +235,10 @@ PARK = ((8, SHOULDER_DOWN), (9, 9984), (10, 2048))
 TUCK = ((8, 6132), (9, 8400), (10, 2048))
 REST = ((8, SHOULDER_45), (9, 7720), (10, 5120))
 FULL_DOWN = ((8, SHOULDER_DOWN), (9, 5589), (10, 9511))
-# The throttle hand parks, and rests while awake, here. The wrist at 1415 us, where the hand is level
-# (owner, November 20: its mid point, at all times; not the middle of its range, 1208 us); the fingers at
-# 1525 us from the owner's notes (November 20), a little short of their middle (1560 us). Idle and
-# talking motion centre on these.
-HAND_PARK = ((14, 5660), (15, 6100))
+# The throttle hand parks, and rests while awake, here. The wrist at 1451 us, where the hand is level
+# (owner, November 21: its mid point; not the middle of its range, 1208 us); the fingers at 1706 us,
+# the owner's mid (November 21; their range is 1540-1975 us). Idle and talking motion centre on these.
+HAND_PARK = ((14, 5804), (15, 6824))
 # Neck pulse where the head physically faces straight along the base. The owner
 # saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
 # driving on September 27; set this from the servo console reading.

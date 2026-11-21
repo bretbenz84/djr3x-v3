@@ -30,8 +30,8 @@ def hand_targets(lanes):
 
 class HandRangeTests(unittest.TestCase):
     def test_conservative_range_and_middle_park(self):
-        self.assertEqual({ch: LIMITS[ch] for ch in THROTTLE_HAND}, {14: (2240, 7424), 15: (5056, 7424)})   # 560-1856, 1264-1856 us.
-        self.assertEqual(dict(HAND_PARK), {14: 5660, 15: 6100})   # Wrist level at 1415 us; fingers 1525 us.
+        self.assertEqual({ch: LIMITS[ch] for ch in THROTTLE_HAND}, {14: (2240, 7424), 15: (6160, 7900)})   # 560-1856, 1540-1975 us.
+        self.assertEqual(dict(HAND_PARK), {14: 5804, 15: 6824})   # Wrist level at 1451 us; fingers' mid 1706 us.
         self.assertEqual({ch: dict(UNPOWERED_REST)[ch] for ch in THROTTLE_HAND}, dict(HAND_PARK))
         self.assertEqual({ch: SENTRY_STANCE[ch] for ch in THROTTLE_HAND}, dict(HAND_PARK))
         self.assertIn(('throttle_hand', {14, 15}), HELD_PARTS)
@@ -39,9 +39,9 @@ class HandRangeTests(unittest.TestCase):
     def test_the_joint_tool_reaches_both_ends(self):
         positions = {name: None for name in JOINTS}
         targets = joint_targets({**positions, 'throttle_twist': 0, 'throttle_pincher': 100})
-        self.assertEqual(targets, {14: 2240, 15: 7424})
+        self.assertEqual(targets, {14: 2240, 15: 7900})
         self.assertEqual({k: v for k, v in joint_percents(dict(HAND_PARK)).items()},
-                         {'throttle_twist': 66, 'throttle_pincher': 44})   # Level wrist 1415 us; fingers 1525 us.
+                         {'throttle_twist': 69, 'throttle_pincher': 38})   # Level wrist 1451 us; fingers 1706 us.
 
     def test_the_servo_menu_mirrors_the_limits(self):
         # Read the menu's table as written: importing the app would load its serial and menu machinery.
@@ -96,12 +96,12 @@ class HandMotionTests(unittest.TestCase):
         self.assertEqual(hand_targets(idle), [])
 
     def test_resting_arm_relaxes_the_hand_to_the_middle(self):
-        moved = {**self.current, 14: 6400, 15: 5700}
+        moved = {**self.current, 14: 6400, 15: 6300}
         lanes = idle_lanes(moved, random.Random(3), phrase=IdlePhrase((('throttle', 0.),), throttle_rest=True))
         self.assertEqual(hand_targets(lanes), [dict(HAND_PARK)])
 
     def test_park_brings_the_hand_back_and_a_kept_arm_leaves_it(self):
-        moved = {**self.current, 14: 7000, 15: 5300}
+        moved = {**self.current, 14: 7000, 15: 7600}
         self.assertIn(dict(HAND_PARK), hand_targets(lifecycle_lanes('shutdown', moved)))
         self.assertEqual(hand_targets(lifecycle_lanes('park', self.current)), [])   # Already at its park.
         self.assertEqual(hand_targets(lifecycle_lanes('startup', moved, keep=frozenset({'throttle'}))), [])

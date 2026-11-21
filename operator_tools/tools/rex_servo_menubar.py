@@ -111,9 +111,9 @@ _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
     "throttle_wrist": {"ch": 10, "min": 2000, "max": 10000, "neutral": 6000,
                        "speed": 70, "acceleration": 12},
     # Throttle hand (Nov 20): the Maestro's programmed limits; neutral is the park (wrist middle, fingers 1525 us).
-    "throttle_twist": {"ch": 14, "min": 2240, "max": 7424, "neutral": 5660,   # Maestro "throttlehandwrst", 560-1856 us
+    "throttle_twist": {"ch": 14, "min": 2240, "max": 7424, "neutral": 5804,   # Maestro "throttlehandwrst", 560-1856 us
                        "speed": 20, "acceleration": 4},
-    "throttle_pincher": {"ch": 15, "min": 5056, "max": 7424, "neutral": 6100,  # Maestro "throttlefingers", 1264-1856 us
+    "throttle_pincher": {"ch": 15, "min": 6160, "max": 7900, "neutral": 6824,  # Maestro "throttlefingers", 1540-1975 us
                          "speed": 20, "acceleration": 4},
 }
 _THROTTLE_DIRECTIONS = {

@@ -127,7 +127,7 @@ opens the fingers and looks down and to his right; when something is brought to 
 close the fingers close (the lowest pulse) and hold; "you can let it go now" opens them.
 - **Built:** three `set_robot_pose` steps, offered to OpenAI and Claude alike (the tool description is shared):
   `hand_take` (the arm to the grab position, the hand level, fingers fully open
-  at 1856 µs, then `look_right` and `look_down`, held while he waits), `hand_grip` (fingers to 1264 µs now) and
+  at 1975 µs since November 21, then `look_right` and `look_down`, held while he waits), `hand_grip` (fingers to 1540 µs now) and
   `hand_let_go` (open; 2.5 s later the arm goes to rest and the hand to its park). `hand_hold.HandWatch` closes
   the hand on two front-right readings under 0.45 m and 0.1 m nearer than once the hand settled, or on a face
   growing to 300 px wide (not one already that close); after 30 s with nothing brought the arm goes back to
@@ -136,7 +136,7 @@ close the fingers close (the lowest pulse) and hold; "you can let it go now" ope
   `hand_let_go` (and, below, `hand_put_down`) opens it; shutdown's park leaves it closed. Another arm pose or a drive ends an open wait. The model sees
   `robot_pose_state.throttle_hand` while the hand is open, holding or letting go. His own beats (planner and
   proactive turns) cannot use the hand steps.
-- **Later the same day (owner):** the wrist's level, its mid point at all times, is 1415 µs (`HAND_PARK`, the servo
+- **Later the same day (owner):** the wrist's level, its mid point at all times, is 1415 µs (1451 µs from November 21; `HAND_PARK`, the servo
   menu's neutral; idle and talking twist around it), and the grab position is shoulder 1242, elbow 1720, wrist 887 µs
   (`THROTTLE_GRAB`) instead of `throttle_offer`. Its elbow is not a full extension, but `hand_take` keeps the
   0.5 m front-right check.
@@ -159,7 +159,7 @@ close the fingers close (the lowest pulse) and hold; "you can let it go now" ope
   production session; the changed-file run passed (1928 tests). Three probe cases added to
   `check_action_requests.py` (`hold_this`, `grab_this`, `let_it_go`) but not run (paid). Not run on the robot.
 - **Open:** whether the front-right sensors see a hand bringing a card (and do not see the outstretched arm
-  itself), whether the camera looking down and right sees the hand, whether 1264 µs grips a card without
+  itself), whether the camera looking down and right sees the hand, whether 1540 µs grips a card without
   straining the servo, and how the grab position looks with the head turned to it.
 
 ## The throttle arm's space is its front right; its hand moves while it is in — November 20
@@ -263,8 +263,8 @@ a Van Gogh headline, although Claude's planner was told never to.
 
 Owner request: two more servos for the throttle arm's hand, a wrist twist (channel 14) and a two-finger
 pincher (15), not yet assembled or set up on the Maestro.
-- **Built:** the Maestro's programmed limits (November 20: wrist 560–1856 µs, fingers 1264–1856 µs) with the park
-  at the wrist's middle and the fingers at 1525 µs; a small twist and finger flex with
+- **Built:** the Maestro's programmed limits (November 20: wrist 560–1856 µs; November 21: fingers 1540–1975 µs)
+  with the park at the wrist's mid 1451 µs and the fingers' mid 1706 µs; a small twist and finger flex with
   each idle throttle move (back to the middle as the arm rests), a livelier lane of its own while he speaks;
   held with its arm (hold, drive stance, kept beside an obstacle); `throttle_twist`/`throttle_pincher` in the
   joint tool, the dashboard and the servo menu (with nudges).

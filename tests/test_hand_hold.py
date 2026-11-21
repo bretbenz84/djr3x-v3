@@ -127,7 +127,7 @@ class HandPoseTests(HandRig):
 
     def test_take_reaches_out_open_and_looks_down_to_the_right(self):
         self.assertEqual(dict(THROTTLE_GRAB), {8: 1242 * 4, 9: 1720 * 4, 10: 887 * 4})   # Owner's grab position.
-        self.assertEqual(dict(HAND_PARK)[14], 1415 * 4)                              # The hand level.
+        self.assertEqual(dict(HAND_PARK)[14], 1451 * 4)                              # The hand level.
         self.take()
         self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(THROTTLE_GRAB))
         self.assertEqual(self.hand(), {14: dict(HAND_PARK)[14], 15: FINGERS_OPEN})
