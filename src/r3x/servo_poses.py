@@ -1293,6 +1293,7 @@ ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND)
 # hand_let_go opens them, and the arm goes back to rest a moment later; hand_put_down lowers it to the floor first.
 FINGERS_CLOSED, FINGERS_OPEN = LIMITS[15][0], LIMITS[15][1]
 THROTTLE_GRAB = ((8, 4968), (9, 6880), (10, 3548))   # Owner, November 20: 1242 / 1720 / 887 us.
+FINGER_SPEED, FINGER_ACCEL = 80, 0   # The whole travel in about a quarter second (0: no acceleration limit).
 HAND_POSES = {
     'hand_take': (*THROTTLE_GRAB, (14, dict(HAND_PARK)[14]), (15, FINGERS_OPEN)),
     'hand_grip': ((15, FINGERS_CLOSED),),
@@ -1523,6 +1524,9 @@ def pose_lanes(name, current, further=True):
         target = head_targets(HEAD_POSES[name], current)
     elif name in NECK_POSES:
         target = {0: neck_target(name, current, further)}
+    elif name in ('hand_grip', 'hand_let_go'):
+        # Owner, November 20 (run fe1d4fea): the fingers close or open briskly, not at the slow pose pace.
+        return ((Beat(HAND_POSES[name], speed=FINGER_SPEED, acceleration=FINGER_ACCEL),),)
     elif name in HAND_POSES:
         target = dict(HAND_POSES[name])
     else:

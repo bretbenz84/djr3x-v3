@@ -286,6 +286,24 @@ class Run471f4739Tests(HandRig):
         self.assertEqual(self.robot.hand_state(), 'open')   # Not closed by the person already standing there.
 
 
+class RunFe1d4feaTests(HandRig):
+    """Run fe1d4fea (November 20): the fingers closed only after "Got it." played, and the arm folded as
+    they were still closing."""
+
+    def test_the_fingers_close_quickly_and_grip_before_the_arm_moves(self):
+        from r3x.hand_hold import GRIP_SETTLE_S
+        from r3x.servo_poses import FINGER_SPEED, pose_lanes
+        self.assertEqual(pose_lanes('hand_grip', dict(self.port.pose))[0][0].speed, FINGER_SPEED)
+        self.take()
+        writes = []
+        self.port.on_target = lambda: writes.append((self.clock(), dict(self.port.pose)))
+        self.robot.execute_pose('hand_grip', Cancellation(), 'grip')
+        closed_at = next(t for t, pose in writes if pose[15] == FINGERS_CLOSED)
+        arm_at = next(t for t, pose in writes if pose[8] != dict(THROTTLE_GRAB)[8])
+        self.assertGreaterEqual(arm_at - closed_at, GRIP_SETTLE_S)
+        self.assertEqual(self.arm(), dict(PARK))
+
+
 class RememberedHoldTests(MemoryFixture):
     """Owner, November 20: holding something survives a shutdown and the next launch."""
 
@@ -376,6 +394,34 @@ class HandConversationTests(MemoryFixture):
                 robot._hand_worker.join(5.)
             clock.now += .1
         self.assertEqual(port.pose[15], FINGERS_OPEN)
+
+    def test_the_hand_moves_while_he_says_it(self):
+        import threading
+        clock, port = Clock(), PulsePort()
+        robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait)
+        robot.owner.wait = clock.wait
+        robot.start(); robot.open_eyes(); self.addCleanup(robot.close)
+        robot.arm_space = lambda: dict(CLEAR)
+        self.assertEqual(robot.execute_pose('hand_take', Cancellation(), 'take').status, 'pulses_reached')
+        moved, real = threading.Event(), robot.execute_pose
+        def execute_pose(*args, **kwargs):
+            moved.set()
+            return real(*args, **kwargs)
+        robot.execute_pose = execute_pose
+        seen = []
+        class Sink(SyntheticSink):
+            def play(inner, *args):
+                seen.append(moved.wait(2.))   # "Got it." is still playing when the fingers close.
+                return super().play(*args)
+        brain = Brain(ToolCall('grip', 'set_robot_pose', {'poses': ['hand_grip'], 'look_after': None,
+                                                          'say_before': 'Got it.', 'text': None}))
+        output = OutputOwner(SyntheticTTS(), Sink(), self.state.trace, robot=robot)
+        session = Session('s', brain, output, self.state.trace, self.state); self.addCleanup(session.close)
+        result = session.process_turn(Capture('0', 's', bytes(1024), 98, 99, 99.6),
+                                      Transcript('There you go.', -.01, True), session.revision)
+        self.assertEqual(result.completed_text, ['Got it.'])
+        self.assertEqual(seen[:1], [True])
+        self.assertEqual(port.pose[15], FINGERS_CLOSED)
 
     def test_no_room_asks_them_to_step_back(self):
         clock, port = Clock(), PulsePort()

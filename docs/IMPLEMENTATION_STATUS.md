@@ -8,6 +8,17 @@ Documentation does not authorize new hardware operation or feature expansion.
 
 ## Holding something light in the throttle hand — November 20
 
+**Run `fe1d4fea` repairs (second try).** Nothing closed the hand on the book: the range sensors sit low on the
+base and never saw it, and the camera cannot see his own hand (owner). Bret said "I did", and the fingers closed
+only after "Got it." had played; the arm then folded the moment their pulse arrived, before they had gripped.
+**Built:** the model closes the hand (`hand_grip`) as soon as the person says it is in ("there you go", "okay", "I
+did"), told plainly that it cannot see or feel its hand; a hand step's say_before plays while the hand moves, not
+before; the fingers move at speed 80 (about a quarter second) instead of the pose pace; they get a second
+(`GRIP_SETTLE_S`) to close on it before the arm folds; and a `hand_watch` row every 2 s of a wait records the
+range and face readings for tuning. The range and face triggers stay as backups. Bret cleared the remembered
+hold (it said holding after the failed grip). Evidence: synthetic checks (1943 changed-file tests pass); a
+`there_you_go` probe case added, not run. Not yet re-run on the robot.
+
 **Run `471f4739` repairs (first try on the robot).** The remembered hold made him give back the "book" first,
 as it should; the fingers opened when Bret came close. Then the arm never went back to rest: its single try
 lost the board to idle motion every frame for a minute (each try also cut off his talking motion), so the hand

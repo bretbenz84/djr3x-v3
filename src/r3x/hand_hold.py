@@ -1,11 +1,13 @@
 """When the open throttle hand closes on what it is given (owner, November 20).
 
-"Can you hold this?" reaches the hand out with its fingers open (servo_poses.HAND_POSES). This
-decides, from what Rex can sense, when something has been brought to it: the front-right range
-reading (the arm reaches out at his front right) coming in close and nearer than when the hand
-arrived, or a face that was not close at the start coming close. Neither the arm itself, already
-in the sensor's view, nor a person who was already standing near can close it: each is measured
-against how things were once the hand had settled. Nothing here moves a servo; RobotServos acts.
+"Can you hold this?" reaches the hand out with its fingers open (servo_poses.HAND_POSES). The person
+saying they have put it in ("there you go", "I did") is the main sign: the model closes the hand at once
+(hand_grip). This watches for two more: the front-right range reading (the arm reaches out at his front
+right) coming in close and nearer than when the hand arrived, or a face that was not close at the start
+coming close. Run fe1d4fea (November 20): the range sensors sit low on the base and never saw a book
+brought to the hand; the camera cannot see the hand either (owner). Neither the arm itself, already in
+the sensor's view, nor a person who was already standing near can close it: each is measured against
+how things were once the hand had settled. Nothing here moves a servo; RobotServos acts.
 """
 from dataclasses import dataclass, field
 import time
@@ -21,6 +23,7 @@ FACE_NEAR_PX = 300
 SETTLE_S = .6         # After the hand arrives, readings for this long set the baseline.
 WAIT_S = 30.          # Nothing brought in this long: the arm goes back to rest.
 LET_GO_S = 2.5        # After the fingers open to let go, the arm rests this much later.
+GRIP_SETTLE_S = 1.     # After the fingers' pulse arrives, they finish closing on it before the arm moves.
 
 
 @dataclass

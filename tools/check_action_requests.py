@@ -134,6 +134,8 @@ CASES.update({
     'grab_this': ((), VISOR_OPEN, False, 'Can you grab this?', 'action', pose('hand_take')),
     'let_it_go': (((HOLD, 'Sure. Pop it in my hand.'), ('There you go.', 'Got it.')), VISOR_OPEN, False,
                   'You can let it go now.', 'action', pose('hand_let_go')),
+    'there_you_go': (((HOLD, 'Hand out. Pop it in.'),), VISOR_OPEN, False, 'There you go.', 'action',
+                     pose('hand_grip')),
     'put_it_down': (((HOLD, 'Sure. Pop it in my hand.'), ('There you go.', 'Got it.')), VISOR_OPEN, False,
                     'Can you put it on the floor?', 'action', pose('hand_put_down')),
 })

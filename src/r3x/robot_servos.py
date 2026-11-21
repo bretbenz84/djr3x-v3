@@ -66,6 +66,7 @@ class RobotServos:
         self._hand_moves = 0
         # (read, write) for the remembered hold (hand_hold.held/set_held), when the app has its database.
         self.held_memory = None
+        self._hand_reported_at = float('-inf')
 
     def _sequence(self, kind, arms_home=False, keep_arms=frozenset()):
         result = self.owner.execute(ServoRequest(kind,self.owner.version,kind,self.owner.clock()+120.,
@@ -331,6 +332,10 @@ class RobotServos:
             self.owner.grip_channels = frozenset((*THROTTLE, *THROTTLE_HAND))
             self.owner.held_channels.update(self.owner.grip_channels)
             self._remember_hold(True, 'gripped')
+            # The pulse arrives before the fingers have finished closing on it: they get a moment to grip
+            # before the arm moves (run fe1d4fea: the arm folded as the fingers were still closing).
+            from .hand_hold import GRIP_SETTLE_S
+            self.wait(GRIP_SETTLE_S)
             self._eyes_back()   # Got it: his eyes go back to the people,
             self._fold_held(request_id)   # and the arm folds in to its drive park with it.
         else:   # hand_let_go
@@ -443,6 +448,11 @@ class RobotServos:
         if self._hand is None:
             return
         decision = self._hand.observe(now, front, face)
+        if self.trace and (decision or now - self._hand_reported_at >= 2.):
+            # What the wait sees, for tuning (run fe1d4fea gave nothing to go on).
+            self._hand_reported_at = now
+            self.trace.emit('hand_watch', state=self._hand_state, decision=decision, front_right_m=front,
+                            baseline_m=self._hand.baseline_m, face_px=face)
         offering = self._hand_state == 'offering'
         if decision == 'grip':   # Someone is at the hand.
             if self.trace:

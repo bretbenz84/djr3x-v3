@@ -1560,7 +1560,7 @@ class Session:
                 if hand != 'empty':
                     # Owner, November 20: holding something light, like a card.
                     context['robot_pose_state']['throttle_hand'] = {
-                        'open': 'held out open, waiting for something to be put in it; it closes by itself when it comes',
+                        'open': 'held out open, waiting for something to be put in it; you cannot see or feel your hand: when they say it is in ("there you go", "okay", "I did"), close it with hand_grip at once',
                         'holding': 'holding what a person gave you, fingers closed, arm folded in, until asked to give it back or let go (hand_let_go) or put it down (hand_put_down)',
                         'offering': 'holding it out to give it back; the fingers open by themselves when someone comes close',
                         'letting_go': 'fingers just opened to let go; the arm goes back to rest in a moment'}[hand]
@@ -2652,7 +2652,11 @@ class Session:
                             heard = streamed_phrases.get(call.call_id, 0) - 1
                         else:
                             put_phrase(phrases,call.arguments['say_before'],cancel)
-                        while len(delivery.completed_text) <= heard:
+                        # The hand moves while he says it (owner, November 20, run fe1d4fea: Bret stood holding
+                        # the book out while "Got it." played before the fingers closed).
+                        from .servo_poses import HAND_STEPS
+                        at_once = all(isinstance(p, str) and p in HAND_STEPS for p in (pose if isinstance(pose, tuple) else (pose,)))
+                        while not at_once and len(delivery.completed_text) <= heard:
                             cancel.check()
                             if not worker.is_alive() or delivery.error:
                                 raise ProviderFailure('OutputWorkerStopped')
