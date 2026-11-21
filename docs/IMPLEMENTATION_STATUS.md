@@ -17,7 +17,9 @@ before; the fingers move at speed 80 (about a quarter second) instead of the pos
 (`GRIP_SETTLE_S`) to close on it before the arm folds; and a `hand_watch` row every 2 s of a wait records the
 range and face readings for tuning. The range and face triggers stay as backups. Bret cleared the remembered
 hold (it said holding after the failed grip). Evidence: synthetic checks (1943 changed-file tests pass); a
-`there_you_go` probe case added, not run. Not yet re-run on the robot.
+`there_you_go` probe case added. Paid probe on Claude (`check_action_requests.py --provider claude`, new):
+`hold_this`, `grab_this`, `there_you_go`, `let_it_go` and `put_it_down` 5 of 5 (one call each, about $0.26).
+Not yet re-run on the robot.
 
 **Run `471f4739` repairs (first try on the robot).** The remembered hold made him give back the "book" first,
 as it should; the fingers opened when Bret came close. Then the arm never went back to rest: its single try

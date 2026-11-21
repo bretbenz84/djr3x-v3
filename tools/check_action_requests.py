@@ -1,7 +1,7 @@
 """Explicit paid probe: are requests to move, light up or look answered with the tool for them, and
 are only real requests for quiet answered with the quiet switch? Fictional input, text output.
 
-Run: .venv/bin/python tools/check_action_requests.py --live [--repeat N] [--only case,case]
+Run: .venv/bin/python tools/check_action_requests.py --live [--provider openai|claude] [--repeat N] [--only case,case]
 
 October 31 (f6d5a0b7): four arm cases check that a dance with the arms is arm_dance and that raising an arm or
 the hands never uses throttle_offer, whose hand reaches forward and down.
@@ -180,7 +180,7 @@ for name, (history, head, text, check) in LOOK_CASES.items():
     CASES[name] = (history, VISOR_OPEN, False, text, 'action', check)
 
 
-def run(case, key, folder, round_=0):
+def run(case, key, folder, round_=0, provider='openai'):
     history, visor, quiet, text, expect, check = CASES[case]
     with TemporaryDirectory() as tmp:
         store = Memory(Path(tmp).resolve() / 'core.sqlite3'); store.start()
@@ -192,7 +192,12 @@ def run(case, key, folder, round_=0):
                 emit(event, **data)
             trace.emit = recording
             state = CoreState(store, SpeakerTracker(NS), trace)
-            brain = OpenAIBrain(key); brain.trace = trace; brain.start()
+            if provider == 'claude':   # Owner, November 10: Rex's replies run on Claude (llm_provider).
+                from r3x.adapters.claude import ClaudeBrain
+                brain = ClaudeBrain(key)
+            else:
+                brain = OpenAIBrain(key)
+            brain.trace = trace; brain.start()
             calls, reply = [], brain.reply
             def recorded(snapshot, cancel):
                 for item in reply(snapshot, cancel):
@@ -282,16 +287,18 @@ def run(case, key, folder, round_=0):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--live', action='store_true', required=True)
+    parser.add_argument('--provider', choices=('openai', 'claude'), default='openai')
     parser.add_argument('--repeat', type=int, default=1)
     parser.add_argument('--only', default='', help='Comma-separated case names')
     args = parser.parse_args()
-    key = Secrets.load(ROOT / 'local').openai_api_key
+    secrets = Secrets.load(ROOT / 'local')
+    key = secrets.anthropic_api_key if args.provider == 'claude' else secrets.openai_api_key
     folder = ROOT / 'local' / 'validation' / ('actions-' + uuid4().hex[:8])
     folder.mkdir(parents=True)
     results = []
     for round_ in range(args.repeat):
         for case in [c for c in CASES if not args.only or c in args.only.split(',')]:
-            row = run(case, key, folder, round_)
+            row = run(case, key, folder, round_, args.provider)
             results.append(row)
             print(json.dumps(row), flush=True)
             time.sleep(3)
