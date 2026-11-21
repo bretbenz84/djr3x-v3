@@ -314,8 +314,9 @@ class TofMatrixWidget(QWidget):
 
     _CLEAR_MM = 3500     # sensor's "no return" marker (TOF_MATRIX_CLEAR_MM)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, orientation: str = "top=up · left=robot L") -> None:
         super().__init__(parent)
+        self._orientation = orientation   # The rear sensor's frame is mirrored: its left is the robot's right.
         self.setMinimumSize(240, 240)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._grid = None            # list[64] mm or None
@@ -410,7 +411,7 @@ class TofMatrixWidget(QWidget):
         p.setPen(QColor(150, 165, 185))
         p.drawText(QRectF(gx, ly, 8 * cell + 7 * gap, legend_h),
                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                   "top=up · left=robot L")
+                   self._orientation)
         p.setPen(QColor(130, 165, 210))
         p.drawText(QRectF(gx, ly, 8 * cell + 7 * gap, legend_h),
                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,

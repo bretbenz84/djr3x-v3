@@ -112,6 +112,53 @@ optical-flow face-box smoother.
   - `RadarLink.telemetry`;
   - `VoiceRuntime.request_shutdown`.
 
+## ToF diagnostics window — November 20, 2026
+
+Owner: "a GUI diagnostics tool that shows all the ToF data live, launchable from the menu bar helper
+app." Asked for while checking sensor cabling: the two rear corner sensors had not answered for a day,
+the firmware was discarding a healthy front-right one, and nothing on screen said so.
+
+- **Open it:** battery menu, **ToF Diagnostics…**; a second click brings it to the front. A saved
+  capture plays with `.venv/bin/python -m r3x.gui.tof_diagnostics --replay FILE.jsonl`.
+- **What it shows.**
+  - Rex from above: where each of the eight ring sensors sits, whether it answers and how far it sees,
+    with both 8×8 sensors as the fans at the front and back.
+  - One row per ring sensor: name, multiplexer channel, reading, the range over the last minute, a
+    one-minute trace, and a count of dropouts. A stretch with no answer is a red band, so a reading
+    lost while a cable is moved stays on screen.
+  - Both 8×8 grids (the rear one in its own frame: its left is his right), frames a second and stalls.
+  - The two front corner sensors' raw answers: what the sensor says and how sure it is, against what
+    the controller passes on, and how often the ring is being read (about 80 ms when all eight answer).
+  - What stands out, in words: which sensors do not answer (with channels), one that answers but is
+    discarded, a slow ring, doubtful readings, depth sensor stalls, dropouts while watching.
+  - The controller's own messages.
+- **Where the data comes from.** The battery menu keeps the drive controller's port and passes each
+  line it reads to the window, which opens nothing and sends nothing. The menu never waits on the
+  window (`operator_tools/utils/line_relay.py`): a window that stops reading loses lines, and the
+  meter, the joystick and the handover of the port to Rex carry on.
+- **The one thing sent to the controller:** while the window is open and the meter is live, the menu
+  asks for the firmware's diagnostic stream of the two front corner sensors (`tof_debug`, 12 s,
+  renewed every 8 s, switched off when the window closes). It moves nothing and the firmware stops it
+  by itself while the wheels turn.
+- **While Rex runs** he has the port: the window says so and resumes when he shuts down. The
+  Motivator console above is the view of a running Rex.
+- **Structure:** `gui/tof_model.py` (Qt-free: readings, the minute kept, the wording),
+  `gui/tof_diagnostics.py` (the window; the 8×8 grid is the Motivator's widget), and
+  `_open_tof_diagnostics`, `_tof_feed` and `_tof_tick` in the battery menu.
+
+**Evidence.** 20 synthetic checks in `tests/test_tof_diagnostics.py`: the model on made-up controller
+lines, the relay against a reader that stops and one that goes away, and the menu's wiring with the
+window replaced by a pipe. The 1,952 checks chosen by the change pass; the full suite was not run.
+Live and read-only on November 20 (firmware 0.2.20, nothing moved): the battery menu's own functions
+fed the window from the controller for 20 s, 577 lines; the raw stream was asked for twice and switched
+off after the window closed. The window, drawn off screen, showed rear-left and rear-right not
+answering, front-right discarded, the ring read every 227 ms and the front-left's doubtful readings.
+The battery menu was then restarted with the new item and reads the meter.
+
+**Not yet done:** the menu click itself and the window on the robot's own screen (every check drew it
+off screen). The raw stream covers only the two front corner sensors (that is all the firmware
+offers), and nothing is recorded to disk.
+
 ## Evidence
 
 - `tools/run_checks.py`: 1214 blocked-I/O checks pass (5 skipped: numpy-only cases, run and passing
