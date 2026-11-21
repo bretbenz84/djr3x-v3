@@ -507,9 +507,10 @@ class App:
                         return [f['box'] for f in camera.latest(now) if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('box')]
                     self.robot.reflex.faces = reflex_faces
                     def hand_faces():
-                        # How close the people in view are, for the open hand (hand_hold.FACE_NEAR_PX).
+                        # How close the people in view are and when the camera saw them, for the open
+                        # hand (hand_hold.FACE_NEAR_PX, FACE_LOOKS).
                         now = trace.clock()
-                        return [f['face_width_px'] for f in camera.latest(now)
+                        return [(f['face_width_px'], f['at']) for f in camera.latest(now)
                                 if 0 <= now-f['at'] <= VISIBLE_FACE_MAX_AGE and f.get('face_width_px')]
                     self.robot.hand_faces = hand_faces
                 agency = next((p for p in optional if p.capability.name=='agency_planner'),None)

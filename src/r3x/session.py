@@ -85,6 +85,24 @@ REACH_BLOCKED_MEANING = ('The arm did not move: something is within half a metre
                          'the person standing close to hand you something. Ask them to step back a little so your arm '
                          'has room; do not blame the charger, a wall or the room.')
 REACH_BLOCKED_LINE = 'Step back a little so my arm has room.'
+# Review, November 20: every other refused hand step was spoken as "I couldn't complete that movement.", which
+# told nobody what to do next. Each refusal has a line he says and its meaning for the model (the reason's start).
+HAND_REFUSALS = {
+    'ThrottleExtensionBlocked': (REACH_BLOCKED_LINE, REACH_BLOCKED_MEANING),
+    'AlreadyHoldingSomething': ("My hand's full. Tell me to let go first.",
+        'Nothing moved: your hand is closed as holding something, so it did not open to take another. If it is in '
+        'fact empty, or they want it back, hand_let_go (give it back) or hand_put_down empties it; hand_take then '
+        'reaches out again.'),
+    'HandNotOut': ("My hand's not out. Ask me to hold it again.",
+        'Nothing closed: your hand was not held out. A wait for something ends after half a minute and the arm goes '
+        'back to rest. Reach out again with hand_take, then close on their word.'),
+    'NotHoldingAnything': ("I'm not holding anything.", 'Nothing moved: your hand holds nothing.'),
+}
+
+
+def hand_refusal(reason):
+    """(line, meaning) for a refused hand step, or None for any other refusal."""
+    return next((told for start, told in HAND_REFUSALS.items() if (reason or '').startswith(start)), None)
 # October 23 (1e626e07): finding the duckling droid on the table took six asks. Two of the three look
 # tools could not move the head, and the one that could looked only when its question was filled in.
 # Every look now takes a direction; the head moves there first and the picture is taken after.
@@ -1556,19 +1574,30 @@ class Session:
                     'arms_held_until_told': bool(getattr(owner,'hold_until_released',False)),
                     # October 11: tucked after a drive because something is within reach.
                     'arms_tucked_for_obstacle': sorted(getattr(owner,'kept_arms',()))}
-                hand = getattr(self.output.robot, 'hand_state', lambda: 'empty')()
-                if hand != 'empty':
+                hand = {
                     # Owner, November 20: holding something light, like a card.
-                    context['robot_pose_state']['throttle_hand'] = {
-                        'open': 'held out open, waiting for something to be put in it; you cannot see or feel your hand: when they say it is in ("there you go", "okay", "I did"), close it with hand_grip at once',
-                        'holding': 'holding what a person gave you, fingers closed, arm folded in, until asked to give it back or let go (hand_let_go) or put it down (hand_put_down)',
-                        'offering': 'holding it out to give it back; the fingers open by themselves when someone comes close',
-                        'letting_go': 'fingers just opened to let go; the arm goes back to rest in a moment'}[hand]
+                    'taking': 'reaching out open and turning to look at it; nothing is in it yet',
+                    'open': 'held out open, waiting for something to be put in it; you cannot see or feel your hand: when they say it is in ("there you go", "okay", "I did"), close it with hand_grip at once',
+                    'holding': 'holding what a person gave you, fingers closed, arm folded in, until asked to give it back or let go (hand_let_go) or put it down (hand_put_down)',
+                    # Review, November 20: giving back opened only when a sensor saw someone come close, and the
+                    # same sensors had not seen a book brought to the hand (run fe1d4fea).
+                    'offering': 'holding it out to give it back, fingers still closed; you cannot see or feel your hand: when they say they have hold of it or tell you to let go ("got it", "I have it", "okay, let go"), open it with hand_let_go at once. It also opens by itself if your range sensors see someone come close',
+                    'letting_go': 'fingers just opened to let go; the arm goes back to rest in a moment',
+                    # Review, November 20: brought late, "there you go" closed the fingers at rest on nothing.
+                    'gave_up': 'back at rest and empty: you held it out and nothing was put in it within half a minute. If they bring it now ("there you go", "here it is"), reach out again with hand_take; hand_grip would close on nothing',
+                }.get('gave_up' if getattr(self.output.robot, 'hand_gave_up', lambda: False)() else
+                      getattr(self.output.robot, 'hand_state', lambda: 'empty')())
+                if hand:
+                    context['robot_pose_state']['throttle_hand'] = hand
                 own_visor = bool(getattr(owner, 'may_raise_visor', lambda: False)())
                 if visor_over_eyes(commanded):
                     context['visor_over_eyes'] = {'closed': True, 'yours_to_raise': own_visor, 'meaning':
                         GUIDE['visor_over_eyes (yours to raise)' if own_visor else 'visor_over_eyes']}
-                if opportunity and held - set(getattr(owner,'kept_channels',())) - ({3} if own_visor else set()):
+                # What he holds in his hand stays held for as long as he holds it, across launches; like an arm
+                # tucked beside an obstacle it is no reason to stop his own looks and poses (review, November 20:
+                # holding something switched them all off).
+                if opportunity and (held - set(getattr(owner,'kept_channels',())) - set(getattr(owner,'grip_channels',()))
+                                    - ({3} if own_visor else set())):
                     context['robot_pose_enabled']=False
             # October 23: the camera rides on his head, so a look in a direction turns the head there first.
             # His own look never moves a head a person has pointed somewhere.
@@ -2705,8 +2734,8 @@ class Session:
                                 hold_pose=not bool(opportunity))
                             self.trace.emit('robot_pose_result',turn_id=turn_id,pose=step,**asdict(receipt))
                             shown = {'pose':step,**asdict(receipt)}
-                            if (receipt.reason or '').startswith('ThrottleExtensionBlocked'):
-                                shown['meaning'] = REACH_BLOCKED_MEANING
+                            if hand_refusal(receipt.reason):
+                                shown['meaning'] = hand_refusal(receipt.reason)[1]
                             self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps(shown)})
                             moved, last_at = receipt.status == 'pulses_reached', receipt.at
                             refusal = receipt.reason
@@ -2742,8 +2771,7 @@ class Session:
                         if opportunity:
                             delivery.status,delivery.medium='suppressed','none'
                         else:
-                            put_phrase(phrases,REACH_BLOCKED_LINE if (refusal or '').startswith('ThrottleExtensionBlocked')
-                                       else "I couldn't complete that movement.",cancel)
+                            put_phrase(phrases,(hand_refusal(refusal) or ("I couldn't complete that movement.",))[0],cancel)
                     elif call.arguments['text'] is not None:
                         put_phrase(phrases,call.arguments['text'],cancel)
                     elif not look_question and not call.arguments.get('say_before'):

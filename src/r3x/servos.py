@@ -243,7 +243,10 @@ class ServoOwner:
         if request.kind == 'pose' and (request.pose in HAND_STEPS or request.request_id.startswith('hand:')):
             return frozenset()
         strip = self.grip_channels & set(THROTTLE_HAND)
-        person_arm = request.kind == 'pose' and request.hold_pose and request.pose != 'release_poses'
+        # Sentry's stance and its arm held out at an intruder are his own, not a person's arm pose
+        # (review, November 20: on guard the arm unfolded with what he held).
+        person_arm = (request.kind == 'pose' and request.hold_pose and request.pose != 'release_poses'
+                      and not request.request_id.startswith('sentry:'))
         if not (person_arm or request.kind == 'base_park'):
             strip |= self.grip_channels & set(THROTTLE)
         return frozenset(strip)

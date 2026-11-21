@@ -16,14 +16,20 @@ import time
 # something nearer than this has come within the arm's reach.
 NEAR_M = .45
 DROP_M = .10          # ...and at least this much nearer than the settled reading.
-NEAR_READINGS = 2     # Consecutive near readings, so one flicker does not close the hand.
+# ...for this long, so one flicker does not close the hand. Review, November 20: the frame loop looks
+# about thirty times a second and the wheel board reports ten times a second, so "two readings in a
+# row" were often one report read twice. This spans at least two reports.
+NEAR_S = .15
 # Faces in 1280-pixel frames: about 140 px at conversational distance in saved runs (median of
 # 1627 sightings, November 20), 230 px at the 99th percentile. A face this wide is leaning in.
 FACE_NEAR_PX = 300
+FACE_LOOKS = 2        # Looks by the camera in a row (about two a second) that show it, not one read again.
 SETTLE_S = .6         # After the hand arrives, readings for this long set the baseline.
 WAIT_S = 30.          # Nothing brought in this long: the arm goes back to rest.
 LET_GO_S = 2.5        # After the fingers open to let go, the arm rests this much later.
 GRIP_SETTLE_S = 1.     # After the fingers' pulse arrives, they finish closing on it before the arm moves.
+# After a wait ran out, the model is told so for this long: brought late, the thing needs the hand out again.
+GAVE_UP_TOLD_S = 120.
 
 
 @dataclass
@@ -32,10 +38,14 @@ class HandWatch:
     opened_at: float
     baseline_m: float | None = None
     baseline_face_px: float = 0.
-    near: int = 0
+    near_since: float | None = None
+    face_looks: int = 0
+    _face_seen: float | None = None
     _settling: list = field(default_factory=list)
 
-    def observe(self, now: float, front_m: float | None, face_px: float | None) -> str | None:
+    def observe(self, now: float, front_m: float | None, face_px: float | None,
+                face_at: float | None = None) -> str | None:
+        """face_at: when the camera took the look that gave face_px (None: this very reading)."""
         if now - self.opened_at >= WAIT_S:
             return 'timeout'
         if now - self.opened_at < SETTLE_S:
@@ -46,11 +56,20 @@ class HandWatch:
         if self.baseline_m is None and self._settling:
             self.baseline_m = min(self._settling)
         if face_px and face_px >= FACE_NEAR_PX > self.baseline_face_px:
+            seen = now if face_at is None else face_at
+            if seen != self._face_seen:
+                self._face_seen, self.face_looks = seen, self.face_looks + 1
+        else:
+            self._face_seen, self.face_looks = None, 0
+        if self.face_looks >= FACE_LOOKS:
             return 'grip'
         close = (front_m is not None and front_m < NEAR_M
                  and (self.baseline_m is None or front_m <= self.baseline_m - DROP_M))
-        self.near = self.near + 1 if close else 0
-        return 'grip' if self.near >= NEAR_READINGS else None
+        if not close:
+            self.near_since = None
+        elif self.near_since is None:
+            self.near_since = now
+        return 'grip' if close and now - self.near_since >= NEAR_S else None
 
 
 # Whether the throttle hand holds something, kept across launches (owner, November 20: "so he doesn't

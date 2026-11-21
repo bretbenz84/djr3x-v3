@@ -26,6 +26,17 @@ wired by the app as `RobotServos.held_memory`) sets `grip_channels` before the b
 sends `FINGERS_CLOSED`, `grip_strip` takes the arm and hand out of the wake and the hand out of park/shutdown.
 `hand_put_down` goes to `FULL_DOWN` (front-right check), then opens. Synthetic checks only; nothing has moved.
 
+Review, the same day: the hand's own moves (`_hand_worker`: the fold after a sensor grip, the return to rest)
+no longer refuse or undo a request. `execute_pose` retries `ServoBusy` for up to `HAND_YIELD_S` while that
+worker is alive, and a request that takes the arm (`_takes_arm`: a hand step, `release_poses`, `hold_arms`, an
+arm pose) or a drive (`prepare_base_motion`) calls `_hand_gives_way` first: a move under way is joined, one still
+waiting in `_hand_execute` returns `HandMoveSuperseded` and is not retried. `hand_grip` with the hand not out
+(state `empty`, arm not at `THROTTLE_GRAB`) is refused as `HandNotOut`. `release_poses` while offering folds the
+arm back to `PARK`. `grip_strip` treats `sentry:` requests as his own, so the arm stays folded on guard.
+`HandWatch` wants the range near for `NEAR_S` (0.15 s, two 10 Hz reports) and the face close in `FACE_LOOKS`
+looks (`hand_faces` now gives each width with the time the camera saw it). The session excepts `grip_channels`
+from the held channels that switch his own poses off.
+
 ## November 20: the throttle hand's real limits
 
 Owner, with the hand installed and its limits programmed into the Maestro: channel 14

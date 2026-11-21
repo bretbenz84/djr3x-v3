@@ -8,6 +8,42 @@ Documentation does not authorize new hardware operation or feature expansion.
 
 ## Holding something light in the throttle hand — November 20
 
+**Review repairs (a read of the day's code and of run `fe1d4fea`'s trace; not a robot run).** Six faults, each
+reproduced on the synthetic board before its repair.
+- *His own looks stopped while he held something.* The closed hand's channels stay held, and the session switched
+  the pose tool off for his own beats while anything but an arm kept beside an obstacle was held: no looks,
+  look-and-comment or raising his own visor for as long as he held something, across launches. **Built:**
+  `grip_channels` are excepted like `kept_channels`.
+- *A request during the hand's own move was refused.* The arm's return to rest after a let go and the fold after a
+  sensor grip hold the board for a few seconds; a request then got `ServoBusy` and "I couldn't complete that
+  movement." A return that had waited for the board could also run after a new "hold this" and pull the arm back
+  in. **Built:** any pose waits up to 12 s (`HAND_YIELD_S`) for a move the hand is making; a hand or arm request,
+  `release_poses`, `hold_arms` or a drive first lets a move under way finish and drops one still waiting
+  (`RobotServos._hand_gives_way`, `HandMoveSuperseded`).
+- *Giving back relied on the sensors that had not seen the book.* The held-out hand opened only on the range or
+  face trigger; a second `hand_let_go` already opened it at once, but the model was told the fingers "open by
+  themselves". **Built (wording only, both providers' shared tool text and the `offering` note):** their word that
+  they have it ("got it", "I have it", "okay, let go") is `hand_let_go` again, at once.
+- *A wrong "holding" was easy to start and hard to leave.* After a wait ran out, "there you go" closed the fingers
+  at rest on nothing and was remembered across launches. **Built:** `hand_grip` with the hand not out is refused
+  (`HandNotOut`); for two minutes after a wait runs out `robot_pose_state.throttle_hand` says so and to reach out
+  again (`hand_gave_up`); refused hand steps have their own spoken line and meaning (`session.HAND_REFUSALS`:
+  "My hand's full. Tell me to let go first.", "My hand's not out. Ask me to hold it again.", "I'm not holding
+  anything."). The backups are steadier: the frame loop looks about thirty times a second and the wheel board
+  reports ten times a second, so "two near readings in a row" were often one report read twice; near now has to
+  last 0.15 s (`NEAR_S`, two reports), and a close face has to show in two looks by the camera (`FACE_LOOKS`).
+- *The arm left out, or unfolded, while holding.* Told to relax while holding it out, the arm stayed out with no
+  fold-back; on guard the sentry stance unfolded it to rest and its arm-out would have swung the held thing at an
+  intruder. **Built:** `release_poses` while offering folds it back in; `sentry:` requests leave the arm folded.
+- *Leftovers.* The servo capability says sixteen channels; the brief `taking` state has its note for the model.
+- **Evidence:** 11 new synthetic checks (50 hand checks; 14 of them fail on the code before this change); the
+  full blocked-I/O suite passed. Paid probe on Claude (`check_action_requests.py --provider claude`, 14 calls,
+  under $1.10): the seven hand cases and four arm cases, 10 of 11 at first (`there_you_go_late` chose `hand_grip`,
+  which is now refused), then with the wait-ran-out note `there_you_go`, `i_have_it` and `there_you_go_late` 3 of 3.
+  The other action cases were not re-run. Not run on the robot.
+- **Open:** the fingers are sent fully closed and held, across launches; on something thick (the book) the finger
+  servo pushes against it the whole time. Not measured.
+
 **Run `fe1d4fea` repairs (second try).** Nothing closed the hand on the book: the range sensors sit low on the
 base and never saw it, and the camera cannot see his own hand (owner). Bret said "I did", and the fingers closed
 only after "Got it." had played; the arm then folded the moment their pulse arrived, before they had gripped.
@@ -45,7 +81,7 @@ close the fingers close (the lowest pulse) and hold; "you can let it go now" ope
   growing to 300 px wide (not one already that close); after 30 s with nothing brought the arm goes back to
   rest. The open reach needs 0.5 m clear at the front right like any full extension (`ThrottleExtensionBlocked`).
   A closed hand stays closed through aged holds, `release_poses`, another arm pose and the drive stance; only
-  `hand_let_go` (or shutdown's park) opens it. Another arm pose or a drive ends an open wait. The model sees
+  `hand_let_go` (and, below, `hand_put_down`) opens it; shutdown's park leaves it closed. Another arm pose or a drive ends an open wait. The model sees
   `robot_pose_state.throttle_hand` while the hand is open, holding or letting go. His own beats (planner and
   proactive turns) cannot use the hand steps.
 - **Later the same day (owner):** the wrist's level, its mid point at all times, is 1415 µs (`HAND_PARK`, the servo

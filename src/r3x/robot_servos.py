@@ -7,7 +7,7 @@ from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
 from .servo_poses import (throttle_extends, ARM_HOLD, HAND_PARK, HAND_STEPS, HEAD, LIMITS, THROTTLE, THROTTLE_HAND, REACHING_ARMS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
                           pose_channels, sentry_head, telepresence_targets, visor_over_eyes)
-from .servos import ServoOwner, ServoRequest, TalkingMotion
+from .servos import ServoOwner, ServoReceipt, ServoRequest, TalkingMotion
 from .idle_motion import IdleMotion
 from .voice_reflex import VoiceReflex
 
@@ -16,11 +16,14 @@ from .voice_reflex import VoiceReflex
 LOOK_STILL_S = 4.
 # Speech heard this recently means the person is still talking: no listening cue now.
 STILL_TALKING_S = .3
+# How long a request waits for a move the hand is making by itself (its longest, the walk back to rest
+# from the floor, is about 5 s).
+HAND_YIELD_S = 12.
 
 
 class RobotServos:
     capability = Capability('robot_servos','Pololu Maestro','startup, idle arms, talking, microphone hold and park',
-        dependencies=('pyserial',),resources=('exclusive Maestro; fourteen calibrated channels',),
+        dependencies=('pyserial',),resources=('exclusive Maestro; sixteen calibrated channels',),
         shutdown='join idle/talking; park; close port; acknowledge ownership release')
 
     def __init__(self, port, *, open_port=None, clock=time.monotonic, wait=time.sleep, telepresence=False,
@@ -60,9 +63,13 @@ class RobotServos:
         # when he has a camera, and the open hand's wait (hand_hold.HandWatch).
         self.hand_faces = None
         self._hand = None
-        self._hand_state = 'empty'   # 'open' (waiting for it), 'holding', 'letting_go'.
+        # 'empty', 'taking' (reaching out and turning to look), 'open' (waiting for it), 'holding',
+        # 'offering' (held out to give back), 'letting_go'.
+        self._hand_state = 'empty'
         self._let_go_at = None
         self._hand_worker = None
+        self._hand_superseded = threading.Event()   # A request has taken the arm from the hand's own next move.
+        self._hand_gave_up_at = float('-inf')        # When a wait for something last ran out.
         self._hand_moves = 0
         # (read, write) for the remembered hold (hand_hold.held/set_held), when the app has its database.
         self.held_memory = None
@@ -196,7 +203,6 @@ class RobotServos:
             elif self.owner.holding_requested_look():
                 # Rex's own look back does not end a look a person asked for (a goal beat's
                 # look_at_people while he searches the table for them).
-                from .servos import ServoReceipt
                 return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(),
                                     self.owner.medium, reason='HoldingRequestedLook')
             hold_pose = False
@@ -206,14 +212,21 @@ class RobotServos:
                 aim = None
             if aim:
                 name = {0: max(LIMITS[0][0], min(LIMITS[0][1], int(aim['neck'])))}
+        if self._takes_arm(name):
+            self._hand_gives_way()
         if name == 'hand_let_go' and self._hand_state == 'holding':
             return self._give_back(request_id)   # Out to the grab position first; it opens once someone is close.
         if name == 'hand_put_down':
             return self._put_down(request_id)
         if name == 'hand_take' and self._hand_state in ('holding', 'offering'):
-            from .servos import ServoReceipt   # Opening to take another would drop what he holds.
+            # Opening to take another would drop what he holds.
             return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
                                 reason='AlreadyHoldingSomething')
+        if name == 'hand_grip' and self._hand_state == 'empty' and not self._at_grab():
+            # Review, November 20: after a wait had run out and the arm had gone back to rest, "there you go"
+            # closed the fingers on nothing, and he remembered holding it across launches.
+            return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
+                                reason='HandNotOut')
         # The grab position (elbow 1720 us) is not a full extension, but holding something still needs
         # the room in front of the hand (owner, November 20: "if there's clearance").
         if (name == 'hand_take' and not self._at_grab()) or throttle_extends(name, self.owner.commanded):
@@ -221,8 +234,17 @@ class RobotServos:
             blocked = self._reach_blocked(request_id)
             if blocked is not None:
                 return blocked
-        receipt = self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
-            self.owner.clock()+60,pose=name,hold_pose=hold_pose),cancel)
+        def run():
+            return self.owner.execute(ServoRequest(request_id,self.owner.version,'pose',
+                self.owner.clock()+60,pose=name,hold_pose=hold_pose),cancel)
+        receipt, patience = run(), self.owner.clock() + HAND_YIELD_S
+        while (receipt.reason == 'ServoBusy' and self._hand_busy() and not cancel.event.is_set()
+               and threading.current_thread() is not self._hand_worker and self.owner.clock() < patience):
+            # The hand is in the middle of a move of its own (folding in, going back to rest): the request
+            # waits for the board instead of being refused (review, November 20: "I couldn't complete that
+            # movement" for a "hold this" two seconds after a let go).
+            self.wait(.05)
+            receipt = run()
         if receipt.status == 'pulses_reached':
             if follow or name == 'release_poses':
                 if requested:
@@ -236,8 +258,33 @@ class RobotServos:
                 self._hand_step(name, request_id)
             elif (self._hand_state in ('open', 'letting_go', 'offering') and
                   (name == 'release_poses' or set(receipt.changed_channels or pose_channels(name)) & set(THROTTLE))):
+                offering = self._hand_state == 'offering'
                 self._hand_reset('arm_moved')   # Another arm pose: no closing on, or resting from, a wait.
+                if offering and name == 'release_poses':
+                    # Told to relax while holding it out: release_poses moves nothing he holds, so the arm
+                    # folds back in with it instead of staying out for good (review, November 20).
+                    self._fold_held(request_id)
         return receipt
+
+    def _takes_arm(self, name) -> bool:
+        """Whether this pose takes the throttle arm or hand over from a move the hand was about to make."""
+        if isinstance(name, str) and (name in HAND_STEPS or name in ('release_poses', 'hold_arms')):
+            return True
+        return bool(set(pose_channels(name)) & {*THROTTLE, *THROTTLE_HAND})
+
+    def _hand_gives_way(self):
+        """A person's hand or arm request, or a drive, while the hand makes a move of its own (review,
+        November 20). A move under way finishes first; one still waiting for the board is dropped, so it
+        cannot run afterwards and undo the request (a waiting return to rest pulled the arm back in after
+        a new "hold this" had reached it out)."""
+        worker = self._hand_worker
+        if worker is None or worker is threading.current_thread() or not worker.is_alive():
+            return
+        self._hand_superseded.set()
+        try:
+            worker.join(HAND_YIELD_S)
+        finally:
+            self._hand_superseded.clear()
 
     def _reach_blocked(self, request_id):
         """A refusal when the throttle may not reach out: its front-right space is not clear (owner, November 20)."""
@@ -250,7 +297,6 @@ class RobotServos:
             ahead = None
         if ahead is not None and ahead >= THROTTLE_EXTEND_CLEAR_M:
             return None
-        from .servos import ServoReceipt
         return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
                             reason='ThrottleExtensionBlocked:' + ('front_right_unknown' if ahead is None
                                                                   else f'front_right_{ahead:.2f}m'))
@@ -261,6 +307,11 @@ class RobotServos:
     # (fingers open) -> empty (the arm at rest). Moves he makes by himself run in a worker thread.
     def hand_state(self) -> str:
         return self._hand_state
+
+    def hand_gave_up(self) -> bool:
+        """The hand is empty and at rest because a wait for something ran out a moment ago."""
+        from .hand_hold import GAVE_UP_TOLD_S
+        return self._hand_state == 'empty' and self.owner.clock() - self._hand_gave_up_at < GAVE_UP_TOLD_S
 
     def _hand_busy(self) -> bool:
         return self._hand_worker is not None and self._hand_worker.is_alive()
@@ -276,6 +327,10 @@ class RobotServos:
         deadline = self.owner.clock() + patience
         held_at = self.owner.pose_held_at
         while True:
+            if self._hand_superseded.is_set() and threading.current_thread() is self._hand_worker:
+                self.owner.pose_held_at = held_at
+                return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
+                                    reason='HandMoveSuperseded')
             receipt = self.owner.execute(ServoRequest(request_id, self.owner.version, 'pose', self.owner.clock() + 60.,
                                                       pose=dict(pose)), Cancellation())
             if receipt.reason != 'ServoBusy' or self.owner.clock() >= deadline or self.closed:
@@ -324,6 +379,7 @@ class RobotServos:
             self.owner.grip_channels = frozenset()
             # Nothing per frame acts on the hand while he turns to look at it (run 471f4739 crashed here).
             self._hand, self._hand_state, self._let_go_at = None, 'taking', None
+            self._hand_gave_up_at = float('-inf')
             self._look_at_hand(request_id)
             self._hand = HandWatch(self.owner.clock())
             self._hand_state = 'open'
@@ -379,7 +435,6 @@ class RobotServos:
         pose, by way of a raised arm, so the front right must be clear), then the fingers open and the
         arm rests a moment later."""
         from .servo_poses import FINGERS_OPEN, FULL_DOWN
-        from .servos import ServoReceipt
         if self._hand_state not in ('holding', 'offering'):
             return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
                                 reason='NotHoldingAnything')
@@ -440,14 +495,15 @@ class RobotServos:
                 front = throttle_front_m(self.arm_space())
             except Exception:
                 front = None
+        face_at = None
         if self.hand_faces is not None:
             try:
-                face = max(self.hand_faces(), default=None)
+                face, face_at = max(self.hand_faces(), default=(None, None))   # The widest face and when it was seen.
             except Exception:
-                face = None
+                face = face_at = None
         if self._hand is None:
             return
-        decision = self._hand.observe(now, front, face)
+        decision = self._hand.observe(now, front, face, face_at)
         if self.trace and (decision or now - self._hand_reported_at >= 2.):
             # What the wait sees, for tuning (run fe1d4fea gave nothing to go on).
             self._hand_reported_at = now
@@ -460,6 +516,8 @@ class RobotServos:
                                 face_px=face, baseline_m=self._hand.baseline_m)
             self._hand_work(self._hand_move, 'hand_let_go' if offering else 'hand_grip')
         elif decision == 'timeout':
+            if not offering:
+                self._hand_gave_up_at = now
             self._hand_work(self._keep_holding if offering else self._rest_hand, 'nobody_came')
 
     def _hand_work(self, work, *args):
@@ -493,10 +551,11 @@ class RobotServos:
             return
         self.reflex.stop()
         receipt = self._hand_execute(f'hand:rest:{self._hand_moves}', {**dict(REST), **dict(HAND_PARK)})
-        if receipt.reason == 'ServoBusy':
+        if receipt.reason in ('ServoBusy', 'HandMoveSuperseded'):
             if self.trace:
-                self.trace.emit('hand_hold', status='rest_waiting', reason=why)
-            return   # Still busy after its patience: a later frame tries again.
+                self.trace.emit('hand_hold', status='rest_waiting' if receipt.reason == 'ServoBusy' else 'rest_dropped',
+                                reason=why)
+            return   # Still busy after its patience: a later frame tries again. Dropped: the request owns the arm now.
         if self.trace:
             self.trace.emit('hand_hold', status='arm_rest', reason=why, **{k: v for k, v in asdict(receipt).items()
                                                                            if k in ('status', 'reason')})
@@ -554,6 +613,7 @@ class RobotServos:
         """Park the throttle arm and center the neck before any non-reverse base motion.
         A line said as he sets off keeps its visor moving (the stance leaves the visor alone)."""
         self.owner.end_requested_look()   # The drive centres the head: a held look is over.
+        self._hand_gives_way()   # A return to rest still waiting would unfold the arm while he rolls.
         if self._hand_state in ('open', 'offering', 'letting_go'):
             self._hand_reset('drive')   # The stance folds the arm; what he holds stays held.
         self.idle.stop()
@@ -563,7 +623,6 @@ class RobotServos:
         if self._arm_return is not None:
             self._arm_return.join(15.)
             if self._arm_return.is_alive():
-                from .servos import ServoReceipt
                 return ServoReceipt('base-park', 'rejected', self.owner.version, self.owner.clock(),
                                     self.owner.medium, reason='ArmReturnStillActive')
             self._arm_return = None
@@ -636,7 +695,6 @@ class RobotServos:
     def telepresence_pose(self, spec, cancel, request_id):
         """The caller's head, lift or visor (servo_poses.telepresence_targets), at a person's look
         pace, inside the calibrated limits. The arms are never moved from their stance."""
-        from .servos import ServoReceipt
         if not self.telepresent:
             return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
                                 reason='TelepresenceStanceNotHeld')
