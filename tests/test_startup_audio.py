@@ -1,5 +1,6 @@
-"""The startup whir, the ready line, the power-down clip and saved canned lines through V3's owners;
+"""The startup sound, the ready line, the power-down clip and saved canned lines through V3's owners;
 synthetic TTS and sink only."""
+from array import array
 import json
 from pathlib import Path
 import random
@@ -11,9 +12,20 @@ from r3x.contracts import Cancellation, Playback
 from r3x.output import OutputOwner
 from r3x.providers import LifecycleResult
 from r3x.settings import Settings
-from r3x.startup_audio import ASSETS, READY_LINES, LineCycle, StartupAudio, read_clip
+from r3x.startup_audio import ASSETS, READY_LINES, STARTUP_CLIP, LineCycle, StartupAudio, read_clip, split_at_pause
 from r3x.startup_notice import announce
 from tests.test_voice_core import Trace
+
+
+BUILD, FINISH = split_at_pause(read_clip(STARTUP_CLIP))   # The owner's startup sound, cut at its pause.
+
+
+def tone(seconds, level=3000):
+    return array('h', [level if i % 40 < 20 else -level for i in range(int(22050 * seconds))]).tobytes()
+
+
+def quiet(seconds):
+    return bytes(2 * int(22050 * seconds))
 
 
 class RecordingSink:
@@ -67,14 +79,68 @@ class StartupAudioTests(unittest.TestCase):
     def setUp(self):
         self.dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
-    def test_only_the_whir_plays_while_he_starts(self):
-        # Owner, November 20: the please-wait line and the droid filler are retired.
-        tts, sink = CountingTTS(), RecordingSink(pace=.004)
-        audio = StartupAudio(tts, sink, self.dir)
+    def wait_for(self, done, seconds=3.):
+        deadline = time.monotonic() + seconds
+        while not done() and time.monotonic() < deadline:
+            time.sleep(.005)
+        self.assertTrue(done())
+
+    def test_the_build_plays_while_he_starts_and_the_finish_waits_until_he_is_ready(self):
+        # Owner, November 21: his own startup sound. The please-wait line and the droid filler are retired.
+        sink = RecordingSink(pace=.001)
+        audio = StartupAudio(CountingTTS(), sink, self.dir)
         audio.start()
-        self.assertTrue(audio.stop())                              # Waits the whir out; never cuts it.
-        self.assertFalse(audio._cancel.event.is_set())
-        self.assertEqual(sink.played, [read_clip('startup_whir.wav')])   # Nothing is said while he starts.
+        self.wait_for(lambda: sink.played == [BUILD])               # The whole build, while he starts.
+        time.sleep(.15)
+        self.assertEqual(sink.played, [BUILD])                     # Still starting: quiet, the finish held back.
+        began = time.monotonic()
+        audio.land()                                               # He is ready.
+        self.assertLess(time.monotonic() - began, .3)              # Returns as the finish begins to sound,
+        self.assertEqual(len(sink.played), 2)
+        self.assertTrue(audio.stop())                              # and stop waits for it to end.
+        self.assertEqual(sink.played, [BUILD, FINISH])
+        self.assertFalse(audio._cancel.event.is_set())             # Nothing was cut.
+
+    def test_ready_before_the_build_is_over_ends_it_and_plays_the_finish(self):
+        sink = RecordingSink(pace=.01)                             # The build takes over a second here.
+        audio = StartupAudio(CountingTTS(), sink, self.dir)
+        audio.start()
+        self.wait_for(lambda: bool(sink.played) and len(sink.played[0]) > 4410)
+        audio.land()
+        self.assertTrue(audio.stop())
+        self.assertEqual(len(sink.played), 2)
+        self.assertTrue(BUILD.startswith(sink.played[0]) and len(sink.played[0]) < len(BUILD))   # No more was fed.
+        self.assertEqual(sink.played[1], FINISH)                   # The finish still plays whole.
+
+    def test_a_start_that_ends_without_being_ready_plays_no_finish(self):
+        sink = RecordingSink(pace=.01)
+        audio = StartupAudio(CountingTTS(), sink, self.dir)
+        audio.start()
+        self.wait_for(lambda: bool(sink.played) and len(sink.played[0]) > 4410)
+        began = time.monotonic()
+        self.assertTrue(audio.stop())                              # A failed start, or shutdown during it.
+        self.assertLess(time.monotonic() - began, .5)
+        self.assertEqual(len(sink.played), 1)
+        self.assertLess(len(sink.played[0]), len(BUILD))
+        audio.land()                                               # Too late to matter, and never a wait.
+        self.assertEqual(len(sink.played), 1)
+
+    def test_the_startup_sound_is_cut_at_its_pause(self):
+        self.assertAlmostEqual(len(BUILD) / 44100, 11.8, delta=.3)          # The owner's clip: a build of about twelve
+        self.assertAlmostEqual(len(FINISH) / 44100, 1.4, delta=.3)          # seconds, a pause, a short finish.
+        build, finish = split_at_pause(quiet(.3) + tone(1.) + quiet(.6) + tone(.4) + quiet(.5))
+        self.assertAlmostEqual(len(build) / 44100, 1.05, delta=.06)         # Its silent ends are dropped.
+        self.assertAlmostEqual(len(finish) / 44100, .45, delta=.06)
+        self.assertEqual(build[-2:], b'\x00\x00')                           # A cut end fades out; no click.
+        # The longest pause is the cut; a shorter gap inside the build stays in it.
+        build, finish = split_at_pause(tone(.5) + quiet(.45) + tone(.5) + quiet(.9) + tone(.3))
+        self.assertAlmostEqual(len(build) / 44100, 1.5, delta=.06)
+        self.assertAlmostEqual(len(finish) / 44100, .35, delta=.06)
+        # No pause: all build. Nothing but silence: nothing to play.
+        build, finish = split_at_pause(tone(1.) + quiet(.2) + tone(1.))
+        self.assertAlmostEqual(len(build) / 44100, 2.25, delta=.06)
+        self.assertEqual(finish, b'')
+        self.assertEqual(split_at_pause(quiet(2.)), (b'', b''))
 
     def test_the_ready_line_is_chosen_and_fetched_while_he_starts(self):
         # Said the moment he can listen: its sound must already be in hand, even a line never made before.
@@ -136,49 +202,52 @@ class StartupAudioTests(unittest.TestCase):
         self.assertGreater(len(pieces), 10)
         self.assertLessEqual(max(pieces), 4410)
 
-    def test_whir_waits_for_the_servo_wake(self):
+    def test_the_sound_waits_for_the_servo_wake(self):
         sink = RecordingSink()
         audio = StartupAudio(CountingTTS(), sink, self.dir, wake_motion=True)
         audio.start()
         time.sleep(.15)
         self.assertEqual(sink.played, [])       # Nothing plays before the servos move.
         audio.motion_started()
+        self.wait_for(lambda: sink.played == [BUILD])
+        audio.land()
         self.assertTrue(audio.stop())
-        self.assertEqual(sink.played, [read_clip('startup_whir.wav')])
+        self.assertEqual(sink.played, [BUILD, FINISH])
 
-    def test_power_down_clip_follows_the_whir_while_the_servos_park(self):
-        whir, clip = read_clip('startup_whir.wav'), read_clip('robot_power_down.wav')
+    def test_power_down_clip_follows_the_startup_sound_while_the_servos_park(self):
+        clip = read_clip('robot_power_down.wav')
         sink = RecordingSink(pace=.004)
         audio = StartupAudio(CountingTTS(), sink, self.dir)
         audio.start()
-        deadline = time.monotonic() + 3
-        while not sink.played and time.monotonic() < deadline:
-            time.sleep(.01)
+        self.wait_for(lambda: bool(sink.played) and len(sink.played[0]) > 4410)
         began = time.monotonic()
-        audio.shutdown_started()                                  # The servo owner's park hook.
-        self.assertLess(time.monotonic() - began, 1.)             # The park never waits for the power-down sound.
+        audio.shutdown_started()                                  # The servo owner's park hook, mid-start.
+        self.assertLess(time.monotonic() - began, 1.)             # The park never waits for the sound.
         self.assertTrue(audio._shutdown_thread.is_alive())        # It plays while the servos move.
         audio.close()                                             # After the park, before the sink closes.
         self.assertFalse(audio._shutdown_thread.is_alive())
-        self.assertFalse(audio._cancel.event.is_set())            # The whir finished; it was not cut.
-        self.assertEqual(sink.played, [whir, clip])               # One clip at a time, each whole.
+        self.assertFalse(audio._cancel.event.is_set())            # The build was ended, not cut off.
+        self.assertTrue(BUILD.startswith(sink.played[0]) and len(sink.played[0]) < len(BUILD))
+        self.assertEqual(sink.played[1:], [clip])                 # No finishing sound; the whole power-down clip.
         self.assertEqual(sink.visualized[1], False)               # No speaking lights on a power-down sound.
         audio.shutdown_started()                                  # A second park request does not replay it.
         self.assertEqual(len(sink.played), 2)
 
-    def test_the_whir_uses_one_buffered_stream_closed_before_live_speech(self):
+    def test_the_startup_sound_uses_one_buffered_stream_closed_before_live_speech(self):
         # October 22: startup sound stuttered while models loaded; it is buffered by the driver.
-        sink = RecordingSink(pace=.004)
+        sink = RecordingSink(pace=.001)
         audio = StartupAudio(CountingTTS(), sink, self.dir)
         audio.start()
+        self.wait_for(lambda: sink.played == [BUILD])
+        audio.land()
         self.assertTrue(audio.stop())
         self.assertEqual(len(sink.streams), 1)
-        self.assertEqual(sink.streams[0].clips, 1)              # The whir.
+        self.assertEqual(sink.streams[0].clips, 2)              # The build and the finish.
         self.assertTrue(sink.streams[0].closed)                 # Closed before any live speech.
         audio.shutdown_started()
         audio.close()
-        self.assertEqual(sink.streams[0].clips, 1)              # Power-down uses ordinary playback.
-        self.assertEqual(len(sink.played), 2)
+        self.assertEqual(sink.streams[0].clips, 2)              # Power-down uses ordinary playback.
+        self.assertEqual(len(sink.played), 3)
 
     def test_canned_lines_are_cached_in_the_background_without_talking_over_speech(self):
         lines = ('Out of credit.', 'Intruder alert.', 'A sensor went dark.')
@@ -246,7 +315,7 @@ class StartupAudioTests(unittest.TestCase):
     def test_bundled_clips_are_22050_hz_mono_16_bit(self):
         for path in sorted(ASSETS.glob('*.wav')):
             self.assertTrue(read_clip(path.name))
-        self.assertEqual(len(list(ASSETS.glob('*.wav'))), 9)
+        self.assertEqual(len(list(ASSETS.glob('*.wav'))), 10)
 
 
 if __name__ == '__main__':

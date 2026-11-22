@@ -1,4 +1,4 @@
-"""The startup whir, the ready line, the power-down clip and Rex's saved canned lines.
+"""The startup sound, the ready line, the power-down clip and Rex's saved canned lines.
 
 Owner, November 20: V2's order (HEAD 777b38c) had been a startup whir while the servos wake, a
 "please wait" line over the model loads, the long droid start-up sound as filler, then an "I'm
@@ -7,6 +7,11 @@ the please-wait line and the filler are retired. A ready line is still said the 
 listen (with none, nothing told someone out of his view that he was up); the owner picked its
 lines that day. It is chosen and fetched as startup begins, so it plays without a pause. The
 spoken intro clips (Roger Control etc.) are copied but not played, as in V2.
+
+November 21 (owner): the startup sound is the owner's own clip (startup_sequence.wav) in place of
+V2's whir: a build of about twelve seconds, a pause, then a short finishing sound. The clip is cut
+at its pause. The build plays while he starts; the finish is held until he is ready and plays
+as the visor goes up, whenever that turns out to be. A clip with no pause is all build.
 
 Canned lines (the ready lines, the out-of-credit notices, sentry mode's and the depth sensor's)
 are synthesized once in his voice and kept on disk, so they play at once and still play when the
@@ -17,13 +22,16 @@ started by the servo owner's park hook and finished before playback closes.
 
 October 22 (owner): startup sound stuttered while models loaded. It goes through one
 driver-buffered stream (AudioSink.buffered), opened as startup begins so its initial silence
-plays out before the whir.
+plays out before the sound.
 """
+from array import array
 import hashlib
 import json
 from pathlib import Path
 import random
+import sys
 import threading
+import time
 import wave
 
 from .contracts import Cancellation, Cancelled
@@ -89,6 +97,53 @@ class LineCycle:
         return choice
 
 
+STARTUP_CLIP = 'startup_sequence.wav'   # The owner's startup sound (November 21): build, pause, finish.
+QUIET_RMS = 104       # Of 32768: about -50 dBFS. Below this for a whole window is silence.
+PAUSE_WINDOW = .05    # Seconds of sound judged at a time.
+MIN_PAUSE = .4        # A quiet stretch this long inside the clip is its pause.
+CUT_FADE = .03        # Each cut end fades out over this long, so a cut never clicks.
+
+
+def split_at_pause(pcm: bytes, sample_rate: int = 22050) -> tuple[bytes, bytes]:
+    """(build, finish) of a startup sound: its silent ends dropped, then cut at its longest pause.
+    The build is what comes before the pause and the finish what comes after; a clip with no
+    pause of MIN_PAUSE is all build. 16-bit mono PCM in and out."""
+    samples = array('h', pcm[:len(pcm) // 2 * 2])
+    if sys.byteorder != 'little':
+        samples.byteswap()
+    step = max(1, int(sample_rate * PAUSE_WINDOW))
+    floor = QUIET_RMS * QUIET_RMS
+    loud = []
+    for start in range(0, len(samples), step):
+        window = samples[start:start + step]
+        loud.append(sum(v * v for v in window) >= floor * len(window))
+    if True not in loud:
+        return b'', b''
+    first, last = loud.index(True), len(loud) - 1 - loud[::-1].index(True)
+    longest, begins, run = 0, None, None
+    for index in range(first, last + 1):
+        if not loud[index]:
+            run = index if run is None else run
+        elif run is not None:
+            if index - run > longest:
+                longest, begins = index - run, run
+            run = None
+
+    def cut(start, end):
+        """Windows start to end, with one more to let the sound die away, faded at its end."""
+        part = samples[start * step:min(len(samples), (end + 1) * step)]
+        fade = min(len(part), int(sample_rate * CUT_FADE))
+        for offset in range(fade):
+            part[len(part) - fade + offset] = part[len(part) - fade + offset] * (fade - offset) // fade
+        if sys.byteorder != 'little':
+            part.byteswap()
+        return part.tobytes()
+
+    if begins is None or longest * step < MIN_PAUSE * sample_rate:
+        return cut(first, last + 1), b''
+    return cut(first, begins), cut(begins + longest, last + 1)
+
+
 def read_clip(name: str, sample_rate: int = 22050) -> bytes:
     with wave.open(str(ASSETS / name), 'rb') as clip:
         if clip.getnchannels() != 1 or clip.getsampwidth() != 2 or clip.getframerate() != sample_rate:
@@ -97,16 +152,21 @@ def read_clip(name: str, sample_rate: int = 22050) -> bytes:
 
 
 class StartupAudio:
-    """Plays the whir over the servo wake on its own thread; finished before live output."""
+    """Plays the startup sound on its own thread: its build over the servo wake and model loading,
+    its finish when he is ready (land); done before live output."""
     capability = Capability('startup_audio', 'bundled startup clips and cached canned TTS',
-        'startup whir while the servos wake; the ready line; saved canned lines; power-down clip while the servos park',
-        required=False, shutdown='let the whir and the power-down clip finish; join threads')
+        "the startup sound's build while he starts and its finish when he is ready; the ready line; "
+        'saved canned lines; power-down clip while the servos park',
+        required=False, shutdown='end the startup sound; let the power-down clip finish; join threads')
 
     def __init__(self, tts, sink, state_dir: Path, *, rng=None, trace=None, wake_motion=False):
-        """wake_motion: he has servos, so the whir waits for their wake to begin (motion_started)."""
+        """wake_motion: he has servos, so the sound waits for their wake to begin (motion_started)."""
         self.tts, self.sink, self.trace, self.wake_motion = tts, sink, trace, wake_motion
         self._output = None   # The buffered startup stream, open while _run plays.
         self._motion_started = threading.Event()
+        self._landing = threading.Event()    # He is ready: the build ends and the finish plays.
+        self._quit = threading.Event()       # Startup sound is over now: no more build, no finish.
+        self._finish_heard = threading.Event()   # The finish has begun to sound (or there is none to play).
         self.cycle = LineCycle(state_dir / 'startup-lines.json', rng)
         self._ready_line = None   # (text, fetching thread, its result) from start until it is said.
         self.cache = state_dir / 'startup-tts'
@@ -151,19 +211,26 @@ class StartupAudio:
             pass
         return data
 
-    def _play(self, pcm: bytes, label: str, cancel: Cancellation | None = None, visualize: bool = True):
+    def _play(self, pcm: bytes, label: str, cancel: Cancellation | None = None, visualize: bool = True,
+              until=None, heard=None):
         """Feed ~0.1 s pieces like streamed speech (a whole clip at once exceeded the
         sink's drain bound and forced an abort). During startup the pieces go to the
-        buffered stream; the power-down clip uses ordinary playback."""
+        buffered stream; the power-down clip uses ordinary playback. until: once it answers
+        true no more is fed, and what is already queued plays out. heard: called when the
+        clip's first sound is due at the speaker."""
         cancel = cancel or self._cancel
         cancel.check()
-        pieces = (pcm[i:i+4410] for i in range(0, len(pcm), 4410))
+        def pieces():
+            for i in range(0, len(pcm), 4410):
+                if until is not None and until():
+                    return
+                yield pcm[i:i+4410]
         output = self._output if cancel is self._cancel and self._output is not None else self.sink
-        playback = output.play(pieces, cancel, lambda at: None, visualize=visualize)
+        playback = output.play(pieces(), cancel, (lambda at: heard()) if heard else (lambda at: None), visualize=visualize)
         self._emit(status='played', clip=label, underruns=getattr(playback, 'underruns', None))
 
     def motion_started(self):
-        """Servo wake choreography is beginning: play the whir with it (owner request)."""
+        """Servo wake choreography is beginning: start the startup sound with it (owner request)."""
         self._motion_started.set()
 
     def _wait(self, ready, timeout):
@@ -185,15 +252,24 @@ class StartupAudio:
                 self._emit(status='buffered_output', ahead_seconds=round(self._output.latency, 2))
             except Exception as exc:
                 self._emit(status='buffered_output_failed', error_type=type(exc).__name__)
+            build, finish = split_at_pause(read_clip(STARTUP_CLIP))
             if self.wake_motion:
                 # Start with the servo wake-up, not before it (LED startup comes first).
-                self._wait(self._motion_started.is_set, 15.)
-            self._play(read_clip('startup_whir.wav'), 'startup_whir')
+                self._wait(lambda: self._motion_started.is_set() or self._quit.is_set(), 15.)
+            ending = lambda: self._landing.is_set() or self._quit.is_set()
+            if not ending():
+                # Ready before the build is over: no more of it is fed, and the second or so
+                # already queued plays out. Still starting when it is over: quiet until he is ready.
+                self._play(build, 'startup_build', until=ending)
+            self._wait(ending, 120.)
+            if finish and self._landing.is_set() and not self._quit.is_set():
+                self._play(finish, 'startup_finish', heard=self._finish_heard.set)
         except Cancelled:
             self._emit(status='stopped')
         except Exception as exc:
             self._emit(status='failed', error_type=type(exc).__name__, reason=str(exc)[:120])
         finally:
+            self._finish_heard.set()   # Nobody waits on a finish that will not come.
             output, self._output = self._output, None
             if output is not None:
                 try:
@@ -229,11 +305,24 @@ class StartupAudio:
         self._thread = threading.Thread(target=self._run, name='r3x-startup-audio', daemon=True)
         self._thread.start()
 
-    def stop(self):
-        """Wait out the whir (about five seconds, over well before startup is) so live speech has
-        the speaker alone; only a stuck device is cut."""
+    def land(self, timeout: float = 4.):
+        """He is ready: the build ends (what is queued, at most about a second and a half, plays
+        out) and the finish follows. Returns as the finish starts to sound, so the lights can lock
+        and the visor can go up with it; stop() then waits for it to end."""
+        began = time.monotonic()
+        self._landing.set()
         if self._thread is not None:
-            self._thread.join(12.)
+            self._finish_heard.wait(timeout)
+        self._emit(status='landed', waited_seconds=round(time.monotonic() - began, 2))
+
+    def stop(self):
+        """The startup sound is over: a finish that has begun plays to its end; otherwise no more of
+        the build is fed and what is queued plays out. Live speech then has the speaker alone. Only
+        a stuck device is cut."""
+        if not self._landing.is_set():
+            self._quit.set()
+        if self._thread is not None:
+            self._thread.join(8.)
         if self._thread is not None and self._thread.is_alive():
             self._cancel.event.set()    # Last resort only (a stuck device).
             self._thread.join(5.)

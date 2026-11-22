@@ -84,7 +84,9 @@ the background after startup (paced, paused while Rex speaks), so later launches
 all of them from disk. November 20 (owner): the please-wait lines and the `droid_startup`
 filler are retired from V3, and V2's ready lines are replaced by fifteen the owner picked; the whir,
 the no-repeat cycling, the canned-line cache and the power-down clip remain, and the filler clip stays
-among the copied clips unplayed (docs/STARTUP_HEALTH.md). Spoken intro clips are copied
+among the copied clips unplayed (docs/STARTUP_HEALTH.md). November 21 (owner): V2's `startup_whir`
+is likewise unplayed; the startup sound is the owner's own `startup_sequence.wav`, a tenth clip that
+did not come from V2. Spoken intro clips are copied
 but unplayed (V2 default `PLAY_STARTUP_SPEECH_CLIP = False`). October 10: the shutdown
 clip (`SHUTDOWN_AUDIO_FILE`, started by V2 `_shutdown` alongside the LED fade and servo
 droop) plays from the servo owner's park hook, after the LED fade command and before

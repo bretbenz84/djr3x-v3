@@ -9,10 +9,10 @@ hardware.** The owner asked to leave V2 running and prepare cutover for later.
 ## November 21: new throttle hand mids and finger range
 
 Owner: the wrist (channel 14) keeps 560–1856 µs but its mid, where the hand is level, is 1451 µs; the
-fingers (channel 15) are now 1540–1975 µs with their mid at 1706 µs. `LIMITS[15]` is 6160–7900,
+fingers (channel 15) are now 1530–1975 µs (low end 1530 later the same day) with their mid at 1706 µs. `LIMITS[15]` is 6120–7900,
 `HAND_PARK` 5804 / 6824, and the servo menu matches. The fingers still close at the low end, so
-`FINGERS_CLOSED` is 1540 µs and `FINGERS_OPEN` 1975 µs; idle and talking reach follow the new mids.
-The Maestro's own stored range for channel 15 must allow 1540–1975 µs or targets never arrive.
+`FINGERS_CLOSED` is 1530 µs and `FINGERS_OPEN` 1975 µs; idle and talking reach follow the new mids.
+The Maestro's own stored range for channel 15 must allow 1530–1975 µs or targets never arrive.
 Synthetic checks only; nothing has moved.
 
 ## November 20: holding something in the throttle hand

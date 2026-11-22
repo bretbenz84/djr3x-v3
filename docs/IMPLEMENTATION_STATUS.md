@@ -6,6 +6,20 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Startup lights paced to his real start — November 21
+
+Owner request. LED firmware 0.6.0, flashed: under the startup sparks the chest's three bars rise from the
+bottom and struggle to stay on, and the mouth flickers on in amber; the board is told how long the start is
+expected to take (12.8 s) and, when everything has loaded, that he is ready, at which the bars lock full
+and the mouth comes fully on while the visor goes up. Details and evidence:
+[LED integration](LED_INTEGRATION.md#november-21-startup-lights-paced-to-his-real-start). Firmware checks
+(108) and the affected blocked-I/O checks pass; shown to the owner once, lights only. **Not yet seen in a
+real start.**
+
+The same day the startup sound became the owner's own clip in place of V2's whir: its twelve-second build
+plays while he starts and its finishing sound is held until he is ready, landing with the lights' lock
+and the visor ([startup](STARTUP_HEALTH.md)). Synthetic checks only; not yet heard on the robot.
+
 ## Quicker startup and new ready lines — November 20
 
 Owner: the wait for the models and the startup sound effect had become annoying. Over 23 launches the
@@ -127,7 +141,7 @@ opens the fingers and looks down and to his right; when something is brought to 
 close the fingers close (the lowest pulse) and hold; "you can let it go now" opens them.
 - **Built:** three `set_robot_pose` steps, offered to OpenAI and Claude alike (the tool description is shared):
   `hand_take` (the arm to the grab position, the hand level, fingers fully open
-  at 1975 µs since November 21, then `look_right` and `look_down`, held while he waits), `hand_grip` (fingers to 1540 µs now) and
+  at 1975 µs since November 21, then `look_right` and `look_down`, held while he waits), `hand_grip` (fingers to 1530 µs now) and
   `hand_let_go` (open; 2.5 s later the arm goes to rest and the hand to its park). `hand_hold.HandWatch` closes
   the hand on two front-right readings under 0.45 m and 0.1 m nearer than once the hand settled, or on a face
   growing to 300 px wide (not one already that close); after 30 s with nothing brought the arm goes back to
@@ -159,7 +173,7 @@ close the fingers close (the lowest pulse) and hold; "you can let it go now" ope
   production session; the changed-file run passed (1928 tests). Three probe cases added to
   `check_action_requests.py` (`hold_this`, `grab_this`, `let_it_go`) but not run (paid). Not run on the robot.
 - **Open:** whether the front-right sensors see a hand bringing a card (and do not see the outstretched arm
-  itself), whether the camera looking down and right sees the hand, whether 1540 µs grips a card without
+  itself), whether the camera looking down and right sees the hand, whether 1530 µs grips a card without
   straining the servo, and how the grab position looks with the head turned to it.
 
 ## The throttle arm's space is its front right; its hand moves while it is in — November 20
@@ -263,7 +277,7 @@ a Van Gogh headline, although Claude's planner was told never to.
 
 Owner request: two more servos for the throttle arm's hand, a wrist twist (channel 14) and a two-finger
 pincher (15), not yet assembled or set up on the Maestro.
-- **Built:** the Maestro's programmed limits (November 20: wrist 560–1856 µs; November 21: fingers 1540–1975 µs)
+- **Built:** the Maestro's programmed limits (November 20: wrist 560–1856 µs; November 21: fingers 1530–1975 µs)
   with the park at the wrist's mid 1451 µs and the fingers' mid 1706 µs; a small twist and finger flex with
   each idle throttle move (back to the middle as the arm rests), a livelier lane of its own while he speaks;
   held with its arm (hold, drive stance, kept beside an obstacle); `throttle_twist`/`throttle_pincher` in the

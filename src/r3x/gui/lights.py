@@ -67,6 +67,10 @@ class LightMirror:
             except ValueError:
                 return
             head['mouth_updated_at'] = now
+        elif family in {'STARTUP', 'READY'}:
+            # The mouth flickers on at startup and ends in the awake glow, which is what the mirror draws.
+            if family == 'STARTUP' or head['mouth_mode'] != 'speak':
+                head.update(mouth_mode='active', mouth_updated_at=now, mode='active', updated_at=now)
         elif family in {'SPEAK_STOP', 'ACTIVE', 'IDLE', 'OFF', 'SLEEP', 'FADEOFF', 'CHARGE'}:
             head.update(mouth_mode={'SPEAK_STOP': 'active'}.get(family, family.lower()), mouth_updated_at=now)
             if family == 'CHARGE':
@@ -83,6 +87,10 @@ class LightMirror:
         chest = self.chest
         if family in {'STARTUP', 'IDLE', 'ACTIVE', 'SLEEP', 'OFF', 'FADEOFF'}:
             chest['mode'] = family.lower()
+        elif family == 'READY':
+            if chest['mode'] != 'startup':
+                return
+            chest['mode'] = 'active'    # Startup ends in the ordinary panel.
         elif family == 'SPEAK':
             chest.update(mode='speak', emotion=value.strip().lower() or 'neutral')
         elif family == 'SPEAK_STOP':

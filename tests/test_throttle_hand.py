@@ -30,7 +30,7 @@ def hand_targets(lanes):
 
 class HandRangeTests(unittest.TestCase):
     def test_conservative_range_and_middle_park(self):
-        self.assertEqual({ch: LIMITS[ch] for ch in THROTTLE_HAND}, {14: (2240, 7424), 15: (6160, 7900)})   # 560-1856, 1540-1975 us.
+        self.assertEqual({ch: LIMITS[ch] for ch in THROTTLE_HAND}, {14: (2240, 7424), 15: (6120, 7900)})   # 560-1856, 1530-1975 us.
         self.assertEqual(dict(HAND_PARK), {14: 5804, 15: 6824})   # Wrist level at 1451 us; fingers' mid 1706 us.
         self.assertEqual({ch: dict(UNPOWERED_REST)[ch] for ch in THROTTLE_HAND}, dict(HAND_PARK))
         self.assertEqual({ch: SENTRY_STANCE[ch] for ch in THROTTLE_HAND}, dict(HAND_PARK))
@@ -41,7 +41,7 @@ class HandRangeTests(unittest.TestCase):
         targets = joint_targets({**positions, 'throttle_twist': 0, 'throttle_pincher': 100})
         self.assertEqual(targets, {14: 2240, 15: 7900})
         self.assertEqual({k: v for k, v in joint_percents(dict(HAND_PARK)).items()},
-                         {'throttle_twist': 69, 'throttle_pincher': 38})   # Level wrist 1451 us; fingers 1706 us.
+                         {'throttle_twist': 69, 'throttle_pincher': 40})   # Level wrist 1451 us; fingers 1706 us.
 
     def test_the_servo_menu_mirrors_the_limits(self):
         # Read the menu's table as written: importing the app would load its serial and menu machinery.

@@ -149,6 +149,20 @@ class LightMirrorTests(unittest.TestCase):
         self.mirror.command('chest', 'SPEAK_STOP')
         self.assertEqual(self.mirror.snapshot()['chest']['mode'], 'active')
 
+    def test_the_paced_startup_and_ready_are_mirrored(self):
+        self.mirror.command('head', 'STARTUP:12800')
+        self.mirror.command('chest', 'STARTUP:12800')
+        self.assertEqual(self.mirror.chest['mode'], 'startup')
+        self.assertEqual(self.mirror.head['mouth_mode'], 'active')      # The mouth ends awake; the mirror draws that.
+        self.mirror.command('head', 'READY')
+        self.mirror.command('chest', 'READY')
+        self.assertEqual(self.mirror.chest['mode'], 'active')           # Startup ends in the ordinary panel.
+        self.mirror.command('head', 'SPEAK:neutral')
+        self.mirror.command('chest', 'SPEAK:neutral')
+        self.mirror.command('head', 'READY')
+        self.mirror.command('chest', 'READY')
+        self.assertEqual((self.mirror.head['mouth_mode'], self.mirror.chest['mode']), ('speak', 'speak'))   # Never over a line.
+
     def test_playback_fallback_never_overrides_real_board_commands(self):
         self.mirror.speaking(True, 120)
         self.assertEqual(self.mirror.snapshot()['head']['mouth_level'], 120)

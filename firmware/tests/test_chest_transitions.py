@@ -125,10 +125,12 @@ class ChestTransitionTests(unittest.TestCase):
         for t, f in frames:
             if 3000 < t < first_spark:
                 self.assertGreater(light(f, METER), 0, f'meter dark at {t} ms')
-        # The meter's colours are soon gone: what is left on its pixels is white sparks.
+        # The meter is soon gone: the bars start again from nothing, so for the next second the upper
+        # half of every bar shows nothing but white sparks.
+        upper = [BAR_STARTS[b] + 7 - level for b in range(3) for level in range(4, 8)]
         for t, f in frames:
-            if t > first_spark + 700:
-                self.assertTrue(all(len(set(f[i])) == 1 for i in METER), f'meter colour left at {t} ms')
+            if first_spark + 700 < t < first_spark + 1700:
+                self.assertTrue(all(len(set(f[i])) == 1 for i in upper), f'meter colour left at {t} ms')
 
     def startup_block_times(self, frames, start=0):
         return {b: next((t for t, f in frames if t > start and block_lit(f, b)), None) for b in BLOCK_STARTS}
@@ -151,6 +153,132 @@ class ChestTransitionTests(unittest.TestCase):
         late = [f for t, f in frames if t > 14500]
         self.assertGreaterEqual(sum(any(block_lit(f, b) for f in late) for b in BLOCK_STARTS), 5)
         self.assertEqual(max(light(f, UNOWNED) for f in late), 0)
+
+    # Startup rise (owner, November 21): the three bars rise and struggle, paced to the host's own start.
+
+    def bar_height(self, frame, bar):
+        """Lights on in a bar, counted from the bottom up to the first dark one. Bar A is red and bar
+        B blue, so a white spark landing on them is not counted; bar C is white and may count one."""
+        height = 0
+        for level in range(8):
+            r, g, b = frame[BAR_STARTS[bar] + 7 - level]
+            on = (r > g) if bar == 0 else (b > r) if bar == 1 else (r + g + b > 0)
+            if not on:
+                break
+            height += 1
+        return height
+
+    def longest_full(self, frames, bar, end):
+        """The longest unbroken time (ms) a bar shows all eight lights before `end`."""
+        longest, since = 0, None
+        for t, f in frames:
+            if t >= end:
+                break
+            if self.bar_height(f, bar) == 8:
+                since = t if since is None else since
+                longest = max(longest, t - since)
+            else:
+                since = None
+        return longest
+
+    def locked_at(self, frames, bars=(0, 1, 2)):
+        """When the bars come on full and stay full for the next 300 ms."""
+        for index, (t, f) in enumerate(frames):
+            window = [g for u, g in frames[index:] if u < t + 300]
+            if len(window) > 5 and all(self.bar_height(g, bar) == 8 for g in window for bar in bars):
+                return t
+        return None
+
+    def mean_height(self, frames, bar, start, end):
+        heights = [self.bar_height(f, bar) for t, f in frames if start <= t < end]
+        return sum(heights) / len(heights)
+
+    def test_the_bars_rise_from_the_bottom_and_struggle_to_stay_on(self):
+        frames = self.play('cmd STARTUP:12800 run 12800 cmd READY run 3000')
+        for bar in range(3):
+            with self.subTest(bar=bar):
+                # They rise: dark at first, higher through the start, in each bar's own time.
+                self.assertLess(self.mean_height(frames, bar, 0, 1200), 1.5)
+                early, middle, late = (self.mean_height(frames, bar, a, a + 2500) for a in (1500, 5500, 10000))
+                self.assertLess(early + 1, middle)
+                self.assertLess(middle + 1, late)
+                self.assertGreater(late, 5)
+                # They struggle: a bar loses lights it had, again and again, and climbs back.
+                heights = [self.bar_height(f, bar) for t, f in frames if t < 12800]
+                slips = sum(1 for a, b in zip(heights, heights[1:]) if b < a)
+                self.assertGreaterEqual(slips, 6)
+                # The top light never holds steady: it shows at many brightnesses.
+                tops = {max(f[BAR_STARTS[bar] + 7 - (h - 1)]) for (t, f), h in zip(frames, heights) if h}
+                self.assertGreaterEqual(len(tops), 12)
+        # No bar holds its eighth light before READY: it only flickers there, trying to catch.
+        for bar in range(3):
+            self.assertLess(self.longest_full(frames, bar, 12800), 300, f'bar {bar} held full before READY')
+        self.assertIsNone(self.locked_at([(t, f) for t, f in frames if t < 12800]))
+        # The bars do not all rise together: bar A reaches seven lights well before bar B.
+        seventh = [next(t for t, f in frames if self.bar_height(f, bar) >= 7) for bar in (0, 1)]
+        self.assertLess(seventh[0] + 1000, seventh[1])
+        # READY locks them: all three full within 0.4 s, bright, and no light drops for the rest of the finale.
+        for t, f in frames:
+            if 12800 + 400 <= t < 12800 + 900:
+                self.assertEqual([self.bar_height(f, bar) for bar in range(3)], [8, 8, 8], f'bars not locked at {t} ms')
+        locked = [f for t, f in frames if 12800 + 150 <= t < 12800 + 250][-1]
+        settled = [f for t, f in frames if 12800 + 800 <= t < 12800 + 900][-1]
+        self.assertGreater(locked[7][0], settled[7][0])            # They flare as they lock, then ease to steady.
+        # Then the ordinary panel has them, blended, with nothing lit outside its bars and blocks.
+        self.assert_no_jump(frames, 12800 + 900, [s + i for s in BAR_STARTS for i in range(8)])
+        late = [f for t, f in frames if t > 12800 + 900 + 1500]
+        self.assertEqual(max(light(f, UNOWNED) for f in late), 0)
+        self.assertTrue(any(self.bar_height(f, 0) < 8 for f in late))   # Bar A is the panel's again, changing length.
+
+    def test_the_sparks_and_blocks_follow_the_time_the_host_gives(self):
+        for span in (7000, 16000):
+            with self.subTest(span=span):
+                frames = self.play(f'cmd STARTUP:{span} run {span} cmd READY run 3000')
+                first = sorted(self.startup_block_times(frames).values())
+                self.assertNotIn(None, first)
+                self.assertGreater(first[0], span - 3100)          # Blocks begin three seconds before the planned end.
+                self.assertLess(first[-1], span - 600)
+                # Sparks fall on pixels the panel never draws: plenty early, thinning out towards the end.
+                def sparks(start, end):
+                    window = [light(f, UNOWNED) for t, f in frames if start <= t < end]
+                    return sum(window) / len(window)
+                self.assertGreater(sparks(0, span // 4), 2 * sparks(span * 3 // 4, span))
+                self.assertGreater(sparks(span * 3 // 4, span), 0)
+
+    def test_a_start_from_the_menu_times_itself(self):
+        frames = self.play('cmd STARTUP run 16000')
+        full = self.locked_at(frames)
+        self.assertGreaterEqual(full, 12800)                       # It locks at its own planned end,
+        self.assertLess(full, 12800 + 450)
+        late = [f for t, f in frames if t > 12800 + 900 + 1500]
+        self.assertEqual(max(light(f, UNOWNED) for f in late), 0)  # and the panel follows.
+
+    def test_ready_before_the_planned_end_locks_at_once_and_hurries_the_blocks(self):
+        frames = self.play('cmd STARTUP:12800 run 6000 cmd READY run 3000')
+        for t, f in frames:
+            if 6000 + 400 <= t < 6000 + 900:
+                self.assertEqual([self.bar_height(f, bar) for bar in range(3)], [8, 8, 8])
+        first = self.startup_block_times(frames, start=6000)
+        self.assertNotIn(None, first.values())
+        self.assertLess(max(first.values()), 6000 + 900)           # Every block has come on by the end of the finale.
+        self.assertGreater(min(first.values()), 6000)
+
+    def test_a_host_that_never_says_ready_is_waited_for_only_so_long(self):
+        frames = self.play('cmd STARTUP:5000 run 18000')
+        full = self.locked_at(frames)
+        self.assertGreaterEqual(full, 15000)                       # Ten seconds past the plan, still struggling;
+        self.assertLess(full, 15000 + 450)                         # then it locks by itself.
+        waiting = [self.bar_height(f, 0) for t, f in frames if 6000 <= t < 15000]
+        self.assertGreater(max(waiting), 5)
+        self.assertGreater(sum(1 for a, b in zip(waiting, waiting[1:]) if b < a), 4)   # Still losing lights at the top.
+        sparks = sum(1 for t, f in frames if 7000 <= t < 15000 and light(f, UNOWNED))
+        self.assertGreater(sparks, 5)                              # A sparse spark keeps it alive meanwhile.
+        late = [f for t, f in frames if t > 15000 + 900 + 1500]
+        self.assertEqual(max(light(f, UNOWNED) for f in late), 0)
+
+    def test_ready_outside_startup_changes_nothing(self):
+        frames = self.play('cmd IDLE run 2000 cmd READY run 1000')
+        self.assert_no_jump(frames, 2000)
 
     def test_the_boot_line_does_not_cut_the_startup_short(self):
         frames = self.play('cmd STARTUP run 2000 cmd SPEAK:neutral run 3000 cmd SPEAK_STOP run 11000')

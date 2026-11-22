@@ -53,6 +53,12 @@
  *                         board was in OFF mode (e.g. fresh reboot mid-session,
  *                         re-lit by the host's eye keep-alive heartbeat), this
  *                         also re-enters ACTIVE so the mouth glow resumes.
+ *   STARTUP[:{ms}]        The mouth flickers on in the ordinary amber: a few lights
+ *                         catching at first, more and more holding, until READY, when
+ *                         every light comes on and the mouth is fully lit (see "Mouth
+ *                         startup"). With {ms}, the time the host expects to need; bare,
+ *                         it times itself. Eyes are left as they are.
+ *   READY                 The host is ready: ends STARTUP's flicker in a fully lit mouth.
  *   OFF                   All 82 pixels off immediately; blinking suspended.
  *   CHARGE:{0-100}        Eyes off; the mouth is a charge meter while Rex is off
  *                         and attached to the charger: rows lit from the bottom
@@ -168,6 +174,7 @@ enum AnimMode : uint8_t {
     ANIM_ACTIVE,
     ANIM_SLEEP,
     ANIM_CHARGE,
+    ANIM_STARTUP,
 };
 
 AnimMode animMode = ANIM_OFF;
@@ -251,10 +258,39 @@ uint8_t      glowLastScale = 255;             // sentinel: force first frame
 #define GLOW_RAMP_IN_MS 4000
 uint32_t     glowRampStartMs = 0;
 
+// Glow settle: after startup leaves the mouth fully lit, the glow eases down from that
+// level over GLOW_SETTLE_MS instead of dropping to it in one frame.
+#define GLOW_SETTLE_MS 1500
+uint32_t     glowSettleStartMs = 0;           // 0: not settling
+uint8_t      glowSettleFrom    = 0;
+
+// Mouth startup (owner request, November 21, 2026: "the mouth started out flickering the
+// normal yellow light until it were fully illuminated", lined up with the real startup).
+// Every mouth light has its own moment to catch, spread over the time the host expects to
+// need. Before that moment it is dark but for a rare flicker; near it, it flickers more
+// and more; after it, it holds. The lights that are on grow brighter as the start goes
+// on, and now and then the whole mouth dips, less often towards the end. The last lights
+// do not hold before READY. READY brings every light on and swells the mouth to
+// STARTUP_FULL over half the finale; when the finale ends the idle glow takes over and
+// eases down from there (a line spoken at once takes over instead).
+#define STARTUP_FRAME_MS    40UL
+#define STARTUP_FLICKER_MS  55UL     // a flickering light changes about 18 times a second
+#define STARTUP_LOW         26       // a lit light at the start: the idle glow's top level
+#define STARTUP_HIGH        52       // ... by the planned end
+#define STARTUP_FULL        64       // fully lit: a quarter of full brightness on all 80 lights
+#define STARTUP_HOLD_AT    235       // progress (of 255) the flicker reaches without READY
+uint32_t     startupAt       = 0;
+uint32_t     startupSpanMs   = LEDS_STARTUP_DEFAULT_MS;
+bool         startupHosted   = false;
+bool         startupReady    = false;
+uint32_t     startupReadyMs  = 0;
+uint32_t     startupFrameMs  = 0;
+uint16_t     startupSeed     = 0;             // so no two starts flicker alike
+
 inline void forceGlowRefresh() { glowLastScale = 255; }
 
-inline void startGlowRamp()   { glowRampStartMs = millis() | 1; }  // |1: never the 0 sentinel
-inline void cancelGlowRamp()  { glowRampStartMs = 0; }
+inline void startGlowRamp()   { glowRampStartMs = millis() | 1;  glowSettleStartMs = 0; }  // |1: never the 0 sentinel
+inline void cancelGlowRamp()  { glowRampStartMs = 0;  glowSettleStartMs = 0; }
 
 // Mouth watchdog. The mouth animation (ANIM_SPEAK) is free-running and is only
 // stopped by a host command (SPEAK_STOP/ACTIVE/IDLE/OFF). Those bytes can be
@@ -509,6 +545,7 @@ void command(const char *cmd) {
     // times as a reliability measure; the forced refresh guarantees the mouth
     // leaves the bright speak frame for the glow within one loop pass.
     if (strcmp(cmd, "SPEAK_STOP") == 0) {
+        if (animMode == ANIM_STARTUP) return;   // nothing was speaking: the flicker runs on
         animMode   = ANIM_ACTIVE;
         eyesActive = false;
         blinkState = BLINK_OPEN;   // reset so next activation starts cleanly
@@ -538,6 +575,7 @@ void command(const char *cmd) {
 
     // IDLE — mouth idle glow; eyes breathe slowly; blink system active.
     if (strcmp(cmd, "IDLE") == 0) {
+        if (animMode == ANIM_STARTUP) return;   // startup ends in the awake glow by itself
         if (animMode == ANIM_OFF || animMode == ANIM_SLEEP) {
             startGlowRamp();    // mouth was dark — breathe the glow in over 4 s
         }
@@ -559,11 +597,13 @@ void command(const char *cmd) {
 
     // ACTIVE — mouth idle glow; preserve current eye colour; blink resumes.
     if (strcmp(cmd, "ACTIVE") == 0) {
-        if (animMode == ANIM_OFF || animMode == ANIM_SLEEP) {
-            startGlowRamp();    // mouth was dark — breathe the glow in over 4 s
+        if (animMode != ANIM_STARTUP) {         // during startup the mouth is the flicker's; eyes as usual
+            if (animMode == ANIM_OFF || animMode == ANIM_SLEEP) {
+                startGlowRamp();    // mouth was dark — breathe the glow in over 4 s
+            }
+            animMode = ANIM_ACTIVE;
+            forceGlowRefresh();
         }
-        animMode = ANIM_ACTIVE;
-        forceGlowRefresh();
         if (eyeColor.r || eyeColor.g || eyeColor.b) {
             setEyes(eyeColor.r, eyeColor.g, eyeColor.b);
         } else {
@@ -589,6 +629,38 @@ void command(const char *cmd) {
             }
             setEyes(clampByte(r), clampByte(g), clampByte(b));
             show();
+        }
+        return;
+    }
+
+    // STARTUP / STARTUP:{ms} — the mouth flickers on in the ordinary amber (see "Mouth
+    // startup"). A shutdown fade still running is ended first. Eyes are not touched.
+    if (strcmp(cmd, "STARTUP") == 0 || strncmp(cmd, "STARTUP:", 8) == 0) {
+        const long given = cmd[7] == ':' ? atol(cmd + 8) : 0;
+        if (headFading) {
+            headFading = false;
+            masterBrightness = headFadeStartBright;
+        }
+        EmotionColor ec;
+        memcpy_P(&ec, &EMOTION_COLORS[EMO_NEUTRAL], sizeof(EmotionColor));
+        mouthColor     = ec;
+        startupHosted  = given > 0;
+        startupSpanMs  = startupHosted ? (uint32_t)constrain(given, LEDS_STARTUP_MIN_MS, LEDS_STARTUP_MAX_MS)
+                                       : LEDS_STARTUP_DEFAULT_MS;
+        startupAt      = millis();
+        startupFrameMs = startupAt - STARTUP_FRAME_MS;   // first frame on the next tick
+        startupReady   = false;
+        startupSeed    = random16();
+        cancelGlowRamp();
+        animMode       = ANIM_STARTUP;
+        return;
+    }
+
+    // READY — the host is ready: every mouth light comes on (the finale).
+    if (strcmp(cmd, "READY") == 0) {
+        if (animMode == ANIM_STARTUP && !startupReady) {
+            startupReady   = true;
+            startupReadyMs = millis();
         }
         return;
     }
@@ -818,6 +890,17 @@ bool tickMouthGlow(float dt) {
         }
     }
 
+    // Settle from startup's fully lit mouth: ease down to the glow, never jump.
+    if (glowSettleStartMs) {
+        uint32_t elapsed = millis() - glowSettleStartMs;
+        if (elapsed >= GLOW_SETTLE_MS) {
+            glowSettleStartMs = 0;
+        } else {
+            float from = glowSettleFrom / 255.0f;
+            brightness = from + (brightness - from) * ((float)elapsed / (float)GLOW_SETTLE_MS);
+        }
+    }
+
     uint8_t sc = (uint8_t)(brightness * 255.0f);
     uint32_t now = millis();
     if (prideMouth) {
@@ -958,6 +1041,67 @@ void tickCharge() {
 }
 
 // ---------------------------------------------------------------------------
+// Mouth startup — flickering on until fully lit (see "Mouth startup" above)
+// ---------------------------------------------------------------------------
+
+void tickStartup() {
+    const uint32_t now = millis();
+    const uint32_t planEnd = startupAt + startupSpanMs;
+    // READY's stand-in: the planned end when it times itself, a grace later when the host
+    // was to say it.
+    if (!startupReady && (int32_t)(now - (planEnd + (startupHosted ? LEDS_READY_GRACE_MS : 0))) >= 0) {
+        startupReady   = true;
+        startupReadyMs = now;
+    }
+    if (startupReady && now - startupReadyMs >= LEDS_FINALE_MS) {
+        animMode          = ANIM_ACTIVE;     // fully lit: the glow takes over and eases down
+        glowRampStartMs   = 0;
+        glowSettleFrom    = STARTUP_FULL;
+        glowSettleStartMs = now | 1;
+        forceGlowRefresh();
+        return;
+    }
+    if (now - startupFrameMs < STARTUP_FRAME_MS) return;
+    startupFrameMs = now;
+
+    const uint32_t elapsed = now - startupAt;
+    uint16_t progress = elapsed >= startupSpanMs ? 255 : (uint16_t)(elapsed * 255UL / startupSpanMs);
+    if (progress > STARTUP_HOLD_AT) progress = STARTUP_HOLD_AT;   // the last lights wait for READY
+    const uint8_t  level = STARTUP_LOW + (uint8_t)((uint16_t)progress * (STARTUP_HIGH - STARTUP_LOW) / 255);
+    const uint32_t slot  = now / STARTUP_FLICKER_MS;
+    // The whole mouth dips now and then, about one moment in eight at first, rarely by the end.
+    const bool dip = !startupReady && ledsFlick8(now / 150UL, 911u + startupSeed) < (uint8_t)(34 - progress / 9);
+
+    for (uint8_t row = 0; row < MOUTH_ROWS; row++) {
+        for (uint8_t col = 0; col < MOUTH_COLS; col++) {
+            const uint8_t i = row * MOUTH_COLS + col;
+            uint8_t brightness;
+            if (startupReady) {
+                // Every light on at once, swelling to fully lit over half the finale.
+                const uint32_t since = now - startupReadyMs;
+                const uint32_t swell = LEDS_FINALE_MS / 2;
+                brightness = since >= swell ? STARTUP_FULL
+                           : (uint8_t)(level + (uint32_t)(STARTUP_FULL - level) * since / swell);
+            } else {
+                const uint8_t catchAt = 45 + ledsFlick8(i, startupSeed) % 206;   // 45..250 of 255: the last few wait for READY
+                const int16_t d = (int16_t)progress - (int16_t)catchAt;
+                // Chance of being lit this moment: a rare flicker long before its moment, rising to
+                // nearly always as the moment comes, certain a little after.
+                const uint8_t chance = d < -70 ? 7 : d < 0 ? (uint8_t)(7 + (d + 70) * 200 / 70)
+                                     : d < 24 ? (uint8_t)(207 + d * 2) : 255;
+                const bool lit = chance == 255 || ledsFlick8(slot, 300u + i + startupSeed) < chance;
+                // A light still catching shimmers; one that holds is steady.
+                brightness = !lit ? 0 : d >= 24 ? level
+                           : scale8(level, 150 + scale8(ledsFlick8(slot, 600u + i), 105));
+                if (dip) brightness = scale8(brightness, 70);
+            }
+            leds[mouthIdx(row, col)] = mouthPixel(row, col, brightness, now);
+        }
+    }
+    show();
+}
+
+// ---------------------------------------------------------------------------
 // Main animation tick — call every loop()
 // ---------------------------------------------------------------------------
 
@@ -986,6 +1130,7 @@ void tickAnimation() {
     }
     if (animMode == ANIM_SLEEP) { tickSleep(); return; }
     if (animMode == ANIM_CHARGE) { tickCharge(); return; }
+    if (animMode == ANIM_STARTUP) { tickStartup(); return; }
 
     // ANIM_ACTIVE / ANIM_IDLE — mouth idle glow, plus eye breathing in IDLE.
     // Both ticks only mark the buffer; a single show() pushes the combined frame.

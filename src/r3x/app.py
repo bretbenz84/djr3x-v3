@@ -95,8 +95,9 @@ class App:
         from .direction import Direction
         direction = Direction(FlexControl()) if self.settings.direction_enabled else None
         if self.settings.led_port:
-            from .leds import LEDs
-            self.leds = LEDs(self.settings.led_port)
+            from .leds import LEDs, LIVE_STARTUP_SECONDS
+            # The startup lights are paced to this start and locked by ready() once everything has loaded.
+            self.leds = LEDs(self.settings.led_port, startup_seconds=LIVE_STARTUP_SECONDS)
         if self.settings.servo_port:
             from .robot_servos import RobotServos
             # With wheels, their range sensors decide when the reaching arms first come out.
@@ -141,8 +142,8 @@ class App:
         # tuple indexing stable for core composition; only lifecycle order changes.
         # Wheels connect after servo wake; connecting never moves the base.
         wheels = tuple(p for p in (self.radar, self.drive) if p)
-        # The startup whir plays with the servo wake and a short ready line is said once he can
-        # listen; the same owner keeps his saved lines and the power-down clip. The please-wait
+        # The startup sound's build plays with the servo wake, its finish when he is ready, and a short
+        # ready line is said once he can listen; the same owner keeps his saved lines and the power-down clip. The please-wait
         # line and the droid filler are retired (owner, November 20).
         from .startup_audio import StartupAudio
         self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache', wake_motion=self.robot is not None)
@@ -417,7 +418,6 @@ class App:
                 voice_check = next((p for p in optional if p.capability.name=='voice_check' and 'voice_check' in active
                                     and self.settings.voice_check_enabled),None)
                 output.inspection = inspection if 'current_view' in active else None
-                self.startup_audio.stop()   # The whir ended long ago; the speaker is live speech's alone from here.
                 # The ready line (and a hardware notice before it) gets the usual talking motion and speaking lights.
                 output.robot = self.robot if self.robot and 'robot_servos' in active else None
                 if output.robot:
@@ -431,12 +431,22 @@ class App:
                 except Exception as exc:
                     ready = None
                     trace.emit('startup_audio',status='ready_line_failed',error_type=type(exc).__name__)
+                # Everything has loaded. The startup sound's build ends and its finishing sound begins
+                # (owner, November 21); with it the lights lock, the visor goes up, and then he speaks.
+                self.startup_audio.land()
+                if output.leds:
+                    # The chest's bars lock full and the mouth comes fully on while the visor goes up.
+                    try:
+                        output.leds.ready()
+                    except Exception as exc:
+                        trace.emit('led_lifecycle',kind='ready',status='failed',error_type=type(exc).__name__)
                 if output.robot:
                     # Shut since the wake: the visor goes up now, just before he says he is ready.
                     try:
                         output.robot.open_eyes()
                     except Exception as exc:
                         trace.emit('servo_lifecycle',kind='open_eyes',status='failed',error_type=type(exc).__name__)
+                self.startup_audio.stop()   # The finishing sound has played out: the speaker is live speech's alone.
                 # Unavailable hardware is said first. Without a ready line (run b28d62e8) nothing told
                 # someone out of his view that he was up, and the start felt no faster.
                 startup_delivery = announce(self.settings,self.owner,output,trace,ready=ready)

@@ -49,6 +49,16 @@ EYE_REFRESH_SECONDS = 3.
 # Pride mode (V2's rainbow overlays, ported October 25): the firmware swirls the mouth and runs a chest
 # rainbow while PRIDE:1 is renewed within 10 s; this renews it well inside that.
 PRIDE_REFRESH_SECONDS = 3.
+# Startup lights paced to his own start (owner, November 21; LED firmware 0.6.0). The board is told how
+# long the start is expected to take and, once everything has loaded, that he is ready: the chest's three
+# bars rise and struggle through that time and the mouth flickers on, and both lock fully lit at READY.
+# He is ready when everything has loaded and the startup sound's build has played out, whichever is
+# later. From the lights starting, everything was loaded 13.6 s later in the wake-word run b28d62e8
+# (about a second less is expected since the camera-side models load during the servo wake), and the
+# build (11.8 s, begun with the servo wake and heard about 1.2 s after) ends about 13.2 s later. A
+# start that runs long only keeps the bars struggling at the top until READY; one that runs short
+# locks them early.
+LIVE_STARTUP_SECONDS = 13.2
 FIRMWARE = 'djr3x_leds'             # The name the board must give before it is sent a light command.
 HELLO_ATTEMPTS = 10                 # About 3 s: each unanswered read waits out the port's 0.1 s timeout.
 # November 15 (runs de09e0b3, 7261d8ce): a write to the board failed 30 s and 11 minutes into the run
@@ -94,8 +104,11 @@ class LEDs:
         shutdown='latch shutdown, join level worker, fade then close; a failed write reopens the port up to 5 times')
 
     def __init__(self, port: str, *, opener: Callable[[str], LEDPort] = open_serial,
-                 clock=time.monotonic, wait=time.sleep):
+                 clock=time.monotonic, wait=time.sleep, startup_seconds: float | None = None):
+        """startup_seconds: how long the caller expects its start to take, when it will call ready()
+        at the end of it; None lets the startup lights time themselves (a telepresence call, a demo)."""
         self.port, self.opener, self.clock, self.wait = port, opener, clock, wait
+        self.startup_seconds = startup_seconds
         self.device = None                # The open board, from start until close.
         self.firmware = None              # The version it reported at start.
         self.lock = threading.RLock()
@@ -180,14 +193,24 @@ class LEDs:
             raise
         with self.lock:
             self._both('PRIDE:0')  # Clear an inherited firmware overlay.
-            self._send('head','ACTIVE')
+            startup = 'STARTUP' if self.startup_seconds is None else f'STARTUP:{round(self.startup_seconds*1000)}'
+            self._send('head',startup)   # The mouth flickers on; it ends awake, in the idle glow.
             self._send('head','EYE:'+','.join(map(str,AWAKE_EYES)))
-            self._send('chest','STARTUP')
+            self._send('chest',startup)
             self.state = 'ready'
             if self.trace: self.trace.emit('led_lifecycle',kind='startup',status='commands_sent',
                                            evidence='display_unverified',firmware=self.firmware)
         self.worker = threading.Thread(target=self._levels,name='led-levels',daemon=True)
         self.worker.start()
+
+    def ready(self):
+        """Everything has loaded: the chest's bars lock full and the mouth comes fully on, over about a
+        second (the visor goes up meanwhile). Only a start given startup_seconds waits for this."""
+        with self.lock:
+            if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
+            self._both('READY')
+            if self.trace: self.trace.emit('led_lifecycle',kind='ready',status='commands_sent',
+                                           evidence='display_unverified')
 
     def pcm(self, data, at):
         # Called on the audio callback: a bounded timestamped mailbox, no serial,

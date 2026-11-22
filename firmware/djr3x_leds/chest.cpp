@@ -14,6 +14,10 @@
  * blended from the frame that was showing instead of snapping, the charge meter is
  * burned up by a spark that then starts the startup sparkle, and the panel comes on
  * piece by piece under the last startup sparks. See "Transitions" below.
+ *
+ * Startup paced to Rex's own start (owner request, November 21, 2026): the host says how
+ * long it expects to take and when it is ready; under the sparks the three bars rise and
+ * struggle to stay on, and lock full at READY. See "Startup rise" below.
  */
 
 #include <FastLED.h>
@@ -213,9 +217,10 @@ static uint32_t chargeLinkedAt    = 0;
 // from the bottom, each pixel it passes left to die away; when it reaches the fill
 // line the startup sparks begin.
 //
-// Startup into the panel: during the last BOOT_BURSTS spark bursts the three bars
-// and nine blocks come on one at a time in a random order, each catching with a
-// short stutter. The sparks sit on their own layer so the panel can run beneath.
+// Startup into the panel: during the last BLOCKS_LEAD_MS before the planned end the
+// nine blocks come on one at a time in a random order, each catching with a short
+// stutter. The sparks sit on their own layer so the panel can run beneath. The three
+// bars are the startup rise's (below) until it locks, then the panel's.
 // IDLE, ACTIVE, SPEAK:neutral and SPEAK_STOP arriving during startup do not cut it
 // short; startup ends in whichever of them came last.
 #define FADE_STARTUP_MS   300   // into startup: old brightness to the startup level
@@ -258,26 +263,71 @@ static bool     igniting      = false;
 static uint8_t  igniteFilled  = 0;
 static uint32_t igniteStartMs = 0;
 
-// Startup sparks and the panel coming on beneath them.
-#define BOOT_BURSTS      10            // the last ten bursts take about 3.0 s
-#define BOOT_ELEMENTS    12            // bars A, B, C then the nine blocks
-#define BOOT_STAGGER_MS  190           // one element starts about this often
+// Startup sparks and the blocks coming on beneath them.
+#define BOOT_ELEMENTS    12            // bars A, B, C (the startup rise's) then the nine blocks
+#define BOOT_BLOCKS       9
+#define BOOT_STAGGER_MS  190           // one block starts about this often
+#define BOOT_HURRY_MS     60           // ... when READY has already come
 #define BOOT_JITTER_MS   90
-#define BOOT_CATCH_MS    330           // length of one element's stutter
+#define BOOT_CATCH_MS    330           // length of one block's stutter
 #define SPARK_TAIL_MS    600           // the last sparks finish dying after startup ends
 static bool      sparksLive  = false;
 static uint32_t  sparksEndMs = 0;
-static bool      booting     = false;
+static bool      booting     = false;  // blocks are still catching: compose() gates them
+static bool      bootBegun   = false;  // the panel is running under the sparks
 static uint32_t  bootStartMs = 0;
+static uint16_t  bootSpanMs  = 0;
 static uint16_t  bootOnlineAt[BOOT_ELEMENTS];   // ms after bootStartMs
 static bool      bootOnline[BOOT_ELEMENTS];
 static ChestMode startupLandMode       = CM_IDLE;
 static uint8_t   startupLandBrightness = BRIGHTNESS;
 
+// Startup rise (owner request, November 21, 2026: "the 3 columns of 8 LEDs would slowly
+// rise and struggle to stay on", lined up with the real startup time).
+//
+// STARTUP:<ms> carries the time the host expects to need before it is ready, and READY
+// says it is. The sparks thin out over that time. Under them each bar lights from the
+// bottom, at its own pace, and struggles: its top light never holds steady and sometimes
+// goes out, the next one up tries to catch, the bar browns out for a moment, loses a
+// light or two and climbs back. No bar holds its eighth light before READY. READY fills
+// all three at once, bright, and over FINALE_MS they ease to steady; then the ordinary
+// panel takes the bars over with a blend.
+//
+// Bare STARTUP (the LED menu) times itself: STARTUP_DEFAULT_MS, then it locks. With a
+// host time and no READY the bars keep struggling at the top READY_GRACE_MS longer and
+// then lock anyway, so a host that died cannot leave the chest in startup for good.
+#define STARTUP_DEFAULT_MS LEDS_STARTUP_DEFAULT_MS   // shared with the mouth: pins.h
+#define STARTUP_MIN_MS     LEDS_STARTUP_MIN_MS
+#define STARTUP_MAX_MS     LEDS_STARTUP_MAX_MS
+#define READY_GRACE_MS     LEDS_READY_GRACE_MS
+#define FINALE_MS          LEDS_FINALE_MS
+#define BLOCKS_LEAD_MS      3000UL     // the blocks begin this long before the planned end
+#define SPARK_WAIT_MS        380UL     // a sparse spark this often while waiting past the planned end
+#define SPARK_SUM           3160UL     // 0 + 1 + ... + 79: the 80 bursts' gaps add up to the span
+static uint32_t startupAt     = 0;     // millis() when STARTUP arrived
+static uint32_t startupSpanMs = STARTUP_DEFAULT_MS;
+static bool     startupHosted = false; // the host gave a time and will say READY
+static bool     riseBegun     = false; // false while a spark still burns the charge meter
+static uint32_t riseStartMs   = 0;
+static bool     readySaid     = false; // READY, or its stand-in when it never comes
+static uint32_t readyMs       = 0;
+static uint8_t  riseLevel[3];          // lights on from the bottom of each bar, 0..8
+static uint32_t riseMoveAt[3];         // when the bar may next gain a light
+static uint32_t riseSlipAt[3];         // when it next loses ground
+static uint32_t riseDipAt[3];          // when it next browns out
+static uint32_t riseDipUntil[3];
+// Bar A red, bar B blue, bar C white: the panel's own three colours, brighter than the
+// ordinary panel's bars so the rise reads under the sparks.
+static const CRGB RISE_BODY[3] = { CRGB(0x80, 0x00, 0x00), CRGB(0x00, 0x14, 0x90), CRGB(0x70, 0x98, 0x98) };
+static const CRGB RISE_TIP[3]  = { CRGB(0xFF, 0x38, 0x10), CRGB(0x40, 0x70, 0xFF), CRGB(0xFF, 0xFF, 0xFF) };
+static const uint8_t RISE_PACE[3] = { 10, 8, 9 };   // A reaches its seventh light first, B last
+
 static void endStartupLayers() {
-    igniting = booting = sparksLive = false;
+    igniting = booting = bootBegun = sparksLive = riseBegun = readySaid = false;
     fill_solid(sparks, NUM_LEDS, CRGB::Black);
 }
+
+static inline uint8_t flick8(uint32_t a, uint32_t b) { return ledsFlick8(a, b); }
 
 // Which bar or block a pixel belongs to: 0-2 bars A-C, 3-11 the blocks, 255 none.
 static uint8_t elementOf(uint8_t pixel) {
@@ -321,7 +371,7 @@ static void compose() {
         CRGB c = DJLEDs[i];
         if (booting) {
             const uint8_t element = elementOf(i);
-            if (element != 255) c.nscale8(bootGate(element, now));
+            if (element >= 3 && element != 255) c.nscale8(bootGate(element, now));   // bars are the rise's
         }
         if (sparksLive) c += sparks[i];
         c.nscale8(masterBrightness);
@@ -564,8 +614,7 @@ void tick() {
 			fadeToBlackBy(sparks, NUM_LEDS, 10);
 			if (millis() - sparksEndMs > SPARK_TAIL_MS) sparksLive = false;
 		}
-		if (booting && millis() - bootStartMs >
-				(uint32_t)BOOT_ELEMENTS * BOOT_STAGGER_MS + BOOT_JITTER_MS + BOOT_CATCH_MS) booting = false;
+		if (booting && millis() - bootStartMs > bootSpanMs) booting = false;
 	}
 
 	if (millis() - LEDUpdateMillis > LEDUpdateInterval) {
@@ -605,7 +654,10 @@ void nextPattern()
 //
 // Commands (newline-terminated, 115200 baud):
 //   STARTUP          — startup sparks (set off by a spark up the charge meter when it
-//                      was showing), the panel coming on under the last of them
+//                      was showing) with the three bars rising and struggling under them,
+//                      the blocks coming on under the last sparks; times itself
+//   STARTUP:{ms}     — the same, paced to the time the host expects to need; ends at READY
+//   READY            — the host is ready: the bars lock full, then the ordinary panel
 //   IDLE             — RandomBlocks2 at normal brightness (default)
 //   ACTIVE           — RandomBlocks2 at higher brightness
 //   SPEAK:{emotion}  — emotion-specific pattern:
@@ -638,8 +690,9 @@ void command(const char *cmd) {
         return;
     }
 
-	if (strcmp(cmd, "STARTUP") == 0) {
+	if (strcmp(cmd, "STARTUP") == 0 || strncmp(cmd, "STARTUP:", 8) == 0) {
 		const uint32_t now = millis();
+		const long given = cmd[7] == ':' ? atol(cmd + 8) : 0;
 		// What the meter was showing is the spark's fuel; none from any other state,
 		// where the old picture simply dies away under the first sparks.
 		const uint8_t fuel = (chestMode == CM_CHARGE) ? chargeFilled() : 0;
@@ -653,7 +706,10 @@ void command(const char *cmd) {
 			igniteStartMs = now + IGNITE_HOLD_MS;
 		}
 		sparksLive = true;
-		DecayTime = 80;
+		startupHosted = given > 0;
+		startupSpanMs = startupHosted ? (uint32_t)constrain(given, STARTUP_MIN_MS, STARTUP_MAX_MS) : STARTUP_DEFAULT_MS;
+		startupAt = now;
+		DecayTime = DECAYTIME;
 		FadeInterval = 0;
 		FadeMillis = now;
 		gCurrentPatternNumber = 1;
@@ -662,6 +718,9 @@ void command(const char *cmd) {
 		startupLandBrightness = BRIGHTNESS;
 		chestMode = CM_STARTUP;
 		prideShown = false;   // any rainbow dies away under the sparks
+
+	} else if (strcmp(cmd, "READY") == 0) {
+		if (chestMode == CM_STARTUP && !readySaid) { readySaid = true;  readyMs = millis(); }
 
 	} else if (strcmp(cmd, "IDLE") == 0 || strcmp(cmd, "SPEAK_STOP") == 0) {
 		enter(CM_IDLE, BRIGHTNESS, FADE_SETTLE_MS);
@@ -1191,9 +1250,66 @@ static void bootElementOn(uint8_t element, uint32_t now) {
 	}
 }
 
-// Startup (see "Transitions"): a spark up the charge meter when it was showing,
-// ShortCircuit's 80 thinning bursts on the spark layer, and the panel coming on
-// piece by piece under the last BOOT_BURSTS of them.
+// The bars of the startup rise: one step of their climbing, slipping and flicker.
+static void riseStep(uint32_t now) {
+	const uint32_t planEnd = startupAt + startupSpanMs;
+	const uint32_t span = (int32_t)(planEnd - riseStartMs) > 1000 ? planEnd - riseStartMs : 1000;
+	const uint32_t elapsed = now - riseStartMs;
+	const uint16_t progress = elapsed >= span ? 255 : (uint16_t)(elapsed * 255UL / span);
+	const uint32_t sinceReady = readySaid ? now - readyMs : 0;
+	const uint32_t slot = now / 45;              // flicker changes about 22 times a second
+	for (uint8_t b = 0; b < 3; b++) {
+		const uint16_t planned = (progress * RISE_PACE[b]) >> 8;
+		const uint8_t target = readySaid ? 8 : (planned > 7 ? 7 : (uint8_t)planned);
+		if (riseLevel[b] < target && (int32_t)(now - riseMoveAt[b]) >= 0) {
+			riseLevel[b]++;
+			// The lock is quickest, catching up after a slip quick, the first climb slow.
+			riseMoveAt[b] = now + (readySaid ? 45 : riseLevel[b] + 1 < target ? 90 + random8(90) : 180 + random8(200));
+		}
+		if (!readySaid) {
+			if (riseLevel[b] >= 2 && (int32_t)(now - riseSlipAt[b]) >= 0) {
+				uint8_t lost = 1 + (random8() < 100) + (riseLevel[b] >= 5 && random8() < 50);
+				if (lost > riseLevel[b] - 1) lost = riseLevel[b] - 1;
+				riseLevel[b] -= lost;
+				riseSlipAt[b]   = now + 1100 + random16(1900);
+				riseMoveAt[b]   = now + 220 + random16(380);
+				riseDipUntil[b] = now + 70 + random8(110);
+			}
+			if ((int32_t)(now - riseDipAt[b]) >= 0) {
+				riseDipUntil[b] = now + 50 + random8(90);
+				riseDipAt[b]    = now + 900 + random16(2600);
+			}
+		}
+		const uint8_t column = b == 0 ? PanelAStart : b == 1 ? PanelBStart : PanelCStart;
+		const bool dipped = !readySaid && (int32_t)(riseDipUntil[b] - now) > 0;
+		for (uint8_t i = 0; i < 8; i++) {
+			CRGB c = CRGB::Black;
+			if (i < riseLevel[b]) {
+				if (readySaid) {
+					// Locked: every light as bright as a tip, easing to the bar's own steady colour.
+					const uint8_t eased = sinceReady >= FINALE_MS ? 255 : (uint8_t)(sinceReady * 255UL / FINALE_MS);
+					c = blend(RISE_TIP[b], RISE_BODY[b], ease8InOutQuad(eased));
+				} else if (i + 1 == riseLevel[b]) {
+					c = RISE_TIP[b];             // the top light: never steady, now and then out
+					c.nscale8(110 + scale8(flick8(slot, b * 16 + i), 145));
+					if (flick8(slot, 200 + b) < 40) c = CRGB::Black;
+				} else {
+					c = RISE_BODY[b];
+					if (flick8(slot, b * 16 + i) < 14) c.nscale8(90);   // a light lower down stutters
+				}
+				if (dipped) c.nscale8(flick8(now / 25, 100 + b) < 128 ? 30 : 0);   // browned out
+			} else if (!readySaid && i == riseLevel[b] && flick8(slot, 60 + b) < 36) {
+				c = RISE_BODY[b];                // the next light up tries to catch
+				c.nscale8(120);
+			}
+			DJLEDs[gaugePixel(column, i)] = c;
+		}
+	}
+}
+
+// Startup (see "Transitions" and "Startup rise"): a spark up the charge meter when it was
+// showing, ShortCircuit's 80 thinning bursts on the spark layer over the planned time, the
+// bars rising under them, and the blocks coming on piece by piece near the planned end.
 void startupShow() {
 	const uint32_t now = millis();
 
@@ -1209,36 +1325,64 @@ void startupShow() {
 		igniting = false;                        // the meter is gone: the sparks start now
 		FadeMillis = now;
 	}
+	if (!riseBegun) {                            // the bars start from nothing, each in its own time
+		riseBegun = true;
+		riseStartMs = now;
+		for (uint8_t b = 0; b < 3; b++) {
+			riseLevel[b]    = 0;
+			riseMoveAt[b]   = now + 150 + random16(500);
+			riseSlipAt[b]   = now + 1400 + random16(1500);
+			riseDipAt[b]    = now + 600 + random16(1800);
+			riseDipUntil[b] = now;
+		}
+	}
+
+	const uint32_t planEnd = startupAt + startupSpanMs;
+	// READY's stand-in: the planned end when it times itself, a grace later when the host
+	// was to say it.
+	if (!readySaid && (int32_t)(now - (planEnd + (startupHosted ? READY_GRACE_MS : 0))) >= 0) {
+		readySaid = true;
+		readyMs = now;
+	}
 
 	if (now - FadeMillis > FadeInterval) {
-		glitter4(sparks, 150);
-		DecayTime--;
-		FadeInterval += 4;
+		if (DecayTime > 0) {                     // the 80 bursts, their gaps growing to fill the span
+			glitter4(sparks, 150);
+			DecayTime--;
+			const uint32_t span = (int32_t)(planEnd - riseStartMs) > 0 ? planEnd - riseStartMs : 0;
+			FadeInterval = (uint32_t)(DECAYTIME - DecayTime) * span / SPARK_SUM;
+		} else {                                 // past the plan and still waiting: a sparse few
+			if (!readySaid) glitter4(sparks, 70);
+			FadeInterval = SPARK_WAIT_MS;
+		}
 		FadeMillis = now;
 	}
 	fadeToBlackBy(sparks, NUM_LEDS, 10);
 
-	if (!booting) {
+	if (!bootBegun) {
 		fadeToBlackBy(DJLEDs, NUM_LEDS, 10);     // whatever was showing dies away
-		if (DecayTime <= BOOT_BURSTS) {
-			// The panel starts running, every element dark until its moment.
+		if (readySaid || (int32_t)(now - (planEnd - BLOCKS_LEAD_MS)) >= 0) {
+			// The panel starts running, every block dark until its moment.
+			const uint16_t stagger = readySaid ? BOOT_HURRY_MS : BOOT_STAGGER_MS;
 			fill_solid(DJLEDs, 96, CRGB::Black);
-			uint8_t order[BOOT_ELEMENTS];
-			for (uint8_t i = 0; i < BOOT_ELEMENTS; i++) order[i] = i;
-			for (uint8_t i = BOOT_ELEMENTS - 1; i > 0; i--) {
+			uint8_t order[BOOT_BLOCKS];
+			for (uint8_t i = 0; i < BOOT_BLOCKS; i++) order[i] = 3 + i;
+			for (uint8_t i = BOOT_BLOCKS - 1; i > 0; i--) {
 				const uint8_t j = random8(i + 1);
 				const uint8_t swap = order[i];  order[i] = order[j];  order[j] = swap;
 			}
-			for (uint8_t slot = 0; slot < BOOT_ELEMENTS; slot++) {
-				bootOnlineAt[order[slot]] = slot * BOOT_STAGGER_MS + random8(BOOT_JITTER_MS);
+			for (uint8_t slot = 0; slot < BOOT_BLOCKS; slot++) {
+				bootOnlineAt[order[slot]] = slot * stagger + random8(readySaid ? 30 : BOOT_JITTER_MS);
 				bootOnline[order[slot]] = false;
 			}
+			for (uint8_t e = 0; e < 3; e++) { bootOnlineAt[e] = 0;  bootOnline[e] = true; }
+			bootSpanMs = BOOT_BLOCKS * stagger + BOOT_JITTER_MS + BOOT_CATCH_MS;
 			bootStartMs = now;
-			booting = true;
+			booting = bootBegun = true;
 		}
 	}
-	if (booting) {
-		for (uint8_t e = 0; e < BOOT_ELEMENTS; e++) {
+	if (bootBegun) {
+		for (uint8_t e = 3; e < BOOT_ELEMENTS; e++) {
 			if (!bootOnline[e] && now - bootStartMs >= bootOnlineAt[e]) {
 				bootOnline[e] = true;
 				bootElementOn(e, now);
@@ -1246,15 +1390,20 @@ void startupShow() {
 		}
 		RandomBlocks2();
 	}
+	riseStep(now);                               // the bars are the rise's until it locks
 
-	if (DecayTime == 0) {
-		// Startup is over; the panel is already running. Any element still to come
-		// on keeps its moment, and the last sparks die away on their layer.
+	if (readySaid && now - readyMs >= FINALE_MS) {
+		// Locked and steady: the ordinary panel takes the bars over, blended from the full
+		// ones. Any block still to come on keeps its moment, and the last sparks die away
+		// on their layer.
+		beginFade(FADE_SETTLE_MS);
+		for (uint8_t e = 0; e < 3; e++) bootElementOn(e, now);
+		RandomBlocks2();
 		DecayTime = DECAYTIME;
 		FadeInterval = 0;
 		gCurrentPatternNumber = 1;
 		sparksEndMs = now;
-		if (startupLandBrightness != masterBrightness) beginFade(FADE_SETTLE_MS);
+		riseBegun = readySaid = bootBegun = false;
 		masterBrightness = startupLandBrightness;
 		chestMode = startupLandMode;
 	}

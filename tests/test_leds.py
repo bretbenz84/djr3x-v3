@@ -63,9 +63,29 @@ class LEDTests(unittest.TestCase):
         self.led,self.ports,self.clock=rig()
         self.addCleanup(self.led.close)
 
+    def test_a_live_start_paces_the_startup_lights_and_ready_locks_them(self):
+        # Owner, November 21 (LED firmware 0.6.0): the chest's bars rise and the mouth flickers on through
+        # the time the start is expected to take; both lock fully lit when he says he is ready.
+        from r3x.leds import LIVE_STARTUP_SECONDS
+        clock=Clock();board=Board();rows=[]
+        led=LEDs('board',opener=lambda path:board,clock=clock,wait=clock.wait,startup_seconds=LIVE_STARTUP_SECONDS)
+        led.trace=type('Trace',(),{'emit':lambda self,event,**data:rows.append((event,data))})()
+        with self.assertRaisesRegex(ProviderFailure,'LEDUnavailable'): led.ready()   # Nothing before start.
+        led.start();self.addCleanup(led.close)
+        led.stop_event.set();led.worker.join(1)
+        startup=f'STARTUP:{round(LIVE_STARTUP_SECONDS*1000)}'     # The expected time, in milliseconds.
+        self.assertEqual(board.strips['chest'].commands,['PRIDE:0',startup])
+        self.assertEqual(board.strips['head'].commands,['PRIDE:0',startup,'EYE:255,200,0'])
+        led.ready()
+        self.assertEqual(board.strips['chest'].commands[-1],'READY')
+        self.assertEqual(board.strips['head'].commands[-1],'READY')
+        self.assertIn(('led_lifecycle',{'kind':'ready','status':'commands_sent','evidence':'display_unverified'}),rows)
+        # A start nobody will call ready() for (a telepresence call, a demo) lets the lights time themselves.
+        self.assertEqual(self.ports['chest'].commands,['PRIDE:0','STARTUP'])
+
     def test_start_and_shutdown_preserve_firmware_effects(self):
         self.assertEqual(self.ports['chest'].commands,['PRIDE:0','STARTUP'])
-        self.assertEqual(self.ports['head'].commands[-2:],['ACTIVE','EYE:255,200,0'])
+        self.assertEqual(self.ports['head'].commands[-2:],['STARTUP','EYE:255,200,0'])   # The mouth flickers on.
         self.assertEqual(self.ports['head'].board.lines[0],'HELLO')   # Identified before any light command.
         self.assertEqual(self.led.firmware,'0.1.0')
         self.assertEqual(self.clock(),100.)                           # No blind boot wait.
@@ -181,6 +201,8 @@ class LEDTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             app=App(Settings(led_port='/dev/cu.leds'),Path(directory))
             app.configure_live()
+            from r3x.leds import LIVE_STARTUP_SECONDS
+            self.assertEqual(app.leds.startup_seconds,LIVE_STARTUP_SECONDS)   # Live says when he is ready.
             self.assertEqual([p.capability.name for p in app.owner.providers[:4]],['tts','playback','startup_audio','robot_leds'])
             self.assertIsNone(app.leds.device)
             retired=Path(directory)/'settings.toml'

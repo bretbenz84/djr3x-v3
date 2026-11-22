@@ -403,3 +403,37 @@ Everything is good." No log or run was read for it and no check was run.
 
 Still open: whether the mouth now follows speech (November 15 evening) and whether the board still
 drops off USB mid-run; a level shifter does not explain the second.
+
+## November 21: startup lights paced to his real start
+
+Owner: "The new startup routine needs a new startup LED routine. I like the chest LED startup, but it
+would be cool if the 3 columns of 8 LEDs would slowly rise and struggle to stay on. It would also be
+cool if the mouth started out flickering the normal yellow light until it were fully illuminated. Try
+to make it line up with the actual startup time."
+
+LED firmware 0.6.0 ([what each strip does](../firmware/djr3x_leds/README.md#startup)). The sparks and the
+blocks' stuttering arrival are kept. New: the three bars rise from the bottom and struggle under the
+sparks, the mouth flickers on in its ordinary amber, and both follow the host's clock instead of a fixed
+13 s.
+
+- **Lining up.** `LEDs.start` sends `STARTUP:13200` to both strips (`leds.LIVE_STARTUP_SECONDS`: he is
+  ready when everything has loaded and the startup sound's build has played out, about 13.2 s after the
+  lights start; everything loaded took 13.6 s in the wake-word run `b28d62e8`, about a second less
+  expected since the camera-side models load during the servo wake). Then `App` calls `LEDs.ready`, as
+  the startup sound's finish begins, which sends `READY`: the bars lock full and the mouth comes fully on over 0.9 s, the
+  time the visor takes to go up, and the ready line follows. A start that runs long keeps the bars
+  struggling at the top until `READY`; one that runs short locks them early.
+- **Other starts.** A telepresence call and the light demo give no time and send no `READY`: the
+  startup lights time themselves (12.8 s), as the LED menu's Startup button does.
+- **The head's start.** `H:STARTUP` replaces `H:ACTIVE` at start; the eyes are set as before.
+- **Dashboard.** The mirror shows the chest in startup until `READY`.
+
+Evidence: `tools/run_firmware_checks.py` runs both strips' real code against the stand-in library (108
+checks; 14 new for the rise, the mouth, the lock, a start that times itself and a host that never says
+ready); 2 new blocked-I/O checks for the owner and the mirror. Compiled for the ESP32 (419,452 bytes) and
+flashed to the board on `led_port`, which answers `hello djr3x_leds 0.6.0`. Shown to the owner once with
+lights only, through the production LED owner (then with 12.8 s): the paced start, `READY`, two seconds of
+talking mouth, the ordinary panel, the fade. **Not yet seen in a real start**, where the servo wake and
+the ready line run with it; whether 13.2 s matches what a start now takes will show in the next
+`startup_timing` row. The look (how hard the bars struggle, how bright the mouth ends) is the owner's to
+judge.

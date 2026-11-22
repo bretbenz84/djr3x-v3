@@ -102,8 +102,8 @@ folder:
 .venv/bin/python -m r3x live
 ```
 
-His body wakes with a whir while everything loads. When his visor lifts he says a short line, and
-then he is listening.
+His body wakes to a rising droid sound while everything loads. When his visor lifts, with the sound's
+finishing note, he says a short line, and then he is listening.
 
 **Stopping him.** Say **"shut down"**. In the terminal, `quit` or Ctrl-C also exits, and pressing
 Enter cancels the line he's working on.

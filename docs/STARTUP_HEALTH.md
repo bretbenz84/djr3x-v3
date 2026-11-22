@@ -144,5 +144,20 @@ the background after startup. If its sound cannot be had he starts silently and 
 **Evidence:** synthetic checks only. **Expected** (not yet run on the robot): he cannot listen while he
 says it, so listening begins about 2 s after the visor, near 16 s after the program starts.
 
+**The owner's startup sound (November 21).** `assets/audio/startup/startup_sequence.wav` replaces V2's whir
+(which stays among the copied clips, unplayed): the owner's clip, converted from 48 kHz stereo to the
+startup clips' 22,050 Hz mono (the original is kept in ignored `local/audio-originals/`). It is a build
+of 11.8 s, a pause of a second, and a finishing sound of 1.4 s. `startup_audio.split_at_pause` drops its
+silent ends and cuts it at its longest pause, so another clip of the same shape needs no code change
+(a clip with no pause is all build). The build starts with the servo wake, as the whir did, and is heard
+about 1.2 s later (the buffered stream). When everything has loaded, `StartupAudio.land` ends the build
+(what is queued plays out) and starts the finish; as it begins to sound the lights lock and the visor
+goes up, and when it ends (`stop`) the ready line is said. A start that fails or is shut down plays no
+finish. The LED board's expected time is 13.2 s to match. **Evidence:** synthetic checks only (the
+split, the build and finish through the buffered stream, ready early, no finish on a failed start).
+**Expected** (not yet heard on the robot): the build ends about 13.7 s after the program starts, which
+is about when everything has loaded; the finish and the visor take 1.4 s, the ready line about 2 s, so
+listening begins near 17 s, about a second later than with the whir.
+
 **Still to look at:** whether the servo wake looks smooth while models load beside it, and whether the
 throttle arm coming out just after listening begins is heard as a sound.
