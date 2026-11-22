@@ -230,3 +230,19 @@ are his memory of seeing, never "photos", "pictures" or "references".
 **Evidence:** one tiny live Sonnet 5.5 request confirmed the API accepts adaptive thinking after a tool result;
 the rest is blocked-I/O checks with a faked stream. **Still open:** whether a real pet arrival now greets the
 dog with no comparison spoken, and how much the look answer's first word slows.
+
+## November 22: asked whether he heard you, he says what you said
+
+In run `93d1accd` the owner's "You do live with me." went unanswered (a capture-timing bug, fixed the same
+day), and asked four times whether he had heard, Rex said he heard every word but would not say it. Claude's
+copy now says: the conversation is his memory, so say what they said in a few of their words and answer it if he
+never did, jab after; when their words are not there or only an untrusted sound is, say he missed it and ask
+again; never claim to have heard what he cannot repeat, invent a reason, or refuse to repeat it as a bit.
+OpenAI's wording is unchanged.
+
+**Evidence:** `tools/check_heard_recall.py` (production Session, text output, fictional person, Sonnet 5.5,
+two rounds, replies read by hand). Before: with the words in the conversation he quoted them in 4 of 4; with
+nothing of theirs heard he claimed to have heard them in 2 of 2, once blaming motor noise that never happened.
+After: quoted in 4 of 4 (one added "heard every word" after quoting), and in 4 cases with nothing heard or only
+a motor sound, 3 said plainly he missed it and asked again, one opened "loud and clear" before admitting it.
+About $1.25 of probe calls. **Still open:** the live run's long context, where the dodge happened; watch for it.
