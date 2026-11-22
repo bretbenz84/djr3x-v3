@@ -6,6 +6,21 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 21 (night): run `5aa92add`, three seconds from the arm, and the let-go that never finished
+
+Owner: the four seconds to closing began only once "Okay, ready." had played, though the arm was out well
+before (out at 211.3 s, the line 213.5-215.1 s, closed 219.1 s); and after "let go" he froze. **Found:** the
+countdown restarted at the end of the line (`hand_ready_said`). The fingers' closed target (1530 µs) sat below
+the Maestro's stored minimum (1536 µs; the board stores limits in 16 µs steps, and it reports only the pulse it
+sends, never the joint), so the close waited 25 s for a pulse that never came (`ServoArrivalTimeout:ch15@6144->6120`)
+and "let go" waited behind it. Then logging the arm's rest passed the receipt's `status` and `reason` beside its
+own, a `TypeError`, so the hand stayed `letting_go` and every frame sent the arm to rest again (about 200 times)
+until shutdown. **Changed:** `CLOSE_AFTER_S` is 3 s, counted from the arm's arrival at the grab position (before
+the look at the hand); `hand_ready_said` is retired and the session no longer waits for the line; the model's
+wording says three seconds; the rest is logged as `move_status`/`move_reason`. The owner then lowered the
+Maestro's channel 15 minimum and set the fingers' closed (lowest) pulse to 1500 µs (`LIMITS[15]` 6000-7900). Synthetic checks (two new: the countdown with a slow look, and a
+traced let-go that ends `empty` with one rest); not yet run on the robot.
+
 ## November 21 (evening): run `6549d643`, the book, the poker arm and a new grab
 
 Owner: he never held the book, repeated that he could not do it, and the poker arm never came out

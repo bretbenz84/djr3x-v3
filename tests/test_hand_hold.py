@@ -143,8 +143,8 @@ class HandPoseTests(HandRig):
         self.assertEqual(self.robot.hand_state(), 'empty')
         self.assertEqual(self.hand(), dict(HAND_PARK))
 
-    def test_it_closes_four_seconds_after_it_is_out_and_he_holds_it(self):
-        self.assertEqual(CLOSE_AFTER_S, 4.)
+    def test_it_closes_three_seconds_after_the_arm_is_out_and_he_holds_it(self):
+        self.assertEqual(CLOSE_AFTER_S, 3.)   # Owner, November 21 (was four).
         self.take()
         self.space = {'front_right_m': .3, 'front_radial_right_m': .32}   # A hand with a card comes in:
         self.faces = [(FACE_NEAR_PX + 50, self.clock())]                  # nothing closes it early.
@@ -519,6 +519,36 @@ class RememberedHoldTests(MemoryFixture):
         self.assertEqual(robot.hand_state(), 'holding')
 
 
+class HandTimingTests(HandRig):
+    def test_the_countdown_starts_when_the_arm_is_out_not_after_the_look(self):
+        # Run 5aa92add (owner, November 21): the arm was out 1.8 s before "Okay, ready." began and the
+        # countdown started when the line ended, so it closed about 8 s after the arm got there.
+        look = self.robot._look_at_hand
+        def slow_look(request_id):
+            look(request_id)
+            self.clock.now += 2.   # Turning to look at the hand takes a while on the robot.
+        self.robot._look_at_hand = slow_look
+        self.take()
+        self.frames(CLOSE_AFTER_S - 2. - .3)
+        self.assertEqual((self.robot.hand_state(), self.port.pose[15]), ('open', FINGERS_OPEN))
+        self.frames(.6)
+        self.assertEqual(self.port.pose[15], FINGERS_CLOSED)
+
+    def test_a_traced_let_go_finishes_and_rests_the_arm_once(self):
+        # Run 5aa92add: logging the arm's rest raised a TypeError, so the hand stayed letting_go and every
+        # frame sent the arm to rest again (about 200 times) until shutdown. Untraced checks never saw it.
+        rows = []
+        self.robot.trace = type('Trace', (), {'emit': lambda _, event, **row: rows.append((event, row))})()
+        self.take()
+        self.assertEqual(self.robot.execute_pose('hand_let_go', Cancellation(), 'go').status, 'pulses_reached')
+        self.frames(LET_GO_S + 1.)
+        self.assertEqual(self.robot.hand_state(), 'empty')
+        self.assertEqual(self.arm(), dict(REST))
+        rests = [row for event, row in rows if event == 'hand_hold' and row.get('status') == 'arm_rest']
+        self.assertEqual([row['move_status'] for row in rests], ['pulses_reached'])
+        self.assertFalse([row for event, row in rows if row.get('error_type')])
+
+
 class HandConversationTests(MemoryFixture):
     """The production session runs the model's chosen steps; the model here is scripted."""
 
@@ -550,8 +580,6 @@ class HandConversationTests(MemoryFixture):
         result = turn(0, 'Can you hold this card?')
         self.assertEqual(result.completed_text, ['Okay, ready.'])
         self.assertEqual(port.pose[15], FINGERS_OPEN)
-        clock.now += 30.   # The look and the line took a while: the four seconds count from the line.
-        robot.hand_ready_said()
         wait(CLOSE_AFTER_S - .3)
         self.assertEqual(port.pose[15], FINGERS_OPEN)
         wait(.6)

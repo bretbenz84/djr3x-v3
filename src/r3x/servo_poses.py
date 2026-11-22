@@ -27,7 +27,7 @@ LIMITS = MappingProxyType({
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
     8: (3624, 8000), 9: (2048, 9984), 10: (2048, 9984),
     11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
-    14: (2240, 7424), 15: (6120, 7900),
+    14: (2240, 7424), 15: (6000, 7900),   # Fingers 1500-1975 us (owner, November 21 night; was 1530).
 })
 THROTTLE = (8, 9, 10)
 # The throttle hand's wrist twist and pincher. Each moves on its own: the throttle clearance rule
@@ -237,7 +237,7 @@ REST = ((8, SHOULDER_45), (9, 7720), (10, 5120))
 FULL_DOWN = ((8, SHOULDER_DOWN), (9, 5589), (10, 9511))
 # The throttle hand parks, and rests while awake, here. The wrist at 1451 us, where the hand is level
 # (owner, November 21: its mid point; not the middle of its range, 1208 us); the fingers at 1706 us,
-# the owner's mid (November 21; their range is 1530-1975 us). Idle and talking motion centre on these.
+# the owner's mid (November 21; their range is 1500-1975 us since that night). Idle and talking motion centre on these.
 HAND_PARK = ((14, 5804), (15, 6824))
 # Neck pulse where the head physically faces straight along the base. The owner
 # saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
@@ -1291,7 +1291,7 @@ ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND)
 # the Maestro allows and open at the highest (the owner: closed is the lowest value). hand_take reaches
 # the throttle arm to the owner's grab position (shoulder 1136, elbow 1554, wrist 743 us since November 21; it needs the
 # front right clear) with the hand level and the fingers open; RobotServos also looks down and to the right and
-# closes the fingers four seconds later (hand_hold.CLOSE_AFTER_S). hand_grip closes them now;
+# closes the fingers three seconds after the arm is out (hand_hold.CLOSE_AFTER_S). hand_grip closes them now;
 # hand_let_go opens them, and the arm goes back to rest a moment later; hand_put_down lowers it to the floor first.
 FINGERS_CLOSED, FINGERS_OPEN = LIMITS[15][0], LIMITS[15][1]
 THROTTLE_GRAB = ((8, 4544), (9, 6216), (10, 2972))   # Owner, November 21: 1136 / 1554 / 743 us (was 1242 / 1720 / 887).

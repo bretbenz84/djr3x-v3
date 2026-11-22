@@ -6,6 +6,15 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Run `5aa92add`: three seconds from the arm, and a let-go that froze him — November 21 (night)
+
+Owner: the hand closed four seconds after "Okay, ready." ended, though the arm had been out for nearly two
+seconds before he spoke; after "let go" he froze. **Changed:** the hand closes three seconds after the arm is
+out, whatever he is saying; the close had waited 25 s on a finger pulse below the board's stored minimum (the
+owner lowered it; closed is now 1500 µs), and "let go" waited behind it; a logging fault kept the hand "letting go" and re-sent the
+arm to rest every frame until shutdown, now fixed. Synthetic checks only; not yet run on the robot
+([details](SERVO_INTEGRATION.md#november-21-night-run-5aa92add-three-seconds-from-the-arm-and-the-let-go-that-never-finished)).
+
 ## Run `6549d643`: the book, the kept poker arm and a new grab — November 21 (evening)
 
 Owner: he never held the book, kept saying he could not do it, and the poker arm stayed in with room on his

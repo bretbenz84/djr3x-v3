@@ -69,7 +69,7 @@ class RobotServos:
         self._let_go_at = None
         self._hand_worker = None
         self._hand_superseded = threading.Event()   # A request has taken the arm from the hand's own next move.
-        self._opened_at = None          # When the open hand was out and looked at: it closes CLOSE_AFTER_S later.
+        self._opened_at = None          # When the arm was out with the hand open: it closes CLOSE_AFTER_S later.
         # It closed on that time, not on their word: told they missed it, hand_take opens it again.
         self._closed_on_time = False
         self._hand_moves = 0
@@ -221,7 +221,7 @@ class RobotServos:
             return self._put_down(request_id)
         if name == 'hand_take' and (self._hand_state == 'offering'
                                     or (self._hand_state == 'holding' and not self._closed_on_time)):
-            # Opening to take another would drop what he holds. Closed by the four seconds alone, it may hold
+            # Opening to take another would drop what he holds. Closed by the three seconds alone, it may hold
             # nothing: "I didn't make it" opens it to try again (owner, November 20).
             return ServoReceipt(request_id, 'rejected', self.owner.version, self.owner.clock(), self.owner.medium,
                                 reason='AlreadyHoldingSomething')
@@ -314,13 +314,8 @@ class RobotServos:
     def hand_state(self) -> str:
         return self._hand_state
 
-    def hand_ready_said(self):
-        """"Okay, ready." has played: the four seconds count from now (owner, November 20)."""
-        if self._hand_state == 'open':
-            self._opened_at = self.owner.clock()
-
     def hand_closed_on_time(self) -> bool:
-        """Holding because the open hand's four seconds ran out, not because a person said it was in."""
+        """Holding because the open hand's three seconds ran out, not because a person said it was in."""
         return self._hand_state == 'holding' and self._closed_on_time
 
     def _hand_busy(self) -> bool:
@@ -385,6 +380,7 @@ class RobotServos:
     def _hand_step(self, name, request_id):
         """A hand step's pulses arrived: what the hand is doing now."""
         if name == 'hand_take':
+            out_at = self.owner.clock()   # The arm is out: the countdown starts now, not after the look or the line.
             if self._hand_state == 'holding':   # Closed on time and they missed it: it held nothing.
                 self._remember_hold(False, 'try_again')
             self.owner.grip_channels = frozenset()
@@ -392,10 +388,10 @@ class RobotServos:
             self._hand, self._hand_state, self._let_go_at, self._opened_at = None, 'taking', None, None
             self._closed_on_time = False
             self._look_at_hand(request_id)
-            self._opened_at = self.owner.clock()
+            self._opened_at = out_at
             self._hand_state = 'open'
         elif name == 'hand_grip':
-            # The hand's own close (ids hand:) is the four seconds running out; a person's is their word.
+            # The hand's own close (ids hand:) is the three seconds running out; a person's is their word.
             self._closed_on_time = request_id.startswith('hand:') and self._hand_state == 'open'
             self._hand, self._hand_state, self._opened_at = None, 'holding', None
             self.owner.grip_channels = frozenset((*THROTTLE, *THROTTLE_HAND))
@@ -482,7 +478,7 @@ class RobotServos:
             self.trace.emit('hand_hold', status=self._hand_state, reason=why)
 
     def _tick_hand(self):
-        """Each frame: close the open hand once its four seconds are up, open the offered one when someone
+        """Each frame: close the open hand once its three seconds are up, open the offered one when someone
         comes close, or rest or fold the arm after a wait or a let go. Never raises into the frame loop
         (run 471f4739: a TypeError here stopped the runtime and shut him down)."""
         try:
@@ -502,7 +498,7 @@ class RobotServos:
                 self._hand_work(self._rest_hand, 'let_go')
             return
         if self._hand_state == 'open':
-            # Owner, November 20: "ok, ready", then the hand closes four seconds later, nothing more said.
+            # Owner, November 20: "ok, ready", then the hand closes three seconds later, nothing more said.
             if self._opened_at is not None and now - self._opened_at >= CLOSE_AFTER_S:
                 if self.trace:
                     self.trace.emit('hand_hold', status='closing', after_s=round(now - self._opened_at, 2))
@@ -574,8 +570,10 @@ class RobotServos:
                                 reason=why)
             return   # Still busy after its patience: a later frame tries again. Dropped: the request owns the arm now.
         if self.trace:
-            self.trace.emit('hand_hold', status='arm_rest', reason=why, **{k: v for k, v in asdict(receipt).items()
-                                                                           if k in ('status', 'reason')})
+            # Run 5aa92add (November 21): passing the receipt's status and reason beside these raised a TypeError,
+            # so the hand never left letting_go and every frame sent the arm to rest again.
+            self.trace.emit('hand_hold', status='arm_rest', reason=why, move_status=receipt.status,
+                            move_reason=receipt.reason)
         if receipt.status == 'pulses_reached':
             self.owner.held_channels.difference_update({*THROTTLE, *THROTTLE_HAND})
             self.idle.posed(receipt.changed_channels, own=True)

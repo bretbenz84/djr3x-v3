@@ -1,7 +1,7 @@
 """When the throttle hand closes on what it is given, and opens to give it back (owner, November 20).
 
 "Can you hold this?" reaches the hand out with its fingers open (servo_poses.HAND_POSES) while he says
-only "Okay, ready.", and the fingers close by themselves CLOSE_AFTER_S later (owner, November 20: Bret
+only "Okay, ready.", and the fingers close by themselves CLOSE_AFTER_S after the arm is out (owner, November 20: Bret
 stood holding the book out through a whole sentence; "after 4 seconds the hand closes, no need to speak
 more"). Told sooner that it is in, the model closes it at once (hand_grip); told they missed it, hand_take
 opens it and reaches out again. Giving it back, HandWatch watches for someone coming to take it: the
@@ -26,7 +26,9 @@ NEAR_S = .15
 FACE_NEAR_PX = 300
 FACE_LOOKS = 2        # Looks by the camera in a row (about two a second) that show it, not one read again.
 SETTLE_S = .6         # After the hand arrives, readings for this long set the baseline.
-CLOSE_AFTER_S = 4.    # The open hand closes this long after it is out and he is looking at it.
+# Owner, November 21: three seconds, counted from the moment the arm is out (it had counted from the end of
+# "Okay, ready.", and the pose was ready well before he spoke).
+CLOSE_AFTER_S = 3.    # The open hand closes this long after the arm is out at the grab position.
 WAIT_S = 30.          # Held out to give back and nobody takes it in this long: the arm folds back in.
 LET_GO_S = 2.5        # After the fingers open to let go, the arm rests this much later.
 GRIP_SETTLE_S = 1.     # After the fingers' pulse arrives, they finish closing on it before the arm moves.
