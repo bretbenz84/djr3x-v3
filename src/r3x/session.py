@@ -129,6 +129,11 @@ REQUESTED_LOOK_SECONDS = 600.   # "Look there again" (last_look) is offered this
 LOOK_QUESTION = 'They asked: "{}". What do you see there that matters for what they asked?'
 # A yielded, unanswered piece of speech and the next piece that starts within this long are one utterance.
 FRAGMENT_JOIN_SECONDS = 5.
+# Back-to-back captures share an edge, but the stored times round apart: November 22 (93d1accd), "You do live
+# with me." began 0.08 microseconds before "Well." ended and was never joined, then a motor "Yeah." began 0.25
+# microseconds before it ended and was answered with silence in its place. A piece starting this little
+# before the previous one ended still follows it.
+CAPTURE_EDGE_SLACK = .01
 # An unknown face is someone new for private memory once seen this long, at this detector confidence.
 NEWCOMER_SECONDS = 1.
 NEWCOMER_SCORE = .6
@@ -1347,7 +1352,7 @@ class Session:
                         context = self.state.context(faces)
                         owed = self._fragment
                         if (not transcript.trusted and self._owed_reply and owed and owed.get('current')
-                                and 0 <= capture.started_at - owed['end'] <= FRAGMENT_JOIN_SECONDS
+                                and -CAPTURE_EDGE_SLACK <= capture.started_at - owed['end'] <= FRAGMENT_JOIN_SECONDS
                                 and self.history.turns and self.history.turns[-1] is owed['exchange']
                                 and all(m.get('role') in {'user', 'developer'} for m in owed['exchange'])):
                             # October 25 (c5ad0deb): "Jeremy Thomas is a major volleyball celebrity..." yielded to a
@@ -1511,7 +1516,7 @@ class Session:
                     self.trace.emit('owed_reply_after_noise', turn_id=turn_id, earlier_turn_id=noise_after['turn_id'],
                                     noise=transcript.text)
                 # Only the exchange just before this one, with nothing Rex said in it or since.
-                elif (fragment and transcript.trusted and 0 <= capture.started_at - fragment['end'] <= FRAGMENT_JOIN_SECONDS
+                elif (fragment and transcript.trusted and -CAPTURE_EDGE_SLACK <= capture.started_at - fragment['end'] <= FRAGMENT_JOIN_SECONDS
                         and len(turns) >= 2 and turns[-2] is fragment['exchange']
                         and all(m.get('role') in {'user', 'developer'} for m in fragment['exchange'])):
                     # October 23 (1e626e07): "Look to your left and notice there is a." then "Duckling

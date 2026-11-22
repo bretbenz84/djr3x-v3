@@ -174,6 +174,36 @@ class SplitSentenceTests(MemoryFixture):
         self.assertNotIn('Look to your left and notice there is a.', users)
         self.assertEqual(self.rows('fragments_joined')[-1]['utterance'], joined)
 
+    def test_pieces_whose_recordings_share_an_edge_are_joined_and_a_motor_sound_after_them_is_not_answered(self):
+        # November 22 (93d1accd): "Well." then "You do live with me." in recordings that touched, the second
+        # starting 0.08 microseconds before the first ended; then his motors as "Yeah." 0.25 microseconds early.
+        # Neither piece was joined, the sound took their place, and he stayed silent.
+        self.setup_robot('unused')
+        session = self.session
+        class Yields:
+            snapshots = []
+            def reply(inner, snapshot, cancel):
+                inner.snapshots.append(snapshot)
+                if len(inner.snapshots) <= 2:   # The next recording had begun: this reply yields unheard.
+                    session.note_speech((98.7, 100.3)[len(inner.snapshots) - 1])
+                    cancel.check()
+                yield 'Rent-free, then.'
+        self.brain = self.session.brain = Yields()
+        well = self.turn('Well.', start=97.)
+        self.assertEqual(well.status, 'interrupted')
+        self.assertEqual(self.turn('You do live with me.', start=98.6 - 8.4e-8).status, 'interrupted')
+        noise = self.session.process_turn(Capture(uuid4().hex, 's', bytes(1024), 100.2 - 2.5e-7, 100.8, 101.4),
+                                          Transcript('Yeah.', -.56, False), self.session.revision)
+        joined = 'Well. You do live with me.'
+        self.assertEqual(noise.completed_text, ['Rent-free, then.'])
+        last = self.brain.snapshots[-1]
+        self.assertEqual(last.context['current_utterance'], joined)
+        users = [m['content'] for m in last.messages if m.get('role') == 'user']
+        self.assertEqual(users[-1], joined)
+        self.assertNotIn('Yeah.', users)
+        self.assertEqual(self.rows('fragments_joined')[-1]['utterance'], joined)
+        self.assertTrue(self.rows('owed_reply_after_noise'))
+
     def test_a_piece_he_answered_is_not_joined(self):
         self.setup_robot('Sure.')
         self.turn('Look to your left.', start=97.)

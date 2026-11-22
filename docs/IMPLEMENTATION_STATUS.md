@@ -1447,7 +1447,11 @@ Owner: "Rex struggles to turn his head to look for things when instructed." Aske
   gets no pet crops or pet photos.
 - **Split sentences are one.** "Look to your left and notice there is a." then "Duckling droid on
   the counter." is answered as one utterance when the first piece was yielded unanswered and the
-  second starts within 5 s (the separate source turns stay in the trace and store).
+  second starts within 5 s (the separate source turns stay in the trace and store). November 22
+  (93d1accd): recordings that touch round apart by a fraction of a microsecond, so in about a quarter
+  of back-to-back pairs the second seemed to start before the first ended and neither this join nor
+  the owed reply after a noise happened ("Well." / "You do live with me." / a motor "Yeah." got
+  silence). A piece starting up to 10 ms before the last one ended now counts as following it.
 - **Neck calibration.** In four runs a seated face moved across the picture 0.48–0.65 (pooled
   0.57) as far as a neck change should move it with the IMU-checked 90° lens: the neck turns about
   0.57 of what V2's never-measured figure assumed (whole travel about 51°, "look left" about 19°).
