@@ -13,6 +13,11 @@ V2's whir: a build of about twelve seconds, a pause, then a short finishing soun
 at its pause. The build plays while he starts; the finish is held until he is ready and plays
 as the visor goes up, whenever that turns out to be. A clip with no pause is all build.
 
+The mouth lights follow the build (owner, the same day): dark for its first second, a light or
+two twinkling with its loudness until it comes back up, then lit from the centre outwards. This
+module measures how loud the build is over time, as it is heard, and tells the LED owner when it
+first sounds (on_build_heard).
+
 Canned lines (the ready lines, the out-of-credit notices, sentry mode's and the depth sensor's)
 are synthesized once in his voice and kept on disk, so they play at once and still play when the
 voice service cannot be reached.
@@ -26,6 +31,7 @@ plays out before the sound.
 """
 from array import array
 import hashlib
+import math
 import json
 from pathlib import Path
 import random
@@ -98,6 +104,14 @@ class LineCycle:
 
 
 STARTUP_CLIP = 'startup_sequence.wav'   # The owner's startup sound (November 21): build, pause, finish.
+# The mouth lights and this clip, by the owner's ear (November 21): "It should start 2 second after the
+# sound clip starts", then a light or two twinkling; the sound "starts going back up around 6.5
+# seconds", and from there the mouth is lit from its centre outwards. Seconds into the build.
+# After seeing two seconds in a live start: "a little sooner, maybe by a second".
+MOUTH_WAIT_SECONDS = 1.
+MOUTH_GROW_SECONDS = 6.5
+LOUDNESS_STEP = .1        # Seconds of sound for each loudness reading.
+LOUDNESS_RANGE_DB = 24.   # A reading of 0 is this far under the build's loudest moment; 255 is that moment.
 QUIET_RMS = 104       # Of 32768: about -50 dBFS. Below this for a whole window is silence.
 PAUSE_WINDOW = .05    # Seconds of sound judged at a time.
 MIN_PAUSE = .4        # A quiet stretch this long inside the clip is its pause.
@@ -144,6 +158,35 @@ def split_at_pause(pcm: bytes, sample_rate: int = 22050) -> tuple[bytes, bytes]:
     return cut(first, begins), cut(begins + longest, last + 1)
 
 
+def loudness(pcm: bytes, sample_rate: int = 22050) -> list[int]:
+    """How loud a sound is as it is heard, one reading (0-255) for every LOUDNESS_STEP of it. The ear
+    takes little notice of low rumble, so the lows are turned down first (a gentle high-pass at 1 kHz;
+    on the owner's clip its rise and fall track the standard A-weighted level, correlation 0.98, where
+    the plain level does not: 0.74). Readings are decibels below the loudest one, over LOUDNESS_RANGE_DB.
+    16-bit mono PCM."""
+    samples = array('h', pcm[:len(pcm) // 2 * 2])
+    if sys.byteorder != 'little':
+        samples.byteswap()
+    keep = 1 / (1 + 2 * math.pi * 1000 / sample_rate)
+    per = max(1, int(sample_rate * LOUDNESS_STEP))
+    powers, total, count, before, passed = [], 0., 0, 0., 0.
+    for sample in samples:
+        passed = keep * (passed + sample - before)
+        before = sample
+        total += passed * passed
+        count += 1
+        if count == per:
+            powers.append(total / count)
+            total, count = 0., 0
+    if count > per // 2:
+        powers.append(total / count)
+    top = max(powers, default=0.)
+    if top <= 0:
+        return [0] * len(powers)
+    return [max(0, min(255, round((10 * math.log10(max(p, 1e-12) / top) + LOUDNESS_RANGE_DB) / LOUDNESS_RANGE_DB * 255)))
+            for p in powers]
+
+
 def read_clip(name: str, sample_rate: int = 22050) -> bytes:
     with wave.open(str(ASSETS / name), 'rb') as clip:
         if clip.getnchannels() != 1 or clip.getsampwidth() != 2 or clip.getframerate() != sample_rate:
@@ -167,6 +210,12 @@ class StartupAudio:
         self._landing = threading.Event()    # He is ready: the build ends and the finish plays.
         self._quit = threading.Event()       # Startup sound is over now: no more build, no finish.
         self._finish_heard = threading.Event()   # The finish has begun to sound (or there is none to play).
+        # (heard_at, level_at, wait, grow, end) -> None, called once as the build is first due at the
+        # speaker: when (the sink's clock), a function giving its loudness (0-255, or None before it
+        # begins) so many seconds into it, and three moments in it, in seconds: the mouth's wait,
+        # where it starts to grow, and the build's end. The LED owner's (LEDs.startup_sound).
+        self.on_build_heard = None
+        self._loudness = None                    # The build's loudness readings, once measured.
         self.cycle = LineCycle(state_dir / 'startup-lines.json', rng)
         self._ready_line = None   # (text, fetching thread, its result) from start until it is said.
         self.cache = state_dir / 'startup-tts'
@@ -216,8 +265,8 @@ class StartupAudio:
         """Feed ~0.1 s pieces like streamed speech (a whole clip at once exceeded the
         sink's drain bound and forced an abort). During startup the pieces go to the
         buffered stream; the power-down clip uses ordinary playback. until: once it answers
-        true no more is fed, and what is already queued plays out. heard: called when the
-        clip's first sound is due at the speaker."""
+        true no more is fed, and what is already queued plays out. heard: called, with the time
+        it is due at the speaker, as the clip's first sound is written."""
         cancel = cancel or self._cancel
         cancel.check()
         def pieces():
@@ -226,7 +275,7 @@ class StartupAudio:
                     return
                 yield pcm[i:i+4410]
         output = self._output if cancel is self._cancel and self._output is not None else self.sink
-        playback = output.play(pieces(), cancel, (lambda at: heard()) if heard else (lambda at: None), visualize=visualize)
+        playback = output.play(pieces(), cancel, heard or (lambda at: None), visualize=visualize)
         self._emit(status='played', clip=label, underruns=getattr(playback, 'underruns', None))
 
     def motion_started(self):
@@ -253,6 +302,7 @@ class StartupAudio:
             except Exception as exc:
                 self._emit(status='buffered_output_failed', error_type=type(exc).__name__)
             build, finish = split_at_pause(read_clip(STARTUP_CLIP))
+            self._loudness = loudness(build)   # About 20 ms; the mouth lights follow it.
             if self.wake_motion:
                 # Start with the servo wake-up, not before it (LED startup comes first).
                 self._wait(lambda: self._motion_started.is_set() or self._quit.is_set(), 15.)
@@ -260,10 +310,10 @@ class StartupAudio:
             if not ending():
                 # Ready before the build is over: no more of it is fed, and the second or so
                 # already queued plays out. Still starting when it is over: quiet until he is ready.
-                self._play(build, 'startup_build', until=ending)
+                self._play(build, 'startup_build', until=ending, heard=lambda at: self._build_heard(at, len(build) / 44100))
             self._wait(ending, 120.)
             if finish and self._landing.is_set() and not self._quit.is_set():
-                self._play(finish, 'startup_finish', heard=self._finish_heard.set)
+                self._play(finish, 'startup_finish', heard=lambda at: self._finish_heard.set())
         except Cancelled:
             self._emit(status='stopped')
         except Exception as exc:
@@ -276,6 +326,21 @@ class StartupAudio:
                     output.close()   # Drained already; live speech gets the device alone.
                 except Exception as exc:
                     self._emit(status='buffered_output_close_failed', error_type=type(exc).__name__)
+
+    def _build_heard(self, at, seconds):
+        """The build's first sound is due at the speaker at `at`: tell whoever follows it (the lights)."""
+        def level_at(into):
+            readings = self._loudness
+            if readings is None or into < 0:
+                return None
+            index = int(into / LOUDNESS_STEP)
+            return readings[index] if index < len(readings) else 0
+        self._emit(status='build_heard', seconds=round(seconds, 2))
+        if self.on_build_heard is not None:
+            try:
+                self.on_build_heard(at, level_at, MOUTH_WAIT_SECONDS, MOUTH_GROW_SECONDS, seconds)
+            except Exception as exc:
+                self._emit(status='build_heard_hook_failed', error_type=type(exc).__name__)
 
     def _fetch_ready_line(self):
         """Choose this launch's ready line and get its sound while everything else starts: read from

@@ -151,11 +151,17 @@ class LightMirrorTests(unittest.TestCase):
 
     def test_the_paced_startup_and_ready_are_mirrored(self):
         self.mirror.command('head', 'STARTUP:12800')
+        self.mirror.command('head', 'EYE:255,200,0')
         self.mirror.command('chest', 'STARTUP:12800')
         self.assertEqual(self.mirror.chest['mode'], 'startup')
         self.assertEqual(self.mirror.head['mouth_mode'], 'active')      # The mouth ends awake; the mirror draws that.
+        self.assertFalse(self.mirror.head['eyes_active'])               # Dark behind the visor, whatever colour is sent,
         self.mirror.command('head', 'READY')
         self.mirror.command('chest', 'READY')
+        self.assertTrue(self.mirror.head['eyes_active'])                # and on, in that colour, once he is ready.
+        self.assertEqual(self.mirror.head['eye_color'], (255, 200, 0))
+        self.mirror.command('head', 'WINK')                             # A wink is the board's own: nothing to mirror.
+        self.assertTrue(self.mirror.head['eyes_active'])
         self.assertEqual(self.mirror.chest['mode'], 'active')           # Startup ends in the ordinary panel.
         self.mirror.command('head', 'SPEAK:neutral')
         self.mirror.command('chest', 'SPEAK:neutral')

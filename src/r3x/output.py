@@ -321,11 +321,29 @@ class OutputOwner:
         finally:
             self._motion_lock.release()
 
-    def execute_pose(self, name, cancel, request_id, *, hold_pose=True):
+    def execute_pose(self, name, cancel, request_id, *, hold_pose=True, delivery=None, turn_id=None):
         if self.robot is None: raise ProviderFailure('RobotPoseUnavailable')
         with self._motion_lock:
             cancel.check()
+            if name == 'wink':
+                self._wink_eye(delivery, turn_id or request_id)   # One eye dark as the head cocks.
             return self.robot.execute_pose(name,cancel,request_id,**({} if hold_pose else {'hold_pose':False}))
+
+    def _wink_eye(self, delivery, turn_id):
+        """Owner, November 21: a wink is one eye dark for a moment (the LED board times it) as the head
+        cocks slightly. A dark board never stops the move; with no lights the head still cocks."""
+        if self.leds is None:
+            return
+        try:
+            self.leds.wink()
+            status, reason = 'commands_sent', None
+        except Exception as exc:
+            status, reason = 'failed', str(exc) if isinstance(exc, ProviderFailure) else type(exc).__name__
+        if delivery is not None:
+            self._light_result(delivery, turn_id, None, status, reason, pattern='wink')
+        else:
+            self.trace.emit('led_delivery', turn_id=turn_id, request_id=turn_id+':feeling', pattern='wink', status=status,
+                            reason=reason, at=self.trace.clock(), medium='serial', evidence='commands_only_display_unverified')
 
     def sentry_motion(self, move, cancel, wait=0.):
         """A sentry body move (robot_servos.sentry_*), never while talking motion or another move owns
@@ -364,6 +382,8 @@ class OutputOwner:
             cancel.check()
             if started >= gesture.expires_at or not performance.valid():
                 raise ProviderFailure('GestureEvidenceStale')
+            if gesture.primitive == 'wink':
+                self._wink_eye(delivery, turn_id)   # The eye winks even if the head cannot move.
             if self.gestures is None:
                 raise ProviderFailure('GestureUnavailable')
             acquired = self._motion_lock.acquire(blocking=False)

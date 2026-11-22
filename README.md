@@ -252,7 +252,7 @@ may actually use; Jeopardy's tools, for example, only work during a game. The pr
 request before carrying it out.
 
 **Talking and taking turns**
-- `respond_with_gesture`: say a line with a matching feeling shown on his body (a head tilt, a gesture, lights).
+- `respond_with_gesture`: say a line with a matching feeling shown on his body (a head tilt, a wink, a gesture, lights).
 - `respond_with_intent`: reply, and set or change what this conversation is about.
 - `remain_silent`: say nothing, when someone is mid-thought, talking to a pet, or talking to someone else.
 - `ask_question`: ask someone a question.

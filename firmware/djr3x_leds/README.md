@@ -33,7 +33,7 @@ reports the lights "no longer flicker at all".
 | Line | Effect |
 | --- | --- |
 | `HELLO` | Replies `hello djr3x_leds <version> head=82@18 chest=98@19` |
-| `H:<command>` | Head only; commands in the header of `head.cpp` |
+| `H:<command>` | Head only; commands in the header of `head.cpp` (among them `WINK`) |
 | `C:<command>` | Chest only; commands above `command()` in `chest.cpp` |
 | `<command>` | Both strips; each ignores what it does not know |
 
@@ -54,8 +54,8 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Version 0.6.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 419,452 bytes of
-program, 26,576 bytes of globals. Each strip has its own FastLED controller and brightness,
+Version 0.8.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 421,332 bytes of
+program, 26,696 bytes of globals. Each strip has its own FastLED controller and brightness,
 since the library's board-wide show, brightness and clear would act on both.
 
 ## Startup
@@ -69,14 +69,42 @@ the host expects to need (3 to 60 s) and `READY` says it is ready.
   back. No bar holds its eighth light before `READY`. The nine blocks come on, each with its stutter, in
   the last three seconds before the planned end. `READY` fills all three bars at once, bright, and over
   0.9 s they ease to steady; then the ordinary panel takes them over with a blend.
-- **Mouth.** `H:STARTUP` flickers the mouth on in the ordinary amber: every light has its own moment to
-  catch, spread over the time given, flickering more and more as it nears and holding after it, while the
-  lit lights grow brighter and the whole mouth dips now and then. The last few lights do not hold before
-  `READY`, which brings every light on and swells the mouth to a quarter of full brightness; when the
-  0.9 s ends the idle glow takes over and eases down from there. A `SPEAK:` takes the mouth at once.
-  `ACTIVE`, `IDLE`, `SPEAK_STOP` and `EYE:` do not cut the flicker short. The eyes are not touched.
+- **Mouth** (0.8.0; the owner asked for less, later, and in step with the startup sound). After
+  `H:STARTUP` the mouth is dark and follows the sound the host plays: `H:STARTUP_SOUND:<wait>,<grow>,<end>`
+  says the sound has just begun and gives three moments in it, in milliseconds from then, and
+  `H:STARTUP_LEVEL:<0-255>` says how loud it is as it goes. Until `wait` the mouth stays dark. Then a light
+  or two twinkle on and off, here and there over the whole mouth, each for about a third of a second: more
+  of them when the sound is louder (about two and a half at once at level 160), none under level 60. From
+  `grow` the mouth is lit in the ordinary amber from its centre outwards: a front moves out, slowly at
+  first, reaching about half the mouth at `end`; a light it has passed holds, dimly (7 to 13 %), the
+  lights just ahead of it sparkle (brighter when the sound is louder), and elsewhere the twinkles go on.
+  Told nothing about the sound (the LED menu's bare `STARTUP`, or a host silent for 4 s), it assumes the
+  sound began 1.6 s after `STARTUP` with moments 2 s and 6.5 s. The
+  edges wait for `READY`, which sends the front out to the corners in 0.65 s while the lit lights brighten;
+  0.9 s after `READY`, as the chest's bars are handed to its ordinary panel, every light is solid at a
+  quarter of full brightness. It stays solid 0.6 s (the chest's blend into the panel), then the resting
+  mouth takes over and eases down from there. A `SPEAK:` takes the mouth at once. `ACTIVE`, `IDLE`,
+  `SPEAK_STOP` and `EYE:` do not cut the sparkle short.
+- **Eyes** (0.7.0). They are dark from `STARTUP`, behind the shut visor; an `EYE:` meanwhile only sets the
+  colour they will open with (warm gold if none is sent). After `READY` they stay dark 0.25 s, flash twice,
+  the second brighter, and are on for good 0.65 s after `READY`, while the visor lifts. A `SPEAK:` during
+  startup brings them on at once.
 - **Without a host.** Bare `STARTUP` (the LED menu) times itself: 12.8 s, then the same lock. With a time
   and no `READY`, both strips keep going 10 s past the plan and then lock by themselves.
+
+## Resting mouth
+
+Since 0.7.0 (owner, November 21: a slow effect when not speaking, dimmer; the quick animation only for
+speech) the mouth at rest (`ACTIVE`, `IDLE`, after `SPEAK_STOP`) is a slow ripple of light spreading from
+its centre to its edges, each light between 3 and 8 % of the current feeling's colour, one ripple about
+every six seconds. Before, the whole mouth pulsed together between 5 and 10 %. Speech is unchanged: the
+quick equalizer bars, up to 45 %.
+
+## Wink
+
+Since 0.7.0 `H:WINK` darkens one eye for 0.45 s and brings it back as it then is; the other eye, the
+mouth and the chest are untouched. The right eye winks unless `H:WINK:L` is sent. It is ignored while the
+eyes are dark (off, asleep, charging, fading, or behind the visor at startup).
 
 ## Chest transitions
 

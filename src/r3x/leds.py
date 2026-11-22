@@ -55,10 +55,11 @@ PRIDE_REFRESH_SECONDS = 3.
 # He is ready when everything has loaded and the startup sound's build has played out, whichever is
 # later. From the lights starting, everything was loaded 13.6 s later in the wake-word run b28d62e8
 # (about a second less is expected since the camera-side models load during the servo wake), and the
-# build (11.8 s, begun with the servo wake and heard about 1.2 s after) ends about 13.2 s later. A
+# build (11.8 s, begun with the servo wake and heard about 1.2 s after) ends about 13.2 s later. In
+# the first real start with both (run 0fc38daa) READY went out 13.4 s after the lights began. A
 # start that runs long only keeps the bars struggling at the top until READY; one that runs short
 # locks them early.
-LIVE_STARTUP_SECONDS = 13.2
+LIVE_STARTUP_SECONDS = 13.4
 FIRMWARE = 'djr3x_leds'             # The name the board must give before it is sent a light command.
 HELLO_ATTEMPTS = 10                 # About 3 s: each unanswered read waits out the port's 0.1 s timeout.
 # November 15 (runs de09e0b3, 7261d8ce): a write to the board failed 30 s and 11 minutes into the run
@@ -109,6 +110,7 @@ class LEDs:
         at the end of it; None lets the startup lights time themselves (a telepresence call, a demo)."""
         self.port, self.opener, self.clock, self.wait = port, opener, clock, wait
         self.startup_seconds = startup_seconds
+        self._sound = None                # The startup sound the mouth follows: see startup_sound.
         self.device = None                # The open board, from start until close.
         self.firmware = None              # The version it reported at start.
         self.lock = threading.RLock()
@@ -203,14 +205,46 @@ class LEDs:
         self.worker = threading.Thread(target=self._levels,name='led-levels',daemon=True)
         self.worker.start()
 
+    def startup_sound(self, heard_at, level_at, wait, grow, end):
+        """The startup sound will first be heard at heard_at (this owner's clock). From then the mouth
+        follows it (owner, November 21; LED firmware 0.8.0): dark for `wait` seconds, a light or two
+        twinkling until `grow`, then lit from the centre outwards, as far as it goes before READY by
+        `end`; and all the while it is told how loud the sound is (level_at(seconds into it) -> 0-255,
+        or None when it cannot say). Only a start that will call ready() does this."""
+        with self.lock:
+            if self.startup_seconds is None:
+                return
+            self._sound = {'at': heard_at, 'level_at': level_at, 'moments': (wait, grow, end),
+                           'told': False, 'level': -1, 'sent': float('-inf')}
+
+    def _follow_startup_sound(self, now):
+        sound = self._sound
+        if sound is None or now < sound['at']:
+            return
+        if not sound['told']:
+            sound['told'] = True
+            self._send('head', 'STARTUP_SOUND:' + ','.join(str(round(m * 1000)) for m in sound['moments']))
+        level = sound['level_at'](now - sound['at'])
+        if level is not None and (abs(level - sound['level']) >= 6 or now - sound['sent'] >= .5):
+            self._send('head', f'STARTUP_LEVEL:{level}')
+            sound['level'], sound['sent'] = level, now
+
     def ready(self):
         """Everything has loaded: the chest's bars lock full and the mouth comes fully on, over about a
         second (the visor goes up meanwhile). Only a start given startup_seconds waits for this."""
         with self.lock:
             if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
+            self._sound = None            # The mouth's startup is over: no more of the sound's loudness.
             self._both('READY')
             if self.trace: self.trace.emit('led_lifecycle',kind='ready',status='commands_sent',
                                            evidence='display_unverified')
+
+    def wink(self):
+        """One eye dark for a moment (LED firmware 0.7.0's WINK: the board times it and brings the eye
+        back as it then is). The other eye, the mouth and the chest are left alone."""
+        with self.lock:
+            if self.state != 'ready': raise ProviderFailure('LEDUnavailable')
+            self._send('head','WINK')
 
     def pcm(self, data, at):
         # Called on the audio callback: a bounded timestamped mailbox, no serial,
@@ -228,6 +262,7 @@ class LEDs:
                 return
             now = self.clock()
             self._pride_lease(now)
+            self._follow_startup_sound(now)
             if not (self.speaking or self.demo):
                 if not self.chest_only and not self.blinking and now - self.eyes_sent >= EYE_REFRESH_SECONDS:
                     self._send('head', 'EYE:' + ','.join(map(str, self.eye_color)))

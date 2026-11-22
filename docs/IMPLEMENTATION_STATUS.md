@@ -36,6 +36,16 @@ and the mouth comes fully on while the visor goes up. Details and evidence:
 (108) and the affected blocked-I/O checks pass; shown to the owner once, lights only. **Not yet seen in a
 real start.**
 
+After the owner's first real start with it, LED firmware 0.7.0 (flashed, not yet seen): the mouth starts
+mostly dark and sparkles on from its centre outwards, going solid as the chest lands on its ordinary panel;
+the eyes stay dark behind the visor and blink on when he is ready; the resting mouth is a slow, dimmer
+ripple; and he can wink (one eye dark for a moment with a slight head tilt), as an expression or when
+asked: both providers winked when asked in a paid probe, 3 of 3 each.
+
+Then LED firmware 0.8.0 (flashed; it ran in start `c5de246d`, look not yet reported): the mouth follows
+the startup sound: dark for its first two seconds, a light or two twinkling with its loudness as heard
+(measured from the clip), then the centre-out sparkle from the moment the sound comes back up at 6.5 s.
+
 The same day the startup sound became the owner's own clip in place of V2's whir: its twelve-second build
 plays while he starts and its finishing sound is held until he is ready, landing with the lights' lock
 and the visor ([startup](STARTUP_HEALTH.md)). Synthetic checks only; not yet heard on the robot.

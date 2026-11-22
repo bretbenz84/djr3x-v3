@@ -63,7 +63,8 @@ class Stage:
 
 class FeelingLightTests(unittest.TestCase):
     def test_every_feeling_of_the_body_has_lights_and_the_board_knows_them(self):
-        self.assertEqual(set(HEAD_EXPRESSIONS) - set(FEELING_LIGHTS), {'nod'})   # A nod is plain agreement.
+        # A nod is plain agreement; a wink keeps the line's own colours and darkens one eye.
+        self.assertEqual(set(HEAD_EXPRESSIONS) - set(FEELING_LIGHTS), {'nod', 'wink'})
         self.assertTrue(set(FEELING_LIGHTS) <= set(HEAD_EXPRESSIONS))
         self.assertTrue(set(FEELING_LIGHTS.values()) <= set(COLORS))
         self.assertEqual(FEELING_LIGHTS['angry'], 'angry')
@@ -86,6 +87,28 @@ class FeelingLightTests(unittest.TestCase):
                 self.assertEqual(stage.sent('chest'), ['SPEAK:' + pattern, 'SPEAK_STOP'])
                 self.assertEqual([(row['pattern'], row['status']) for row in delivery.lights], [(pattern, 'commands_sent')])
                 self.assertEqual([g['primitive'] for g in delivery.gestures], [primitive])
+
+    def test_a_wink_darkens_one_eye_as_the_head_cocks_and_keeps_the_ordinary_lights(self):
+        # Owner, November 21: a wink the model can choose: one eye dark for a moment with a slight head tilt.
+        stage = Stage()
+        delivery = stage.say(stage.feeling('wink', 'Just kidding.'))
+        self.assertEqual(delivery.status, 'completed')
+        self.assertEqual(stage.sent('head').count('WINK'), 1)                  # The board times the wink itself.
+        self.assertNotIn('WINK', stage.sent('chest'))
+        self.assertEqual(stage.sent('chest'), ['SPEAK:neutral', 'SPEAK_STOP'])  # No feeling's colours: an ordinary line.
+        self.assertEqual([g['primitive'] for g in delivery.gestures], ['wink'])
+        self.assertIn(('wink', 'commands_sent'), [(row['pattern'], row['status']) for row in delivery.lights])
+        other = Stage()
+        other.say(other.feeling('tilt', 'Oh?'))
+        self.assertNotIn('WINK', other.sent('head'))                           # Only a wink winks.
+
+    def test_a_dark_led_board_does_not_stop_the_winks_head_tilt(self):
+        stage = Stage()
+        stage.ports['head'].fail = True
+        delivery = stage.say(stage.feeling('wink', 'Just kidding.'))
+        self.assertEqual([g['primitive'] for g in delivery.gestures], ['wink'])
+        self.assertEqual(delivery.gestures[0]['status'], 'simulated')          # The head still moved.
+        self.assertIn(('wink', 'failed'), [(row['pattern'], row['status']) for row in delivery.lights])
 
     def test_a_plain_line_and_a_nod_keep_the_ordinary_speaking_lights(self):
         stage = Stage()

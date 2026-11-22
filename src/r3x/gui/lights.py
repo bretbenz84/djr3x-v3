@@ -54,11 +54,14 @@ class LightMirror:
             except ValueError:
                 return
             if len(rgb) == 3:
-                head.update(eye_color=rgb, eyes_active=any(rgb), updated_at=now)
+                # During startup the eyes stay dark behind the visor: the colour is only kept for READY.
+                head.update(eye_color=rgb, eyes_active=any(rgb) and not head.get('eyes_held'), updated_at=now)
                 if head['mouth_mode'] in {'off', 'sleep', 'charge'}:
                     head.update(mouth_mode='active', mouth_updated_at=now)
             return
         if family == 'SPEAK':
+            if head.get('eyes_held'):                  # A line cuts startup short: the eyes come on with it.
+                head.update(eyes_held=False, eyes_active=any(head['eye_color']))
             head.update(mouth_mode='speak', mouth_emotion=value.strip().lower() or 'neutral', mouth_level=0,
                         mouth_utterance=head['mouth_utterance'] + 1, mouth_updated_at=now)
         elif family == 'SPEAK_LEVEL':
@@ -68,7 +71,10 @@ class LightMirror:
                 return
             head['mouth_updated_at'] = now
         elif family in {'STARTUP', 'READY'}:
-            # The mouth flickers on at startup and ends in the awake glow, which is what the mirror draws.
+            # The mouth sparkles on at startup and ends in the awake glow, which is what the mirror draws.
+            # The eyes are dark from STARTUP until READY, when they blink on.
+            head['eyes_held'] = family == 'STARTUP'
+            head['eyes_active'] = family == 'READY' and any(head['eye_color'])
             if family == 'STARTUP' or head['mouth_mode'] != 'speak':
                 head.update(mouth_mode='active', mouth_updated_at=now, mode='active', updated_at=now)
         elif family in {'SPEAK_STOP', 'ACTIVE', 'IDLE', 'OFF', 'SLEEP', 'FADEOFF', 'CHARGE'}:

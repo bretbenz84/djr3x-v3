@@ -437,3 +437,68 @@ talking mouth, the ordinary panel, the fade. **Not yet seen in a real start**, w
 the ready line run with it; whether 13.2 s matches what a start now takes will show in the next
 `startup_timing` row. The look (how hard the bars struggle, how bright the mouth ends) is the owner's to
 judge.
+
+### After the first real start (same day): firmware 0.7.0
+
+The owner's wake-word start `0fc38daa`: "the clip lines up perfectly" (`READY` went out 13.4 s after the
+lights began; `LIVE_STARTUP_SECONDS` is now 13.4), "but the mouth startup animation gets full bright too
+quickly. It needs to start mostly off and sparkle on from the center outwards. It should go solid
+brightness during the same moment the chest LED animation finishes on the normal pattern." Then, in turn:
+a slow, dimmer effect for the mouth when not speaking; the eyes dark behind the visor until he is ready,
+then blinking on; and a wink the model can call, with a slight head tilt.
+
+- **Mouth at startup, eyes, resting mouth, wink command:** LED firmware 0.7.0
+  ([what each does](../firmware/djr3x_leds/README.md#startup)). The host is unchanged for the first three:
+  it still sends the eye colour at start and every three seconds, and the board keeps the eyes dark until
+  `READY`.
+- **The wink is a move of Rex's, not a light effect.** `servo_poses` has a `wink` head expression (a cock
+  of the head half the size of `tilt`, held 0.45 s, then back; to his left, the side of the eye that
+  winks, since the owner saw the first one cock right while his left eye went dark); when it runs, the output owner sends
+  `H:WINK` (`LEDs.wink`) as the move begins. The model reaches it two ways: as the `wink` expression of
+  `respond_with_gesture`, with a line, and as the one-shot `wink` step of `set_robot_pose`, which is what
+  both providers chose when asked outright. `animate_lights` says a wink is not its to give. A dark LED
+  board does not stop the head, and with no servos the eye still winks.
+- **Wording.** The shared tool text (`semantics.py`) and the shared show-a-feeling note in
+  `adapters/hosted.py` name the wink; the owner asked for it on ChatGPT as well as Claude.
+
+Evidence: 117 firmware checks (17 for the head: the sparkle from the centre, solid at the hand-over, eyes,
+the resting ripple, the wink); blocked-I/O checks for the wink through both tools, the owner's `wink` and
+the mirror. Paid probes, three calls each (`check_action_requests.py --only
+wink_at_me,can_you_wink,plain_sum_no_wink`): Claude 1 of 3 before the pose step existed (it tilted and
+blinked both eyes, or said both eyes were the best it could do), then 3 of 3; ChatGPT 3 of 3. Both chose
+the `set_robot_pose` step; an unasked wink through `respond_with_gesture` was not probed. Compiled
+(420,688 bytes), flashed, and the board answers `hello djr3x_leds 0.7.0`. The owner has since seen the wink on the robot: the board's plain
+`WINK` darkens his left eye, and the head now cocks left with it (not yet seen again). **Not yet reported
+on the robot:** the rest of 0.7.0.
+
+### The mouth follows the startup sound: firmware 0.8.0 (still November 21)
+
+The owner, after a start on 0.7.0: "the mouth starts lighting up right away. It should start 2 second
+after the sound clip starts. It also needs to be much less of the grid lit up at first, almost like 1 or 2
+LEDs twinkling on here and there for a few seconds, then the current animation. The startup sound rises
+until about 3 seconds in then starts dying around 4 seconds a little then it starts going back up around
+6.5 seconds. The mouth LEDs should match that."
+
+- **What he hears, measured.** The clip's plain level does not have that shape (it is back up by 5 s, on
+  low rumble); its level as heard does: up to 3.0 s, a dip at 4.0 s, a plateau, above the earlier peak
+  from 6.5 s and loudest at 10.5 s. `startup_audio.loudness` measures it that way without numpy (the lows
+  turned down by a gentle high-pass at 1 kHz, a reading every 0.1 s over a 24 dB range; it tracks the
+  A-weighted level on this clip with correlation 0.98, the plain level 0.74). It takes about 20 ms.
+- **In step with the sound as heard.** The startup sound is written about 1.2 s before it is heard.
+  `StartupAudio` tells the LED owner when its first sound is due (`on_build_heard`), and from that moment
+  `LEDs` sends the head `STARTUP_SOUND:1000,6500,11790` once, then `STARTUP_LEVEL` as the loudness changes,
+  until `ready()`. The two moments (dark for 1 s, growing from 6.5 s) are the owner's, kept beside the
+  clip's name in `startup_audio.py`; the third is the build's length. The wait was 2 s in the owner's
+  first start on 0.8.0 (run `c5de246d`: "it worked fine"), then "a little sooner, maybe by a second";
+  the program sends it, so no reflash was needed (the LED menu's own Startup still waits 2 s).
+- **What the mouth does** is the firmware's ([README](../firmware/djr3x_leds/README.md#startup)): dark,
+  then a light or two twinkling with the loudness (one or two up to the 3 s peak, none in the dip at 4 s,
+  one or two on the plateau), then the centre-out sparkle from 6.5 s, about half lit as the build ends,
+  solid 0.9 s after `READY`.
+
+Evidence: 122 firmware checks (the wait, the twinkles' number, length and spread, their following the
+loudness, the growth, a host that says nothing); blocked-I/O checks for the loudness measure on the
+owner's clip and for the owner sending the moments and levels at the heard time. Flashed; in the owner's
+next start (run `c5de246d`) the board answered as 0.8.0, the sound was announced to the lights and `READY`
+went out at 13.6 s with no LED fault, and the owner reported it worked. **Not yet seen:** the one-second
+wait.

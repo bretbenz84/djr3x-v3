@@ -155,9 +155,10 @@ about 1.2 s later (the buffered stream). When everything has loaded, `StartupAud
 goes up, and when it ends (`stop`) the ready line is said. A start that fails or is shut down plays no
 finish. The LED board's expected time is 13.2 s to match. **Evidence:** synthetic checks only (the
 split, the build and finish through the buffered stream, ready early, no finish on a failed start).
-**Expected** (not yet heard on the robot): the build ends about 13.7 s after the program starts, which
-is about when everything has loaded; the finish and the visor take 1.4 s, the ready line about 2 s, so
-listening begins near 17 s, about a second later than with the whir.
+**First real start with it** (wake word, run `0fc38daa`; the owner: "the clip lines up perfectly"):
+everything had loaded at 12.9 s, the build ended at 13.6 s (so `land` waited 0.6 s), the finish and the
+visor ran to 15.0 s, the ready line from 15.3 to 17.9 s, and listening began at 18.0 s. The camera-side
+models loaded during the wake (1.2 s, from 5.3 s) in that run.
 
 **Still to look at:** whether the servo wake looks smooth while models load beside it, and whether the
 throttle arm coming out just after listening begins is heard as a sound.

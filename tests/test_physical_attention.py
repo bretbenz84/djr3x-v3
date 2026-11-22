@@ -65,7 +65,7 @@ class PhysicalMotionTests(unittest.TestCase):
     def test_gestures_return_to_start_and_do_not_touch_microphone(self):
         adapter=PhysicalGesture(self.robot);adapter.start()
         from r3x.servo_poses import GESTURE_PRIMITIVES, head_pose
-        self.assertEqual(set(GESTURE_PRIMITIVES), {'nod','tilt','perplexed','wiggle','sympathetic','surprised','laugh','skeptical','deflated','proud','angry','lift','arm_emphasis'})
+        self.assertEqual(set(GESTURE_PRIMITIVES), {'nod','tilt','wink','perplexed','wiggle','sympathetic','surprised','laugh','skeptical','deflated','proud','angry','lift','arm_emphasis'})
         for primitive in GESTURE_PRIMITIVES:
             for intensity in ('subtle','normal'):
                 before=self.port.pose.copy();self.port.packets.clear()

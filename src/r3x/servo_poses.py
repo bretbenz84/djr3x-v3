@@ -720,8 +720,10 @@ HEAD_EXPRESSIONS = {
     'nod': {'moves': ((-.3, 0., .25), (.1, 0., .25)), 'speed': 35},
     'tilt': {'moves': ((0., .6, .5),), 'speed': 20, 'side': True},                  # One cock and back.
     # Owner, November 21: a wink. A slight cock of the head, half the tilt's, as one eye goes dark for a
-    # moment (the LED board's WINK, sent by the output owner as the move begins).
-    'wink': {'moves': ((0., .3, .45),), 'speed': 20, 'side': True},
+    # moment (the LED board's WINK, sent by the output owner as the move begins). The head cocks to his
+    # left, the side of the eye that winks: the first one cocked right while the left eye went dark
+    # (owner, the same day). Not a sided expression: it always leans toward that eye.
+    'wink': {'moves': ((0., -.3, .45),), 'speed': 20},
     # The dog's double cock, looking slightly down. Owner, October 24: eased like the wiggle.
     'perplexed': {'moves': ((-.08, .6, .7), (-.08, -.6, .7)), 'ease': (.35, .03), 'side': True},
     # Playful side to side. Owner, October 24: too rapid, and it creaked (three reversals in about

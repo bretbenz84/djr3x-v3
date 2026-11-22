@@ -63,6 +63,47 @@ class LEDTests(unittest.TestCase):
         self.led,self.ports,self.clock=rig()
         self.addCleanup(self.led.close)
 
+    def test_the_mouth_follows_the_startup_sound_from_the_moment_it_is_heard(self):
+        # Owner, November 21 (LED firmware 0.8.0): the mouth waits two seconds into the startup sound,
+        # twinkles with its loudness, then grows; the board is told when the sound begins and how loud it is.
+        from r3x.leds import LIVE_STARTUP_SECONDS
+        clock=Clock();board=Board()
+        led=LEDs('board',opener=lambda path:board,clock=clock,wait=clock.wait,startup_seconds=LIVE_STARTUP_SECONDS)
+        led.start();self.addCleanup(led.close)
+        led.stop_event.set();led.worker.join(1)
+        head=board.strips['head'].commands
+        levels={0.:80,1.:130,2.:150,2.05:152,3.:70}                       # Loudness, by seconds into the sound.
+        led.startup_sound(clock()+1.2,lambda into:None if into<0 else levels[max(k for k in levels if k<=into)],2.,6.5,11.8)
+        del head[:]
+        said=lambda:[c for c in head if c.startswith('STARTUP')]           # Apart from the eye colour's refresh.
+        clock.at+=1.;led.tick()
+        self.assertEqual(said(),[])                                        # Written, not yet heard: nothing is said.
+        clock.at+=.25;led.tick()
+        self.assertEqual(said(),['STARTUP_SOUND:2000,6500,11800','STARTUP_LEVEL:80'])   # As it is heard, once.
+        clock.at+=1.;led.tick()
+        clock.at+=1.;led.tick()
+        clock.at+=.05;led.tick()                                           # A change too small to matter is not sent.
+        clock.at+=1.;led.tick()
+        self.assertEqual(said(),['STARTUP_SOUND:2000,6500,11800','STARTUP_LEVEL:80','STARTUP_LEVEL:130',
+                                'STARTUP_LEVEL:150','STARTUP_LEVEL:70'])
+        self.assertTrue(all(c.startswith(('STARTUP','EYE:')) for c in head))   # Only the mouth's startup and the eye refresh.
+        self.assertFalse(any(c.startswith('STARTUP_') for c in board.strips['chest'].commands))   # The chest has its own.
+        led.ready();del head[:]
+        clock.at+=1.;led.tick()
+        self.assertFalse(any(c.startswith('STARTUP') for c in head))      # Ready: the sound is no longer followed.
+        # A start that times itself (a call, a demo) is not told about any sound.
+        self.led.startup_sound(self.clock(),lambda into:200,2.,6.5,11.8)
+        self.clock.at+=3.;self.led.tick()
+        self.assertFalse(any(c.startswith('STARTUP_') for c in self.ports['head'].commands))
+
+    def test_a_wink_is_one_command_to_the_head(self):
+        chest=list(self.ports['chest'].commands)
+        self.led.wink()
+        self.assertEqual(self.ports['head'].commands[-1],'WINK')   # The board darkens one eye and brings it back.
+        self.assertEqual(self.ports['chest'].commands,chest)
+        self.led.close()
+        with self.assertRaisesRegex(ProviderFailure,'LEDUnavailable'): self.led.wink()
+
     def test_a_live_start_paces_the_startup_lights_and_ready_locks_them(self):
         # Owner, November 21 (LED firmware 0.6.0): the chest's bars rise and the mouth flickers on through
         # the time the start is expected to take; both lock fully lit when he says he is ready.
@@ -203,6 +244,7 @@ class LEDTests(unittest.TestCase):
             app.configure_live()
             from r3x.leds import LIVE_STARTUP_SECONDS
             self.assertEqual(app.leds.startup_seconds,LIVE_STARTUP_SECONDS)   # Live says when he is ready.
+            self.assertEqual(app.startup_audio.on_build_heard,app.leds.startup_sound)   # The mouth follows the sound.
             self.assertEqual([p.capability.name for p in app.owner.providers[:4]],['tts','playback','startup_audio','robot_leds'])
             self.assertIsNone(app.leds.device)
             retired=Path(directory)/'settings.toml'

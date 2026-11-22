@@ -53,12 +53,24 @@
  *                         board was in OFF mode (e.g. fresh reboot mid-session,
  *                         re-lit by the host's eye keep-alive heartbeat), this
  *                         also re-enters ACTIVE so the mouth glow resumes.
- *   STARTUP[:{ms}]        The mouth flickers on in the ordinary amber: a few lights
- *                         catching at first, more and more holding, until READY, when
- *                         every light comes on and the mouth is fully lit (see "Mouth
- *                         startup"). With {ms}, the time the host expects to need; bare,
- *                         it times itself. Eyes are left as they are.
- *   READY                 The host is ready: ends STARTUP's flicker in a fully lit mouth.
+ *   STARTUP[:{ms}]        The mouth starts mostly dark and sparkles on in the ordinary
+ *                         amber from its centre outwards, slowly, until READY (see
+ *                         "Mouth startup"). With {ms}, the time the host expects to
+ *                         need; bare, it times itself. The eyes go dark (the visor is
+ *                         shut over them); an EYE: meanwhile only sets their colour.
+ *   STARTUP_SOUND:{wait},{grow},{end}
+ *                         The startup sound has just begun. Milliseconds from now: the mouth
+ *                         stays dark until {wait}, twinkles a light or two until {grow}, then
+ *                         sparkles on from the centre, reaching as far as it goes without
+ *                         READY at {end}.
+ *   STARTUP_LEVEL:{0-255} How loud the startup sound is now: more twinkles and brighter
+ *                         sparkles when it is louder.
+ *   READY                 The host is ready: the sparkle runs out to the edges and the
+ *                         whole mouth goes solid as the chest lands on its ordinary panel;
+ *                         the eyes blink on as the visor lifts.
+ *   WINK[:{L|R}]          One eye goes dark for WINK_MS and comes back as it was; the
+ *                         other stays lit. Right eye unless L is given. Ignored while
+ *                         the eyes are dark.
  *   OFF                   All 82 pixels off immediately; blinking suspended.
  *   CHARGE:{0-100}        Eyes off; the mouth is a charge meter while Rex is off
  *                         and attached to the charger: rows lit from the bottom
@@ -69,9 +81,11 @@
  * Mouth idle glow
  * ---------------
  *   Whenever Rex is awake and not speaking (ACTIVE / IDLE / after SPEAK_STOP),
- *   the whole mouth pulses gently between GLOW_MIN and GLOW_MAX brightness
- *   (5–10 %) of the current emotion colour, so the mouth is never fully dark
- *   while he's "on". Speaking brightens it through the existing wave animation,
+ *   a slow ripple of light spreads from the centre of the mouth to its edges,
+ *   each light between GLOW_MIN and GLOW_MAX brightness (3–8 %) of the current
+ *   emotion colour, so the mouth is never fully dark while he's "on" (owner,
+ *   November 21: a slow effect when not speaking, dimmer than before; the
+ *   quick animation is for speech only). Speaking brightens it through the existing wave animation,
  *   then it settles back to the glow. OFF / SLEEP / FADEOFF keep their existing
  *   dark / red-breathing behaviour. The glow writes ONLY mouth pixels — eyes
  *   stay exclusively owned by setEyes()/tickIdle()/tickBlink().
@@ -160,7 +174,20 @@ CRGB leds[NUM_LEDS];
 // would act on both strips; nothing in this file may call them.
 static CLEDController *strip = nullptr;
 static uint8_t masterBrightness = 255;
-static inline void show()     { strip->showLeds(masterBrightness); }
+// Wink (owner, November 21, 2026): one eye dark for a short time, on the host's word. The
+// eye's own colour stays in leds[], whatever sets it meanwhile (a blink, the idle breathing,
+// an eye refresh); the winking eye is blanked only on its way to the strip.
+#define WINK_MS 450UL
+static bool     winking     = false;
+static uint8_t  winkEye     = 1;       // 0 left, 1 right
+static uint32_t winkUntilMs = 0;
+static inline void show() {
+    if (!winking) { strip->showLeds(masterBrightness); return; }
+    const CRGB kept = leds[winkEye];
+    leds[winkEye] = CRGB::Black;
+    strip->showLeds(masterBrightness);
+    leds[winkEye] = kept;
+}
 static inline void clearAll() { fill_solid(leds, NUM_LEDS, CRGB::Black); }
 
 // ---------------------------------------------------------------------------
@@ -186,10 +213,8 @@ AnimMode animMode = ANIM_OFF;
 EmotionColor mouthColor  = { 140, 255, 0 };   // neutral amber (wire order)
 bool prideMouth = false;
 uint32_t prideRefreshMs = 0;
-uint32_t prideGlowFrameMs = 0;
 uint8_t swirlHue[NUM_MOUTH]; // spatial angle + radius, computed once at boot
 #define PRIDE_TIMEOUT_MS 10000UL
-#define PRIDE_GLOW_FRAME_MS 40UL
 uint8_t      speakLevel  = 0;                 // 0–255 audio intensity
 
 // Charge display (owner, November 15): a meter like the chest's. Each row's colour
@@ -234,19 +259,22 @@ float        colHeight[MOUTH_COLS];           // smoothed bar height, 0–MOUTH_
 float        colPeak[MOUTH_COLS];             // falling peak-dot height per column
 float        colPhase[MOUTH_COLS];            // per-column wobble phase (seeded in setup)
 
-// Mouth idle glow (ACTIVE / IDLE / post-speech): gentle sine pulse between
-// GLOW_MIN and GLOW_MAX of mouthColor (~6.3 s period at 1.0 rad/s).
-// All 80 pixels glow at once, so this must sit well below the speaking bars
-// (SPEAK_MAX_BRIGHT) or the quiet mouth reads BRIGHTER than the talking one.
-// glowLastScale throttles show() to actual brightness-byte changes
-// (~8 frames/s) so the glow doesn't hammer the WS2812B bus or starve the
-// serial port; 255 is a sentinel forcing a redraw on the next tick (the real
-// scale never exceeds GLOW_MAX*255 ≈ 26).
-#define GLOW_MIN  0.05f
-#define GLOW_MAX  0.10f
+// Mouth idle glow (ACTIVE / IDLE / post-speech): a slow ripple of light spreading from the
+// centre of the mouth outwards, each light between GLOW_MIN and GLOW_MAX of mouthColor. One
+// ripple leaves the centre about every 6.3 s (GLOW_RATE) and about half of one lies across
+// the mouth at a time (GLOW_SPREAD), so the centre brightens first and the edges follow.
+// Owner, November 21: 3-8 %, down from a 5-10 % pulse of the whole mouth at once. This must
+// sit well below the speaking bars. Frames are at most GLOW_FRAME_MS apart and are shown
+// only when a light's brightness byte has changed.
+#define GLOW_MIN  0.03f
+#define GLOW_MAX  0.08f
 #define GLOW_RATE 1.0f                        // rad/s
+#define GLOW_SPREAD 3.5f                      // radians of lag from the centre to the corners
+#define GLOW_FRAME_MS 40UL
 float        glowPhase     = 0.0f;            // 0.0 – TWO_PI
-uint8_t      glowLastScale = 255;             // sentinel: force first frame
+uint16_t     glowLastSum   = 0xFFFF;          // sentinel: force first frame
+uint32_t     glowFrameMs   = 0;
+uint8_t      mouthDistance[NUM_MOUTH];        // each light's distance from the mouth's centre, 0..255
 
 // Glow ramp-in: when the glow starts from a dark mouth (boot / OFF, or waking
 // from SLEEP), brightness ramps 0 → full glow over GLOW_RAMP_IN_MS so program
@@ -265,29 +293,74 @@ uint32_t     glowSettleStartMs = 0;           // 0: not settling
 uint8_t      glowSettleFrom    = 0;
 
 // Mouth startup (owner request, November 21, 2026: "the mouth started out flickering the
-// normal yellow light until it were fully illuminated", lined up with the real startup).
-// Every mouth light has its own moment to catch, spread over the time the host expects to
-// need. Before that moment it is dark but for a rare flicker; near it, it flickers more
-// and more; after it, it holds. The lights that are on grow brighter as the start goes
-// on, and now and then the whole mouth dips, less often towards the end. The last lights
-// do not hold before READY. READY brings every light on and swells the mouth to
-// STARTUP_FULL over half the finale; when the finale ends the idle glow takes over and
-// eases down from there (a line spoken at once takes over instead).
+// normal yellow light until it were fully illuminated", lined up with the real startup; and
+// after seeing it once: it "gets full bright too quickly. It needs to start mostly off and
+// sparkle on from the center outwards. It should go solid brightness during the same moment
+// the chest LED animation finishes on the normal pattern").
+//
+// After seeing that in a real start (owner, the same day): "the mouth starts lighting up right
+// away. It should start 2 second after the sound clip starts. It also needs to be much less of
+// the grid lit up at first, almost like 1 or 2 LEDs twinkling on here and there for a few
+// seconds, then the current animation. The startup sound rises until about 3 seconds in then
+// starts dying around 4 seconds a little then it starts going back up around 6.5 seconds. The
+// mouth LEDs should match that."
+//
+// So the mouth follows the startup sound. The host says when the sound begins and gives three
+// moments in it (STARTUP_SOUND), and how loud it is as it plays (STARTUP_LEVEL):
+//   - until the first moment the mouth is dark;
+//   - then a light or two twinkle on and off, here and there over the whole mouth, each for
+//     about a third of a second: more of them when the sound is louder, almost none in a lull;
+//   - from the second moment the mouth is lit from its centre outwards. A front starts at the
+//     centre and moves out, slowly at first, reaching STARTUP_REACH at the third moment (the end
+//     of the sound's build). A light the front has passed holds, dimly; one it has just reached
+//     still shimmers; the lights just ahead of it sparkle, brighter when the sound is louder;
+//     everywhere else the twinkles go on. The front stops there without READY: the edges wait.
+// Told nothing about the sound (the LED menu's own STARTUP, or a host that never says), the
+// mouth assumes it began STARTUP_SOUND_AFTER_MS after STARTUP, with the usual three moments.
+//
 #define STARTUP_FRAME_MS    40UL
-#define STARTUP_FLICKER_MS  55UL     // a flickering light changes about 18 times a second
-#define STARTUP_LOW         26       // a lit light at the start: the idle glow's top level
-#define STARTUP_HIGH        52       // ... by the planned end
-#define STARTUP_FULL        64       // fully lit: a quarter of full brightness on all 80 lights
-#define STARTUP_HOLD_AT    235       // progress (of 255) the flicker reaches without READY
+#define STARTUP_FLICKER_MS  55UL     // a sparkle lasts about this long
+#define STARTUP_DIM         18       // a light that holds, at the start: 7 %
+#define STARTUP_HIGH        34       // ... by the planned end: 13 %
+#define STARTUP_GLINT       96       // a sparkle's brightest
+#define STARTUP_FULL        64       // solid: a quarter of full brightness on all 80 lights
+#define STARTUP_REACH       150      // how far out (of 255) the front gets without READY
+#define STARTUP_BAND        60       // the lights this far ahead of the front sparkle
+#define STARTUP_FRESH       26       // a light the front passed this recently still shimmers
+#define STARTUP_SWEEP_MS    650UL    // READY to the front reaching the corners
+#define STARTUP_TWINKLE_MS  360UL    // how long one twinkle lasts, fading in and out
+#define STARTUP_TWINKLE_LOW 60       // sound level under which nothing twinkles
+#define STARTUP_TWINKLE_TOP 160      // ... and the level at which the most do (about two and a half at once)
+#define STARTUP_LEVEL_DEFAULT 130    // told nothing about the sound: a light or two
+#define STARTUP_SOUND_AFTER_MS 1600UL   // the sound is heard about this long after STARTUP (run 0fc38daa: 1.62 s)
+#define STARTUP_SOUND_PATIENCE_MS 4000UL   // a host that has not said by then is not going to
+#define STARTUP_WAIT_MS     2000UL   // the usual three moments, from the sound's start
+#define STARTUP_GROW_MS     6500UL
+#define STARTUP_SOLID_MS    600UL    // solid this long before the glow eases down
+// The eyes blink on as the visor lifts (owner, November 21: "turn on only when he's ready and the
+// visor comes on and make them blink on"): dark for EYES_WAKE_MS after READY, two short flashes,
+// each brighter, then on. The visor takes about 0.9 s to go up.
+#define EYES_WAKE_MS        250UL
+#define EYES_OPEN_MS        650UL    // from READY to the eyes being on for good
 uint32_t     startupAt       = 0;
 uint32_t     startupSpanMs   = LEDS_STARTUP_DEFAULT_MS;
 bool         startupHosted   = false;
 bool         startupReady    = false;
 uint32_t     startupReadyMs  = 0;
+uint8_t      startupReadyReach = 0;           // where the front was when READY came
+uint8_t      startupReadyLevel = 0;           // ... and how bright the held lights were
 uint32_t     startupFrameMs  = 0;
-uint16_t     startupSeed     = 0;             // so no two starts flicker alike
+uint16_t     startupSeed     = 0;             // so no two starts sparkle alike
+bool         startupSoundKnown = false;       // the sound's start and its three moments are set
+uint32_t     startupSoundAt  = 0;             // millis() when the startup sound began
+uint32_t     startupWaitMs   = STARTUP_WAIT_MS;   // from the sound's start: dark until here,
+uint32_t     startupGrowMs   = STARTUP_GROW_MS;   // twinkling until here,
+uint32_t     startupEndMs    = 0;                 // the front fully out (short of READY) here
+uint8_t      startupLevel    = STARTUP_LEVEL_DEFAULT;   // how loud the sound is now, 0..255
+bool         startupEyesOpen = true;          // false from STARTUP until the eyes have blinked on
+CRGB         startupEyeColor = CRGB(255, 200, 0);   // what they open with: the host's EYE, else warm gold
 
-inline void forceGlowRefresh() { glowLastScale = 255; }
+inline void forceGlowRefresh() { glowLastSum = 0xFFFF; }
 
 inline void startGlowRamp()   { glowRampStartMs = millis() | 1;  glowSettleStartMs = 0; }  // |1: never the 0 sentinel
 inline void cancelGlowRamp()  { glowRampStartMs = 0;  glowSettleStartMs = 0; }
@@ -555,6 +628,11 @@ void command(const char *cmd) {
 
     // SPEAK:{emotion}
     if (strncmp(cmd, "SPEAK:", 6) == 0) {
+        if (animMode == ANIM_STARTUP && !startupEyesOpen) {
+            // A line cuts startup short: the eyes come on with it, in the colour last asked for.
+            startupEyesOpen = true;
+            setEyes(startupEyeColor.r, startupEyeColor.g, startupEyeColor.b);
+        }
         uint8_t emo = parseEmotion(cmd + 6);
         EmotionColor ec;
         memcpy_P(&ec, &EMOTION_COLORS[emo], sizeof(EmotionColor));
@@ -597,7 +675,8 @@ void command(const char *cmd) {
 
     // ACTIVE — mouth idle glow; preserve current eye colour; blink resumes.
     if (strcmp(cmd, "ACTIVE") == 0) {
-        if (animMode != ANIM_STARTUP) {         // during startup the mouth is the flicker's; eyes as usual
+        if (animMode == ANIM_STARTUP && !startupEyesOpen) return;   // dark behind the visor until READY
+        if (animMode != ANIM_STARTUP) {         // during startup the mouth is the sparkle's; eyes as usual
             if (animMode == ANIM_OFF || animMode == ANIM_SLEEP) {
                 startGlowRamp();    // mouth was dark — breathe the glow in over 4 s
             }
@@ -622,6 +701,11 @@ void command(const char *cmd) {
         if (headFading) return;   // don't re-light the eyes mid shutdown-fade
         int r, g, b;
         if (sscanf(cmd + 4, "%d,%d,%d", &r, &g, &b) == 3) {
+            if (animMode == ANIM_STARTUP && !startupEyesOpen) {
+                // The visor is shut over them: stay dark, and open in this colour at READY.
+                if (r | g | b) startupEyeColor = CRGB(clampByte(r), clampByte(g), clampByte(b));
+                return;
+            }
             if (animMode == ANIM_OFF && (r | g | b)) {
                 animMode = ANIM_ACTIVE;
                 startGlowRamp();   // dark → awake: breathe the glow in over 4 s
@@ -650,9 +734,48 @@ void command(const char *cmd) {
         startupAt      = millis();
         startupFrameMs = startupAt - STARTUP_FRAME_MS;   // first frame on the next tick
         startupReady   = false;
+        startupReadyReach = startupReadyLevel = 0;
         startupSeed    = random16();
+        // A host that gave a time will say when the sound begins; the menu's own start assumes it.
+        startupSoundKnown = !startupHosted;
+        startupSoundAt    = startupAt + STARTUP_SOUND_AFTER_MS;
+        startupWaitMs     = STARTUP_WAIT_MS;
+        startupGrowMs     = STARTUP_GROW_MS;
+        startupEndMs      = startupSpanMs > STARTUP_SOUND_AFTER_MS + STARTUP_GROW_MS + 1000
+                          ? startupSpanMs - STARTUP_SOUND_AFTER_MS : STARTUP_GROW_MS + 1000;
+        startupLevel      = STARTUP_LEVEL_DEFAULT;
+        // The eyes are behind the shut visor: dark until READY, then they blink on in the colour
+        // they had, or the one the host sends meanwhile, or warm gold.
+        if (eyeColor.r | eyeColor.g | eyeColor.b) startupEyeColor = eyeColor;
+        else startupEyeColor = CRGB(255, 200, 0);
+        startupEyesOpen = false;
+        eyeColor       = CRGB::Black;
+        eyesActive     = false;
+        blinkState     = BLINK_OPEN;
+        isSecondBlink  = false;
+        leds[0] = leds[1] = CRGB::Black;
         cancelGlowRamp();
         animMode       = ANIM_STARTUP;
+        return;
+    }
+
+    // STARTUP_SOUND:{wait},{grow},{end} — the startup sound has just begun (see "Mouth startup").
+    if (strncmp(cmd, "STARTUP_SOUND:", 14) == 0) {
+        long wait = 0, grow = 0, end = 0;
+        if (animMode == ANIM_STARTUP && !startupReady &&
+                sscanf(cmd + 14, "%ld,%ld,%ld", &wait, &grow, &end) == 3 && wait >= 0 && grow >= wait && end > grow) {
+            startupSoundKnown = true;
+            startupSoundAt    = millis();
+            startupWaitMs     = (uint32_t)wait;
+            startupGrowMs     = (uint32_t)grow;
+            startupEndMs      = (uint32_t)end;
+        }
+        return;
+    }
+
+    // STARTUP_LEVEL:{0-255} — how loud the startup sound is now.
+    if (strncmp(cmd, "STARTUP_LEVEL:", 14) == 0) {
+        startupLevel = clampByte(atoi(cmd + 14));
         return;
     }
 
@@ -662,6 +785,17 @@ void command(const char *cmd) {
             startupReady   = true;
             startupReadyMs = millis();
         }
+        return;
+    }
+
+    // WINK / WINK:L / WINK:R — one eye dark for WINK_MS. Nothing to wink with while the eyes
+    // are dark (off, asleep, charging, fading, or still behind the visor at startup).
+    if (strcmp(cmd, "WINK") == 0 || strcmp(cmd, "WINK:L") == 0 || strcmp(cmd, "WINK:R") == 0) {
+        if (headFading || (eyeColor.r | eyeColor.g | eyeColor.b) == 0) return;
+        winkEye     = cmd[4] == ':' && cmd[5] == 'L' ? 0 : 1;
+        winking     = true;
+        winkUntilMs = millis() + WINK_MS;
+        show();
         return;
     }
 
@@ -856,15 +990,15 @@ void tickSpeak() {
 // Mouth idle glow — dim emotional pulse while awake and not speaking
 // ---------------------------------------------------------------------------
 //
-// All 80 mouth pixels pulse together between GLOW_MIN (5 %) and GLOW_MAX
-// (10 %) of mouthColor on a slow sine (~6.3 s period at GLOW_RATE rad/s), so
+// A slow ripple spreads from the centre of the mouth outwards, each pixel between
+// GLOW_MIN (3 %) and GLOW_MAX (8 %) of mouthColor (see GLOW_RATE and GLOW_SPREAD), so
 // the mouth shows a soft version of the current emotion colour whenever Rex
 // is on but quiet.  Runs in ANIM_ACTIVE and ANIM_IDLE.
 //
 // Writes ONLY mouth pixels (MOUTH_START …) and returns true when the frame
 // changed — the caller decides when to show(), so IDLE mode can fold
-// the glow and the eye breathing into a single show per frame.  Throttled to
-// brightness-byte changes (~8 fps); forceGlowRefresh() makes the next tick
+// the glow and the eye breathing into a single show per frame.  At most one
+// frame every GLOW_FRAME_MS; forceGlowRefresh() makes the next tick
 // repaint unconditionally (used on mode entry so a stale speak frame or
 // mouthOff() never lingers).
 //
@@ -875,43 +1009,52 @@ bool tickMouthGlow(float dt) {
     glowPhase += GLOW_RATE * dt;
     if (glowPhase >= TWO_PI) glowPhase -= TWO_PI;
 
-    float mid  = (GLOW_MIN + GLOW_MAX) * 0.5f;
-    float amp  = (GLOW_MAX - GLOW_MIN) * 0.5f;
-    float brightness = mid + amp * sinf(glowPhase);
+    const uint32_t now = millis();
+    const bool forced = glowLastSum == 0xFFFF;
+    if (!forced && now - glowFrameMs < GLOW_FRAME_MS) return false;
+    glowFrameMs = now;
 
     // Ramp-in from dark (program launch / wake): scale the glow 0 → 1 over
     // GLOW_RAMP_IN_MS, then drop the ramp state once complete.
+    float gain = 1.0f;
     if (glowRampStartMs) {
-        uint32_t elapsed = millis() - glowRampStartMs;
+        uint32_t elapsed = now - glowRampStartMs;
         if (elapsed >= GLOW_RAMP_IN_MS) {
             glowRampStartMs = 0;
         } else {
-            brightness *= (float)elapsed / (float)GLOW_RAMP_IN_MS;
+            gain = (float)elapsed / (float)GLOW_RAMP_IN_MS;
         }
     }
-
-    // Settle from startup's fully lit mouth: ease down to the glow, never jump.
+    // Settle from startup's solid mouth: ease down to the glow, never jump.
+    float settleFrom = 0.0f, settled = 1.0f;
     if (glowSettleStartMs) {
-        uint32_t elapsed = millis() - glowSettleStartMs;
+        uint32_t elapsed = now - glowSettleStartMs;
         if (elapsed >= GLOW_SETTLE_MS) {
             glowSettleStartMs = 0;
         } else {
-            float from = glowSettleFrom / 255.0f;
-            brightness = from + (brightness - from) * ((float)elapsed / (float)GLOW_SETTLE_MS);
+            settleFrom = glowSettleFrom / 255.0f;
+            settled    = (float)elapsed / (float)GLOW_SETTLE_MS;
         }
     }
 
-    uint8_t sc = (uint8_t)(brightness * 255.0f);
-    uint32_t now = millis();
-    if (prideMouth) {
-        if (glowLastScale != 255 && now - prideGlowFrameMs < PRIDE_GLOW_FRAME_MS) return false;
-        prideGlowFrameMs = now;
-    } else if (sc == glowLastScale) return false;
-    glowLastScale = sc;
+    const float mid = (GLOW_MIN + GLOW_MAX) * 0.5f;
+    const float amp = (GLOW_MAX - GLOW_MIN) * 0.5f;
+    uint8_t  scale[NUM_MOUTH];
+    uint16_t sum = 0;
+    for (uint8_t i = 0; i < NUM_MOUTH; i++) {
+        // The further from the centre, the later the ripple arrives.
+        float brightness = (mid + amp * sinf(glowPhase - GLOW_SPREAD * mouthDistance[i] * (1.0f / 255.0f))) * gain;
+        brightness = settleFrom + (brightness - settleFrom) * settled;
+        scale[i] = (uint8_t)(brightness * 255.0f);
+        sum += (uint16_t)scale[i] * (uint16_t)(i + 1);
+    }
+    if (sum == 0xFFFF) sum = 0xFFFE;
+    if (!prideMouth && !forced && sum == glowLastSum) return false;   // the rainbow's colours always move
+    glowLastSum = sum;
 
     for (uint8_t row = 0; row < MOUTH_ROWS; row++) {
         for (uint8_t col = 0; col < MOUTH_COLS; col++) {
-            leds[mouthIdx(row, col)] = mouthPixel(row, col, sc, now);
+            leds[mouthIdx(row, col)] = mouthPixel(row, col, scale[row * MOUTH_COLS + col], now);
         }
     }
     return true;
@@ -1041,20 +1184,48 @@ void tickCharge() {
 }
 
 // ---------------------------------------------------------------------------
-// Mouth startup — flickering on until fully lit (see "Mouth startup" above)
+// Mouth startup — sparkling on from the centre outwards (see "Mouth startup" above)
 // ---------------------------------------------------------------------------
+
+// How far out the front is, and how bright a held light, at this much (0..255) of the growth.
+static inline uint8_t startupReachAt(uint16_t progress) {
+    const float part = progress / 255.0f;
+    return (uint8_t)(STARTUP_REACH * part * part);          // slow at first
+}
+static inline uint8_t startupLevelAt(uint16_t progress) {
+    return STARTUP_DIM + (uint8_t)((uint16_t)progress * (STARTUP_HIGH - STARTUP_DIM) / 255);
+}
 
 void tickStartup() {
     const uint32_t now = millis();
     const uint32_t planEnd = startupAt + startupSpanMs;
+    // A host that was to say when the sound begins and has not: assume the usual.
+    if (!startupSoundKnown && now - startupAt >= STARTUP_SOUND_PATIENCE_MS) startupSoundKnown = true;
+    // Where the sound is: before the wait the mouth is dark, then twinkles, then grows.
+    const int32_t  heard    = startupSoundKnown ? (int32_t)(now - startupSoundAt) : -1;
+    const bool     awake    = heard >= (int32_t)startupWaitMs;
+    const bool     growing  = heard >= (int32_t)startupGrowMs;
+    const uint32_t growSpan = startupEndMs > startupGrowMs ? startupEndMs - startupGrowMs : 1;
+    const uint16_t progress = !growing ? 0
+                            : (uint32_t)(heard - startupGrowMs) >= growSpan ? 255
+                            : (uint16_t)((uint32_t)(heard - startupGrowMs) * 255UL / growSpan);
     // READY's stand-in: the planned end when it times itself, a grace later when the host
     // was to say it.
     if (!startupReady && (int32_t)(now - (planEnd + (startupHosted ? LEDS_READY_GRACE_MS : 0))) >= 0) {
         startupReady   = true;
         startupReadyMs = now;
     }
-    if (startupReady && now - startupReadyMs >= LEDS_FINALE_MS) {
-        animMode          = ANIM_ACTIVE;     // fully lit: the glow takes over and eases down
+    if (startupReady && startupReadyReach == 0 && startupReadyLevel == 0) {
+        startupReadyReach = startupReachAt(progress) | 1;   // |1: never the "not yet noted" zero
+        startupReadyLevel = startupLevelAt(progress);
+    }
+    const uint32_t since = startupReady ? now - startupReadyMs : 0;
+    if (startupReady && since >= LEDS_FINALE_MS + STARTUP_SOLID_MS) {
+        if (!startupEyesOpen) {
+            startupEyesOpen = true;
+            setEyes(startupEyeColor.r, startupEyeColor.g, startupEyeColor.b);
+        }
+        animMode          = ANIM_ACTIVE;     // the glow takes over and eases down from solid
         glowRampStartMs   = 0;
         glowSettleFrom    = STARTUP_FULL;
         glowSettleStartMs = now | 1;
@@ -1064,36 +1235,81 @@ void tickStartup() {
     if (now - startupFrameMs < STARTUP_FRAME_MS) return;
     startupFrameMs = now;
 
-    const uint32_t elapsed = now - startupAt;
-    uint16_t progress = elapsed >= startupSpanMs ? 255 : (uint16_t)(elapsed * 255UL / startupSpanMs);
-    if (progress > STARTUP_HOLD_AT) progress = STARTUP_HOLD_AT;   // the last lights wait for READY
-    const uint8_t  level = STARTUP_LOW + (uint8_t)((uint16_t)progress * (STARTUP_HIGH - STARTUP_LOW) / 255);
-    const uint32_t slot  = now / STARTUP_FLICKER_MS;
-    // The whole mouth dips now and then, about one moment in eight at first, rarely by the end.
-    const bool dip = !startupReady && ledsFlick8(now / 150UL, 911u + startupSeed) < (uint8_t)(34 - progress / 9);
+    // Where the front is and how bright a held light is.
+    uint16_t reach;
+    uint8_t  level;
+    const bool solid = startupReady && since >= LEDS_FINALE_MS;
+    if (!startupReady) {
+        reach = startupReachAt(progress);
+        level = startupLevelAt(progress);
+    } else {
+        // Out to the corners and a band beyond in STARTUP_SWEEP_MS; brighter all the way to solid.
+        const uint16_t all = 255 + STARTUP_BAND;
+        reach = since >= STARTUP_SWEEP_MS ? all
+              : (uint16_t)(startupReadyReach + (uint32_t)(all - startupReadyReach) * since / STARTUP_SWEEP_MS);
+        level = since >= LEDS_FINALE_MS ? STARTUP_FULL
+              : (uint8_t)(startupReadyLevel + (uint32_t)(STARTUP_FULL - startupReadyLevel) * since / LEDS_FINALE_MS);
+    }
+    const uint32_t slot = now / STARTUP_FLICKER_MS;
+
+    if (!startupEyesOpen) {
+        // Dark behind the visor; after READY two flashes, the second brighter, then on for good,
+        // when the ordinary blinking takes them over.
+        if (startupReady && since >= EYES_OPEN_MS) {
+            startupEyesOpen = true;
+            setEyes(startupEyeColor.r, startupEyeColor.g, startupEyeColor.b);
+        } else {
+            const uint32_t t = startupReady && since >= EYES_WAKE_MS ? since - EYES_WAKE_MS : 0xFFFF;
+            const uint8_t flash = t < 70 ? 110 : t < 180 ? 0 : t < 270 ? 180 : 0;
+            CRGB eye = startupEyeColor;
+            eye.nscale8(flash);
+            leds[0] = leds[1] = eye;
+        }
+    }
+
+    // Twinkles: how many are due at once follows the sound's loudness (none under the low level,
+    // about two and a half at its top), each fading in and out over its own stretch of time.
+    const uint8_t loud = startupLevel <= STARTUP_TWINKLE_LOW ? 0
+                       : startupLevel >= STARTUP_TWINKLE_TOP ? 255
+                       : (uint8_t)((uint16_t)(startupLevel - STARTUP_TWINKLE_LOW) * 255 / (STARTUP_TWINKLE_TOP - STARTUP_TWINKLE_LOW));
+    const uint8_t twinkleChance = scale8(8, loud);          // of 256, for each light in each stretch
+    const uint8_t glintTop = (uint8_t)(STARTUP_DIM + scale8(STARTUP_GLINT - STARTUP_DIM, 128 + startupLevel / 2));
 
     for (uint8_t row = 0; row < MOUTH_ROWS; row++) {
         for (uint8_t col = 0; col < MOUTH_COLS; col++) {
             const uint8_t i = row * MOUTH_COLS + col;
-            uint8_t brightness;
-            if (startupReady) {
-                // Every light on at once, swelling to fully lit over half the finale.
-                const uint32_t since = now - startupReadyMs;
-                const uint32_t swell = LEDS_FINALE_MS / 2;
-                brightness = since >= swell ? STARTUP_FULL
-                           : (uint8_t)(level + (uint32_t)(STARTUP_FULL - level) * since / swell);
-            } else {
-                const uint8_t catchAt = 45 + ledsFlick8(i, startupSeed) % 206;   // 45..250 of 255: the last few wait for READY
-                const int16_t d = (int16_t)progress - (int16_t)catchAt;
-                // Chance of being lit this moment: a rare flicker long before its moment, rising to
-                // nearly always as the moment comes, certain a little after.
-                const uint8_t chance = d < -70 ? 7 : d < 0 ? (uint8_t)(7 + (d + 70) * 200 / 70)
-                                     : d < 24 ? (uint8_t)(207 + d * 2) : 255;
-                const bool lit = chance == 255 || ledsFlick8(slot, 300u + i + startupSeed) < chance;
-                // A light still catching shimmers; one that holds is steady.
-                brightness = !lit ? 0 : d >= 24 ? level
-                           : scale8(level, 150 + scale8(ledsFlick8(slot, 600u + i), 105));
-                if (dip) brightness = scale8(brightness, 70);
+            uint8_t brightness = 0;
+            if (solid) {
+                brightness = STARTUP_FULL;
+            } else if (awake || startupReady) {
+                // A twinkle, wherever the light is: its own stretch of time, up and down again.
+                const uint32_t mine    = now + (uint32_t)ledsFlick8(i, 77u + startupSeed) * 11u;
+                const uint32_t stretch = mine / STARTUP_TWINKLE_MS;
+                uint8_t twinkle = 0;
+                if (ledsFlick8(stretch, 900u + i + startupSeed) < twinkleChance) {
+                    const uint32_t into = mine % STARTUP_TWINKLE_MS;
+                    const uint32_t half = STARTUP_TWINKLE_MS / 2;
+                    const uint32_t rise = into < half ? into : STARTUP_TWINKLE_MS - into;       // 0..half
+                    twinkle = (uint8_t)(6 + (uint32_t)(glintTop - 6) * rise / half);
+                }
+                brightness = twinkle;
+                if (growing || startupReady) {
+                    // Each light sits a little nearer or further than its place, so the front is ragged.
+                    const int16_t distance = (int16_t)mouthDistance[i] + (int16_t)(ledsFlick8(i, startupSeed) % 25) - 12;
+                    const int16_t behind = (int16_t)reach - distance;          // how long ago the front passed
+                    const uint8_t coin  = ledsFlick8(slot, 300u + i + startupSeed);
+                    const uint8_t glint = ledsFlick8(slot, 600u + i);
+                    if (behind >= STARTUP_FRESH) {
+                        brightness = level;                                    // it holds
+                    } else if (behind >= 0) {
+                        // Just caught: mostly on, shimmering between its level and a glint.
+                        brightness = coin < 215 ? (uint8_t)(level + scale8(glint, glintTop > level ? glintTop - level : 0) / 2) : 0;
+                    } else if (behind > -STARTUP_BAND && reach > 0) {
+                        // Ahead of the front: sparkles, more often the nearer it is.
+                        const uint8_t chance = (uint8_t)(18 + (uint16_t)(STARTUP_BAND + behind) * 92 / STARTUP_BAND);
+                        if (coin < chance) brightness = (uint8_t)(STARTUP_DIM + scale8(glint, glintTop - STARTUP_DIM));
+                    }
+                }
             }
             leds[mouthIdx(row, col)] = mouthPixel(row, col, brightness, now);
         }
@@ -1152,6 +1368,15 @@ void begin() {
                 (uint16_t)(angle * (255.0f / TWO_PI) + sqrtf(x*x + y*y) * 18.0f) & 255);
         }
     }
+    // Distance of each mouth light from the centre, the corners furthest (255): the startup
+    // sparkle spreads along it. The mouth is taller than wide, so each axis is measured in
+    // halves of its own span and the spread reaches all four edges together.
+    for (uint8_t row = 0; row < MOUTH_ROWS; row++) {
+        for (uint8_t col = 0; col < MOUTH_COLS; col++) {
+            const float dx = (col - 3.5f) / 3.5f, dy = (row - 4.5f) / 4.5f;
+            mouthDistance[row * MOUTH_COLS + col] = (uint8_t)(255.0f * sqrtf((dx * dx + dy * dy) * 0.5f));
+        }
+    }
     strip = &FastLED.addLeds<WS2812B, HEAD_DATA_PIN, RGB>(leds, NUM_LEDS);
     masterBrightness = 255;
     // Temporal dithering OFF. FastLED's binary dithering simulates extra
@@ -1194,6 +1419,10 @@ void begin() {
 }
 
 void tick() {
+    if (winking && (int32_t)(millis() - winkUntilMs) >= 0) {
+        winking = false;       // the eye comes back as it now is
+        show();
+    }
     if (headFading) {
         // Shutdown fade: freeze the current frame and ramp master brightness to 0
         // over HEAD_FADEOFF_MS, then go dark. Skip the normal ticks so nothing

@@ -12,7 +12,8 @@ from r3x.contracts import Cancellation, Playback
 from r3x.output import OutputOwner
 from r3x.providers import LifecycleResult
 from r3x.settings import Settings
-from r3x.startup_audio import ASSETS, READY_LINES, STARTUP_CLIP, LineCycle, StartupAudio, read_clip, split_at_pause
+from r3x.startup_audio import (ASSETS, READY_LINES, STARTUP_CLIP, LineCycle, StartupAudio, loudness, read_clip,
+                               split_at_pause)
 from r3x.startup_notice import announce
 from tests.test_voice_core import Trace
 
@@ -124,6 +125,50 @@ class StartupAudioTests(unittest.TestCase):
         self.assertLess(len(sink.played[0]), len(BUILD))
         audio.land()                                               # Too late to matter, and never a wait.
         self.assertEqual(len(sink.played), 1)
+
+    def test_the_builds_loudness_is_measured_as_it_is_heard(self):
+        # Owner, November 21: "The startup sound rises until about 3 seconds in then starts dying around 4
+        # seconds a little then it starts going back up around 6.5 seconds. The mouth LEDs should match that."
+        levels = loudness(BUILD)
+        at = lambda seconds: max(levels[int(seconds * 10):int(seconds * 10) + 5])   # The half second from there.
+        self.assertAlmostEqual(len(levels) / 10, len(BUILD) / 44100, delta=.15)      # One reading every tenth of a second.
+        self.assertGreater(at(3.0), at(0.0) + 40)                                    # It rises to about three seconds,
+        self.assertLess(at(4.0), at(3.0) - 50)                                       # dies away at four,
+        self.assertTrue(all(at(s) < at(3.0) for s in (4.5, 5.0, 5.5, 6.0)))          # stays under that peak,
+        self.assertGreater(at(6.5), at(3.0) + 15)                                    # and comes back above it at six and a half,
+        self.assertEqual(max(levels), 255)
+        self.assertTrue(9.5 <= levels.index(255) / 10 <= 11.)                        # to its loudest near the end.
+        # Low rumble counts for little, as to the ear: a loud low tone reads far under a quieter high one.
+        def tone_at(hertz, level):
+            return array('h', [int(level * __import__('math').sin(2 * 3.14159265 * hertz * i / 22050))
+                               for i in range(22050)]).tobytes()
+        mixed = loudness(tone_at(60, 12000) + tone_at(3000, 3000))
+        self.assertLess(mixed[4] + 60, mixed[14])
+        self.assertEqual(loudness(quiet(1.)), [0] * 10)
+
+    def test_the_lights_are_told_when_the_build_is_first_heard(self):
+        heard = []
+        sink = RecordingSink(pace=.001)
+        audio = StartupAudio(CountingTTS(), sink, self.dir)
+        audio.on_build_heard = lambda *args: heard.append(args)
+        began = time.monotonic()
+        audio.start()
+        self.wait_for(lambda: sink.played == [BUILD])
+        audio.land(); audio.stop()
+        self.assertEqual(len(heard), 1)                                    # Once, for the build; not for the finish.
+        at, level_at, wait, grow, end = heard[0]
+        self.assertTrue(began <= at <= time.monotonic())
+        self.assertEqual((wait, grow), (1., 6.5))                          # The owner's two moments in this clip.
+        self.assertAlmostEqual(end, len(BUILD) / 44100, places=3)
+        levels = loudness(BUILD)
+        self.assertEqual([level_at(s) for s in (0., 3.05, 6.55)], [levels[0], levels[30], levels[65]])
+        self.assertIsNone(level_at(-.5))                                   # Before it begins: nothing to say.
+        self.assertEqual(level_at(end + 5), 0)                             # After it ends: silence.
+        # A listener that fails never stops the sound.
+        broken = StartupAudio(CountingTTS(), RecordingSink(pace=.001), self.dir)
+        broken.on_build_heard = lambda *args: 1 / 0
+        broken.start(); broken.land()
+        self.assertTrue(broken.stop())
 
     def test_the_startup_sound_is_cut_at_its_pause(self):
         self.assertAlmostEqual(len(BUILD) / 44100, 11.8, delta=.3)          # The owner's clip: a build of about twelve

@@ -200,6 +200,20 @@ for name, (history, head, text, check) in LOOK_CASES.items():
     CASES[name] = (history, VISOR_OPEN, False, text, 'action', check)
 
 
+def winked(calls):
+    return any(c['name'] == 'respond_with_gesture' and c['arguments'].get('primitive') == 'wink' or
+               c['name'] == 'set_robot_pose' and 'wink' in (c['arguments'].get('poses') or ()) for c in calls)
+
+
+# Owner, November 21: a wink is an expression the model can choose (one eye dark, a slight head tilt).
+CASES.update({
+    'wink_at_me': ((), VISOR_OPEN, False, 'Hey Rex, give me a wink.', 'action', winked),
+    'can_you_wink': ((), VISOR_OPEN, False, 'Can you wink?', 'action', winked),
+    'plain_sum_no_wink': ((), VISOR_OPEN, False, 'What is seven times eight?', 'action',
+                          lambda calls: not winked(calls)),
+})
+
+
 def run(case, key, folder, round_=0, provider='openai'):
     history, visor, quiet, text, expect, check = CASES[case]
     with TemporaryDirectory() as tmp:
@@ -301,6 +315,7 @@ def run(case, key, folder, round_=0, provider='openai'):
                     'looks': [{k: c['arguments'].get(k) for k in ('direction', 'subject', 'look_after')}
                               for c in calls if c['name'] in {'inspect_view', 'inspect_visual_memory', 'set_robot_pose'}],
                     'lights': [c['arguments'].get('pattern') for c in calls if c['name'] == 'animate_lights'],
+                    'expressions': [c['arguments'].get('primitive') for c in calls if c['name'] == 'respond_with_gesture'],
                     'quiet_after': state.initiative.quiet, 'said': spoken[:200]}
         finally:
             store.close()

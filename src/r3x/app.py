@@ -147,6 +147,8 @@ class App:
         # line and the droid filler are retired (owner, November 20).
         from .startup_audio import StartupAudio
         self.startup_audio = StartupAudio(tts, sink, self.paths.root / 'cache', wake_motion=self.robot is not None)
+        if self.leds:
+            self.startup_audio.on_build_heard = self.leds.startup_sound   # The mouth follows the startup sound.
         if self.robot:
             self.robot.on_startup = self.startup_audio.motion_started
             self.robot.on_shutdown = self.startup_audio.shutdown_started   # Power-down clip over the park.

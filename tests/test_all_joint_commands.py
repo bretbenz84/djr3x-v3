@@ -189,6 +189,45 @@ class ChainedPoseCommands(MemoryFixture):
         self.assertEqual(result.status,'completed')
         self.assertEqual(result.completed_text, ['Someone has abandoned a sock. I have questions.'])
 
+    def test_asked_to_wink_one_eye_goes_dark_as_the_head_cocks_slightly_and_returns(self):
+        # Owner, November 21: a wink the model can call: one eye off for a moment with a slight head tilt.
+        from r3x.servo_poses import head_pose
+        from tests.test_leds import rig
+        def cock(step):
+            """How far the head leans to a side at the most during a one-step request."""
+            self.setup_robot(ToolCall('p','set_robot_pose',{'poses':[step],'look_after':None,'say_before':None,'text':'There.'}))
+            led, ports, _ = rig()
+            led.clock = self.state.trace.clock
+            led.wait = lambda n: setattr(self.state.trace,'at',self.state.trace.at+n)
+            self.addCleanup(led.close)
+            self.output.leds = led
+            before = dict(self.port.pose)
+            leans, original = [], self.port.write
+            def watching(data):
+                written = original(data)
+                leans.append(head_pose(self.port.pose)[1] - head_pose(before)[1])   # Below zero: to his left.
+                return written
+            self.port.write = watching
+            result = self.turn('Give me a wink.')
+            self.port.write = original
+            return result, ports, before, max(leans, key=abs)
+        context = grounded_tools({'source_turn_id':'t','robot_pose_enabled':True})
+        self.assertIn('wink', next(t for t in context if t['name']=='set_robot_pose')['parameters']['properties']['poses']['items']['enum'])
+        result, ports, before, lean = cock('wink')
+        self.assertEqual(result.completed_text, ['There.'])
+        self.assertEqual([(r['pose'], r['status']) for r in self.rows('robot_pose_result')], [('wink', 'pulses_reached')])
+        self.assertEqual(ports['head'].commands.count('WINK'), 1)        # One eye, once; the board times it.
+        self.assertEqual(ports['chest'].commands.count('WINK'), 0)
+        self.assertIn(('wink', 'commands_sent'), [(l['pattern'], l['status']) for l in result.lights])
+        self.assertEqual(self.port.pose, before)                         # The head is back where it was; nothing is held.
+        # It cocked to his left, the side of the eye the board's plain WINK darkens (the first wink
+        # cocked right while his left eye went dark: owner, November 21),
+        self.assertLess(lean, -.05)
+        _, other, _, full = cock('tilt_left')
+        self.assertLess(full, 0)
+        self.assertLess(abs(lean), abs(full) * .75)                      # but only slightly: well short of a full tilt.
+        self.assertEqual(other['head'].commands.count('WINK'), 0)        # And only a wink winks.
+
     def test_mixed_head_arm_and_light_steps_run_in_the_order_asked(self):
         # "Look left then right then up then down then hold your hand out and blink your eyes."
         from r3x.servo_poses import LOOK_PITCH, NAMED_POSES, head_pose
