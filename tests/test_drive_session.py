@@ -304,6 +304,28 @@ class DriveSessionTests(MemoryFixture):
         self.assertFalse(any(c['cmd'] in {'turn', 'move', 'drive'} for c in self.fake.commands))
 
 
+    def test_a_momentary_depth_dropout_still_drives_once_it_reads_again(self):
+        # Owner, November 21 (b9f6091f): a half-second stall of both matrices refused "down the hall".
+        self.setup_drive(drive_call(step('turn', degrees=90.), text='One sec, my sensors blinked.'))
+        settle()
+        self.assertTrue(self.drive.context('requested')['available'])   # Good readings a moment ago.
+        self.fake.matrix = False
+        self.clock.now += 2.
+        settle()
+        back_at = self.clock() + 2.
+        def recover():
+            while self.clock() < back_at:
+                time.sleep(.001)
+            self.fake.matrix = True
+        threading.Thread(target=recover, daemon=True).start()
+        self.turn('Turn left.')
+        offered = self.brain.snapshots[0].context['drive']
+        self.assertTrue(offered['available'])
+        self.assertIn('front_depth_matrix_unavailable', offered['sensor_recovering'])
+        self.assertTrue(any(c['cmd'] == 'turn' for c in self.fake.commands))
+        self.assertEqual(self.rows('drive_sensor_wait')[-1]['outcome'], 'recovered')
+
+
 class DriveRuntimeTests(MemoryFixture):
     def runtime_for(self, session, faces):
         from types import SimpleNamespace

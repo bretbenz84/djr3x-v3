@@ -8,7 +8,7 @@ import time
 import unittest
 
 from r3x.contracts import Cancellation, Capture, ToolCall, Transcript
-from r3x.drive import DriveBase, DrivePlan, DriveStep, Flinch, Radar, LIMITS, CONFIG
+from r3x.drive import DriveBase, DrivePlan, DriveStep, Flinch, Radar, LIMITS, CONFIG, SENSOR_GRACE_S, SENSOR_WAIT_S
 from r3x.drive_space import (allowed_turn, clearance, face_range, image_bearing, matrix_sectors,
                              move_allowance, open_directions, radar_bodies, FACE_WIDTH, HALF_FOV)
 from r3x.adapters.esp32 import seam_merge
@@ -589,6 +589,57 @@ class DriveOwnerTests(unittest.TestCase):
             receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
             self.assertEqual((receipt.status, receipt.reason), ('refused', reason))
         self.assertFalse(any(c['cmd'] in {'turn', 'move'} for c in self.fake.commands))
+
+    def dropout(self):
+        """Readings were good a moment ago, then the depth matrix goes quiet (owner, November 21)."""
+        self.start()
+        settle()
+        self.assertEqual(self.drive.availability(), (True, None))
+        rows = []
+        self.drive.trace = type('Trace', (), {'emit': lambda _, event, **row: rows.append((event, row))})()
+        self.fake.matrix = False
+        self.clock.wait(1.2)
+        settle()
+        return rows
+
+    def test_a_momentary_depth_dropout_is_waited_out_then_he_drives(self):
+        # Run b9f6091f: both matrices stalled half a second before "down the hall"; Rex refused
+        # and they were back within 12 s. He now waits for them instead.
+        rows = self.dropout()
+        offered = self.drive.context('requested')
+        self.assertTrue(offered['available'])
+        self.assertIn('front_depth_matrix_unavailable', offered['sensor_recovering'])
+        back_at, before = self.clock() + 3., []
+        def recover():
+            while self.clock() < back_at:
+                time.sleep(.001)
+            before.extend(c['cmd'] for c in self.fake.commands)
+            self.fake.matrix = True
+        threading.Thread(target=recover, daemon=True).start()
+        receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+        waits = [row for event, row in rows if event == 'drive_sensor_wait']
+        self.assertEqual(waits[-1]['outcome'], 'recovered')
+        self.assertGreaterEqual(waits[-1]['seconds'], 3.)
+        self.assertFalse({'turn', 'move', 'drive'} & set(before))   # Nothing moved before the readings were back.
+
+    def test_a_dropout_that_stays_out_is_refused_without_moving(self):
+        rows = self.dropout()
+        started = self.clock()
+        receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
+        self.assertEqual((receipt.status, receipt.reason), ('refused', 'front_depth_matrix_unavailable'))
+        self.assertLessEqual(self.clock() - started, SENSOR_WAIT_S + 1.)
+        self.assertEqual([row['outcome'] for event, row in rows if event == 'drive_sensor_wait'][-1], 'still_out')
+        self.assertFalse(any(c['cmd'] in {'turn', 'move', 'drive'} for c in self.fake.commands))
+
+    def test_an_old_dropout_is_told_as_a_lockout_at_once(self):
+        self.dropout()
+        self.clock.wait(SENSOR_GRACE_S + 1.)
+        settle()
+        offered = self.drive.context('requested')
+        self.assertEqual((offered['available'], offered['unavailable_reason']), (False, 'front_depth_matrix_unavailable'))
+        self.assertNotIn('sensor_recovering', offered)
+        self.assertFalse(self.drive.context('self_initiated')['available'])
 
     def test_unplugged_surface_charge_releases_on_next_telemetry(self):
         self.start()

@@ -2053,3 +2053,24 @@ either, and the front-right has not been seen in a doubtful stretch since the ch
 `front_right_radial_unavailable` handling stays for a sensor that truly gives nothing. The Bluetooth text that garbles the serial line after a controller start
 (firmware README).
 
+
+## Run `b9f6091f`: a momentary depth-sensor stall refused the hallway — November 21, 2026
+
+Half a second before "go through the door and down the hall towards the kitchen", the
+controller logged `publisher stale` for the front and rear matrices at the same moment; the
+wheels were locked out as `front_depth_matrix_unavailable` and Rex refused. The sensors were
+reading again within 12 s, and the owner's utility found them working. The four history turns
+the model saw were all from this run; the refusal came from that second's live reading.
+Across recent runs the controller logged 339 such stalls and only one module re-setup, so
+these are short pauses of the shared matrix poll task (both modules at once), not sensors
+resetting.
+
+Owner: "can we have him try again before refusing?" A dropout of the front matrix, the radial
+ring, drive telemetry or controller contact within `SENSOR_GRACE_S` (30 s) of a good reading
+keeps the drive offered to the model for a requested move, with `drive.sensor_recovering`
+saying so, and `execute` waits up to `SENSOR_WAIT_S` (12 s) for the readings before the first
+step and between steps (`drive_sensor_wait` traces `waiting`, then `recovered` or `still_out`
+with seconds). Nothing moves until the readings are back; an older outage and Rex's own moves
+are refused at once, as before. Checks: synthetic controller only (`tests/test_drive.py`
+dropout tests, `tests/test_drive_session.py`), `run_checks.py --changed` 564 pass. Not yet run
+on the robot.

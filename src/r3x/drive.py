@@ -342,6 +342,24 @@ UNAVAILABLE_MEANINGS = {
 }
 
 
+# Owner, November 21 (run b9f6091f): both depth matrices went quiet together for a moment half a
+# second before "go through the door and down the hall"; Rex refused ("my front sensor's gone dark")
+# and the sensors were back within 12 s. "Can we have him try again before refusing?" A sensor that
+# was reading within SENSOR_GRACE_S stays offered to the model, and a drive waits up to
+# SENSOR_WAIT_S for it before refusing. Nothing moves until the readings are back; an outage older
+# than the grace is refused at once, as before.
+SENSOR_DROPOUTS = frozenset({'front_depth_matrix_unavailable', 'radial_ring_unavailable',
+                             'drive_telemetry_stale', 'controller_comms_lost'})
+SENSOR_GRACE_S = 30.
+SENSOR_WAIT_S = 12.     # Plans expire 20 s after they are made (state.propose_drive).
+SENSOR_RECOVERING_MEANING = (
+    'A sensor dropped out a moment ago ({reason}); these dropouts usually clear within seconds. Drive '
+    'tools stay offered: if someone asks you to move, call the drive as asked and say in a few words '
+    'that you are waiting a second for your sensors. He waits up to {wait} seconds for the readings '
+    'before moving and never moves blind; if they stay out the receipt is refused with the reason, '
+    'and then you say what is wrong.')
+
+
 def unavailable_meaning(reason):
     """What a wheel lockout means in words, for the model to tell people; None when wheels are free."""
     if not reason:
@@ -693,6 +711,7 @@ class DriveBase:
         self.local_map = LocalMap(clock)   # What the range sensors saw around him in the last minute.
         self._manual = None           # Dashboard teleop holding the plan lock: {'parked', 'moving'}.
         self._offered_reason = None   # The lockout last told to the model, traced when it changes.
+        self._sensors_ok_at = None    # Last time no sensor dropout locked the wheels (SENSOR_GRACE_S).
 
     # Lifecycle -----------------------------------------------------------
     def start(self):
@@ -1036,7 +1055,32 @@ class DriveBase:
         for reason in ('front_depth_matrix_unavailable', 'radial_ring_unavailable'):
             if reason in space['health']:
                 return False, reason
+        self._sensors_ok_at = now
         return True, None
+
+    def recovering(self, reason, now=None):
+        """A sensor dropout that began within SENSOR_GRACE_S of the last good reading."""
+        now = self.clock() if now is None else now
+        return (reason in SENSOR_DROPOUTS and self._sensors_ok_at is not None
+                and 0 <= now - self._sensors_ok_at <= SENSOR_GRACE_S)
+
+    def _await_sensors(self, reason, cancel, deadline):
+        """Hold still while a recent dropout clears; (ok, reason) once it does or time is up."""
+        started = self.clock()
+        if self.trace:
+            self.trace.emit('drive_sensor_wait', reason=reason, outcome='waiting')
+        while not self.clock() >= min(deadline, started + SENSOR_WAIT_S):
+            self._sleep(.25, cancel)
+            ok, now_reason = self.availability()
+            if ok or now_reason not in SENSOR_DROPOUTS:
+                break
+            reason = now_reason
+        else:
+            ok, now_reason = False, reason
+        if self.trace:
+            self.trace.emit('drive_sensor_wait', reason=reason, outcome='recovered' if ok else 'still_out',
+                            seconds=round(self.clock() - started, 2))
+        return ok, now_reason
 
     @staticmethod
     def _heading(telemetry):
@@ -1118,9 +1162,11 @@ class DriveBase:
         ok, reason = self.availability(now)
         if origin=='self_initiated' and self._pose_held():
             ok, reason = False, 'human_pose_held'
+        recovering = not ok and origin == 'requested' and self.recovering(reason, now)
         if reason != self._offered_reason and self.trace:
             # November 14: the log never said why the wheels were locked out all run.
-            self.trace.emit('drive_availability', available=ok, reason=reason, origin=origin)
+            self.trace.emit('drive_availability', available=ok, reason=reason, origin=origin,
+                            **({'offered_while_recovering': True} if recovering else {}))
         self._offered_reason = reason
         space = self.space(now)
         targets = []
@@ -1181,7 +1227,11 @@ class DriveBase:
             heading = self._heading(telemetry)
             displacement = {'distance_m': round(math.hypot(dx, dy), 2),
                             'heading_change_deg': round(wrap(heading - self.origin[2])) if heading is not None and self.origin[2] is not None else None}
-        return {'available': ok, 'unavailable_reason': reason, 'unavailable_meaning': unavailable_meaning(reason),
+        offered = {'available': True, 'unavailable_reason': None, 'unavailable_meaning': None,
+                   'sensor_recovering': SENSOR_RECOVERING_MEANING.format(reason=reason, wait=int(SENSOR_WAIT_S))
+                   } if recovering else {
+                   'available': ok, 'unavailable_reason': reason, 'unavailable_meaning': unavailable_meaning(reason)}
+        return {**offered,
                 'clearance_m': {k: (round(v, 1) if isinstance(v, float) else v) for k, v in space.items() if k != 'health'},
                 'clearance_meaning': GUIDE['drive.clearance_m'],
                 'radar_view': {'status': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
@@ -3284,6 +3334,8 @@ class DriveBase:
             ok, reason = self.availability()
             if plan.origin=='self_initiated' and self._pose_held():
                 ok, reason = False, 'human_pose_held'
+            if not ok and self.recovering(reason):
+                ok, reason = self._await_sensors(reason, cancel, plan.expires_at)
             if not ok or self.clock() >= plan.expires_at:
                 receipt.status, receipt.reason = 'refused', reason or 'StaleDrivePlan'
                 return receipt
@@ -3308,6 +3360,9 @@ class DriveBase:
                 self._turn_moved = 0.
                 self._speeds = RollSpeeds()
                 ok, reason = self.availability()
+                if not ok and self.recovering(reason):
+                    # Between steps the plan's age no longer matters: he is already under way.
+                    ok, reason = self._await_sensors(reason, cancel, self.clock() + SENSOR_WAIT_S)
                 if not ok:
                     receipt.steps.append({'action': step.action, 'status': 'refused', 'reason': reason})
                     break
