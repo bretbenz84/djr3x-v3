@@ -228,6 +228,30 @@ class RoomTripTests(unittest.TestCase):
         self.assertEqual((receipt.steps[0]['status'], receipt.steps[0]['reason']), ('stopped', 'kept_out_of_doorway'), receipt)
         self.assertIsNone(drive._reached)
 
+    def test_after_a_trip_someone_asked_for_fails_his_own_moves_wait(self):
+        # Run e54062b9: the owner's trip failed and, while he was still giving directions, Rex swivelled on his own.
+        from r3x.drive import ERRAND_HOLD_S
+        clock, fake, drive, world = self.start()
+        drive.navigator = FakeMap(fake)
+        failed = self.run_plan(clock, drive, DriveStep('go_to', target='kitchen', description='the kitchen'))
+        self.assertNotEqual(failed.status, 'completed')
+        own = self.run_plan(clock, drive, DriveStep('turn', degrees=-40.), origin='self_initiated')
+        self.assertEqual((own.status, own.reason), ('refused', 'errand_unfinished'))
+        offered = drive.context('self_initiated')
+        self.assertFalse(offered['available'])
+        self.assertIn('waits for them', offered['unavailable_meaning'])
+        self.assertTrue(drive.context('requested')['available'])     # What they ask for still goes.
+        clock.now += ERRAND_HOLD_S + 1
+        settle()                                                      # Fresh telemetry after the jump in time.
+        own = self.run_plan(clock, drive, DriveStep('turn', degrees=-40.), origin='self_initiated')
+        self.assertEqual(own.status, 'completed', own)
+        # A trip they asked for that completes ends the wait at once.
+        self.run_plan(clock, drive, DriveStep('go_to', target='kitchen', description='the kitchen'))
+        done = self.run_plan(clock, drive, DriveStep('turn', degrees=30.))
+        self.assertEqual(done.status, 'completed')
+        own = self.run_plan(clock, drive, DriveStep('turn', degrees=-40.), origin='self_initiated')
+        self.assertEqual(own.status, 'completed', own)
+
     def test_his_own_move_stops_where_a_doorway_begins(self):
         clock, fake, drive, world = self.start()
         fake.sensors = doorway(fake, at=1.)

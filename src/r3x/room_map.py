@@ -23,6 +23,7 @@ Pure Python (the contract checks block native libraries). Nothing here moves the
 import json
 import math
 from array import array
+from collections import deque
 from uuid import uuid4
 
 SCHEMA = """
@@ -224,16 +225,23 @@ class Odometer:
 
     The drive owner's own `_at` is folded only while a plan runs; this one also follows the gamepad and
     being pushed, so a trip driven by hand is a passage too. Run-local: it means nothing after a restart.
-    The trail keeps a point every 5 cm or 5 degrees with the side clearances (doorways)."""
+    The trail keeps a point every 5 cm or 5 degrees with the side clearances (doorways).
+
+    While the wheels say they are still (not driven, not turning), a heading change is the gyroscope drifting, not
+    him turning: it is left out of his heading, and while he moves the drift measured at rest is taken off too. Run e54062b9 (November 22): a gyroscope zero 19.7 degrees a second
+    off made every reading look like a turn, so he never counted as standing still and the room map filed nothing
+    in seven minutes. Being turned by hand turns the wheels too; lifted and turned, he is carried (see places)."""
 
     TRAIL = 4000
+    STILL_SPEED = .003     # m/s at a wheel, or of the base...
+    STILL_TURN = .01       # ...and rad/s of the base under which, with no drive level, the wheels are still.
+    DRIFT_WINDOW_S = 10.
     # Leaning this far from how he normally sits (pitch or roll, degrees): picked up, not rolled. The resting
     # lean follows slowly (about 50 frames), so a sloped floor stops counting after a few seconds.
     TILT_DEG = 6.
     REST_FOLLOW = .02
 
     def __init__(self, clock):
-        from collections import deque
         from threading import Lock
         self.clock = clock
         self.lock = Lock()
@@ -242,6 +250,11 @@ class Odometer:
         self.mark = None
         self.moved_at = float('-inf')
         self.trail = deque(maxlen=self.TRAIL)   # (t, x, y, yaw, left_m, right_m)
+        self.raw_yaw = None             # The gyroscope's own heading at the last frame.
+        self.rest_offset = 0.           # Heading change with the wheels still, left out of his heading.
+        self.drifts = deque()           # (time, rest_offset) over the frames with the wheels still.
+        self.rest_rate = None           # Degrees a second it drifted at rest, the last time that was measured.
+        self.last_at = None             # When the last frame came.
         self.rest = None                # (pitch, roll) as he normally sits.
         self.tilt_seen = False          # The IMU reports pitch and roll at all.
         self.tilted_at = float('-inf')  # When he last leaned well away from that.
@@ -263,6 +276,29 @@ class Odometer:
         with self.lock:
             return (self.tilted_at > float('-inf') and self.tilted_at >= t) if self.tilt_seen else None
 
+    def _wheels_still(self, telemetry):
+        """True when the controller says the wheels are neither driven nor turning; None when it does not say."""
+        wheels, odom = telemetry.get('wheels') or {}, telemetry.get('odom') or {}
+        speeds = [wheels.get(k) for k in ('vl', 'vr')] + [odom.get('lin')]
+        duties = [wheels.get(k) for k in ('dl', 'dr')]
+        known = [v for v in speeds + duties + [odom.get('ang')] if isinstance(v, (int, float))]
+        if not known:
+            return None
+        return (all(abs(v) < self.STILL_SPEED for v in speeds if isinstance(v, (int, float)))
+                and all(v == 0 for v in duties if isinstance(v, (int, float)))
+                and not (isinstance(odom.get('ang'), (int, float)) and abs(odom['ang']) >= self.STILL_TURN))
+
+    def _slope(self):
+        if len(self.drifts) < 2 or self.drifts[-1][0] - self.drifts[0][0] < 3.:
+            return None
+        return (self.drifts[-1][1] - self.drifts[0][1]) / (self.drifts[-1][0] - self.drifts[0][0])
+
+    def drift_at_rest(self):
+        """Degrees a second the gyroscope's heading moved with the wheels still, over the last few seconds of
+        stillness, or None."""
+        with self.lock:
+            return self._slope()
+
     def update(self, telemetry, sides=(None, None)):
         imu = telemetry.get('imu') or {}
         self._tilt(imu, self.clock())
@@ -275,7 +311,23 @@ class Odometer:
             return
         xy = (float(odom.get('x', 0.)), float(odom.get('y', 0.)))
         now = self.clock()
+        still = self._wheels_still(telemetry)
         with self.lock:
+            raw, self.raw_yaw = self.raw_yaw, yaw
+            last_at, self.last_at = self.last_at, now
+            if still and raw is not None:
+                self.rest_offset += wrap(yaw - raw)
+                self.drifts.append((now, self.rest_offset))
+                while self.drifts and now - self.drifts[0][0] > self.DRIFT_WINDOW_S:
+                    self.drifts.popleft()
+                rate = self._slope()
+                if rate is not None:
+                    self.rest_rate = rate
+            elif not still:
+                self.drifts.clear()
+                if still is False and self.rest_rate is not None and last_at is not None:
+                    self.rest_offset += self.rest_rate * max(0., now - last_at)
+            yaw = wrap(yaw - self.rest_offset)
             mark, self.mark = self.mark, xy
             turned = self.yaw is not None and separation(yaw, self.yaw) >= .5
             self.yaw = yaw

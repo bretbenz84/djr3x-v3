@@ -468,6 +468,37 @@ fails on the earlier code:
   spots keep the name a person gave over a trip's guess; a naming that could not be kept yet says so in its
   result instead of "kept".
 
+### First robot run (November 22, 12:53, `e54062b9`)
+
+Bret: "It failed miserably." Seven minutes in the workshop; no spot, photo or passage was made.
+
+- **The wheel controller's gyroscope zero was 19.7° a second off** (its sensor power had been off overnight and came
+  back during the wake animation, and the firmware took its zero from one reading). Left turns stopped at half,
+  "turn right 90" spun about 240°, the door search found the door and refused to roll, and the room map never saw
+  him standing still. Fixed in drive firmware 0.2.24 (zero measured whenever he stands still;
+  [firmware notes](../firmware/djr3x_motion/README.md)). The room map now also judges stillness by the wheels:
+  a heading change with the wheels still is drift, left out of his heading, and the drift measured at rest is
+  taken off while he moves (`place_heading_drift` in the log, once a run, from 1° a second).
+- **"Hey Rex, you are in the workshop." kept nothing.** Answering without thinking first, Claude spoke its plan
+  ("Rex is told he's in the workshop, so I'll save it as a room name.") instead of making the call. A paid probe,
+  `tools/check_room_naming.py --live` (eight sentences: a room here, a direction, an answer to his question, yes
+  and no after "is this it?", one that is not a naming), reproduced it in 3 of 8. Repairs:
+  - Claude's own copy of the instructions lets it write a sentence before a tool call (never spoken), the
+    documented cure for calls written as words when thinking is off: 1 or 2 misses in 16.
+  - A plain answer that names a tool, says it will save or record something, or ends as if a call came with
+    none in it, is never said: Claude is told so and answers again, once (`reply_promised_without_call`).
+  - "No, this is the dining room" after "is this it?" is a naming of the dining room (it had been
+    `correct_room` and "Dining room, noted." with nothing kept).
+  - Results, real reply model, synthetic voices and room map: 15/16, 14/16, then 15/16 with the last miss (a
+    call written as words, asked again, answered in plain words) fixed by naming the tool in the note; the four
+    plain namings then 4/4. About $1.60 of API time in all.
+- **"I'll give it one more try" after a failed trip, and nothing moved.** The line after an unfinished trip is
+  now told it cannot move him: it says what happened and asks whether to try again.
+- **He swivelled and crept on his own while Bret was still giving directions.** After a trip someone asked for
+  ends unfinished, his own moves wait 90 s (`errand_unfinished`), or until a trip they ask for completes.
+
+Not seen on the robot yet: any of the above, and still all of room navigation itself.
+
 ### Checks
 
 - **Synthetic:**

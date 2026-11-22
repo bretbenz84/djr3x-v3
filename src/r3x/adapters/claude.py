@@ -27,6 +27,41 @@ THINKING = {'claude-sonnet-5-5': {'type': 'adaptive'}, 'claude-haiku-5-5': {'typ
 REPLY_THINKING = {'claude-sonnet-5-5': {'type': 'between_tools'}, 'claude-haiku-5-5': {'type': 'disabled'}}
 MAX_TOKENS = 4000
 OPERATOR = '[Operator note, not said by anyone in the room]\n'
+# November 22 (run e54062b9): told "Hey Rex, you are in the workshop.", the whole answer was "Rex is told he's in the
+# workshop, so I'll save it as a room name." and no tool call: nothing was kept. Answering without thinking first,
+# Claude now and then writes its plan to save something as its answer instead of making the call (the room probe,
+# tools/check_room_naming.py: 3 of 8 before Claude's copy allowed a sentence before a call, 1 or 2 of 16 after). Seen
+# with the stream recorded, such a reply ends as if a tool call came (stop_reason tool_use) with no call in it. Such an
+# answer is never said: the model is told so and answers again, once. A plain answer that says Rex will keep
+# something with no call behind it would break the rule that nothing is acknowledged before it is saved anyway.
+PROMISE_VERBS = ('save', 'record', 'store', 'log', 'label', 'remember', 'note', 'name')
+PROMISE_LEADS = ("i'll", 'i will', "i'm going to", 'i am going to', 'let me', 'going to')
+PROMISED_NOTE = ('Nothing was said or done: your answer says you will save or record something, but it made no tool '
+                 'call, so nothing would be kept. If something should be kept or done, make that tool call now. Otherwise '
+                 'answer in your own words without saying you will keep anything.')
+# The room probe, November 22: the call written out as words ('name_room(name="bedroom", ...)'), asked again with the
+# note above, came back as a plain line and nothing was kept. A tool named in the words is the one to call.
+WRITTEN_CALL_NOTE = ('Nothing was said or done: your answer wrote out {names} as words instead of calling it. Make that '
+                     'call now, as a tool call.')
+LOST_CALL_NOTE = ('Nothing was said or done: your reply ended as if it made a tool call, but no call arrived. If you meant '
+                  'to make one, make it now; otherwise answer in your own words.')
+
+
+def tools_named(text, offered):
+    """Offered tools whose identifiers (names with an underscore, such as name_room) appear in the words."""
+    words = text.lower()
+    return sorted(name for name in offered if '_' in name and name in words)
+
+
+def promised_without_call(text, offered):
+    """Whether a plain answer is a plan to act rather than a line: it names an offered tool (an identifier such as
+    name_room is never something Rex says) or says in the first person that it will save or record something."""
+    import re
+    words = ' '.join(text.replace('\u2019', "'").lower().split())
+    if any('_' in name and name in words for name in offered):
+        return True
+    leads = '|'.join(re.escape(lead) for lead in PROMISE_LEADS)
+    return re.search(rf"\b(?:{leads})\s+(?:go ahead and\s+|just\s+)?(?:{'|'.join(PROMISE_VERBS)})\b", words) is not None
 
 
 def reply_brain(settings, secrets, switch=None):
@@ -181,6 +216,18 @@ class ClaudeBrain(OpenAIBrain):
                                                       'content': 'Nothing was done. That tool is not available this turn. '
                                                                  'Available now: ' + ', '.join(sorted(allowed)) + '.'}
                                                      for c in calls.values()]}]
+                    continue
+                said = ''.join(texts).strip()
+                if (not calls and attempt == 0 and stop not in ('refusal', 'max_tokens') and not out['released'] and allowed
+                        and (stop == 'tool_use' or (said and promised_without_call(said, allowed)))):
+                    if self.trace:
+                        self.trace.emit('reply_promised_without_call', turn_id=snapshot.turn_id, text=said[:300], stop=stop)
+                    named = tools_named(said, allowed)
+                    note = (WRITTEN_CALL_NOTE.format(names=' and '.join(named)) if named else
+                            PROMISED_NOTE if said and promised_without_call(said, allowed) else LOST_CALL_NOTE)
+                    request['messages'] = request['messages'] + [
+                        {'role': 'assistant', 'content': [{'type': 'text', 'text': said or '(nothing)'}]},
+                        {'role': 'user', 'content': [{'type': 'text', 'text': OPERATOR + note}]}]
                     continue
                 break
             if stop in ('refusal', 'max_tokens'):

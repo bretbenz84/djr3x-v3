@@ -255,6 +255,7 @@ class Places:
         self.like_at = float('-inf') # ...and when a reading last was like it (or there was nothing to compare).
         self.made = set()            # Spots made this run (they may turn out to be an old one).
         self._last_thumb = None
+        self.drift_noted = False     # A gyroscope drifting at rest was traced this run.
         self.last_pose = None        # Odometer pose at the last reading...
         self.last_pose_at = None     # ...and when its frame was taken.
         self.belief_pose = None      # Where the spot belief was last spread by rolling.
@@ -538,6 +539,11 @@ class Places:
                 if self.trace: self.trace.emit('place_photo_unsaved', error_type=type(exc).__name__)
 
     def _reading(self, q, thumb, meta, now):
+        drift = self.odometer.drift_at_rest() if self.odometer is not None and hasattr(self.odometer, 'drift_at_rest') else None
+        if drift is not None and abs(drift) >= 1. and not self.drift_noted:
+            # Left out of his heading by the odometer; said once a run so a log shows it (run e54062b9).
+            self.drift_noted = True
+            if self.trace: self.trace.emit('place_heading_drift', degrees_per_second=round(drift, 2))
         moving = self.motion()
         if moving is None or moving: self.moved = True
         if moving is True: self.drove = True

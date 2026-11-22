@@ -250,6 +250,50 @@ class AnswerTests(unittest.TestCase):
         with self.assertRaisesRegex(ProviderFailure, 'UnofferedTool'):
             list(made.reply(Snapshot('s', 't', 0, HEARD, context={'source_turn_id': 't'}, tools_enabled=True), Cancellation()))
 
+    def test_a_plan_to_save_written_as_the_answer_is_never_said_and_is_asked_again_once(self):
+        # November 22 (e54062b9): "Rex is told he's in the workshop, so I'll save it as a room name." and nothing kept.
+        class Two(Client):
+            def stream(self, *args, **kwargs):
+                self.calls.append((args, json.loads(json.dumps(kwargs))))
+                return self.response.pop(0)
+        from r3x.semantics import TOOLS
+        offered = [t for t in TOOLS if t['name'] in {'name_room', 'remain_silent'}]
+        payload = {'instructions': 'p', 'input': [{'role': 'user', 'content': 'You are in the workshop.'}],
+                   'tools': [{'type': 'function', 'name': t['name'], 'description': 'd', 'parameters': t['parameters']}
+                             for t in offered]}
+        def ask(*responses):
+            made = brain(None)
+            made.client = Two(list(responses))
+            said = list(made._stream_response(payload, Snapshot('s', 't', 0, (), tools_enabled=True), Cancellation(), offered))
+            return made, said
+        plan = stream(('text', "Rex is told he's in the workshop, so I'll save it as a room name."))
+        call = stream(('tool', 'toolu_1', 'name_room', ['{"name": "workshop", "where": "here", "source_turn_id": "t", "text": "The workshop."}']),
+                      stop='tool_use')
+        made, said = ask(plan, call)
+        self.assertEqual([type(item).__name__ for item in said], ['ToolCall'])     # The plan was never said.
+        self.assertEqual(said[0].name, 'name_room')
+        told = made.client.calls[1][1]['json']['messages'][-2:]
+        self.assertEqual(told[0]['role'], 'assistant')
+        self.assertIn('made no tool call', told[1]['content'][0]['text'])
+        self.assertEqual(len([r for r in made.trace.rows if r['event'] == 'reply_promised_without_call']), 1)
+        # Naming a tool is working-out too; asked again, a plain line is said.
+        made, said = ask(stream(('text', 'The workshop is a known room, so name_room it is.')), stream(('text', 'Workshop. Noted for life.')))
+        self.assertEqual(said, ['Workshop. Noted for life.'])
+        self.assertIn('wrote out name_room as words', made.client.calls[1][1]['json']['messages'][-1]['content'][0]['text'])
+        # Seen live: the reply ends as if a call came (stop_reason tool_use) and none is in it, with or without words.
+        call_again = lambda: stream(('tool', 'toolu_2', 'name_room', ['{"name": "workshop", "where": "here", "source_turn_id": "t", "text": "Workshop."}']),
+                                    stop='tool_use')
+        for broken in (stream(('text', 'Rex is told where he is, so this is the room.'), stop='tool_use'), stream(stop='tool_use')):
+            made, said = ask(broken, call_again())
+            self.assertEqual([item.name for item in said], ['name_room'])
+            self.assertTrue(made.client.calls[1][1]['json']['messages'][-2]['content'][0]['text'])
+        # Only once: a second plan is not asked about again, and an ordinary line is never asked about.
+        made, said = ask(plan, plan)
+        self.assertEqual(len(made.client.calls), 2)
+        for line in ("Workshop? I'd remember the smell of solder anywhere.", 'Noted. Very bold of you.', 'Recording? I sing live only.'):
+            made, said = ask(stream(('text', line)))
+            self.assertEqual((said, len(made.client.calls)), ([line], 1), line)
+
     def test_a_turn_that_must_use_a_tool_never_becomes_spoken_words(self):
         payload = {'instructions': 'p', 'input': [{'role': 'user', 'content': 'Hi.'}],
                    'tools': [{'type': 'function', 'name': 'remain_silent', 'description': 'd', 'parameters': {'type': 'object'}}],

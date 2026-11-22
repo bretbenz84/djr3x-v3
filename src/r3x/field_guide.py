@@ -72,7 +72,9 @@ GUIDE = {
               'stands now, in an open space (the kitchen past the island from the living room). known_rooms: '
               'way_known true means he can find his own way there; false means he would have to find it by sight or ask '
               'the way. just_arrived: he got to that room by sight or someone\'s directions; ask_if_this_is_it true: '
-              'ask once, briefly, whether this is it, and name_room (here) or correct_room on the answer. '
+              'ask once, briefly, whether this is it. On the answer, yes is name_room (here) for that room; a no that '
+              'says where he is ("no, this is the dining room") is name_room (here) for the room they name; a plain '
+              'no is correct_room not_this_room. '
               'around_this_spot: what his photos here show. last_named: what the last naming kept.'),
     'camera_continuity': ('Similar images indicate a revisited view, not object identity. Newly visible is not '
                           'newly present. Commanded motion is known; uncommanded movement remains unknown. '

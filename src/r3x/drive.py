@@ -74,6 +74,10 @@ SEGMENT_FIX_SCORE = .5
 # so it counted as nothing and he searched left, the wrong way, until he gave up. A doubtful sighting is now
 # looked at again, steadied and turned toward, and it decides which way the search sweeps.
 WEAK_RETRY = 1
+# Run e54062b9 (November 22): a trip the owner asked for failed, and while he was still giving directions Rex did a
+# "lazy swivel" and a creep of his own, 30 and 50 s later. After a trip someone asked for ends unfinished, his own moves
+# wait this long, or until a trip someone asks for completes.
+ERRAND_HOLD_S = 90.
 SEEK_SWEEP_DEG = 80.      # Just under the ~90 degree camera view, so consecutive looks overlap.
 SEEK_LOOKS = 4            # Current view plus three turns: about a full circle.
 PLAN_VISION_CALLS = 40    # Hosted looks per plan (search, re-locating while rolling, routes around things).
@@ -356,6 +360,8 @@ UNAVAILABLE_MEANINGS = {
     'controller_fault': 'The drive controller reports a fault (named in unavailable_reason) and has stopped the wheels.',
     'sentry_mode': 'Sentry mode locks the wheels while he guards.',
     'human_pose_held': 'A pose someone asked for is being held, so he does not drive off on his own.',
+    'errand_unfinished': ('A trip someone asked for did not finish a moment ago, so he waits for them rather than move '
+                          'on his own.'),
     'wheel_controller_not_connected': ('The drive controller did not connect when Rex started (unplugged, '
                                        'switched off, or its port busy); restarting Rex once it is on reconnects it.'),
 }
@@ -737,6 +743,7 @@ class DriveBase:
         self.navigator = None         # places.Places: where he is, routes to rooms, photos at look-around stops.
         self._weak = None             # The last doubtful sighting: {'bearing', 'note'}.
         self._room_goal = None        # A room being gone into: {'room_id', 'start', 'squeezed', 'entered_at'}.
+        self._errand_until = float('-inf')   # His own moves wait until then: a trip someone asked for did not finish.
 
     # Lifecycle -----------------------------------------------------------
     def start(self):
@@ -1205,6 +1212,8 @@ class DriveBase:
         ok, reason = self.availability(now)
         if origin=='self_initiated' and self._pose_held():
             ok, reason = False, 'human_pose_held'
+        if ok and origin=='self_initiated' and now < self._errand_until:
+            ok, reason = False, 'errand_unfinished'
         recovering = not ok and origin == 'requested' and self.recovering(reason, now)
         if reason != self._offered_reason and self.trace:
             # November 14: the log never said why the wheels were locked out all run.
@@ -3693,6 +3702,8 @@ class DriveBase:
             ok, reason = self.availability()
             if plan.origin=='self_initiated' and self._pose_held():
                 ok, reason = False, 'human_pose_held'
+            if ok and plan.origin=='self_initiated' and self.clock() < self._errand_until:
+                ok, reason = False, 'errand_unfinished'
             if not ok and self.recovering(reason):
                 ok, reason = self._await_sensors(reason, cancel, plan.expires_at)
             if not ok or self.clock() >= plan.expires_at:
@@ -3823,6 +3834,9 @@ class DriveBase:
             self.moving.clear()
             self._notify(plan)
             receipt.finished_at = self.clock()
+            if plan.origin == 'requested':
+                self._errand_until = (float('-inf') if receipt.status == 'completed'
+                                      else receipt.finished_at + ERRAND_HOLD_S)
             self.history.append({'request_id': plan.request_id, 'origin': plan.origin, 'purpose': plan.purpose,
                                  'steps_run': [f"{r['action']}:{r['status']}" for r in receipt.steps],
                                  'status': receipt.status, 'reason': receipt.reason,

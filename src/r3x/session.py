@@ -2524,7 +2524,12 @@ class Session:
                                 + (' If another way still does what they asked (looking around, getting away from a wall, '
                                    'a smaller turn or move), you may instead send one new drive_base plan toward the open '
                                    'directions in drive.clearance_m. Never turn or move opposite to a direction they named.'
-                                   if retry else '')})
+                                   if retry else
+                                   # Run e54062b9 (November 22): "I'll give it one more try straight at the archway."
+                                   # and nothing moved: this line cannot move him.
+                                   ' Saying this cannot move you, and you will not move again unless they ask: never say '
+                                   'you will try again, give it another go or head somewhere next. If another try could '
+                                   'work, ask them whether to.')})
                         followup = Snapshot(self.session_id,turn_id,self.revision,messages,snapshot.speaker,
                                             followup_context,bool(images) or retry,continuation,images)
                         self.trace.emit('model_request',turn_id=turn_id,primary_calls=0,purpose='drive_result_continuation',

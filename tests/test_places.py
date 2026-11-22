@@ -843,3 +843,50 @@ class SecondReviewTests(PlaceFixture):
         self.places.map.merge_spot(made, old, 0.)
         row = self.store.rows('SELECT room_id,room_source,room_turn FROM spots WHERE id=?', (old,))[0]
         self.assertEqual((row['room_id'], row['room_source'], row['room_turn']), ('k', 'told', 'turn-1'))
+
+
+class DriftingGyroTests(PlaceFixture):
+    """Run e54062b9 (November 22): the gyroscope's zero was 19.7 degrees a second off, every reading looked like a turn,
+    he never counted as standing still, and the room map filed nothing in seven minutes."""
+    DRIFT = 19.7
+
+    def setUp(self):
+        self.reported = None
+        super().setUp()
+        self.building()
+
+    def telemetry(self):
+        # As the controller reports it: wheel speeds and drive levels, and a heading that drifts by itself.
+        turning = self.reported is not None and abs(self.yaw - self.reported[0]) > 1e-9
+        rolling = self.reported is not None and (self.x, self.y) != self.reported[1]
+        self.reported = (self.yaw, (self.x, self.y))
+        drifting = wrap(self.yaw + self.DRIFT * (self.clock.now - 1000.))
+        moving = turning or rolling or self.moving[0]
+        self.odometer.update({'imu': {'ok': True, 'yaw': drifting, 'pitch': -3., 'roll': -1.},
+                              'odom': {'x': self.x, 'y': self.y, 'theta': math.radians(self.yaw),
+                                       'lin': .2 if rolling else 0., 'ang': .5 if turning else 0.},
+                              'wheels': {'vl': .1 if moving else 0., 'vr': .1 if moving else 0.,
+                                         'dl': 300 if moving else 0, 'dr': 300 if moving else 0}})
+
+    def test_standing_still_with_a_drifting_gyroscope_still_makes_a_spot_and_files_photos(self):
+        self.look(6)
+        self.assertIsNotNone(self.places.here)
+        self.assertTrue(self.store.rows('SELECT * FROM room_photos WHERE spot_id IS NOT NULL'))
+        self.assertAlmostEqual(self.odometer.drift_at_rest(), self.DRIFT, delta=.5)
+        self.assertAlmostEqual(self.odometer.pose()[2], 0., delta=.5)        # His heading did not run away.
+
+    def test_turns_the_wheels_make_still_count(self):
+        self.look(5)
+        a = self.places.here
+        self.turn(90); self.look(3)
+        self.assertAlmostEqual(wrap(self.odometer.pose()[2] - 90.), 0., delta=3.)
+        self.assertEqual(self.places.here, a)                                  # Turning in place: the same spot.
+        self.assertEqual(len({round(r['bearing']) for r in self.store.rows('SELECT bearing FROM room_photos WHERE spot_id=?', (a,))}), 2)
+
+    def test_without_wheel_readings_the_heading_is_taken_as_it_comes(self):
+        odometer = Odometer(self.clock)
+        for i in range(30):
+            self.clock.now += .1
+            odometer.update({'imu': {'ok': True, 'yaw': i * 2.}, 'odom': {'x': 0., 'y': 0., 'theta': 0.}})
+        self.assertAlmostEqual(odometer.pose()[2], 58., delta=.1)
+        self.assertIsNone(odometer.drift_at_rest())
