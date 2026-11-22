@@ -3388,7 +3388,14 @@ class DriveBase:
     def _room_door(self, space):
         """Going into a room: squeezed between both sides, then open again, is through its opening."""
         goal = self._room_goal
-        if goal is None or goal['entered_at'] is not None:
+        if goal is None:
+            return
+        if goal['entered_at'] is not None:
+            if self._doorway(space):
+                # Review, November 22 (second): rolling down a hall, an open door on one side counted as
+                # going in, and 0.8 m later he had "entered" while still in the hall. Both sides close again
+                # means that was an opening he passed, not the room.
+                goal['entered_at'] = None
             return
         left, right = space.get('left_m'), space.get('right_m')
         if self._doorway(space):
@@ -3460,7 +3467,10 @@ class DriveBase:
         try:
             if nav is not None and room_id and not step.directed:
                 where = nav.where()
-                if where.get('room_id') == room_id and where.get('room_sure'):
+                if nav.in_room(room_id):
+                    # Review, November 22 (second): the look-alike room vote counted here too, the one that
+                    # called the hallway the dining room, so "go to the dining room" could answer "already
+                    # here". Only a spot a person named as this room is being there.
                     ok = True
                     return {**row, 'status': 'completed', 'reason': 'already_here', 'how': 'map', 'travelled_m': 0.}
                 if where.get('spot') is None and nav.mapped(room_id):
@@ -3564,7 +3574,10 @@ class DriveBase:
                 nav.expect(leg['to'], start_offset + leg['arrive'])
             self._sleep(BASE_VIEW_SETTLE_S, cancel)
             where = nav.capture(cancel)
-            nav.passage_result(leg['passage_id'], where.get('spot') in (None, leg['to']))
+            if where.get('spot') is not None:
+                # A look that could not place him (the view is unlike the spot it should be) neither proves
+                # nor fails the passage; the end of the route then reports arrived_not_confirmed and he asks.
+                nav.passage_result(leg['passage_id'], where['spot'] == leg['to'])
             if where.get('spot') not in (None, leg['to']) and not replanned:
                 # Somewhere else he knows: once, a new route from there.
                 replanned = True

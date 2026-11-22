@@ -464,6 +464,7 @@ class NamingTests(PlaceFixture):
         self.begin('This is the hall.')
         result = self.call('name_room', dict(name='hall', where='here', source_turn_id=self.state.current[0]))
         self.assertEqual(result.data['kept']['outcome'], 'when_he_stops')
+        self.assertIn('not kept yet', result.data['meaning'])        # Nothing is claimed kept before it is.
         self.drive([(1.5, 0.)], 'B')
         self.look(5)
         self.assertEqual(self.places.context()['room']['name'], 'hall')
@@ -582,16 +583,49 @@ class ReviewRepairTests(PlaceFixture):
         self.assertEqual(self.places.current['place_id'], kitchen)   # The look-alike vote believes it...
         self.assertFalse(self.places.in_room(kitchen))                # ...but that is no arrival.
 
-    def test_a_failed_description_is_not_tried_again(self):
+    def describing(self, folder, describer, files=1):
+        self.places.photos_dir, self.places.describer = Path(folder), describer
+        (Path(folder) / 'home').mkdir(exist_ok=True)
+        for i in range(files):
+            name = f'home/there{i}.jpg'
+            if not self.store.rows('SELECT 1 FROM room_photos WHERE file=?', (name,)):
+                self.places.map.add_photo('home', None, None, self.places.namespace, unit(900 + i), file=name)
+            (Path(folder) / name).write_bytes(b'\xff\xd8')
+
+    def undescribed(self):
+        return self.store.rows('SELECT COUNT(*) n FROM room_photos WHERE description IS NULL')[0]['n']
+
+    def test_a_failed_description_waits_for_another_run(self):
+        # Second review: any failure blanked the photo for good (ten minutes offline cost thirty photos).
+        calls = []
+        def failing(image, cancel):
+            calls.append(image); raise RuntimeError('no network')
         with TemporaryDirectory() as folder:
-            self.places.photos_dir = Path(folder)
-            self.places.describer = lambda image, cancel: (_ for _ in ()).throw(RuntimeError('no'))
-            self.places.map.add_photo('home', None, None, self.places.namespace, KITCHEN, file='home/missing.jpg')
-            self.places.map.add_photo('home', None, None, self.places.namespace, HALL, file='home/there.jpg')
-            (Path(folder) / 'home').mkdir(); (Path(folder) / 'home/there.jpg').write_bytes(b'\xff\xd8')
-            for _ in range(2):
+            self.describing(folder, failing)
+            long_ago = 1.7e9 + self.clock.now - 600
+            self.places.map.add_photo('home', None, None, self.places.namespace, KITCHEN, file='home/missing.jpg', at=long_ago - 1)
+            for _ in range(4):
                 self.clock.now += 30; self.places._describe_one()
-            self.assertEqual(self.store.rows('SELECT COUNT(*) n FROM room_photos WHERE description IS NULL')[0]['n'], 0)
+            self.assertEqual(len(calls), 1)                     # The missing file was blanked; the other tried once.
+            self.assertEqual(self.undescribed(), 1)             # Still waiting for its description.
+            self.start_places()                                 # Another run, the network back.
+            self.places.building_id, self.places.building_how = 'home', 'told'; self.places._reload()
+            self.describing(folder, lambda image, cancel: {'text': 'a workbench under a window'})
+            self.clock.now += 30; self.places._describe_one()
+            self.assertEqual(self.undescribed(), 0)
+            self.assertEqual(self.store.rows("SELECT description d FROM room_photos WHERE file='home/there0.jpg'")[0]['d'],
+                             'a workbench under a window')
+
+    def test_descriptions_rest_after_failures_in_a_row(self):
+        calls = []
+        def failing(image, cancel):
+            calls.append(image); raise RuntimeError('no credit')
+        with TemporaryDirectory() as folder:
+            self.describing(folder, failing, files=6)
+            for _ in range(8):
+                self.clock.now += 30; self.places._describe_one()
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(self.undescribed(), 6)
 
 
 class BuildingRepairTests(PlaceFixture):
@@ -649,3 +683,163 @@ class RouteArrivalTests(PlaceFixture):
         frame = self.frame(unit(4242))                 # A view his photos do not settle either way.
         self.places.observe(frame, deliberate=True)
         self.assertEqual(self.places.where()['spot'], b)
+
+
+def at_similarity(base, similarity, seed):
+    """A view exactly this like `base` (cosine)."""
+    r = unit(seed)
+    d = sum(x * y for x, y in zip(r, base))
+    r = [x - d * y for x, y in zip(r, base)]
+    n = sum(x * x for x in r) ** .5
+    return [similarity * b + (1 - similarity * similarity) ** .5 * x / n for b, x in zip(base, r)]
+
+
+class SecondReviewTests(PlaceFixture):
+    """November 22, second review (a fresh read of the room map): what it got wrong with nobody watching."""
+    def setUp(self):
+        super().setUp()
+        self.lean = None
+        self.building()
+
+    def telemetry(self):
+        imu = {'ok': True, 'yaw': wrap(self.yaw)}
+        if getattr(self, 'lean', None) is not None:
+            imu.update(pitch=self.lean, roll=0.)
+        self.odometer.update({'imu': imu, 'odom': {'x': self.x, 'y': self.y, 'theta': math.radians(self.yaw)}})
+
+    def trip_to_the_living_room(self):
+        self.look(5)
+        self.begin('This is the hallway.')
+        self.call('name_room', dict(name='hallway', where='here', source_turn_id=self.state.current[0]))
+        hallway = self.places.here
+        with self.store.transaction() as c:
+            c.execute("INSERT INTO places(id,name,created_at,source_turn,import_ref,building_id) VALUES('lr','living room',0,NULL,NULL,'home')")
+        self.places._reload()
+        self.places.trip_started('lr', 'directions')
+        self.drive([(1., 0.), (0., -1.)], 'B')
+        self.places.trip_ended(True)
+        return hallway
+
+    def test_two_spots_he_stood_on_this_run_stay_two(self):
+        # Two metres apart, the same far wall from both: they became one spot, losing a room name and a passage.
+        self.world.view('A', 0); self.world.view('B', 0)
+        self.world.bases['B'][2] = self.world.bases['A'][2]
+        self.look(6)
+        self.turn(90); self.look(3)
+        a = self.places.here
+        self.drive([(2., 0.)], 'B')
+        self.look(8)
+        b = self.places.here
+        self.assertNotEqual(a, b)
+        self.turn(90); self.look(3)                     # The far wall he photographed from A.
+        self.assertEqual(len(self.store.rows('SELECT * FROM spots')), 2)
+        self.assertEqual(self.places.here, b)
+        self.assertTrue(self.store.rows('SELECT * FROM passages'))
+
+    def test_a_view_unlike_the_spot_a_route_led_to_is_not_an_arrival(self):
+        self.look(5)
+        a = self.places.here
+        self.drive([(2., 0.)], 'B')
+        self.look(5)
+        self.moving[0] = True                           # A route back toward A that went wrong: he is somewhere else.
+        for _ in range(40):
+            self.x += .05; self.clock.now += .05; self.telemetry()
+        self.clock.now += 1.; self.telemetry()
+        self.spot_at = 'Z'
+        self.places.expect(a, 0.)
+        world = self.yaw0 + self.yaw
+        self.places.observe(self.frame(self.world.view('Z', world), self.world.thumb('Z', world)), deliberate=True)
+        self.assertIsNone(self.places.where()['spot'])           # Not there: the drive owner says so and he asks.
+        self.assertIsNotNone(self.places.offset(a))              # Its frame stays for the rest of a longer route.
+        self.spot_at = 'A'                                       # The same look where the view does fit.
+        self.places.expect(a, 0.)
+        self.clock.now += 1.5; self.telemetry()
+        self.places.observe(self.frame(self.world.view('A', world), self.world.thumb('A', world)), deliberate=True)
+        self.assertEqual(self.places.where()['spot'], a)
+
+    def test_an_unconfirmed_route_spot_is_his_only_when_the_person_names_its_room(self):
+        self.look(5)
+        self.begin('This is the kitchen.')
+        kitchen = self.call('name_room', dict(name='kitchen', where='here', source_turn_id=self.state.current[0])).data['room_id']
+        a = self.places.here
+        self.drive([(3., 0.)], 'Z')
+        self.places.expect(a, 0.)                               # A route "arrived"; the look did not confirm it.
+        self.begin('No, this is the hallway.')
+        self.call('name_room', dict(name='hallway', where='here', source_turn_id=self.state.current[0]))
+        self.assertNotEqual(self.places.here, a)                # A new spot is the hallway...
+        self.assertEqual(self.store.rows('SELECT room_id FROM spots WHERE id=?', (a,))[0]['room_id'], kitchen)   # ...A stays the kitchen.
+
+    def test_no_said_before_the_stop_is_a_spot_ends_the_trips_goal(self):
+        self.trip_to_the_living_room()
+        self.begin('No.')                                       # Answered at once, before the stop became a spot.
+        rejected = self.call('correct_room', dict(action='not_this_room', room_id='lr', new_name=None,
+                                                  source_turn_id=self.state.current[0]))
+        self.assertTrue(rejected.data['belief_dropped'])
+        self.look(5)
+        self.assertIsNone(self.store.rows('SELECT room_id FROM spots WHERE id=?', (self.places.here,))[0]['room_id'])
+        self.assertNotIn('just_arrived', self.places.context())
+        self.assertFalse(self.store.rows('SELECT * FROM room_bearings'))
+
+    def test_a_trip_teaches_the_way_only_once_someone_says_this_is_it(self):
+        hallway = self.trip_to_the_living_room()
+        self.look(5)
+        self.assertFalse(self.store.rows('SELECT * FROM room_bearings'))   # Stopped, asked, not yet answered.
+        self.begin('Yes, this is the living room.')
+        self.call('name_room', dict(name='living room', where='here', source_turn_id=self.state.current[0]))
+        rows = self.store.rows('SELECT spot_id,room_id,source FROM room_bearings')
+        self.assertEqual([(r['spot_id'], r['room_id'], r['source']) for r in rows], [(hallway, 'lr', 'trip')])
+
+    def test_a_long_trip_keeps_its_goal_until_after_it_ends(self):
+        self.look(5)
+        with self.store.transaction() as c:
+            c.execute("INSERT INTO places(id,name,created_at,source_turn,import_ref,building_id) VALUES('lr','living room',0,NULL,NULL,'home')")
+        self.places._reload()
+        self.places.trip_started('lr', 'sight')
+        self.clock.now += 200.; self.places.tick()              # Searching and detours: over two minutes.
+        self.drive([(1.5, 0.)], 'B')
+        self.places.trip_ended(True)
+        self.look(5)
+        self.assertEqual(self.places.context()['just_arrived']['room'], 'living room')
+
+    def test_someone_in_the_way_is_not_being_carried_but_a_lift_is(self):
+        self.lean = 0.
+        self.look(5)
+        spot = self.places.here
+        self.spot_at = 'Z'                              # The view no longer fits: a person stands close in front.
+        self.look(6)
+        self.assertEqual(self.places.here, spot)
+        self.assertEqual(len(self.store.rows('SELECT * FROM spots')), 1)
+        self.lean = 20.; self.clock.now += .1; self.telemetry()   # Picked up...
+        self.lean = 0.
+        self.look(4)                                    # ...and set down where nothing fits.
+        self.assertNotEqual(self.places.here, spot)
+
+    def test_a_building_needs_its_matching_views_close_together(self):
+        with self.store.transaction() as c:
+            c.execute("INSERT INTO building_networks VALUES('home','router-a',0,0)")
+        self.look(5)
+        photo = self.world.view('A', self.yaw0 + self.yaw)
+        self.start_places(network=lambda: 'router-other')    # Somewhere on a router no place knows.
+        self.assertEqual(self.places.building_how, 'only')
+        seed = 0
+        for _ in range(3):                                   # Three look-alike views, minutes apart.
+            self.see(at_similarity(photo, .9, 7000 + seed)); seed += 1
+            for _ in range(6):
+                self.see(at_similarity(photo, .78, 7000 + seed)); seed += 1
+        self.assertEqual(self.places.building_how, 'only')   # Not home on that.
+        self.assertFalse(self.places.map.buildings_on('router-other'))
+        for _ in range(3):
+            self.see(at_similarity(photo, .9, 7000 + seed)); seed += 1
+        self.assertEqual(self.places.building_how, 'views')  # Three together are.
+
+    def test_joined_spots_keep_the_name_a_person_gave(self):
+        with self.store.transaction() as c:
+            for key, name in (('k', 'kitchen'), ('b', 'bedroom')):
+                c.execute('INSERT INTO places(id,name,created_at,source_turn,import_ref,building_id) VALUES(?,?,0,NULL,NULL,?)',
+                          (key, name, 'home'))
+        made, old = self.places.map.add_spot('home'), self.places.map.add_spot('home')
+        self.places.map.label_spot(old, 'b', 'trip')
+        self.places.map.label_spot(made, 'k', 'told', 'turn-1')
+        self.places.map.merge_spot(made, old, 0.)
+        row = self.store.rows('SELECT room_id,room_source,room_turn FROM spots WHERE id=?', (old,))[0]
+        self.assertEqual((row['room_id'], row['room_source'], row['room_turn']), ('k', 'told', 'turn-1'))

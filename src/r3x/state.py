@@ -440,6 +440,15 @@ class CoreState:
                     if len(same) == 1:
                         named = same[0]
                         raw = {**raw, 'target': named}
+                if action == 'go_to' and named is None and isinstance(raw.get('description'), str):
+                    # Review, November 22 (second): no id at all, only the room's name as they said it. A room he
+                    # knows by exactly that name ("kitchen", "the kitchen") is that room, so his map is used.
+                    said = label(raw['description'])
+                    same = [k for k, n in rooms.items() if label(n) in {said, said.removeprefix('the ')}
+                            or label(n).removeprefix('the ') == said]
+                    if len(same) == 1:
+                        named = same[0]
+                        raw = {**raw, 'target': named}
                 used = {k for k in ('direction', 'degrees', 'meters', 'target', 'stop_at_m', 'description') if raw.get(k) is not None}
                 allowed = {'description', 'target', 'direction'} if action == 'go_to' else set()
                 if not used <= allowed or (action == 'go_to' and 'description' not in used):
@@ -2273,6 +2282,13 @@ class CoreState:
             self.jeopardy.commit()
         if name == 'name_room' and self.places:
             data['kept'] = self.places.named(data['room_id'],data['name'],data['where'],data['source_turn_id'])
+            # What was kept is what the room map reports, not what was hoped before it ran.
+            waiting = {'when_he_stops': 'Heard while he was rolling: not kept yet. It is kept with the spot where he next stops.',
+                       'not_placed_yet': 'Heard, but he does not know where he stands yet: not kept yet. It is kept once he does.',
+                       'direction_unknown': 'Not kept: he does not know which way he faces here yet. A look around settles that; '
+                                            'then they can tell him again.'}
+            if (data['kept'] or {}).get('outcome') in waiting:
+                data['meaning'] = waiting[data['kept']['outcome']]
         if name == 'name_place' and self.places:
             if data.get('merge_from'): self.places.merge_into(data['merge_from'],data['building_id'])
             else: self.places.place_named(data['building_id'],data['name'],data['action'])

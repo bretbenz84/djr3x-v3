@@ -227,6 +227,10 @@ class Odometer:
     The trail keeps a point every 5 cm or 5 degrees with the side clearances (doorways)."""
 
     TRAIL = 4000
+    # Leaning this far from how he normally sits (pitch or roll, degrees): picked up, not rolled. The resting
+    # lean follows slowly (about 50 frames), so a sloped floor stops counting after a few seconds.
+    TILT_DEG = 6.
+    REST_FOLLOW = .02
 
     def __init__(self, clock):
         from collections import deque
@@ -238,9 +242,30 @@ class Odometer:
         self.mark = None
         self.moved_at = float('-inf')
         self.trail = deque(maxlen=self.TRAIL)   # (t, x, y, yaw, left_m, right_m)
+        self.rest = None                # (pitch, roll) as he normally sits.
+        self.tilt_seen = False          # The IMU reports pitch and roll at all.
+        self.tilted_at = float('-inf')  # When he last leaned well away from that.
+
+    def _tilt(self, imu, now):
+        tilt = (imu.get('pitch'), imu.get('roll')) if imu.get('ok') else (None, None)
+        if not all(isinstance(v, (int, float)) for v in tilt):
+            return
+        with self.lock:
+            self.tilt_seen = True
+            if self.rest is None:
+                self.rest = tilt
+            if max(abs(tilt[0] - self.rest[0]), abs(tilt[1] - self.rest[1])) >= self.TILT_DEG:
+                self.tilted_at = now
+            self.rest = tuple(r + self.REST_FOLLOW * (t - r) for r, t in zip(self.rest, tilt))
+
+    def lifted_since(self, t):
+        """Whether he leaned like something picked up at or after t; None when the IMU gives no lean at all."""
+        with self.lock:
+            return (self.tilted_at > float('-inf') and self.tilted_at >= t) if self.tilt_seen else None
 
     def update(self, telemetry, sides=(None, None)):
         imu = telemetry.get('imu') or {}
+        self._tilt(imu, self.clock())
         yaw = float(imu['yaw']) if imu.get('ok') and isinstance(imu.get('yaw'), (int, float)) else None
         odom = telemetry.get('odom') or {}
         if yaw is None:
@@ -386,9 +411,10 @@ class RoomMap:
                 c.execute('UPDATE passages SET to_spot=?,arrive=? WHERE id=?', (target, wrap(arrive + delta), key))
             c.execute('DELETE FROM passages WHERE from_spot=to_spot')
             here = c.execute('SELECT room_id,room_source FROM spots WHERE id=?', (target,)).fetchone()
-            other = c.execute('SELECT room_id,room_source FROM spots WHERE id=?', (source,)).fetchone()
-            if here and other and not here[0] and other[0]:
-                c.execute('UPDATE spots SET room_id=?,room_source=? WHERE id=?', (other[0], other[1], target))
+            other = c.execute('SELECT room_id,room_source,room_turn FROM spots WHERE id=?', (source,)).fetchone()
+            # The joined spot keeps a name either had; a person's word outranks a trip's guess on the other.
+            if here and other and other[0] and (not here[0] or (other[1] == 'told' and here[1] != 'told')):
+                c.execute('UPDATE spots SET room_id=?,room_source=?,room_turn=? WHERE id=?', (other[0], other[1], other[2], target))
             c.execute('DELETE FROM spots WHERE id=?', (source,))
 
     # Photos
@@ -427,7 +453,7 @@ class RoomMap:
         return out
 
     def undescribed(self, limit=1):
-        return self.store.rows('SELECT id,file FROM room_photos WHERE description IS NULL AND file IS NOT NULL '
+        return self.store.rows('SELECT id,file,captured_at FROM room_photos WHERE description IS NULL AND file IS NOT NULL '
                                'ORDER BY captured_at LIMIT ?', (limit,))
 
     def describe(self, photo_id, text):

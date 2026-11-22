@@ -337,8 +337,9 @@ acceptable cost.
   ask which way it is.
 - **Following directions.** "Forward a bit, then right into the living room" becomes the person's moves and
   turns, then `go_to`. After dictated steps he goes by sight toward where they pointed, never his map's way.
-  Arriving that way, he asks once whether this is the room. "Yes" labels where he stands; "no" removes the
-  label.
+  Arriving that way, he asks once whether this is the room. "Yes" labels where he stands and keeps which way
+  the room lay from where the trip began; "no" removes the label and ends the trip's guess, even in the first
+  seconds before the stop has become a spot.
 - **The search turns the right way.** A doubtful sighting (often a blurred frame) is looked at again after
   the head settles, turned toward, and decides which way the search sweeps. A search after a turn the person
   dictated looks toward that side first.
@@ -359,8 +360,10 @@ acceptable cost.
     never moves him off a spot.
   - Rolling 1.2 m away from a spot he stood on this run counts it out.
   - Back within 0.6 m of it by the wheels, he is on it again.
-  - A view unlike that spot's photo three times in a row means he was picked up and carried.
-  - A spot made this run that later matches an old one is merged into it.
+  - A view unlike that spot's photo three times in a row, after he leaned like something picked up (pitch or
+    roll 6 degrees off how he normally sits), means he was carried. Someone standing in the way does not.
+  - A spot made this run that later matches a spot from an earlier run is merged into it. Two spots his
+    wheels put apart this run are never merged.
 - **The old room vote** remains only for a spot that has no room yet. It uses room photos that a person
   named, plus the October views, now kept as photos with no spot or direction. A belief that stops matching
   is dropped after five readings (run `8cece04a` kept "dining room" for three minutes). His own belief no
@@ -370,13 +373,16 @@ acceptable cost.
     name). Home adopts the first router it sees.
   - On a router no building knows, a view unlike every building's photos for eight readings is a new place.
     He is told he has never been here, asks, and `name_place` names it. A known name joins that place's map.
+    Three views matching a known place's photos within six readings put him there.
   - Each building has its own rooms.
 - **His own moves:** `go_to` is refused for his own goals (`RoomTripsOnlyWhenAsked`). A move or roll of his
   own ends where a doorway or hall begins (both sides within 0.45 m).
 - **"Look around"** is a drive step: a full turn in eight stops, with a look at each. A trip to a known room
   starts with one when he does not know which spot he is on.
 - **Descriptions:** at most one hosted line every 20 s per photo, 30 per run, while the wheels are still. The
-  reply model sees up to three of them for the spot he stands on.
+  reply model sees up to three of them for the spot he stands on. A description that fails waits for another
+  run, and three failures in a row rest them for this one. They do not spend the 150 camera looks a run
+  allows his searches.
 
 ### Changed from the design above
 
@@ -402,12 +408,11 @@ An independent read of the code found problems, now repaired and checked:
   route save fail, and that stopped the room worker. Now the trip moves to the merged spot. One failing
   reading is skipped and logged (`place_reading_failed`); twenty in a row still stop the worker.
 - **A trip's room could label a later, unrelated stop.** A goal with no real trip is dropped, and so is a
-  trip that rolled on before it was placed. Goals expire after two minutes.
+  trip that rolled on before it was placed. Goals expire two minutes after the trip ends.
 - **A slow crawl through a doorway never left the spot.** Distances now count from where he stood, not
   between readings.
 - **On a map trip, wheel travel did not place him.** The spot a passage leads to is now taken on the
-  end-of-leg look unless the view keeps contradicting it. A name given right after arriving uses that
-  spot instead of making a new one.
+  end-of-leg look, unless the view is unlike that spot's photo in that direction (second review, below).
 - **The look-alike vote could end a trip at the doorway.** Only a spot a person named counts as being in
   the room, and only after a metre of travel.
 - **His own roll stopped at a doorway sounded like an arrival.** It is now reported as stopped.
@@ -424,22 +429,57 @@ An independent read of the code found problems, now repaired and checked:
   - `go_to` with "forward" as its direction;
   - a room's name in place of its id.
 - **Smaller repairs:**
-  - A photo whose description failed is not tried again, so one bad photo cannot use up every attempt.
+  - A photo whose JPEG was never written is not tried for a description again.
   - A plan's last few centimetres no longer crash a trip.
   - A head move whose end was never noticed no longer stops photos for a minute.
   - Depth for photos is read without touching the drive's short memory of the floor.
 
+### Second review (November 22, morning)
+
+A second independent read, by a different model, found ten more problems. Three were reproduced with
+synthetic views before the repair; the rest were found by reading. All are repaired, each with a check that
+fails on the earlier code:
+
+- **Two spots became one.** Two spots made in one run, two metres apart, merged when he faced the same far
+  wall from both: a room name and the passage between them were lost. A spot is now merged only into one
+  from an earlier run, never into one his wheels put elsewhere.
+- **"Go to the dining room" could answer "already here".** The old look-alike vote counted as being there.
+  Only a spot a person named as that room does.
+- **The look at the end of a mapped trip could not fail.** He always "arrived", so a slipped wheel filed
+  photos of the wrong place under the spot. A view unlike the spot's photo in that direction (under .70) now
+  leaves him unplaced: the trip reports `arrived_not_confirmed` and he asks. With no photo that way there
+  is nothing to compare, and the wheels still decide. A person's "yes, this is the kitchen" places him on
+  that spot; "no, this is the hallway" makes a new one and leaves the kitchen spot alone.
+- **A quick "no" was lost.** Said before the stop had become a spot, it found nothing to drop and the trip
+  still labelled the spot. "No" now ends the trip's guess.
+- **An open door along a hall counted as going in.** One side opening started the count and 0.8 m later he
+  had "entered" in the hall. Both sides closing in again now cancels it.
+- **A trip that ended in the wrong room still taught the way.** The direction of a room from where a trip
+  began is kept only once a person confirms the room.
+- **A failed description blanked its photo for good,** and descriptions spent the camera looks his searches
+  need. Both changed (Descriptions, above).
+- **Three look-alike views, ever, decided the building** and gave it the router. They must now fall within
+  six readings.
+- **Someone standing close read as "carried",** wiping every position of the run. Being carried now also
+  needs the lean of being picked up. With an IMU that reports no lean, the view alone still decides.
+- **A trip named only by the room's name ignored his map.** A `go_to` with no room id whose description is
+  exactly a known room's name is now that room.
+- **Smaller:** a long trip keeps its goal until two minutes after it ends (it ran from the start); joined
+  spots keep the name a person gave over a trip's guess; a naming that could not be kept yet says so in its
+  result instead of "kept".
+
 ### Checks
 
 - **Synthetic:**
-  - 31 contract checks in `tests/test_places.py` (synthetic views and tiny copies, fake clock and odometer).
+  - 41 contract checks in `tests/test_places.py` (synthetic views and tiny copies, fake clock and odometer;
+    3 of them need numpy or OpenCV and are skipped under the blocked runner).
     They cover spots, photos by direction, a later run finding the spot and facing, trips becoming passages
     and routes, rooms by direction, trip labels, corrections, being carried, the migration, router adoption,
-    a new place named, and naming while rolling. They also cover each review repair (3 more need numpy
-    or OpenCV and run outside the blocked runner).
-  - 13 in `tests/test_room_trips.py` against the simulated base. They cover going into a room seen through its
-    doorway, a doubtful sighting on the right, a remembered route with no looks, dictated turns over the map,
-    no way known, a look-around, a doorway stopping his own move, and plan validation.
+    a new place named, and naming while rolling. They also cover each repair from both reviews.
+  - 16 in `tests/test_room_trips.py` against the simulated base. They cover going into a room seen through its
+    doorway, an open door along a hall, a doubtful sighting on the right, a remembered route with no looks,
+    an arrival that cannot be confirmed, the old room guess not counting as there, dictated turns over the
+    map, no way known, a look-around, a doorway stopping his own move, and plan validation.
 - **Real model, no robot:** on a copy of the database, with the real room model and OpenCV on saved images
   resized to camera size:
   - The migration made "home" with the 4 rooms and 60 October views as photos.
@@ -449,6 +489,24 @@ An independent read of the code found problems, now repaired and checked:
 - **Not done (needs the robot):** recognising a spot across runs in this house; the image-shift heading on real
   frames; going through the living-room doorway; a passage repeated without asking; how often he asks; the
   router on campus networks. Accuracy can be scored once people have named enough spots.
+
+### Teaching him
+
+One thing per sentence, and wait for his reply: a reply can do one thing, so "you're in the workshop, go to
+the foyer" loses one of the two.
+
+- **Where he is:** standing still, "You're in the workshop." Kept at once with that spot.
+- **Which way a room is** (the open living, dining and kitchen space): "The kitchen is to your left" (ahead,
+  right, behind), as he faces now.
+- **A way to another room, either of:**
+  - Take him there (by gamepad, or with spoken moves and turns), stop, and say "This is the foyer." The trip
+    between two named stops is a way he can drive himself afterwards, in both directions.
+  - Say "Go to the foyer." Not knowing the way he asks. Give turns and rough distances, ending with the
+    room: "Go forward about two metres, turn right, and go into the foyer." He follows them, goes in through
+    the opening he finds on that side, and asks whether this is the foyer. Answer "yes" or "no, this is the
+    hallway".
+- Vague directions ("through the door, down the hall") leave the turns and distances to the reply model's
+  guess. A single trip is at most 10 m and six steps; a longer way is taught in two trips.
 
 ### Morning test
 

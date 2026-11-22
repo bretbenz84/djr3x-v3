@@ -1393,7 +1393,14 @@ class OpenAIVisualLocator(HTTPProvider):
         from ..room_map import PHOTO_DESCRIBER
         schema = {"type": "object", "additionalProperties": False, "required": ["text"],
                   "properties": {"text": {"type": "string"}}}
-        result, usage = self._ask(PHOTO_DESCRIBER, "room_photo", schema, "Describe this view.", image, cancel)
+        if not self.available():
+            raise ProviderFailure("VisualLocatorUnavailable")
+        try:
+            result, usage = self._ask(PHOTO_DESCRIBER, "room_photo", schema, "Describe this view.", image, cancel)
+        finally:
+            # Descriptions have their own allowance (places.DESCRIBE_PER_RUN): they do not spend the looks his
+            # searches and trips need (_ask counts every call).
+            self.calls -= 1
         if self.trace:
             self.trace.emit("room_photo_described", frame_id=image.frame_id, usage=usage)
         return result

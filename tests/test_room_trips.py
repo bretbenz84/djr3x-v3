@@ -19,6 +19,17 @@ def doorway(fake, at, length=.4, side=.12, room=2.):
     return sensors
 
 
+def hall(fake, door=(.6, 1.), end=2.2, side=.12, room=2.):
+    """A hall along x with an open door on the left between `door`, opening into a room at `end`."""
+    def sensors():
+        if fake.x >= end:
+            left = right = room
+        else:
+            right, left = side, (room if door[0] <= fake.x <= door[1] else side)
+        return {'lf': int(left * 1000), 'lb': int(left * 1000), 'rf': int(right * 1000), 'rb': int(right * 1000)}, None
+    return sensors
+
+
 class FakeMap:
     """What the drive owner asks the room map: where he is, a route, a look, how a trip went."""
     def __init__(self, fake, route=None, spot='A', end='B'):
@@ -126,6 +137,46 @@ class RoomTripTests(unittest.TestCase):
         self.assertEqual(drive.navigator.results, [('p1', True)])
         self.assertEqual(drive.navigator.trips, [('kitchen', 'map')])
         self.assertEqual(drive.navigator.ended, [True])
+
+    ROUTE = {'kind': 'passages', 'goal': 'B', 'room_id': 'kitchen',
+             'legs': [{'passage_id': 'p1', 'from': 'A', 'to': 'B', 'arrive': 0., 'marks': [], 'doorways': 0,
+                       'segments': [{'heading': 0., 'length_m': 1.}]}]}
+
+    def test_the_old_room_guess_is_not_already_being_there(self):
+        # Second review: the look-alike vote (the one that called the hallway the dining room) counted as being
+        # there, so "go to the dining room" could answer "already here" without moving.
+        clock, fake, drive, world = self.start()
+        nav = drive.navigator = FakeMap(fake, self.ROUTE)
+        nav.where = lambda: {'spot': nav.spot, 'facing': None, 'room_id': 'kitchen', 'room_sure': True}
+        step = self.run_plan(clock, drive, DriveStep('go_to', target='kitchen', description='the kitchen')).steps[0]
+        self.assertEqual(step['reason'], 'arrived_by_map', step)
+        self.assertGreater(fake.x, .7)
+        # On a spot a person named as that room, he is there.
+        clock, fake, drive, world = self.start()
+        nav = drive.navigator = FakeMap(fake, self.ROUTE)
+        nav.in_room = lambda room_id: room_id == 'kitchen'
+        step = self.run_plan(clock, drive, DriveStep('go_to', target='kitchen', description='the kitchen')).steps[0]
+        self.assertEqual(step['reason'], 'already_here', step)
+        self.assertLess(fake.x, .1)
+
+    def test_an_arrival_look_that_cannot_place_him_is_not_confirmed(self):
+        clock, fake, drive, world = self.start()
+        nav = drive.navigator = FakeMap(fake, self.ROUTE)
+        nav.capture = lambda cancel=None: {'spot': None, 'facing': None, 'room_id': None, 'room_sure': False}
+        step = self.run_plan(clock, drive, DriveStep('go_to', target='kitchen', description='the kitchen')).steps[0]
+        self.assertEqual((step['status'], step['reason']), ('completed', 'arrived_not_confirmed'), step)
+        self.assertTrue(step['ask_if_this_is'])                   # He asks whether this is it.
+        self.assertEqual(nav.results, [])                         # The passage is neither proven nor failed.
+
+    def test_an_open_door_along_a_hall_is_not_the_room(self):
+        # Second review: one side opening for a moment counted as going in, and he "entered" in the hall.
+        small = lambda seen, world: (lambda *a, **k: {**seen(*a, **k), 'width': .15})
+        clock, fake, drive, world = self.start([('room', 'the living room', 9., 0.)], locate=small)
+        fake.sensors = hall(fake)
+        fake.assist_on = False
+        step = self.run_plan(clock, drive, DriveStep('go_to', description='the living room')).steps[0]
+        self.assertEqual((step['status'], step['reason']), ('completed', 'entered_room'), step)
+        self.assertGreater(fake.x, 2.2 + .7)                      # Past the hall's end and on into the room.
 
     def test_after_dictated_turns_the_person_is_trusted_over_the_map(self):
         clock, fake, drive, world = self.start([('room', 'the living room', -.3, -6.)])   # Behind-right after the turn
@@ -242,6 +293,10 @@ class RoomTripValidationTests(unittest.TestCase):
         # "Forward" is not a side to look first; a room's name stands for its id.
         self.assertEqual(self.propose({**go, 'direction': 'forward'}).steps[0].prefer, None)
         self.assertEqual(self.propose({**go, 'target': 'Living Room'}).steps[0].target, 'lr')
+        # No id at all, only the name as they said it: a room he knows by that name is that room (his map is used).
+        self.assertEqual(self.propose({**go, 'target': None}).steps[0].target, 'lr')
+        self.assertEqual(self.propose({**go, 'target': None, 'description': 'living room'}).steps[0].target, 'lr')
+        self.assertIsNone(self.propose({**go, 'target': None, 'description': 'the den'}).steps[0].target)
 
     def test_a_seek_for_a_known_room_becomes_going_into_it(self):
         from tests.test_drive_session import step
