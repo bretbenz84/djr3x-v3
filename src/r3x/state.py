@@ -410,9 +410,16 @@ class CoreState:
         for raw in args['steps']:
             action = raw['action']
             named = raw.get('target')
-            if skip_sought and action == 'approach' and named in {'sought', None}:
+            if action == 'approach' and (named in rooms or (isinstance(named, str) and any(
+                    label(n) == label(named) for n in rooms.values()))) and not any(s.action == 'go_to' for s in steps):
+                # An approach to a room is going into it (review, November 22: refused as a target not offered).
+                raw = {**raw, 'action': 'go_to', 'description': raw.get('description') or rooms.get(named) or named,
+                       'stop_at_m': None}
+                action = 'go_to'
+            if action == 'approach' and any(s.action == 'go_to' for s in steps) and (
+                    named in {'sought', None} or named in rooms or skip_sought):
                 skip_sought = False
-                continue   # Its seek became a go_to, which goes in by itself.
+                continue   # A go_to goes in by itself: an approach after it adds nothing.
             skip_sought = False
             if (action == 'seek' and origin == 'requested' and isinstance(raw.get('description'), str)
                     and any(label(n) == label(raw['description']) for n in rooms.values())):
@@ -425,6 +432,14 @@ class CoreState:
                 if action == 'go_to' and origin != 'requested':
                     # Owner, November 22: on his own he does not go to other rooms until trips have proven reliable.
                     raise ValueError('RoomTripsOnlyWhenAsked')
+                if raw.get('direction') in {'forward', 'backward'}:
+                    raw = {**raw, 'direction': None}   # Which way to look first is left or right; ahead is the default.
+                if action == 'go_to' and isinstance(named, str) and named not in rooms:
+                    # A room's name in place of its id (a provider without strict schemas): the same room.
+                    same = [k for k, n in rooms.items() if label(n) == label(named)]
+                    if len(same) == 1:
+                        named = same[0]
+                        raw = {**raw, 'target': named}
                 used = {k for k in ('direction', 'degrees', 'meters', 'target', 'stop_at_m', 'description') if raw.get(k) is not None}
                 allowed = {'description', 'target', 'direction'} if action == 'go_to' else set()
                 if not used <= allowed or (action == 'go_to' and 'description' not in used):

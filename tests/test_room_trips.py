@@ -167,6 +167,16 @@ class RoomTripTests(unittest.TestCase):
         self.assertEqual(drive.navigator.captures, 8)
         self.assertGreater(step['turned_deg'], 290.)
 
+    def test_his_own_roll_toward_something_past_a_doorway_is_not_an_arrival(self):
+        small = lambda seen, world: (lambda *a, **k: {**seen(*a, **k), 'width': .15})   # Far off: small in view.
+        clock, fake, drive, world = self.start([('chair', 'the red chair', 6., 0.)], locate=small)
+        fake.sensors = doorway(fake, at=1.)
+        fake.assist_on = False
+        drive._sought = {'description': 'the red chair'}
+        receipt = self.run_plan(clock, drive, DriveStep('approach', target='sought'), origin='self_initiated')
+        self.assertEqual((receipt.steps[0]['status'], receipt.steps[0]['reason']), ('stopped', 'kept_out_of_doorway'), receipt)
+        self.assertIsNone(drive._reached)
+
     def test_his_own_move_stops_where_a_doorway_begins(self):
         clock, fake, drive, world = self.start()
         fake.sensors = doorway(fake, at=1.)
@@ -220,6 +230,18 @@ class RoomTripValidationTests(unittest.TestCase):
             self.propose({**go, 'target': 'nowhere'})
         looks = self.propose(step('look_around'))
         self.assertEqual([s.action for s in looks.steps], ['look_around'])
+
+    def test_plans_the_model_writes_other_ways_still_go_into_the_room(self):
+        from tests.test_drive_session import step
+        go = {**step('go_to'), 'description': 'the living room', 'target': 'lr'}
+        # An approach after a go_to adds nothing; it is dropped rather than refusing the plan.
+        self.assertEqual([s.action for s in self.propose(go, step('approach', target='sought')).steps], ['go_to'])
+        # An approach to the room itself is going into it.
+        plan = self.propose({**step('approach', target='lr'), 'description': None})
+        self.assertEqual([(s.action, s.target) for s in plan.steps], [('go_to', 'lr')])
+        # "Forward" is not a side to look first; a room's name stands for its id.
+        self.assertEqual(self.propose({**go, 'direction': 'forward'}).steps[0].prefer, None)
+        self.assertEqual(self.propose({**go, 'target': 'Living Room'}).steps[0].target, 'lr')
 
     def test_a_seek_for_a_known_room_becomes_going_into_it(self):
         from tests.test_drive_session import step

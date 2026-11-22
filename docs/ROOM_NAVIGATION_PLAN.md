@@ -394,14 +394,50 @@ acceptable cost.
   is not summarised; depth straight ahead differing by more than a metre from a photo's makes that photo
   count a little less.
 
+### Review repairs (same night)
+
+An independent read of the code found problems, now repaired and checked:
+
+- **Room tracking could stop for the run.** A spot merged while a trip from it was under way made the next
+  route save fail, and that stopped the room worker. Now the trip moves to the merged spot. One failing
+  reading is skipped and logged (`place_reading_failed`); twenty in a row still stop the worker.
+- **A trip's room could label a later, unrelated stop.** A goal with no real trip is dropped, and so is a
+  trip that rolled on before it was placed. Goals expire after two minutes.
+- **A slow crawl through a doorway never left the spot.** Distances now count from where he stood, not
+  between readings.
+- **On a map trip, wheel travel did not place him.** The spot a passage leads to is now taken on the
+  end-of-leg look unless the view keeps contradicting it. A name given right after arriving uses that
+  spot instead of making a new one.
+- **The look-alike vote could end a trip at the doorway.** Only a spot a person named counts as being in
+  the room, and only after a metre of travel.
+- **His own roll stopped at a doorway sounded like an arrival.** It is now reported as stopped.
+- **One wrong naming could move home's router to a new building.** Where the router confirmed the
+  building, a different name holds for this run but the router stays where it was. The overlapping
+  "this is my office" example is gone from the place tool.
+- **Home could be taken for a new place after a router change.** On an unknown router, every view must
+  now stay below .76 (was .80) for eight readings before he calls a place new. A "new" place whose views
+  then match a known place's photos joins that place's map.
+  A router unreadable at start is read again (every minute, five times).
+- **Plans the model writes other ways are no longer refused:**
+  - an approach after a `go_to` (dropped);
+  - an approach to a room (made a `go_to`);
+  - `go_to` with "forward" as its direction;
+  - a room's name in place of its id.
+- **Smaller repairs:**
+  - A photo whose description failed is not tried again, so one bad photo cannot use up every attempt.
+  - A plan's last few centimetres no longer crash a trip.
+  - A head move whose end was never noticed no longer stops photos for a minute.
+  - Depth for photos is read without touching the drive's short memory of the floor.
+
 ### Checks
 
 - **Synthetic:**
-  - 23 contract checks in `tests/test_places.py` (synthetic views and tiny copies, fake clock and odometer).
+  - 31 contract checks in `tests/test_places.py` (synthetic views and tiny copies, fake clock and odometer).
     They cover spots, photos by direction, a later run finding the spot and facing, trips becoming passages
     and routes, rooms by direction, trip labels, corrections, being carried, the migration, router adoption,
-    a new place named, and naming while rolling.
-  - 9 in `tests/test_room_trips.py` against the simulated base. They cover going into a room seen through its
+    a new place named, and naming while rolling. They also cover each review repair (3 more need numpy
+    or OpenCV and run outside the blocked runner).
+  - 13 in `tests/test_room_trips.py` against the simulated base. They cover going into a room seen through its
     doorway, a doubtful sighting on the right, a remembered route with no looks, dictated turns over the map,
     no way known, a look-around, a doorway stopping his own move, and plan validation.
 - **Real model, no robot:** on a copy of the database, with the real room model and OpenCV on saved images

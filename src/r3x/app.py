@@ -350,8 +350,15 @@ class App:
                 places.odometer = drive.odometer
                 places.neck = drive._neck
                 places.view_settled = drive.view_still
-                places.depth = lambda: {k: round(v, 2) for k, v in drive.space().items()
-                                        if isinstance(v, (int, float)) and not isinstance(v, bool)} if drive.state == 'ready' else None
+                from .drive_space import clearance as clearance_now
+                def depth():
+                    # Read without drive.space(), which also feeds the drive's own short memory of the floor.
+                    telemetry, matrix = drive.link.snapshot()
+                    if drive.state != 'ready' or not telemetry:
+                        return None
+                    space = clearance_now(telemetry, matrix, drive.clock(), rear_matrix=drive.link.rear_snapshot())
+                    return {k: round(v, 2) for k, v in space.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                places.depth = depth
                 places.compass = lambda: {k: m[k] for k in ('x', 'y', 'z') if k in m} if (
                     m := (drive.link.snapshot()[0] or {}).get('mag') or {}).get('ok') else None
             from .adapters.places import router_identity
@@ -517,7 +524,7 @@ class App:
                         self.drive.router = finder.route   # Looks at the floor to get around what blocks an approach.
                         self.drive.look = lambda after: fresh_look(camera, after)
                         if places is not None:
-                            places.describer = finder.describe   # One line per room photo, spread out.
+                            places.describer = lambda image, cancel: finder.describe(image, cancel)   # One line per room photo.
                     if places is not None:
                         self.drive.navigator = places   # Going to rooms by his map (owner, November 22).
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,

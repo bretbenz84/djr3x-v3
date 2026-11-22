@@ -523,3 +523,129 @@ class RouterTests(unittest.TestCase):
         one = router_identity(run=lambda args: outputs[args[0]])
         self.assertEqual(len(one), 32)
         self.assertIsNone(router_identity(run=lambda args: ''))
+
+
+class ReviewRepairTests(PlaceFixture):
+    """November 22 review: the cases that could stop room tracking or label the wrong stop."""
+    def setUp(self):
+        super().setUp()
+        self.building()
+
+    def test_a_spot_made_this_run_merges_into_the_old_one_with_a_trip_under_way(self):
+        self.look(5)                                   # The old spot, photographed facing 0.
+        old = self.places.here
+        self.yaw0, self.yaw, self.x, self.y = 180., 0., 0., 0.
+        self.start_places()
+        self.places.building_id, self.places.building_how = 'home', 'told'; self.places._reload()
+        self.look(5)                                   # Facing the other way: no photo there, a new spot.
+        made = self.places.here
+        self.assertNotEqual(made, old)
+        self.drive([(1., 0.), (-1., 0.)], 'A')         # Out and back, the trip starting on the new spot.
+        self.turn(180.)                                # Now facing the way the old spot was photographed.
+        self.look(6)
+        self.assertEqual(self.places.here, old)
+        self.assertEqual(len(self.store.rows('SELECT * FROM spots')), 1)
+        self.assertIsNone(self.places.failure)
+
+    def test_a_trip_goal_with_no_trip_labels_nothing_later(self):
+        self.look(5)
+        with self.store.transaction() as c:
+            c.execute("INSERT INTO places(id,name,created_at,source_turn,import_ref,building_id) VALUES('k','kitchen',0,NULL,NULL,'home')")
+        self.places._reload()
+        self.places.trip_started('k', 'map')
+        self.places.trip_ended(True)                   # "Already here": no trip at all.
+        self.assertIsNone(self.places.goal)
+        self.drive([(1.5, 0.)], 'B')                   # A later drive of his own...
+        self.look(5)
+        self.assertNotIn('just_arrived', self.places.context())   # ...is not labelled the kitchen.
+        self.assertIsNone(self.store.rows('SELECT room_id FROM spots WHERE id=?', (self.places.here,))[0]['room_id'])
+
+    def test_a_slow_crawl_off_a_spot_is_still_a_trip(self):
+        self.look(5)
+        a = self.places.here
+        self.moving[0] = True
+        for _ in range(16):                            # 0.09 m between readings, as through a doorway.
+            for _ in range(3):
+                self.x += .03; self.clock.now += .5; self.telemetry()
+            self.see(unit(hash((self.clock.now, 'crawl')) % 9999))
+        self.moving[0] = False
+        self.spot_at = 'B'
+        self.clock.now += 3.; self.telemetry()
+        self.look(6)
+        self.assertNotEqual(self.places.here, a)
+        self.assertEqual(len(self.store.rows('SELECT * FROM passages')), 1)
+
+    def test_only_a_named_spot_counts_as_in_the_room_for_a_trip(self):
+        kitchen = self.room('kitchen', KITCHEN)
+        self.places.odometer = None
+        self.see(near(KITCHEN, 1), 3)
+        self.assertEqual(self.places.current['place_id'], kitchen)   # The look-alike vote believes it...
+        self.assertFalse(self.places.in_room(kitchen))                # ...but that is no arrival.
+
+    def test_a_failed_description_is_not_tried_again(self):
+        with TemporaryDirectory() as folder:
+            self.places.photos_dir = Path(folder)
+            self.places.describer = lambda image, cancel: (_ for _ in ()).throw(RuntimeError('no'))
+            self.places.map.add_photo('home', None, None, self.places.namespace, KITCHEN, file='home/missing.jpg')
+            self.places.map.add_photo('home', None, None, self.places.namespace, HALL, file='home/there.jpg')
+            (Path(folder) / 'home').mkdir(); (Path(folder) / 'home/there.jpg').write_bytes(b'\xff\xd8')
+            for _ in range(2):
+                self.clock.now += 30; self.places._describe_one()
+            self.assertEqual(self.store.rows('SELECT COUNT(*) n FROM room_photos WHERE description IS NULL')[0]['n'], 0)
+
+
+class BuildingRepairTests(PlaceFixture):
+    def test_a_router_confirmed_home_keeps_its_router_when_someone_names_another_place(self):
+        with self.store.transaction() as c:
+            c.execute("INSERT INTO buildings VALUES('home','home',0,NULL,0,0)")
+            c.execute("INSERT INTO building_networks VALUES('home','router-a',0,0)")
+        self.start_places(network=lambda: 'router-a')
+        self.begin("This is my office.")
+        self.call('name_place', dict(name='office', action='this_is', source_turn_id=self.state.current[0]))
+        self.assertEqual(self.places.context()['place']['name'], 'office')   # Trusted for this run...
+        self.assertEqual(self.places.map.buildings_on('router-a'), ['home'])  # ...the router stays home's.
+
+    def test_a_new_place_that_turns_out_known_joins_its_map(self):
+        with self.store.transaction() as c:
+            c.execute("INSERT INTO buildings VALUES('home','home',0,NULL,0,0)")
+            c.execute("INSERT INTO building_networks VALUES('home','router-a',0,0)")
+        self.start_places(network=lambda: 'router-a')
+        self.look(5)
+        for _ in range(3):
+            self.turn(45); self.look(1)
+        self.spot_at = 'elsewhere'
+        self.start_places(network=lambda: 'router-new')    # A new router at home...
+        self.look(9)
+        provisional = self.places.building_id
+        self.assertEqual(self.places.context()['status'], NEW_PLACE)
+        self.spot_at = 'A'; self.yaw = 0.
+        self.look(4)                                         # ...and then a view of a room he knows there.
+        self.assertEqual(self.places.building_id, 'home')
+        self.assertFalse(self.store.rows('SELECT * FROM buildings WHERE id=?', (provisional,)))
+        self.assertIn('home', self.places.map.buildings_on('router-new'))
+
+
+class RouteArrivalTests(PlaceFixture):
+    def setUp(self):
+        super().setUp()
+        self.building()
+
+    def test_after_a_route_the_wheels_place_him_on_the_spot_it_leads_to(self):
+        self.look(5)
+        a = self.places.here
+        self.drive([(2., 0.)], 'B')
+        self.look(5)
+        b = self.places.here
+        self.drive([(-2., 0.)], 'A')
+        self.look(3)
+        self.assertEqual(self.places.here, a)
+        # A map trip under way: the plan still runs (wheels just stopped), the drive owner expects B.
+        self.moving[0] = True
+        for _ in range(40):
+            self.x += .05; self.clock.now += .05; self.telemetry()
+        self.clock.now += 1.; self.telemetry()
+        offset = self.places.offset(a)
+        self.places.expect(b, offset)
+        frame = self.frame(unit(4242))                 # A view his photos do not settle either way.
+        self.places.observe(frame, deliberate=True)
+        self.assertEqual(self.places.where()['spot'], b)

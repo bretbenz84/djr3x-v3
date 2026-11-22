@@ -139,6 +139,11 @@ BUILDING_READINGS = 3       # ...this many times: he is there.
 NEW_PLACE_SIM = .72         # Nothing in any building this close...
 NEW_PLACE_READINGS = 8      # ...this many readings in a row, on a network none knows: a new place.
 LEGACY_RETIRE = 8           # A room with this many photos on spots people named drops its October views.
+READING_FAILURES = 20       # Readings failing in a row before the worker gives up for the run.
+NETWORK_RETRY_S = 60.       # An unreadable router is read again this often...
+NETWORK_RETRIES = 5         # ...this many times.
+UNKNOWN_ROUTER_SIM = .76    # On a router no building knows, views all under this for NEW_PLACE_READINGS: somewhere new.
+GOAL_KEEP_S = 120.          # A trip's room goal not landed on a spot by then is dropped.
 # Descriptions: one hosted line per photo, spread out (owner, November 22: the model describes rooms).
 DESCRIBE_EVERY_S = 20.
 DESCRIBE_PER_RUN = 30
@@ -228,6 +233,7 @@ class Places:
         self.building_how = None     # network / views / told / new / only (a guess until confirmed)
         self.router = None
         self.network_checked = False
+        self.network_tries, self.network_at = 0, float('-inf')
         self.building_votes = Counter()
         self.nowhere_streak = 0
         self._building_cache = None
@@ -246,6 +252,8 @@ class Places:
         self._last_thumb = None
         self.last_pose = None        # Odometer pose at the last reading...
         self.last_pose_at = None     # ...and when its frame was taken.
+        self.belief_pose = None      # Where the spot belief was last spread by rolling.
+        self.still_pose = self.still_at = None   # Where and when he last stood still.
         self.trip = None             # {'from_spot', 'from_offset', 'started', 'marks', 'stopped'}
         self.pending = None          # A label told while rolling: (room_id, where, turn), for the next stop.
         self.goal = None             # {'room_id', 'name', 'how'}: a trip someone asked for, until its stop.
@@ -285,14 +293,26 @@ class Places:
         self.worker = Thread(target=self._run, name='r3x-places', daemon=True); self.worker.start()
 
     def _run(self):
-        last = None
+        last, failures = None, 0
         try:
             self._check_network()
             while not self.stop.is_set():
                 began = self.clock(); frame = self.camera.hub.take('places', last)
                 if frame:
-                    last = frame.frame_id; self.observe(frame)
+                    last = frame.frame_id
+                    try:
+                        self.observe(frame)
+                        failures = 0
+                    except ProviderFailure:
+                        raise   # The model itself failed: the capability is down, as before.
+                    except Exception as exc:
+                        # Review, November 22: one bad reading must not end room tracking for the run.
+                        failures += 1
+                        if self.trace: self.trace.emit('place_reading_failed', error_type=type(exc).__name__, failures=failures)
+                        if failures >= READING_FAILURES:
+                            raise
                 self.tick()
+                self._retry_network()
                 self._describe_one()
                 with self.lock:
                     settled = (self.current is not None and self.here is not None and self.motion() is False
@@ -361,8 +381,19 @@ class Places:
                 self.current = self.vote = None; self.history.clear()
 
     # Buildings ---------------------------------------------------------------------------------
+    def _retry_network(self):
+        """An unreadable router (Wi-Fi still joining at start) is read again a few times."""
+        if (self.router or self.network is None or self.network_tries >= NETWORK_RETRIES
+                or self.clock() - self.network_at < NETWORK_RETRY_S):
+            return
+        self.network_checked = False
+        self._check_network()
+
     def _check_network(self):
-        """The router's hardware address, once at the start (owner: not the network name)."""
+        """The router's hardware address, at the start and a few times more while unreadable (owner: never the
+        network name)."""
+        self.network_tries += 1
+        self.network_at = self.clock()
         if self.network_checked or self.network is None:
             self.network_checked = True
             return
@@ -376,7 +407,9 @@ class Places:
             if not router:
                 return
             known = self.map.buildings_on(router)
-            if len(known) == 1:
+            if len(known) == 1 and self.building_how not in ('told', 'network'):
+                if self.building_how == 'new' and self.building_id != known[0]:
+                    self.merge_into(self.building_id, known[0])   # A provisional place that was this one.
                 self._settle(known[0], 'network')
             elif not known:
                 adopt = [b for b in self.map.buildings() if b['adopt_network']]
@@ -385,10 +418,10 @@ class Places:
                     self._settle(adopt[0]['id'], 'network')
             if self.trace: self.trace.emit('place_network', outcome='known' if known else 'new_network', buildings=len(known))
 
-    def _settle(self, building_id, how):
+    def _settle(self, building_id, how, note_network=True):
         changed = building_id != self.building_id
         self.building_id, self.building_how = building_id, how
-        if self.router and how != 'network':
+        if self.router and how != 'network' and note_network:
             self.map.note_network(building_id, self.router)
         self._building_cache = None
         if changed:
@@ -417,10 +450,13 @@ class Places:
 
         On a network no building knows, a view unlike every building's photos for NEW_PLACE_READINGS readings
         is a place he has never seen; with no router reading at all, only views far from everything count."""
-        if self.building_how not in (None, 'only') or not self.network_checked:
+        provisional = self.building_how == 'new' and (self._building_row() or {}).get('provisional')
+        if (self.building_how not in (None, 'only') and not provisional) or not self.network_checked:
             return
         best_by = {}
         for building_id, v, _ in self.map.all_photo_vectors(self.namespace):
+            if provisional and building_id == self.building_id:
+                continue
             s = dot(q, v)
             if s > best_by.get(building_id, -1.): best_by[building_id] = s
         best = max(best_by.values(), default=0.)
@@ -429,9 +465,15 @@ class Places:
             self.building_votes[top] += 1
             self.nowhere_streak = 0
             if self.building_votes[top] >= BUILDING_READINGS:
-                self._settle(top, 'views')
+                if provisional:
+                    # The place he thought new looks like one he knows after all: its map joins that one.
+                    self.merge_into(self.building_id, top, 'views')
+                else:
+                    self._settle(top, 'views')
             return
-        far = best < (BUILDING_MATCH if self.router else NEW_PLACE_SIM)
+        if provisional:
+            return
+        far = best < (UNKNOWN_ROUTER_SIM if self.router else NEW_PLACE_SIM)
         self.nowhere_streak = self.nowhere_streak + 1 if far else 0
         if self.nowhere_streak >= NEW_PLACE_READINGS:
             if self.building_how == 'only' and not self.photos:
@@ -606,26 +648,30 @@ class Places:
         # A deliberate look from the drive owner (a look-around stop) counts once the wheels themselves are still.
         still = (self.odometer.still_for() >= .8 if meta['deliberate'] else self._still(moving)) and meta['settled']
         self._track_trip(pose, moving, thumb, meta, now)
-        # Motion: rolling spreads the belief; standing or turning in place keeps it.
-        if self.last_pose is not None:
-            rolled = math.hypot(pose[0] - self.last_pose[0], pose[1] - self.last_pose[1])
-            if rolled >= .2:
-                mix = min(.9, rolled / 1.5)
-                n = len(self.spots) + 1
-                self.belief = {k: (1 - mix) * v + mix / n for k, v in self.belief.items()}
-                for k in list(self.spots) + [None]:
-                    self.belief.setdefault(k, mix / n)
-                for k, a in self.anchors.items():
-                    # Where he stood on it this run is known: rolled well away, he is not there.
-                    if k in self.belief and math.hypot(pose[0] - a['x'], pose[1] - a['y']) > 2 * NEAR_M:
-                        self.belief[k] *= .1
-                if self.here is not None:
-                    a = self.anchors.get(self.here)
-                    if a is None or math.hypot(pose[0] - a['x'], pose[1] - a['y']) > NEAR_M:
-                        self._off_spot('rolled')
+        # Motion: rolling spreads the belief; standing or turning in place keeps it. Distances count from where
+        # the belief was last spread and from the spot itself, so a slow crawl (0.1 m a reading) counts too.
+        if self.belief_pose is None:
+            self.belief_pose = pose
+        rolled = math.hypot(pose[0] - self.belief_pose[0], pose[1] - self.belief_pose[1])
+        if rolled >= .2:
+            self.belief_pose = pose
+            mix = min(.9, rolled / 1.5)
+            n = len(self.spots) + 1
+            self.belief = {k: (1 - mix) * v + mix / n for k, v in self.belief.items()}
+            for k in list(self.spots) + [None]:
+                self.belief.setdefault(k, mix / n)
+            for k, a in self.anchors.items():
+                # Where he stood on it this run is known: rolled well away, he is not there.
+                if k in self.belief and math.hypot(pose[0] - a['x'], pose[1] - a['y']) > 2 * NEAR_M:
+                    self.belief[k] *= .1
+        if self.here is not None:
+            a = self.anchors.get(self.here)
+            if a is None or math.hypot(pose[0] - a['x'], pose[1] - a['y']) > NEAR_M:
+                self._off_spot('rolled')
         self.last_pose, self.last_pose_at = pose, meta['at']
         if not still:
             return
+        self.still_pose, self.still_at = pose, meta['at']
         # Back where he stood on a spot this run: that spot, by the wheels.
         near = [(math.hypot(pose[0] - a['x'], pose[1] - a['y']), k) for k, a in self.anchors.items() if k in self.spots]
         near = min(near, default=None)
@@ -651,7 +697,9 @@ class Places:
         if self._merge_duplicate(near, sims, meta, pose):
             return
         trip = self.trip
-        if near is not None and near[0] <= NEAR_M and (trip is None or (trip['stopped'] and trip['length'] <= 6.)) \
+        expected = near is not None and meta['deliberate'] and self.anchors[near[1]].get('expected')
+        if near is not None and near[0] <= NEAR_M and (
+                trip is None or (trip['stopped'] and trip['length'] <= 6.) or expected) \
                 and self._not_carried(sims.get(near[1])):
             spot = near[1]
             self.belief = {k: (.95 if k == spot else .05 / max(1, len(self.belief) - 1)) for k in self.belief}
@@ -688,6 +736,11 @@ class Places:
         offset_old = wrap(camera - meta['neck'] - pose[2])
         delta = wrap(offset_old - self.anchors[made]['offset'])
         self.map.merge_spot(made, old, delta)
+        if self.trip is not None and self.trip['from_spot'] == made:
+            # Review, November 22: the trip under way started on the spot just merged away.
+            self.trip['from_spot'] = old
+            if self.trip['from_offset'] is not None:
+                self.trip['from_offset'] = wrap(self.trip['from_offset'] + delta)
         self.made.discard(made)
         self.anchors.pop(made, None)
         self.anchors[old] = {'offset': offset_old, 'x': pose[0], 'y': pose[1], 'at': self.clock()}
@@ -727,7 +780,7 @@ class Places:
         elif spot_id not in self.anchors:
             return   # No photo this way and no frame yet: wait for a reading that has one.
         else:
-            self.anchors[spot_id] = {**self.anchors[spot_id], 'x': pose[0], 'y': pose[1], 'at': now}
+            self.anchors[spot_id] = {'offset': self.anchors[spot_id]['offset'], 'x': pose[0], 'y': pose[1], 'at': now}
         arriving = self.here != spot_id
         self.here, self.unplaced = spot_id, 0
         if arriving or (self.trip and self.trip['stopped']):
@@ -775,7 +828,8 @@ class Places:
             if not (told and spot.get('room_id') == goal['room_id']):
                 # By sight or by someone's directions: he asks once whether this is it.
                 self.arrived = {'room_id': goal['room_id'], 'name': goal['name'], 'ask': goal['how'] != 'map' or told, 'at': now}
-            if trip['from_spot'] and trip['from_spot'] != spot_id and trip.get('first_heading') is not None:
+            if (trip['from_spot'] in self.spots and trip['from_spot'] != spot_id
+                    and trip.get('first_heading') is not None):
                 self.map.add_bearing(trip['from_spot'], goal['room_id'], trip['first_heading'], 'trip')
         self._reload()
         if self.trace: self.trace.emit('place_spot', status='on', spot=spot_id[:8],
@@ -788,7 +842,7 @@ class Places:
     def _record_passage(self, trip, to_spot):
         from_offset = trip['from_offset']
         to_anchor = self.anchors.get(to_spot)
-        if from_offset is None or to_anchor is None:
+        if from_offset is None or to_anchor is None or trip['from_spot'] not in self.spots:
             return
         trail = self.odometer.since(trip['started'])
         if len(trail) < 2:
@@ -818,10 +872,16 @@ class Places:
 
     def _track_trip(self, pose, moving, thumb, meta, now):
         """A trip starts when he rolls off a spot and ends when he has stood still a moment."""
+        if self.trip is not None and self.trip['stopped'] and math.hypot(
+                pose[0] - self.trip['stop_pose'][0], pose[1] - self.trip['stop_pose'][1]) >= .15:
+            # He rolled on before the last stop was placed: that trip (and any room goal on it) is dropped.
+            self.trip, self.goal = None, None
         if self.trip is None:
-            if self.last_pose is not None and math.hypot(pose[0] - self.last_pose[0], pose[1] - self.last_pose[1]) >= .15:
+            origin = self.still_pose or self.last_pose
+            origin_at = self.still_at if self.still_pose else self.last_pose_at
+            if origin is not None and math.hypot(pose[0] - origin[0], pose[1] - origin[1]) >= .15:
                 self.trip = {'from_spot': self.here, 'from_offset': (self.anchors.get(self.here) or {}).get('offset'),
-                             'started': self.last_pose_at - .5, 'start': pose, 'marks': [], 'stopped': False}
+                             'started': (origin_at or now) - .5, 'start': pose, 'marks': [], 'stopped': False}
             return
         if moving and thumb:
             self.trip['marks'].append({'t': meta['at'], 'camera': pose[2] + meta['neck'], 'thumb': thumb})
@@ -840,6 +900,7 @@ class Places:
             self.trip = None   # A turn or a nudge: still on the same spot.
             return
         trip['stopped'], trip['length'] = True, travelled
+        trip['stop_pose'] = self._pose() or (trail[-1][1], trail[-1][2], trail[-1][3])
         start = trip['from_spot']
         if self.here is not None and (self.here == start or start is None):
             self._off_spot('trip')
@@ -906,7 +967,12 @@ class Places:
             time.sleep(.05)
         else:
             return self.where()
-        self.observe(frame, deliberate=True)
+        try:
+            self.observe(frame, deliberate=True)
+        except ProviderFailure:
+            raise
+        except Exception as exc:
+            if self.trace: self.trace.emit('place_reading_failed', error_type=type(exc).__name__, deliberate=True)
         return self.where()
 
     def thumb_now(self):
@@ -938,7 +1004,8 @@ class Places:
         with self.lock:
             pose = self._pose()
             if pose is not None and spot_id in self.spots:
-                self.anchors[spot_id] = {'offset': wrap(offset), 'x': pose[0], 'y': pose[1], 'at': self.clock()}
+                self.anchors[spot_id] = {'offset': wrap(offset), 'x': pose[0], 'y': pose[1], 'at': self.clock(),
+                                         'expected': True}
 
     def offset(self, spot_id):
         with self.lock:
@@ -986,8 +1053,8 @@ class Places:
     def trip_started(self, room_id, how):
         """A trip someone asked for, toward room_id: where it ends is labelled for it until a person says."""
         with self.lock:
-            if room_id in self.rooms:
-                self.goal = {'room_id': room_id, 'name': self.rooms[room_id], 'how': how}
+            self.goal = ({'room_id': room_id, 'name': self.rooms[room_id], 'how': how, 'at': self.clock()}
+                         if room_id in self.rooms else None)
             self.arrived = None
 
     def trip_ended(self, ok):
@@ -995,20 +1062,22 @@ class Places:
         with self.lock:
             if self.goal is None:
                 return
-            if not ok or (self.trip is None and self.here is not None):
-                self.goal = None
+            if ok and self.trip is not None:
+                self._close_trip()
+            if not ok or self.trip is None or not self.trip['stopped']:
+                self.goal = None   # Failed, or no trip long enough to have left the spot: nothing to label.
             else:
                 self.goal['ended'] = True
-                if self.trip is not None:
-                    self._close_trip()
 
     def passage_result(self, passage_id, ok):
         with self.lock:
             self.map.passage_result(passage_id, ok)
 
     def in_room(self, room_id):
+        """On a spot a person named as this room (review, November 22: not the look-alike vote, which sees the
+        room through its doorway)."""
         with self.lock:
-            return bool(self.current and self.current['place_id'] == room_id and self.current['sure'])
+            return bool(self.current and self.current['place_id'] == room_id and self.current['how'] == 'told')
 
     # Naming (called by the state owner after its transaction commits) -------------------------------
     def named(self, room_id, name, where, turn):
@@ -1017,6 +1086,16 @@ class Places:
             self.rooms[room_id] = name
             moving = self.motion() and self.odometer is not None and self.odometer.still_for() < 1.
             spot = None if moving else self.here
+            if spot is None and not moving:
+                pose = self._pose()
+                near = min(((math.hypot(pose[0] - a['x'], pose[1] - a['y']), k) for k, a in self.anchors.items()
+                            if k in self.spots), default=None) if pose else None
+                if near is not None and near[0] <= NEAR_M:
+                    spot = near[1]
+                    if self.trip is not None:
+                        self._close_trip()
+                    self.here = spot
+                    self._arrive(spot, self.clock())
             if spot is None and not moving:
                 best = max((k for k in self.belief if k is not None), key=self.belief.get, default=None)
                 if best is not None and self.belief[best] >= .5 and self.trip is None:
@@ -1043,7 +1122,7 @@ class Places:
         if where == 'here':
             self.map.label_spot(spot, room_id, 'told', turn)
             self.map.retire_legacy(room_id, LEGACY_RETIRE)
-            if self.arrived and self.arrived['room_id'] == room_id: self.arrived = None
+            self.arrived = None   # Answered, whichever room it turned out to be.
             self.last_named = {'name': name, 'outcome': 'this_spot', 'photos_here': len(self.by_spot.get(spot, []))}
         else:
             facing = self._facing(spot)
@@ -1078,18 +1157,23 @@ class Places:
         """The state owner wrote the building's name; switching buildings resets where he stands."""
         with self.lock:
             if building_id != self.building_id:
-                if self.router:
+                # Review, November 22: where the router confirmed the building, a person's other name holds for
+                # this run but leaves the router with that building (a wrong tool choice must not move home's).
+                confirmed = self.building_how == 'network'
+                if self.router and not confirmed:
                     with self.store.transaction() as c:
                         c.execute('DELETE FROM building_networks WHERE network=?', (self.router,))
-                self._settle(building_id, 'told')
+                self._settle(building_id, 'told', note_network=not confirmed)
             else:
                 self.building_how = 'told'
             self._reload()
 
-    def merge_into(self, source, target):
+    def merge_into(self, source, target, how='told'):
         with self.lock:
             self.map.merge_building(source, target)
-            self._settle(target, 'told')
+            self.building_id = None   # The provisional building is gone; settle afresh on the known one.
+            self._settle(target, how)
+            if self.trace: self.trace.emit('place_merged', into=target)
 
     # Descriptions -----------------------------------------------------------------------------------
     def _describe_one(self):
@@ -1102,6 +1186,9 @@ class Places:
         if not rows:
             return
         row = rows[0]
+        if not (self.photos_dir / row['file']).is_file():
+            self.map.describe(row['id'], '')   # Its JPEG was never written: nothing to describe, ever.
+            return
         try:
             import base64
             from .scene import SceneImage
@@ -1111,11 +1198,12 @@ class Places:
             text = ' '.join(str(self.describer(image, Cancellation()).get('text') or '').split())[:160]
         except Exception as exc:
             self.described += 1
+            self.map.describe(row['id'], '')   # Not tried again: one bad photo must not use every attempt.
             if self.trace: self.trace.emit('place_described', outcome='failed', error_type=type(exc).__name__)
             return
         self.described += 1
+        self.map.describe(row['id'], text)
         if text:
-            self.map.describe(row['id'], text)
             with self.lock: self._reload()
         if self.trace: self.trace.emit('place_described', outcome='ok' if text else 'empty')
 
@@ -1198,6 +1286,8 @@ class Places:
         with self.lock:
             if self.arrived and self.clock() - self.arrived['at'] > 180.:
                 self.arrived = None
+            if self.goal and self.clock() - self.goal.get('at', self.clock()) > GOAL_KEEP_S:
+                self.goal = None
 
     # Conversation context --------------------------------------------------------------------
     def context_status(self):

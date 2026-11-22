@@ -216,6 +216,7 @@ VOICE_STRONG_SHARE = .8
 # board's own ramp has stopped) or the wheels stop (they coast), frames show the new view.
 HEAD_VIEW_SETTLE_S = .3
 BASE_VIEW_SETTLE_S = 1.
+VIEW_OPEN_S = 10.
 CLOSING_M = 1.2           # Something this near straight ahead, with the target ahead too.
 CLOSING_DEG = 20.
 # November 15 evening (916af362): sent through an archway on his left, he rolled 1.2 m while it slid
@@ -1144,7 +1145,9 @@ class DriveBase:
     def view_still(self, at, margin=.2):
         """A frame taken at `at` shows a still view: no head or base move overlapped it (a room photo's bearing)."""
         with self._view_lock:
-            return not any(started <= at and (settled is None or settled >= at - margin)
+            # A move noticed as started but never as ended (a head move's end can close a base move's entry)
+            # stops counting after VIEW_OPEN_S; a head move never lasts that long, and a drive is motion anyway.
+            return not any(started <= at and (settled >= at - margin if settled is not None else at - started < VIEW_OPEN_S)
                            for started, _, settled in self._view_moves)
 
     def moved_during(self, start, end):
@@ -2180,6 +2183,9 @@ class DriveBase:
     def _legs(self, meters, plan, cancel):
         """A long move as firmware legs of at most step_m, each against fresh clearance."""
         step = LIMITS[plan.origin]['step_m']
+        if abs(meters) <= .05:
+            return {'action': 'move', 'requested_m': round(meters, 2), 'travelled_m': 0., 'status': 'completed',
+                    'reason': 'nothing_to_move'}
         remaining, rows = abs(meters), []
         while remaining > .05 and len(rows) < 16:
             leg = math.copysign(min(step, remaining), meters)
@@ -3157,7 +3163,7 @@ class DriveBase:
                     outcome = ('arrived', inside)
                     break
                 if self._kept_out(space, cruise_began):
-                    outcome = ('arrived', 'kept_out_of_doorway')
+                    outcome = ('stopped', 'kept_out_of_doorway')   # Not there: kept out of the doorway.
                     break
                 ahead, tight = self._ahead(space, telemetry)
                 expected = self._expected_sought()
@@ -3400,7 +3406,7 @@ class DriveBase:
             return None
         if goal['entered_at'] is not None and math.dist(self._at, goal['entered_at']) >= ENTER_ON_M:
             return 'entered_room'
-        if (goal.get('room_id') and self.navigator is not None and self._room_travel() >= .5
+        if (goal.get('room_id') and self.navigator is not None and self._room_travel() >= ROOM_ENTER_M
                 and self.navigator.in_room(goal['room_id'])):
             return 'room_recognized'
         return None
@@ -3606,6 +3612,9 @@ class DriveBase:
             if turn['status'] != 'completed':
                 return {'status': 'blocked' if turn['status'] == 'refused' else turn['status'], 'reason': turn.get('reason'),
                         'travelled_m': 0., 'turned_deg': round(turned, 1)}
+        if budget_m < .1:
+            return {'status': 'distance_limit', 'reason': 'distance_limit_reached', 'travelled_m': 0.,
+                    'turned_deg': round(turned, 1)}
         move = self._legs(min(BEARING_ROLL_M, budget_m), plan, cancel)
         moved = move.get('travelled_m', 0.)
         if moved < .3 and move['status'] != 'completed':
