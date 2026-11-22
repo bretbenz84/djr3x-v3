@@ -1388,6 +1388,16 @@ class OpenAIVisualLocator(HTTPProvider):
                             result=result, usage=usage)
         return result
 
+    def describe(self, image, cancel: Cancellation) -> dict:
+        """One line on what a room photo shows, for the room map (November 22). At most a few per run."""
+        from ..room_map import PHOTO_DESCRIBER
+        schema = {"type": "object", "additionalProperties": False, "required": ["text"],
+                  "properties": {"text": {"type": "string"}}}
+        result, usage = self._ask(PHOTO_DESCRIBER, "room_photo", schema, "Describe this view.", image, cancel)
+        if self.trace:
+            self.trace.emit("room_photo_described", frame_id=image.frame_id, usage=usage)
+        return result
+
     def route(self, image, facts: dict, cancel: Cancellation) -> dict:
         """Which open floor to drive to next, from a floor-level picture and the range
         sensors by direction. A proposal only: the drive owner's clearance checks decide."""

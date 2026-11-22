@@ -87,5 +87,57 @@ class PlaceEncoder:
             raise ProviderFailure('PlaceEmbeddingInvalid')
         return vector / norm
 
+    @staticmethod
+    def thumbnail(frame):
+        """A tiny grey copy (room_map.THUMB_W x THUMB_H bytes) for measuring small turns between views."""
+        return thumbnail(frame)
+
+    @staticmethod
+    def jpeg(frame):
+        """The photo kept on his own disk: 640 px wide, about 40 KB."""
+        return jpeg(frame)
+
     def cancel(self): pass   # Bounded CPU inference is joined by its owning worker.
     def close(self): self.session = None
+
+
+def thumbnail(frame):
+    import cv2
+    import numpy as np
+    from ..room_map import THUMB_H, THUMB_W
+    image = np.frombuffer(frame.pixels, dtype=np.uint8).reshape(frame.height, frame.width, 3)
+    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    small = cv2.resize(grey, (THUMB_W, THUMB_H), interpolation=cv2.INTER_AREA)
+    return bytes(small.tobytes())
+
+
+def jpeg(frame, width=640, quality=80):
+    import cv2
+    import numpy as np
+    image = np.frombuffer(frame.pixels, dtype=np.uint8).reshape(frame.height, frame.width, 3)
+    if frame.width > width:
+        image = cv2.resize(image, (width, round(frame.height * width / frame.width)), interpolation=cv2.INTER_AREA)
+    ok, data = cv2.imencode('.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+    if not ok:
+        raise ProviderFailure('RoomPhotoEncodeFailed')
+    return data.tobytes()
+
+
+def router_identity(run=None, timeout=2.):
+    """A digest of the default router's hardware address, or None (owner, November 22: buildings by router
+    hardware, never the network name, which a campus shares across buildings). macOS reads it with no extra
+    permission; the access point's own ID would need Location permission and is not used."""
+    import hashlib
+    import re
+    import subprocess
+    run = run or (lambda args: subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout)
+    route = run(['/sbin/route', '-n', 'get', 'default'])
+    gateway = next((line.split(':', 1)[1].strip() for line in route.splitlines() if line.strip().startswith('gateway:')), None)
+    if not gateway or not re.fullmatch(r'[0-9.]+', gateway):
+        return None
+    arp = run(['/usr/sbin/arp', '-n', gateway])
+    found = re.search(r'\bat ((?:[0-9a-f]{1,2}:){5}[0-9a-f]{1,2})\b', arp, re.IGNORECASE)
+    if not found:
+        return None
+    mac = ':'.join(part.zfill(2) for part in found.group(1).lower().split(':'))
+    return hashlib.sha256(('router:' + mac).encode()).hexdigest()[:32]

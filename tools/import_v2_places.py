@@ -79,7 +79,7 @@ def main():
     project = Path(__file__).resolve().parents[1]
     from r3x.lease import LiveLease
     from r3x.memory import Memory, label
-    from r3x.places import MAX_EMBEDDINGS
+    MAX_EMBEDDINGS = 15   # V2's per-room cap; imported views are loose `legacy` photos (November 22).
     lease = LiveLease(project / 'local/sessions/live.lock'); lease.acquire()   # Refuses while Rex runs.
     memory = Memory(project / 'local/core.sqlite3'); memory.start()
     try:
@@ -88,7 +88,11 @@ def main():
             old = conn.execute('SELECT mapping FROM imports WHERE digest=?', (key,)).fetchone()
             if old:
                 print('Already imported:', old[0]); return
-            existing = {label(r[0]) for r in conn.execute('SELECT name FROM places')}
+            home = conn.execute("SELECT id FROM buildings WHERE name='home'").fetchone()
+            if home is None:
+                home = (uuid4().hex,)
+                conn.execute("INSERT INTO buildings VALUES(?,'home',?,NULL,0,1)", (home[0], datetime.now().timestamp()))
+            existing = {label(r[0]) for r in conn.execute('SELECT name FROM places WHERE building_id=?', (home[0],))}
             clash = [r['name'] for r in rooms if label(r['name']) in existing]
             if clash:
                 raise SystemExit(f'V3 already has rooms named {clash}; nothing written')
@@ -96,11 +100,14 @@ def main():
             for room in rooms:
                 place_id = uuid4().hex
                 mapping[str(room['source_id'])] = place_id
-                conn.execute('INSERT INTO places VALUES(?,?,?,?,?)', (place_id, room['name'],
-                             min(v['captured_at'] for v in room['views']), None, f'{key}:{room["source_id"]}'))
+                conn.execute('INSERT INTO places(id,name,created_at,source_turn,import_ref,building_id) VALUES(?,?,?,?,?,?)',
+                             (place_id, room['name'], min(v['captured_at'] for v in room['views']), None,
+                              f'{key}:{room["source_id"]}', home[0]))
                 for view in room['views'][-MAX_EMBEDDINGS:]:
-                    conn.execute('INSERT INTO place_embeddings VALUES(?,?,?,?,?,?,?)', (uuid4().hex, place_id, TAG,
-                                 view['vector'].astype('float32').tobytes(), view['heading'], view['captured_at'], 'v2-import'))
+                    # V2's headings were from wherever he pointed at boot: kept out, as photos with no bearing.
+                    conn.execute("INSERT INTO room_photos VALUES(?,?,NULL,?,NULL,?,?,NULL,NULL,NULL,NULL,NULL,?,'legacy')",
+                                 (uuid4().hex, home[0], place_id, TAG, view['vector'].astype('float32').tobytes(),
+                                  view['captured_at']))
             conn.execute('INSERT INTO imports VALUES(?,?)', (key, json.dumps(mapping)))
         print(f'Imported {len(rooms)} rooms:', json.dumps(mapping))
     finally:

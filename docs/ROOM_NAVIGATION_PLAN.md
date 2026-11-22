@@ -7,10 +7,13 @@ the on-device room model, sensible links and directions between rooms, range-sen
 an extra layer, maps grouped by building, the layout learned mostly by himself, and the reply
 model describing what is in each room.
 
-**Status: plan only. Nothing in this document is built.** Each slice needs the owner's go-ahead.
-Revised the same day to follow the [owner's rulings](#owner-rulings-november-22) on the first draft.
-Sources: the run's session log, the room tables in `local/core.sqlite3` (read only), the code,
-and web research listed under [What works elsewhere](#what-works-elsewhere).
+**Status, November 22 (overnight): slices 0 to 5 are built in software and checked in the simulated
+base and with synthetic room views. Nothing has run on the robot yet.** The owner asked for the whole plan
+to be built while he slept. [What was built](#what-was-built-november-22) lists each part, what differs
+from the design below, what was checked and what only the robot can show. Revised the same day to follow
+the [owner's rulings](#owner-rulings-november-22) on the first draft. Sources: the run's session log, the
+room tables in `local/core.sqlite3` (read only), the code, and web research listed under
+[What works elsewhere](#what-works-elsewhere).
 
 ## What happened in run `8cece04a` (12:09–12:14 AM)
 
@@ -321,6 +324,105 @@ acceptable cost.
 
 - **Location permission on the Mac**, the owner's step, needed only to tell campus buildings
   apart by access point. Home and Dad's house are told apart without it.
+
+## What was built (November 22)
+
+### How Rex behaves now
+
+- **"Go to the kitchen."** The reply model sends a `go_to` step naming the room. If his map knows the way,
+  he follows it: no paid camera looks. If not, he looks for the room and goes in through its opening. A room
+  filling his view no longer counts as arriving; he must have rolled at least a metre first, and 1.5 m before
+  "fills the view" counts. Through a doorway he rolls 0.8 m on into the room.
+- **Not found and no way known:** the trip ends as `route_unknown`, and the reply model is told to say so and
+  ask which way it is.
+- **Following directions.** "Forward a bit, then right into the living room" becomes the person's moves and
+  turns, then `go_to`. After dictated steps he goes by sight toward where they pointed, never his map's way.
+  Arriving that way, he asks once whether this is the room. "Yes" labels where he stands; "no" removes the
+  label.
+- **The search turns the right way.** A doubtful sighting (often a blurred frame) is looked at again after
+  the head settles, turned toward, and decides which way the search sweeps. A search after a turn the person
+  dictated looks toward that side first.
+- **A seek for a known room becomes `go_to`.** If the model sends seek-and-approach for an exact known room
+  name, the drive owner treats it as going into that room.
+- **Learning by living in the house (no tour).**
+  - Standing still, he files a photo for each 45 degrees the camera faces at that spot, a day one and a night
+    one. Each photo keeps its fingerprint, a tiny grey copy, the compass, the depth readings and a JPEG under
+    `local/room-photos/`. The JPEGs are about 20 KB and kept indefinitely.
+  - Every trip from one spot to the next stop becomes a passage, whoever drove it, gamepad included.
+- **Rooms come only from people.**
+  - "This is the kitchen" labels the spot he stands on.
+  - "The kitchen is to your left" (or ahead, right, behind) keeps that direction from this spot. The reply
+    model then hears "kitchen: to your left", turning with him as he turns.
+  - A trip someone asked for labels where it ended, as a guess (`sure: false`), until a person confirms it.
+- **Where he is:**
+  - From the photos of every spot, over a run of looks, plus his wheels. Standing still or turning in place
+    never moves him off a spot.
+  - Rolling 1.2 m away from a spot he stood on this run counts it out.
+  - Back within 0.6 m of it by the wheels, he is on it again.
+  - A view unlike that spot's photo three times in a row means he was picked up and carried.
+  - A spot made this run that later matches an old one is merged into it.
+- **The old room vote** remains only for a spot that has no room yet. It uses room photos that a person
+  named, plus the October views, now kept as photos with no spot or direction. A belief that stops matching
+  is dropped after five readings (run `8cece04a` kept "dining room" for three minutes). His own belief no
+  longer adds views to a room. A room with eight photos on spots people named drops its October views.
+- **Buildings.**
+  - The router's hardware address is read once at start (a digest is stored, never the address or network
+    name). Home adopts the first router it sees.
+  - On a router no building knows, a view unlike every building's photos for eight readings is a new place.
+    He is told he has never been here, asks, and `name_place` names it. A known name joins that place's map.
+  - Each building has its own rooms.
+- **His own moves:** `go_to` is refused for his own goals (`RoomTripsOnlyWhenAsked`). A move or roll of his
+  own ends where a doorway or hall begins (both sides within 0.45 m).
+- **"Look around"** is a drive step: a full turn in eight stops, with a look at each. A trip to a known room
+  starts with one when he does not know which spot he is on.
+- **Descriptions:** at most one hosted line every 20 s per photo, 30 per run, while the wheels are still. The
+  reply model sees up to three of them for the spot he stands on.
+
+### Changed from the design above
+
+- **No "house north".** Each spot keeps its own frame (bearing 0 is wherever his base faced when it was
+  made), and passages carry the turn between two spots' frames. Matching any photo at a spot tells him which
+  way he faces there, so a building never needs one direction that stays right across runs.
+- **No look-around after a naming.** One reply can call only one tool, so naming a room cannot also turn
+  him. Photos come as his head and body turn in conversation, and from look-arounds a person asks for or a
+  trip starts.
+- **The compass** is recorded with every photo but not used. Nothing yet shows how steady it is beside his
+  motors.
+- **No fingerprint model built for places** (EigenPlaces) was tried. There are no saved photos to compare it
+  on yet, and fetching a model needs the owner's go-ahead.
+- **Doorways** are found from the side beams along a trail and counted on each passage. A spot's room size
+  is not summarised; depth straight ahead differing by more than a metre from a photo's makes that photo
+  count a little less.
+
+### Checks
+
+- **Synthetic:**
+  - 23 contract checks in `tests/test_places.py` (synthetic views and tiny copies, fake clock and odometer).
+    They cover spots, photos by direction, a later run finding the spot and facing, trips becoming passages
+    and routes, rooms by direction, trip labels, corrections, being carried, the migration, router adoption,
+    a new place named, and naming while rolling.
+  - 9 in `tests/test_room_trips.py` against the simulated base. They cover going into a room seen through its
+    doorway, a doubtful sighting on the right, a remembered route with no looks, dictated turns over the map,
+    no way known, a look-around, a doorway stopping his own move, and plan validation.
+- **Real model, no robot:** on a copy of the database, with the real room model and OpenCV on saved images
+  resized to camera size:
+  - The migration made "home" with the 4 rooms and 60 October views as photos.
+  - The router was read and adopted.
+  - One spot was made, 7 photos filed with JPEGs of 17-27 KB.
+  - A reading took a median 287 ms (the model's own 0.26 s).
+- **Not done (needs the robot):** recognising a spot across runs in this house; the image-shift heading on real
+  frames; going through the living-room doorway; a passage repeated without asking; how often he asks; the
+  router on campus networks. Accuracy can be scored once people have named enough spots.
+
+### Morning test
+
+1. Start him in the workshop. Ask "where are you?", then tell him the room.
+2. Say "go to the living room". Expected: he does not know the way and asks. Give directions, then confirm or
+   correct the room when he asks.
+3. Drive him back with the gamepad, then ask again. Expected: by map, with no looks.
+4. In the living room, tell him "the kitchen is to your left", then "go to the kitchen".
+5. Afterwards, `.venv/bin/python tools/room_map_report.py` lists what the map holds and what the run did: spots
+   and photos, passages, rooms gone into, doubtful sightings and route corrections. It reads only.
 
 ## Not in this plan
 

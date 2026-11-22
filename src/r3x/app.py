@@ -344,6 +344,19 @@ class App:
                 places.motion = lambda: self.drive.motion_risk() if self.drive.state == 'ready' else None
                 places.heading = lambda: DriveBase._heading(self.drive.link.snapshot()[0] or {})
                 self.drive.on_motion.append(places.note_motion)   # Between slower settled samples too.
+                # Room navigation (owner, November 22): wheel travel, where the head points, a still view, and
+                # the depth and compass readings kept with each photo.
+                drive = self.drive
+                places.odometer = drive.odometer
+                places.neck = drive._neck
+                places.view_settled = drive.view_still
+                places.depth = lambda: {k: round(v, 2) for k, v in drive.space().items()
+                                        if isinstance(v, (int, float)) and not isinstance(v, bool)} if drive.state == 'ready' else None
+                places.compass = lambda: {k: m[k] for k in ('x', 'y', 'z') if k in m} if (
+                    m := (drive.link.snapshot()[0] or {}).get('mag') or {}).get('ok') else None
+            from .adapters.places import router_identity
+            places.network = router_identity   # The router's hardware address tells buildings apart.
+            places.photos_dir = self.paths.root / 'room-photos'   # Kept indefinitely, never committed (local/).
         inspection = next((p for p in optional if p.capability.name=='current_view'),None)
         output = OutputOwner(tts, sink, trace,inspection=inspection)
         from .output import MusicBed
@@ -503,6 +516,10 @@ class App:
                         self.drive.locator = finder.locate
                         self.drive.router = finder.route   # Looks at the floor to get around what blocks an approach.
                         self.drive.look = lambda after: fresh_look(camera, after)
+                        if places is not None:
+                            places.describer = finder.describe   # One line per room photo, spread out.
+                    if places is not None:
+                        self.drive.navigator = places   # Going to rooms by his map (owner, November 22).
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene

@@ -153,8 +153,9 @@ class Memory:
         self.connection.executescript(conversation_schema)
         from .agency import SCHEMA as agency_schema
         self.connection.executescript(agency_schema)
-        from .places import SCHEMA as places_schema
+        from .places import SCHEMA as places_schema, migrate as places_migrate
         self.connection.executescript(places_schema)
+        places_migrate(self.connection)   # November 22: rooms belong to a building; October views become photos.
         from .jokes import SCHEMA as jokes_schema
         self.connection.executescript(jokes_schema)
         from .hypotheticals import SCHEMA as hypotheticals_schema

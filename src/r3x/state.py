@@ -404,9 +404,44 @@ class CoreState:
         if len(args['steps']) > limits['max_steps']:
             raise ValueError('DriveTooManySteps')
         steps, meters, degrees = [], 0., 0.
+        place = context.get('place') or {}
+        rooms = {r['room_id']: r['name'] for r in place.get('known_rooms', ())}
+        skip_sought = False
         for raw in args['steps']:
             action = raw['action']
             named = raw.get('target')
+            if skip_sought and action == 'approach' and named in {'sought', None}:
+                skip_sought = False
+                continue   # Its seek became a go_to, which goes in by itself.
+            skip_sought = False
+            if (action == 'seek' and origin == 'requested' and isinstance(raw.get('description'), str)
+                    and any(label(n) == label(raw['description']) for n in rooms.values())):
+                # November 22: a room is gone into, not approached until it fills the view. A seek naming a
+                # known room exactly is that room's go_to (the approach after it is part of going in).
+                room_id = next(k for k, n in rooms.items() if label(n) == label(raw['description']))
+                raw = {**raw, 'action': 'go_to', 'target': room_id}
+                action, named, skip_sought = 'go_to', room_id, True
+            if action in {'go_to', 'look_around'}:
+                if action == 'go_to' and origin != 'requested':
+                    # Owner, November 22: on his own he does not go to other rooms until trips have proven reliable.
+                    raise ValueError('RoomTripsOnlyWhenAsked')
+                used = {k for k in ('direction', 'degrees', 'meters', 'target', 'stop_at_m', 'description') if raw.get(k) is not None}
+                allowed = {'description', 'target', 'direction'} if action == 'go_to' else set()
+                if not used <= allowed or (action == 'go_to' and 'description' not in used):
+                    raise ValueError('DriveStepFieldsMismatch:' + action)
+                if raw['direction'] is not None and raw['direction'] not in {'left', 'right'}:
+                    raise ValueError('DriveDirectionMismatch:' + action)
+                if action == 'go_to':
+                    if named is not None and named not in rooms:
+                        raise ValueError('UnknownRoom')
+                    dictated = [s for s in steps if s.action in {'turn', 'move'}]
+                    turns = [s for s in dictated if s.action == 'turn']
+                    prefer = raw['direction'] or (('left' if turns[-1].degrees > 0 else 'right') if turns else None)
+                    steps.append(DriveStep('go_to', target=named, description=raw['description'].strip()[:120],
+                                           prefer=prefer, pace=raw.get('pace'), directed=bool(dictated)))
+                else:
+                    steps.append(DriveStep('look_around', pace=raw.get('pace')))
+                continue
             if action in {'face', 'approach', 'find_person'} and isinstance(named, str) and named not in offered and named != 'sought':
                 # October 3: the model dropped characters from a face id ("come towards me");
                 # the unrecognized id was read as the thing sought earlier and he turned back
@@ -469,7 +504,11 @@ class CoreState:
             if action == 'move' and not .05 <= raw['meters'] <= limits['total_m']:
                 raise ValueError('DriveMoveOutOfRange')
             if action == 'seek':
-                steps.append(DriveStep('seek', description=raw['description'].strip(), prefer=raw['direction'],
+                # Run 8cece04a: after "go to your right", a search with no side named swept left. A side the
+                # person dictated earlier in the plan is the side to look first.
+                turns = [s for s in steps if s.action == 'turn']
+                prefer = raw['direction'] or (('left' if turns[-1].degrees > 0 else 'right') if turns else None)
+                steps.append(DriveStep('seek', description=raw['description'].strip(), prefer=prefer,
                                        pace=raw.get('pace')))
                 continue
             if (action in {'face', 'approach'} or raw['target'] is not None) and raw['target'] not in offered:
@@ -1610,7 +1649,7 @@ class CoreState:
             from .memory_opportunities import clock
             return {**data,'followup_kind':args['kind'],'on_date':args['on_date'],'audience':args['audience'],
                     'due':clock(due_at) if due_at is not None else None},True
-        if name in {'name_room','correct_room'}:
+        if name in {'name_room','correct_room','name_place'}:
             return self._room(conn,name,args),True
         if name == "remember_interest":
             self._source_allowed(args,name)
@@ -2133,24 +2172,35 @@ class CoreState:
             return callouts.heard(conn, offered.get('here'), line, self.wall_clock())
 
     def _room(self, conn, name, args):
-        """Room names come from what people say; the recognizer only collects views for them."""
+        """Room and place names come from what people say; the room map keeps them with where he stands.
+
+        Runs inside the store's transaction, so it reads the recognizer's building only as a plain attribute
+        (never its lock); labelling the spot happens in _after, once this has committed."""
         turn_id = self.current[0]
         if self.places is None: raise ValueError('RoomRecognitionUnavailable')
         self._source_allowed(args,name)
-        rooms = {r['id']:r['name'] for r in conn.execute('SELECT id,name FROM places').fetchall()}
+        building = self.places.building_id
         def clean(value):
             value = ' '.join(str(value or '').split())
             if not 2 <= len(value) <= 60: raise ValueError('InvalidRoomName')
             return value
+        if name == 'name_place':
+            return self._building(conn, clean(args['name']), args['action'], building, turn_id)
+        if building is None: raise ValueError('PlaceNotKnownYet')
+        rooms = {r['id']:r['name'] for r in conn.execute('SELECT id,name FROM places WHERE building_id=?',(building,)).fetchall()}
         if name == 'name_room':
             room = clean(args['name'])
+            where = args.get('where') or 'here'
+            if where not in {'here','ahead','left','right','behind'}: raise ValueError('InvalidRoomDirection')
             existing = next((k for k,v in rooms.items() if label(v)==label(room)),None)
             if existing is None:
                 existing = uuid4().hex
-                conn.execute('INSERT INTO places VALUES(?,?,?,?,NULL)',(existing,room,self.wall_clock(),turn_id))
-            return {'room_id':existing,'name':rooms.get(existing,room),'created':existing not in rooms,'source_turn_id':turn_id,
-                    'meaning':'Named. Rex is now collecting views of the room for up to a minute (looking around helps); '
-                              'it is not learned until place.last_learning says learned. Do not say it is memorized.'}
+                conn.execute('INSERT INTO places(id,name,created_at,source_turn,import_ref,building_id) VALUES(?,?,?,?,NULL,?)',
+                             (existing,room,self.wall_clock(),turn_id,building))
+            return {'room_id':existing,'name':rooms.get(existing,room),'created':existing not in rooms,'where':where,
+                    'source_turn_id':turn_id,
+                    'meaning':('Kept with the spot he stands on.' if where == 'here' else
+                               'Kept as the direction of that room from the spot he stands on.')}
         if args['room_id'] not in rooms: raise ValueError('UnknownRoom')
         room_id, action = args['room_id'], args['action']
         if action == 'not_this_room':
@@ -2160,9 +2210,37 @@ class CoreState:
             if any(label(v)==label(new) and k!=room_id for k,v in rooms.items()): raise ValueError('RoomNameInUse')
             conn.execute('UPDATE places SET name=? WHERE id=?',(new,room_id))
             return {'room_id':room_id,'action':action,'old_name':rooms[room_id],'name':new,'source_turn_id':turn_id}
-        conn.execute('DELETE FROM places WHERE id=?',(room_id,))   # Views and connections cascade.
+        conn.execute('DELETE FROM places WHERE id=?',(room_id,))   # Photos and directions cascade; spots stay unnamed.
         return {'room_id':room_id,'action':action,'name':rooms[room_id],'source_turn_id':turn_id,
-                'meaning':'The room, every saved view of it and its connections are deleted.'}
+                'meaning':'The room, its photos and its directions are deleted.'}
+
+    def _building(self, conn, place, action, current, turn_id):
+        """Owner, November 22: a map per building. A known name is that building; a new one starts a map."""
+        rows = conn.execute('SELECT id,name,provisional FROM buildings').fetchall()
+        here = next((r for r in rows if r['id']==current),None)
+        same = next((r for r in rows if r['name'] and label(r['name'])==label(place)),None)
+        if action == 'rename':
+            if here is None: raise ValueError('PlaceNotKnownYet')
+            if same is not None and same['id']!=current: raise ValueError('PlaceNameInUse')
+            conn.execute('UPDATE buildings SET name=?,provisional=0 WHERE id=?',(place,current))
+            return {'building_id':current,'name':place,'action':action,'old_name':here['name'],'source_turn_id':turn_id}
+        if action != 'this_is': raise ValueError('InvalidPlaceAction')
+        if same is not None:
+            if same['id']==current:
+                return {'building_id':current,'name':same['name'],'action':action,'changed':False,'source_turn_id':turn_id}
+            if here is not None and here['provisional']:
+                return {'building_id':same['id'],'name':same['name'],'action':action,'merge_from':current,'source_turn_id':turn_id,
+                        'meaning':'He has been here before: what he saw here joins that place\'s map.'}
+            return {'building_id':same['id'],'name':same['name'],'action':action,'switch':True,'source_turn_id':turn_id}
+        if here is not None and (here['provisional'] or not here['name']):
+            conn.execute('UPDATE buildings SET name=?,provisional=0,source_turn=? WHERE id=?',(place,turn_id,current))
+            return {'building_id':current,'name':place,'action':action,'named':True,'source_turn_id':turn_id,
+                    'meaning':'A new place: he starts its map here.'}
+        key = uuid4().hex
+        conn.execute('INSERT INTO buildings(id,name,created_at,source_turn,provisional,adopt_network) VALUES(?,?,?,?,0,0)',
+                     (key,place,self.wall_clock(),turn_id))
+        return {'building_id':key,'name':place,'action':action,'switch':True,'source_turn_id':turn_id,
+                'meaning':'A new place: he starts its map here.'}
 
     def _plan_game(self, name, args, speaker_at, trusted):
         if self.sentry.active:raise ValueError('SentryModeActive')
@@ -2179,7 +2257,10 @@ class CoreState:
         if name in GAME_TOOLS:
             self.jeopardy.commit()
         if name == 'name_room' and self.places:
-            self.places.learn(data['room_id'],data['name'],data['created'])
+            data['kept'] = self.places.named(data['room_id'],data['name'],data['where'],data['source_turn_id'])
+        if name == 'name_place' and self.places:
+            if data.get('merge_from'): self.places.merge_into(data['merge_from'],data['building_id'])
+            else: self.places.place_named(data['building_id'],data['name'],data['action'])
         if name == 'correct_room' and self.places:
             if data['action'] == 'not_this_room': data['belief_dropped'] = self.places.reject(data['room_id'])
             else: self.places.forgotten(data['room_id'])

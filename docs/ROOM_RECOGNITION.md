@@ -11,8 +11,16 @@ bedroom, even standing still, and how often he names the right room is unmeasure
 ([robot runs](#on-the-robot-october-1629)).
 
 **November 22:** in run `8cece04a` he called the hallway the dining room and never recognized the
-living room; none of the 60 saved views is a taught one. Findings and the plan that would replace
-the room vote are in the [room navigation plan](ROOM_NAVIGATION_PLAN.md). Nothing here has changed.
+living room; none of the 60 saved views was a taught one. The same night the
+[room navigation plan](ROOM_NAVIGATION_PLAN.md#what-was-built-november-22) replaced most of what this page
+describes:
+- Rooms are now known from photos of the spots he stands on.
+- Names label spots, or give directions from them.
+- Trips become passages, and buildings are told apart.
+- The views below ("collects up to eight views", the gallery growing from in-band frames, connections)
+  are retired.
+- The October views live on as loose photos for the fallback room vote. Everyday views and waking up
+  somewhere else are unchanged.
 
 ## What Rex does
 

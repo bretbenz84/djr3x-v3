@@ -2486,11 +2486,16 @@ class Session:
                                 'Describe the scene in detail only if the person asked what you see.'
                                 + ('' if images else ' ' + LOOK_FAILED)})
                         if reached is not None:
+                            check = next((s.get('ask_if_this_is') for s in ((output.get('drive') or {}).get('steps') or ())
+                                          if isinstance(output, dict) and s.get('action') == 'go_to' and s.get('ask_if_this_is')), None)
                             messages = (*messages, {'role':'developer','content':
                                 'You have arrived: the receipt shows the approach completed and you are there now, not '
                                 'on your way. Say one short line that fits being there ("Here I am.", or a word about '
                                 'the place). What you meant to say on arrival: ' + json.dumps(reached, ensure_ascii=False) +
-                                '. Do not repeat what you said before setting off.'})
+                                '. Do not repeat what you said before setting off.'
+                                + (' You found this room by sight or by their directions, not by your map: in the same '
+                                   'short line, ask them whether this is ' + (check if isinstance(check, str) else 'the room')
+                                   + ', so you know it next time.' if check else '')})
                         elif arrived:
                             # October 14 (e1f8b2c6): he rolled up to the owner without a word and was
                             # asked "you're just gonna walk up on me like that, but not say anything?".
@@ -2617,12 +2622,14 @@ class Session:
                                     visual_proposed_text = chosen.arguments['text']
                                     speak(visual_proposed_text)
                         elif receipt and receipt['status']=='completed':
-                            reached = any(s.get('action') == 'approach' and s.get('status') == 'completed'
+                            reached = any(s.get('action') in {'approach', 'go_to'} and s.get('status') == 'completed'
                                           and (s.get('travelled_m') or 0) > .2 for s in receipt.get('steps', []))
-                            if args['say_after'] and reached:
+                            check = any(s.get('action') == 'go_to' and s.get('ask_if_this_is') for s in receipt.get('steps', []))
+                            if (args['say_after'] or check) and reached:
                                 # October 16 (03bc4e1f): the line written before the trip, "I'm heading
-                                # toward the doorway.", played on arrival. It is now written there.
-                                if drive_followup(call,{'drive':receipt},reached=args['say_after'])[1]:
+                                # toward the doorway.", played on arrival. It is now written there. A room found by
+                                # sight or directions also asks whether it is the one (November 22).
+                                if drive_followup(call,{'drive':receipt},reached=args['say_after'] or '')[1]:
                                     raise ProviderFailure('ToolContinuationLimit')
                             elif args['say_after']:
                                 speak(args['say_after'])

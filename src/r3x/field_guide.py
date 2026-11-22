@@ -61,14 +61,19 @@ GUIDE = {
     'drive.limits': ('max_move_m is the whole distance one plan may cover; long moves run as several legs '
                      'automatically and clearance still stops the base at obstacles.'),
     'drive (unavailable)': 'Rex has a wheeled base, but its controller did not connect at startup this run.',
-    'place': ('Room recognition from the camera, not a map or a position. recognized: Rex knows this room. '
-              'unsure: it may be one of looks_like; say so if it matters, never claim it. unfamiliar: Rex has '
-              'moved and does not recognize the room. Unfamiliar, or unsure for a while: when people are here '
-              'and it fits, ask once what room this is (a guess from looks_like is fine; do not ask again if it '
-              'went unanswered) and use name_room when told, including a confirmation such as "yes, the '
-              'workshop". learning: views of a just-named room are being collected; it is not learned until '
-              'last_learning says learned. connects_to/connections: rooms Rex has gone between, not distances '
-              'or directions.'),
+    'place': ('Where Rex is, from his own photos of each spot he has stood on and from his wheels; a map of spots '
+              'and the ways between them, not a floor plan. place.name is the building (home, a relative\'s house, '
+              'work); never_seen_before: he has never been here, so when people are here ask once where he is and use '
+              'name_place when told. room: the room he stands in; sure false means a guess (from looks, or from a trip '
+              'nobody confirmed yet): say so if it matters, never claim it. looks_like: rooms it may be. Unfamiliar, or '
+              'unsure for a while: when people are here and it fits, ask once what room this is (a guess from '
+              'looks_like is fine; not again if it went unanswered) and use name_room when told, including a '
+              'confirmation such as "yes, the workshop". this_way: rooms that lie in that direction from where he '
+              'stands now, in an open space (the kitchen past the island from the living room). known_rooms: '
+              'way_known true means he can find his own way there; false means he would have to find it by sight or ask '
+              'the way. just_arrived: he got to that room by sight or someone\'s directions; ask_if_this_is_it true: '
+              'ask once, briefly, whether this is it, and name_room (here) or correct_room on the answer. '
+              'around_this_spot: what his photos here show. last_named: what the last naming kept.'),
     'camera_continuity': ('Similar images indicate a revisited view, not object identity. Newly visible is not '
                           'newly present. Commanded motion is known; uncommanded movement remains unknown. '
                           'Reappearance alone is not a reason to repeat a question or remark; inspect for '

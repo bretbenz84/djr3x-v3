@@ -55,7 +55,25 @@ LIMITS = {
     # the clearance checks enforce for every origin.
     'self_initiated': {'speed_mps': OPEN_SPEED, 'step_m': 1.5, 'total_m': 10., 'turn_deg': 360., 'total_turn_deg': 720., 'max_steps': 6},
 }
-ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek')
+ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek', 'go_to', 'look_around')
+# Room trips (owner, November 22; docs/ROOM_NAVIGATION_PLAN.md). Run 8cece04a: told to go into the living
+# room, he counted it reached because, seen through its doorway, it filled 60% of the view, and 0.0 m later
+# said "Living room". A room is somewhere he goes into, not a thing that fills the picture.
+ROOM_ENTER_M = 1.         # Rolled at least this far toward a room before stopping at something counts as in it...
+ROOM_FILLS_AFTER_M = 1.5  # ...and this far before the room filling the view does.
+ENTER_ON_M = .8           # Through its opening, on into the room this far.
+DOOR_SIDE_M = .45         # Both sides this near: a doorway or a hall (his body is 0.54 m, the door 0.8 m)...
+DOOR_OPEN_M = .9          # ...and one side this open again: through it.
+LOOK_AROUND_DEG = 45.     # A look-around: eight looks, one every 45 degrees, photos at each.
+LOOK_AROUND_SETTLE_S = 1.
+BEARING_ROLL_M = 3.       # Toward a room known only by its direction from here: at most this far.
+SEGMENT_FIX_MIN_DEG = 4.  # A passage's tiny copies turn him back onto the line he drove before by at
+SEGMENT_FIX_MAX_DEG = 20. # least this and at most this (a bigger one is a poor match, not a heading).
+SEGMENT_FIX_SCORE = .5
+# Run 8cece04a: the one look that saw the living room (on his right) was blurred and called low confidence,
+# so it counted as nothing and he searched left, the wrong way, until he gave up. A doubtful sighting is now
+# looked at again, steadied and turned toward, and it decides which way the search sweeps.
+WEAK_RETRY = 1
 SEEK_SWEEP_DEG = 80.      # Just under the ~90 degree camera view, so consecutive looks overlap.
 SEEK_LOOKS = 4            # Current view plus three turns: about a full circle.
 PLAN_VISION_CALLS = 40    # Hosted looks per plan (search, re-locating while rolling, routes around things).
@@ -387,8 +405,9 @@ class DriveStep:
     target: str | None = None
     stop_at_m: float | None = None
     description: str | None = None   # seek: what to look for, in the person's words.
-    prefer: str | None = None        # seek: sweep left or right first.
+    prefer: str | None = None        # seek, go_to: sweep left or right first.
     pace: str | None = None          # slow, easy or normal (None): scales this step's speed and turn rate.
+    directed: bool = False           # go_to after turns or moves a person dictated: their way, not the map's.
 
 
 @dataclass(frozen=True)
@@ -712,6 +731,11 @@ class DriveBase:
         self._manual = None           # Dashboard teleop holding the plan lock: {'parked', 'moving'}.
         self._offered_reason = None   # The lockout last told to the model, traced when it changes.
         self._sensors_ok_at = None    # Last time no sensor dropout locked the wheels (SENSOR_GRACE_S).
+        from .room_map import Odometer
+        self.odometer = Odometer(clock)   # Wheel travel from every telemetry frame, gamepad included.
+        self.navigator = None         # places.Places: where he is, routes to rooms, photos at look-around stops.
+        self._weak = None             # The last doubtful sighting: {'bearing', 'note'}.
+        self._room_goal = None        # A room being gone into: {'room_id', 'start', 'squeezed', 'entered_at'}.
 
     # Lifecycle -----------------------------------------------------------
     def start(self):
@@ -727,6 +751,7 @@ class DriveBase:
         # Only firmware that reports the steering gain can have it switched (0.2.x does).
         self._assist_gain = CONFIG['assist_gain'] if 'assist_gain' in (ack.get('config') or {}) else None
         self.link.on_log = self._firmware_log
+        self.link.on_telemetry = lambda t: self.odometer.update(t, self._sides(t))
         self._spawn('heartbeat', self._heartbeat)
         deadline = time.monotonic() + 1.5
         while self.link.snapshot()[0] is None:
@@ -1083,6 +1108,15 @@ class DriveBase:
         return ok, now_reason
 
     @staticmethod
+    def _sides(telemetry):
+        """(left, right) metres from the ring's side beams, for doorways along a trail."""
+        tof = telemetry.get('tof_mm') or {}
+        def nearest(keys):
+            values = [tof[k] / 1000. for k in keys if isinstance(tof.get(k), (int, float)) and tof[k] >= 0]
+            return min(values) if values else None
+        return nearest(('lf', 'lb')), nearest(('rf', 'rb'))
+
+    @staticmethod
     def _heading(telemetry):
         imu = telemetry.get('imu') or {}
         if imu.get('ok') and isinstance(imu.get('yaw'), (int, float)):
@@ -1106,6 +1140,12 @@ class DriveBase:
                 self._view_moves.append([now, self._neck(), None])
             elif self._view_moves and self._view_moves[-1][2] is None:
                 self._view_moves[-1][2] = now + HEAD_VIEW_SETTLE_S
+
+    def view_still(self, at, margin=.2):
+        """A frame taken at `at` shows a still view: no head or base move overlapped it (a room photo's bearing)."""
+        with self._view_lock:
+            return not any(started <= at and (settled is None or settled >= at - margin)
+                           for started, _, settled in self._view_moves)
 
     def moved_during(self, start, end):
         """Whether the wheels turned at any time between start and end (a capture's speech)."""
@@ -2008,6 +2048,7 @@ class DriveBase:
         status, reason = 'completed', None
         travelled, progressed_at, last_mark = 0., self.clock(), 0.
         graces = [0]
+        began_in_doorway = self._doorway(self.space())
         self._assist(True)
         self._wheels_on('move', self._origin)
         try:
@@ -2042,6 +2083,10 @@ class DriveBase:
                     status, reason = 'blocked', 'blocked'
                     break
                 space = self.space()
+                self._room_door(space)
+                if self._kept_out(space, began_in_doorway):
+                    status, reason = 'completed', 'kept_out_of_doorway'
+                    break
                 surface = self._surface()
                 why = self._crawl_hold(space, telemetry.get('tof_mm'), surface)
                 if why:
@@ -2115,8 +2160,13 @@ class DriveBase:
         speed, why = self._speed_limit(space, top) if meters > 0 else (min(top, HALLWAY_SPEED), 'reverse')
         self._speeds.add(speed, why)
         start = self._telemetry().get('odom') or {}
+        began = self._doorway(space)
+        guard = ((lambda: 'kept_out_of_doorway' if self._kept_out(self.space(), began) else None)
+                 if plan.origin == 'self_initiated' and meters > 0 else None)
         status, reason, done = self._finite({'cmd': 'move', 'dist': round(allowed, 2), 'speed': round(speed, 3)},
-                                            max(8., abs(allowed)/speed + 10.), cancel)
+                                            max(8., abs(allowed)/speed + 10.), cancel, guard)
+        if reason == 'kept_out_of_doorway':
+            status, note = 'completed', reason   # His own move ends where a doorway or hall begins (November 22).
         end = (done or {}).get('odom') or self._telemetry().get('odom') or {}
         travelled = math.hypot(float(end.get('x', 0)) - float(start.get('x', 0)), float(end.get('y', 0)) - float(start.get('y', 0)))
         row = {**row, 'commanded_m': round(allowed, 2), 'travelled_m': round(travelled, 2), 'status': status,
@@ -2135,7 +2185,7 @@ class DriveBase:
             leg = math.copysign(min(step, remaining), meters)
             rows.append(self._move(leg, plan, cancel))
             last = rows[-1]
-            if last['status'] != 'completed' or last['reason'] == 'shortened_by_clearance':
+            if last['status'] != 'completed' or last['reason'] in {'shortened_by_clearance', 'kept_out_of_doorway'}:
                 break
             if last.get('crawled'):
                 # A crawl through tight space: carry on from fresh readings while it makes headway.
@@ -2156,7 +2206,7 @@ class DriveBase:
             row['steered_deg'] = round(sum(r.get('steered_deg', 0.) for r in rows), 1)
         if len(rows) > 1:
             row['legs'] = rows
-        if row['status'] == 'completed' and remaining > .05:
+        if row['status'] == 'completed' and remaining > .05 and row.get('reason') != 'kept_out_of_doorway':
             row['reason'] = 'shortened_by_clearance'
         return row
 
@@ -2836,6 +2886,9 @@ class DriveBase:
             result = self.locator(description, image, cancel, hint=hint)
         else:
             result = self.locator(description, image, cancel)
+        if result.get('found') and result.get('confidence') == 'low':
+            self._weak = {'bearing': (.5 - float(result.get('x', .5))) * 2 * HALF_FOV + self._neck(),
+                          'note': result.get('note')}
         if not result.get('found') or result.get('confidence') == 'low':
             return None, result.get('note') or 'not_found'
         bearing = (.5 - float(result['x'])) * 2 * HALF_FOV + self._neck()
@@ -2965,10 +3018,26 @@ class DriveBase:
         if self.locator is None or self.look is None:
             return {**row, 'status': 'refused', 'reason': 'vision_seek_unavailable', 'turned_deg': 0.}
         sign = -1. if step.prefer == 'right' else 1.
-        turned, looks, notes = 0., 0, []
+        turned, looks, notes, retried = 0., 0, [], 0
         while looks < SEEK_LOOKS:
+            self._weak = None
             found, why = self._locate(step.description, cancel)
             looks += 1
+            if found is None and self._weak is not None and retried < WEAK_RETRY and self._vision_calls < self._vision_budget():
+                # A doubtful sighting (often a blurred frame): turn toward it, let the head settle, look again.
+                weak, retried = self._weak, retried + 1
+                if step.prefer is None:
+                    sign = 1. if weak['bearing'] > 0 else -1.   # And the search goes that way.
+                if abs(weak['bearing']) > 8:
+                    turn = self._turn(max(-90., min(90., weak['bearing'])), plan, cancel)
+                    turned += turn.get('turned_deg', 0.)
+                    if turn['status'] not in {'completed', 'refused'}:
+                        return {**row, 'status': turn['status'], 'reason': turn['reason'], 'turned_deg': turned, 'looks': looks}
+                self._sleep(HEAD_SETTLE_S, cancel)
+                found, why = self._locate(step.description, cancel)
+                if self.trace:
+                    self.trace.emit('drive_weak_sighting', description=step.description, bearing_deg=round(weak['bearing']),
+                                    found_again=found is not None)
             if found is not None:
                 if abs(found['bearing_deg']) > 8:
                     turn = self._turn(max(-180., min(180., found['bearing_deg'])), plan, cancel)
@@ -3046,6 +3115,7 @@ class DriveBase:
         looked_at = float('-inf')
         recheck_until = None
         graces = [0]
+        cruise_began = self._doorway(self.space())
         self._wheels_on('move', plan.origin)
         try:
             while outcome is None:
@@ -3071,7 +3141,7 @@ class DriveBase:
                     else:
                         misses, latest = 0, found
                         self._remember_sought(description, found)
-                        if found['box_width'] >= FILLS_VIEW:
+                        if found['box_width'] >= FILLS_VIEW and self._fills_count():
                             outcome = ('arrived', 'target_fills_the_view')
                             break
                 odom = telemetry.get('odom') or {}
@@ -3081,6 +3151,14 @@ class DriveBase:
                     outcome = ('distance_limit', 'distance_limit_reached')
                     break
                 space = self.space(now)
+                self._room_door(space)
+                inside = self._room_inside()
+                if inside:
+                    outcome = ('arrived', inside)
+                    break
+                if self._kept_out(space, cruise_began):
+                    outcome = ('arrived', 'kept_out_of_doorway')
+                    break
                 ahead, tight = self._ahead(space, telemetry)
                 expected = self._expected_sought()
                 room = (ahead if ahead is not None else 0.) - self._hold_for(expected, stand_off)
@@ -3209,6 +3287,12 @@ class DriveBase:
             else:
                 found, why, swung = self._find_again(plan, cancel, shifted)
                 turned += swung
+            inside = self._room_inside()
+            if inside:
+                return result('completed', inside)
+            if found is None and self._room_goal is not None and self._room_travel() >= ROOM_ENTER_M:
+                # Gone a metre and more toward a room that is no longer "over there": it is all around him.
+                return result('completed', 'room_all_around')
             if found is None:
                 # Out of sight even after looking to both sides (a corner, a cabinet): one
                 # more leg toward where it should be, then he looks for it again.
@@ -3222,7 +3306,7 @@ class DriveBase:
                 continue
             shifted = 0
             self._remember_sought(self._sought['description'], found)
-            if found['box_width'] >= FILLS_VIEW:
+            if found['box_width'] >= FILLS_VIEW and self._fills_count():
                 return result('completed', 'target_fills_the_view')
             if budget_m - travelled < .1:
                 return result('distance_limit', 'distance_limit_reached')
@@ -3259,7 +3343,8 @@ class DriveBase:
             wide = found['box_width'] >= NEAR_WIDTH and abs(bearing) <= 8
             grown = (found['box_width'] >= GROWN_NEAR * (self._sought.get('first_width') or found['box_width'])
                      and math.dist(self._sought.get('first_at') or self._at, self._at) >= GROWN_TRAVEL_M)
-            if wide and (grown or (ahead is not None and ahead - stand_off < NEAR_AHEAD_M)):
+            if wide and (grown or (ahead is not None and ahead - stand_off < NEAR_AHEAD_M)) and (
+                    self._room_goal is None or self._room_travel() >= ROOM_ENTER_M):
                 # Blocked with the thing ahead and near: arrived. Near means either something
                 # straight ahead at the stand-off, or the thing itself has at least doubled in
                 # the picture since first seen (it sits above or behind what stops him). A
@@ -3277,6 +3362,258 @@ class DriveBase:
                 return result('blocked', 'detour_turn_refused', clearance_at_stop_m=clearance, target_still_far=True)
             if detour['status'] not in {'completed', 'blocked', 'refused'}:
                 return result(detour['status'], 'detour_' + detour['status'])
+
+    # Rooms (owner, November 22; docs/ROOM_NAVIGATION_PLAN.md) ---------------------------------------------
+    @staticmethod
+    def _doorway(space):
+        """Both sides within a doorway's width of him (a doorway, or a hall)."""
+        left, right = space.get('left_m'), space.get('right_m')
+        return left is not None and right is not None and left <= DOOR_SIDE_M and right <= DOOR_SIDE_M
+
+    def _kept_out(self, space, began_in_doorway):
+        """Owner, November 22: on his own he does not go into other rooms yet, and must not end up blocking a
+        hall or a door nobody expects him in. A move of his own ends where a doorway or hall begins."""
+        return self._origin == 'self_initiated' and not began_in_doorway and self._doorway(space)
+
+    def _room_travel(self):
+        goal = self._room_goal
+        return math.dist(self._at, goal['start']) if goal else 0.
+
+    def _room_door(self, space):
+        """Going into a room: squeezed between both sides, then open again, is through its opening."""
+        goal = self._room_goal
+        if goal is None or goal['entered_at'] is not None:
+            return
+        left, right = space.get('left_m'), space.get('right_m')
+        if self._doorway(space):
+            goal['squeezed'] = True
+        elif goal['squeezed'] and ((left or 0.) >= DOOR_OPEN_M or (right or 0.) >= DOOR_OPEN_M):
+            goal['entered_at'] = tuple(self._at)
+            if self.trace:
+                self.trace.emit('drive_room_entered', room=goal.get('name'), travelled_m=round(self._room_travel(), 2))
+
+    def _room_inside(self):
+        """Why he is now in the room he is going into, or None: through its opening and on a little, or the
+        room model sure of it after he has moved."""
+        goal = self._room_goal
+        if goal is None:
+            return None
+        if goal['entered_at'] is not None and math.dist(self._at, goal['entered_at']) >= ENTER_ON_M:
+            return 'entered_room'
+        if (goal.get('room_id') and self.navigator is not None and self._room_travel() >= .5
+                and self.navigator.in_room(goal['room_id'])):
+            return 'room_recognized'
+        return None
+
+    def _fills_count(self):
+        """A thing filling the view is reached; a room fills it from its doorway, so only once he is in."""
+        return self._room_goal is None or self._room_travel() >= ROOM_FILLS_AFTER_M
+
+    def _look_around(self, plan, cancel, until_placed=False):
+        """A full turn in eight looks, a photo at each (requested, or to find himself on a trip someone asked
+        for). until_placed: stop once the room map knows the spot and two looks are in."""
+        row = {'action': 'look_around'}
+        nav = self.navigator
+        if nav is None:
+            return {**row, 'status': 'refused', 'reason': 'room_map_unavailable', 'turned_deg': 0.}
+        turned, looks, refused, where = 0., 0, 0, nav.where()
+        owed = 0.
+        for index in range(int(round(360. / LOOK_AROUND_DEG))):
+            if index:
+                owed += LOOK_AROUND_DEG
+                turn = self._turn(owed, plan, cancel, escape=False)
+                if turn['status'] == 'refused':
+                    refused += 1
+                    continue   # Too close to something to swing that far: try the next step's angle.
+                if turn['status'] != 'completed':
+                    return {**row, 'status': turn['status'], 'reason': turn['reason'], 'turned_deg': round(turned, 1),
+                            'looks': looks}
+                moved = turn.get('measured_deg') if turn.get('measured_deg') is not None else turn.get('commanded_deg', owed)
+                turned += abs(moved)
+                owed = max(0., owed - abs(moved))
+            self._sleep(LOOK_AROUND_SETTLE_S, cancel)
+            where = nav.capture(cancel)
+            looks += 1
+            if until_placed and where.get('spot') and looks >= 2:
+                break
+        out = {**row, 'status': 'completed', 'reason': 'placed' if where.get('spot') else 'spot_not_known',
+               'looks': looks, 'turned_deg': round(turned, 1)}
+        if refused:
+            out['turns_refused'] = refused
+        self._step_trace(out)
+        return out
+
+    def _go_to(self, step, plan, cancel, budget_m):
+        """Go to a room: by the map when it knows the way, else by sight (find it and go in through its
+        opening). After turns or moves a person dictated, their directions decide: by sight, toward the side
+        they named, never the map's way. With neither a way nor a sighting he says so, so he can ask."""
+        nav = self.navigator
+        row = {'action': 'go_to', 'room': step.description}
+        room_id = step.target
+        travelled, turned, ok = 0., 0., False
+        try:
+            if nav is not None and room_id and not step.directed:
+                where = nav.where()
+                if where.get('room_id') == room_id and where.get('room_sure'):
+                    ok = True
+                    return {**row, 'status': 'completed', 'reason': 'already_here', 'how': 'map', 'travelled_m': 0.}
+                if where.get('spot') is None and nav.mapped(room_id):
+                    # A look from where he stands first; a spin only when that does not place him. A room the
+                    # map has never been to or seen the way to goes straight to looking for it (no spin).
+                    where = nav.capture(cancel)
+                    if where.get('spot') is None:
+                        look = self._look_around(plan, cancel, until_placed=True)
+                        turned += look.get('turned_deg', 0.)
+                        if look['status'] not in {'completed', 'refused'}:
+                            return {**row, 'status': look['status'], 'reason': look.get('reason'), 'turned_deg': turned}
+                        row['looked_around'] = look.get('looks')
+                route = nav.route_to(room_id)
+                row['route'] = route['kind']
+                if route['kind'] == 'here':
+                    ok = True
+                    return {**row, 'status': 'completed', 'reason': 'already_here', 'how': 'map', 'turned_deg': turned,
+                            'travelled_m': 0.}
+                if route['kind'] in {'passages', 'bearing'}:
+                    nav.trip_started(room_id, 'map')
+                    out = (self._follow(route, plan, cancel, budget_m) if route['kind'] == 'passages'
+                           else self._toward_bearing(route, plan, cancel, budget_m))
+                    turned += out.get('turned_deg', 0.)
+                    travelled += out.get('travelled_m', 0.)
+                    ok = out['status'] == 'completed'
+                    return {**row, **out, 'how': 'map', 'turned_deg': round(turned, 1), 'travelled_m': round(travelled, 2)}
+            how = 'directions' if step.directed else 'sight'
+            if nav is not None:
+                nav.trip_started(room_id, how)
+            out = self._enter_by_sight(step, plan, cancel, budget_m)
+            ok = out['status'] == 'completed'
+            out = {**row, **out, 'how': how, 'turned_deg': round(turned + out.get('turned_deg', 0.), 1)}
+            if ok:
+                out['ask_if_this_is'] = step.description   # Found by sight or directions: he checks once.
+            return out
+        finally:
+            if nav is not None:
+                nav.trip_ended(ok)
+
+    def _enter_by_sight(self, step, plan, cancel, budget_m):
+        seek = self._seek(DriveStep('seek', description=step.description, prefer=step.prefer, pace=step.pace), plan, cancel)
+        if seek['status'] != 'completed':
+            status = 'route_unknown' if seek['status'] == 'not_found' else seek['status']
+            return {'status': status, 'reason': 'not_in_view_and_no_way_known' if status == 'route_unknown' else seek.get('reason'),
+                    'turned_deg': seek.get('turned_deg', 0.), 'looks': seek.get('looks'), 'notes': seek.get('notes'),
+                    'travelled_m': 0.}
+        self._room_goal = {'room_id': step.target, 'name': step.description, 'start': tuple(self._at),
+                           'squeezed': self._doorway(self.space()), 'entered_at': None}
+        try:
+            approach = self._approach_sought(DriveStep('approach', target='sought', description=step.description,
+                                                       pace=step.pace), plan, cancel, budget_m)
+        finally:
+            self._room_goal = None
+        out = {**approach, 'turned_deg': round(seek.get('turned_deg', 0.) + approach.get('turned_deg', 0.), 1),
+               'found_by': seek.get('note')}
+        out.pop('action', None); out.pop('target', None)
+        return out
+
+    def _follow(self, route, plan, cancel, budget_m):
+        """Drive the passages of a route: each segment's heading in its spot's own frame, its length with the
+        usual clearance handling, a small correction from the tiny copies taken when it was first driven, and
+        a look at the end of each passage to check he is where it leads."""
+        nav = self.navigator
+        travelled, turned, replanned = 0., 0., False
+        legs, goal = list(route['legs']), route['goal']
+        while legs:
+            leg = legs.pop(0)
+            along = 0.
+            for segment in leg['segments']:
+                relative = nav.relative(leg['from'], segment['heading'])
+                if relative is None:
+                    return {'status': 'lost', 'reason': 'direction_unknown_on_route', 'travelled_m': round(travelled, 2),
+                            'turned_deg': round(turned, 1)}
+                if abs(relative) >= 3.:
+                    turn = self._turn(relative, plan, cancel)
+                    turned += turn.get('turned_deg', 0.)
+                    if turn['status'] != 'completed':
+                        nav.passage_result(leg['passage_id'], False)
+                        return {'status': 'blocked' if turn['status'] == 'refused' else turn['status'],
+                                'reason': turn.get('reason'), 'travelled_m': round(travelled, 2), 'turned_deg': round(turned, 1)}
+                fix = self._segment_fix(leg, segment, along)
+                if fix:
+                    turn = self._turn(fix, plan, cancel, escape=False)
+                    turned += turn.get('turned_deg', 0.)
+                if budget_m - travelled < .1:
+                    return {'status': 'distance_limit', 'reason': 'distance_limit_reached', 'travelled_m': round(travelled, 2),
+                            'turned_deg': round(turned, 1)}
+                want = min(segment['length_m'], budget_m - travelled)
+                move = self._legs(want, plan, cancel)
+                travelled += move.get('travelled_m', 0.)
+                along += move.get('travelled_m', 0.)
+                turned += move.get('turned_deg', 0.)
+                short = want - move.get('travelled_m', 0.)
+                if move['status'] != 'completed' or (move.get('reason') == 'shortened_by_clearance' and short > .4):
+                    nav.passage_result(leg['passage_id'], False)
+                    return {'status': 'blocked' if move['status'] in {'completed', 'refused', 'blocked'} else move['status'],
+                            'reason': 'blocked_on_the_way: ' + str(move.get('reason')), 'travelled_m': round(travelled, 2),
+                            'turned_deg': round(turned, 1), 'clearance_m': move.get('clearance_m')}
+            start_offset = nav.offset(leg['from'])
+            if start_offset is not None:
+                nav.expect(leg['to'], start_offset + leg['arrive'])
+            self._sleep(BASE_VIEW_SETTLE_S, cancel)
+            where = nav.capture(cancel)
+            nav.passage_result(leg['passage_id'], where.get('spot') in (None, leg['to']))
+            if where.get('spot') not in (None, leg['to']) and not replanned:
+                # Somewhere else he knows: once, a new route from there.
+                replanned = True
+                again = nav.route_to(route.get('room_id')) if route.get('room_id') else None
+                if again and again['kind'] == 'passages':
+                    legs, goal = list(again['legs']), again['goal']
+                elif again and again['kind'] == 'here':
+                    legs, goal = [], where.get('spot')
+        where = nav.where()
+        arrived = where.get('spot') == goal
+        out = {'status': 'completed', 'reason': 'arrived_by_map' if arrived else 'arrived_not_confirmed',
+               'travelled_m': round(travelled, 2), 'turned_deg': round(turned, 1)}
+        if not arrived:
+            out['ask_if_this_is'] = True
+        return out
+
+    def _segment_fix(self, leg, segment, along):
+        """Degrees to turn so the view matches the tiny copy taken here when the passage was driven, or None."""
+        marks = [m for m in leg.get('marks') or () if abs(m['along_m'] - along) <= .5]
+        if not marks:
+            return None
+        from .room_map import thumb_shift
+        mark = min(marks, key=lambda m: abs(m['along_m'] - along))
+        thumb, neck = self.navigator.thumb_now()
+        shift = thumb_shift(thumb, mark['thumb'])
+        if shift is None or shift[1] < SEGMENT_FIX_SCORE:
+            return None
+        facing = wrap(mark['bearing'] + shift[0] - (neck or 0.))
+        fix = wrap(segment['heading'] - facing)
+        if self.trace:
+            self.trace.emit('drive_route_fix', degrees=round(fix, 1), score=round(shift[1], 2), along_m=round(along, 2))
+        return fix if SEGMENT_FIX_MIN_DEG <= abs(fix) <= SEGMENT_FIX_MAX_DEG else None
+
+    def _toward_bearing(self, route, plan, cancel, budget_m):
+        """A room known only as a direction from this spot (the open living, dining and kitchen space): face
+        it and roll that way as far as the floor goes."""
+        nav = self.navigator
+        relative = nav.relative(route['spot'], route['bearing'])
+        turned = 0.
+        if relative is None:
+            return {'status': 'lost', 'reason': 'direction_unknown', 'travelled_m': 0., 'turned_deg': 0.}
+        if abs(relative) >= 3.:
+            turn = self._turn(relative, plan, cancel)
+            turned += turn.get('turned_deg', 0.)
+            if turn['status'] != 'completed':
+                return {'status': 'blocked' if turn['status'] == 'refused' else turn['status'], 'reason': turn.get('reason'),
+                        'travelled_m': 0., 'turned_deg': round(turned, 1)}
+        move = self._legs(min(BEARING_ROLL_M, budget_m), plan, cancel)
+        moved = move.get('travelled_m', 0.)
+        if moved < .3 and move['status'] != 'completed':
+            return {'status': 'blocked', 'reason': move.get('reason'), 'travelled_m': moved, 'turned_deg': round(turned, 1),
+                    'clearance_m': move.get('clearance_m')}
+        far = move['status'] != 'completed' or move.get('reason') == 'shortened_by_clearance'
+        return {'status': 'completed', 'reason': 'as_far_as_fits' if far else 'rolled_toward_room',
+                'travelled_m': moved, 'turned_deg': round(turned + move.get('turned_deg', 0.), 1)}
 
     def _find_person(self, step, plan, cancel):
         """Turn until a face is in view: first where the model said, the last voice and radar bodies, then,
@@ -3379,6 +3716,10 @@ class DriveBase:
                     row = self._approach(step, plan, cancel, max(0., budget - receipt.travelled_m))
                 elif step.action == 'seek':
                     row = self._seek(step, plan, cancel)
+                elif step.action == 'go_to':
+                    row = self._go_to(step, plan, cancel, max(0., budget - receipt.travelled_m))
+                elif step.action == 'look_around':
+                    row = self._look_around(plan, cancel)
                 else:
                     row = self._find_person(step, plan, cancel)
                 if step.action != 'turn' and self._turn_moved:
@@ -3389,7 +3730,7 @@ class DriveBase:
                 receipt.steps.append(row)
                 # A turn a person asked for, then "come to me" / "face me": they are where it pointed.
                 self._directed = plan.origin == 'requested' and step.action == 'turn' and row['status'] == 'completed'
-                if self.sounds and step.action == 'approach' and row['status'] == 'completed' and row.get('travelled_m'):
+                if self.sounds and step.action in {'approach', 'go_to'} and row['status'] == 'completed' and row.get('travelled_m'):
                     self.sounds.accent('arrived', plan.origin)
                 elif self.sounds and row['status'] == 'blocked':
                     self.sounds.accent('blocked', plan.origin)

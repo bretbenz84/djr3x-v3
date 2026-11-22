@@ -146,6 +146,8 @@ class DriveLink(NDJSONLink):
         # (level, text): the firmware's own log lines. Until November 15 they were dropped while Rex
         # ran, so a sensor lost mid-drive left no word of why in the session log.
         self.on_log = None
+        # (telemetry): every status frame, for the odometer that follows the gamepad too (November 22).
+        self.on_telemetry = None
 
     def dispatch(self, message, received_at):
         kind = message['type']
@@ -180,6 +182,11 @@ class DriveLink(NDJSONLink):
                         self.failure = 'DriveControllerRebooted'
             elif kind == 'hello':
                 self.boot_id = message.get('boot_id')
+        if kind == 'telemetry' and self.on_telemetry is not None:
+            try:
+                self.on_telemetry(message)
+            except Exception:
+                pass   # The odometer never stops the link.
 
     def snapshot(self):
         with self._state:

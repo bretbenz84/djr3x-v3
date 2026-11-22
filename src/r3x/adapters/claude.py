@@ -546,7 +546,7 @@ class CreditFallback:
 
     def __getattr__(self, name):
         value = getattr(self.current, name)
-        if name in ('reply', 'plan', 'locate', 'route', 'search'):
+        if name in ('reply', 'plan', 'locate', 'route', 'search', 'describe'):
             return self._guarded(name)
         return value
 
