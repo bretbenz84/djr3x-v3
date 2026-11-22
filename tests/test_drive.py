@@ -795,7 +795,7 @@ class ArmClearanceTests(unittest.TestCase):
 
     def test_a_wall_on_the_left_keeps_the_poker_arm_raised_until_it_is_clear(self):
         from r3x.servo_poses import AWAKE_ARMS, DRIVE_ARMS, POKER, POKER_DRIVE, POKER_UP, REST, THROTTLE
-        self.fake.tof.update(lf=900, lb=1300)   # 3 ft from the left side: inside the 3.5 ft keep-clear.
+        self.fake.tof.update(lf=600, lb=1300)   # 2 ft from the left side: inside the 0.7 m keep-clear.
         settle()
         self.drive_and_return()
         self.assertEqual(self.pose((6, *POKER)), {6: dict(DRIVE_ARMS)[6], **dict(POKER_DRIVE)})
@@ -847,7 +847,7 @@ class ArmClearanceTests(unittest.TestCase):
         out = robot.owner.execute(ServoRequestFor(robot, 'poker_out'), Cancellation())
         self.assertEqual(out.status, 'rejected')
         self.drive.servos = robot
-        self.fake.tof.update(lf=900, lb=1300)   # Something 3 ft to his left; the front is open.
+        self.fake.tof.update(lf=600, lb=1300)   # Something 2 ft to his left; the front is open.
         settle()
         self.assertIsNone(self.drive.tick_arm_clearance())
         self.clock.now += 2.
@@ -886,9 +886,30 @@ class ArmClearanceTests(unittest.TestCase):
             settle()
         self.assertEqual(robot.kept_arms, {'poker', 'throttle'})
 
+    def test_a_kept_arm_records_what_keeps_it_in(self):
+        # Run 6549d643 (owner, November 21): the poker arm stayed in all run and nothing recorded the reading.
+        from tests.test_servos import Clock as ServoClock, PulsePort
+        from r3x.robot_servos import RobotServos
+        clock, port = ServoClock(), PulsePort()
+        robot = RobotServos('fake', open_port=lambda: port, clock=clock, wait=clock.wait, arm_guard=True)
+        robot.owner.wait = clock.wait
+        robot.start()
+        self.addCleanup(robot.close)
+        self.drive.servos = robot
+        rows = []
+        self.drive.trace = type('Trace', (), {'emit': lambda _, event, **row: rows.append((event, row))})()
+        self.fake.tof.update(lf=600, lb=1300)
+        settle()
+        for _ in range(3):              # Said once while it stays the same, not every second.
+            self.drive.tick_arm_clearance()
+        kept = [row for event, row in rows if event == 'arm_clearance' and row['status'] == 'kept_blocked']
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]['arms'], ['poker'])
+        self.assertAlmostEqual(kept[0]['left_m'], .6, places=2)
+
     def test_beyond_reach_both_arms_come_out_as_before(self):
         from r3x.servo_poses import REST, THROTTLE
-        self.fake.tof.update(lf=1200, lb=1200)   # Just beyond 3.5 ft.
+        self.fake.tof.update(lf=750, lb=900)   # Owner, November 21: 0.75 m kept it in before; now beyond 0.7 m.
         self.fake.front = lambda: .8     # Beyond 2 ft in front.
         settle()
         self.drive_and_return()

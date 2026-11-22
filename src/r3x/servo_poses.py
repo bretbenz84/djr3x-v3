@@ -719,6 +719,9 @@ VISOR_SQUINT = 6350   # Half shut: a narrowed, unimpressed eye (about midway bet
 HEAD_EXPRESSIONS = {
     'nod': {'moves': ((-.3, 0., .25), (.1, 0., .25)), 'speed': 35},
     'tilt': {'moves': ((0., .6, .5),), 'speed': 20, 'side': True},                  # One cock and back.
+    # Owner, November 21: a wink. A slight cock of the head, half the tilt's, as one eye goes dark for a
+    # moment (the LED board's WINK, sent by the output owner as the move begins).
+    'wink': {'moves': ((0., .3, .45),), 'speed': 20, 'side': True},
     # The dog's double cock, looking slightly down. Owner, October 24: eased like the wiggle.
     'perplexed': {'moves': ((-.08, .6, .7), (-.08, -.6, .7)), 'ease': (.35, .03), 'side': True},
     # Playful side to side. Owner, October 24: too rapid, and it creaked (three reversals in about
@@ -1275,7 +1278,7 @@ NAMED_POSES = {
 # One-shot gestures run and return to where they started; nothing is held afterwards. The
 # head expressions (not the plain one-cock 'tilt', which tilt_left/tilt_right cover as held
 # looks) are also steps people can ask for and Rex can plan.
-GESTURES = ('wave', 'arm_dance', 'nod', 'perplexed', 'wiggle', 'sympathetic', 'surprised', 'laugh', 'skeptical',
+GESTURES = ('wave', 'arm_dance', 'nod', 'wink', 'perplexed', 'wiggle', 'sympathetic', 'surprised', 'laugh', 'skeptical',
             'deflated', 'proud', 'angry')
 # Owner request October 3: the model chooses between following faces and looking where it
 # decides. look_at_people resumes following faces; any look_* step holds that direction.
@@ -1286,12 +1289,12 @@ GAZE = ('look_at_people',)
 ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND)
 # Holding something light, like a card (owner, November 20). The fingers close at the lowest pulse
 # the Maestro allows and open at the highest (the owner: closed is the lowest value). hand_take reaches
-# the throttle arm to the owner's grab position (shoulder 1242, elbow 1720, wrist 887 us; it needs the
+# the throttle arm to the owner's grab position (shoulder 1136, elbow 1554, wrist 743 us since November 21; it needs the
 # front right clear) with the hand level and the fingers open; RobotServos also looks down and to the right and
 # closes the fingers four seconds later (hand_hold.CLOSE_AFTER_S). hand_grip closes them now;
 # hand_let_go opens them, and the arm goes back to rest a moment later; hand_put_down lowers it to the floor first.
 FINGERS_CLOSED, FINGERS_OPEN = LIMITS[15][0], LIMITS[15][1]
-THROTTLE_GRAB = ((8, 4968), (9, 6880), (10, 3548))   # Owner, November 20: 1242 / 1720 / 887 us.
+THROTTLE_GRAB = ((8, 4544), (9, 6216), (10, 2972))   # Owner, November 21: 1136 / 1554 / 743 us (was 1242 / 1720 / 887).
 FINGER_SPEED, FINGER_ACCEL = 80, 0   # The whole travel in about a quarter second (0: no acceleration limit).
 HAND_POSES = {
     'hand_take': (*THROTTLE_GRAB, (14, dict(HAND_PARK)[14]), (15, FINGERS_OPEN)),

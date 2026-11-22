@@ -6,6 +6,17 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Run `6549d643`: the book, the kept poker arm and a new grab — November 21 (evening)
+
+Owner: he never held the book, kept saying he could not do it, and the poker arm stayed in with room on his
+left. **Found:** the fingers' new open pulse (1975 µs) was beyond the Maestro's own stored limit (1856 µs), so
+reaching out and letting go each waited 25 s for fingers that never arrived; every failure was the same "I
+couldn't complete that movement."; and the poker arm's 1.07 m keep-clear had let it out at only 3 of 25 wakes.
+**Changed:** the owner raised the Maestro limit; the arm was moved to the grab position with Rex off and the
+owner tuned it (1136 / 1554 / 743 µs); the poker arm stays in only for something within 0.7 m (owner); a kept arm
+is logged with its reading; a kept arm and a stuck move each have their own line, said once. Synthetic checks
+only; not yet run on the robot ([details](SERVO_INTEGRATION.md#november-21-evening-run-6549d643-the-book-the-poker-arm-and-a-new-grab)).
+
 ## Startup lights paced to his real start — November 21
 
 Owner request. LED firmware 0.6.0, flashed: under the startup sparks the chest's three bars rise from the

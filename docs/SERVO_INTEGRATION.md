@@ -6,6 +6,24 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 21 (evening): run `6549d643`, the book, the poker arm and a new grab
+
+Owner: he never held the book, repeated that he could not do it, and the poker arm never came out
+though his left side had room. **Found:** the fingers' new open pulse (1975 µs) was beyond the
+Maestro's own stored channel 15 maximum (1856 µs), so every `hand_take` and `hand_let_go` waited for
+an arrival that never came (`ServoArrivalTimeout:ch15@7424->7900`, 25 s each; the first try was then
+cancelled by a stray "Oh."). Each failure, and the kept poker arm's refusal, was spoken as "I couldn't
+complete that movement." with nothing for the model to go on. Since November 17 the poker arm had come
+out at only 3 of 25 wakes; the left pair are short-range sensors (reliable to about 1.2 m) and the
+keep-clear was 1.07 m. **Changed:** the owner raised channel 15's Maestro maximum; the arm was moved
+to the grab position with Rex off (owner request; fingers reached 1975 µs) and tuned in the servo
+menu: `THROTTLE_GRAB` is now shoulder 1136, elbow 1554, wrist 743 µs (routes from and to `PARK`,
+`REST` and `TUCK` checked). `POKER_KEEP_CLEAR_M` is 0.7 m (owner). A kept arm is traced once per
+change with what it saw (`arm_clearance` `kept_blocked`, `left_m`, `front_right_m`). The refusal table
+(`session.POSE_REFUSALS`, was `HAND_REFUSALS`) adds a kept poker ("Something's too close on my left
+for that arm."), a kept throttle (the step-back line) and `ServoArrivalTimeout` ("That move got stuck
+partway.", with a note not to apologise again). Synthetic checks; not yet run on the robot.
+
 ## November 21: new throttle hand mids and finger range
 
 Owner: the wrist (channel 14) keeps 560–1856 µs but its mid, where the hand is level, is 1451 µs; the
@@ -19,7 +37,7 @@ Synthetic checks only; nothing has moved.
 
 Owner: the fingers close at the lowest pulse, so `FINGERS_CLOSED` is `LIMITS[15][0]` (1264 µs) and
 `FINGERS_OPEN` `LIMITS[15][1]` (1856 µs). `HAND_POSES` adds three pose steps: `hand_take` (the
-owner's grab position `THROTTLE_GRAB`, shoulder 1242, elbow 1720, wrist 887 µs, with its own front-right
+owner's grab position `THROTTLE_GRAB`, shoulder 1242, elbow 1720, wrist 887 µs (1136 / 1554 / 743 since November 21), with its own front-right
 check; the hand level at its park, fingers open; routed by `throttle_route`, the hand in its own lane at
 speed 20), `hand_grip` and `hand_let_go` (channel 15 only). `RobotServos` follows `hand_take` with
 `look_right` and `look_down`; each frame `before_frame` closes the fingers in a worker thread once the hand has been
@@ -564,7 +582,7 @@ Owner: the poker arm reaches about 2 ft out from the left side sensors and the t
 about 2 ft ahead of the front sensors; after a drive, neither should come out into something.
 When the wheels stop, the drive owner reads the ring (`drive_space.arms_blocked`): the poker
 arm (swing 6, elbow/wrist 12/13) stays at its drive stance (8000, `POKER_PARK`) while the
-nearer left side sensor reads under 1.07 m (3.5 ft), and the throttle stays at `PARK` while
+nearer left side sensor reads under 1.07 m (3.5 ft; 0.7 m since November 21), and the throttle stays at `PARK` while
 the nearest front reading (ring radials and depth matrix) is under 0.61 m (2 ft). No reading
 counts as blocked. `return_arm(keep=...)` walks only the other arms back; the kept arms'
 channels stay held (`kept_arms`), so idle and talking skip them, an aged hold or

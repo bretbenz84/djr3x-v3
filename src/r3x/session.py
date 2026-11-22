@@ -90,7 +90,7 @@ REACH_BLOCKED_LINE = 'Step back a little so my arm has room.'
 HAND_READY_LINE = 'Okay, ready.'
 # Review, November 20: every other refused hand step was spoken as "I couldn't complete that movement.", which
 # told nobody what to do next. Each refusal has a line he says and its meaning for the model (the reason's start).
-HAND_REFUSALS = {
+POSE_REFUSALS = {
     'ThrottleExtensionBlocked': (REACH_BLOCKED_LINE, REACH_BLOCKED_MEANING),
     'AlreadyHoldingSomething': ("My hand's full. Tell me to let go first.",
         'Nothing moved: your hand is closed as holding something, so it did not open to take another. If it is in '
@@ -100,12 +100,22 @@ HAND_REFUSALS = {
         'Nothing closed: your hand was not held out. Reach out again with hand_take; it closes by itself four '
         'seconds later.'),
     'NotHoldingAnything': ("I'm not holding anything.", 'Nothing moved: your hand holds nothing.'),
+    # Run 6549d643 (owner, November 21): a kept poker arm and fingers that never arrived were each said as "I couldn't
+    # complete that movement.", and the model called the arm "a mystery" and blamed the wiring.
+    'ArmKeptClearOfObstacle:poker': ("Something's too close on my left for that arm.",
+        'Nothing moved: your poker arm stays folded while your left side sensors read something within 0.7 m. It '
+        'comes out by itself once that side has read clear for two seconds. Say so once; it is not a fault.'),
+    'ArmKeptClearOfObstacle:throttle': (REACH_BLOCKED_LINE, REACH_BLOCKED_MEANING),
+    'ServoArrivalTimeout': ('That move got stuck partway.',
+        'The servo board did not report the joint reaching its target in time: something may block it, or the '
+        "board's own limit stops it short. It is said already; do not apologise again or retry the same move "
+        'unless they ask.'),
 }
 
 
-def hand_refusal(reason):
-    """(line, meaning) for a refused hand step, or None for any other refusal."""
-    return next((told for start, told in HAND_REFUSALS.items() if (reason or '').startswith(start)), None)
+def pose_refusal(reason):
+    """(line, meaning) for a refusal with its own explanation, or None for any other."""
+    return next((told for start, told in POSE_REFUSALS.items() if (reason or '').startswith(start)), None)
 # October 23 (1e626e07): finding the duckling droid on the table took six asks. Two of the three look
 # tools could not move the head, and the one that could looked only when its question was filled in.
 # Every look now takes a direction; the head moves there first and the picture is taken after.
@@ -2735,11 +2745,11 @@ class Session:
                             moved = bool(delivery.lights) and delivery.lights[-1]['status']=='commands_sent'
                         else:
                             receipt = self.output.execute_pose(step,cancel,turn_id+':'+call.call_id+suffix,
-                                hold_pose=not bool(opportunity))
+                                hold_pose=not bool(opportunity),delivery=delivery,turn_id=turn_id)
                             self.trace.emit('robot_pose_result',turn_id=turn_id,pose=step,**asdict(receipt))
                             shown = {'pose':step,**asdict(receipt)}
-                            if hand_refusal(receipt.reason):
-                                shown['meaning'] = hand_refusal(receipt.reason)[1]
+                            if pose_refusal(receipt.reason):
+                                shown['meaning'] = pose_refusal(receipt.reason)[1]
                             self.history.append({'role':'developer','content':'Robot pose controller receipt: '+json.dumps(shown)})
                             moved, last_at = receipt.status == 'pulses_reached', receipt.at
                             refusal = receipt.reason
@@ -2775,7 +2785,7 @@ class Session:
                         if opportunity:
                             delivery.status,delivery.medium='suppressed','none'
                         else:
-                            put_phrase(phrases,(hand_refusal(refusal) or ("I couldn't complete that movement.",))[0],cancel)
+                            put_phrase(phrases,(pose_refusal(refusal) or ("I couldn't complete that movement.",))[0],cancel)
                     elif 'hand_take' in steps:
                         # Owner, November 20: holding it out, he says "Okay, ready." and nothing more, and the
                         # four seconds start once it has played.

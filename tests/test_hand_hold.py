@@ -126,7 +126,7 @@ class HandPoseTests(HandRig):
         self.assertEqual((FINGERS_CLOSED, FINGERS_OPEN), LIMITS[15])
 
     def test_take_reaches_out_open_and_looks_down_to_the_right(self):
-        self.assertEqual(dict(THROTTLE_GRAB), {8: 1242 * 4, 9: 1720 * 4, 10: 887 * 4})   # Owner's grab position.
+        self.assertEqual(dict(THROTTLE_GRAB), {8: 1136 * 4, 9: 1554 * 4, 10: 743 * 4})   # Owner's grab position (November 21).
         self.assertEqual(dict(HAND_PARK)[14], 1451 * 4)                              # The hand level.
         self.take()
         self.assertEqual({ch: self.port.pose[ch] for ch in THROTTLE}, dict(THROTTLE_GRAB))
@@ -646,6 +646,18 @@ class HandConversationTests(MemoryFixture):
         receipt = [m for m in session.history if 'Robot pose controller receipt' in str(m.get('content'))][-1]
         self.assertIn('hand_take', receipt['content'])
         self.assertEqual(port.pose[15], dict(HAND_PARK)[15])
+
+    def test_a_kept_poker_arm_says_why_once(self):
+        # Run 6549d643 (owner, November 21): "I couldn't complete that movement.", then "a mystery".
+        robot, clock, port = self.robot()
+        robot.owner.kept_arms = frozenset({'poker'})
+        session = self.scripted(ToolCall('down', 'set_robot_pose', {'poses': ['poker_down'], 'look_after': None,
+                                                                    'say_before': None, 'text': 'Poker down.'}), robot)
+        result = session.process_turn(Capture('0', 'session', bytes(1024), 98, 99, 99.6),
+                                      Transcript('Can you put down your poker arm?', -.01, True), session.revision)
+        self.assertEqual(result.completed_text, ["Something's too close on my left for that arm."])
+        receipt = [m for m in session.history if 'Robot pose controller receipt' in str(m.get('content'))][-1]
+        self.assertIn('0.7 m', receipt['content'])
 
     def test_hold_this_with_a_full_hand_says_to_let_go_first(self):
         robot, clock, port = self.robot()

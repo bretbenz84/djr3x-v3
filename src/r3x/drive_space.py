@@ -462,7 +462,9 @@ def clearance(telemetry, matrix, now, *, rear_matrix=None, telemetry_age=.5, mat
 # Segmented, it barely reaches out in its awake and idle poses: something nearer than 0.3 m
 # there keeps it parked, and nearer than 0.5 m rules out a fully extended throttle pose. The
 # whole-front reading used before kept it in for something ahead of his left side.
-POKER_KEEP_CLEAR_M = 1.07
+# Owner, November 21: 1.07 m kept it in for all but 3 of 25 starts (the left pair are short-range
+# sensors, reliable to about 1.2 m), with room enough on his left; anything within 0.7 m now.
+POKER_KEEP_CLEAR_M = .70
 THROTTLE_KEEP_CLEAR_M = .30
 THROTTLE_EXTEND_CLEAR_M = .50
 

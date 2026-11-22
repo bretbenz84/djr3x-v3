@@ -376,7 +376,7 @@ class PoseRejectionTests(MemoryFixture):
         session=Session('s',brain,output,self.state.trace,self.state);self.addCleanup(session.close)
         result=session.process_turn(Capture('c','s',bytes(1024),98,99,99.6),Transcript('Hold out your hand',-.01,True),session.revision)
         self.assertNotIn('Here is my hand.',result.completed_text)
-        self.assertEqual(result.completed_text,["I couldn't complete that movement."])
+        self.assertEqual(result.completed_text,['That move got stuck partway.'])   # Its own line since November 21.
 
 
 class HeldPoseContinuationTests(MemoryFixture):

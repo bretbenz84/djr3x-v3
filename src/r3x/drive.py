@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, beside_gap, clearance, describe_bearing, face_range,
+from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, throttle_front_m, beside_gap, clearance, describe_bearing, face_range,
                           front_room, front_surface, image_bearing, move_allowance, out_of_view, radar_bodies,
                           seen_points, steer, wall_angle, wrap, AXLE_AFT, FRONT_MARGIN, MIN_TURN, PERSON_MARGIN,
                           SCRAPE_M, STEER_MAX, SURFACE_HOLD_M, WALL_HOLD_M)
@@ -665,6 +665,7 @@ class DriveBase:
         self.history = deque(maxlen=6)
         self.flinch = Flinch()
         self._arm_clear_since = {}    # Kept arm -> when its space was first seen clear.
+        self._arm_blocked_shown = frozenset()   # Kept arms last traced as blocked, with their readings.
         self.origin = None
         self.object_tracks = None     # objects including single-frame re-detections after motion
         self.locator = None           # (description, image, cancel) -> hosted vision geometry
@@ -3500,7 +3501,13 @@ class DriveBase:
             self._arm_clear_since.clear()
             return None
         now = self.clock() if now is None else now
-        blocked = arms_blocked(self.space(now))
+        space = self.space(now)
+        blocked = arms_blocked(space)
+        if self.trace and kept & blocked != self._arm_blocked_shown and kept & blocked:
+            # Run 6549d643 (November 21): the poker arm stayed in all run and nothing said what it saw.
+            self.trace.emit('arm_clearance', status='kept_blocked', arms=sorted(kept & blocked),
+                            left_m=space.get('left_m'), front_right_m=throttle_front_m(space))
+        self._arm_blocked_shown = kept & blocked
         for arm in set(self._arm_clear_since) - (kept - blocked):
             del self._arm_clear_since[arm]
         for arm in kept - blocked:
