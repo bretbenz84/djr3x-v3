@@ -14,21 +14,16 @@ stands out in words (tof_model.TofDiagnostics.notices).
 """
 from __future__ import annotations
 
-import argparse
-import json
 import math
-import os
 import queue
-import sys
-import threading
 import time
 
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
-from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget
 
 from . import theme
+from .diagnostics_window import STYLE, bring_forward, notice_rows, panel, run, text
 from .motivator import TofMatrixWidget
 from .tof_model import HISTORY_S, MATRIX_CLEAR_MM, POLL_NORMAL_MS, POLL_SLOW_MS, RANGE_STATUS, RING, TofDiagnostics
 
@@ -36,7 +31,6 @@ STATUS_WORDS = {'waiting': 'waiting', 'reading': '', 'open': 'nothing in range',
                 'silent': 'no answer'}
 STATUS_COLOR = {'waiting': theme.TEXT_DIM, 'reading': theme.GOOD, 'open': theme.GOOD, 'discarded': theme.WARN,
                 'silent': theme.BAD}
-LEVEL_COLOR = {'bad': theme.BAD, 'warn': theme.WARN, 'ok': theme.GOOD}
 
 
 def distance(mm) -> str:
@@ -247,11 +241,7 @@ class TofDiagnosticsWindow(QDialog):
         self._logged = 0
         self.setWindowTitle('Rex ToF Diagnostics')
         self.setWindowFlags(Qt.WindowType.Window)
-        self.setStyleSheet(theme.DIALOG_STYLE + f'''
-            QLabel#tofText {{ color: {theme.TEXT}; font-size: 12px; }}
-            QLabel#tofDim {{ color: {theme.TEXT_DIM}; font-size: 11px; }}
-            QPlainTextEdit#tofLog {{ background: #0c0f0e; color: {theme.TEXT_DIM}; border: 1px solid {theme.BORDER_DIM};
-                                    font-family: Menlo, monospace; font-size: 11px; }}''')
+        self.setStyleSheet(STYLE)
         self.resize(1480, 900)
 
         root = QVBoxLayout(self)
@@ -311,21 +301,7 @@ class TofDiagnosticsWindow(QDialog):
         self._timer.start(100)
         self._tick()
 
-    @staticmethod
-    def _panel(title: str, widget: QWidget) -> QFrame:
-        frame = QFrame(); frame.setObjectName('chromePanel')
-        lay = QVBoxLayout(frame); lay.setContentsMargins(12, 9, 12, 10); lay.setSpacing(7)
-        head = QLabel(title); head.setObjectName('panelTitle')
-        lay.addWidget(head); lay.addWidget(widget, 1)
-        return frame
-
-    @staticmethod
-    def _text(dim: bool = False) -> QLabel:
-        label = QLabel('')
-        label.setObjectName('tofDim' if dim else 'tofText')
-        label.setWordWrap(True)
-        label.setTextFormat(Qt.TextFormat.RichText)
-        return label
+    _panel, _text = staticmethod(panel), staticmethod(text)
 
     # ------------------------------------------------------------------ refresh
     def _tick(self) -> None:
@@ -381,10 +357,7 @@ class TofDiagnosticsWindow(QDialog):
                                 f'Zone {telemetry.get("zone", "?")}, blocked {telemetry.get("blocked_dir", "?")}.')
         else:
             self._fused.setText('')
-        rows = model.notices(now)
-        self._notices.setText('<br>'.join(
-            f'<span style="color:{LEVEL_COLOR[level]}">●</span>&nbsp; {text}' for level, text in rows)
-            or f'<span style="color:{theme.TEXT_DIM}">Nothing to report until readings arrive.</span>')
+        self._notices.setText(notice_rows(model.notices(now)))
         fresh = min(model.log_total - self._logged, len(model.log))
         for _at, level, text in list(model.log)[len(model.log) - fresh:]:
             self._log.appendPlainText(f'{time.strftime("%H:%M:%S")}  {level:<5} {text}')
@@ -424,77 +397,8 @@ class TofDiagnosticsWindow(QDialog):
                 f' → controller passes on {passed}')
 
 
-def bring_forward(window) -> None:
-    window.show()
-    window.raise_()
-    window.activateWindow()
-    try:   # Started by a menu bar app, the window otherwise opens behind whatever has focus.
-        from AppKit import NSApplication
-        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-    except Exception:
-        pass
-
-
-def _read_fd(fd: int, lines: 'queue.Queue') -> None:
-    """Lines from the feeding process. Read from the descriptor itself: a thread waiting inside
-    Python's buffered stdin aborts the interpreter when the window closes (seen in the first live try)."""
-    rest = b''
-    while True:
-        try:
-            chunk = os.read(fd, 65536)
-        except OSError:
-            chunk = b''
-        if not chunk:
-            break
-        at = time.monotonic()
-        *rows, rest = (rest + chunk).split(b'\n')
-        for row in rows:
-            if row:
-                lines.put((at, row))
-    lines.put((time.monotonic(), None))
-
-
-def _replay(path: str, speed: float, lines: 'queue.Queue') -> None:
-    first, started = None, time.monotonic()
-    with open(path, 'rb') as handle:
-        for line in handle:
-            try:
-                at = json.loads(line).get('at')
-            except (ValueError, AttributeError):
-                continue
-            if isinstance(at, (int, float)):
-                first = at if first is None else first
-                wait = (at - first) / speed - (time.monotonic() - started)
-                if wait > 0:
-                    time.sleep(wait)
-            lines.put((time.monotonic(), line))
-    lines.put((time.monotonic(), b'{"type":"feed","mode":"ended"}'))
-
-
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument('--replay', metavar='FILE', help='play a saved capture (JSON lines with an "at" time) instead of stdin')
-    parser.add_argument('--speed', type=float, default=1., help='replay speed (default 1)')
-    parser.add_argument('--snapshot', metavar='PNG', help='save a picture of the window after --after seconds and exit')
-    parser.add_argument('--after', type=float, default=5.)
-    args = parser.parse_args(argv)
-
-    lines: 'queue.Queue' = queue.Queue()
-    if args.replay:
-        source = threading.Thread(target=_replay, args=(args.replay, max(.01, args.speed), lines), daemon=True)
-    else:
-        source = threading.Thread(target=_read_fd, args=(sys.stdin.fileno(), lines), daemon=True)
-    app = QApplication.instance() or QApplication(['Rex ToF Diagnostics'])
-    app.setApplicationName('Rex ToF Diagnostics')
-    window = TofDiagnosticsWindow(lines, quit_on_end=not args.replay)
-    source.start()
-    bring_forward(window)
-    if args.snapshot:
-        def grab():
-            window.grab().save(args.snapshot)
-            app.quit()
-        QTimer.singleShot(int(args.after * 1000), grab)
-    return app.exec()
+    return run(TofDiagnosticsWindow, 'Rex ToF Diagnostics', __doc__.split('\n')[0], argv)
 
 
 if __name__ == '__main__':

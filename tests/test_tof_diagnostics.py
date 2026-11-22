@@ -291,69 +291,99 @@ class BatteryMenuTests(unittest.TestCase):
         return [(row['cmd'], row.get('seconds')) for row in rows]
 
     def test_the_menu_starts_the_window_in_v3s_environment_and_a_second_click_raises_it(self):
-        self.assertEqual(self.menu._open_tof_diagnostics(), 'started')
+        self.assertEqual(self.menu._tof_window.open(), 'started')
         child = self.children[0]
         self.assertEqual(child.argv, [sys.executable, '-m', 'r3x.gui.tof_diagnostics'])
         self.assertEqual(child.cwd, str(ROOT))
-        self.assertEqual(self.menu._open_tof_diagnostics(), 'raised')
+        self.assertEqual(self.menu._tof_window.open(), 'raised')
         self.assertEqual(len(self.children), 1)
         self.assertEqual(child.lines(), [{'type': 'feed', 'raise': True}])
 
     def test_every_line_read_reaches_the_window_and_nothing_is_sent_without_one(self):
-        self.menu._tof_feed(telemetry())                         # No window: nothing happens.
-        self.menu._tof_tick(now=100.)
+        self.menu._diagnostics_feed(telemetry())                         # No window: nothing happens.
+        self.menu._diagnostics_tick(now=100.)
         self.assertEqual(self.queued(), [])
-        self.menu._open_tof_diagnostics()
-        self.menu._tof_feed(telemetry())
-        self.menu._tof_feed(matrix())
+        self.menu._tof_window.open()
+        self.menu._diagnostics_feed(telemetry())
+        self.menu._diagnostics_feed(matrix())
         self.assertEqual([row['type'] for row in self.children[0].lines()], ['telemetry', 'tofmx'])
 
     def test_the_raw_stream_is_asked_for_only_while_the_window_watches_a_live_meter(self):
         menu = self.menu
-        menu._open_tof_diagnostics()
+        menu._tof_window.open()
         menu._update(mode='connecting', detail='listening')
-        menu._tof_tick(now=100.)
+        menu._diagnostics_tick(now=100.)
         self.assertEqual(self.queued(), [])
         self.assertEqual(self.children[0].lines(), [{'type': 'feed', 'mode': 'connecting', 'detail': 'listening'}])
         menu._update(mode='live')
-        menu._tof_tick(now=101.)
+        menu._diagnostics_tick(now=101.)
         self.assertEqual(self.queued(), [('tof_debug', menu._TOF_RAW_SECS)])
-        menu._tof_tick(now=104.)
+        menu._diagnostics_tick(now=104.)
         self.assertEqual(self.queued(), [])                      # Not yet due again.
-        menu._tof_tick(now=101. + menu._TOF_RAW_RENEW_SECS)
+        menu._diagnostics_tick(now=101. + menu._TOF_RAW_RENEW_SECS)
         self.assertEqual(self.queued(), [('tof_debug', menu._TOF_RAW_SECS)])
         menu._update(mode='dormant', detail='Rex is running — port handed to the robot')   # Rex takes the port.
-        menu._tof_tick(now=120.)
+        menu._diagnostics_tick(now=120.)
         self.assertEqual(self.queued(), [])
         self.assertEqual(self.children[0].lines()[-1]['mode'], 'dormant')
         menu._update(mode='live')                                # Rex is done: asked for afresh.
-        menu._tof_tick(now=130.)
+        menu._diagnostics_tick(now=130.)
         self.assertEqual(self.queued(), [('tof_debug', menu._TOF_RAW_SECS)])
 
     def test_closing_the_window_switches_the_raw_stream_off_and_a_later_click_starts_a_new_one(self):
         menu = self.menu
-        menu._open_tof_diagnostics()
+        menu._tof_window.open()
         menu._update(mode='live')
-        menu._tof_tick(now=10.)
+        menu._diagnostics_tick(now=10.)
         self.queued()
         self.children[0].exited = 0
-        menu._tof_tick(now=11.)
+        menu._diagnostics_tick(now=11.)
         self.assertEqual(self.queued(), [('tof_debug', 0)])
-        menu._tof_feed(telemetry())                              # Nowhere to go, and no error.
-        menu._tof_tick(now=12.)
+        menu._diagnostics_feed(telemetry())                              # Nowhere to go, and no error.
+        menu._diagnostics_tick(now=12.)
         self.assertEqual(self.queued(), [])
-        self.assertEqual(menu._open_tof_diagnostics(), 'started')
+        self.assertEqual(menu._tof_window.open(), 'started')
         self.assertEqual(len(self.children), 2)
 
     def test_a_window_that_stops_reading_costs_the_serial_worker_nothing(self):
         menu = self.menu
-        menu._open_tof_diagnostics()
+        menu._tof_window.open()
         menu._update(mode='live')
         for _ in range(2000):                                    # About three minutes of telemetry, never read.
-            menu._tof_feed(telemetry())
-        menu._tof_tick(now=50.)                                  # Still runs, and still asks the firmware.
+            menu._diagnostics_feed(telemetry())
+        menu._diagnostics_tick(now=50.)                                  # Still runs, and still asks the firmware.
         self.assertEqual(self.queued(), [('tof_debug', menu._TOF_RAW_SECS)])
-        self.assertGreater(menu._tof_relay.dropped, 0)
+        self.assertGreater(menu._tof_window.relay.dropped, 0)
+
+    def test_the_sensor_window_is_fed_the_same_lines_and_asks_the_controller_for_nothing(self):
+        menu = self.menu
+        self.assertEqual(menu._sensor_window.open(), 'started')
+        child = self.children[0]
+        self.assertEqual(child.argv, [sys.executable, '-m', 'r3x.gui.sensor_diagnostics'])
+        self.assertEqual(child.cwd, str(ROOT))
+        menu._update(mode='live')
+        menu._diagnostics_tick(now=100.)
+        menu._diagnostics_tick(now=100. + menu._TOF_RAW_RENEW_SECS)
+        self.assertEqual(self.queued(), [])                      # No raw stream is asked for on its account.
+        menu._diagnostics_feed(telemetry())
+        self.assertEqual([row['type'] for row in child.lines()], ['feed', 'feed', 'telemetry'])
+        self.assertEqual(menu._sensor_window.open(), 'raised')
+
+    def test_both_windows_open_together_get_every_line_and_closing_one_leaves_the_other(self):
+        menu = self.menu
+        menu._tof_window.open(); menu._sensor_window.open()
+        tof, sensors = self.children
+        menu._update(mode='live')
+        menu._diagnostics_tick(now=10.)
+        self.assertEqual(self.queued(), [('tof_debug', menu._TOF_RAW_SECS)])   # For the ToF window only.
+        menu._diagnostics_feed(telemetry())
+        self.assertEqual(tof.lines()[-1]['type'], 'telemetry')
+        self.assertEqual(sensors.lines()[-1]['type'], 'telemetry')
+        tof.exited = 0
+        menu._diagnostics_tick(now=11.)
+        self.assertEqual(self.queued(), [('tof_debug', 0)])
+        menu._diagnostics_feed(telemetry())
+        self.assertEqual(sensors.lines()[-1]['type'], 'telemetry')
 
 
 if __name__ == '__main__':

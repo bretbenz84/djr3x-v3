@@ -36,6 +36,11 @@ V3, November 20 (owner): "ToF Diagnostics…" opens a window showing every range
   wheels turn), renewed every few seconds and switched off when the window
   closes.
 
+V3, November 22 (owner): "Sensor Diagnostics…" does the same for the other
+  sensors (src/r3x/gui/sensor_diagnostics.py): the gyroscope and how fast it
+  drifts at rest, tilt, compass, wheels, and which chips on the sensor bus
+  answer. It is fed the same lines and asks the firmware for nothing.
+
 How it shares the serial port with main.py (ports are exclusive-open):
   Same dormant pattern the supervisor uses for the microphone. main.py holds
   the single-instance flock (utils/single_instance.py) for its whole lifetime,
@@ -282,41 +287,88 @@ _TOF_RAW_SECS = 12.0        # How long each request keeps the firmware's raw cor
 _TOF_RAW_RENEW_SECS = 8.0   # …and how often it is renewed while the window is open.
 _TOF_STATUS_SECS = 1.0      # A `feed` line at least this often, so the window knows it is not forgotten.
 
-_tof_lock = threading.Lock()
-_tof_child = None           # subprocess.Popen of the window, or None
-_tof_relay = None           # utils.line_relay.LineRelay onto its stdin
-_tof_raw_at = 0.0           # when the raw stream was last asked for (0 = not on)
-_tof_status_at = 0.0
-_tof_status_mode = None
+class _DiagnosticsWindow:
+    """One diagnostics window this app starts and feeds. raw_stream: while it watches a live meter,
+    the firmware's diagnostic stream of the two front corner sensors is kept on for it."""
+
+    def __init__(self, name: str, module: str, raw_stream: bool = False) -> None:
+        self.name, self.module, self.raw_stream = name, module, raw_stream
+        self.lock = threading.Lock()
+        self.child = None           # subprocess.Popen of the window, or None
+        self.relay = None           # utils.line_relay.LineRelay onto its stdin
+        self.raw_at = 0.0           # when the raw stream was last asked for (0 = not on)
+        self.status_at = 0.0
+        self.status_mode = None
+
+    def command(self) -> "tuple[list[str], str]":
+        return [sys.executable, "-m", self.module], str(_PROJECT_ROOT.parent)
+
+    def open(self) -> str:
+        """Start the window, or bring the one already open to the front. 'started' or 'raised'."""
+        import subprocess
+        from utils.line_relay import LineRelay
+        with self.lock:
+            if self.child is not None and self.child.poll() is None:
+                self.relay.send(b'{"type":"feed","raise":true}')
+                return "raised"
+            argv, cwd = self.command()
+            self.child = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE)
+            self.relay = LineRelay(self.child.stdin.fileno())
+            self.status_mode = None   # Its first line says where things stand.
+            pid = self.child.pid
+        log.info("%s window started (pid %s).", self.name, pid)
+        return "started"
+
+    def feed(self, raw: bytes) -> None:
+        """One line from the controller, on to the window if it is open."""
+        with self.lock:
+            if self.relay is not None:
+                self.relay.send(raw)
+
+    def tick(self, now: float) -> None:
+        """Once per worker loop: tell the window where things stand, keep the raw corner stream on
+        while it watches a live meter, and tidy up after it closes."""
+        gone = renew = False
+        was_raw = 0.0
+        with self.lock:
+            if self.child is None:
+                return
+            gone = self.child.poll() is not None or self.relay.closed
+            if gone:
+                try:
+                    self.child.stdin.close()
+                except Exception:
+                    pass
+                was_raw = self.raw_at
+                self.child = self.relay = None
+                self.raw_at = 0.0
+            else:
+                s = _snapshot()
+                if s["mode"] != self.status_mode or now - self.status_at >= _TOF_STATUS_SECS:
+                    self.status_mode, self.status_at = s["mode"], now
+                    self.relay.send(json.dumps({"type": "feed", "mode": s["mode"], "detail": s["detail"]}).encode("utf-8"))
+                if s["mode"] != "live":
+                    self.raw_at = 0.0    # The port closed (or Rex has it): the request died with it.
+                    return
+                renew = self.raw_stream and now - self.raw_at >= _TOF_RAW_RENEW_SECS
+                if renew:
+                    self.raw_at = now
+        if gone:
+            log.info("%s window closed.", self.name)
+            if was_raw and _snapshot()["mode"] == "live":
+                _queue_tof_debug(0)
+        elif renew:
+            _queue_tof_debug(_TOF_RAW_SECS)
 
 
-def _tof_command() -> "tuple[list[str], str]":
-    root = _PROJECT_ROOT.parent
-    return [sys.executable, "-m", "r3x.gui.tof_diagnostics"], str(root)
+_tof_window = _DiagnosticsWindow("ToF diagnostics", "r3x.gui.tof_diagnostics", raw_stream=True)
+_sensor_window = _DiagnosticsWindow("Sensor diagnostics", "r3x.gui.sensor_diagnostics")
+_WINDOWS = (_tof_window, _sensor_window)
 
 
-def _open_tof_diagnostics() -> str:
-    """Start the window, or bring the one already open to the front. 'started' or 'raised'."""
-    global _tof_child, _tof_relay, _tof_status_mode
-    import subprocess
-    from utils.line_relay import LineRelay
-    with _tof_lock:
-        if _tof_child is not None and _tof_child.poll() is None:
-            _tof_relay.send(b'{"type":"feed","raise":true}')
-            return "raised"
-        argv, cwd = _tof_command()
-        _tof_child = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE)
-        _tof_relay = LineRelay(_tof_child.stdin.fileno())
-        _tof_status_mode = None   # Its first line says where things stand.
-    log.info("ToF diagnostics window started (pid %s).", _tof_child.pid)
-    return "started"
-
-
-def _tof_feed(raw: bytes) -> None:
-    """One line from the controller, on to the window if it is open."""
-    with _tof_lock:
-        if _tof_relay is not None:
-            _tof_relay.send(raw)
+def _diagnostics_feed(raw: bytes) -> None:
+    for window in _WINDOWS:
+        window.feed(raw)
 
 
 def _queue_tof_debug(seconds: float) -> None:
@@ -327,40 +379,10 @@ def _queue_tof_debug(seconds: float) -> None:
         _tx_queue.append(payload.encode("utf-8"))
 
 
-def _tof_tick(now=None) -> None:
-    """Once per worker loop: tell the window where things stand, keep the raw corner stream on
-    while it watches a live meter, and tidy up after it closes."""
-    global _tof_child, _tof_relay, _tof_raw_at, _tof_status_at, _tof_status_mode
+def _diagnostics_tick(now=None) -> None:
     now = time.time() if now is None else now
-    with _tof_lock:
-        if _tof_child is None:
-            return
-        gone = _tof_child.poll() is not None or _tof_relay.closed
-        if gone:
-            try:
-                _tof_child.stdin.close()
-            except Exception:
-                pass
-            was_raw = _tof_raw_at
-            _tof_child = _tof_relay = None
-            _tof_raw_at = 0.0
-        else:
-            s = _snapshot()
-            if s["mode"] != _tof_status_mode or now - _tof_status_at >= _TOF_STATUS_SECS:
-                _tof_status_mode, _tof_status_at = s["mode"], now
-                _tof_relay.send(json.dumps({"type": "feed", "mode": s["mode"], "detail": s["detail"]}).encode("utf-8"))
-            if s["mode"] != "live":
-                _tof_raw_at = 0.0    # The port closed (or Rex has it): the request died with it.
-                return
-            renew = now - _tof_raw_at >= _TOF_RAW_RENEW_SECS
-            if renew:
-                _tof_raw_at = now
-    if gone:
-        log.info("ToF diagnostics window closed.")
-        if was_raw and _snapshot()["mode"] == "live":
-            _queue_tof_debug(0)
-    elif renew:
-        _queue_tof_debug(_TOF_RAW_SECS)
+    for window in _WINDOWS:
+        window.tick(now)
 
 
 # ── Joystick (dropdown view → serial worker) ──────────────────────────────────
@@ -787,7 +809,7 @@ def _worker() -> None:
         _reset_flag.clear()
 
     while not _stop.is_set():
-        _tof_tick()
+        _diagnostics_tick()
         port = _motion_port()
         if not port:
             _close()
@@ -855,7 +877,7 @@ def _worker() -> None:
 
         if line:
             _handle_line(line)
-            _tof_feed(line)
+            _diagnostics_feed(line)
             now = time.time()
             if now - last_summary >= 60.0:
                 s = _snapshot()
@@ -1297,12 +1319,14 @@ def run_app() -> int:
             # V3, owner November 20: every range reading live, in its own window.
             # Always offered: with Rex running the window says he has the port.
             self._tof = rumps.MenuItem("ToF Diagnostics…", callback=self._on_tof)
+            # V3, owner November 22: the gyroscope, tilt, compass, wheels and sensor bus, the same way.
+            self._sensors = rumps.MenuItem("Sensor Diagnostics…", callback=self._on_sensors)
             self._hv_notified_at = 0.0   # last supply-too-high notification
             self._mono_warned = False    # warn once if attributed titles fail
             self.menu = (list(self._rows)
                          + [None, self._joy_item, self._stop_motors]
                          + [None, self._mark_full, self._set_soc, self._restart_esp]
-                         + [None, self._tof])
+                         + [None, self._tof, self._sensors])
             # A menu that closes mid-drag can eat the mouseUp — force-release
             # the stick whenever ANY menu ends tracking (no-op when centered);
             # the worker then sends the one clean stop.
@@ -1386,11 +1410,18 @@ def run_app() -> int:
             _queue_batt_soc(pct)
 
         def _on_tof(self, _item):
+            self._open_window(_tof_window, "ToF Diagnostics")
+
+        def _on_sensors(self, _item):
+            self._open_window(_sensor_window, "Sensor Diagnostics")
+
+        @staticmethod
+        def _open_window(window, title):
             try:
-                _open_tof_diagnostics()
+                window.open()
             except Exception as exc:
-                log.warning("ToF diagnostics window did not start: %s", exc)
-                _notify("Rex Battery", f"ToF Diagnostics did not start: {exc}")
+                log.warning("%s window did not start: %s", title, exc)
+                _notify("Rex Battery", f"{title} did not start: {exc}")
 
         def _on_restart_esp(self, _item):
             if _snapshot()["mode"] != "live":

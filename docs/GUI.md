@@ -144,8 +144,10 @@ the firmware was discarding a healthy front-right one, and nothing on screen sai
 - **While Rex runs** he has the port: the window says so and resumes when he shuts down. The
   Motivator console above is the view of a running Rex.
 - **Structure:** `gui/tof_model.py` (Qt-free: readings, the minute kept, the wording),
-  `gui/tof_diagnostics.py` (the window; the 8×8 grid is the Motivator's widget), and
-  `_open_tof_diagnostics`, `_tof_feed` and `_tof_tick` in the battery menu.
+  `gui/tof_diagnostics.py` (the window; the 8×8 grid is the Motivator's widget), and the battery
+  menu's `_DiagnosticsWindow` (one per window; `_diagnostics_feed` and `_diagnostics_tick` serve both).
+  Both windows share `gui/controller_feed.py` (decoding a line, the link line, the controller's
+  messages) and `gui/diagnostics_window.py` (the feed from stdin, replay, snapshot, the look).
 
 **Evidence.** 20 synthetic checks in `tests/test_tof_diagnostics.py`: the model on made-up controller
 lines, the relay against a reader that stops and one that goes away, and the menu's wiring with the
@@ -159,6 +161,52 @@ The battery menu was then restarted with the new item and reads the meter.
 **Not yet done:** the menu click itself and the window on the robot's own screen (every check drew it
 off screen). The raw stream covers only the two front corner sensors (that is all the firmware
 offers), and nothing is recorded to disk.
+
+## Sensor diagnostics window — November 22, 2026
+
+Owner: "this sensor needs to be addressed. The menu bar app has a ToF utility menu. Can you add
+something similar for the other sensors?" That day's run had failed on a gyroscope whose zero was wrong
+by 19.7° a second, and nothing on screen showed it
+([room navigation plan](ROOM_NAVIGATION_PLAN.md), run `e54062b9`).
+
+- **Open it:** battery menu, **Sensor Diagnostics…**; a second click brings it to the front. A saved
+  capture plays with `.venv/bin/python -m r3x.gui.sensor_diagnostics --replay FILE.jsonl`. It can be
+  open beside the ToF window.
+- **What it shows.**
+  - A dial: which way he faces by the gyroscope (orange) and by the wheels (blue). In the middle, how
+    fast the gyroscope's heading moves with the wheels still. That drift is the number that says
+    whether its zero is right: green under 0.3° a second (November 20, standing: 0.05 to 0.19), amber
+    to 1, red above.
+  - A minute of each reading as a trace: heading by the gyroscope and by the wheels, tilt both ways,
+    the compass's raw direction and field strength, each wheel's speed. A stretch where the sensor
+    did not answer is a red band.
+  - The sensor bus: which chips answer now (gyroscope and tilt, compass, climate, battery gauge, the
+    eight ring sensors, both 8×8 depth sensors), for how long one has been silent, and how often one
+    dropped out while watched.
+  - The wheels: still or moving, position by the wheels, drive level, and the last move as the
+    gyroscope and the wheels each measured it. Turning him with the battery menu's joystick is the
+    test: the two should agree.
+  - The controller: its state, how long it has been running, gamepad, who is in charge.
+  - What stands out, in words, and the controller's own messages.
+- **What it is for.** The gyroscope's zero is taken once, when the controller starts (one second,
+  standing still). If the sensor bus was down then and came back later, the firmware takes the zero
+  from a single reading; on November 22 that reading came while his wake animation shook him. The
+  battery gauge is also set up only at the start, so a bus that was down then leaves the battery menu
+  with no charge or volts, which looks like the menu having handed the port to Rex when it has not.
+  **Restart ESP32** in the battery menu, with Rex standing still, sets both up again; the window then
+  shows the new drift within a few seconds.
+- **The compass** is shown raw and uncalibrated: whether it answers and how steady it reads, not north.
+- **Where the data comes from:** exactly as the ToF window. This one asks the controller for nothing.
+- **Structure:** `gui/sensor_model.py` (Qt-free: stillness, drift, the last move, the bus roll call,
+  the wording) and `gui/sensor_diagnostics.py` (the window).
+
+**Evidence.** 13 synthetic checks in `tests/test_sensor_diagnostics.py` (the model on made-up
+controller lines: a steady gyroscope, a wrong zero, drift read only at rest, the last move, silent
+and returning chips, a heading that starts over, a controller restart, a wandering compass, a wheel
+driven without turning) and 2 more in `tests/test_tof_diagnostics.py` for the menu feeding both
+windows. Drawn off screen from a November 20 recording (0.20° a second, front 8×8 silent) and from a
+made-up copy of November 22's fault. Not yet opened from the menu on the robot's own screen, and not
+yet seen with the real fault live.
 
 ## Evidence
 

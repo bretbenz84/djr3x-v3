@@ -13,11 +13,11 @@ for the robot and sends nothing.
 from __future__ import annotations
 
 from collections import deque
-import json
 import statistics
 
+from .controller_feed import STALE_S, ControllerFeed   # noqa: F401 - STALE_S is part of this module's surface.
+
 HISTORY_S = 60.          # How much of each ring sensor is kept and drawn.
-STALE_S = 1.5            # No telemetry for this long: the link is not live.
 STALL_S = .5             # A depth sensor silent this long has stalled (the firmware's own bound).
 # How often the firmware gets round to each ring sensor, as the raw stream shows it. The stream itself
 # costs time on the serial line: 113 ms measured on 0.2.21 with none holding the others up (about
@@ -136,35 +136,16 @@ class Raw:
         return sum(1 for s in codes if s not in (0, 3, 4)) / len(codes) if len(codes) >= 5 else None
 
 
-class TofDiagnostics:
+class TofDiagnostics(ControllerFeed):
     def __init__(self):
+        super().__init__()
         self.sensors = {row[0]: Sensor(*row) for row in RING}
         self.front, self.rear = Matrix('Front 8×8'), Matrix('Rear 8×8')
         self.raw = {'fl': Raw(), 'fr': Raw()}
         self.fused = {}              # fl/fr/rl/rr as the firmware's reflex uses them: corner sensor and 8x8 together.
-        self.telemetry = None
-        self.telemetry_at = None
-        self.firmware = None         # Version, once a hello is seen.
-        self.log = deque(maxlen=200) # (host time, level, text)
-        self.log_total = 0           # Messages ever seen, so a reader can tell which are new.
-        self.feed = {}               # The port holder's last word: mode (live, dormant, connecting, no_port) and detail.
-        self.raise_wanted = False
-        self.lines = self.unreadable = 0
 
     # ------------------------------------------------------------------ input
-    def feed_line(self, line, now):
-        """One line as it came off the serial port (bytes, str or a decoded dict)."""
-        if not isinstance(line, dict):
-            try:
-                line = json.loads(line.decode('utf-8', 'replace') if isinstance(line, (bytes, bytearray)) else line)
-            except ValueError:
-                self.unreadable += 1
-                return
-        if not isinstance(line, dict):
-            self.unreadable += 1
-            return
-        self.lines += 1
-        kind = line.get('type')
+    def _message(self, kind, line, now):
         if kind == 'telemetry':
             self._telemetry(line, now)
         elif kind in ('tofmx', 'tofmx_rear'):
@@ -179,16 +160,6 @@ class TofDiagnostics:
                 (self.front if kind == 'tofmx' else self.rear).note(cells, rej, now)
         elif kind == 'tofraw' and line.get('sensor') in self.raw:
             self.raw[line['sensor']].note(line, now)
-        elif kind == 'log' and isinstance(line.get('msg'), str):
-            self.log.append((now, str(line.get('lvl') or 'info'), line['msg'][:200]))
-            self.log_total += 1
-        elif kind == 'hello':
-            self.firmware = line.get('fw')
-        elif kind == 'feed':
-            if line.get('raise'):
-                self.raise_wanted = True
-            if 'mode' in line:
-                self.feed = {'mode': line.get('mode'), 'detail': line.get('detail'), 'at': now}
 
     def _telemetry(self, message, now):
         tof = message.get('tof_mm')
@@ -203,25 +174,6 @@ class TofDiagnostics:
         self.fused = {key: tof.get(key) for key in CORNERS if isinstance(tof.get(key), (int, float))}
 
     # ------------------------------------------------------------------ reading it
-    def live(self, now):
-        return self.telemetry_at is not None and now - self.telemetry_at <= STALE_S
-
-    def link(self, now):
-        """(live, one line saying where the data is coming from or why there is none)."""
-        if self.live(now):
-            fw = f' · firmware {self.firmware}' if self.firmware else ''
-            return True, f'Live from the drive controller{fw}'
-        mode = self.feed.get('mode')
-        if mode == 'dormant':
-            return False, 'Rex is running and has the drive controller. Readings come back when he shuts down.'
-        if mode == 'no_port':
-            return False, 'No drive controller port is set (drive_port in local/settings.toml).'
-        if mode == 'ended':
-            return False, 'The recording has ended.'
-        if self.telemetry_at is None:
-            return False, 'Waiting for the drive controller…'
-        return False, f'No data from the drive controller for {now - self.telemetry_at:.0f} s.'
-
     def status(self, key, now):
         """One of waiting, reading, open (nothing in range), discarded, silent."""
         sensor = self.sensors[key]
