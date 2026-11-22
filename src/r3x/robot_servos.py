@@ -45,6 +45,7 @@ class RobotServos:
         self.wait = wait
         self.closed = False
         self.started = False
+        self.awake = False   # The wake has finished. Until then the drive owner starts no move of its own (app).
         self.before_shutdown = lambda: None
         self.on_startup = lambda: None   # Startup sounds begin with the wake choreography.
         self.on_shutdown = lambda: None  # The power-down sound begins with the park choreography.
@@ -55,6 +56,8 @@ class RobotServos:
         # Owner, November 17: at the wake the poker arm came out into something beside him. With a
         # drive base (its range sensors) the wake leaves the reaching arms where they are; the drive
         # owner brings each out once its space reads clear (DriveBase.tick_arm_clearance), as after a drive.
+        # Owner, November 21: "if there's computed clearance", the arms should stir while he wakes. The
+        # wheel board now starts beside the wake, so an arm whose space has read clear comes out during it.
         self.arm_guard = arm_guard
         # The drive owner's range reading, when he has wheels: a fully extended throttle pose needs
         # its front-right space clear (owner, November 20).
@@ -101,6 +104,7 @@ class RobotServos:
             if self.trace: self.trace.emit('servo_startup_hook_failed',error_type=type(exc).__name__)
         if self.telepresence:
             self._telepresence_wake()
+            self.awake = True
             return
         self._sequence('startup', keep_arms=frozenset(REACHING_ARMS) if self.arm_guard else frozenset())
         if self.trace and self.owner.kept_arms:
@@ -112,10 +116,12 @@ class RobotServos:
         # Owner, November 15: the wake leaves the visor shut over his eyes, and it stays shut (talking
         # and idle motion leave it alone) until everything has loaded (open_eyes).
         self.owner.held_channels.add(3)
-        # Capture is started later by ProviderOwner, after motion/hold settling.
-        self.wait(.5)
+        self.awake = True
+        # The wake runs beside the rest of startup and ends just before the chime (owner, November 21:
+        # it was over four seconds early), so nothing waits here for the array arm's hold to settle:
+        # the hold dates itself from when the arm last moved, and nothing heard before the ready line
+        # is kept (AudioCapture.discard_pending).
         self.owner.refresh_microphone_hold()
-        self.wait(1.5)
 
     def eyes_may_open(self):
         """The startup hold on the visor ends: talking and idle motion may move it again."""
@@ -687,7 +693,8 @@ class RobotServos:
         def run():
             receipt = self.owner.return_arm(keep)
             if self.trace:
-                self.trace.emit('servo_base_release', **asdict(receipt), kept_parked=sorted(keep))
+                self.trace.emit('servo_base_release', **asdict(receipt), kept_parked=sorted(keep),
+                                route=self.owner.arm_return_route)
         self._arm_return = threading.Thread(target=run, name='r3x-arm-return', daemon=True)
         self._arm_return.start()
 

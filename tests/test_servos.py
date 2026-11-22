@@ -114,6 +114,98 @@ class ServoTests(unittest.TestCase):
         self.assertEqual(self.execute('talking').status, 'rejected')
         self.assertEqual(len(self.port.targets), count)
 
+    def test_the_wake_is_a_struggle_up_that_lasts_until_just_before_the_chime(self):
+        # Owner, November 21: "like a person waking up and stretching", in step with the startup sound;
+        # the first try "looks great" but was over four seconds before the chime: "one more round of up
+        # and down struggle". The visor only cracks open: "1680 and 1700 ... you can't see the eyes yet".
+        import wave
+        from pathlib import Path
+        from r3x.servo_poses import (DRIVE_HEAD, HEAD_PAIR, REACHING_ARMS, VISOR_DOWN, WAKE_SECONDS,
+                                     board_seconds, head_pose, lifecycle_lanes, motion_profiles)
+        from r3x.startup_audio import STARTUP_CLIP, split_at_pause
+        start = dict(self.port.pose)
+        lanes = lifecycle_lanes('startup', start, keep=frozenset(REACHING_ARMS))
+        ends, path = [], {}
+        for lane in lanes:
+            at, free = dict(start), 0.
+            for beat in lane:
+                targets = dict(beat.targets)
+                profiles = motion_profiles(beat, at)
+                travel = max((board_seconds(abs(value - at[ch]), *profiles[ch])
+                              for ch, value in targets.items() if abs(value - at[ch]) > 2), default=0.)
+                begins = free if beat.at is None else beat.at
+                self.assertGreaterEqual(begins, free)      # Every move is over before the next one is due.
+                free = begins + travel + beat.dwell
+                at.update(targets)
+                for ch in targets:
+                    path.setdefault(ch, []).append(at[ch])
+            ends.append(free)
+        self.assertFalse(set(path) & {ch for arm in REACHING_ARMS.values() for ch in arm})   # Kept arms stay put.
+        turns = lambda values: sum(1 for a, b, c in zip(values, values[1:], values[2:]) if (b - a) * (c - b) < 0)
+        pitch = [head_pose({HEAD_PAIR[0]: a, HEAD_PAIR[1]: b})[0] for a, b in zip(path[2], path[11])]
+        tilt = [head_pose({HEAD_PAIR[0]: a, HEAD_PAIR[1]: b})[1] for a, b in zip(path[2], path[11])]
+        self.assertGreaterEqual(turns(pitch), 7)           # Up and down, again and again,
+        self.assertTrue(min(tilt) < -.2 and max(tilt) > .2)    # cocked to one side, then the other,
+        self.assertLess(max(pitch[:-1]), -.2)              # and never level until the last rise.
+        self.assertGreaterEqual(turns(path[1]), 3)         # The pole lifts with each try and sinks again.
+        self.assertGreaterEqual(turns(path[4]), 6)         # The hero elbow stretches three times.
+        self.assertGreater(max(path[4]), 7300)
+        self.assertEqual(set(path[3]), {VISOR_DOWN, 6800, 6720})   # 1700 and 1680 us: cracks, never his eyes.
+        self.assertEqual([path[ch][-1] for ch in (0, 3, 4)], [NECK_CENTER, VISOR_DOWN, dict(AWAKE_ARMS)[4]])
+        self.assertEqual({ch: path[ch][-1] for ch in (1, 2, 11)}, dict(DRIVE_HEAD))
+        # The sound's build is heard about 1.5 s after the wake begins (run 9ac3697f) and the chime
+        # follows it: he is up in the second before, not four seconds early.
+        self.assertAlmostEqual(max(ends), WAKE_SECONDS, delta=.15)
+        with wave.open(str(Path(__file__).resolve().parents[1] / 'assets/audio/startup' / STARTUP_CLIP)) as clip:
+            build, _ = split_at_pause(clip.readframes(clip.getnframes()), clip.getframerate())
+            chime = 1.5 + len(build) / 2 / clip.getframerate()
+        self.assertTrue(chime - 1. < WAKE_SECONDS < chime - .3)
+        # On the board (here it arrives at once) the lanes keep the wake's clock: no move goes out early.
+        sent = []
+        self.port.on_target = lambda: sent.append(self.clock())
+        self.owner.start()
+        began = self.clock()
+        wake = self.owner.execute(self.request(keep_arms=frozenset(REACHING_ARMS)), Cancellation())
+        self.assertEqual((wake.status, wake.changed_channels), ('pulses_reached', (0, 1, 2, 3, 4, 11)))
+        self.assertAlmostEqual(sent[-1] - began, 11.3, delta=.1)   # The last rise, with the sound at its loudest.
+        self.assertEqual({ch: self.port.pose[ch] for ch in (0, 3, 4)},
+                         {0: NECK_CENTER, 3: VISOR_DOWN, 4: dict(AWAKE_ARMS)[4]})
+        self.assertEqual({ch: self.port.pose[ch] for ch in (1, 2, 11)}, dict(DRIVE_HEAD))
+
+    def test_the_arms_wake_stretch_stays_inside_their_clearance_however_late_it_joins(self):
+        # Owner, November 21: a small stretch in step with the sound, ending at the standard poses.
+        from r3x.servo_poses import (POKER_PARK, POKER_UP, REACHING_ARMS, WAKE_SECONDS, WAKE_POKER, WAKE_THROTTLE,
+                                     board_seconds, motion_profiles, poker_clear, throttle_clear, validate_pose,
+                                     wake_arm_lanes)
+        parked, both = dict(self.port.pose), frozenset(REACHING_ARMS)
+        for elapsed in (0., 4.3, 5.3, 6.95, 8.5, 9.6, 10.5, 11.1):
+            lanes = wake_arm_lanes(parked, both, elapsed)
+            self.assertEqual(len(lanes), 2)
+            for lane, channels, clear, last, rows in zip(lanes, (THROTTLE, POKER), (throttle_clear, None), (REST, POKER_UP),
+                                                         (WAKE_THROTTLE, WAKE_POKER)):
+                at, free = {ch: parked[ch] for ch in channels}, elapsed
+                for beat in lane:
+                    target = dict(beat.targets)
+                    self.assertEqual(set(target), set(channels))       # The arm's joints always move together.
+                    validate_pose(target)
+                    if clear:
+                        self.assertTrue(clear(at, target))             # Clear whatever order the joints arrive in.
+                    else:
+                        self.assertTrue(poker_clear(target) and max(at[13], target[13]) <= 6256)
+                    profiles = motion_profiles(beat, at)
+                    free = max(free, beat.at) + max(board_seconds(abs(target[ch] - at[ch]), *profiles[ch])
+                                                    for ch in target if abs(target[ch] - at[ch]) > 2)
+                    at = target
+                self.assertEqual(at, dict(last))                       # It gets to the standard pose,
+                if elapsed <= 6.95:
+                    self.assertLess(free, WAKE_SECONDS)                # with the head's last rise,
+                    self.assertGreater(len(lane), 3)                   # after several small moves, not one.
+                self.assertLessEqual(len(lane), len(rows))
+            self.assertGreaterEqual(min(lane[0].at for lane in lanes), 5.8)   # Never before the sensors can have read it clear.
+        self.assertEqual(len(wake_arm_lanes(parked, frozenset({'poker'}), 4.3)), 1)
+        self.assertIsNone(wake_arm_lanes(parked, both, 11.4))          # The last move is already due: the usual way.
+        self.assertIsNone(wake_arm_lanes({**parked, **dict(TUCK)}, both, 4.3))   # Not at its park: the usual way.
+
     def wake_with_arms_kept(self, throttle):
         self.port.pose.update(throttle)
         self.owner.start()

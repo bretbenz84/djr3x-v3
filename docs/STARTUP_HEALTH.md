@@ -72,7 +72,7 @@ The 4.3 GB Breeze model itself loads only for an impression (2.6–3.5 s in six 
   opens; the news, weather, house, music and voice-clone lookups start at once on a thread of their own,
   so a slow network holds up nothing else; once his body is awake the wheels and radar, the camera with
   the scene and current-view providers, and the smile, object and room providers each start beside the
-  microphone. A provider that needs the camera waits for it and is skipped when it is unavailable, as
+  microphone (since November 21, night, the wake itself runs beside all of these; below). A provider that needs the camera waits for it and is skipped when it is unavailable, as
   before. Startup still finishes only when everything has started, a required failure still stops it and
   is said aloud once, and the closing order is unchanged.
 - *The please-wait line and the droid filler are retired.* The whir still plays with the servo wake.
@@ -81,8 +81,9 @@ The 4.3 GB Breeze model itself loads only for an impression (2.6–3.5 s in six 
 - *Each start is timed.* A `startup_timing` row in the session log gives, for every part, when its start
   began and how long it took; the same figures are in the startup report's results.
 
-**Still true.** Speech output starts first so a failure can be announced; the servo wake comes before the
-microphone and the camera; buffered microphone input from before listening is discarded.
+**Still true.** Speech output starts first so a failure can be announced; buffered microphone input from
+before listening is discarded. (Until November 21 the servo wake also came before the microphone and the
+camera; see "The wake runs beside everything else" below.)
 
 **Not done.** He still does not listen until the camera and wheels have started (they now start beside the
 microphone, not after it). Letting him hear before he can see means attaching the camera, wheels and what
@@ -160,5 +161,32 @@ everything had loaded at 12.9 s, the build ended at 13.6 s (so `land` waited 0.6
 visor ran to 15.0 s, the ready line from 15.3 to 17.9 s, and listening began at 18.0 s. The camera-side
 models loaded during the wake (1.2 s, from 5.3 s) in that run.
 
-**Still to look at:** whether the servo wake looks smooth while models load beside it, and whether the
-throttle arm coming out just after listening begins is heard as a sound.
+**The wake runs beside everything else (November 21, night).** The owner asked for the wake to be a
+struggle in step with the sound and lights, then for "one more round" because the first version (run
+`9ac3697f`) was over at 9.5 s with the chime at 13.6 s. The wake's motion now lasts 12.8 s
+(`servo_poses.WAKE_SECONDS`; the sound's build is heard 1.5 s after the wake begins and lasts 11.8 s, so
+the chime is 13.3 s in). In the old order the microphone, camera, wheels and radar waited for the wake and
+its 2 s settle, so a wake that long would have moved the ready moment from 13.6 s to about 17 s. Instead
+(`App.configure_live`):
+- the servo wake is a group of its own beside the main sequence; startup still finishes, and the chime
+  still waits, until it is done, and a servo failure still stops startup and is said aloud;
+- the microphone opens as soon as the models are loaded (about 5 s in the logged runs). Nothing heard
+  before the ready line is kept (`AudioCapture.discard_pending`), and the array arm's hold dates itself
+  from when the arm last moved, so the 2 s wait after the wake is removed;
+- the camera, and what watches through it, start once the microphone is open (so after the camera-side
+  models are loaded). His visor is shut over the camera until the ready moment in either order;
+- the wheels and radar start with the wake. Their range sensors are what lets an arm come out while he
+  wakes ([servos](SERVO_INTEGRATION.md)); until `RobotServos.awake` the drive owner's back-off reflex is
+  off (`DriveBase.reflex_allowed`).
+
+**First robot run with it (`de486648`, wake word; the owner: "it was ok").** Lights 0.17 s; radar and the
+wheel board up by 1.4 s; the speech models by 4.6 s and the camera-side models by 5.8 s; the microphone
+open at 5.9 s; the camera's first picture at 7.5 s, which was the last start but the wake. The wake's
+motion ran 12.77 s, to 12.93 s (planned 12.8 s), the build ended and the chime began at 13.57 s (13.58 s
+before the change), the visor was up at 14.4 s, the ready line ran 15.2 to 17.3 s. Both arms were cleared
+at 4.47 s. A chime a few tenths late would mean the wake ran long (the build would then end first).
+**Evidence:** that run, and synthetic checks (Rex's own composition with timed stand-ins: microphone,
+camera, wheels and radar all start and finish while the wake is still running, startup returns only after
+it, the camera after the microphone, the reflex off until awake).
+
+**Still to look at:** whether the throttle arm coming out is heard as a sound.

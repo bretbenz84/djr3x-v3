@@ -356,6 +356,7 @@ class Beat:
     throttle_duration: float | None = None
     wrist_speed: int | None = None   # A slower cap for the throttle wrist alone (talking and idle).
     wait: float = 0.        # Seconds this beat's lane rests before the targets are sent.
+    at: float | None = None   # Not sent before this many seconds into the request: lanes keeping one clock (the wake).
     reframes: bool = True   # False: a head move too small to count as a new camera view.
     seconds: float | None = None   # Travel time of an eased beat (eased_beat): its profiles arrive together.
     profiles: tuple[tuple[int, int, int], ...] = ()   # (channel, speed, acceleration) per joint, when each eases differently.
@@ -436,6 +437,142 @@ def throttle_parks_nowhere(current) -> bool:
     return not at_park and throttle_park_stages(current) is None
 
 
+# The wake (owner, November 21): "like a person waking up and stretching", in step with the startup
+# sound and the lights. Before, the head rose slowly once and levelled, then the neck looked left and
+# right "while nothing else happens". The sound's build is heard about 1.5 s after the wake begins and
+# lasts 11.8 s; as heard it stirs, pushes to a first peak 3.5 s in, dies away around 4 s, comes back
+# by 5 s, is strong from 6.5 s and loudest from 10 s until it cuts to the chime (startup_audio.loudness),
+# and the mouth lights twinkle and then grow with it. So, in seconds from the wake's start: he stirs as
+# the sound begins (1.5) and sinks back; tries harder as it pushes (3.5 to 4.8: the head comes up and
+# cocks, the pole lifts, an arm half stretches, the visor lifts a crack) and droops as it dies (to 6.2);
+# shifts about, restless, with a full stretch of the hero elbow; tries again, cocked the other way, as
+# the sound grows strong (7.7 to 9.0), and sags once more; and as it reaches its loudest the head comes
+# up level, the neck back from a groggy look to each side, the arm settling to its awake rest. He is
+# up about half a second before the chime (WAKE_SECONDS; the chime is 13.3 s after the wake begins).
+# Owner, after the first try: the head and arm "look great, exactly what I wanted", but they were
+# done four seconds before the chime, so "one more round of up and down struggle".
+# It ends where the old wake did: level head at the normal height, neck centred, visor shut, hero elbow
+# at its awake neutral. Every move eases in and out (eased_beat). The lanes keep one clock (Beat.at),
+# so a slow arrival in one move does not push the rest late.
+#
+# Each row: (seconds into the wake it begins, seconds to arrive, hold once there, the pose).
+WAKE_SECONDS = 12.8
+WAKE_HEAD = (   # (pitch, side tilt, lift): -1 is the head fully down, 0 level; tilt below zero is to his left.
+    (1.5, 1.0, 0., (-.72, .15, None)),            # A first stir,
+    (2.6, .8, 0., (-.95, 0., None)),              # and back down.
+    (3.5, 1.3, .2, (-.35, -.3, 3900)),            # The sound pushes: a real try, cocked to his left, the pole lifting.
+    (5.15, 1.0, 0., (-.85, .2, 3450)),            # It dies away: he droops.
+    (6.25, .7, 0., (-.6, -.18, None)),            # Restless,
+    (7.05, .5, 0., (-.72, .1, None)),             # this way and that.
+    (7.7, 1.3, .3, (-.28, .28, 4000)),            # The sound is strong now: another try, cocked to his right.
+    (9.5, 1.0, 0., (-.78, -.12, 3550)),           # Not yet: he sags again,
+    (10.6, .55, 0., (-.5, .15, 3700)),            # shakes it off,
+    (11.3, 1.4, 0., (0., 0., HEAD_LIFT_NORMAL)),  # and with the sound at its loudest: up, level, awake.
+)
+# The visor lifts a crack and drops again, never far enough to show his eyes. The owner, November 21:
+# "1680 and 1700 are both visor positions that look like it's trying to open but you can't see the eyes yet".
+WAKE_VISOR_CRACKS = (6800, 6720)   # 1700 and 1680 us; lower pulses are higher.
+WAKE_VISOR = ((4.0, .4, .15, 6800), (4.65, .35, 0., VISOR_DOWN),
+              (6.4, .45, .1, 6720), (7.05, .4, 0., VISOR_DOWN),
+              (8.6, .45, .25, 6720), (9.4, .4, 0., VISOR_DOWN),
+              (10.6, .35, 0., 6800), (11.05, .35, 0., VISOR_DOWN))
+# The hero elbow (higher pulses lift it): a twitch, half a stretch with the first try, the full
+# stretch, a sag, one more reach, and down to its awake neutral as the head comes up.
+WAKE_ELBOW = ((2.0, .6, 0., 6520), (2.7, .5, 0., 6340),
+              (3.6, 1.1, .2, 6950), (5.0, 1.0, 0., 6380),
+              (6.5, 1.2, .35, 7380), (8.2, .9, 0., 6420),
+              (9.6, 1.1, .3, 7300), (11.3, 1.1, 0., 6720))
+# The neck: still while he first struggles, then a groggy look to each side, and back to the middle
+# as the head comes up. Pulses from the centre, first to the side he looks first.
+WAKE_NECK = ((5.9, 1.0, 0., 800), (7.0, 1.0, 0., -900), (9.5, 1.0, 0., 500), (11.3, .9, 0., 0))
+
+
+def wake_lanes(current: dict[int, int], first_look: str = 'left') -> tuple[tuple[Beat, ...], ...]:
+    """The head, visor, neck and hero elbow through the wake (see WAKE_HEAD): four lanes of eased
+    moves on one clock."""
+    def lane(channels, rows, pulses):
+        at, beats = {ch: current[ch] for ch in channels}, []
+        for begins, seconds, hold, pose in rows:
+            targets = pulses(pose, at)
+            beats.append(replace(eased_beat(at, targets.items(), seconds, hold), at=begins))
+            at.update(targets)
+        return tuple(beats)
+    def head(pose, at):
+        pitch, tilt, lift = pose
+        return {**head_pulses(pitch, tilt), 1: at[1] if lift is None else lift}
+    side = -1 if first_look == 'left' else 1   # Lower neck pulses turn him to his left.
+    shut = Beat(((3, VISOR_DOWN),), speed=12, acceleration=3)   # Shut first, if it is not (owner, November 15).
+    return (lane((1, *HEAD_PAIR), WAKE_HEAD, head),
+            (shut, *lane((3,), WAKE_VISOR, lambda pulse, at: {3: pulse})),
+            lane((0,), WAKE_NECK, lambda offset, at: {0: NECK_CENTER + side * offset}),
+            lane((4,), WAKE_ELBOW, lambda pulse, at: {4: pulse}))
+
+
+# The reaching arms' part of the wake, for an arm whose space reads clear while he wakes. Owner,
+# November 21, after seeing both arms unfold all the way 4.5 s into the wake (run de486648): "a smaller
+# stretch routine on those that match the startup sound clip rather than a full movement. It would
+# eventually get to the standard poses". The wheel board's sensors cannot say an arm's space is clear
+# before about 4.3 s (it connects in 1.4 s, then two seconds of clear readings), so the arms join as the
+# sound comes back from its dip: a shrug and a sag, more with the second try, and out to the awake
+# poses with the head's last rise. Every pose here is inside the arms' own clearance rules
+# (throttle_clear: below the tuck's shoulder height the wrist stays folded; poker_clear).
+#
+# Each row: (seconds into the wake it begins, seconds to arrive, the pose).
+WAKE_THROTTLE = (   # (shoulder, elbow, wrist bend); the shoulder lifts as its pulse falls.
+    (5.8, 1.0, (6600, 9200, 2048)),             # A shrug as the sound comes back,
+    (6.9, .8, (7100, 9700, 2048)),              # and most of the way down again.
+    (7.8, 1.3, (5900, 8400, 2048)),             # With his second try the shoulder comes up past the tuck,
+    (9.1, .8, (5900, 8300, 3400)),              # where the wrist can flex a little,
+    (10.0, .9, (6100, 8600, 2500)),             # and sags with him.
+    (11.2, 1.4, tuple(value for _, value in REST)),       # Out to its awake rest with the last rise.
+)
+WAKE_POKER = (      # (elbow, wrist), from straight up at its park: down a little and back, further, back, and to the awake 45 degrees.
+    (5.9, .9, (7100, 5900)),
+    (6.9, .7, (7450, 6100)),
+    (7.9, 1.2, (6500, 4800)),
+    (9.5, .9, (6950, 5300)),
+    (11.3, 1.2, tuple(value for _, value in POKER_UP)),
+)
+
+
+def _poker_move_clear(start, end) -> bool:
+    """Elbow and wrist moving together stay under the elbow's ceiling only where it is flat."""
+    return poker_clear(end) and max(start[13], end[13]) <= POKER_ELBOW_CEILING[0][0]
+
+
+def wake_arm_lanes(current: dict[int, int], arms, elapsed: float) -> tuple[tuple[Beat, ...], ...] | None:
+    """The wake's stretch for each of `arms`, joined `elapsed` seconds into the wake: the moves
+    still to come, on the wake's clock (Beat.at), ending at the awake poses. Moves already over are
+    left out when the rest is still a clear route from where the arm is. None when the routine has
+    no place for this start: an arm away from its park, the last move already due, or no clear
+    route. The caller then brings the arms out the usual way (base_lanes)."""
+    lanes = []
+    for arm, channels, park, rows, clear in (('throttle', THROTTLE, PARK, WAKE_THROTTLE, throttle_clear),
+                                             ('poker', POKER, POKER_PARK, WAKE_POKER, _poker_move_clear)):
+        if arm not in arms:
+            continue
+        start = {ch: current[ch] for ch in channels}
+        if any(abs(start[ch] - value) > 2 for ch, value in park) or elapsed >= rows[-1][0]:
+            return None
+        over = sum(1 for begins, _, _ in rows[1:] if begins <= elapsed)   # Moves whose successor is already due.
+        for skipped in range(over, -1, -1):
+            poses = [dict(zip(channels, pose)) for _, _, pose in rows[skipped:]]
+            if all(clear(a, b) for a, b in zip([start, *poses], poses)):
+                break
+        else:
+            return None
+        at, beats = dict(start), []
+        for (begins, seconds, _), pose in zip(rows[skipped:], poses):
+            validate_pose(pose)
+            beats.append(replace(eased_beat(at, pose.items(), seconds), at=begins))
+            at.update(pose)
+        lanes.append(tuple(beats))
+        swing = dict(AWAKE_ARMS)[6]
+        if arm == 'poker' and abs(current[6] - swing) > 2:   # Its swing, as base_lanes brings it back.
+            lanes.append((Beat(((6, swing),), speed=20, acceleration=5),))
+    return tuple(lanes) or None
+
+
 def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left',
                     arms_home: bool = False, keep=frozenset()) -> tuple[tuple[Beat, ...], ...]:
     """Parallel lanes, advanced by a single executor. Park never enters a gesture.
@@ -458,18 +595,9 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         bridge = (((8, RAISED), (9, 5589), (10, 9511)),
                   ((8, RAISED), (9, 8400), (10, 2048)))
     if kind == 'startup':
-        first, second = (4000, 8000) if first_look == 'left' else (8000, 4000)
-        # Slower lifecycle glide: V2 also paced intermediate targets in software.
-        # Direct V3 targets need lower Maestro speed/acceleration caps.
-        # Owner, November 15: he wakes with the visor still shut over his eyes; it goes up just
-        # before he says his ready line (RobotServos.open_eyes).
-        head = (Beat((*DRIVE_HEAD, (3, VISOR_DOWN), (4, 6720)), speed=12, acceleration=3),)
-        neck = (Beat(((0, first),), speed=12, acceleration=3, dwell=.3),
-                Beat(((0, second),), speed=12, acceleration=3, dwell=.3),
-                Beat(((0, NECK_CENTER),), speed=12, acceleration=3, dwell=.2))
         throttle = bridge + (TUCK, ((8, 5260), (9, 8000), (10, 3800)),
                              ((8, 4616), (9, 8720), (10, 5920)), REST)
-        lanes = (head, neck)
+        lanes = wake_lanes(current, first_look)
         if 'throttle' not in keep:
             lanes += (tuple(Beat(p, throttle_duration=1.25) for p in throttle),)
         if 'poker' not in keep and any(abs(current[ch] - value) > 2 for ch, value in POKER_UP):

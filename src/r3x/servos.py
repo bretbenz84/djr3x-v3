@@ -16,7 +16,7 @@ from .providers import Capability
 from .servo_poses import (throttle_parks_nowhere, FINGERS_CLOSED, HAND_STEPS, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
                           sentry_lanes, telepresence_wake_lanes,
-                          UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS,
+                          UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS, wake_arm_lanes,
                           VISOR_RAISE_SECONDS, visor_over_eyes, talking_visor)
 
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle (its hand moves on).
@@ -116,6 +116,8 @@ class ServoOwner:
         # clear and returns them, or the next drive or shutdown takes them.
         self.kept_arms: frozenset[str] = frozenset()
         self._after_drive = False
+        self._wake_began = None       # The clock time the wake's moves began, while it runs.
+        self.arm_return_route = None  # How the last arm return went out: 'wake_stretch' or 'direct'.
         self._arm_cancel = threading.Event()
         self._arm_wait = wait or self._arm_cancel.wait
         self._visor_cancel = threading.Event()
@@ -465,6 +467,13 @@ class ServoOwner:
                 self._base_held = True
                 self.kept_arms = frozenset()   # The stance holds them; the release decides again.
             accepted = True
+            if request.kind == 'startup':
+                # The arms the wake leaves in are kept, as after a drive: held, so idle and talking
+                # leave them, until the drive owner reads their space clear (owner, November 17).
+                # Kept from the wake's first moment (owner, November 21: an arm with clear space
+                # comes out while he wakes): return_arm runs beside this request and ends an arm's keep.
+                self.kept_arms = frozenset(request.keep_arms)
+                self.held_channels.update(self.kept_channels)
             if any(ch == 7 for lane in lanes for beat in lane for ch, _ in beat.targets):
                 self.release_microphone_hold()   # Only the array arm's own movement ends its hold.
             self._motion.set()
@@ -473,6 +482,9 @@ class ServoOwner:
             indices = [0] * len(lanes)
             active = {}
             resting = {}   # (lane, beat) -> when a staggered beat may start
+            began = self.clock()   # Beats timed on the request's own clock (Beat.at) count from here.
+            if request.kind == 'startup':
+                self._wake_began = began   # An arm that comes out while he wakes keeps the same clock (return_arm).
             while len(completed) < len(lanes) or active:
                 cancel.check()
                 if self._cancel.is_set():
@@ -486,6 +498,8 @@ class ServoOwner:
                             continue
                     if lane_id not in active:
                         beat = lane[indices[lane_id]]
+                        if beat.at is not None and now < began + beat.at:
+                            continue
                         if beat.wait > 0 and now < resting.setdefault((lane_id, indices[lane_id]), now + beat.wait):
                             continue
                         targets = dict(beat.targets)
@@ -565,10 +579,6 @@ class ServoOwner:
                 self._base_held = False
             if request.kind == 'startup':
                 self._talking_head_origin = self._bus.positions(HEAD)
-                # The arms the wake left in are kept, as after a drive: held, so idle and talking
-                # leave them, until the drive owner reads their space clear (owner, November 17).
-                self.kept_arms = frozenset(request.keep_arms)
-                self.held_channels.update(self.kept_channels)
             if request.kind in {'park', 'shutdown', 'base_park'} and throttle_parks_nowhere(current):
                 # Everything else parked; the throttle arm had no clear route and stayed where it was.
                 return receipt('pulses_reached', 'ThrottleArmLeftWhereItWas')
@@ -624,6 +634,8 @@ class ServoOwner:
                         self.head_moved_at = self.clock()
                         self.head_moved_by = request.kind
                     self._motion.clear()
+                if request.kind == 'startup':
+                    self._wake_began = None
                 self._lock.release()
 
     def begin_arm_return(self) -> None:
@@ -676,7 +688,14 @@ class ServoOwner:
             # Later, the arms already out (and the hero elbow) belong to idle and talking again.
             # Holding something, the throttle stays folded at its drive park (owner, November 20).
             holding = frozenset({'throttle'}) if self.grip_channels & set(THROTTLE) else frozenset()
-            lanes = (base_lanes('base_release', current, keep | holding) if self._after_drive else
+            # While he is still waking (owner, November 21): a small stretch in step with the wake,
+            # ending at the same awake poses, in place of the whole unfold at once.
+            wake_began, stretch = self._wake_began, None
+            if wake_began is not None and not self._after_drive:
+                stretch = wake_arm_lanes(current, self.kept_arms - keep - holding, self.clock() - wake_began)
+            self.arm_return_route = 'wake_stretch' if stretch else 'direct'
+            lanes = (stretch if stretch else
+                     base_lanes('base_release', current, keep | holding) if self._after_drive else
                      base_lanes('base_release', current, frozenset(REACHING_ARMS) - (self.kept_arms - keep) | holding,
                                 hero=False))
             indices = [0] * len(lanes)
@@ -684,15 +703,19 @@ class ServoOwner:
             while any(index < len(lane) for index, lane in zip(indices, lanes)):
                 if self._arm_cancel.is_set():
                     raise Cancelled()
+                resting = False
                 for lane_id, lane in enumerate(lanes):
                     if indices[lane_id] >= len(lane):
                         continue
                     beat = lane[indices[lane_id]]
                     targets = dict(beat.targets)
                     if lane_id not in active:
+                        if beat.at is not None and wake_began is not None and self.clock() < wake_began + beat.at:
+                            resting = True   # Its moment in the wake has not come.
+                            continue
                         observed = self._bus.positions(targets)
                         validate_pose(observed)
-                        if beat.throttle_duration and not throttle_clear(observed, targets):
+                        if set(THROTTLE).issubset(targets) and not throttle_clear(observed, targets):
                             raise ProviderFailure('ThrottleRouteChanged')
                         self._profiles(motion_profiles(beat, observed))
                         self._bus.targets(targets)
@@ -708,7 +731,7 @@ class ServoOwner:
                         lagging = ','.join(f'ch{ch}@{observed[ch]}->{value}' for ch, value in targets.items()
                                            if abs(observed[ch] - value) > 2)
                         raise ProviderFailure('ServoArrivalTimeout:' + lagging)
-                if active:
+                if active or resting:
                     self._arm_wait(.025)
             done = True
             return receipt('pulses_reached')

@@ -122,6 +122,66 @@ does) or targets outside it never arrive (`ServoArrivalTimeout`). When the real 
 update `LIMITS[14]`/`LIMITS[15]` and the menu's `_SERVO_DEFAULTS`; idle and talking reach, and
 the park, are shares of the range and follow. Synthetic checks only; nothing has moved.
 
+## November 21: the wake is a struggle, and a clear arm joins it
+
+Owner: the wake should look "like a person waking up and stretching their arms", in step with the startup
+sound and lights, the visor lifting a little without showing his eyes; then, after seeing it (run
+`9ac3697f`), one more round so that it lasts until the chime.
+
+**The moves** (`wake_lanes`; four lanes on one clock, every move eased with `eased_beat`). Seconds are
+from the wake's start; the sound is heard from 1.5 s and the chime comes at 13.3 s.
+
+| When | Head (pitch, tilt, pole) | Hero elbow | Visor | Neck |
+| --- | --- | --- | --- | --- |
+| 1.5-3.4 | a first stir, then back down | a twitch (2.0-3.2) | shut | still |
+| 3.5-5.0 | a real try: up, cocked left, pole lifts | half a stretch | cracks to 1700 µs | still |
+| 5.15-7.5 | droops, then shifts about | sags; full stretch from 6.5 | cracks to 1680 µs | looks to the first side (5.9) and the other (7.0) |
+| 7.7-9.3 | another try, cocked right | holds, then sags (8.2) | cracks to 1680 µs | holds |
+| 9.5-11.1 | sags again, shakes it off | one more reach (9.6) | cracks to 1700 µs | a smaller look (9.5) |
+| 11.3-12.8 | up, level, at the normal height | down to its awake neutral | shut | back to the centre |
+
+Beats carry `at`, the earliest second of the request at which they are sent, so a lane that arrives late
+does not push its later moves (the first version used waits between moves and ran 9.3 s for a planned
+8.6 s). The visor never passes 1680 µs (6720); `VISOR_DOWN` is 1744 µs and the open neutral 1433 µs. The
+throttle and poker lanes of the wake are unchanged.
+
+**The arms.** Since November 17 the wake leaves both reaching arms in when he has wheels, and the drive
+owner brings each out once its space has read clear for 2 s. That could only happen after the wake,
+because the wheel board connected after it. The owner: "if there's computed clearance", the poker arm
+should start to come down and the throttle wrist move while he wakes. Now the wheel board starts with
+the wake, `ServoOwner` sets `kept_arms` when the wake is accepted (not when it ends), and
+`RobotServos.extend_cleared_arms` is allowed while the wake runs (`return_arm` already runs beside other
+requests and commands only the kept arm's channels). The board connects in about 1.4 s and needs 2 s of
+clear readings on a 1 s tick, so an arm can be cleared from about 4.3 s in. An arm with something in its
+space stays in exactly as before, and comes out later, the usual way, when the space clears.
+
+**The arms' stretch.** In the first run with this (`de486648`) both arms were cleared 4.5 s in and went
+straight through their whole unfold, done at 9.6 s. Owner: "a smaller stretch routine on those that match
+the startup sound clip rather than a full movement. It would eventually get to the standard poses." An
+arm cleared while he wakes now follows `wake_arm_lanes` (tables `WAKE_THROTTLE`, `WAKE_POKER`), on the
+wake's clock, in place of `base_lanes('base_release')`:
+
+| When | Throttle arm | Poker arm |
+| --- | --- | --- |
+| 5.8-6.8 | a shrug: the shoulder a third of the way up | the elbow dips a little from straight up |
+| 6.9-7.7 | most of the way back down | most of the way back up |
+| 7.8-9.1 | with the second try, the shoulder up past the tuck | further down, the wrist opening |
+| 9.1-10.9 | the wrist flexes a little (338 µs), then the arm sags | part of the way back (9.5) |
+| 11.2-12.6 | out to its awake rest | down to the awake 45 degrees, hand level |
+
+Every pose is inside the arms' own clearance rules: the throttle's wrist stays folded while the shoulder
+is below the tuck (`throttle_clear`, checked again against the board's positions as each move is sent),
+and the poker wrist stays where the elbow's ceiling is flat. An arm cleared later in the wake joins the
+routine where it then is, leaving out the moves already over when the rest is still a clear route from
+its park; cleared after the last move is due (11.2 s), or found away from its park, it comes out the
+usual way. The `servo_base_release` log row carries `route` (`wake_stretch` or `direct`).
+
+**Evidence:** synthetic checks only (the lanes' shape, limits, end pose and timing against the clip; the
+moves kept to their clock on the simulated board; both arms stretching from 4.3 s into a wake and ending
+at their awake poses; a blocked poker arm staying kept while the throttle stretches; every stretch pose
+and late join inside the clearance rules). The wake without the arms' stretch ran once on the robot (run
+`de486648`: motion ended at 12.9 s, chime at 13.6 s). **Not yet seen on the robot:** the arms' stretch.
+
 ## November 17: the arms wait for the range sensors at the wake
 
 Owner: at startup the poker arm extended until it hit something. The wake's lanes moved the
@@ -135,8 +195,8 @@ lane and the poker lane, and on success the owner sets `kept_arms` and holds the
 exactly as `return_arm(keep=...)` does after a drive. The head, neck, visor and hero elbow wake
 as before. `DriveBase.tick_arm_clearance` then brings each arm out by `base_lanes('base_release')`
 (the same throttle route as the wake, `POKER_UP` for the poker) once `arms_blocked` has read its
-space clear for 2 s; in practice that starts once the session wires the drive owner to the
-servos, about when the ready line plays. No reading counts as blocked, so with wheels that
+space clear for 2 s; in practice that started once the wheel board had connected, about when
+the ready line plays (since November 21 it connects with the wake; above). No reading counts as blocked, so with wheels that
 fail to connect the arms stay in for the run (traced `arm_clearance` `drive_base_unavailable`).
 A throttle the wake finds away from `PARK` and `REST` now returns by `throttle_route`'s checked
 waypoints instead of being refused. Without a drive base, and in telepresence calls (their own

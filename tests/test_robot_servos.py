@@ -230,6 +230,62 @@ class RobotServoTests(unittest.TestCase):
         self.assertEqual({ch:self.port.pose[ch] for ch in POKER},dict(POKER_UP))
         self.assertEqual(self.robot.kept_arms,frozenset())
 
+    def test_an_arm_whose_space_reads_clear_stretches_while_he_wakes(self):
+        # Owner, November 21: "if there's computed clearance ... make the poker arm start to come down
+        # and the throttle wrist could move a little". The wheel board's range sensors now come up beside
+        # the wake, and the drive owner's usual rule (clear for two seconds) may act during it. After
+        # seeing both arms unfold all the way (run de486648): "a smaller stretch routine on those that
+        # match the startup sound clip rather than a full movement. It would eventually get to the
+        # standard poses".
+        from r3x.servo_poses import DRIVE_HEAD,PARK,POKER,POKER_PARK,POKER_UP,REACHING_ARMS,REST,THROTTLE,WAKE_THROTTLE
+        def waking(still_blocked):
+            port=PulsePort()
+            robot=RobotServos('/dev/cu.synthetic',open_port=lambda:port,clock=self.clock,wait=self.clock.wait,arm_guard=True)
+            robot.owner.wait=self.clock.wait
+            self.addCleanup(lambda: robot.closed or robot.close())
+            began,asked,shoulder,traced=self.clock(),[],[],[]
+            robot.trace=type('Trace',(),{'emit':lambda self,event,**row: traced.append((event,row))})()
+            self.assertFalse(robot.extend_cleared_arms(frozenset()))   # Nothing is kept before the wake begins.
+            def sensors():
+                if not asked and self.clock()-began>4.3:
+                    # 4.3 s in, as in the run: the wheel board has read the space clear for two seconds.
+                    self.assertEqual(robot.kept_arms,frozenset(REACHING_ARMS))
+                    asked.append(robot.extend_cleared_arms(still_blocked))
+                packet=port.packets[-1]
+                if packet[0]==0x9F and packet[2]==8:
+                    shoulder.append((round(self.clock()-began,1),packet[3]+128*packet[4]))
+            port.on_target=sensors
+            robot.start()
+            self.assertEqual(asked,[True])
+            self.assertTrue(robot.awake)
+            robot._arm_return.join(5)
+            self.assertEqual({ch:port.pose[ch] for ch in (1,2,11)},dict(DRIVE_HEAD))   # The wake finished as ever.
+            release=[row for event,row in traced if event=='servo_base_release']
+            self.assertEqual([(row['status'],row['route']) for row in release],[('pulses_reached','wake_stretch')])
+            return robot,port,shoulder
+        # Both clear: each arm stretches a little in the wake's time and ends at its awake pose.
+        robot,port,shoulder=waking(frozenset())
+        self.assertEqual([pulse for _,pulse in shoulder],[pose[0] for _,_,pose in WAKE_THROTTLE])
+        self.assertGreaterEqual(shoulder[0][0],5.8)          # Not the moment it clears: on the wake's clock,
+        self.assertGreaterEqual(shoulder[-1][0],11.2)        # and out to rest only with the head's last rise.
+        self.assertGreater(shoulder[1][1],shoulder[0][1])    # Up a little, and down again, before it goes further.
+        self.assertEqual({ch:port.pose[ch] for ch in THROTTLE},dict(REST))
+        self.assertEqual({ch:port.pose[ch] for ch in POKER},dict(POKER_UP))
+        self.assertEqual(robot.kept_arms,frozenset())
+        self.assertFalse(robot.owner.held_channels&{ch for arm in REACHING_ARMS.values() for ch in arm})
+        # Something is still beside the poker arm: it stays in, kept, and only the throttle stretches.
+        robot,port,shoulder=waking(frozenset({'poker'}))
+        self.assertEqual({ch:port.pose[ch] for ch in THROTTLE},dict(REST))
+        self.assertEqual({ch:port.pose[ch] for ch in POKER},dict(POKER_PARK))
+        self.assertEqual(robot.kept_arms,frozenset({'poker'}))
+        self.assertFalse(robot.owner.held_channels&set(THROTTLE))
+        self.assertTrue(set(REACHING_ARMS['poker'])<=robot.owner.held_channels)
+        # Cleared once he is awake, the poker arm comes out the usual way, all at once.
+        self.assertTrue(robot.extend_cleared_arms(frozenset()))
+        robot._arm_return.join(5)
+        self.assertEqual(robot.owner.arm_return_route,'direct')
+        self.assertEqual({ch:port.pose[ch] for ch in POKER},dict(POKER_UP))
+
     def test_isolated_audio_does_not_bypass_servo_noise_exclusion(self):
         import sys
         from types import SimpleNamespace

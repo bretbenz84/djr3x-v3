@@ -177,19 +177,30 @@ class App:
         #   first, before a servo moves, and no heard audio is lost to a load); the camera-side
         #   models follow them, ahead of the camera;
         # - the lookups that reach the network or another app, so a slow one holds up nothing else;
-        # - once his body is awake: the wheels, and the camera with what watches through it, beside
-        #   the microphone. The servo wake still comes before the microphone and the camera.
-        awake = self.robot or self.leds or self.startup_audio   # The last of his body to start.
+        # - the servo wake itself (owner, November 21: the head and arm were done four seconds before
+        #   the chime; "one more round of up and down struggle"). It lasts until just before the chime
+        #   (servo_poses.WAKE_SECONDS), which waiting for it would push back, so nothing waits for it
+        #   but the ready moment: the microphone opens once the models are loaded, and what it hears
+        #   before the ready line is thrown away as before (AudioCapture.discard_pending);
+        # - the wheels, from the wake's start: their range sensors are what lets an arm come out
+        #   while he wakes (RobotServos.arm_guard). Until he is awake the wheel board starts no move
+        #   of its own (reflex_allowed below);
+        # - once the microphone is open, and so the camera-side models loaded: the camera with what
+        #   watches through it. His visor is shut over it until the ready moment either way.
+        lit = self.leds or self.startup_audio   # The last thing before the body.
         beside = (
             Alongside(present(self.cloner, asr, vad, encoder, brain, turn, voice_check, room_sounds, keywords,
                               agency_planner, locator, self.early), after=self.startup_audio, before=mic),
             Alongside(present(public, weather, house, music, self.voice_clones), after=self.startup_audio),
-            Alongside(wheels, after=awake),
-            Alongside(present(camera, scene, inspection), after=awake),
-            Alongside(present(expressions), after=awake),
-            Alongside(present(objects), after=awake),
-            Alongside(present(places), after=awake),
+            Alongside(present(self.robot), after=lit),
+            Alongside(wheels, after=lit),
+            Alongside(present(camera, scene, inspection), after=mic),
+            Alongside(present(expressions), after=mic),
+            Alongside(present(objects), after=mic),
+            Alongside(present(places), after=mic),
         )
+        if self.robot and self.drive:
+            self.drive.reflex_allowed = lambda: self.robot.awake   # No backing off from someone while he is still waking.
         self.owner = ProviderOwner((tts,sink,self.startup_audio) + ((self.leds,) if self.leds else ()) + ((self.robot,) if self.robot else ()) + wheels + tuple(started), beside)
 
     def readiness(self):

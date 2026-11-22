@@ -319,7 +319,7 @@ class BootTests(unittest.TestCase):
         self.assertFalse(good.loaded)
         owner.close()
 
-    def test_rex_loads_his_models_while_his_body_wakes_and_listens_after(self):
+    def test_everything_else_starts_while_his_body_wakes_and_ready_waits_for_the_wake(self):
         import time
         settings = Settings(servo_port='/dev/cu.synthetic', led_port='/dev/cu.leds', drive_port='/dev/cu.wheels',
                             radar_port='/dev/cu.radar', camera_enabled=True, camera_device_name='Fixture',
@@ -331,7 +331,7 @@ class BootTests(unittest.TestCase):
             def start(name):
                 began[name] = time.monotonic()
                 if name == 'robot_servos':
-                    time.sleep(.3)        # The servo wake: the longest single step.
+                    time.sleep(.5)        # The servo wake: it lasts until just before the chime.
                 elif name in ('asr', 'camera'):
                     time.sleep(.1)
                 ended[name] = time.monotonic()
@@ -342,6 +342,7 @@ class BootTests(unittest.TestCase):
                         p.start(); patches.append(p)
                 with patch('r3x.providers.dependency_status', return_value={}):
                     self.assertTrue(app.owner.start())
+                finished = time.monotonic()
                 names = [p.capability.name for p in app.owner.providers]
                 self.assertEqual(set(began), set(names))                           # Everything started.
                 self.assertEqual(names[:5], ['tts', 'playback', 'startup_audio', 'robot_leds', 'robot_servos'])
@@ -357,11 +358,20 @@ class BootTests(unittest.TestCase):
                     app.owner.providers[names.index('expressions')], app.owner.providers[names.index('objects')].detector,
                     app.owner.providers[names.index('places')].encoder))
                 self.assertLess(names.index('camera_models'), names.index('camera'))   # So it closes after its owners.
-                for after_wake in ('capture', 'camera', 'drive_base', 'radar'):
-                    self.assertGreaterEqual(began[after_wake], wake_ended)         # Motors quiet before he hears or sees.
-                self.assertLess(began['drive_base'], ended['camera'])              # Wheels beside the camera, not behind it.
+                # Owner, November 21: the wake runs until just before the chime, so nothing waits for it
+                # but the ready moment. (Before, the microphone, camera and wheels began after it.)
+                for beside_wake in ('capture', 'camera', 'drive_base', 'radar'):
+                    self.assertLess(ended[beside_wake], wake_ended)
+                self.assertGreaterEqual(finished, wake_ended)                      # Ready only once he is up.
+                # The wheels' range sensors from the wake's start: they let an arm come out while he wakes.
+                self.assertLess(began['drive_base'], began['asr'] + .1)
+                self.assertGreaterEqual(began['camera'], ended['capture'])         # The camera once the models are in.
                 for watcher in ('scene_observations', 'current_view', 'objects', 'places', 'expressions'):
                     self.assertGreaterEqual(began[watcher], ended['camera'])       # What watches through the camera waits for it.
+                # Still waking, the wheel board starts no move of its own (the back-off from someone close).
+                self.assertFalse(app.drive.reflex_allowed())
+                app.robot.awake = True
+                self.assertTrue(app.drive.reflex_allowed())
                 app.close()
             finally:
                 for p in reversed(patches): p.stop()

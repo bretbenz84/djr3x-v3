@@ -6,6 +6,45 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## He struggles awake, until the chime — November 21 (night)
+
+Owner: the wake "goes up right away slowly and the head levels out, it then turns left and right while
+nothing else happens"; make it "like a person waking up and stretching their arms", matching the sound
+and lights, the visor lifting "a tiny bit" (1700 and 1680 µs "look like it's trying to open but you can't
+see the eyes yet"). After the first try (run `9ac3697f`): the head and hero arm "look great, exactly what
+I wanted" but were done four seconds before the chime, so "one more round of up and down struggle"; and
+"if there's computed clearance" the arms should stir too. **Built:**
+- *The wake* (`servo_poses.wake_lanes`, tables `WAKE_HEAD`, `WAKE_VISOR`, `WAKE_ELBOW`, `WAKE_NECK`): the
+  head stirs and sinks, tries and droops twice (cocked left, then right, the head pole lifting with each
+  try), shakes it off and comes up level with the sound at its loudest; the hero elbow twitches and
+  stretches three times; the visor cracks to 1700 or 1680 µs four times and shuts; the neck takes a groggy
+  look to each side. It lasts 12.8 s, ending about half a second before the chime, where the old wake
+  ended (level head, centred neck, shut visor). Its moves keep one clock (`Beat.at`), so a slow arrival
+  does not push the rest late.
+- *Nothing waits for it but the ready moment.* A wake this long would have pushed the chime back four
+  seconds, so the servo wake now runs beside the rest of startup: the microphone opens once the models
+  are loaded (about 5 s; what it hears before the ready line is thrown away, as before), then the camera
+  (his visor is shut over it until the ready moment either way). The 2 s pause after the wake is gone.
+- *The arms stretch while he wakes, when their space is clear.* The wheel board, whose range sensors guard
+  the arms, starts with the wake instead of after it, and the arms are kept from the wake's first moment,
+  so the drive owner's existing rule (space clear for 2 s) can act during the wake, from about 4.3 s in.
+  In the first run both arms then went through their whole unfold at once; the owner: "a smaller stretch
+  routine on those that match the startup sound clip rather than a full movement. It would eventually get
+  to the standard poses." A cleared arm now does small moves on the wake's clock
+  (`servo_poses.wake_arm_lanes`): the throttle shrugs and sags, comes up past the tuck with the second try,
+  flexes its wrist a little, and goes out to its rest with the head's last rise; the poker elbow dips and
+  recovers twice on its way down to the awake 45 degrees. An arm with something beside it stays in as
+  before and comes out later the usual way. Until he is awake the wheel board starts no move of its own
+  (the back-off from someone very close).
+
+Details: [startup](STARTUP_HEALTH.md), [servos](SERVO_INTEGRATION.md). **Evidence:** synthetic checks only
+for the arms' stretch (3 new checks, 1 restated; in the full blocked-I/O suite 2,178 of 2,179 checks passed, and the other, a wake-word check whose worker threads did not stop in time, passed three times run alone). The
+wake itself ran on the robot twice: the first version (run `9ac3697f`: 9.3 s of motion, chime at 13.6 s),
+then the longer one with the new startup order (run `de486648`; the owner: "it was ok"): everything but
+the wake had started by 7.5 s, the wake's motion ended at 12.9 s and the chime came at 13.6 s as before;
+both arms were cleared at 4.5 s and unfolded fully by 9.6 s, which the stretch replaces. **Not yet seen on
+the robot:** the arms' stretch.
+
 ## Run `5aa92add`: three seconds from the arm, and a let-go that froze him — November 21 (night)
 
 Owner: the hand closed four seconds after "Okay, ready." ended, though the arm had been out for nearly two
@@ -58,7 +97,7 @@ program took 26.9 s (median) to start listening; the local models are about 6 s 
 line. **Built:** the models and hosted clients start beside the lights and the servo wake and are done
 before the microphone opens; lookups (news, weather, house, music, voice clones) start on a thread of their
 own; once his body is awake the wheels, the camera and what watches through it start beside the microphone
-(`providers.Alongside`). The please-wait line and the droid filler are retired; the whir stays, and a short
+(`providers.Alongside`; since November 21 the wake itself runs beside all of them, above). The please-wait line and the droid filler are retired; the whir stays, and a short
 ready line is said once he can listen, from fifteen the owner picked. Unavailable hardware is still said
 aloud. Every start is
 timed in a `startup_timing` row. **Not done:** listening before the camera and wheels are up, and opening
