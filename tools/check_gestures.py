@@ -47,6 +47,11 @@ CASES = {
     'nonsense': 'The purple of Thursday tastes like a triangle.',
     'good_news': 'We are getting married in June!',
     'new_wheels': 'Guess what. I built you new wheels, and your motors are stronger than ever.',
+    # November 21, run c5de246d: these three got plain text and no surprised look.
+    'million_teased': 'Guess what? You want a million dollars.',
+    'guess_what': 'Guess what?',
+    'million_in_bank': "You've got a million dollars in your bank account today.",
+    'shocking_twist': 'Jeremy is moving to Japan next week.',
     'flat_fact': 'What is seven times eight?',
     'small_talk': 'I got back from the store a little while ago.',
     'flat_question': 'Which is bigger, a mile or a kilometre?',

@@ -214,6 +214,20 @@ It now goes at speed 20, acceleration 4: it eases in and out and takes about 1 s
 neutral (1.2 s from the most-closed talking position), still a little ahead of the lift. The way back
 eases the same way at that pace (it was speed 20, acceleration 5). **Not yet seen on the robot.**
 
+**November 21, run `c5de246d`: money news got no surprise.** Owner: "I tried to elicit a surprise
+emotion, but it didn't fire." "Guess what? You want a million dollars", "Guess what?" and "You've got a
+million dollars in your bank account today" all got plain-text bank-error jokes, so no expression
+ran. The feeling note named only gifts and upgrades as a jolt. Claude now reads its own copy
+(`claude_prompt.NOTES['showing_feeling']`; OpenAI's wording unchanged): big unexpected news is
+`surprised` first even when the words doubt it or joke, with situations (money or a prize; a gift
+or new parts; a twist or sudden big change, sympathetic when it is sad for them; "guess what" alone
+is a tilt; the same news again is skeptical) and that speech-to-text hears "won" as "want". Probe
+(`tools/check_gestures.py --live`, Claude Sonnet 5.5, simulated servos, one person, no history; 20
+paid replies): before the "won"/"want" line, the bank-account line 2 of 2 surprised and "you want a
+million dollars" 1 of 2 (the other skeptical); after it, 4 of 4. Lottery, new wheels, and a
+friend moving abroad: surprised 6 of 6; "Guess what?" alone: tilt 2 of 2; a sum and small talk stayed
+plain 4 of 4. A long evening's history may still dull it; **not yet seen live**.
+
 ### Unexplained: the hero elbow chattered in the drive stance (run `c36ecba3`)
 
 Owner: after Rex tucked his arms to drive on his own (and never moved, on thick carpet) the hero

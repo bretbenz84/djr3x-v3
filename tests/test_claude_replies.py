@@ -142,8 +142,12 @@ class PromptCopyTests(unittest.TestCase):
         self.assertIn('A general headline that touches nobody here', claude_prompt.PLANNER_INSTRUCTIONS)
         self.assertNotIn('A general headline that touches nobody here', agency.PLANNER_INSTRUCTIONS)
         # A note the copy does not rewrite is the shared one.
-        for name in ('persona', 'voice_reminder', 'agency_beat', 'beat_before_tail', 'beat_moved_on', 'pet_arrival_look'):
+        for name in ('persona', 'voice_reminder', 'agency_beat', 'beat_before_tail', 'beat_moved_on', 'pet_arrival_look',
+                     'showing_feeling'):
             self.assertNotEqual(ClaudeBrain('c')._prompt(name, 'shared'), 'shared', name)
+        # November 21: money news is a surprise for Claude; OpenAI's feeling note keeps its wording.
+        self.assertIn('a million dollars in your account', ClaudeBrain('c')._prompt('showing_feeling', 'shared'))
+        self.assertEqual(OpenAIBrain('o')._prompt('showing_feeling', 'shared'), 'shared')
         self.assertEqual(ClaudeBrain('c')._prompt('some_other_note', 'shared'), 'shared')
         self.assertEqual(OpenAIBrain('o')._prompt('agency_beat', 'shared'), 'shared')
 
