@@ -386,6 +386,7 @@ spell, pays full price to fill the cache.
 | [House devices](docs/HOUSE_DEVICES.md) | Homebridge lights, plugs and thermostat. |
 | [Sentry mode](docs/SENTRY_MODE.md) | Guarding a room and phone alerts. |
 | [Room recognition](docs/ROOM_RECOGNITION.md) | Knowing which room he's in. |
+| [Room navigation plan](docs/ROOM_NAVIGATION_PLAN.md) | Plan for going from room to room. Not built. |
 | [Telepresence](docs/TELEPRESENCE_PLAN.md) | Calling in through Rex. |
 | [Replies from Claude](docs/CLAUDE_REPLIES.md) | Using Claude instead of OpenAI. |
 | [Core operations](docs/CORE_OPERATIONS.md) | Managing the people Rex knows and their recordings. |

@@ -10,6 +10,10 @@ navigation), and exploring through Rex's existing goals.
 bedroom, even standing still, and how often he names the right room is unmeasured
 ([robot runs](#on-the-robot-october-1629)).
 
+**November 22:** in run `8cece04a` he called the hallway the dining room and never recognized the
+living room; none of the 60 saved views is a taught one. Findings and the plan that would replace
+the room vote are in the [room navigation plan](ROOM_NAVIGATION_PLAN.md). Nothing here has changed.
+
 ## What Rex does
 
 - **Knows the room.** About every 1.5 s, one camera frame becomes a 512-number
