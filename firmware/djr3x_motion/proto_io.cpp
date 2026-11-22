@@ -182,6 +182,8 @@ void emit_telemetry() {
     add_qf(im2, "pitch", im.pitch, "%.1f");
     add_qf(im2, "roll",  im.roll,  "%.1f");
     add_qf(im2, "yaw",   im.yaw,   "%.1f");
+    add_qf(im2, "zero",  im.zero,  "%.2f");   // gyro z when not turning (0.2.24)
+    im2["zero_age"] = im.zero_age;            // s since it was measured; -1 = not since the chip (re)started
   }
   // Room climate (BMP280/BME280). Always present (stable schema): {ok:false}
   // when no sensor answered the probe. rh -1 = BMP280 fitted (no humidity die).

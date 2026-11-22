@@ -3,8 +3,8 @@
 //
 // Roadmap Phase A (docs/motion_sensing_roadmap.md §4): the gyro is heading truth
 // independent of wheel slip; the accel gives tilt / bump / pickup sensing. This
-// module is the FOUNDATION layer: probe, configure, calibrate gyro bias at boot
-// (the base boots idle, so rest-time calibration is natural), and publish a
+// module is the FOUNDATION layer: probe, configure, measure the gyro's zero whenever
+// the base stands still (gyro_zero.h; the last good one is kept in NVS), and publish a
 // complementary-filtered attitude (pitch/roll vs gravity + integrated yaw) into
 // g_ctx.imu for telemetry. Fusion INTO odometry/turn control is a later phase —
 // nothing in the control loop consumes this yet.

@@ -22,6 +22,7 @@ class Robot:
         self.ring = dict(RING)
         self.compass_wander = 0.
         self.duty = None
+        self.zero = None             # (deg/s, seconds since measured) as firmware 0.2.24 reports it; None: older firmware.
 
     def frame(self, turn=0., speed=0.):
         self.t += .1
@@ -36,7 +37,8 @@ class Robot:
                 'odom': {'x': round(self.x, 3), 'y': 0., 'theta': round(math.radians(self.theta), 4), 'lin': speed, 'ang': round(rate, 3)},
                 'wheels': {'vl': round(left, 3), 'vr': round(right, 3), 'dl': duty[0], 'dr': duty[1]},
                 'batt_mv': self.battery_mv,
-                'imu': ({'ok': True, 'pitch': -4.6, 'roll': -.9, 'yaw': round((self.yaw + 180) % 360 - 180, 1)}
+                'imu': ({'ok': True, 'pitch': -4.6, 'roll': -.9, 'yaw': round((self.yaw + 180) % 360 - 180, 1),
+                         **({'zero': self.zero[0], 'zero_age': self.zero[1]} if self.zero else {})}
                         if self.imu else {'ok': False}),
                 'env': {'ok': self.climate, 't': 23.4, 'hpa': 1018.},
                 'mag': ({'ok': True, 'x': round(1500 * math.cos(angle)), 'y': round(1500 * math.sin(angle)), 'z': -1025}
@@ -192,6 +194,20 @@ class BusTests(unittest.TestCase):
         now = robot.run(1)
         self.assertEqual(model.bus_events, 1)
         self.assertIn('imu: LSM6DS3 recovered and back online', words(model, now, 'warn'))
+
+    def test_newer_firmware_says_what_zero_it_uses_and_whether_it_has_measured_it(self):
+        model = SensorDiagnostics()
+        robot = Robot(model, zero_error=3.2)
+        robot.zero = (0., -1)                                    # The chip came back while he was moving.
+        now = robot.run(5)
+        said = words(model, now)
+        self.assertIn('has not been measured since it started', said)
+        self.assertIn('first second he stands still', words(model, now, 'bad'))
+        self.assertNotIn('Restart ESP32', words(model, now, 'bad'))    # Standing still is the remedy now.
+        robot.zero, robot.zero_error = (-3.16, 0), 0.
+        now = robot.run(6)
+        self.assertEqual((model.zero, model.zero_age), (-3.16, 0))
+        self.assertNotIn('has not been measured', words(model, now))
 
     def test_nothing_is_claimed_without_a_live_feed(self):
         model = SensorDiagnostics()

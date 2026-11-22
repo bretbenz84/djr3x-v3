@@ -194,13 +194,16 @@ by 19.7° a second, and nothing on screen showed it
   battery gauge is also set up only at the start, so a bus that was down then leaves the battery menu
   with no charge or volts, which looks like the menu having handed the port to Rex when it has not.
   **Restart ESP32** in the battery menu, with Rex standing still, sets both up again; the window then
-  shows the new drift within a few seconds.
+  shows the new drift within a few seconds. From firmware 0.2.24 (flashed that afternoon,
+  [firmware notes](../firmware/djr3x_motion/README.md)) the gyroscope measures its zero again in every
+  second he stands still, and the Controller panel shows that zero and how long ago it was measured.
+  On it, standing still for 29 s after the flash, the heading did not move at all.
 - **The compass** is shown raw and uncalibrated: whether it answers and how steady it reads, not north.
 - **Where the data comes from:** exactly as the ToF window. This one asks the controller for nothing.
 - **Structure:** `gui/sensor_model.py` (Qt-free: stillness, drift, the last move, the bus roll call,
   the wording) and `gui/sensor_diagnostics.py` (the window).
 
-**Evidence.** 13 synthetic checks in `tests/test_sensor_diagnostics.py` (the model on made-up
+**Evidence.** 14 synthetic checks in `tests/test_sensor_diagnostics.py` (the model on made-up
 controller lines: a steady gyroscope, a wrong zero, drift read only at rest, the last move, silent
 and returning chips, a heading that starts over, a controller restart, a wandering compass, a wheel
 driven without turning) and 2 more in `tests/test_tof_diagnostics.py` for the menu feeding both

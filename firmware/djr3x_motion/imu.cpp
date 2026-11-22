@@ -19,13 +19,18 @@
 // Attitude: complementary filter — gyro integration for short-term truth, the
 // accel gravity vector pulling pitch/roll back long-term. Yaw has no gravity
 // reference (no magnetometer indoors BY DESIGN, roadmap §5), so it's pure
-// bias-corrected gyro integration relative to boot heading: expect slow drift.
-// Gyro bias is measured at boot over ~1 s of stillness (the base boots idle).
+// zero-corrected gyro integration relative to boot heading.
+// The gyro's zero (its reading when not turning) is measured once the chip has
+// settled after switch-on, and again in every second the base stands still
+// (gyro_zero.h, 0.2.24). The last good zero is kept in NVS for a start, or a
+// recovery of the chip, that finds him moving.
 #include <Arduino.h>
+#include <Preferences.h>
 #include <Wire.h>
 #include <math.h>
 #include "imu.h"
 #include "context.h"
+#include "gyro_zero.h"
 #include "pins.h"
 #include "proto_io.h"   // emit_log — bring-up diagnostics
 #include "i2c_trunk.h"
@@ -35,8 +40,28 @@ static const uint8_t LSM_ADDRS[2] = { 0x6A, 0x6B };
 static uint8_t s_addr = 0x6A;      // whichever address answered the probe
 
 static bool  s_present = false;
-static float s_bias_gx = 0, s_bias_gy = 0, s_bias_gz = 0;  // deg/s at rest
+static float s_zero[3] = {0, 0, 0};                        // gyro xyz reading when not turning, deg/s
+static GyroZero s_zero_watch;                              // the still second being gathered
+static bool     s_zeroed = false;                          // measured since the chip last (re)started
+static uint32_t s_zeroed_ms = 0;                           // when it was last measured
+static uint8_t  s_settle = 0;                              // readings still to skip after switch-on
 static float s_pitch = 0, s_roll = 0, s_yaw = 0;           // deg, filtered
+
+// The chip's output swings for a while after it is switched on (its drive and filters settling):
+// until 0.2.23 the zero was averaged from 50 ms on and the start-up report gave a swing of 8.5 to
+// 8.8 deg/s every start. Readings are not used until this long after configure_lsm().
+static const uint16_t GYRO_SETTLE_MS = 200;
+static const uint8_t  GYRO_SETTLE_TICKS = 10;              // the same at the sensor task's 50 Hz
+static const uint16_t GYRO_ZERO_BOOT_MS = 3000;            // longest a start waits for a still second
+
+// The last good zero, kept across restarts: used until a still second can be measured.
+static Preferences s_prefs;                                // NVS namespace "imu", keys gzx gzy gzz
+static bool     s_prefs_open = false;
+static float    s_saved[3] = {0, 0, 0};
+static bool     s_have_saved = false;
+static uint32_t s_saved_ms = 0;
+static const float    GYRO_ZERO_SAVE_DPS = 0.15f;          // saved again once it has moved this far...
+static const uint32_t GYRO_ZERO_SAVE_EVERY_MS = 600000;    // ...and at most every ten minutes (flash wear)
 static uint8_t s_err_streak = 0;   // consecutive failed samples (recovery threshold below)
 static uint32_t s_next_reprobe_ms = 0;
 static uint8_t s_reprobe_failures = 0;
@@ -210,6 +235,34 @@ static inline float accel_roll(float ax, float ay, float az) {
   return atan2f(ay, az) * 180.0f / (float)M_PI;
 }
 
+static void load_saved_zero() {
+  if (s_prefs_open) return;
+  s_prefs_open = s_prefs.begin("imu", false);
+  if (!s_prefs_open) return;
+  const float v[3] = { s_prefs.getFloat("gzx", NAN), s_prefs.getFloat("gzy", NAN), s_prefs.getFloat("gzz", NAN) };
+  for (int i = 0; i < 3; i++) if (isnan(v[i]) || fabsf(v[i]) > GYRO_ZERO_MAX_DPS) return;
+  for (int i = 0; i < 3; i++) s_zero[i] = s_saved[i] = v[i];
+  s_have_saved = true;
+}
+
+static void save_zero_if_moved(uint32_t now) {
+  if (!s_prefs_open) return;
+  bool moved = !s_have_saved;
+  for (int i = 0; i < 3; i++) if (fabsf(s_zero[i] - s_saved[i]) >= GYRO_ZERO_SAVE_DPS) moved = true;
+  if (!moved) return;
+  if (s_have_saved && (uint32_t)(now - s_saved_ms) < GYRO_ZERO_SAVE_EVERY_MS) return;
+  s_prefs.putFloat("gzx", s_zero[0]); s_prefs.putFloat("gzy", s_zero[1]); s_prefs.putFloat("gzz", s_zero[2]);
+  for (int i = 0; i < 3; i++) s_saved[i] = s_zero[i];
+  s_have_saved = true;
+  s_saved_ms = now;
+}
+
+static void zero_measured(uint32_t now) {
+  s_zeroed = true;
+  s_zeroed_ms = now;
+  save_zero_if_moved(now);
+}
+
 void imu_init() {
   uint8_t who = 0;
   if (!probe_lsm(who)) {
@@ -235,28 +288,30 @@ void imu_init() {
     s_next_reprobe_ms = millis() + IMU_REPROBE_INTERVAL_MS;
     return;
   }
-  delay(50);                              // let the first samples land at 104 Hz
+  load_saved_zero();                      // the zero until a still second is measured
+  delay(GYRO_SETTLE_MS);                  // the chip's readings are not steady until then
 
-  // Gyro bias calibration: average ~1 s of samples at rest (boot is idle by
-  // design — motors start disabled). A moving boot just yields a worse bias;
-  // it self-reports via the spread check below.
-  float sgx = 0, sgy = 0, sgz = 0, ax, ay, az, gx, gy, gz;
+  // The zero: one still second (gyro_zero.h). The motors start disabled, so the base only has to
+  // be standing still; if it is being moved, the start goes on with the saved zero and the sensor
+  // task measures it in the first second it does stand still.
+  float ax, ay, az, g[3];
   int   n = 0;
-  float gmin = 1e9f, gmax = -1e9f;
-  for (int i = 0; i < 100; i++) {
-    if (lsm_sample(ax, ay, az, gx, gy, gz)) {
-      sgx += gx; sgy += gy; sgz += gz; n++;
-      if (gz < gmin) gmin = gz;
-      if (gz > gmax) gmax = gz;
+  gyro_zero_restart(s_zero_watch);
+  s_zeroed = false;
+  const uint32_t began = millis();
+  while (!s_zeroed && (uint32_t)(millis() - began) < GYRO_ZERO_BOOT_MS) {
+    if (lsm_sample(ax, ay, az, g[0], g[1], g[2])) {
+      n++;
+      if (gyro_zero_note(s_zero_watch, g, true, s_zero)) zero_measured(millis());
     }
     delay(10);
   }
-  if (n < 50) {
-    log_probe_failure("imu: bias calibration failed");
+  if (n < 25) {
+    log_probe_failure("imu: no readings at start");
     s_next_reprobe_ms = millis() + IMU_REPROBE_INTERVAL_MS;
     return;
   }
-  s_bias_gx = sgx / n; s_bias_gy = sgy / n; s_bias_gz = sgz / n;
+  float gx, gy, gz;
 
   // Seed attitude from the gravity vector so the filter starts converged.
   if (lsm_sample(ax, ay, az, gx, gy, gz)) {
@@ -269,9 +324,15 @@ void imu_init() {
   s_err_streak = 0;
   s_reprobe_failures = 0;
 
-  snprintf(buf, sizeof(buf), "imu: LSM6DS3 online at 0x%02X (gyro bias z %+.2f dps, spread %.2f)",
-           s_addr, s_bias_gz, gmax - gmin);
-  emit_log("info", buf);
+  if (s_zeroed) {
+    snprintf(buf, sizeof(buf), "imu: LSM6DS3 online at 0x%02X (gyro zero z %+.2f dps, readings within %.2f)",
+             s_addr, s_zero[2], s_zero_watch.spread);
+    emit_log("info", buf);
+  } else {
+    snprintf(buf, sizeof(buf), "imu: LSM6DS3 online at 0x%02X, not still (swing %.2f dps): %s zero z %+.2f",
+             s_addr, s_zero_watch.spread, s_have_saved ? "saved" : "no saved", s_zero[2]);
+    emit_log("warn", buf);
+  }
 }
 
 bool imu_present() { return s_present; }
@@ -291,14 +352,14 @@ static bool runtime_reprobe() {
     return false;
   }
 
-  // A runtime recovery must not block the 50 Hz safety task for a one-second
-  // calibration. Seed a conservative one-sample bias if this device was never
-  // online; otherwise retain the boot-calibrated bias across the outage.
-  if (!s_ever_online) {
-    s_bias_gx = gx;
-    s_bias_gy = gy;
-    s_bias_gz = gz;
-  }
+  // A runtime recovery must not block the sensor task for a calibration, and one reading is no
+  // zero: November 22 2026 it was taken mid-shake and the heading ran 19.7 deg/s by itself. The
+  // zero stays what it was (the last measured, or the saved one) and is measured afresh in the
+  // first second he stands still, once the chip has settled.
+  load_saved_zero();
+  gyro_zero_restart(s_zero_watch);
+  s_zeroed = false;
+  s_settle = GYRO_SETTLE_TICKS;
   s_pitch = accel_pitch(ax, ay, az);
   s_roll = accel_roll(ax, ay, az);
   s_yaw = 0.0f;
@@ -311,8 +372,10 @@ static bool runtime_reprobe() {
   g_ctx.imu.pitch = s_pitch;
   g_ctx.imu.roll = s_roll;
   g_ctx.imu.yaw = s_yaw;
+  g_ctx.imu.zero = s_zero[2];
+  g_ctx.imu.zero_age = -1;
   UNLOCK_STATE();
-  emit_log("info", "imu: LSM6DS3 recovered and back online");
+  emit_log("info", "imu: LSM6DS3 recovered and back online; its zero is measured when he stands still");
   return true;
 }
 
@@ -357,8 +420,28 @@ void imu_tick(float dt) {
     return;
   }
   s_err_streak = 0;
+  if (s_settle) {                // just switched on again: these readings are still settling
+    s_settle--;
+    return;
+  }
 
-  gx -= s_bias_gx; gy -= s_bias_gy; gz -= s_bias_gz;
+  // The zero is measured again in every second the wheels are neither driven nor turning and the
+  // readings are steady (gyro_zero.h).
+  LOCK_STATE();
+  const WheelDiag wd = g_ctx.wheels;
+  UNLOCK_STATE();
+  const bool wheels_still = wd.dl == 0 && wd.dr == 0 && fabsf(wd.vl) < 0.005f && fabsf(wd.vr) < 0.005f;
+  const float g[3] = { gx, gy, gz };
+  if (gyro_zero_note(s_zero_watch, g, wheels_still, s_zero)) {
+    if (!s_zeroed) {
+      char msg[96];
+      snprintf(msg, sizeof(msg), "imu: gyro zero measured standing still (z %+.2f dps, readings within %.2f)",
+               s_zero[2], s_zero_watch.spread);
+      emit_log("info", msg);
+    }
+    zero_measured(millis());
+  }
+  gx -= s_zero[0]; gy -= s_zero[1]; gz -= s_zero[2];
 
   // Complementary filter: gyro short-term, accel gravity long-term. 0.98 at
   // 50 Hz ≈ 1 s time constant — slow enough that drive accelerations don't
@@ -374,10 +457,13 @@ void imu_tick(float dt) {
   while (s_yaw >  180.0f) s_yaw -= 360.0f;
   while (s_yaw <= -180.0f) s_yaw += 360.0f;
 
+  const uint32_t age = s_zeroed ? (uint32_t)(millis() - s_zeroed_ms) / 1000u : 0;
   LOCK_STATE();
   g_ctx.imu.ok    = true;
   g_ctx.imu.pitch = s_pitch;
   g_ctx.imu.roll  = s_roll;
   g_ctx.imu.yaw   = s_yaw;
+  g_ctx.imu.zero  = s_zero[2];
+  g_ctx.imu.zero_age = s_zeroed ? (int32_t)(age > 86400u ? 86400u : age) : -1;
   UNLOCK_STATE();
 }

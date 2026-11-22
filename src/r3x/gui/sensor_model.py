@@ -129,6 +129,9 @@ class SensorDiagnostics(ControllerFeed):
         self.compass_rest = deque()    # (host time, unwrapped compass direction) of this stillness.
         self.heading_jumps = 0
         self.jumped_at = None
+        # Firmware 0.2.24 and later: the zero it subtracts (deg/s) and how long ago it measured it standing
+        # still (seconds; -1 not since the controller or the chip started). None on older firmware.
+        self.zero = self.zero_age = None
         self._move = None              # The move under way: where it began.
         self.last_move = None          # {'gyro', 'wheels', 'seconds', 'metres', 'ended', 'drift'}
         self._drift_before = None      # The drift measured before the move under way began.
@@ -211,6 +214,8 @@ class SensorDiagnostics(ControllerFeed):
         imu = message.get('imu') if isinstance(message.get('imu'), dict) else {}
         ok = bool(imu.get('ok')) and number(imu.get('yaw'))
         self.devices['imu'].note(ok, now)
+        self.zero = float(imu['zero']) if ok and number(imu.get('zero')) else None
+        self.zero_age = int(imu['zero_age']) if ok and number(imu.get('zero_age')) else None
         if ok:
             self.heading, step = self._unwrapped('heading', float(imu['yaw']), self.heading)
             if abs(step) >= JUMP_DEG and was_still and not moving:
@@ -338,13 +343,18 @@ class SensorDiagnostics(ControllerFeed):
                                  '(battery menu, Restart ESP32).'))
         imu = self.devices['imu']
         rate = self.drift()
+        if imu.ok and self.zero_age is not None and self.zero_age < 0:
+            rows.append(('warn', 'The gyroscope\'s zero has not been measured since it started: it is using the last one '
+                                 'saved. It measures a new one in the first second he stands still with nothing moving.'))
         if imu.ok and rate is not None:
             level = self.drift_level()
             if level == 'bad':
+                remedy = ('It measures a new one in the first second he stands still with nothing moving.'
+                          if self.zero_age is not None else
+                          'Restart the controller with Rex standing still and nothing moving (battery menu, Restart '
+                          'ESP32), then watch this number.')
                 rows.append(('bad', f'The gyroscope\'s zero is wrong: his heading drifts {rate:+.1f}° a second with the '
-                                    'wheels still. Turns one way will come up short and the other way will overrun. '
-                                    'Restart the controller with Rex standing still and nothing moving '
-                                    '(battery menu, Restart ESP32), then watch this number.'))
+                                    f'wheels still. Turns one way will come up short and the other way will overrun. {remedy}'))
             elif level == 'warn':
                 rows.append(('warn', f'His heading drifts {rate:+.2f}° a second with the wheels still '
                                      f'(normal is under {DRIFT_NORMAL}). Turns will be a few degrees off.'))

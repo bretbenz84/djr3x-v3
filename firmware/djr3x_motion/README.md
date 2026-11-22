@@ -1064,3 +1064,48 @@ line of about 1,300, two summary lines 30 s apart. **Not changed:** why the stac
 (nothing was paired or switched on), and the 8x8 stalls, which the same test showed are not
 caused by Bluetooth (they happened on the build with no Bluetooth stack). Not tried: a pad
 connecting on this build. Build kept at `local/firmware/2026-11-20-0.2.23-bt-quiet.bin`.
+
+
+## The gyroscope's zero is measured whenever he stands still (firmware 0.2.24, November 22, 2026)
+
+Owner, after run `e54062b9` and a steady drift of 0.215° a second the same afternoon: "can you find out
+why the gyro is drifting while not moving", then "Fix the firmware".
+
+A gyroscope reports a small turn rate even when still (about -3.2°/s for this chip). The heading is
+that rate summed over time, so any error in the zero subtracted from it is a steady drift. Until
+0.2.23 the zero was taken once, in the first second after the chip was switched on:
+
+- **Every start landed up to 0.2°/s off.** The second measured began 50 ms after switch-on, while the
+  chip's readings were still settling: the start-up report gave a swing of 8.5 to 8.8°/s at each of
+  nineteen starts. The drift was steady for a whole start (25 minutes measured) and different after
+  each: -0.05, -0.16, -0.09, +0.19, -0.14, +0.215°/s.
+- **A chip that came back mid-run took its zero from one reading.** On November 22 it had been without
+  power, came back twelve seconds into a start while the wake animation shook the body, and the
+  heading ran 19.7°/s by itself: left turns stopped at half, "turn right 90" spun about 240°.
+
+What 0.2.24 does (`gyro_zero.h`, pure, and `imu.cpp`):
+
+- Readings are not used for the first 200 ms after the chip is switched on.
+- A zero is one second in which the wheels are neither driven nor turning and no axis swings more than
+  0.75°/s. The first such second after the chip starts replaces the zero; later ones move it half way,
+  which follows the chip as it warms. At a start the controller waits up to 3 s for that second.
+- A steady reading more than 1°/s from the zero is someone turning him, not a zero, unless it reads
+  the same for five seconds running (then the zero was wrong and is replaced).
+- The last good zero is kept in the controller's own storage (saved when it has moved 0.15°/s, at most
+  every ten minutes). A start or a recovery that finds him moving uses it until he stands still.
+- Telemetry `imu` gains `zero` (the z zero in use, °/s) and `zero_age` (seconds since it was measured;
+  -1 not since the chip started). The Sensor Diagnostics window shows both.
+
+Checks: 131 native firmware checks pass (nine new, `test_gyro_zero.py`, made-up readings). Full
+four-flag build 818,029 bytes program, 91,260 globals. Flashed at the owner's request: one attempt,
+hashes verified, hello `0.2.24-gyro-zero`, 8/8 ring sensors, both 8x8 ready, battery gauge back. First
+start: `gyro zero z -3.16 dps, readings within 0.18` (the swing was 8.5 to 8.8 before). Standing still
+for the 29 s after it, read-only: the heading stayed at 0.0° in all 295 frames, and the zero was
+measured again every second (-3.18 to -3.14).
+
+**Not yet seen:** with Rex running (his own servos may leave few still seconds; `zero_age` shows it, and
+nothing records it yet); a chip recovering mid-run on the robot; a turn. **A limit:** a turn slower than
+about 1°/s with the wheels not turning (carried, not rolled) would be taken for drift. **Not changed:**
+the 8x8 stalls (`publisher stale` every half minute or so, before and after this flash). Build kept at
+`local/firmware/2026-11-22-0.2.24-gyro-zero.bin`; the one before is
+`2026-11-20-0.2.23-bt-quiet.bin`.

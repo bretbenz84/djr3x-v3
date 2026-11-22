@@ -198,6 +198,8 @@ struct ImuState {
   float pitch = 0.0f;   // deg, + = nose up
   float roll  = 0.0f;   // deg, + = right side down (chip frame; remap when mounted)
   float yaw   = 0.0f;   // deg, + = CCW from boot heading
+  float zero  = 0.0f;   // deg/s: the gyro's z reading when not turning, as subtracted now
+  int32_t zero_age = -1;  // s since that zero was last measured standing still; -1 = not since the chip (re)started
 };
 
 // ===== Per-wheel drive diagnostics (telemetry only) =======================

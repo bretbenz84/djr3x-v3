@@ -370,6 +370,10 @@ class SensorDiagnosticsWindow(QDialog):
         if level is not None:
             rows.append(f'<span style="color:{LEVEL_COLOR[level]}">Gyroscope drift at rest {model.drift():+.2f}°/s</span> '
                         f'(normal under {DRIFT_NORMAL})')
+        if model.zero is not None:
+            measured = ('not measured since it started (using the saved one)' if model.zero_age is None or model.zero_age < 0
+                        else f'measured {span_words(model.zero_age)} ago')
+            rows.append(f'Gyroscope zero {model.zero:+.2f}°/s, {measured}')
         return '<br>'.join(rows)
 
 
