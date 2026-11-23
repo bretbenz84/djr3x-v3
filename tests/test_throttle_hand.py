@@ -8,7 +8,7 @@ import unittest
 
 from r3x.contracts import Cancellation
 from r3x.servo_poses import (HAND_IDLE_REACH, HAND_PARK, HAND_TALK_REACH, HELD_PARTS, IdlePhrase, LIMITS,
-                             SENTRY_STANCE, THROTTLE, THROTTLE_HAND, TIPS_PARK, ARM_HOLD, UNPOWERED_REST, hand_span, idle_lanes,
+                             SENTRY_STANCE, THROTTLE, THROTTLE_HAND, TIPS_PARK, ARM_HOLD, TIPS_IDLE_REACH, TIPS_TALK_REACH, UNPOWERED_REST, hand_span, idle_lanes,
                              joint_percents, joint_targets, JOINTS, lifecycle_lanes, talking_lanes)
 from tests.test_servos import Clock, PulsePort, ServoOwner, ServoRequest
 
@@ -181,3 +181,27 @@ class OtherHandsTests(unittest.TestCase):
                 for beat in lane:
                     final.update(dict(beat.targets))
             self.assertEqual({ch: final[ch] for ch in (16, 17)}, dict(TIPS_PARK), kind)
+
+    def test_they_move_with_their_arms_idle_and_more_while_talking(self):
+        current = awake()
+        tips = lambda lanes, ch: [dict(beat.targets) for lane in lanes for beat in lane if ch in dict(beat.targets)]
+        for seed in range(30):
+            for part, ch, other in (('hero', 17, 16), ('poker', 16, 17)):
+                idle = tips(idle_lanes(current, random.Random(seed), phrase=IdlePhrase(((part, 0.),))), ch)
+                self.assertEqual(len(idle), 1, part)
+                low, high = hand_span(ch, TIPS_IDLE_REACH)
+                self.assertTrue(low <= idle[0][ch] <= high)
+                self.assertEqual(tips(idle_lanes(current, random.Random(seed), phrase=IdlePhrase(((part, 0.),))), other), [])
+                self.assertEqual(tips(idle_lanes(current, random.Random(seed), held=frozenset({ch}),
+                                                 phrase=IdlePhrase(((part, 0.),))), ch), [])
+            talk = [lane for lane in talking_lanes(current, rng=random.Random(seed)) if set(dict(lane[0].targets)) == {16, 17}]
+            self.assertEqual(len(talk), 1)
+            targets = [dict(beat.targets) for beat in talk[0]]
+            for pose in targets[:-1]:
+                for ch, value in pose.items():
+                    low, high = hand_span(ch, TIPS_TALK_REACH)
+                    self.assertTrue(low <= value <= high)
+            self.assertEqual(targets[-1], {16: current[16], 17: current[17]})   # Back where it began.
+        held = talking_lanes(current, held=frozenset({17}), rng=random.Random(2))
+        self.assertTrue(all(17 not in dict(beat.targets) for lane in held for beat in lane))
+        self.assertTrue(any(16 in dict(beat.targets) for lane in held for beat in lane))

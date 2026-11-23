@@ -14,10 +14,18 @@ Which end turns or closes which way is not yet measured, so both rest at the mid
 (`TIPS_PARK`): where they are held when switched on (`UNPOWERED_REST`), and where the wake, park and
 shutdown bring them. The model reaches them as `poker_hand_twist` and `hero_fingers` in the joint tool
 (and sees them among held parts); `hold_arms` holds them; the dashboard sliders follow `JOINT_RANGES`.
-They have no idle or talking motion yet and stay where they are while he drives. The servo menu has
-`pokerhandtwst` and `herofingers` sliders (speed 20, acceleration 4) with nudges. The Maestro must be
-an 18-channel board with both channels' stored ranges allowing 496–2496 µs, or targets never arrive.
-Synthetic checks only; nothing has moved.
+The servo menu has `pokerhandtwst` and `herofingers` sliders (speed 20, acceleration 4) with nudges.
+The board is an 18-channel Maestro (owner); both channels' stored ranges must allow 496–2496 µs, or
+targets never arrive.
+
+Later the same day (owner: add motion), they move like the throttle hand. *Idle:* each moves with its
+own arm, the poker twist whenever the poker arm moves and the hero fingers whenever the hero arm does,
+one eased move within a quarter of the half range either side of the middle (about ±250 µs), in a lane
+of their own (`TIPS_IDLE_REACH`). *Speaking:* both together, three or four quicker moves within 40%
+(about ±400 µs, `TIPS_TALK_REACH`) and back to where they began, so the lane repeats smoothly; they
+run on to their targets when a line ends (`COAST`). A held channel stays still. While he drives the
+hero and poker arms are held, so neither moves idly; speaking still moves them, as it does the
+throttle hand. Synthetic checks only; nothing has moved.
 
 ## November 21 (night): run `5aa92add`, three seconds from the arm, and the let-go that never finished
 

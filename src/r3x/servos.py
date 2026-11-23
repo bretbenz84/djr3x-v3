@@ -13,7 +13,7 @@ from typing import Callable
 from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
-from .servo_poses import (throttle_parks_nowhere, FINGERS_CLOSED, HAND_STEPS, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
+from .servo_poses import (throttle_parks_nowhere, POKER_TWIST, HERO_FINGERS, FINGERS_CLOSED, HAND_STEPS, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
                           sentry_lanes, telepresence_wake_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS, wake_arm_lanes,
@@ -40,7 +40,7 @@ SETTLE_SECONDS = .5   # Motion risk lasts this long after the servos stop.
 # Owner, October 21: at the end of a line every arm froze mid-move. When a line finishes
 # normally the arms and visor run on to the targets already sent (the head and microphone arm
 # are still held); motion risk covers that run.
-COAST = frozenset({3, 4, 5, 6, *THROTTLE, *POKER, *THROTTLE_HAND})
+COAST = frozenset({3, 4, 5, 6, *THROTTLE, *POKER, *THROTTLE_HAND, POKER_TWIST, HERO_FINGERS})
 COAST_SECONDS = 2.
 # October 25 (c5ad0deb): loading the impression voice held the interpreter for 0.4 s. An idle
 # move's send then raised a write timeout (pyserial checks its deadline after the bytes have

@@ -46,7 +46,7 @@ class IdleTests(unittest.TestCase):
             self.port.packets.clear()
             self.assertEqual(self.execute('idle').status,'pulses_reached')
             commands=self.commands()
-            self.assertEqual({ch for ch,_ in commands},set(LIMITS)-{16,17})   # 16, 17 (November 22) have no idle motion yet.
+            self.assertEqual({ch for ch,_ in commands},set(LIMITS))
             for ch,value in commands:
                 self.assertTrue(LIMITS[ch][0]<=value<=LIMITS[ch][1])
             # The visor stays in its speaking range, above the camera.
@@ -69,7 +69,7 @@ class IdleTests(unittest.TestCase):
         self.assertEqual(self.execute('idle',IdlePhrase((('hero',0.),('poker',1.),('visor',2.2)))).status,'pulses_reached')
         first={}
         for at,ch in sent:first.setdefault(ch,at-began)
-        self.assertEqual(set(first),{4,5,6,12,13,3})
+        self.assertEqual(set(first),{4,5,6,12,13,3,16,17})   # 16, 17: the poker twist and hero fingers with their arms.
         self.assertLess(first[4],.1)
         self.assertGreaterEqual(first[6],1.)
         self.assertGreaterEqual(first[3],2.2)
@@ -357,13 +357,11 @@ class IdleTests(unittest.TestCase):
         self.assertGreater(len(phrases),30)       # Was 15 moves in ten minutes of the October 3 run.
         gaps=[b[0]-a[0] for a,b in zip(phrases,phrases[1:])]
         self.assertLess(max(gaps),8.)             # Never "motionless for a while".
-        parts={0:'head',1:'head',2:'head',11:'head',3:'visor',4:'hero',5:'hero',6:'poker',12:'poker',13:'poker',7:'hero',8:'throttle',9:'throttle',10:'throttle',14:'throttle',15:'throttle'}
+        parts={0:'head',1:'head',2:'head',11:'head',3:'visor',4:'hero',5:'hero',6:'poker',12:'poker',13:'poker',7:'hero',8:'throttle',9:'throttle',10:'throttle',14:'throttle',15:'throttle',16:'poker',17:'hero'}
         for _,channels in phrases:
             self.assertLessEqual(len({parts[ch] for ch in channels}),3)   # Never every servo at once.
         moved=set().union(*(channels for _,channels in phrases))
-        # Over time every part takes its turn; the poker hand twist and hero fingers (16, 17, November 22)
-        # have no idle motion yet and stay at their rest.
-        self.assertEqual(moved,set(LIMITS)-{16,17})
+        self.assertEqual(moved,set(LIMITS))       # Over time every part takes its turn.
         self.idle.tick(False);self.clock.wait(20)
         count=len(self.port.targets)
         self.idle.tick(False)
@@ -440,7 +438,7 @@ class IdleTests(unittest.TestCase):
             self.assertLess(accel[13],accel[12])           # It picks up speed later...
             took={ch:abs(after[ch]-before[ch])/(100*speed[ch]) for ch in (6,12,13)}
             self.assertGreater(took[13],took[12])          # ...and arrives after the elbow.
-            self.assertTrue(1.4<=took[12]<=2.4 and max(speed.values())<=8,(took,speed))   # Not fast.
+            self.assertTrue(1.4<=took[12]<=2.4 and max(speed[ch] for ch in (6,12,13))<=8,(took,speed))   # Not fast (the hand's twist has its own pace).
         self.assertEqual(sides,[i%2==1 for i in range(10)])   # Side to side, every time.
         # Started with the wrist curled in and the elbow low, rising straight into the sway
         # could meet the arm: it takes the staged route back to the awake pose first.

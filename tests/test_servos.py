@@ -460,7 +460,7 @@ class ServoTests(unittest.TestCase):
         self.port.packets.clear()
         result = self.execute('talking')
         self.assertEqual(result.status,'pulses_reached')
-        self.assertEqual(result.completed_lanes,(0,1,2,3,4,5))   # Head, visor, hero arm, throttle, poker, throttle hand.
+        self.assertEqual(result.completed_lanes,(0,1,2,3,4,5,6))   # Head, visor, hero arm, throttle, poker, throttle hand, the other hands.
         def targets(ch):
             return [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,ch))]
         self.assertGreater(len(targets(3)),4)
