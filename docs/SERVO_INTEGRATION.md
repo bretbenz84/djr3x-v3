@@ -6,6 +6,17 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 22: the hero hand's wrist and fingers
+
+Owner: channel 5 is the hero hand's wrist, `hero_hand_wrist` in the joint tool (was `hero_wrist`) and
+in the servo menu (was `hand`), 768–2100 µs (`LIMITS[5]` 3072–8400; was 496–2496) with its mid at
+1436 µs (`HERO_WRIST_MID`, 5744): where it is held when switched on and where the wave centres and
+ends. Pride mode's wide swing reached 2175 µs and now stops at the top, 2100 µs; idle and talking
+bends already lay inside the range. The hero fingers (channel 17) are 1242–1748 µs (`LIMITS[17]`
+4968–6992) with their mid at 1500 µs (`TIPS_PARK`), and their idle and talking moves are shares of
+that range around it. The Maestro's stored ranges for channels 5 and 17 must allow these.
+Synthetic checks only; nothing has moved.
+
 ## November 22: the throttle shoulder's range is 1070–1960 µs
 
 Owner: channel 8 runs 1070–1960 µs (`LIMITS[8]` 4280–7840; was 906–2000 µs). Straight down

@@ -45,7 +45,9 @@ and a two-finger pincher (ch 15, "throttlefingers"). November 20: their programm
 560–1856 µs and 1264–1856 µs. Both get nudges (in measurement mode).
 
 November 22, 2026: the poker hand's twist (ch 16, "pokerhandtwst") and the hero hand's fingers
-(ch 17, "herofingers"), each 496–2496 µs, neutral at the middle (1496 µs), with nudges.
+(ch 17, "herofingers"), each 496–2496 µs, neutral at the middle (1496 µs), with nudges. Later the
+same day: the hero fingers 1242–1748 µs (mid 1500), and channel 5 (was "hand") is "hero_hand_wrist",
+768–2100 µs (mid 1436).
 
 Run directly for debugging:
     venv/bin/python tools/rex_servo_menubar.py
@@ -101,14 +103,14 @@ _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
     "headright": {"ch": 11, "min": 5248, "max": 7616, "neutral": 6480}, # 1312–1904 µs, level 1620
     "visor":    {"ch": 3, "min": 4544, "max": 6976, "neutral": 5732},  # inverted: 1433 µs open, 1136 surprise (min), 1744 closed
     "elbow":    {"ch": 4, "min": 6300, "max": 7424, "neutral": 6720},  # 7424 = the Maestro's own stored channel limit (1856 us)
-    "hand":     {"ch": 5, "min": 1984, "max": 9984, "neutral": 6000},
+    "hero_hand_wrist": {"ch": 5, "min": 3072, "max": 8400, "neutral": 5744},  # 768–2100 µs, mid 1436 (Nov 22)
     "pokerarm": {"ch": 6, "min": 3968, "max": 8000, "neutral": 6000},
     "pokerelbow": {"ch": 12, "min": 3456, "max": 7680, "neutral": 3456},  # 864 (down) – 1920 (up) µs
     "pokerwrist": {"ch": 13, "min": 1984, "max": 9944, "neutral": 5760},  # 496 (down) – 2486 (up inward) µs; straight 1440
     "pokerhandtwst": {"ch": 16, "min": 1984, "max": 9984, "neutral": 5984,  # 496–2496 µs (Nov 22); neutral the middle
                       "speed": 20, "acceleration": 4},
     "heroarm":  {"ch": 7, "min": 3968, "max": 8000, "neutral": 6000},
-    "herofingers": {"ch": 17, "min": 1984, "max": 9984, "neutral": 5984,  # 496–2496 µs (Nov 22); neutral the middle
+    "herofingers": {"ch": 17, "min": 4968, "max": 6992, "neutral": 6000,  # 1242–1748 µs, mid 1500 (Nov 22)
                     "speed": 20, "acceleration": 4},
     # Neutral is only an unsent slider placeholder, never a startup command.
     "throttle_shoulder": {"ch": 8, "min": 4280, "max": 7840, "neutral": 6000,  # 1070-1960 us (Nov 22); 1850 straight down

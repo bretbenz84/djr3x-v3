@@ -158,23 +158,30 @@ if __name__ == '__main__':
 
 
 class OtherHandsTests(unittest.TestCase):
-    """The poker hand's twist (16) and the hero fingers (17), owner, November 22: 496-2496 us each."""
+    """The poker hand's twist (16, 496-2496 us) and the hero fingers (17, 1242-1748 us), owner, November 22."""
+
+    def test_hero_hand_wrist_range_and_rest(self):
+        self.assertEqual(LIMITS[5], (3072, 8400))   # 768-2100 us.
+        self.assertEqual(dict(UNPOWERED_REST)[5], 5744)   # Its mid, 1436 us.
+        positions = {name: None for name in JOINTS}
+        self.assertEqual(joint_targets({**positions, 'hero_hand_wrist': 100}), {5: 8400})
+        self.assertIn(('hero_hand_wrist', {5}), HELD_PARTS)
 
     def test_range_rest_and_joint_tool(self):
-        self.assertEqual({ch: LIMITS[ch] for ch in (16, 17)}, {16: (1984, 9984), 17: (1984, 9984)})
-        self.assertEqual(dict(TIPS_PARK), {16: 5984, 17: 5984})   # The middle, 1496 us.
+        self.assertEqual({ch: LIMITS[ch] for ch in (16, 17)}, {16: (1984, 9984), 17: (4968, 6992)})   # 17: 1242-1748 us.
+        self.assertEqual(dict(TIPS_PARK), {16: 5984, 17: 6000})   # 1496 us (the middle) and the fingers' mid, 1500 us.
         self.assertEqual({ch: dict(UNPOWERED_REST)[ch] for ch in (16, 17)}, dict(TIPS_PARK))
         self.assertIn(('poker_hand_twist', {16}), HELD_PARTS)
         self.assertIn(('hero_fingers', {17}), HELD_PARTS)
         self.assertTrue({16, 17} <= set(ARM_HOLD))
         positions = {name: None for name in JOINTS}
-        self.assertEqual(joint_targets({**positions, 'poker_hand_twist': 0, 'hero_fingers': 100}), {16: 1984, 17: 9984})
-        self.assertEqual(joint_percents(dict(TIPS_PARK)), {'poker_hand_twist': 50, 'hero_fingers': 50})
+        self.assertEqual(joint_targets({**positions, 'poker_hand_twist': 0, 'hero_fingers': 100}), {16: 1984, 17: 6992})
+        self.assertEqual(joint_percents(dict(TIPS_PARK)), {'poker_hand_twist': 50, 'hero_fingers': 51})
 
     def test_wake_and_shutdown_bring_them_to_rest(self):
         pose = awake()
         self.assertEqual({ch: pose[ch] for ch in (16, 17)}, dict(TIPS_PARK))
-        moved = {**pose, 16: 2400, 17: 9000}
+        moved = {**pose, 16: 2400, 17: 6900}
         for kind in ('startup', 'shutdown'):
             final = {}
             for lane in lifecycle_lanes(kind, moved):
