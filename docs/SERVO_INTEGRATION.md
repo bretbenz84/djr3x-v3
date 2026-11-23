@@ -6,6 +6,17 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 22: the throttle shoulder's range is 1070–1960 µs
+
+Owner: channel 8 runs 1070–1960 µs (`LIMITS[8]` 4280–7840; was 906–2000 µs). Straight down
+(1850 µs), the 45° rest (1240 µs) and every other shoulder pose already lie inside it. Fully up
+(`RAISED`) is the new top, 1070 µs: `throttle_offer`, `throttle_high_five` and the raised steps
+out of the lowered `throttle_down` pose go there instead of 906 µs. The clearance rule still treats
+fully up as clear for any elbow and wrist, which lets the wrist fold back (to 2048) on the way up
+out of `throttle_down`; that was measured at 906 µs and is unchecked at 1070 µs. The servo menu's
+slider matches, and the Maestro's stored range and home for channel 8 must lie within 1070–1960 µs.
+Synthetic checks only; nothing has moved.
+
 ## November 22: the poker hand's twist (ch 16) and the hero fingers (ch 17)
 
 Owner: two more servos, channel 16 ("pokerhandtwst", the poker hand's twist) and channel 17

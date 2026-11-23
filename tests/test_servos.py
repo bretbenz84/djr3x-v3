@@ -223,7 +223,7 @@ class ServoTests(unittest.TestCase):
             self.assertEqual(self.port.pose[ch], value)
 
     def test_shutdown_parks_the_rest_when_the_throttle_arm_has_no_clear_route(self):
-        stranded = {8: 3624, 9: 2048, 10: 9048}
+        stranded = {8: 4280, 9: 2048, 10: 9048}
         self.wake_with_arms_kept(stranded)
         result = self.execute('shutdown')
         self.assertEqual((result.status, result.reason), ('pulses_reached', 'ThrottleArmLeftWhereItWas'))
@@ -235,7 +235,7 @@ class ServoTests(unittest.TestCase):
     def test_a_drive_parks_the_rest_and_leaves_a_throttle_arm_with_no_clear_route(self):
         # November 19 (run a5963bfa): from where the arm sat, both asked-for turns were refused
         # before a wheel moved (ArmParkFailed:ThrottleRouteOutsideClearance).
-        stranded = {8: 3624, 9: 2048, 10: 9048}
+        stranded = {8: 4280, 9: 2048, 10: 9048}
         self.wake_with_arms_kept(stranded)
         park = self.execute('base_park')
         self.assertEqual((park.status, park.reason), ('pulses_reached', 'ThrottleArmLeftWhereItWas'))

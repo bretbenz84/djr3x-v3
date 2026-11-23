@@ -111,7 +111,7 @@ _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
     "herofingers": {"ch": 17, "min": 1984, "max": 9984, "neutral": 5984,  # 496–2496 µs (Nov 22); neutral the middle
                     "speed": 20, "acceleration": 4},
     # Neutral is only an unsent slider placeholder, never a startup command.
-    "throttle_shoulder": {"ch": 8, "min": 3624, "max": 8000, "neutral": 6000,  # 906-2000 us (Nov 14 rework); 1850 straight down
+    "throttle_shoulder": {"ch": 8, "min": 4280, "max": 7840, "neutral": 6000,  # 1070-1960 us (Nov 22); 1850 straight down
                           "speed": 30, "acceleration": 6},
     "throttle_elbow": {"ch": 9, "min": 2000, "max": 10000, "neutral": 6000,
                        "speed": 70, "acceleration": 12},

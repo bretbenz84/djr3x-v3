@@ -19,7 +19,7 @@ from types import MappingProxyType
 # Calibrated limits per channel. The October 10 servo-console readings (Maestro
 # microseconds x 4) are the limits of the two head servos and the poker elbow/wrist.
 # Head lift (1): owner, November 12, 832-2496 us (was 656-1936).
-# Throttle shoulder (8): owner, November 14, after its rework, 906-2000 us (was 544-2272).
+# Throttle shoulder (8): owner, November 14, after its rework, 906-2000 us (was 544-2272); November 22, 1070-1960 us.
 # Throttle hand (14 wrist twist, 15 two-finger pincher): owner, November 20, once installed, the
 # limits programmed into the Maestro ("throttlehandwrst" 560-1856 us, "throttlefingers" 1264-1856 us).
 # Owner, November 22: two more hand servos, the poker hand's twist (16, the Maestro's "pokerhandtwst")
@@ -27,7 +27,7 @@ from types import MappingProxyType
 LIMITS = MappingProxyType({
     0: (1984, 8960), 1: (3328, 9984), 2: (4032, 8128), 3: (4544, 6976),
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
-    8: (3624, 8000), 9: (2048, 9984), 10: (2048, 9984),
+    8: (4280, 7840), 9: (2048, 9984), 10: (2048, 9984),
     11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
     14: (2240, 7424), 15: (6000, 7900),   # Fingers 1500-1975 us (owner, November 21 night; was 1530).
     16: (1984, 9984), 17: (1984, 9984),
@@ -235,10 +235,12 @@ def joint_percents(commanded) -> dict[str, int]:
 # Throttle shoulder, owner, November 14, after its rework: straight down 1850 us (park and the
 # relaxed rest), 45 degrees up 1240 us (the awake rest) and fully up 906 us (the upper limit).
 # 2000 us, the lower limit, is past straight down and only the joint tool and servo menu reach it.
+# Owner, November 22: the range is 1070-1960 us, so fully up (RAISED: the offer, the high five and the
+# way out of the lowered full-down pose) is 1070 us; 1960 us is still past straight down.
 # Every other shoulder position below, and the clearance rule's shoulder thresholds, were scaled
 # from the old ones to the same place in the swing between those three points (owner's choice;
 # old fully up 544, awake rest 1050 and fully down 2272 us).
-SHOULDER_DOWN, SHOULDER_45, RAISED = 7400, 4960, 3624
+SHOULDER_DOWN, SHOULDER_45, RAISED = 7400, 4960, LIMITS[8][0]
 PARK = ((8, SHOULDER_DOWN), (9, 9984), (10, 2048))
 TUCK = ((8, 6132), (9, 8400), (10, 2048))
 REST = ((8, SHOULDER_45), (9, 7720), (10, 5120))
