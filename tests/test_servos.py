@@ -270,7 +270,7 @@ class ServoTests(unittest.TestCase):
     def test_powered_off_robot_holds_unpowered_rest_then_wakes(self):
         self.port.pose = {ch: 0 for ch in self.port.pose}
         self.owner.start()
-        self.assertEqual(self.owner.energized_channels, tuple(range(16)))
+        self.assertEqual(self.owner.energized_channels, tuple(range(18)))
         self.assertEqual(self.port.pose, dict(UNPOWERED_REST))
         self.assertEqual(self.owner.commanded, dict(UNPOWERED_REST))
         self.assertEqual(self.execute().status, 'pulses_reached')

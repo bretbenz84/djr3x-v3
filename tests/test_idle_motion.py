@@ -46,7 +46,7 @@ class IdleTests(unittest.TestCase):
             self.port.packets.clear()
             self.assertEqual(self.execute('idle').status,'pulses_reached')
             commands=self.commands()
-            self.assertEqual({ch for ch,_ in commands},set(LIMITS))
+            self.assertEqual({ch for ch,_ in commands},set(LIMITS)-{16,17})   # 16, 17 (November 22) have no idle motion yet.
             for ch,value in commands:
                 self.assertTrue(LIMITS[ch][0]<=value<=LIMITS[ch][1])
             # The visor stays in its speaking range, above the camera.
@@ -361,7 +361,9 @@ class IdleTests(unittest.TestCase):
         for _,channels in phrases:
             self.assertLessEqual(len({parts[ch] for ch in channels}),3)   # Never every servo at once.
         moved=set().union(*(channels for _,channels in phrases))
-        self.assertEqual(moved,set(LIMITS))       # Over time every part takes its turn.
+        # Over time every part takes its turn; the poker hand twist and hero fingers (16, 17, November 22)
+        # have no idle motion yet and stay at their rest.
+        self.assertEqual(moved,set(LIMITS)-{16,17})
         self.idle.tick(False);self.clock.wait(20)
         count=len(self.port.targets)
         self.idle.tick(False)

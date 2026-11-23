@@ -23,7 +23,7 @@ HAND_YIELD_S = 12.
 
 class RobotServos:
     capability = Capability('robot_servos','Pololu Maestro','startup, idle arms, talking, microphone hold and park',
-        dependencies=('pyserial',),resources=('exclusive Maestro; sixteen calibrated channels',),
+        dependencies=('pyserial',),resources=('exclusive Maestro; eighteen calibrated channels',),
         shutdown='join idle/talking; park; close port; acknowledge ownership release')
 
     def __init__(self, port, *, open_port=None, clock=time.monotonic, wait=time.sleep, telepresence=False,

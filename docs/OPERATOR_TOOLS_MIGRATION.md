@@ -34,7 +34,7 @@ policy was copied. Its model is released while the controller is active. The V3
 runner handles terminal quit/Ctrl-C and SIGTERM; V2's voice shutdown command and
 ready/charger audio effects are not implemented by this adaptation.
 
-The servo menu supplies all sixteen sliders (two-servo head and poker elbow/wrist since October 10, throttle hand since November 19), live output-pulse readback,
+The servo menu supplies all eighteen sliders (two-servo head and poker elbow/wrist since October 10, throttle hand since November 19, poker hand twist and hero fingers since November 22), live output-pulse readback,
 coalesced writes, generation-based stale-command rejection, explicit board-home
 confirmation and bounded throttle clearance checks. It yields while Rex runs and
 does not reconnect after a wire failure. V2's newer measurement logs, recording and

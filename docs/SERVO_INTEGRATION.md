@@ -6,6 +6,19 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 22: the poker hand's twist (ch 16) and the hero fingers (ch 17)
+
+Owner: two more servos, channel 16 ("pokerhandtwst", the poker hand's twist) and channel 17
+("herofingers", the hero hand's fingers), each 496–2496 µs (`LIMITS[16]`, `LIMITS[17]` 1984–9984).
+Which end turns or closes which way is not yet measured, so both rest at the middle, 1496 µs
+(`TIPS_PARK`): where they are held when switched on (`UNPOWERED_REST`), and where the wake, park and
+shutdown bring them. The model reaches them as `poker_hand_twist` and `hero_fingers` in the joint tool
+(and sees them among held parts); `hold_arms` holds them; the dashboard sliders follow `JOINT_RANGES`.
+They have no idle or talking motion yet and stay where they are while he drives. The servo menu has
+`pokerhandtwst` and `herofingers` sliders (speed 20, acceleration 4) with nudges. The Maestro must be
+an 18-channel board with both channels' stored ranges allowing 496–2496 µs, or targets never arrive.
+Synthetic checks only; nothing has moved.
+
 ## November 21 (night): run `5aa92add`, three seconds from the arm, and the let-go that never finished
 
 Owner: the four seconds to closing began only once "Okay, ready." had played, though the arm was out well

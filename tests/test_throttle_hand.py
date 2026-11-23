@@ -8,7 +8,7 @@ import unittest
 
 from r3x.contracts import Cancellation
 from r3x.servo_poses import (HAND_IDLE_REACH, HAND_PARK, HAND_TALK_REACH, HELD_PARTS, IdlePhrase, LIMITS,
-                             SENTRY_STANCE, THROTTLE, THROTTLE_HAND, UNPOWERED_REST, hand_span, idle_lanes,
+                             SENTRY_STANCE, THROTTLE, THROTTLE_HAND, TIPS_PARK, ARM_HOLD, UNPOWERED_REST, hand_span, idle_lanes,
                              joint_percents, joint_targets, JOINTS, lifecycle_lanes, talking_lanes)
 from tests.test_servos import Clock, PulsePort, ServoOwner, ServoRequest
 
@@ -56,7 +56,10 @@ class HandRangeTests(unittest.TestCase):
         self.assertEqual(sorted(table), sorted(LIMITS))
         for ch in THROTTLE_HAND:
             self.assertEqual((table[ch]['min'], table[ch]['max'], table[ch]['neutral']), (*LIMITS[ch], dict(HAND_PARK)[ch]))
-        self.assertEqual(set(ast.literal_eval(values['_HAND_DIRECTIONS'])), {'throttle_twist', 'throttle_pincher'})
+        for ch, value in TIPS_PARK:
+            self.assertEqual((table[ch]['min'], table[ch]['max'], table[ch]['neutral']), (*LIMITS[ch], value))
+        self.assertEqual(set(ast.literal_eval(values['_HAND_DIRECTIONS'])),
+                         {'throttle_twist', 'throttle_pincher', 'pokerhandtwst', 'herofingers'})
 
 
 class HandMotionTests(unittest.TestCase):
@@ -152,3 +155,29 @@ class HandDriveTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class OtherHandsTests(unittest.TestCase):
+    """The poker hand's twist (16) and the hero fingers (17), owner, November 22: 496-2496 us each."""
+
+    def test_range_rest_and_joint_tool(self):
+        self.assertEqual({ch: LIMITS[ch] for ch in (16, 17)}, {16: (1984, 9984), 17: (1984, 9984)})
+        self.assertEqual(dict(TIPS_PARK), {16: 5984, 17: 5984})   # The middle, 1496 us.
+        self.assertEqual({ch: dict(UNPOWERED_REST)[ch] for ch in (16, 17)}, dict(TIPS_PARK))
+        self.assertIn(('poker_hand_twist', {16}), HELD_PARTS)
+        self.assertIn(('hero_fingers', {17}), HELD_PARTS)
+        self.assertTrue({16, 17} <= set(ARM_HOLD))
+        positions = {name: None for name in JOINTS}
+        self.assertEqual(joint_targets({**positions, 'poker_hand_twist': 0, 'hero_fingers': 100}), {16: 1984, 17: 9984})
+        self.assertEqual(joint_percents(dict(TIPS_PARK)), {'poker_hand_twist': 50, 'hero_fingers': 50})
+
+    def test_wake_and_shutdown_bring_them_to_rest(self):
+        pose = awake()
+        self.assertEqual({ch: pose[ch] for ch in (16, 17)}, dict(TIPS_PARK))
+        moved = {**pose, 16: 2400, 17: 9000}
+        for kind in ('startup', 'shutdown'):
+            final = {}
+            for lane in lifecycle_lanes(kind, moved):
+                for beat in lane:
+                    final.update(dict(beat.targets))
+            self.assertEqual({ch: final[ch] for ch in (16, 17)}, dict(TIPS_PARK), kind)

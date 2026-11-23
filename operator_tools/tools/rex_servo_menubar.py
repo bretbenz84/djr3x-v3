@@ -3,7 +3,7 @@
 rex_servo_menubar.py — macOS menu bar servo console for the Pololu Maestro.
 
 A small always-on menu bar app (rumps/Cocoa, sibling of rex_battery_menubar.py)
-titled "Servo Control". The dropdown shows all 16 of Rex's servos as live sliders
+titled "Servo Control". The dropdown shows all 18 of Rex's servos as live sliders
 (labelled with the current position in Maestro microseconds) plus a "Restart
 Pololu" action. Slide a slider and the servo moves — the same Pololu compact
 protocol `set target` commands hardware/servos.py sends for the main GUI's
@@ -43,6 +43,9 @@ surprise 1136 µs, closed 1744 µs).
 November 19, 2026: the throttle hand gains a wrist twist (ch 14, the Maestro's "throttlehandwrst")
 and a two-finger pincher (ch 15, "throttlefingers"). November 20: their programmed Maestro limits,
 560–1856 µs and 1264–1856 µs. Both get nudges (in measurement mode).
+
+November 22, 2026: the poker hand's twist (ch 16, "pokerhandtwst") and the hero hand's fingers
+(ch 17, "herofingers"), each 496–2496 µs, neutral at the middle (1496 µs), with nudges.
 
 Run directly for debugging:
     venv/bin/python tools/rex_servo_menubar.py
@@ -102,7 +105,11 @@ _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
     "pokerarm": {"ch": 6, "min": 3968, "max": 8000, "neutral": 6000},
     "pokerelbow": {"ch": 12, "min": 3456, "max": 7680, "neutral": 3456},  # 864 (down) – 1920 (up) µs
     "pokerwrist": {"ch": 13, "min": 1984, "max": 9944, "neutral": 5760},  # 496 (down) – 2486 (up inward) µs; straight 1440
+    "pokerhandtwst": {"ch": 16, "min": 1984, "max": 9984, "neutral": 5984,  # 496–2496 µs (Nov 22); neutral the middle
+                      "speed": 20, "acceleration": 4},
     "heroarm":  {"ch": 7, "min": 3968, "max": 8000, "neutral": 6000},
+    "herofingers": {"ch": 17, "min": 1984, "max": 9984, "neutral": 5984,  # 496–2496 µs (Nov 22); neutral the middle
+                    "speed": 20, "acceleration": 4},
     # Neutral is only an unsent slider placeholder, never a startup command.
     "throttle_shoulder": {"ch": 8, "min": 3624, "max": 8000, "neutral": 6000,  # 906-2000 us (Nov 14 rework); 1850 straight down
                           "speed": 30, "acceleration": 6},
@@ -125,6 +132,8 @@ _THROTTLE_DIRECTIONS = {
 _HAND_DIRECTIONS = {
     "throttle_twist": "wrist twist (direction unmeasured)",
     "throttle_pincher": "fingers (direction unmeasured)",
+    "pokerhandtwst": "poker hand twist (direction unmeasured)",
+    "herofingers": "hero fingers (direction unmeasured)",
 }
 _NUDGED = (*_THROTTLE_DIRECTIONS, *_HAND_DIRECTIONS)
 # Slider label hints for the reworked joints (the throttle hints above also get nudges).

@@ -22,17 +22,23 @@ from types import MappingProxyType
 # Throttle shoulder (8): owner, November 14, after its rework, 906-2000 us (was 544-2272).
 # Throttle hand (14 wrist twist, 15 two-finger pincher): owner, November 20, once installed, the
 # limits programmed into the Maestro ("throttlehandwrst" 560-1856 us, "throttlefingers" 1264-1856 us).
+# Owner, November 22: two more hand servos, the poker hand's twist (16, the Maestro's "pokerhandtwst")
+# and the hero hand's fingers (17, "herofingers"), each 496-2496 us.
 LIMITS = MappingProxyType({
     0: (1984, 8960), 1: (3328, 9984), 2: (4032, 8128), 3: (4544, 6976),
     4: (6300, 7424), 5: (1984, 9984), 6: (3968, 8000), 7: (3968, 8000),
     8: (3624, 8000), 9: (2048, 9984), 10: (2048, 9984),
     11: (5248, 7616), 12: (3456, 7680), 13: (1984, 9944),
     14: (2240, 7424), 15: (6000, 7900),   # Fingers 1500-1975 us (owner, November 21 night; was 1530).
+    16: (1984, 9984), 17: (1984, 9984),
 })
 THROTTLE = (8, 9, 10)
 # The throttle hand's wrist twist and pincher. Each moves on its own: the throttle clearance rule
 # (shoulder, elbow, wrist bend) does not cover them, and no collision with the hand is measured yet.
 THROTTLE_HAND = (14, 15)
+# The poker hand's twist and the hero hand's fingers (November 22). Neither is in a clearance rule, and
+# which end turns or closes which way is not yet measured.
+POKER_TWIST, HERO_FINGERS = 16, 17
 HEAD_PAIR = (2, 11)          # head_left, head_right: always commanded together.
 POKER = (12, 13)             # Poker elbow and wrist: always commanded together (clearance).
 HEAD = (0, 1, *HEAD_PAIR)    # Everything the camera rides on.
@@ -172,12 +178,14 @@ JOINT_RANGES = {
     'throttle_shoulder': (8, *LIMITS[8]), 'throttle_elbow': (9, 2048, 9984), 'throttle_wrist': (10, 2048, 9984),
     'poker_elbow': (12, POKER_ELBOW_DOWN, POKER_ELBOW_UP), 'poker_wrist': (13, POKER_WRIST_DOWN, POKER_WRIST_IN),
     'throttle_twist': (14, *LIMITS[14]), 'throttle_pincher': (15, *LIMITS[15]),
+    'poker_hand_twist': (POKER_TWIST, *LIMITS[POKER_TWIST]), 'hero_fingers': (HERO_FINGERS, *LIMITS[HERO_FINGERS]),
 }
 JOINTS = tuple(JOINT_RANGES)
 # Body parts named to the model when their channels are held.
 HELD_PARTS = (('neck', {0}), ('head_lift', {1}), ('head_pitch_and_tilt', {2, 11}), ('visor', {3}),
               ('hero_elbow', {4}), ('hero_wrist', {5}), ('poker_arm', {6}), ('hero_arm', {7}),
-              ('throttle_arm', {8, 9, 10}), ('poker_elbow_and_wrist', {12, 13}), ('throttle_hand', {14, 15}))
+              ('throttle_arm', {8, 9, 10}), ('poker_elbow_and_wrist', {12, 13}), ('throttle_hand', {14, 15}),
+              ('poker_hand_twist', {POKER_TWIST}), ('hero_fingers', {HERO_FINGERS}))
 
 
 def joint_targets(positions):
@@ -239,6 +247,9 @@ FULL_DOWN = ((8, SHOULDER_DOWN), (9, 5589), (10, 9511))
 # (owner, November 21: its mid point; not the middle of its range, 1208 us); the fingers at 1706 us,
 # the owner's mid (November 21; their range is 1500-1975 us since that night). Idle and talking motion centre on these.
 HAND_PARK = ((14, 5804), (15, 6824))
+# The poker hand's twist and the hero fingers rest at the middle of their range (1496 us; owner, November
+# 22, until their directions and rest points are measured).
+TIPS_PARK = tuple((ch, sum(LIMITS[ch]) // 2) for ch in (POKER_TWIST, HERO_FINGERS))
 # Neck pulse where the head physically faces straight along the base. The owner
 # saw 5472 (the electrical midpoint and V2 "neutral") sit visibly right while
 # driving on September 27; set this from the servo console reading.
@@ -284,7 +295,7 @@ REACHING_ARMS = MappingProxyType({'poker': (6, *POKER), 'throttle': THROTTLE})
 HEAD_PARK = ((0, NECK_CENTER), (1, LIMITS[1][0]), (2, HEAD_FULL_DOWN[0]), (11, HEAD_FULL_DOWN[1]),
              (3, VISOR_DOWN), (4, 6300))
 # Where each joint hangs once the robot has been powered off (the board then reads 0).
-UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK, *POKER_PARK, *HAND_PARK)
+UNPOWERED_REST = (*HEAD_PARK, (5, 6000), (6, 6000), (7, 5984), *PARK, *POKER_PARK, *HAND_PARK, *TIPS_PARK)
 
 
 def validate_pose(pose: dict[int, int]) -> None:
@@ -369,11 +380,11 @@ def poker_lane(current, target, speed=20, acceleration=5) -> tuple[Beat, ...]:
                  for stage in poker_route(start, target))
 
 
-def hand_home(current, speed=12, acceleration=3) -> tuple[tuple[Beat, ...], ...]:
-    """The throttle hand's lane back to its park (the middle), or none when it is already there."""
-    if all(abs(current[ch] - value) <= 2 for ch, value in HAND_PARK):
+def hand_home(current, speed=12, acceleration=3, park=HAND_PARK) -> tuple[tuple[Beat, ...], ...]:
+    """A hand's lane back to its park (the throttle hand's by default), or none when it is already there."""
+    if all(abs(current[ch] - value) <= 2 for ch, value in park):
         return ()
-    return ((Beat(HAND_PARK, speed=speed, acceleration=acceleration),),)
+    return ((Beat(park, speed=speed, acceleration=acceleration),),)
 
 
 # The throttle hand's living motion (owner, November 19): a little while idle, a little more while
@@ -604,6 +615,7 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
             lanes += (poker_lane(current, dict(POKER_UP), speed=12, acceleration=3),)
         if 'throttle' not in keep:
             lanes += hand_home(current)
+        lanes += hand_home(current, park=TIPS_PARK)
     else:
         # V2's coordinated head/visor/elbow droop, alongside tuck then park. Decorative
         # channels 5–7 keep their current pose; the poker elbow/wrist return to their park.
@@ -616,7 +628,7 @@ def lifecycle_lanes(kind: str, current: dict[int, int], first_look: str = 'left'
         home = dict(UNPOWERED_REST)[6]
         if arms_home and abs(current[6] - home) > 2:
             lanes += ((Beat(((6, home),), speed=12, acceleration=3),),)
-        lanes += hand_home(current)
+        lanes += hand_home(current) + hand_home(current, park=TIPS_PARK)
     # Reject an unsafe route BEFORE any lane begins to move.
     for lane in lanes:
         previous = dict(current)
@@ -1416,7 +1428,7 @@ GAZE = ('look_at_people',)
 # hold_arms moves nothing: every arm stays where it is until a person says it may move.
 # The array arm (7) is left to the microphone lease, which only ever rests it at its centre;
 # idle movement stops swinging it while the arms are held (idle_motion).
-ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND)
+ARM_HOLD = (4, 5, 6, *POKER, *THROTTLE, *THROTTLE_HAND, POKER_TWIST, HERO_FINGERS)
 # Holding something light, like a card (owner, November 20). The fingers close at the lowest pulse
 # the Maestro allows and open at the highest (the owner: closed is the lowest value). hand_take reaches
 # the throttle arm to the owner's grab position (shoulder 1136, elbow 1554, wrist 743 us since November 21; it needs the
