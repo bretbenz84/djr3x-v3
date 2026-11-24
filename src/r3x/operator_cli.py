@@ -37,6 +37,8 @@ def main(argv, project: Path):
         try:
             owner.start()
             result = owner.execute(ServoRequest('operator-park',owner.version,'park',time.monotonic()+120),Cancellation())
+            if result.status=='pulses_reached':
+                owner.relax()   # Limp after the park, so switching the servo rail on moves nothing.
             print(json.dumps(asdict(result)))
             return 0 if result.status=='pulses_reached' else 1
         finally:

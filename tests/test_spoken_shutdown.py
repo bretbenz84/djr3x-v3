@@ -72,7 +72,7 @@ class ShutdownTests(unittest.TestCase):
         self.assertTrue(runtime.session.closed)
         self.assertFalse(any(w.is_alive() for w in runtime.workers))
         robot.close()  # App's existing provider cleanup, after runtime returns.
-        self.assertEqual({ch:port.pose[ch] for ch,_ in PARK},dict(PARK))
+        self.assertEqual({ch:port.last_pulse[ch] for ch,_ in PARK},dict(PARK))   # Parked, then left limp.
         self.assertTrue(port.closed)
         self.assertEqual(brain.calls,0)
 

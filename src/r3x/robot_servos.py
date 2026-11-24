@@ -832,6 +832,12 @@ class RobotServos:
                 except Exception as exc:
                     if self.trace: self.trace.emit('servo_shutdown_hook_failed',error_type=type(exc).__name__)
                 self._sequence('shutdown', arms_home=self.telepresence)   # A call's raised poker arm too.
+                try:
+                    relaxed = self.owner.relax()   # So switching the servo rail on again moves nothing.
+                    if self.trace:
+                        self.trace.emit('servos_relaxed', channels=relaxed)
+                except Exception as exc:   # Parked and still holding: the shutdown itself succeeded.
+                    if self.trace: self.trace.emit('servo_relax_failed', error_type=type(exc).__name__)
             elif self.started and self.owner.state not in {'parked','closed'}:
                 raise ProviderFailure('ServoParkUnavailableAfterFault')
         finally:

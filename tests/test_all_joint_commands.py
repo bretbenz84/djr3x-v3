@@ -106,7 +106,7 @@ class JointCommands(MemoryFixture):
         self.assertEqual(receipt.status,'cancelled');self.assertEqual(len(self.port.targets),before)
         self.robot.close()
         self.assertTrue(self.port.closed)
-        self.assertEqual(self.port.pose[0],5472)
+        self.assertEqual(self.port.last_pulse[0],5472)   # Parked, then left limp.
 
 
 class ChainedPoseCommands(MemoryFixture):

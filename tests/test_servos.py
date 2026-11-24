@@ -69,6 +69,17 @@ class PulsePort:
     @property
     def targets(self): return [p for p in self.packets if p[0] in (0x84, 0x9F)]
 
+    @property
+    def last_pulse(self):
+        """Each channel's last real pulse: shutdown ends with targets of 0, which leave every servo limp."""
+        last = dict(UNPOWERED_REST)
+        for p in self.targets:
+            if p[0] == 0x84 and p[2:4] != bytes((0, 0)):
+                last[p[1]] = p[2] + 128 * p[3]
+            elif p[0] == 0x9F:
+                last.update({p[2] + i: p[3 + i*2] + 128 * p[4 + i*2] for i in range(p[1])})
+        return last
+
 
 class ServoTests(unittest.TestCase):
     def setUp(self):

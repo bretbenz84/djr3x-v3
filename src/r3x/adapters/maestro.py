@@ -114,6 +114,12 @@ class Maestro:
                     shown.extend((pose[ch] & 127, pose[ch] >> 7))
                 self._write(bytes(packet), bytes(shown))
 
+    def off(self, channels) -> None:
+        """Stop sending pulses on these channels (a target of 0): the servos go limp."""
+        with self._wire:
+            for ch in sorted(channels):
+                self._value(0x84, ch, 0)
+
     def close(self) -> None:
         if not self.closed:
             self.port.close()
