@@ -1,0 +1,80 @@
+# Which Pololu Maestro channel each of Rex's servos is plugged into.
+#
+# Rewiring the board means editing only `channel` below. `id` is the fixed number Rex's program
+# uses for that servo everywhere else (poses, limits, logs such as "ServoArrivalTimeout:ch15");
+# it never changes when the wiring does. Each id and each channel 0-17 appears exactly once.
+#
+# Owner, November 23: laid out from the top of Rex down, each arm from the body out to the hand,
+# so the lower a servo sits on him the higher its channel.
+
+[servos.visor]
+id = 3
+channel = 0
+
+[servos.head_left]
+id = 2
+channel = 1
+
+[servos.head_right]
+id = 11
+channel = 2
+
+[servos.neck]
+id = 0
+channel = 3
+
+[servos.head_lift]
+id = 1
+channel = 4
+
+[servos.hero_arm]          # The shoulder swing that carries the microphones.
+id = 7
+channel = 5
+
+[servos.hero_elbow]
+id = 4
+channel = 6
+
+[servos.hero_hand_wrist]
+id = 5
+channel = 7
+
+[servos.hero_fingers]
+id = 17
+channel = 8
+
+[servos.throttle_shoulder]  # The throttle's shoulder, elbow and wrist must stay on three channels in a row.
+id = 8
+channel = 9
+
+[servos.throttle_elbow]
+id = 9
+channel = 10
+
+[servos.throttle_wrist]
+id = 10
+channel = 11
+
+[servos.throttle_hand_twist]
+id = 14
+channel = 12
+
+[servos.throttle_fingers]
+id = 15
+channel = 13
+
+[servos.poker_arm]          # The swing.
+id = 6
+channel = 14
+
+[servos.poker_elbow]
+id = 12
+channel = 15
+
+[servos.poker_wrist]
+id = 13
+channel = 16
+
+[servos.poker_hand_twist]
+id = 16
+channel = 17

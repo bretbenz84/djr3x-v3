@@ -89,10 +89,11 @@ class ServoOwner:
                             shutdown='cancel; explicit park request; close (never implicit motion)')
 
     def __init__(self, open_port: Callable[[], Port], *, medium: str,
-                 clock=time.monotonic, wait=None, rng=None):
+                 clock=time.monotonic, wait=None, rng=None, wiring=None):
         if medium not in {'simulation', 'controller'}:
             raise ValueError('InvalidServoMedium')
         self.open_port, self.medium, self.clock = open_port, medium, clock
+        self.wiring = wiring   # servo_wiring.load() for the real board: the channel each servo id is on.
         self.rng = rng or random.Random()
         self._cancel = threading.Event()
         self.wait = wait or self._cancel.wait
@@ -158,7 +159,7 @@ class ServoOwner:
                 raise ProviderFailure('ServoStartAlreadyAttempted')
             self.state = 'starting'
             try:
-                self._bus = Maestro(self.open_port())
+                self._bus = Maestro(self.open_port(), self.wiring)
                 self._bus.observers = self.on_packet
                 readback = self._energize_unpowered(self._bus.positions(LIMITS))
                 self.commanded = dict(readback)

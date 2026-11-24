@@ -25,7 +25,11 @@ returns to its configured home/startup position — the recover-a-weird-pose
 button. (The Maestro has no soft-reboot over serial; go-home + a fresh
 position read is the meaningful restart.)
 
-Servo definitions mirror V3's src/r3x/servo_poses.py LIMITS (channels, min/max/neutral
+November 23, 2026: the board was rewired from the top of Rex down. Each "ch" in the table is the
+servo's fixed id in Rex's program; servo_wiring.toml says which board channel it is on, the sliders
+are listed and labelled by that channel, and only the wire reads and writes translate.
+
+Servo definitions mirror V3's src/r3x/servo_poses.py LIMITS (servo ids, min/max/neutral
 in quarter-microseconds) and honor the same .env overrides
 (SERVO_<NAME>_MIN_US / _MAX_US / _NEUTRAL_US, Maestro Control Center
 microseconds) — keep _SERVO_DEFAULTS in sync if the robot gains a servo.
@@ -80,6 +84,18 @@ logging.basicConfig(
 log = logging.getLogger("rex_servo")
 
 from tools.throttle_sequences import Recorder, load_sequence, require_start_pose, validate_pose
+from r3x.servo_wiring import load as _load_wiring
+
+# Each servo's "ch" below is its fixed id in Rex's program; servo_wiring.toml (repository root) says
+# which board channel carries it (owner, November 23). Only the wire writes and reads translate.
+_WIRING = None
+
+
+def _board(servo: int) -> int:
+    global _WIRING
+    if _WIRING is None:
+        _WIRING = _load_wiring()
+    return _WIRING[servo]
 # V2 kept a durable "clean park" marker for its own cold start and cleared it before any
 # manual throttle move. V3 never trusts such a marker (it validates the live pose),
 # so there is nothing to invalidate.
@@ -268,7 +284,7 @@ def _queue_go_home() -> None:
 
 
 def _encode_set_target(channel: int, qus: int) -> bytes:
-    return bytes([_CMD_SET_TARGET, channel, qus & 0x7F, (qus >> 7) & 0x7F])
+    return bytes([_CMD_SET_TARGET, _board(channel), qus & 0x7F, (qus >> 7) & 0x7F])
 
 
 def _write_target(ser, cfg: dict[str, int], qus: int, *, playback=False) -> None:
@@ -284,7 +300,7 @@ def _write_target(ser, cfg: dict[str, int], qus: int, *, playback=False) -> None
     for key, cmd in (("acceleration", _CMD_SET_ACCEL), ("speed", _CMD_SET_SPEED)):
         if key in cfg:
             value = cfg[key]
-            commands.append(bytes([cmd, ch, value & 0x7F, (value >> 7) & 0x7F]))
+            commands.append(bytes([cmd, _board(ch), value & 0x7F, (value >> 7) & 0x7F]))
     commands.append(_encode_set_target(ch, qus))
     for command in commands:
         if ser.write(command) != len(command):
@@ -302,7 +318,7 @@ def _read_positions(ser, channels: list[int]) -> dict[int, int]:
     for ch in channels:
         try:
             ser.reset_input_buffer()
-            ser.write(bytes([_CMD_GET_POSITION, ch]))
+            ser.write(bytes([_CMD_GET_POSITION, _board(ch)]))
             raw = ser.read(2)
             if len(raw) == 2:
                 positions[ch] = raw[0] | (raw[1] << 8)
@@ -328,7 +344,7 @@ def _capture_measurement(ser, by_channel, note: str, path=None) -> dict[int, int
         cfg = by_channel[ch]
         value = positions.get(ch, 0)
         if not cfg["min"] <= value <= cfg["max"]:
-            raise ValueError(f"Channel {ch} is off, unreadable, or outside configured limits")
+            raise ValueError(f"Channel {_board(ch)} is off, unreadable, or outside configured limits")
     _require_stationary(ser)
     path = Path(path) if path is not None else _MEASUREMENT_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -354,7 +370,7 @@ def _nudge(ser, cfg, delta_us: int) -> int:
     ch = cfg["ch"]
     current = _read_positions(ser, [ch]).get(ch, 0)
     if not cfg["min"] <= current <= cfg["max"]:
-        raise ValueError(f"Channel {ch} is off or unreadable; select its initial pulse manually")
+        raise ValueError(f"Channel {_board(ch)} is off or unreadable; select its initial pulse manually")
     target = max(cfg["min"], min(cfg["max"], current + delta_us * 4))
     _write_target(ser, cfg, target)
     return target
@@ -699,7 +715,8 @@ def run_app() -> int:
             self._sequence_files = None
             self._record = rumps.MenuItem("Record this pose…", callback=self._record_pose)
             menu: list = [self._status, self._sequence_menu, self._sequence_status, self._measurement, self._record, self._measurement_status, rumps.MenuItem("Throttle and poker elbow/wrist: manual clearance required"), None]
-            for name, cfg in servos.items():
+            # Listed by board channel: from the top of Rex down since the November 23 rewire.
+            for name, cfg in sorted(servos.items(), key=lambda item: _board(item[1]["ch"])):
                 self._by_channel[cfg["ch"]] = name
                 label = rumps.MenuItem(f"{name}", callback=lambda _: None)
                 slider = rumps.SliderMenuItem(
@@ -815,7 +832,7 @@ def run_app() -> int:
             direction = _DIRECTIONS.get(name, "")
             value = f"{qus / 4.0:.2f}".rstrip("0").rstrip(".")
             reading = f"{value} µs ({state})" if state == "target" else state
-            self._labels[name].title = f"ch{servos[name]['ch']} {name}: {reading} {direction}".rstrip()
+            self._labels[name].title = f"ch{_board(servos[name]['ch'])} {name}: {reading} {direction}".rstrip()
 
         def _make_slider_cb(self, name: str):
             cfg = servos[name]

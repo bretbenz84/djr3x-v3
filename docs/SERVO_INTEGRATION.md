@@ -6,6 +6,30 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 23: the board rewired from the top down, by a wiring file
+
+Owner: the Maestro is being rewired so that the lower a servo sits on Rex the higher its channel
+(visor, head pair, neck and lift, then the hero, throttle and poker arms, each from the body out to
+the hand), and asked for the layout to live in a settings file rather than in the code. **Changed:**
+the program keeps naming each servo by a fixed id, its channel before the rewire (`LIMITS`, poses,
+holds and logs such as `ServoArrivalTimeout:ch15` are by id). `servo_wiring.toml` at the repository
+root gives the board channel for each id; `servo_wiring.load` refuses a file that misses or repeats an
+id or channel, or splits the throttle's shoulder, elbow and wrist (one SET MULTIPLE TARGETS command
+needs them on consecutive channels). `adapters.maestro.Maestro` translates every target, profile and
+reading on the wire, and its observers (the dashboard's mirror) still see ids. `RobotServos` and the
+operator park load the file for the real board; injected ports and simulations speak ids. The servo
+menu translates on the wire too, and lists and labels its sliders by board channel.
+
+| Board channel | Servo (id) |
+| --- | --- |
+| 0–4 | visor (3), head left (2), head right (11), neck (0), head lift (1) |
+| 5–8 | hero arm (7), hero elbow (4), hero hand wrist (5), hero fingers (17) |
+| 9–13 | throttle shoulder (8), elbow (9), wrist (10), hand twist (14), fingers (15) |
+| 14–17 | poker arm (6), poker elbow (12), poker wrist (13), poker hand twist (16) |
+
+The board's own per-channel settings (names, ranges, speed, home) move with the wiring and are
+the owner's to copy over. Synthetic checks only; nothing has moved on the new wiring.
+
 ## November 22: the hero hand's wrist and fingers
 
 Owner: channel 5 is the hero hand's wrist, `hero_hand_wrist` in the joint tool (was `hero_wrist`) and

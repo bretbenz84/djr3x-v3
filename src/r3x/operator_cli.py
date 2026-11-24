@@ -32,7 +32,8 @@ def main(argv, project: Path):
     released = False
     try:
         from .servos import ServoOwner,ServoRequest
-        owner = ServoOwner(lambda:open_serial(settings.servo_port),medium='controller')
+        from . import servo_wiring
+        owner = ServoOwner(lambda:open_serial(settings.servo_port),medium='controller',wiring=servo_wiring.load())
         try:
             owner.start()
             result = owner.execute(ServoRequest('operator-park',owner.version,'park',time.monotonic()+120),Cancellation())

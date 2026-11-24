@@ -29,34 +29,43 @@ class Port(Protocol):
 
 
 class Maestro:
-    def __init__(self, port: Port):
+    """Commands name servos by id. wiring (servo_wiring.load) gives the board channel for each id;
+    without it the id is the channel (simulated boards). Observers see packets by id."""
+
+    def __init__(self, port: Port, wiring=None):
         self.port = port
+        self._channel = dict(wiring) if wiring is not None else None
         self.closed = False
         # The throttle arm's return from its drive park runs beside other motion, so each
         # wire exchange (a query and its reply, or one command batch) is taken whole.
         self._wire = threading.RLock()
         self.observers = []   # Callables(packet) after each complete write (the dashboard's ramp mirror).
 
-    def _write(self, packet: bytes) -> None:
+    def _on_board(self, servo: int) -> int:
+        return servo if self._channel is None else self._channel[servo]
+
+    def _write(self, packet: bytes, shown: bytes | None = None) -> None:
+        """Write packet (board channels); observers get shown (the same by servo id) when given."""
         if self.closed:
             raise ProviderFailure('MaestroClosed')
         if self.port.write(packet) != len(packet):
             raise ProviderFailure('MaestroShortWrite')
         for observer in self.observers:
             try:
-                observer(packet)
+                observer(shown or packet)
             except Exception:
                 pass   # A display observer never affects the servos.
 
     def _value(self, command: int, channel: int, value: int) -> None:
-        self._write(bytes((command, channel, value & 127, value >> 7)))
+        self._write(bytes((command, self._on_board(channel), value & 127, value >> 7)),
+                    bytes((command, channel, value & 127, value >> 7)))
 
     def positions(self, channels) -> dict[int, int]:
         result = {}
         with self._wire:
             try:
                 for ch in channels:
-                    self._write(bytes((0x90, ch)))
+                    self._write(bytes((0x90, self._on_board(ch))), bytes((0x90, ch)))
                     data = self.port.read(2)
                     if len(data) != 2:
                         raise ProviderFailure('MaestroShortRead')
@@ -94,10 +103,16 @@ class Maestro:
             for ch in sorted(set(pose) - set(THROTTLE)):
                 self._value(0x84, ch, pose[ch])
             if set(THROTTLE).issubset(pose):
-                packet = bytearray((0x9F, 3, 8))
+                # One SET MULTIPLE TARGETS so the three joints start together; it needs them on
+                # consecutive board channels (servo_wiring.toml says so; checked when it loads).
+                first = self._on_board(THROTTLE[0])
+                if [self._on_board(ch) for ch in THROTTLE] != list(range(first, first + len(THROTTLE))):
+                    raise ProviderFailure('ThrottleChannelsNotConsecutive')
+                packet, shown = bytearray((0x9F, 3, first)), bytearray((0x9F, 3, THROTTLE[0]))
                 for ch in THROTTLE:
                     packet.extend((pose[ch] & 127, pose[ch] >> 7))
-                self._write(bytes(packet))
+                    shown.extend((pose[ch] & 127, pose[ch] >> 7))
+                self._write(bytes(packet), bytes(shown))
 
     def close(self) -> None:
         if not self.closed:

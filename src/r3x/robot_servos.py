@@ -3,6 +3,7 @@ from dataclasses import asdict
 import threading
 import time
 from .adapters.maestro import open_serial
+from . import servo_wiring
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
 from .servo_poses import (throttle_extends, ARM_HOLD, HAND_PARK, HAND_STEPS, HEAD, LIMITS, THROTTLE, THROTTLE_HAND, REACHING_ARMS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
@@ -28,7 +29,9 @@ class RobotServos:
 
     def __init__(self, port, *, open_port=None, clock=time.monotonic, wait=time.sleep, telepresence=False,
                  arm_guard=False):
-        self.owner = ServoOwner(open_port or (lambda:open_serial(port)),medium='controller',clock=clock)
+        # The real board is wired by servo_wiring.toml; an injected port (checks) speaks servo ids.
+        wiring = None if open_port else servo_wiring.load()
+        self.owner = ServoOwner(open_port or (lambda:open_serial(port)),medium='controller',clock=clock,wiring=wiring)
         self.idle = IdleMotion(self.owner)
         self.talking = TalkingMotion(self.owner)
         self.reflex = VoiceReflex(self.owner)

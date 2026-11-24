@@ -1,0 +1,113 @@
+"""Servo wiring (owner, November 23): servo ids in the program, board channels on the wire.
+
+Synthetic port only; nothing here says the robot is wired as the file says.
+"""
+import tempfile
+import unittest
+from pathlib import Path
+
+from r3x import servo_wiring
+from r3x.adapters.maestro import Maestro
+from r3x.contracts import ProviderFailure
+from r3x.servo_poses import LIMITS, UNPOWERED_REST
+
+
+class Port:
+    def __init__(self):
+        self.written, self.replies = [], {}
+
+    def write(self, packet):
+        self.written.append(bytes(packet))
+        return len(packet)
+
+    def read(self, count):
+        channel = self.written[-1][1]
+        return self.replies.get(channel, 0).to_bytes(2, 'little')
+
+    def close(self):
+        pass
+
+
+def wiring_file(text):
+    folder = tempfile.TemporaryDirectory()
+    path = Path(folder.name) / 'servo_wiring.toml'
+    path.write_text(text)
+    return folder, path
+
+
+class WiringFileTests(unittest.TestCase):
+    def test_the_file_lays_rex_out_from_the_top_down(self):
+        wiring = servo_wiring.load()
+        self.assertEqual(set(wiring), set(LIMITS))
+        # visor, head pair, neck, lift; hero arm out to the fingers; throttle; poker.
+        top_down = (3, 2, 11, 0, 1, 7, 4, 5, 17, 8, 9, 10, 14, 15, 6, 12, 13, 16)
+        self.assertEqual(tuple(sorted(wiring, key=wiring.get)), top_down)
+
+    def test_a_bad_file_is_refused(self):
+        good = servo_wiring.PATH.read_text()
+        for broken, error in ((good.replace('id = 3\nchannel = 0', 'id = 3\nchannel = 1'), 'ServoWiringIncomplete'),
+                              (good.replace('id = 10\nchannel = 11', 'id = 10\nchannel = 14')
+                                   .replace('id = 6\nchannel = 14', 'id = 6\nchannel = 11'), 'ServoWiringThrottleNotConsecutive'),
+                              (good.replace('id = 3\nchannel = 0', 'id = 3\nchannel = 18'), 'ServoWiringInvalid:visor'),
+                              ('', 'ServoWiringMissing')):
+            folder, path = wiring_file(broken)
+            with folder, self.assertRaisesRegex(ValueError, error):
+                servo_wiring.load(path)
+
+
+class MaestroWiringTests(unittest.TestCase):
+    def setUp(self):
+        self.port = Port()
+        self.seen = []
+        self.board = Maestro(self.port, servo_wiring.load())
+        self.board.observers = [self.seen.append]
+
+    def test_targets_go_to_the_wired_channel_and_observers_see_servo_ids(self):
+        self.board.targets({3: 5000})   # The visor, id 3, is on channel 0.
+        self.assertEqual(self.port.written, [bytes((0x84, 0, 5000 & 127, 5000 >> 7))])
+        self.assertEqual(self.seen, [bytes((0x84, 3, 5000 & 127, 5000 >> 7))])
+
+    def test_the_throttle_moves_in_one_command_from_its_first_channel(self):
+        pose = dict(UNPOWERED_REST)
+        self.board.targets({ch: pose[ch] for ch in (8, 9, 10)})
+        self.assertEqual(self.port.written[-1][:3], bytes((0x9F, 3, 9)))
+        self.assertEqual(self.seen[-1][:3], bytes((0x9F, 3, 8)))
+
+    def test_readings_and_profiles_use_the_wired_channel(self):
+        self.port.replies = {17: 6000}   # Channel 17 carries the poker hand's twist, id 16.
+        self.assertEqual(self.board.positions((16,)), {16: 6000})
+        self.assertEqual(self.port.written[-1], bytes((0x90, 17)))
+        self.board.profiles({16: (20, 4)})
+        self.assertEqual([packet[:2] for packet in self.port.written[-2:]], [bytes((0x89, 17)), bytes((0x87, 17))])
+
+    def test_without_wiring_the_id_is_the_channel(self):
+        port = Port()
+        Maestro(port).targets({3: 5000})
+        self.assertEqual(port.written, [bytes((0x84, 3, 5000 & 127, 5000 >> 7))])
+
+
+class MenuWiringTests(unittest.TestCase):
+    def test_the_servo_menu_translates_on_the_wire(self):
+        import importlib
+        import sys
+        # The menu lives in operator_tools/tools, which shares its package name with the repository's
+        # tools; set the repository's aside while the menu (and its throttle_sequences) import.
+        root = str(Path(__file__).resolve().parent.parent / 'operator_tools')
+        aside = {name: sys.modules.pop(name) for name in list(sys.modules) if name == 'tools' or name.startswith('tools.')}
+        sys.path.insert(0, root)
+        try:
+            menu = importlib.import_module('tools.rex_servo_menubar')
+        finally:
+            sys.path.remove(root)
+            for name in [name for name in sys.modules if name == 'tools' or name.startswith('tools.')]:
+                del sys.modules[name]
+            sys.modules.update(aside)
+        self.assertEqual(menu._encode_set_target(15, 6824)[:2], bytes((0x84, 13)))   # Throttle fingers on 13.
+        port = Port()
+        port.reset_input_buffer = lambda: None
+        port.replies = {13: 6824}
+        self.assertEqual(menu._read_positions(port, [15]), {15: 6824})
+
+
+if __name__ == '__main__':
+    unittest.main()
