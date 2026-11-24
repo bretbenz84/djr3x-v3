@@ -6,6 +6,18 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 23: gentle slider moves in the servo menu
+
+Owner: sliding in the servo menu jerked servos, mostly after a power cycle. The board stores no
+speed (software sets one per move, for flexibility), and the menu had sent one only for the throttle
+and the hands, so every other slider moved at full speed. **Changed:** every slider move sets speed
+20 and acceleration 4 (at most 500 µs a second, easing in and out) unless the servo has its own pace.
+The board cannot ramp the first pulse to a limp servo, since it does not know where the servo is, so for a
+channel with no pulse yet the menu first sends where Rex's program expects it to hang unpowered
+(`UNPOWERED_REST`), then eases to the slider; that slider also shows that position until moved.
+The board's startup setting stays "Ignore" (owner): limp at power-up, holding its last pulse after
+an error. Synthetic checks only; not yet tried on the board.
+
 ## November 23: the board rewired from the top down, by a wiring file
 
 Owner: the Maestro is being rewired so that the lower a servo sits on Rex the higher its channel

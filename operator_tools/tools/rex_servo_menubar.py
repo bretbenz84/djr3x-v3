@@ -85,6 +85,7 @@ log = logging.getLogger("rex_servo")
 
 from tools.throttle_sequences import Recorder, load_sequence, require_start_pose, validate_pose
 from r3x.servo_wiring import load as _load_wiring
+from r3x.servo_poses import UNPOWERED_REST as _LIMP_REST
 
 # Each servo's "ch" below is its fixed id in Rex's program; servo_wiring.toml (repository root) says
 # which board channel carries it (owner, November 23). Only the wire writes and reads translate.
@@ -287,20 +288,37 @@ def _encode_set_target(channel: int, qus: int) -> bytes:
     return bytes([_CMD_SET_TARGET, _board(channel), qus & 0x7F, (qus >> 7) & 0x7F])
 
 
+# Owner, November 23: the board stores no speed (software sets it per move), and the sliders had
+# sent none for most joints, so they moved at full speed and jerked. Every slider move now sets this
+# gentle speed and acceleration (it eases in and out) unless its servo has its own (throttle, hands).
+_GENTLE_SPEED, _GENTLE_ACCEL = 20, 4   # 500 us a second at most; a 1000 us sweep takes about 2 s.
+
+
+def _limp_start(ch: int, cfg: dict[str, int]) -> int:
+    """Where a limp servo most likely sits: where Rex's program expects it to hang unpowered."""
+    return max(cfg["min"], min(cfg["max"], dict(_LIMP_REST)[ch]))
+
+
 def _write_target(ser, cfg: dict[str, int], qus: int, *, playback=False) -> None:
     """Apply the commissioning profile before a user-requested throttle target."""
     ch = cfg["ch"]
+    cfg = {"speed": _GENTLE_SPEED, "acceleration": _GENTLE_ACCEL, **cfg}
     if not playback and _measurement_mode.is_set() and ch in _MEASUREMENT_PROFILES:
         speed, acceleration = _MEASUREMENT_PROFILES[ch]
         cfg = dict(cfg, speed=speed, acceleration=acceleration)
     qus = max(cfg["min"], min(cfg["max"], int(qus)))
     if ch in (8, 9, 10):
         invalidate_park()
+    # The board cannot ramp a limp servo's first pulse (it does not know where the servo is), so the
+    # first goes where it most likely hangs and the move to the slider then eases from there.
+    limp = not playback and _read_positions(ser, [ch]).get(ch) == 0
     commands = []
     for key, cmd in (("acceleration", _CMD_SET_ACCEL), ("speed", _CMD_SET_SPEED)):
         if key in cfg:
             value = cfg[key]
             commands.append(bytes([cmd, _board(ch), value & 0x7F, (value >> 7) & 0x7F]))
+    if limp:
+        commands.append(_encode_set_target(ch, _limp_start(ch, cfg)))
     commands.append(_encode_set_target(ch, qus))
     for command in commands:
         if ser.write(command) != len(command):
@@ -871,8 +889,9 @@ def run_app() -> int:
                 if name is None:
                     continue
                 cfg = servos[name]
-                # Position 0 = servo off (no target yet) → show startup/neutral.
-                shown = qus if qus > 0 else cfg["neutral"]
+                # Position 0 = servo off (no target yet) → show where it most likely hangs, which is
+                # where its first pulse goes when its slider is moved.
+                shown = qus if qus > 0 else _limp_start(ch, cfg)
                 shown = max(cfg["min"], min(cfg["max"], shown))
                 try:
                     self._sliders[name].value = shown

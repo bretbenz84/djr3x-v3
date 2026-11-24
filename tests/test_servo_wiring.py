@@ -86,27 +86,63 @@ class MaestroWiringTests(unittest.TestCase):
         self.assertEqual(port.written, [bytes((0x84, 3, 5000 & 127, 5000 >> 7))])
 
 
+def servo_menu():
+    import importlib
+    import sys
+    # The menu lives in operator_tools/tools, which shares its package name with the repository's
+    # tools; set the repository's aside while the menu (and its throttle_sequences) import.
+    root = str(Path(__file__).resolve().parent.parent / 'operator_tools')
+    aside = {name: sys.modules.pop(name) for name in list(sys.modules) if name == 'tools' or name.startswith('tools.')}
+    sys.path.insert(0, root)
+    try:
+        menu = importlib.import_module('tools.rex_servo_menubar')
+    finally:
+        sys.path.remove(root)
+        for name in [name for name in sys.modules if name == 'tools' or name.startswith('tools.')]:
+            del sys.modules[name]
+        sys.modules.update(aside)
+    return menu
+
+
 class MenuWiringTests(unittest.TestCase):
     def test_the_servo_menu_translates_on_the_wire(self):
-        import importlib
-        import sys
-        # The menu lives in operator_tools/tools, which shares its package name with the repository's
-        # tools; set the repository's aside while the menu (and its throttle_sequences) import.
-        root = str(Path(__file__).resolve().parent.parent / 'operator_tools')
-        aside = {name: sys.modules.pop(name) for name in list(sys.modules) if name == 'tools' or name.startswith('tools.')}
-        sys.path.insert(0, root)
-        try:
-            menu = importlib.import_module('tools.rex_servo_menubar')
-        finally:
-            sys.path.remove(root)
-            for name in [name for name in sys.modules if name == 'tools' or name.startswith('tools.')]:
-                del sys.modules[name]
-            sys.modules.update(aside)
+        menu = servo_menu()
         self.assertEqual(menu._encode_set_target(15, 6824)[:2], bytes((0x84, 13)))   # Throttle fingers on 13.
         port = Port()
         port.reset_input_buffer = lambda: None
         port.replies = {13: 6824}
         self.assertEqual(menu._read_positions(port, [15]), {15: 6824})
+
+
+class MenuGentleMoveTests(unittest.TestCase):
+    """Owner, November 23: slider moves jerked; every one is now gentle, and a limp servo starts where it hangs."""
+
+    def setUp(self):
+        self.menu = servo_menu()
+        self.port = Port()
+        self.port.reset_input_buffer = lambda: None
+        self.cfg = dict(self.menu._SERVO_DEFAULTS['neck'])   # The neck has no speed of its own.
+
+    def sent(self):
+        return [packet for packet in self.port.written if packet[0] != 0x90]
+
+    def test_a_live_servo_eases_to_the_slider(self):
+        self.port.replies = {3: 5000}   # The neck (id 0) is on channel 3, holding 5000.
+        self.menu._write_target(self.port, self.cfg, 6000)
+        self.assertEqual(self.sent(), [bytes((0x89, 3, 4, 0)), bytes((0x87, 3, 20, 0)),
+                                       bytes((0x84, 3, 6000 & 127, 6000 >> 7))])
+
+    def test_a_limp_servo_starts_where_it_hangs_then_eases(self):
+        self.port.replies = {3: 0}   # No pulse yet.
+        self.menu._write_target(self.port, self.cfg, 7000)
+        hang = dict(UNPOWERED_REST)[0]
+        self.assertEqual(self.sent()[2:], [bytes((0x84, 3, hang & 127, hang >> 7)), bytes((0x84, 3, 7000 & 127, 7000 >> 7))])
+        self.assertEqual(self.menu._limp_start(0, self.cfg), hang)
+
+    def test_a_servo_with_its_own_pace_keeps_it(self):
+        self.port.replies = {9: 6000}
+        self.menu._write_target(self.port, dict(self.menu._SERVO_DEFAULTS['throttle_shoulder']), 6100)
+        self.assertEqual(self.sent()[:2], [bytes((0x89, 9, 6, 0)), bytes((0x87, 9, 30, 0))])
 
 
 if __name__ == '__main__':
