@@ -6,6 +6,19 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 23: servo names follow the board's labels
+
+The owner renamed the Maestro channels: each arm's shoulder is its swing, the old wrist bend is the
+forearm (the arms have extra joints), and the hand's twist is the wrist. servo_wiring.toml, the servo
+menu and the joint tool now use the same names. The joint tool's fields changed: `hero_arm` →
+`hero_swing`, `poker_arm` → `poker_swing`, `hero_hand_wrist` → `hero_wrist`, `throttle_wrist` (the
+bend) → `throttle_forearm`, `throttle_twist` → `throttle_wrist`, `throttle_pincher` →
+`throttle_fingers`, `poker_wrist` (the bend) → `poker_forearm`, `poker_hand_twist` → `poker_wrist`.
+`neck` and `head_lift` keep their tool names (the board calls them Neck Turn and Neck Lift). Servo ids
+and pulses are unchanged. Owner-set board acceleration 30 on channels with no limit; Rex and the menu
+set their own pace before every move, so it only gentles moves made in Pololu's Control Center.
+Entries below keep the names of their day. Evidence: synthetic checks only.
+
 ## November 23: the snap when the servo rail comes back on (tried, undone)
 
 Owner: the board runs on the Mac's USB, the servos on a switched 7 V rail; switched off the robot

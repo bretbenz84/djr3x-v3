@@ -38,10 +38,10 @@ class HandRangeTests(unittest.TestCase):
 
     def test_the_joint_tool_reaches_both_ends(self):
         positions = {name: None for name in JOINTS}
-        targets = joint_targets({**positions, 'throttle_twist': 0, 'throttle_pincher': 100})
+        targets = joint_targets({**positions, 'throttle_wrist': 0, 'throttle_fingers': 100})
         self.assertEqual(targets, {14: 2240, 15: 7900})
         self.assertEqual({k: v for k, v in joint_percents(dict(HAND_PARK)).items()},
-                         {'throttle_twist': 69, 'throttle_pincher': 43})   # Level wrist 1451 us; fingers 1706 us (of 1500-1975).
+                         {'throttle_wrist': 69, 'throttle_fingers': 43})   # Level wrist 1451 us; fingers 1706 us (of 1500-1975).
 
     def test_the_servo_menu_mirrors_the_limits(self):
         # Read the menu's table as written: importing the app would load its serial and menu machinery.
@@ -59,7 +59,7 @@ class HandRangeTests(unittest.TestCase):
         for ch, value in TIPS_PARK:
             self.assertEqual((table[ch]['min'], table[ch]['max'], table[ch]['neutral']), (*LIMITS[ch], value))
         self.assertEqual(set(ast.literal_eval(values['_HAND_DIRECTIONS'])),
-                         {'throttle_twist', 'throttle_pincher', 'pokerhandtwst', 'herofingers'})
+                         {'throttle_wrist', 'throttle_fingers', 'poker_wrist', 'hero_fingers'})
 
 
 class HandMotionTests(unittest.TestCase):
@@ -164,19 +164,19 @@ class OtherHandsTests(unittest.TestCase):
         self.assertEqual(LIMITS[5], (3072, 8400))   # 768-2100 us.
         self.assertEqual(dict(UNPOWERED_REST)[5], 5744)   # Its mid, 1436 us.
         positions = {name: None for name in JOINTS}
-        self.assertEqual(joint_targets({**positions, 'hero_hand_wrist': 100}), {5: 8400})
-        self.assertIn(('hero_hand_wrist', {5}), HELD_PARTS)
+        self.assertEqual(joint_targets({**positions, 'hero_wrist': 100}), {5: 8400})
+        self.assertIn(('hero_wrist', {5}), HELD_PARTS)
 
     def test_range_rest_and_joint_tool(self):
         self.assertEqual({ch: LIMITS[ch] for ch in (16, 17)}, {16: (1984, 9984), 17: (4968, 6992)})   # 17: 1242-1748 us.
         self.assertEqual(dict(TIPS_PARK), {16: 5984, 17: 6000})   # 1496 us (the middle) and the fingers' mid, 1500 us.
         self.assertEqual({ch: dict(UNPOWERED_REST)[ch] for ch in (16, 17)}, dict(TIPS_PARK))
-        self.assertIn(('poker_hand_twist', {16}), HELD_PARTS)
+        self.assertIn(('poker_wrist', {16}), HELD_PARTS)
         self.assertIn(('hero_fingers', {17}), HELD_PARTS)
         self.assertTrue({16, 17} <= set(ARM_HOLD))
         positions = {name: None for name in JOINTS}
-        self.assertEqual(joint_targets({**positions, 'poker_hand_twist': 0, 'hero_fingers': 100}), {16: 1984, 17: 6992})
-        self.assertEqual(joint_percents(dict(TIPS_PARK)), {'poker_hand_twist': 50, 'hero_fingers': 51})
+        self.assertEqual(joint_targets({**positions, 'poker_wrist': 0, 'hero_fingers': 100}), {16: 1984, 17: 6992})
+        self.assertEqual(joint_percents(dict(TIPS_PARK)), {'poker_wrist': 50, 'hero_fingers': 51})
 
     def test_wake_and_shutdown_bring_them_to_rest(self):
         pose = awake()

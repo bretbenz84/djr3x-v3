@@ -121,7 +121,7 @@ class MenuGentleMoveTests(unittest.TestCase):
         self.menu = servo_menu()
         self.port = Port()
         self.port.reset_input_buffer = lambda: None
-        self.cfg = dict(self.menu._SERVO_DEFAULTS['neck'])   # The neck has no speed of its own.
+        self.cfg = dict(self.menu._SERVO_DEFAULTS['neck_turn'])   # The neck has no speed of its own.
 
     def sent(self):
         return [packet for packet in self.port.written if packet[0] != 0x90]

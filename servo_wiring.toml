@@ -5,7 +5,8 @@
 # it never changes when the wiring does. Each id and each channel 0-17 appears exactly once.
 #
 # Owner, November 23: laid out from the top of Rex down, each arm from the body out to the hand,
-# so the lower a servo sits on him the higher its channel.
+# so the lower a servo sits on him the higher its channel. The names are the board's own labels
+# (renamed that evening: each arm's swing, then forearm, then wrist, the hand's twist).
 
 [servos.visor]
 id = 3
@@ -19,15 +20,15 @@ channel = 1
 id = 11
 channel = 2
 
-[servos.neck]
+[servos.neck_turn]
 id = 0
 channel = 3
 
-[servos.head_lift]
+[servos.neck_lift]
 id = 1
 channel = 4
 
-[servos.hero_arm]          # The shoulder swing that carries the microphones.
+[servos.hero_swing]         # Carries the microphones.
 id = 7
 channel = 5
 
@@ -35,7 +36,7 @@ channel = 5
 id = 4
 channel = 6
 
-[servos.hero_hand_wrist]
+[servos.hero_wrist]
 id = 5
 channel = 7
 
@@ -43,7 +44,7 @@ channel = 7
 id = 17
 channel = 8
 
-[servos.throttle_shoulder]  # The throttle's shoulder, elbow and wrist must stay on three channels in a row.
+[servos.throttle_shoulder]  # The throttle's shoulder, elbow and forearm must stay on three channels in a row.
 id = 8
 channel = 9
 
@@ -51,11 +52,11 @@ channel = 9
 id = 9
 channel = 10
 
-[servos.throttle_wrist]
+[servos.throttle_forearm]
 id = 10
 channel = 11
 
-[servos.throttle_hand_twist]
+[servos.throttle_wrist]
 id = 14
 channel = 12
 
@@ -63,7 +64,7 @@ channel = 12
 id = 15
 channel = 13
 
-[servos.poker_arm]          # The swing.
+[servos.poker_swing]
 id = 6
 channel = 14
 
@@ -71,10 +72,10 @@ channel = 14
 id = 12
 channel = 15
 
-[servos.poker_wrist]
+[servos.poker_forearm]
 id = 13
 channel = 16
 
-[servos.poker_hand_twist]
+[servos.poker_wrist]
 id = 16
 channel = 17

@@ -176,19 +176,19 @@ JOINT_RANGES = {
     'neck': (0, *LIMITS[0]), 'head_lift': (1, *LIMITS[1]),
     'head_pitch': ('pitch', -1., 1.), 'head_tilt': ('tilt', -1., 1.),
     'visor': (3, VISOR_DOWN, 4544),
-    'hero_elbow': (4, 6300, 7424), 'hero_hand_wrist': (5, *LIMITS[5]), 'poker_arm': (6, 3968, 8000),
-    'hero_arm': (7, 3968, 8000),
-    'throttle_shoulder': (8, *LIMITS[8]), 'throttle_elbow': (9, 2048, 9984), 'throttle_wrist': (10, 2048, 9984),
-    'poker_elbow': (12, POKER_ELBOW_DOWN, POKER_ELBOW_UP), 'poker_wrist': (13, POKER_WRIST_DOWN, POKER_WRIST_IN),
-    'throttle_twist': (14, *LIMITS[14]), 'throttle_pincher': (15, *LIMITS[15]),
-    'poker_hand_twist': (POKER_TWIST, *LIMITS[POKER_TWIST]), 'hero_fingers': (HERO_FINGERS, *LIMITS[HERO_FINGERS]),
+    'hero_elbow': (4, 6300, 7424), 'hero_wrist': (5, *LIMITS[5]), 'poker_swing': (6, 3968, 8000),
+    'hero_swing': (7, 3968, 8000),
+    'throttle_shoulder': (8, *LIMITS[8]), 'throttle_elbow': (9, 2048, 9984), 'throttle_forearm': (10, 2048, 9984),
+    'poker_elbow': (12, POKER_ELBOW_DOWN, POKER_ELBOW_UP), 'poker_forearm': (13, POKER_WRIST_DOWN, POKER_WRIST_IN),
+    'throttle_wrist': (14, *LIMITS[14]), 'throttle_fingers': (15, *LIMITS[15]),
+    'poker_wrist': (POKER_TWIST, *LIMITS[POKER_TWIST]), 'hero_fingers': (HERO_FINGERS, *LIMITS[HERO_FINGERS]),
 }
 JOINTS = tuple(JOINT_RANGES)
 # Body parts named to the model when their channels are held.
 HELD_PARTS = (('neck', {0}), ('head_lift', {1}), ('head_pitch_and_tilt', {2, 11}), ('visor', {3}),
-              ('hero_elbow', {4}), ('hero_hand_wrist', {5}), ('poker_arm', {6}), ('hero_arm', {7}),
-              ('throttle_arm', {8, 9, 10}), ('poker_elbow_and_wrist', {12, 13}), ('throttle_hand', {14, 15}),
-              ('poker_hand_twist', {POKER_TWIST}), ('hero_fingers', {HERO_FINGERS}))
+              ('hero_elbow', {4}), ('hero_wrist', {5}), ('poker_swing', {6}), ('hero_swing', {7}),
+              ('throttle_arm', {8, 9, 10}), ('poker_elbow_and_forearm', {12, 13}), ('throttle_hand', {14, 15}),
+              ('poker_wrist', {POKER_TWIST}), ('hero_fingers', {HERO_FINGERS}))
 
 
 def joint_targets(positions):

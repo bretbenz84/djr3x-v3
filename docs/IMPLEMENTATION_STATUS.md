@@ -349,7 +349,7 @@ pincher (15), not yet assembled or set up on the Maestro.
 - **Built:** the Maestro's programmed limits (November 20: wrist 560–1856 µs; November 21: fingers 1530–1975 µs)
   with the park at the wrist's mid 1451 µs and the fingers' mid 1706 µs; a small twist and finger flex with
   each idle throttle move (back to the middle as the arm rests), a livelier lane of its own while he speaks;
-  held with its arm (hold, drive stance, kept beside an obstacle); `throttle_twist`/`throttle_pincher` in the
+  held with its arm (hold, drive stance, kept beside an obstacle); `throttle_wrist`/`throttle_fingers` in the
   joint tool, the dashboard and the servo menu (with nudges).
 - **Evidence:** 10 synthetic checks; nothing has moved.
 - **Open:** which way each end moves; how the motion looks on the robot; any collision between the hand and the body.

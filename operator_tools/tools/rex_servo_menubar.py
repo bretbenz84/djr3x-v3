@@ -48,9 +48,9 @@ November 19, 2026: the throttle hand gains a wrist twist (ch 14, the Maestro's "
 and a two-finger pincher (ch 15, "throttlefingers"). November 20: their programmed Maestro limits,
 560–1856 µs and 1264–1856 µs. Both get nudges (in measurement mode).
 
-November 22, 2026: the poker hand's twist (ch 16, "pokerhandtwst") and the hero hand's fingers
-(ch 17, "herofingers"), each 496–2496 µs, neutral at the middle (1496 µs), with nudges. Later the
-same day: the hero fingers 1242–1748 µs (mid 1500), and channel 5 (was "hand") is "hero_hand_wrist",
+November 22, 2026: the poker hand's twist (ch 16, "poker_wrist") and the hero hand's fingers
+(ch 17, "hero_fingers"), each 496–2496 µs, neutral at the middle (1496 µs), with nudges. Later the
+same day: the hero fingers 1242–1748 µs (mid 1500), and channel 5 (was "hand") is "hero_wrist",
 768–2100 µs (mid 1436).
 
 Run directly for debugging:
@@ -113,57 +113,57 @@ _CMD_GO_HOME = 0xA2
 
 # Mirror of src/r3x/servo_poses.py LIMITS (q-µs). Keep in sync when the robot changes.
 _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
-    "neck":     {"ch": 0, "min": 1984, "max": 8960, "neutral": 5472},
-    "headlift": {"ch": 1, "min": 3328, "max": 9984, "neutral": 4372},  # 832–2496 µs (Nov 12), normal 1093 (Nov 15)
+    "neck_turn":     {"ch": 0, "min": 1984, "max": 8960, "neutral": 5472},
+    "neck_lift": {"ch": 1, "min": 3328, "max": 9984, "neutral": 4372},  # 832–2496 µs (Nov 12), normal 1093 (Nov 15)
     # Two-servo head (October 10): measured extremes are the limits; neutral is the level pose.
-    "headleft": {"ch": 2, "min": 4032, "max": 8128, "neutral": 5832},   # 1008–2032 µs, level 1458
-    "headright": {"ch": 11, "min": 5248, "max": 7616, "neutral": 6480}, # 1312–1904 µs, level 1620
+    "head_left": {"ch": 2, "min": 4032, "max": 8128, "neutral": 5832},   # 1008–2032 µs, level 1458
+    "head_right": {"ch": 11, "min": 5248, "max": 7616, "neutral": 6480}, # 1312–1904 µs, level 1620
     "visor":    {"ch": 3, "min": 4544, "max": 6976, "neutral": 5732},  # inverted: 1433 µs open, 1136 surprise (min), 1744 closed
-    "elbow":    {"ch": 4, "min": 6300, "max": 7424, "neutral": 6720},  # 7424 = the Maestro's own stored channel limit (1856 us)
-    "hero_hand_wrist": {"ch": 5, "min": 3072, "max": 8400, "neutral": 5744},  # 768–2100 µs, mid 1436 (Nov 22)
-    "pokerarm": {"ch": 6, "min": 3968, "max": 8000, "neutral": 6000},
-    "pokerelbow": {"ch": 12, "min": 3456, "max": 7680, "neutral": 3456},  # 864 (down) – 1920 (up) µs
-    "pokerwrist": {"ch": 13, "min": 1984, "max": 9944, "neutral": 5760},  # 496 (down) – 2486 (up inward) µs; straight 1440
-    "pokerhandtwst": {"ch": 16, "min": 1984, "max": 9984, "neutral": 5984,  # 496–2496 µs (Nov 22); neutral the middle
+    "hero_elbow":    {"ch": 4, "min": 6300, "max": 7424, "neutral": 6720},  # 7424 = the Maestro's own stored channel limit (1856 us)
+    "hero_wrist": {"ch": 5, "min": 3072, "max": 8400, "neutral": 5744},  # 768–2100 µs, mid 1436 (Nov 22)
+    "poker_swing": {"ch": 6, "min": 3968, "max": 8000, "neutral": 6000},
+    "poker_elbow": {"ch": 12, "min": 3456, "max": 7680, "neutral": 3456},  # 864 (down) – 1920 (up) µs
+    "poker_forearm": {"ch": 13, "min": 1984, "max": 9944, "neutral": 5760},  # 496 (down) – 2486 (up inward) µs; straight 1440
+    "poker_wrist": {"ch": 16, "min": 1984, "max": 9984, "neutral": 5984,  # 496–2496 µs (Nov 22); neutral the middle
                       "speed": 20, "acceleration": 4},
-    "heroarm":  {"ch": 7, "min": 3968, "max": 8000, "neutral": 6000},
-    "herofingers": {"ch": 17, "min": 4968, "max": 6992, "neutral": 6000,  # 1242–1748 µs, mid 1500 (Nov 22)
+    "hero_swing":  {"ch": 7, "min": 3968, "max": 8000, "neutral": 6000},
+    "hero_fingers": {"ch": 17, "min": 4968, "max": 6992, "neutral": 6000,  # 1242–1748 µs, mid 1500 (Nov 22)
                     "speed": 20, "acceleration": 4},
     # Neutral is only an unsent slider placeholder, never a startup command.
     "throttle_shoulder": {"ch": 8, "min": 4280, "max": 7840, "neutral": 6000,  # 1070-1960 us (Nov 22); 1850 straight down
                           "speed": 30, "acceleration": 6},
     "throttle_elbow": {"ch": 9, "min": 2000, "max": 10000, "neutral": 6000,
                        "speed": 70, "acceleration": 12},
-    "throttle_wrist": {"ch": 10, "min": 2000, "max": 10000, "neutral": 6000,
+    "throttle_forearm": {"ch": 10, "min": 2000, "max": 10000, "neutral": 6000,
                        "speed": 70, "acceleration": 12},
     # Throttle hand (Nov 20): the Maestro's programmed limits; neutral is the park (wrist middle, fingers 1525 us).
-    "throttle_twist": {"ch": 14, "min": 2240, "max": 7424, "neutral": 5804,   # Maestro "throttlehandwrst", 560-1856 us
+    "throttle_wrist": {"ch": 14, "min": 2240, "max": 7424, "neutral": 5804,   # Maestro "throttlehandwrst", 560-1856 us
                        "speed": 20, "acceleration": 4},
-    "throttle_pincher": {"ch": 15, "min": 6000, "max": 7900, "neutral": 6824,  # Maestro "throttlefingers", 1500-1975 us
+    "throttle_fingers": {"ch": 15, "min": 6000, "max": 7900, "neutral": 6824,  # Maestro "throttlefingers", 1500-1975 us
                          "speed": 20, "acceleration": 4},
 }
 _THROTTLE_DIRECTIONS = {
     "throttle_shoulder": "low ↑ / high ↓",
     "throttle_elbow": "low ↓ / high ↑",
-    "throttle_wrist": "low ↑ / high ↓",
+    "throttle_forearm": "low ↑ / high ↓",
 }
 # The throttle hand's directions are not measured yet; its joints get nudges too.
 _HAND_DIRECTIONS = {
-    "throttle_twist": "wrist twist (direction unmeasured)",
-    "throttle_pincher": "fingers (direction unmeasured)",
-    "pokerhandtwst": "poker hand twist (direction unmeasured)",
-    "herofingers": "hero fingers (direction unmeasured)",
+    "throttle_wrist": "wrist twist (direction unmeasured)",
+    "throttle_fingers": "fingers (direction unmeasured)",
+    "poker_wrist": "poker hand twist (direction unmeasured)",
+    "hero_fingers": "hero fingers (direction unmeasured)",
 }
 _NUDGED = (*_THROTTLE_DIRECTIONS, *_HAND_DIRECTIONS)
 # Slider label hints for the reworked joints (the throttle hints above also get nudges).
 _DIRECTIONS = {
     **_THROTTLE_DIRECTIONS,
     **_HAND_DIRECTIONS,
-    "headleft": "low ↓ / high ↑ (pair with headright)",
-    "headright": "low ↑ / high ↓ (pair with headleft)",
+    "head_left": "low ↓ / high ↑ (pair with head_right)",
+    "head_right": "low ↑ / high ↓ (pair with head_left)",
     "visor": "low ↑ / high ↓ (inverted)",
-    "pokerelbow": "low ↓ / high ↑ (ceiling drops as wrist curls in)",
-    "pokerwrist": "low ↓ / high ↑ inward",
+    "poker_elbow": "low ↓ / high ↑ (ceiling drops as forearm curls in)",
+    "poker_forearm": "low ↓ / high ↑ inward",
 }
 
 

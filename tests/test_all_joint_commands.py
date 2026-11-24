@@ -64,7 +64,7 @@ class JointCommands(MemoryFixture):
         self.assertFalse(self.robot.owner.microphone_held_during(self.clock(),self.clock()+1))
         self.brain.text='Still holding.'
         self.turn('Thanks.')
-        self.assertIn('hero_arm',self.brain.snapshots[-1].context['robot_pose_state']['held_parts'])
+        self.assertIn('hero_swing',self.brain.snapshots[-1].context['robot_pose_state']['held_parts'])
         self.assertEqual(self.execute('pose','release_poses').status,'pulses_reached')
         self.assertFalse(self.robot.owner.held_channels)
         self.clock.wait(2)
@@ -73,7 +73,7 @@ class JointCommands(MemoryFixture):
         self.assertTrue(self.robot.owner.microphone_held_during(self.clock(),self.clock()+1))
 
     def test_partial_throttle_request_is_batched_and_unsafe_route_writes_nothing(self):
-        self.setup_robot(ToolCall('j','set_robot_joints',{'positions':positions(throttle_wrist=40),'text':None}))
+        self.setup_robot(ToolCall('j','set_robot_joints',{'positions':positions(throttle_forearm=40),'text':None}))
         before={ch:self.port.pose[ch] for ch in THROTTLE}
         self.assertEqual(self.turn('Move your throttle wrist.').status,'suppressed')
         self.assertEqual(self.port.pose[8],before[8]);self.assertEqual(self.port.pose[9],before[9])
@@ -95,7 +95,7 @@ class JointCommands(MemoryFixture):
             self.state.propose_pose(call,{'state_revision':self.store.revision},Cancellation())
 
     def test_joint_cancellation_and_shutdown(self):
-        self.setup_robot(ToolCall('j','set_robot_joints',{'positions':positions(visor=0,hero_arm=25),'text':None}))
+        self.setup_robot(ToolCall('j','set_robot_joints',{'positions':positions(visor=0,hero_swing=25),'text':None}))
         self.turn('Lower your visor and hold your hero arm.')
         from r3x.servo_poses import VISOR_DOWN
         self.assertEqual(self.port.pose[3],VISOR_DOWN)   # Inverted visor: 0 % is the high pulse.
