@@ -371,22 +371,6 @@ class ServoOwner:
             self._motion.clear()
             self._lock.release()
 
-    def relax(self) -> tuple[int, ...]:
-        """After a park: stop sending pulses on every channel but a hand still holding something.
-
-        Owner, November 23: the board runs on the Mac's USB while the servos have their own switched
-        7 V rail. With pulses still going out after a shutdown, switching the rail back on snapped
-        every servo to them at full speed. Limp, they wait for the next start, which brings each in
-        from where it hangs (_energize_unpowered)."""
-        with self._lock:
-            if self._bus is None or self.state != 'parked':
-                raise ProviderFailure('RelaxNeedsPark')
-            channels = tuple(sorted(set(LIMITS) - set(self.grip_channels)))
-            self._bus.off(channels)
-            for ch in channels:
-                self.commanded[ch] = 0   # What the board now reads back: no pulse.
-            return channels
-
     def close(self) -> None:
         self.cancel()
         if not self._lock.acquire(timeout=2.):

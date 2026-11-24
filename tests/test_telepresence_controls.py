@@ -98,7 +98,7 @@ class StanceTests(unittest.TestCase):
         self.assertEqual({ch: self.port.pose[ch] for ch in ARMS}, arms)   # Only the head returns.
         self.robot.close()
         # Owner, November 16: park positions when the call ends, the raised poker arm included.
-        self.assertEqual(self.port.last_pulse, dict(UNPOWERED_REST))   # Parked, then left limp.
+        self.assertEqual(self.port.pose, dict(UNPOWERED_REST))
         self.assertEqual(self.robot.owner.state, 'closed')
 
     def test_the_head_worker_aims_through_the_servo_owner_and_reports_where_it_got_to(self):

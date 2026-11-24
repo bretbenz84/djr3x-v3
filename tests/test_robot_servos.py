@@ -30,29 +30,6 @@ class RobotServoTests(unittest.TestCase):
         if not self.robot.closed:
             self.robot.close()
 
-    def test_shutdown_leaves_every_servo_limp_and_the_next_start_brings_them_in(self):
-        # Owner, November 23: the board stays on the Mac's USB while the servo rail is switched off;
-        # pulses still going out snapped every servo when the rail came back on.
-        self.robot.start()
-        self.robot.close()
-        self.assertEqual(self.port.packets[-len(LIMITS):], [bytes((0x84, ch, 0, 0)) for ch in sorted(LIMITS)])
-        self.assertEqual(set(self.port.pose.values()), {0})
-        port, clock = self.port, Clock()
-        again = RobotServos('/dev/cu.synthetic', open_port=lambda: port, clock=clock, wait=clock.wait)
-        again.owner.wait = clock.wait
-        again.start()
-        self.assertEqual(again.owner.energized_channels, tuple(sorted(LIMITS)))
-        again.close()
-
-    def test_a_hand_still_holding_stays_powered_after_shutdown(self):
-        from r3x.servo_poses import THROTTLE, THROTTLE_HAND
-        self.robot.start()
-        self.robot.owner.grip_channels = frozenset((*THROTTLE, *THROTTLE_HAND))
-        self.robot.close()
-        off = {packet[1] for packet in self.port.packets if packet[0] == 0x84 and packet[2:] == bytes((0, 0))}
-        self.assertEqual(off, set(LIMITS) - {*THROTTLE, *THROTTLE_HAND})
-        self.assertTrue(all(self.port.pose[ch] for ch in (*THROTTLE, *THROTTLE_HAND)))
-
     def test_wake_and_hold_precede_capture_park_precedes_port_close(self):
         events=[]
         robot=self.robot
@@ -74,9 +51,8 @@ class RobotServoTests(unittest.TestCase):
             owner.close()
         self.assertEqual(events,['capture_started','capture_cancelled','capture_closed'])
         self.assertTrue(self.port.closed)
-        self.assertEqual(self.port.last_pulse[1],LIMITS[1][0])   # Parked, then left limp.
-        self.assertEqual(self.port.last_pulse[8],dict(PARK)[8])
-        self.assertEqual(self.port.pose[1],0)
+        self.assertEqual(self.port.pose[1],LIMITS[1][0])
+        self.assertEqual(self.port.pose[8],dict(PARK)[8])
 
     def test_he_wakes_with_the_visor_shut_and_it_goes_up_just_before_the_ready_line(self):
         # Owner, November 15: the visor stays down over his eyes through the wake and the
@@ -202,7 +178,7 @@ class RobotServoTests(unittest.TestCase):
         self.robot.close()
         self.assertEqual([kind for kind,_ in events],['lights','sound'])
         self.assertEqual(events[1][1][1],awake[1])    # The sound starts with the head still up: it plays over the park.
-        self.assertEqual(self.port.last_pulse[1],LIMITS[1][0])
+        self.assertEqual(self.port.pose[1],LIMITS[1][0])
         self.assertTrue(self.port.closed)
         def broken(): raise RuntimeError('no speaker')
         robot=RobotServos('/dev/cu.synthetic',open_port=lambda:self.port,clock=self.clock,wait=self.clock.wait)
@@ -212,7 +188,7 @@ class RobotServoTests(unittest.TestCase):
         robot.on_shutdown=broken
         robot.close()                                 # A failed sound never stops the park.
         self.assertTrue(robot.closed)
-        self.assertEqual(self.port.last_pulse[1],LIMITS[1][0])
+        self.assertEqual(self.port.pose[1],LIMITS[1][0])
 
     def test_faulted_link_reports_park_failure_but_closes_port(self):
         self.robot.start()

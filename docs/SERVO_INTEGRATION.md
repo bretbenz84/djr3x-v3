@@ -6,18 +6,15 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
-## November 23: limp after shutdown, so the servo rail's switch moves nothing
+## November 23: the snap when the servo rail comes back on (tried, undone)
 
-Owner: the board runs on the Mac's USB, the servos on a switched 7 V rail. Switched off, the robot
-sags; switched back on, every servo snapped at full speed to the parked pulses the board was still
-sending. A board speed limit cannot slow that (the board is not changing its pulse; the servo is
-catching up to it), and neither can the board's startup/error setting, which never sees the rail.
-**Changed:** after a successful shutdown park (`RobotServos.close`) and the operator park, every
-channel is sent a target of 0 (`ServoOwner.relax`, `Maestro.off`), except a throttle hand still
-holding something; the trace says `servos_relaxed`. The rail can then be switched freely, and the
-next start brings each limp servo in from where it hangs (`_energize_unpowered`). Its first pulse is
-still unramped by nature; how far it moves is the gap between `UNPOWERED_REST` and where the servo
-actually sags. Synthetic checks only; not yet tried on the robot.
+Owner: the board runs on the Mac's USB, the servos on a switched 7 V rail; switched off the robot
+sags, and switched back on every servo snaps at full speed to the parked pulses the board is still
+sending. Neither a board speed limit nor its startup/error setting can slow that (the board is not
+changing its pulse, and it never sees the rail). Leaving every servo limp after the shutdown park was
+tried and undone the same day (owner): with the rail still on, the robot then sagged at every
+shutdown and snapped back at every start. Software can only move the one unramped snap in time, not
+remove it, since the board cannot know where a servo sits.
 
 ## November 23: gentle slider moves in the servo menu
 
