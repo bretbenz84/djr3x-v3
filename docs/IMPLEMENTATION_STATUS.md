@@ -85,7 +85,8 @@ Then LED firmware 0.8.0 (flashed; it ran in start `c5de246d`, look not yet repor
 the startup sound: dark for its first two seconds, a light or two twinkling with its loudness as heard
 (measured from the clip), then the centre-out sparkle from the moment the sound comes back up at 6.5 s.
 
-November 24, owner requests, LED firmware 0.9.0 (flashed, not yet seen): the resting mouth glows in its
+November 24, owner requests, LED firmware 0.9.0 and 0.9.1 (flashed; shown once with lights only, "I love
+it all", then the draining meter's drops made to follow one another without a rest, not yet seen): the resting mouth glows in its
 middle only, with dark edges; the talking bars are measured against how loud his voice has lately been,
 so a quiet line fills the mouth like a loud one, and each sound rolls out from the middle; the chest's
 charge meter moves as a whole, draining downwards off the charger and filling upwards on it; and the

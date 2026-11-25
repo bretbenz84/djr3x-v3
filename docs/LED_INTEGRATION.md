@@ -542,5 +542,19 @@ library with a fake clock (13 new and 4 rewritten for the four changes; the fram
 the strip, not how it looks). The talking measurements replay saved audio through that stand-in, not the
 board. The dashboard checks pass (one new, needing numpy). Compiled (426,412 bytes), flashed to `led_port`
 under the hardware hand-over; the board answers `hello djr3x_leds 0.9.0` and the battery menu then
-repainted the meter (`C:CHARGE:86:0`, so the draining meter was showing). **Not yet seen by the owner:**
-all four, and the chest's start in a real startup.
+repainted the meter (`C:CHARGE:86:0`, so the draining meter was showing).
+
+Shown to the owner the same evening, lights only (a startup timing itself, the resting mouth, three cached
+lines and a happy one replayed silently as levels, the meter as if charging at 40 %): "I love it all",
+with one change. **Not yet seen:** the chest's start in a real startup, and the mouth on a line he hears.
+
+### Drops without a break: firmware 0.9.1 (still November 24)
+
+Owner, on the draining meter: "I noticed a few second delay between discharge runner gradient, can it just
+be continuous without a break?" A drop fell every 4.4 s and took about two, so the meter rested between
+them. Now the next drop leaves the top lit light as the last one runs out at the bottom: 2.1 s apart on a
+full meter, less on a shorter one, and never under 1.4 s, a short meter's drop falling more slowly so a
+nearly empty meter does not flutter. Evidence: the same 144 firmware checks, the draining ones rewritten
+(a drop always on the meter, breaks of 0.2 s at most as one forms; the short meter's pace). Compiled
+(426,456 bytes), flashed, the board answers `hello djr3x_leds 0.9.1`, and the battery menu repainted the
+meter (`C:CHARGE:85:0`). **Not yet seen by the owner.**

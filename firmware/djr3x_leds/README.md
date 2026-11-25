@@ -54,7 +54,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Version 0.9.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 426,412 bytes of
+Version 0.9.1, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 426,456 bytes of
 program, 27,152 bytes of globals. Each strip has its own FastLED controller and brightness,
 since the library's board-wide show, brightness and clear would act on both.
 
@@ -187,10 +187,12 @@ November 24: "discharging just blinks the last LED but it would be cool if the w
 it was draining or charging") the whole meter moves, in brightness only, so the level still reads by where
 the colours stop:
 
-- **Off the charger (`:0`), draining.** A slow ripple runs down the lit lights all the time. Every 4.4 s
-  the top lit light swells, then lets go of a drop: a band of brighter light that falls from it through
-  every lit light, gathering speed, and runs out at the bottom, while the top light is left dim and
-  slowly comes back. Nothing above the fill line is ever lit.
+- **Off the charger (`:0`), draining.** A slow ripple runs down the lit lights all the time, and one drop
+  is always falling: a band of brighter light that leaves the top lit light, falls through every lit
+  light, gathering speed, and runs out at the bottom just as the next one leaves the top (0.9.1; the
+  owner, on seeing 0.9.0's drop every 4.4 s with a rest between: "can it just be continuous without a
+  break?"). A full meter's drop takes 2.1 s, a short meter's at least 1.4 s. The top light is left dim as
+  its drop goes and swells until the next. Nothing above the fill line is ever lit.
 - **On the charger (`:1`), filling.** The ripple runs up. Every 2.4 s a band of brighter light enters at
   the bottom and climbs through the lit lights; above the fill line it goes on to the top as a faint glow
   in each empty light's own colour. At 100 % only the ripple is left.

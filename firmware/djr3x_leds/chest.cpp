@@ -936,10 +936,13 @@ static uint8_t chargeFilled() {
 // Every light keeps its own colour and only its brightness moves, so the level still reads by
 // where the colours stop. Off the charger nothing above the fill line is ever lit.
 //
-//   Draining (off the charger): a slow ripple runs DOWN the lit lights all the time. Every
-//   DRAIN_CYCLE_MS the top lit light swells, then lets go of a drop: a band of brighter light
-//   that falls from it through every lit light, gathering speed, and runs out at the bottom,
-//   while the top light is left dim and slowly comes back.
+//   Draining (off the charger): a slow ripple runs DOWN the lit lights all the time, and one
+//   drop is always falling: a band of brighter light that leaves the top lit light, falls
+//   through every lit light, gathering speed, and runs out at the bottom just as the next one
+//   leaves the top (owner, the same day, after seeing a drop every 4.4 s with a rest between:
+//   "can it just be continuous without a break?"). The top light is left dim as its drop goes
+//   and swells again until the next. A full meter's drop takes 2.1 s; a short meter's falls
+//   more slowly, DRAIN_MIN_MS at least, so a nearly empty meter does not flutter.
 //
 //   Filling (on the charger): the ripple runs UP. Every FILL_CYCLE_MS a band of brighter light
 //   enters at the bottom and climbs through the lit lights; above the fill line it goes on to
@@ -955,9 +958,9 @@ static uint8_t chargeFilled() {
 #define FLOW_LIFT         0.85f      // a lit light under the middle of a band is this much brighter
 #define FLOW_GHOST        0.30f      // an empty light under a climbing band: this share of its colour
 #define DRAIN_RIPPLE_MS   2600UL     // the ripple travels one crest's length in this time
-#define DRAIN_CYCLE_MS    4400UL     // one drop falls this often
-#define DRAIN_GATHER_MS    900UL     // the top light swells for this long, then lets go
-#define DRAIN_SWELL       0.5f       // ... by this much
+#define DRAIN_MIN_MS      1400UL     // a drop takes at least this long from the top to the bottom
+#define DRAIN_GONE_MS      250UL     // a drop forms, and the top light dims, over this long
+#define DRAIN_SWELL       0.5f       // the top light swells by this much before it lets go
 #define DRAIN_LEFT        0.30f      // the top light just after the drop has gone, as a share of itself
 #define DRAIN_SPEED       8.0f       // levels a second as the drop leaves
 #define DRAIN_GRAVITY     3.0f       // ... and how much faster each second
@@ -1003,7 +1006,7 @@ void chargeGauge() {
 	const float ease = t >= CHARGE_SETTLE_MS ? 1.0f : (float)t / (float)CHARGE_SETTLE_MS;
 
 	float band[2] = { -100.0f, -100.0f };    // the middles of the bands now on the meter, in levels
-	float strength = 1.0f;                   // how much of a band there is: a drop forms as it leaves
+	float strength = 1.0f;                   // how much of the newest band there is: a drop forms as it leaves
 	float topNow = 1.0f;                     // the top lit light, as a share of an ordinary one
 	float ripple;                            // the ripple's phase at level 0, in turns
 	if (chargeConnected) {
@@ -1015,26 +1018,30 @@ void chargeGauge() {
 		}
 	} else {
 		ripple = (float)(t % DRAIN_RIPPLE_MS) / (float)DRAIN_RIPPLE_MS;
-		const uint32_t into = t % DRAIN_CYCLE_MS;
-		if (into < DRAIN_GATHER_MS) {
-			// The top light swells before it lets go.
-			const float gather = (float)into / (float)DRAIN_GATHER_MS;
-			topNow = 1.0f + DRAIN_SWELL * gather * gather;
-		} else {
-			const float fall = (into - DRAIN_GATHER_MS) * 0.001f;
-			band[0] = (float)filled - 1.0f - DRAIN_SPEED * fall - 0.5f * DRAIN_GRAVITY * fall * fall;
-			// The drop has gone: the top light is left dim within a quarter second, then
-			// comes back over the rest of the cycle.
-			const float gone = fall < 0.25f ? fall * 4.0f : 1.0f;
-			strength = gone;                     // its light goes into the drop
-			const float back = (float)(into - DRAIN_GATHER_MS) / (float)(DRAIN_CYCLE_MS - DRAIN_GATHER_MS);
-			const float left = DRAIN_LEFT + (1.0f - DRAIN_LEFT) * back * back;
-			topNow = (1.0f + DRAIN_SWELL) + (left - (1.0f + DRAIN_SWELL)) * gone;
+		// One drop is always falling: the next leaves the top as the last one's middle passes
+		// one light below the bottom, so its tail is still running out as the new one forms.
+		const float reach = (float)filled;
+		const float lasts = (-DRAIN_SPEED + sqrtf(DRAIN_SPEED * DRAIN_SPEED + 2.0f * DRAIN_GRAVITY * reach)) / DRAIN_GRAVITY;
+		uint32_t cycle = (uint32_t)(lasts * 1000.0f);
+		float pace = 1.0f;                       // a short meter's drop falls more slowly
+		if (cycle < DRAIN_MIN_MS) { pace = (float)cycle / (float)DRAIN_MIN_MS;  cycle = DRAIN_MIN_MS; }
+		const uint32_t into = t % cycle;
+		for (uint8_t k = 0; k < 2; k++) {        // the drop now falling, and the one before it
+			if (k && t < cycle) break;
+			const float fall = (into + k * cycle) * 0.001f * pace;
+			band[k] = (float)filled - 1.0f - DRAIN_SPEED * fall - 0.5f * DRAIN_GRAVITY * fall * fall;
 		}
+		// The top light's own light goes into the drop: it is left dim within DRAIN_GONE_MS,
+		// then swells until it lets the next one go.
+		const float gone = into < DRAIN_GONE_MS ? (float)into / (float)DRAIN_GONE_MS : 1.0f;
+		const float part = (float)into / (float)cycle;
+		const float back = DRAIN_LEFT + (1.0f + DRAIN_SWELL - DRAIN_LEFT) * part * part;
+		strength = gone;
+		topNow = (1.0f + DRAIN_SWELL) + (back - (1.0f + DRAIN_SWELL)) * gone;
 	}
 
 	for (uint8_t level = 0; level < 24; level++) {
-		float weight = (bandWeight((float)level, band[0]) + bandWeight((float)level, band[1])) * strength;
+		float weight = bandWeight((float)level, band[0]) * strength + bandWeight((float)level, band[1]);
 		if (weight > 1.0f) weight = 1.0f;
 		float by;
 		if (level < filled) {

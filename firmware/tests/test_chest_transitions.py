@@ -451,19 +451,32 @@ class ChestTransitionTests(unittest.TestCase):
         # Nothing above the fill line, nothing off the meter: the charge still reads by where the lights stop.
         self.assertEqual(max(max(series[level]) for level in range(top + 1, 24)), 0)
         self.assertEqual(max(light(f, [i for i in range(98) if i not in METER]) for t, f in frames), 0)
-        # A drop leaves the top lit light every 4.4 s and falls through every light to the bottom.
-        cycle = 4400
-        first = 2000 + 2 * cycle                                       # The sweep, then whole cycles.
-        for start in (first, first + cycle):
-            crests = self.crest_times(frames, series, range(top - 1, -1, -1), start + 900, start + cycle)
+        # One drop is always falling (owner, the same day: "can it just be continuous without a break?"; there
+        # was one every 4.4 s, with a rest of a second and more between). A drop leaves the top lit light,
+        # falls through every light to the bottom, and the next leaves as it runs out: 1.63 s apart here.
+        cycle = 1628
+        first = 2000 + 4 * cycle                                       # The sweep, then whole cycles.
+        for start in (first, first + cycle, first + 2 * cycle):
+            crests = self.crest_times(frames, series, range(top - 3, -1, -1), start, start + cycle)
             self.assertEqual(crests, sorted(crests))                   # Downwards, light by light,
-            self.assertTrue(1000 < crests[-1] - crests[0] < 2600, crests[-1] - crests[0])
+            self.assertTrue(900 < crests[-1] - crests[0] < cycle, crests[-1] - crests[0])
             gaps = [b - a for a, b in zip(crests, crests[1:])]
             self.assertLess(sum(gaps[-4:]), sum(gaps[:4]))             # gathering speed as it falls.
-        # The top light swells, lets go, is left dim and comes back.
-        rest = sorted(series[top])[len(series[top]) // 2]
-        self.assertGreater(max(series[top]), 1.3 * rest)
-        self.assertLess(min(series[top]), .5 * rest)
+        # Without a break: at every moment some light below the top one is well above its resting brightness.
+        resting = [sorted(series[level])[len(series[level]) // 4] for level in range(top)]
+        without, longest = None, 0
+        for index, (t, f) in enumerate(frames):
+            if t >= first:
+                if any(series[level][index] > 1.3 * resting[level] for level in range(top)):
+                    without = None
+                else:
+                    without = t if without is None else without
+                    longest = max(longest, t - without)
+        self.assertLessEqual(longest, 200, 'a break between drops')      # Only the moment one forms as the last runs out.
+        # The top light is left dim as its drop goes, and swells until it lets the next one go.
+        rest = max(series[top - 1])
+        self.assertGreater(max(series[top]), .6 * rest)
+        self.assertLess(min(series[top]), .5 * max(series[top]))
         self.assertGreater(min(series[top]), 0)
         # Smoothly: no light jumps between two frames.
         for level in range(24):
@@ -495,9 +508,14 @@ class ChestTransitionTests(unittest.TestCase):
     def test_draining_and_filling_run_opposite_ways(self):
         # A full meter off the charger: the drop falls all twenty-four lights, the top one brightest first.
         frames, series = self.meter_levels('cmd CHARGE:100:0 run 16000', 4000)
-        start = 2000 + 2 * 4400
-        crests = self.crest_times(frames, series, range(4, 20), start + 900, start + 4400)
+        start = 2000 + 3 * 2140                                    # A full meter's drop takes 2.14 s.
+        crests = self.crest_times(frames, series, range(4, 20), start, start + 2140)
         self.assertLess(crests[-1] - crests[0], -500)
+        # A nearly empty meter does not flutter: its drop falls more slowly, 1.4 s from one to the next.
+        frames, series = self.meter_levels('cmd CHARGE:12:0 run 16000', 4000)    # 12 % lights 3 of 24.
+        middle = (max(series[2]) + min(series[2])) / 2                # The top light dims once for each drop.
+        drops = sum(1 for a, b in zip(series[2], series[2][1:]) if a >= middle > b)
+        self.assertTrue(7 <= drops <= 10, drops)                      # In 12 s: unslowed it would be over thirty.
         # Full and on the charger nothing more is going in: only a slow ripple is left, and it runs upwards
         # (a crest reaches the next light up about 0.29 s later, once every 2 s).
         frames, series = self.meter_levels('cmd CHARGE:100:1 run 14000', 4000)
