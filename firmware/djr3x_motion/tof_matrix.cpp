@@ -134,6 +134,9 @@ static bool mx_read_bytes(uint8_t addr, uint8_t* dst, int len) {
 static int mx_recv_response(uint8_t addr, uint8_t cmd, uint8_t* payload_out, int max_payload,
                             uint32_t deadline_ms) {
   const uint32_t t0 = millis();
+  // 0.2.25: the module is not asked before it can have an answer, nor more often than the
+  // vendor library asks (calib.h). Status reads into a busy RP2040 are what it stretches.
+  vTaskDelay(pdMS_TO_TICKS(TOF_MATRIX_FIRST_POLL_MS));
   for (;;) {
     uint8_t status;
     if (!mx_read_bytes(addr, &status, 1)) status = MX_STATUS_IDLE;   // NACK = not ready
@@ -156,7 +159,7 @@ static int mx_recv_response(uint8_t addr, uint8_t cmd, uint8_t* payload_out, int
       return (status == MX_STATUS_OK) ? want : -1;
     }
     if ((uint32_t)(millis() - t0) >= deadline_ms) return -1;
-    vTaskDelay(pdMS_TO_TICKS(2));    // yield the core between status polls
+    vTaskDelay(pdMS_TO_TICKS(TOF_MATRIX_POLL_MS));   // the vendor's pace, not a hammer
   }
 }
 

@@ -1109,3 +1109,31 @@ about 1°/s with the wheels not turning (carried, not rolled) would be taken for
 the 8x8 stalls (`publisher stale` every half minute or so, before and after this flash). Build kept at
 `local/firmware/2026-11-22-0.2.24-gyro-zero.bin`; the one before is
 `2026-11-20-0.2.23-bt-quiet.bin`.
+
+## Gentler 8x8 reads (firmware 0.2.25, November 24, 2026)
+
+Owner: "with the current firmware the ToF 8x8 matrix arrays will work after a cold bootup, but after a
+while they die, even without moving anything." Run `db15f04d` shows the sequence: both modules
+streamed after a power-up, the half-second `publisher stale` stalls (hundreds a day since at least
+November 15) came closer together, from about 66 s every read failed, and from 90 s every bus restart read
+`SDA high, SCL LOW`. With the data line high the modules are powered (dead modules drag both lines
+low through their pull-ups), so one module's RP2040 is holding the clock line, and only cutting the
+matrices' separate 3.3 V supply frees it. The BOOT button cause of November 12/15/20 is ruled out by
+a new printed housing that cannot press it.
+
+The likeliest trigger is how hard the driver polled: after each frame request it read the status
+byte every 2 ms for up to 30 ms, on both modules at 13 Hz. DFRobot's own library
+(DFRobot_MatrixLidar `recvPacket`) reads it every 17 ms. 0.2.25 (calib.h, `mx_recv_response`):
+
+- leaves a module alone for 10 ms after a command, then reads status every 15 ms (at 10, 25, 40 ms);
+- a frame read gives up at 50 ms (was 30), so a failing module's last values are still held for
+  about a second before -1, as before;
+- each module is read at 10 Hz (`TOF_MATRIX_FRAME_INTERVAL_MS` 100, was 75). The host sees front
+  frames at 5 Hz and rear at 3.3 Hz (was 6.7 and 4.4); a new obstacle needs two agreeing frames,
+  now 0.2 s instead of 0.15 s, about 1 cm more travel at the gamepad's top speed.
+
+This is a guess at the cause until it is seen on the robot: the measure is `publisher stale` lines per
+minute and whether the clock line is ever held again over a long idle run. Checks: 145 native
+firmware checks pass (none exercise the bus timing). Full four-flag build 818,045 bytes program, 91,260
+globals, kept at `local/firmware/2026-11-24-0.2.25-gentle-matrix.bin`; the one before is
+`2026-11-22-0.2.24-gyro-zero.bin`. **Not yet flashed.**

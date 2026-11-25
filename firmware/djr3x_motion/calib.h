@@ -333,9 +333,18 @@
 // Front-mounted, level, VL53L7CX behind an onboard RP2040 (tof_matrix.cpp).
 // Range 20-3500 mm, 45°x45° FOV (63° diagonal), 8x8 = 15 Hz max on the sensor.
 #define TOF_MATRIX_ADDR            0x33  // DIP-strapped I2C address (bench-confirmed)
-#define TOF_MATRIX_FRAME_INTERVAL_MS 75  // ~13 Hz poll (sensor tops out at 15 Hz in 8x8)
-#define TOF_MATRIX_READ_TIMEOUT_MS   30  // hard deadline for one frame read — a slow/
-                                         // wedged RP2040 costs at most this per attempt
+// 0.2.25 (owner, November 24): gentler reads. After a cold boot both modules streamed, the
+// brief stalls grew more frequent, and then one module held the clock line low until its
+// power was cut. The vendor library asks for a reply every 17 ms; until 0.2.24 this driver
+// asked every 2 ms (about eight times as often) at 13 Hz on both modules. Now: wait before
+// the first status read, poll at the vendor's pace, and read each module at 10 Hz.
+#define TOF_MATRIX_FRAME_INTERVAL_MS 100 // 10 Hz poll (was 75 ms; sensor tops out at 15 Hz in 8x8)
+#define TOF_MATRIX_READ_TIMEOUT_MS   50  // hard deadline for one frame read (was 30 ms with
+                                         // 2 ms polls): status reads at 10, 25 and 40 ms. Kept
+                                         // short so the 8 failed reads a module's last values
+                                         // are held through (TOF_ERR_STREAK_STALE) stay ~1 s.
+#define TOF_MATRIX_FIRST_POLL_MS     10  // after a command, leave the module alone this long
+#define TOF_MATRIX_POLL_MS           15  // between status reads (vendor library: 17 ms)
 #define TOF_MATRIX_MODE_ACK_TIMEOUT_MS 8000 // SETMODE ack wait (init task only). The
                                          // RP2040 only acks AFTER the ~5 s VL53L7CX
                                          // reconfigure; a short window here re-sends
