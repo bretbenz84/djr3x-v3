@@ -93,6 +93,12 @@ class PlaceEncoder:
         return thumbnail(frame)
 
     @staticmethod
+    def sharpness(frame):
+        """How sharp the frame is (looking.sharpness): a smeared one is not kept as a room photo."""
+        from ..looking import sharpness
+        return sharpness(frame)
+
+    @staticmethod
     def jpeg(frame):
         """The photo kept on his own disk: 640 px wide, about 40 KB."""
         return jpeg(frame)

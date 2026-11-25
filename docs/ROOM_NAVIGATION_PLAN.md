@@ -618,6 +618,19 @@ Measured on the M2, CPU, two threads: about 100 ms a frame from a 1280x720 pictu
 itself at 252x140), loaded in 0.14 s; a process holding only this model peaked at about 370 MB. CoreML could
 not take the model (6 of 836 nodes).
 
+### Blurred photos (November 25)
+
+The owner noted that the camera easily blurs in motion. The look-around itself was fine: eight stops 45°
+apart, a full stop and one second's wait at each, head parked; its five photos in run 56fd470b are sharp.
+Two of the 34 photos kept by then were smeared, both taken in passing (one as his head began to move with
+speech, the stillness bookkeeping notwithstanding). Every photo now must reach a sharpness of 50 (Laplacian
+variance of a 480 px grey copy) to be kept; the reading still counts. The smeared two scored 12 and 37,
+the least sharp clear one (a plain door) 73. A look-around stop reads the sharpest frame of 0.3 s and,
+while none reaches 50, keeps looking for up to 3 s. `place_photo` now carries `sharpness`;
+`place_photo_skipped` (`blurred`) marks a refusal. Two place checks (synthetic scores). Whether live
+1080p frames of blank walls clear 50 is still to be seen on the robot. The two smeared photos are still
+in the map.
+
 ### Checks
 
 - **Synthetic, room map:** 8 new contract checks in `tests/test_places.py` (arriving facing a way with no

@@ -272,6 +272,46 @@ class SpotTests(PlaceFixture):
         self.assertEqual(len(self.photos(spot)), 8)            # One per 45 degrees.
         self.assertEqual(len(self.store.rows('SELECT * FROM spots')), 1)
 
+    def test_a_smeared_view_places_him_but_is_not_kept_as_a_photo(self):
+        # Owner, November 25: "his camera easily blurs if it's in motion" (a grey wall smeared at sharpness 12).
+        score = [12.]
+        self.encoder.sharpness = lambda frame: score[0]
+        events = []
+        self.places.trace = SimpleNamespace(emit=lambda event, **fields: events.append(event))
+        self.look(5)
+        spot = self.places.here
+        self.assertIsNotNone(spot)                             # The reading still counts...
+        self.assertEqual(self.photos(), [])                    # ...but nothing smeared is kept.
+        self.assertIn('place_photo_skipped', events)
+        score[0] = 400.
+        self.look(1)
+        self.assertEqual(len(self.photos(spot)), 1)            # The same way, clear: kept.
+
+    def test_a_look_around_stop_reads_its_sharpest_frame(self):
+        def stop(scores):
+            frames = [self.frame(self.world.view(self.spot_at, self.yaw0 + self.yaw)) for _ in scores]
+            sharp = {f.frame_id: v for f, v in zip(frames, scores)}
+            self.encoder.sharpness = lambda frame: sharp[frame.frame_id]
+            order = iter(frames)
+            last = [None]
+            def peek():
+                last[0] = next(order, last[0])
+                return last[0]
+            self.places.camera.hub = SimpleNamespace(peek=peek)
+            read = []
+            embed = self.encoder.embed
+            self.encoder.embed = lambda frame: (read.append(sharp[frame.frame_id]), embed(frame))[1]
+            self.addCleanup(setattr, self.encoder, 'embed', embed)
+            self.places.capture(wait=2.)
+            self.encoder.embed = embed
+            return read
+        # The head still shaking at first: the sharpest of the stop's frames is the one read.
+        self.assertEqual(stop([30., 300., 90.]), [300.])
+        # Every frame in the first moments smeared: he keeps looking until one is clear enough to keep.
+        self.assertEqual(stop([20., 25.] + [30.] * 10 + [200.]), [200.])
+        # Nothing clear the whole wait: the reading still happens, from the best he saw.
+        self.assertEqual(stop([20., 40., 25.]), [40.])
+
     def test_a_later_run_knows_the_spot_and_which_way_it_faces(self):
         self.look(5)
         for _ in range(7):

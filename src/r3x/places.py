@@ -157,6 +157,11 @@ ROOM_AREA_M = 2.            # A new spot this near a named one, no doorway betwe
 MERGE_SURE_SIM = .93        # One view this close joins a new spot to an old one; below it, two directions must agree...
 MERGE_AGREE_DEG = 30.       # ...on which way the old spot's frame lies.
 LOOK_AROUND_BELOW = 6       # Named here with photos fewer of the eight ways than this: he turns once to take it in.
+# Owner, November 25: "his camera easily blurs if it's in motion." Two of the 34 photos kept by then were smeared
+# (sharpness 12 and 37: a grey wall taken as his head began to talk, a living room); the least sharp clear one,
+# a plain door filling the view, scored 73. Sharpness is looking.sharpness (Laplacian variance, 480 px grey copy).
+PHOTO_SHARP_MIN = 50.       # A photo blurrier than this is not kept (the reading still counts).
+CAPTURE_STEADY_S = .3       # A look-around stop keeps the sharpest frame of this long after the first fresh one.
 # Descriptions: one hosted line per photo, spread out (owner, November 22: the model describes rooms).
 DESCRIBE_EVERY_S = 20.
 DESCRIBE_PER_RUN = 30
@@ -525,6 +530,7 @@ class Places:
         # Where the head points and whether the view was still, read as close to the frame as possible.
         meta = {'at': frame.at, 'neck': self._safe(self.neck, 0.), 'deliberate': deliberate,
                 'settled': deliberate or self._safe(lambda: self.view_settled(frame.at), True),
+                'sharpness': self._sharpness(frame),
                 'depth': self._safe(self.depth, None), 'compass': self._safe(self.compass, None)}
         vector = unit(self.encoder.embed(frame))        # Slow work outside the lock.
         thumb = self._safe(lambda: self.encoder.thumbnail(frame), None) if hasattr(self.encoder, 'thumbnail') else None
@@ -541,6 +547,11 @@ class Places:
             return default if value is None and default is not None else value
         except Exception:
             return default
+
+    def _sharpness(self, frame):
+        """How sharp a frame is (higher is sharper), or None when the encoder cannot judge it."""
+        judge = getattr(self.encoder, 'sharpness', None)
+        return self._safe(lambda: judge(frame), None) if judge is not None else None
 
     def _write(self, files, frame):
         for path in files:
@@ -1134,13 +1145,19 @@ class Places:
         camera = wrap(pose[2] + anchor['offset'] + meta['neck'])
         if self._photo_gap(camera) is None:
             return
+        sharp = meta.get('sharpness')
+        if sharp is not None and sharp < PHOTO_SHARP_MIN:
+            if self.trace: self.trace.emit('place_photo_skipped', reason='blurred', spot=self.here[:8],
+                                           bearing=round(camera), sharpness=round(sharp))
+            return
         key = uuid4().hex
         path = self.photos_dir / self.building_id / (key + '.jpg') if self.photos_dir else None
         self.map.add_photo(self.building_id, self.here, camera, self.namespace, q, thumb=thumb, compass=meta['compass'],
                            depth=meta['depth'], file=str(path.relative_to(self.photos_dir)) if path else None, source='seen')
         if path: self.files.append(path)
         self._reload()
-        if self.trace: self.trace.emit('place_photo', spot=self.here[:8], bearing=round(camera), photos=len(self.by_spot.get(self.here, [])))
+        if self.trace: self.trace.emit('place_photo', spot=self.here[:8], bearing=round(camera), photos=len(self.by_spot.get(self.here, [])),
+                                       sharpness=round(sharp) if sharp is not None else None)
 
     def _believe(self, now):
         """The room he is in: his spot's, else the vote's."""
@@ -1164,16 +1181,29 @@ class Places:
 
     # Deliberate looks from the drive owner -------------------------------------------------------
     def capture(self, cancel=None, wait=3.):
-        """A reading of a fresh frame now (a look-around stop, an arrival check); returns where()."""
+        """A reading of a fresh frame now (a look-around stop, an arrival check); returns where(). Frames
+        taken over CAPTURE_STEADY_S after the first fresh one, the sharpest is read; while none is sharp
+        enough to keep as a photo, it goes on looking until `wait` runs out."""
         after = self.clock()
+        best, best_score, seen, until = None, None, set(), None
         for _ in range(max(1, int(wait / .05))):
             frame = self.camera.hub.peek()
-            if frame is not None and frame.at >= after:
+            if frame is not None and frame.at >= after and frame.frame_id not in seen:
+                seen.add(frame.frame_id)
+                score = self._sharpness(frame)
+                if best is None or (score is not None and (best_score is None or score > best_score)):
+                    best, best_score = frame, score
+                if until is None:
+                    until = time.monotonic() + CAPTURE_STEADY_S
+            if until is not None and time.monotonic() >= until and (best_score is None or best_score >= PHOTO_SHARP_MIN):
                 break
             if cancel is not None: cancel.check()
             time.sleep(.05)
-        else:
+        frame = best
+        if frame is None:
             return self.where()
+        if not 0 <= self.clock() - frame.at <= 1:
+            frame = self.camera.hub.peek() or frame   # Looked past a second for a sharp one: read the newest anyway.
         try:
             self.observe(frame, deliberate=True)
         except ProviderFailure:
