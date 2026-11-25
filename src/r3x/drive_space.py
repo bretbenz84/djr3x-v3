@@ -387,13 +387,28 @@ def _path_sides(ring, sectors, corridor):
     return sides
 
 
+def _radial_path(ring):
+    """The straight path from the two 22.5 degree front beams alone, for when the depth grid is out.
+
+    Owner, November 24: "if the 8x8 arrays are down, he can still drive but at a slower pace. We used
+    to drive by only the single eight ToF sensors." Both beams count in full and the centre is the
+    nearer of them (nothing sees straight ahead between them), as before the grid was fitted; with
+    either beam silent the path is unknown. The drive caps his speed while this is all he has
+    (drive.BLIND_SPEED): thin chair legs between the beams go unseen."""
+    beams = [next((ring[k] for k in keys if ring.get(k) is not None), None)
+             for keys in (('fl_radial', 'fl'), ('fr_radial', 'fr'))]
+    if None in beams:
+        return None
+    return {'left': beams[0], 'center': min(beams), 'right': beams[1]}
+
+
 def clearance(telemetry, matrix, now, *, rear_matrix=None, telemetry_age=.5, matrix_age=1.):
     """Open distance by direction, with explicit unknowns and sensor health.
 
     rear_matrix is the backward-facing matrix's latest frame, None when it has never been
     seen (not fitted): then the rear is the radial pair alone, as before October 19. Once
-    seen, a stale frame makes the rear unknown, so reversing waits rather than trusting
-    two narrow beams to catch a chair leg the matrix was fitted to see."""
+    seen, a stale frame leaves the radial pair alone (both needed) and reversing slows, as
+    the front does on its two beams when its grid is out (owner, November 24)."""
     health = []
     ring = {}
     if telemetry and 0 <= now - telemetry['received_at'] <= telemetry_age:
@@ -407,6 +422,7 @@ def clearance(telemetry, matrix, now, *, rear_matrix=None, telemetry_age=.5, mat
     sides = _path_sides(ring, sectors, matrix_path(fresh))
     if sectors is None:
         health.append('front_depth_matrix_unavailable')
+        sides = _radial_path(ring)
     radial_front = [v for v in (ring.get('fl_radial'), ring.get('fr_radial')) if v is not None]
     if ring and not radial_front:
         # Older firmware only reports fused fronts; treat them as radial evidence.
@@ -426,8 +442,9 @@ def clearance(telemetry, matrix, now, *, rear_matrix=None, telemetry_age=.5, mat
     else:
         rear_path = matrix_path(rear_matrix if 0 <= now - rear_matrix['received_at'] <= matrix_age else None)
         if rear_path is None:
+            # Gone quiet: the radial pair alone, both needed, and reversing slows (owner, November 24).
             health.append('rear_depth_matrix_unavailable')
-            rear = None
+            rear = least(rear_radial) if ring and None not in rear_radial else None
         else:
             rear = least(rear_radial + [min(rear_path.values())]) if ring else None
     result = {
@@ -492,7 +509,7 @@ def arms_blocked(space: dict) -> frozenset[str]:
 def move_allowance(meters: float, space: dict) -> tuple[float, str | None]:
     """Largest same-sign distance the host will request; firmware still gates."""
     if meters > 0:
-        if space.get('path_m') is None or 'front_depth_matrix_unavailable' in space['health']:
+        if space.get('path_m') is None:
             return 0., 'front_clearance_unknown'
         room = space['path_m'] - FRONT_MARGIN
     else:

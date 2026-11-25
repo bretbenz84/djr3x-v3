@@ -16,37 +16,37 @@ FAIL_AFTER = 4.          # Lost this long before he says so: shorter drop-outs p
 BACK_AFTER = 1.5         # Streaming again this long before he says it is back.
 REPEAT_AFTER = 30.       # A sensor that keeps dropping is announced at most this often.
 
+# Owner, November 24: a sensor out no longer locks the wheels; he drives on the ring of single
+# beams, slower (drive.BLIND_SPEED), so the lines say slow, not stuck.
 LINES = {
     ('failed', ('front',)): (
-        "Uh oh. My front depth sensor just went dark, so my wheels are locked. "
-        "Somebody check its little reset button.",
-        "Whoa, my front sensor's out. I don't drive blind anymore; Star Tours made me promise. "
-        "Check the reset button on my front sensor.",
-        "Bad news from down low: my front depth sensor quit. I'm parked until it wakes up. "
-        "Its reset button might be getting squished.",
+        "Uh oh. My front depth sensor just went dark. I'll keep rolling, but slowly, "
+        "so mind the chair legs for me.",
+        "Whoa, my front sensor's out. I can still drive, just at a careful granny pace. "
+        "Star Tours made me promise.",
+        "Bad news from down low: my front depth sensor quit. I'm in slow mode until it wakes up.",
     ),
     ('failed', ('rear',)): (
-        "Heads up: my rear depth sensor just dropped out. No backing up until it's back.",
-        "My rear sensor's gone dark. Reverse is off the menu, which, given my record, "
+        "Heads up: my rear depth sensor just dropped out. I'll back up slowly until it's back.",
+        "My rear sensor's gone dark. Reversing is down to a crawl, which, given my record, "
         "is probably for the best.",
     ),
     ('failed', ('front', 'rear')): (
         "Well, that's new: both my depth sensors just went dark, front and back. "
-        "My wheels are locked until they wake up.",
-        "Double trouble: my front and rear depth sensors are both out. I'm staying right here. "
-        "Check their cables and reset buttons.",
+        "I'll take it slow until they wake up.",
+        "Double trouble: my front and rear depth sensors are both out. Slow mode it is. "
+        "If they stay out, switch my base off and on.",
     ),
     ('recovered', ('front',)): (
-        "And we're back! My front sensor's online and the wheels are unlocked. "
-        "Nobody panic. I certainly didn't.",
-        "Front depth sensor's back online. Wheels unlocked. The furniture may resume being nervous.",
+        "And we're back! My front sensor's online, so I can stop driving like a nervous tourist.",
+        "Front depth sensor's back online. Full speed again. The furniture may resume being nervous.",
     ),
     ('recovered', ('rear',)): (
-        "My rear sensor's back. Reverse is on the menu again.",
+        "My rear sensor's back. Reverse is up to speed again.",
         "My rear depth sensor just woke up. I can back up without the suspense now.",
     ),
     ('recovered', ('front', 'rear')): (
-        "Both depth sensors are back online, front and rear. Wheels unlocked. Let's roll.",
+        "Both depth sensors are back online, front and rear. Full speed. Let's roll.",
         "And we're back! Front and rear sensors both reporting. "
         "I'm cleared for takeoff, loosely speaking.",
     ),

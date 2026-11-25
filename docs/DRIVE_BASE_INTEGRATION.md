@@ -1164,8 +1164,8 @@ again with crosstalk compensation cleared.
 Host: `DriveLink` keeps the rear grid; `clearance()` counts both rear radials in full
 plus rear matrix zones inside the straight reversing corridor (the same corridor rule
 as the front), so a wall beside him does not shorten a reverse. Never seen means not
-fitted: the rear stays radial-only. Once seen, a stale rear frame makes `rear_m`
-unknown (`rear_depth_matrix_unavailable`) and reversing is refused. The local floor
+fitted: the rear stays radial-only. Once seen, a stale rear frame leaves `rear_m` to
+the radial pair (`rear_depth_matrix_unavailable`) and reversing slows (November 24, below). The local floor
 memory records rear matrix columns at their bearings (`open_directions`); the camera
 route's planner facts do not include them. His own plans still never reverse
 (`SelfInitiatedReverse`) until the rear module is calibrated and seen working.
@@ -2093,3 +2093,26 @@ turned round and rolled 1.35 m toward him at about 0.43 m/s, the open-floor spee
   its speed.
 - Checks: two in `tests/test_drive.py` with the simulated base (fast far off, slower within 2.5 m, easing out
   early; toward a voice); both fail on the earlier code. Not yet seen on the floor.
+
+## Driving with the 8x8 grids out — November 24, 2026
+
+Owner: "can we make it so that if the 8x8 arrays are down, he can still drive but at a slower pace? We used
+to drive by only the single eight ToF sensors. The 8x8 array was added to avoid hitting chair legs and other
+small obstacles." The two grids share one bus and have stalled about 38 times an hour on battery, with hangs
+that last until their power is cycled (firmware README, November 24).
+
+- **Front grid out**: the wheels are no longer locked (`front_depth_matrix_unavailable` stays in
+  `sensor_notes`). The path ahead comes from the two 22.5° front beams alone, each counted in full, its centre
+  the nearer of them (`drive_space._radial_path`), and every forward roll is capped at `BLIND_SPEED`
+  (0.20 m/s) by `_speed_limit` (`depth_grid_out`). With either front beam silent the path is unknown and a
+  move is refused, as before. Banking turns still wait for the grid; he spins, then rolls.
+- **Rear grid out**: reversing uses the two rear radial beams (both needed) at 0.20 m/s.
+- The model gets `drive.depth_grid_out` saying he is taking it slow and may miss chair legs; Rex's own
+  sensor-out lines (`depth_watch.py`) now say slow mode, not locked wheels.
+- The November 21 wait-and-retry stays for the ring, telemetry and controller contact. A grid stall no longer
+  needs it: a roll in progress goes on at the lower speed and speeds up when the grid reads again.
+- Not covered: the two front beams point 22.5° out to each side and spread apart, so a thin leg straight
+  ahead between them goes unseen at any distance; walls and wide furniture are still seen. The lower speed
+  is all that softens such a bump.
+- Checks: simulated base only (`tests/test_drive.py` grid-out drives and refusals, rear radial fallback;
+  `tests/test_drive_session.py`); `run_checks.py --changed` 603 pass. Not yet driven on the robot.

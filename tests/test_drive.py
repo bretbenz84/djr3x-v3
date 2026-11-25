@@ -9,7 +9,7 @@ import unittest
 
 from r3x.contracts import Cancellation, Capture, ToolCall, Transcript
 from r3x.drive import (DriveBase, DrivePlan, DriveStep, Flinch, Radar, LIMITS, CONFIG, PERSON_SLOW_WITHIN_M, PERSON_SPEED,
-                       SENSOR_GRACE_S, SENSOR_WAIT_S)
+                       SENSOR_GRACE_S, SENSOR_WAIT_S, BLIND_SPEED)
 from r3x.drive_space import (allowed_turn, clearance, face_range, image_bearing, matrix_sectors,
                              move_allowance, open_directions, radar_bodies, FACE_WIDTH, HALF_FOV)
 from r3x.adapters.esp32 import seam_merge
@@ -578,12 +578,13 @@ class DriveOwnerTests(unittest.TestCase):
         self.assertAlmostEqual(step['measured_deg'], -9., delta=1.)
         self.assertEqual(len([c for c in self.fake.commands if c['cmd'] == 'turn']), 1)
 
-    def test_charging_gamepad_and_missing_depth_refuse_before_motion(self):
+    def test_charging_gamepad_and_a_silent_ring_refuse_before_motion(self):
         self.start()
+        ring = dict(self.fake.tof)
         for change, reason in ((lambda: setattr(self.fake, 'charging', True), 'charging'),
                                (lambda: setattr(self.fake, 'owner', 'manual'), 'gamepad_in_control'),
-                               (lambda: setattr(self.fake, 'matrix', False), 'front_depth_matrix_unavailable')):
-            self.fake.charging, self.fake.owner, self.fake.matrix = False, 'auto', True
+                               (lambda: setattr(self.fake, 'tof', {k: -1 for k in ring}), 'radial_ring_unavailable')):
+            self.fake.charging, self.fake.owner, self.fake.tof = False, 'auto', dict(ring)
             change()
             self.clock.wait(1.2)
             time.sleep(.02)
@@ -591,31 +592,63 @@ class DriveOwnerTests(unittest.TestCase):
             self.assertEqual((receipt.status, receipt.reason), ('refused', reason))
         self.assertFalse(any(c['cmd'] in {'turn', 'move'} for c in self.fake.commands))
 
+    def test_a_silent_depth_grid_drives_slowly_on_the_ring(self):
+        # Owner, November 24: "if the 8x8 arrays are down, he can still drive but at a slower pace."
+        self.start()
+        self.fake.matrix = False
+        self.clock.wait(1.2)
+        settle()
+        self.assertEqual(self.drive.availability(), (True, None))
+        offered = self.drive.context('requested')
+        self.assertTrue(offered['available'])
+        self.assertIn('chair legs', offered['depth_grid_out'])
+        receipt = self.drive.execute(plan(DriveStep('move', meters=.5), clock=self.clock), Cancellation())
+        self.assertEqual(receipt.status, 'completed')
+        speeds = [c['speed'] for c in self.fake.commands if c['cmd'] == 'move'] + \
+                 [c['lin'] for c in self.fake.commands if c['cmd'] == 'drive' and c.get('lin')]
+        self.assertTrue(speeds)
+        self.assertLessEqual(max(speeds), BLIND_SPEED + 1e-6)
+        self.fake.matrix = True      # Back: full speed again.
+        self.clock.wait(.2)
+        settle()
+        self.assertNotIn('depth_grid_out', self.drive.context('requested'))
+
+    def test_a_silent_depth_grid_with_a_front_beam_out_refuses(self):
+        self.start()
+        self.fake.matrix = False
+        self.fake.tof = {**self.fake.tof, 'fr_radial': -1, 'fr': -1}
+        self.clock.wait(1.2)
+        settle()
+        receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
+        self.assertEqual(receipt.steps[0]['reason'], 'front_clearance_unknown')
+        self.assertFalse(any(c['cmd'] in {'move', 'drive'} and (c.get('dist') or c.get('lin')) for c in self.fake.commands))
+
     def dropout(self):
-        """Readings were good a moment ago, then the depth matrix goes quiet (owner, November 21)."""
+        """Readings were good a moment ago, then the ring goes quiet (owner, November 21)."""
         self.start()
         settle()
         self.assertEqual(self.drive.availability(), (True, None))
         rows = []
         self.drive.trace = type('Trace', (), {'emit': lambda _, event, **row: rows.append((event, row))})()
-        self.fake.matrix = False
+        self.ring = dict(self.fake.tof)
+        self.fake.tof = {k: -1 for k in self.ring}
         self.clock.wait(1.2)
         settle()
         return rows
 
-    def test_a_momentary_depth_dropout_is_waited_out_then_he_drives(self):
-        # Run b9f6091f: both matrices stalled half a second before "down the hall"; Rex refused
+    def test_a_momentary_sensor_dropout_is_waited_out_then_he_drives(self):
+        # Run b9f6091f: sensors stalled half a second before "down the hall"; Rex refused
         # and they were back within 12 s. He now waits for them instead.
         rows = self.dropout()
         offered = self.drive.context('requested')
         self.assertTrue(offered['available'])
-        self.assertIn('front_depth_matrix_unavailable', offered['sensor_recovering'])
+        self.assertIn('radial_ring_unavailable', offered['sensor_recovering'])
         back_at, before = self.clock() + 3., []
         def recover():
             while self.clock() < back_at:
                 time.sleep(.001)
             before.extend(c['cmd'] for c in self.fake.commands)
-            self.fake.matrix = True
+            self.fake.tof = dict(self.ring)
         threading.Thread(target=recover, daemon=True).start()
         receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
         self.assertEqual(receipt.status, 'completed')
@@ -628,7 +661,7 @@ class DriveOwnerTests(unittest.TestCase):
         rows = self.dropout()
         started = self.clock()
         receipt = self.drive.execute(plan(DriveStep('move', meters=.3), clock=self.clock), Cancellation())
-        self.assertEqual((receipt.status, receipt.reason), ('refused', 'front_depth_matrix_unavailable'))
+        self.assertEqual((receipt.status, receipt.reason), ('refused', 'radial_ring_unavailable'))
         self.assertLessEqual(self.clock() - started, SENSOR_WAIT_S + 1.)
         self.assertEqual([row['outcome'] for event, row in rows if event == 'drive_sensor_wait'][-1], 'still_out')
         self.assertFalse(any(c['cmd'] in {'turn', 'move', 'drive'} for c in self.fake.commands))
@@ -638,7 +671,7 @@ class DriveOwnerTests(unittest.TestCase):
         self.clock.wait(SENSOR_GRACE_S + 1.)
         settle()
         offered = self.drive.context('requested')
-        self.assertEqual((offered['available'], offered['unavailable_reason']), (False, 'front_depth_matrix_unavailable'))
+        self.assertEqual((offered['available'], offered['unavailable_reason']), (False, 'radial_ring_unavailable'))
         self.assertNotIn('sensor_recovering', offered)
         self.assertFalse(self.drive.context('self_initiated')['available'])
 
@@ -1063,7 +1096,7 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(matrix_sectors(matrix)['right'], .16)
 
     def test_unknown_rear_or_depth_refuses_instead_of_assuming_clear(self):
-        space = {'front_m': None, 'rear_m': None, 'health': ['front_depth_matrix_unavailable']}
+        space = {'front_m': None, 'path_m': None, 'rear_m': None, 'health': ['front_depth_matrix_unavailable']}
         self.assertEqual(move_allowance(.5, space), (0., 'front_clearance_unknown'))
         self.assertEqual(move_allowance(-.5, space), (0., 'rear_clearance_unknown'))
         self.assertEqual(allowed_turn(45., {}), (0., 'turn_clearance_unknown'))
@@ -1127,11 +1160,16 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(space['rear_m'], 2.)
         self.assertEqual(move_allowance(-.5, space), (-.5, None))
 
-    def test_fitted_rear_matrix_going_quiet_refuses_reversing(self):
+    def test_fitted_rear_matrix_going_quiet_backs_on_the_radial_pair(self):
+        # Owner, November 24: a grid out means slower, not stuck; both rear beams are needed.
         telemetry = {'received_at': 5., 'tof_mm': dict(self.REAR_RING)}
         space = clearance(telemetry, None, 5., rear_matrix=self.rear_frame({}, at=1.))
-        self.assertIsNone(space['rear_m'])
+        self.assertEqual(space['rear_m'], 2.)
         self.assertIn('rear_depth_matrix_unavailable', space['health'])
+        self.assertEqual(move_allowance(-.5, space), (-.5, None))
+        one = {'received_at': 5., 'tof_mm': {**self.REAR_RING, 'rr_radial': -1}}
+        space = clearance(one, None, 5., rear_matrix=self.rear_frame({}, at=1.))
+        self.assertIsNone(space['rear_m'])
         self.assertEqual(move_allowance(-.5, space), (0., 'rear_clearance_unknown'))
         # Never seen (not fitted): the radial pair alone, as before.
         self.assertEqual(clearance(telemetry, None, 5.)['rear_m'], 2.)

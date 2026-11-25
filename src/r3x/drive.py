@@ -47,6 +47,11 @@ OPEN_SPEED = .45          # Nothing near him (the wheels reach 0.61 m/s, the gam
 PERSON_SPEED = .30        # m/s toward a person (two thirds of OPEN_SPEED); the step's pace still scales it.
 PERSON_SLOW_WITHIN_M = 2.5
 HALLWAY_SPEED = .25       # Backing up (rear sensing is narrower) and the dashboard joystick.
+# Owner, November 24: the 8x8 depth grids stall and sometimes hang (both share one bus); "if the 8x8
+# arrays are down, he can still drive but at a slower pace. We used to drive by only the single eight
+# ToF sensors." With the grid out the path ahead (or behind) is the two ring beams alone, which miss
+# thin chair legs between them, so he rolls no faster than this until it reads again.
+BLIND_SPEED = .20
 SQUEEZE_SPEED = .12       # Brushing past a door jamb, or about to reach something in his path.
 SIDE_SCRAPE_M = .08       # A side return this near: squeeze speed...
 SIDE_FREE_M = .22         # ...rising to full speed here: a 1 m hallway driven down the middle.
@@ -350,12 +355,6 @@ CAMERA_KINDS = {'face', 'nearest_person', 'object'}
 # up". "It would be better if the LLM responded indicating what's wrong rather than just refusing to
 # move." Each lockout now reaches the model with what is wrong and what would fix it.
 UNAVAILABLE_MEANINGS = {
-    'front_depth_matrix_unavailable': (
-        'The 8x8 depth sensor on the front of the base has stopped sending readings. It is what sees chair legs '
-        'and low things ahead, so the wheels stay locked until it reads again; the drive controller and motors '
-        'are fine. Usual causes: its reset button pressed in by the shell, or a loose cable. '
-        'Once it is freed the controller sets the sensor up again by itself, usually within 20 seconds, and he '
-        'says aloud when it is back; if it stays out, switch the base off and on.'),
     'radial_ring_unavailable': (
         'None of the distance sensors around the base ring is reporting, so the wheels stay locked: he cannot '
         'tell what is beside or behind him. Likely their cable or power.'),
@@ -386,8 +385,14 @@ UNAVAILABLE_MEANINGS = {
 # was reading within SENSOR_GRACE_S stays offered to the model, and a drive waits up to
 # SENSOR_WAIT_S for it before refusing. Nothing moves until the readings are back; an outage older
 # than the grace is refused at once, as before.
-SENSOR_DROPOUTS = frozenset({'front_depth_matrix_unavailable', 'radial_ring_unavailable',
-                             'drive_telemetry_stale', 'controller_comms_lost'})
+SENSOR_DROPOUTS = frozenset({'radial_ring_unavailable', 'drive_telemetry_stale', 'controller_comms_lost'})
+# November 24: an 8x8 grid out no longer locks the wheels; he drives on the ring at BLIND_SPEED.
+DEPTH_GRID_OUT_MEANING = (
+    'The 8x8 depth sensor ({which}) is not reading, so he drives by the ring of single distance sensors alone, '
+    'as before it was fitted: slower, at most {speed} m/s, and thin things like chair legs straight ahead can '
+    'go unseen. Drive as asked; you may say in a few words that you are taking it slow. It usually comes '
+    'back by itself; if it stays out, switching the base off and on revives it.')
+
 SENSOR_GRACE_S = 30.
 SENSOR_WAIT_S = 12.     # Plans expire 20 s after they are made (state.propose_drive).
 SENSOR_RECOVERING_MEANING = (
@@ -1109,9 +1114,8 @@ class DriveBase:
         if self.on_charger(telemetry) and not turns_on_charger:
             return False, 'charging'
         space = self.space(now)
-        for reason in ('front_depth_matrix_unavailable', 'radial_ring_unavailable'):
-            if reason in space['health']:
-                return False, reason
+        if 'radial_ring_unavailable' in space['health']:
+            return False, 'radial_ring_unavailable'
         self._sensors_ok_at = now
         return True, None
 
@@ -1315,6 +1319,10 @@ class DriveBase:
                                for b in bodies or ()],
                     'meaning': GUIDE['drive.radar_view']},
                 'sensor_notes': space['health'], 'targets': targets,
+                **({'depth_grid_out': DEPTH_GRID_OUT_MEANING.format(which=which, speed=BLIND_SPEED)}
+                   if (which := ' and '.join(side for side, key in (('front', 'front_depth_matrix_unavailable'),
+                                                                     ('rear', 'rear_depth_matrix_unavailable'))
+                                             if key in space['health'])) else {}),
                 'radar': 'unavailable' if self.radar and bodies is None else ('connected' if self.radar else 'not_configured'),
                 'vision_seek': self.locator is not None and self.look is not None,
                 'last_sought': self._last_sought(),
@@ -1968,6 +1976,8 @@ class DriveBase:
             limits.append((max(SQUEEZE_SPEED, (centre - FRONT_MARGIN) / AHEAD_REACH_S), 'ahead'))
         if path is not None and (centre is None or path < centre):
             limits.append((max(SQUEEZE_SPEED, (path - WALL_HOLD_M) / EDGE_REACH_S), 'path_edge'))
+        if 'front_depth_matrix_unavailable' in space.get('health', ()):
+            limits.append((BLIND_SPEED, 'depth_grid_out'))   # Two beams alone (owner, November 24).
         speed, why = min(limits, key=lambda row: row[0])
         return min(top, speed), why
 
@@ -2005,7 +2015,7 @@ class DriveBase:
         his body would be SURFACE_HOLD_M from touching anything in front. Something else straight
         ahead (not part of that surface) keeps the ordinary front stand-off."""
         centre, path = space.get('path_center_m'), space.get('path_m')
-        if centre is None or 'front_depth_matrix_unavailable' in space['health']:
+        if centre is None:
             return 'front_clearance_unknown'
         if surface is not None:
             other = surface.get('ahead_other_m')
@@ -2200,7 +2210,12 @@ class DriveBase:
         allowed, note = move_allowance(meters, space)   # Clearance after the park settles.
         if not allowed:
             return self._refused_move(row, note, space)
-        speed, why = self._speed_limit(space, top) if meters > 0 else (min(top, HALLWAY_SPEED), 'reverse')
+        if meters > 0:
+            speed, why = self._speed_limit(space, top)
+        elif 'rear_depth_matrix_unavailable' in space['health']:
+            speed, why = min(top, HALLWAY_SPEED, BLIND_SPEED), 'rear_depth_grid_out'
+        else:
+            speed, why = min(top, HALLWAY_SPEED), 'reverse'
         self._speeds.add(speed, why)
         start = self._telemetry().get('odom') or {}
         began = self._doorway(space)

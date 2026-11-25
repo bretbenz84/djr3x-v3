@@ -288,40 +288,40 @@ class DriveSessionTests(MemoryFixture):
         self.assertEqual(delivery.completed_text, ['I am plugged in, so I will stay put.'])
         self.assertFalse(any(c['cmd'] == 'turn' for c in self.fake.commands))
 
-    def test_a_silent_depth_matrix_is_told_as_what_is_wrong_and_logged(self):
-        # November 14 (c85e39dc): both matrices stopped answering, the wheels were locked out all run,
-        # the log never said why, and Rex blamed a drive controller that "didn't wake up".
-        self.setup_drive(drive_call(step('turn', degrees=90.)), followup='My front depth sensor is out.')
+    def test_a_silent_depth_matrix_is_told_and_he_still_drives(self):
+        # November 14 (c85e39dc): both matrices stopped answering and the wheels were locked out all run.
+        # Owner, November 24: with the grid out he drives on the ring, slower, and the model is told why.
+        self.setup_drive(drive_call(step('turn', degrees=90.), text='Taking it slow.'))
         self.fake.matrix = False                  # The controller stops sending depth frames.
         self.clock.now += 2.
         settle()
         self.turn('Turn left.')
         offered = self.brain.snapshots[0].context['drive']
-        self.assertEqual((offered['available'], offered['unavailable_reason']), (False, 'front_depth_matrix_unavailable'))
-        self.assertIn('depth sensor', offered['unavailable_meaning'])
-        self.assertIn('reset button', offered['unavailable_meaning'])        # What he can check.
-        self.assertIn('front_depth_matrix_unavailable', [r['reason'] for r in self.rows('drive_availability')])
-        self.assertFalse(any(c['cmd'] in {'turn', 'move', 'drive'} for c in self.fake.commands))
+        self.assertTrue(offered['available'])
+        self.assertIn('front', offered['depth_grid_out'])
+        self.assertIn('front_depth_matrix_unavailable', offered['sensor_notes'])
+        self.assertTrue(any(c['cmd'] == 'turn' for c in self.fake.commands))
 
 
-    def test_a_momentary_depth_dropout_still_drives_once_it_reads_again(self):
-        # Owner, November 21 (b9f6091f): a half-second stall of both matrices refused "down the hall".
+    def test_a_momentary_sensor_dropout_still_drives_once_it_reads_again(self):
+        # Owner, November 21 (b9f6091f): a half-second sensor stall refused "down the hall".
         self.setup_drive(drive_call(step('turn', degrees=90.), text='One sec, my sensors blinked.'))
         settle()
         self.assertTrue(self.drive.context('requested')['available'])   # Good readings a moment ago.
-        self.fake.matrix = False
+        ring = dict(self.fake.tof)
+        self.fake.tof = {k: -1 for k in ring}
         self.clock.now += 2.
         settle()
         back_at = self.clock() + 2.
         def recover():
             while self.clock() < back_at:
                 time.sleep(.001)
-            self.fake.matrix = True
+            self.fake.tof = dict(ring)
         threading.Thread(target=recover, daemon=True).start()
         self.turn('Turn left.')
         offered = self.brain.snapshots[0].context['drive']
         self.assertTrue(offered['available'])
-        self.assertIn('front_depth_matrix_unavailable', offered['sensor_recovering'])
+        self.assertIn('radial_ring_unavailable', offered['sensor_recovering'])
         self.assertTrue(any(c['cmd'] == 'turn' for c in self.fake.commands))
         self.assertEqual(self.rows('drive_sensor_wait')[-1]['outcome'], 'recovered')
 
