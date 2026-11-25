@@ -1136,4 +1136,13 @@ This is a guess at the cause until it is seen on the robot: the measure is `publ
 minute and whether the clock line is ever held again over a long idle run. Checks: 145 native
 firmware checks pass (none exercise the bus timing). Full four-flag build 818,045 bytes program, 91,260
 globals, kept at `local/firmware/2026-11-24-0.2.25-gentle-matrix.bin`; the one before is
-`2026-11-22-0.2.24-gyro-zero.bin`. **Not yet flashed.**
+`2026-11-22-0.2.24-gyro-zero.bin`.
+
+**Flashed the same evening at the owner's request:** one attempt, hello `0.2.25-gentle-matrix`, both 8x8
+ready 7 s after boot, 8/8 ring sensors, IMU, compass, BME280 and battery gauge up, no motion. A 3-minute
+stationary read (`local/firmware/2026-11-24-0.2.25-idle.jsonl`, hello only): front frames every 0.2 s
+and rear every 0.3 s as designed, but **7 stalls** (2.3 a minute; earlier runs 1.3 to 4.8 a minute).
+Each froze both modules' frames for 1.0 to 1.4 s while controller telemetry never gapped more than
+0.16 s: about two of `Wire1`'s 500 ms timeouts, so a module holds the clock line for over half a second
+however often it is asked. **The polling pace is not the cause of the stalls.** Whether the gentler reads
+stop the eventual permanent hang needs a long run; the stalls themselves are unchanged.
