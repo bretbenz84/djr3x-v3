@@ -54,7 +54,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Version 0.9.2, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 427,324 bytes of
+Version 0.9.3, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 427,324 bytes of
 program, 27,152 bytes of globals. Each strip has its own FastLED controller and brightness,
 since the library's board-wide show, brightness and clear would act on both.
 
@@ -105,8 +105,11 @@ Since 0.9.0 (owner, November 24: "the edges are dark and it is brighter towards 
 whole not-talking animation dark") the mouth at rest (`ACTIVE`, `IDLE`, after `SPEAK_STOP`) glows in its
 middle only, in the current feeling's colour: the four middle lights between 5 and 7.5 %, falling away
 quickly (about half of that one light out, a fifth two lights out, 1 % on the last lit lights), 32 of the
-80 lights lit and the outermost ring always dark. The glow is six lights across and six down, about as wide as it is tall
-on the panel. It still breathes about once every six seconds, each breath spreading from the middle
+80 lights lit and the outermost ring always dark. The glow is six lights across and eight down, about as wide as it is tall
+on the panel. Since 0.9.3 (owner, the same day: "looks very dim. Can you bring up the brightness on the
+edges a little?") it falls away more gently: lights two out from the middle hold about half of its
+brightness instead of a quarter, the last lit lights 2 % instead of 1 %, and four more lights, at the top
+and bottom of the middle columns, are lit (40 in all). The middle itself is unchanged. It still breathes about once every six seconds, each breath spreading from the middle
 outwards. From 0.7.0 (owner, November 21: a slow effect when not speaking, dimmer) it was a ripple over
 the whole mouth, every light between 3 and 8 %; before that the whole mouth pulsed together.
 

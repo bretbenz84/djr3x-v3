@@ -154,7 +154,7 @@ class MouthAnimation:
         # The resting glow: a bell about the middle, nothing on the outermost lights or where it is too faint.
         rows, cols = np.meshgrid(np.arange(10), np.arange(8), indexing='ij')
         self.far = np.hypot((cols - 3.5) / 3.5, (rows - 4.5) / 3.6)
-        share = np.where(self.far < 1, np.exp(-(self.far / .58) ** 2), 0.)
+        share = np.where(self.far < 1, np.exp(-(self.far / .8) ** 2), 0.)
         self.glow = np.where(share * .085 * 255 >= 2, share, 0.)
         self.last = None
         self.utterance = None

@@ -575,3 +575,12 @@ each square's own pace, never dark, nothing else lit, none on an empty pack; thr
 required the squares dark now require them lit). Compiled (427,324 bytes), flashed; the board answers
 `hello djr3x_leds 0.9.2` (on a second asking: the first, straight after the upload, went unanswered) and
 was sent `C:CHARGE:85:0`. **Not yet seen by the owner.**
+
+### A brighter edge to the resting glow: firmware 0.9.3 (still November 24)
+
+Owner: "I like the idle mouth gradient but it looks very dim. Can you bring up the brightness on the edges
+a little?" The glow's middle is unchanged; it falls away more gently, so the lights two out from the middle
+roughly double (to about half the middle's brightness) and four more lights are lit, still none on the
+outermost ring. The dashboard's mouth follows. Evidence: 145 firmware checks and the dashboard checks
+(the resting-mouth ones updated). Flashed; the board answers `hello djr3x_leds 0.9.3`. **Not yet seen by
+the owner.**

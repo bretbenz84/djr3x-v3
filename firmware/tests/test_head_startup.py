@@ -306,7 +306,7 @@ class RestingMouthTests(HeadPlay):
         # Dark at the edges: no light of the outermost ring is ever lit, and under half the mouth is.
         self.assertTrue(all(max(levels[i]) == 0 for i in RING))
         lit = [i for i in MOUTH if max(levels[i])]
-        self.assertTrue(20 <= len(lit) <= 36, len(lit))
+        self.assertTrue(20 <= len(lit) <= 40, len(lit))
         self.assertTrue(all(min(levels[i]) >= 2 for i in lit))         # A lit light stays lit, and keeps its colour:
         for t, f in awake:
             for i in lit:
@@ -326,7 +326,11 @@ class RestingMouthTests(HeadPlay):
                 self.assertLessEqual(mean[far], mean[near] + .01, (near, far))
         self.assertGreater(mean[CENTRE[0]], 4 * min(mean[i] for i in lit))
         self.assertEqual(sum(1 for i in lit if (i - 2) // 8 in (4, 5)), 12)    # Six lights across the middle rows,
-        self.assertEqual(sum(1 for i in lit if light_at((i - 2) // 8, 3) == i), 6)   # six down the middle columns.
+        self.assertEqual(sum(1 for i in lit if light_at((i - 2) // 8, 3) == i), 8)   # eight down the middle columns.
+        # Owner, November 24 (0.9.3): "very dim ... bring up the brightness on the edges a little". Lights two
+        # out from the middle hold over a third of the middle's brightness (they had a quarter), the middle unchanged.
+        self.assertGreater(mean[light_at(4, 1)], .4 * mean[CENTRE[0]])
+        self.assertGreater(mean[light_at(2, 3)], .4 * mean[CENTRE[0]])
         # Kept dim: the middle never passes 8.5 % (22 of 255; it reaches 7.5), and the whole mouth gives well under half the light
         # it did (eighty lights at 14 of 255 on average).
         self.assertTrue(10 <= min(levels[CENTRE[0]]) and max(levels[CENTRE[0]]) <= 22, (min(levels[CENTRE[0]]), max(levels[CENTRE[0]])))

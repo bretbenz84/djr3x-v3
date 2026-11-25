@@ -301,7 +301,8 @@ uint8_t      mouthShown[NUM_MOUTH];
 #define GLOW_RATE   1.0f                      // rad/s
 #define GLOW_SPREAD 2.4f                      // radians of lag from the centre to where the glow ends
 #define GLOW_ROWS   3.6f                      // the glow ends this many rows above and below the middle, and at the outermost columns
-#define GLOW_WIDTH  0.58f                     // how far out, as a share of that, the glow has fallen to about a third
+#define GLOW_WIDTH  0.80f                     // how far out, as a share of that, the glow has fallen to about a third
+                                              // (0.58 in 0.9.0; owner, November 24: "very dim", lift the edges a little)
 #define GLOW_FAINT  2                         // a lit light never shows less: under it amber loses its colour
 #define GLOW_FRAME_MS 40UL
 float        glowPhase     = 0.0f;            // 0.0 – TWO_PI

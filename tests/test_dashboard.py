@@ -192,7 +192,7 @@ class LightMirrorTests(unittest.TestCase):
         rest = MouthAnimation().render({'mouth_mode': 'active', 'mouth_updated_at': 0.}, 3.).reshape(10, 8, 3).sum(axis=2)
         self.assertEqual(float(rest[0].sum() + rest[9].sum() + rest[:, 0].sum() + rest[:, 7].sum()), 0.)
         self.assertEqual(float(rest.max()), float(rest[4:6, 3:5].max()))
-        self.assertGreater(float(rest[4, 3]), 2 * float(rest[4, 1]))
+        self.assertGreater(float(rest[4, 3]), 1.5 * float(rest[4, 1]))
         self.assertGreater(float(rest[4, 1]), 0.)
         mouth, tallest = MouthAnimation(), 0
         for n in range(90):                              # Three seconds of a quiet voice, thirty frames a second.
