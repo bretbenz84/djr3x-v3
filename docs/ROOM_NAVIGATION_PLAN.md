@@ -628,8 +628,8 @@ variance of a 480 px grey copy) to be kept; the reading still counts. The smeare
 the least sharp clear one (a plain door) 73. A look-around stop reads the sharpest frame of 0.3 s and,
 while none reaches 50, keeps looking for up to 3 s. `place_photo` now carries `sharpness`;
 `place_photo_skipped` (`blurred`) marks a refusal. Two place checks (synthetic scores). Whether live
-1080p frames of blank walls clear 50 is still to be seen on the robot. The two smeared photos are still
-in the map.
+1080p frames of blank walls clear 50 is still to be seen on the robot. The two smeared photos were removed from the map at the owner's request
+(database backed up first; the image files set aside under `local/room-photos-removed/`).
 
 ### Checks
 
