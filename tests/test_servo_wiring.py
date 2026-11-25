@@ -176,7 +176,7 @@ class MenuParkTests(unittest.TestCase):
 
         board = Board()
         board.reset_input_buffer = lambda: None
-        by_channel = {cfg['ch']: cfg for cfg in menu._servos().values()}
+        by_channel = {cfg['ch']: cfg for cfg in menu._SERVO_DEFAULTS.values()}
         self.assertEqual(menu._run_park(board, by_channel), dict(UNPOWERED_REST))
         moved = [on_board[packet[1]] for packet in board.written if packet[0] == 0x84]
         last = {servo: index for index, servo in enumerate(moved)}
