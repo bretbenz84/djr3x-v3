@@ -1230,3 +1230,10 @@ lines name the board and its pins ("tof_matrix rear: serial started (receive GPI
 the robot build compiles and all firmware checks pass (`local/firmware/2026-11-24-0.2.28-both-uart.bin`).
 Not flashed yet; the rear's clock wire (GPIO5) read low through the last power cycle, so if the rear stays
 silent on serial, its wire or the board is the next suspect.
+
+Flashed 0.2.28 November 24, 23:05 (owner, after setting the rear switch to UART; `local/firmware/2026-11-24-0.2.28-*`).
+Both boards set up on serial 9 s after boot and their first frames began 0-2 ms after the request. In the flash
+script's capture both streamed (78 front and 52 rear frames sent to the Mac, every 2nd and every 3rd as set).
+The battery menu reset the controller at 23:08. In the next 3 minutes idle, on battery (12.84 V), there was
+not one stall, failed frame or setup again; under 0.2.25 that would have been about 7 stalls. The long run
+on battery, and a drive, are still to see.
