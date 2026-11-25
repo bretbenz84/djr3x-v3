@@ -10,7 +10,9 @@ hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
 Owner request: slider labels read like the board ("Hero Swing", "Throttle Forearm") instead of the
 underscored names, and the nudge buttons (±1/5/10 µs in measurement mode) are removed. Measurement
-mode still slows moves and records poses. Synthetic checks only.
+mode still slows moves and records poses. So that all eighteen sliders fit without scrolling, the
+throttle sequences, measurement mode, pose recording and their greyed status lines moved into one
+"Throttle tools" submenu. Synthetic checks only.
 
 ## November 23: servo names follow the board's labels
 

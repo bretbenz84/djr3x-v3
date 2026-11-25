@@ -54,7 +54,8 @@ same day: the hero fingers 1242–1748 µs (mid 1500), and channel 5 (was "hand"
 768–2100 µs (mid 1436).
 
 November 23-24, 2026: sliders are listed by board channel under the board's own names
-("Hero Swing", "Throttle Forearm"); the nudge buttons are gone.
+("Hero Swing", "Throttle Forearm"); the nudge buttons are gone. The throttle tools sit in one submenu so
+every servo fits without scrolling.
 
 Run directly for debugging:
     venv/bin/python tools/rex_servo_menubar.py
@@ -716,7 +717,13 @@ def run_app() -> int:
             self._sequence_menu.add(self._play_menu)
             self._sequence_files = None
             self._record = rumps.MenuItem("Record this pose…", callback=self._record_pose)
-            menu: list = [self._status, self._sequence_menu, self._sequence_status, self._measurement, self._record, self._measurement_status, rumps.MenuItem("Throttle and poker elbow/wrist: manual clearance required"), None]
+            # Owner, November 24: the menu scrolled. The throttle tools and their status lines (greyed,
+            # informational) live in one submenu so every servo fits on screen.
+            tools = rumps.MenuItem("Throttle tools")
+            for item in (self._sequence_menu, self._sequence_status, self._measurement, self._record, self._measurement_status,
+                         rumps.MenuItem("Throttle and poker elbow/forearm: manual clearance required")):
+                tools.add(item)
+            menu: list = [self._status, tools, None]
             # Listed by board channel: from the top of Rex down since the November 23 rewire.
             for name, cfg in sorted(servos.items(), key=lambda item: _board(item[1]["ch"])):
                 self._by_channel[cfg["ch"]] = name
