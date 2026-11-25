@@ -3362,6 +3362,7 @@ class Session:
                     playing = self.state.jeopardy.active or bool(context.get('jeopardy'))
                     if not context.get('sentry') and not playing and not self.state.frozen:
                         self._talked_about(heard, context, turn_id)
+                        self.state.rex_said_pet_names(heard)   # "What's the weirdest thing Toby does?"
                     if context.get('callouts'):
                         try:
                             used = self.state.callout_heard(context['callouts'], heard)

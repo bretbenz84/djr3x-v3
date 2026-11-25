@@ -64,6 +64,22 @@ def promised_without_call(text, offered):
     return re.search(rf"\b(?:{leads})\s+(?:go ahead and\s+|just\s+)?(?:{'|'.join(PROMISE_VERBS)})\b", words) is not None
 
 
+def refused_save(continuation):
+    """Whether this answer follows a save that did not go through (its tool result is not ok)."""
+    from ..semantics import MEMORY_SAVES
+    names = {row.get('call_id'): row.get('name') for row in continuation if row.get('type') == 'function_call'}
+    for row in continuation:
+        if row.get('type') != 'function_call_output' or names.get(row.get('call_id')) not in MEMORY_SAVES | {'remember_object'}:
+            continue
+        try:
+            outcome = json.loads(row.get('output') or '{}').get('outcome')
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if outcome != 'ok':
+            return True
+    return False
+
+
 def reply_brain(settings, secrets, switch=None):
     """The reply model the settings choose; the one place live and replay runs get it from."""
     openai = OpenAIBrain(secrets.openai_api_key, settings.reply_service_tier)
@@ -193,8 +209,13 @@ class ClaudeBrain(OpenAIBrain):
         # look has pictures to compare and, with no thinking first, nowhere to compare them but out loud; it
         # is spoken as it streams, so no filter can catch it. Those answers think first.
         looked = bool(snapshot.images and snapshot.continuation)
+        # November 24 (run ab1cd64f): Toby's note was refused and the answer after it, spoken as it streamed, began
+        # "The write failed, so I'll just reply. Say [laughs] a dog that...": with no thinking first, Claude worked
+        # out aloud how to follow the "never mention it" note and then quoted the line it meant to say. The answer
+        # after a refused save thinks first too.
+        thinks = looked or refused_save(snapshot.continuation)
         request = {'model': model, 'max_tokens': MAX_TOKENS, 'system': system, 'messages': messages, 'stream': True,
-                   'thinking': (THINKING if looked else REPLY_THINKING)[model], 'output_config': {'effort': 'low'}}
+                   'thinking': (THINKING if thinks else REPLY_THINKING)[model], 'output_config': {'effort': 'low'}}
         if tools:
             request.update(tools=tools, tool_choice=choice)
         allowed = {d['name'] for d in offered} if offered else set()

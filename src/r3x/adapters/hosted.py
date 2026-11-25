@@ -755,7 +755,7 @@ class OpenAIBrain(HTTPProvider):
                 'A fresh image does not require a visual reply. If nothing useful should be said, '
                 'choose remain_silent or describe_view with text null. Internal labels are never spoken text.')})
         if snapshot.context.get('photo_memory') and not snapshot.context.get('photo_inspection'):
-            notes.append(('\nPHOTO MEMORY DECISION: The catalog is the complete saved pet/object library; '
+            notes.append(self._prompt('photo_memory_decision', '\nPHOTO MEMORY DECISION: The catalog is the complete saved pet/object library; '
                 'a name only mentioned in conversation is not saved. Explicit naming such as "the smaller dog is NAME" '
                 'is teaching even without the word remember: inspect the intended subject and save, or clarify ambiguity. '
                 'Never merely acknowledge a teaching statement as though it was saved. Apparent image size is not physical size; '

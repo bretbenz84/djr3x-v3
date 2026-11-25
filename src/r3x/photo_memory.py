@@ -142,9 +142,10 @@ class PhotoMemory:
             key=a['entity_id'];entity=data['entities'].get(key)
             if entity is None:raise ValueError('UnknownPhotoEntity')
             # A new note about a pet a person named a moment ago ("This is Max" then "he also has brown paws")
-            # is allowed (owner ruling, October 23); a rename, a removal or forgetting needs the name in these words.
+            # is allowed (owner ruling, October 23), and so is the answer to a line of Rex's own that named the pet
+            # (November 24); a rename, a removal or forgetting needs the name in these words.
             recent=(a['action']=='correct' and a['name']==entity['name'] and a['remove_notes'] is None
-                    and key in source.get('named_recently',()))
+                    and key in source.get('talked_about_recently',source.get('named_recently',())))
             if not names_subject(source['text'],entity['name']) and not recent:raise ValueError('PhotoSubjectNeedsExplicitName')
             if a['action']=='forget':
                 remove=[self._path(r['file']) for r in entity['references']];del data['entities'][key]

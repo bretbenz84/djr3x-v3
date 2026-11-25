@@ -6,6 +6,15 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Toby's note refused, and the refusal spoken — November 24, run `ab1cd64f`
+
+Rex asked "What's the weirdest thing that dog does?" about Toby; the owner's "Yeah, he licks my face." was
+refused because only a person naming a pet counted, and Claude's answer after the refusal began "The write
+failed, so I'll just reply. Say [laughs] a dog that...". A pet Rex named in a line people heard in the last
+2 minutes now counts for a new note on it (not for a photo, a rename, a removal or forgetting). Claude's
+answer after a refused save thinks first, and Claude's copy of the photo-memory note no longer says to ask for
+the name. Synthetic checks only; details in [Claude replies](CLAUDE_REPLIES.md#november-24-a-refused-save-is-answered-after-thinking).
+
 ## He keeps moving while he thinks — November 24
 
 Owner: after a person finishes speaking he looked frozen until he answered. The "I heard you" head cock

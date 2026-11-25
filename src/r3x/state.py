@@ -38,6 +38,10 @@ INFER_BLOCKING_REASONS = frozenset({'missing_or_wrong_namespace', 'echo_mixed_or
 NAME_SPELLING_SECONDS = 1800.
 # A fact about a pet ("he barks a lot") is about the pet named in this utterance or this long before.
 PET_NAMED_SECONDS = 600.
+# A pet Rex himself named in a line people heard is what their answer is about, for a new note, this long after
+# (November 24, run ab1cd64f: asked "What's the weirdest thing that dog does?" about Toby, the owner's "Yeah, he
+# licks my face" was refused for not naming Toby). The window a question waits for its answer (pending).
+PET_REX_NAMED_SECONDS = 120.
 NAME_SPELLING_RATIO = .7
 # A position a person asked for is kept this long against Rex's own moves (October 18).
 REQUESTED_POSITION_SECONDS = 120.
@@ -159,6 +163,7 @@ class CoreState:
         self.voice_conversation = None
         self.named_people = {}   # person_id -> when their exact name was last said or they were introduced.
         self.named_pets = {}     # photo-memory pet id -> when a person last said its name.
+        self.pets_rex_named = {}  # photo-memory pet id -> when a heard line of Rex's own last said its name.
         self.newcomers = {}      # person_id -> an introduced person's face and voice still being gathered.
         self.voices_taken = {}   # track_id -> whom presence or the carry took this voice for.
         from .agency import AgencyPlan
@@ -193,7 +198,8 @@ class CoreState:
             source={'turn_id':turn,'session_id':capture.session_id,'text':transcript.text,
                     'speaker_id':attribution.person_id,'speaker_track':attribution.track_id,
                     'attribution_state':attribution.state,'wall_time':self.wall_clock(),
-                    'named_recently':self.recently_named_pets()}
+                    'named_recently':self.recently_named_pets(),
+                    'talked_about_recently':self.recently_named_pets(notes=True)}
             result=self.photo_memory.apply(call,source,self.trace.clock())
             if result.get('status')=='forgotten':
                 # What he asked about a forgotten pet goes with it (curiosity.py).
@@ -261,18 +267,32 @@ class CoreState:
             raise ValueError('InspectionUnavailable')
         return tuple(poses)
 
-    def recently_named_pets(self):
+    def recently_named_pets(self, notes=False):
         """Saved pets a person named in the last PET_NAMED_SECONDS, unless these words name another saved
         pet or object. Owner ruling October 23 (run 8e11d468): "Take another picture of him" and "He also
-        has brown paws" right after "This is Max" were refused until he said the name again."""
+        has brown paws" right after "This is Max" were refused until he said the name again. For a new note
+        (notes), a pet Rex named himself in a heard line in the last PET_REX_NAMED_SECONDS counts too; a
+        photo still needs a person to have named it."""
         if self.photo_memory is None or self.current is None:
             return ()
         from .photo_memory import names_subject
         now, text = self.trace.clock(), self.current[2].text
         entities = self.photo_memory.data['entities']
         named_now = {k for k, e in entities.items() if names_subject(text, e['name'])}
-        return tuple(k for k, t in self.named_pets.items()
-                     if k in entities and now - t <= PET_NAMED_SECONDS and not named_now - {k})
+        named = [k for k, t in self.named_pets.items() if now - t <= PET_NAMED_SECONDS]
+        if notes:
+            named += [k for k, t in self.pets_rex_named.items() if now - t <= PET_REX_NAMED_SECONDS and k not in named]
+        return tuple(k for k in named if k in entities and not named_now - {k})
+
+    def rex_said_pet_names(self, heard):
+        """Saved pets named in a line of Rex's that people heard (recently_named_pets, for notes)."""
+        if self.photo_memory is None or not heard:
+            return
+        from .photo_memory import names_subject
+        now = self.trace.clock()
+        for key, entity in self.photo_memory.data['entities'].items():
+            if entity['kind'] == 'pet' and names_subject(heard, entity['name']):
+                self.pets_rex_named[key] = now
 
     def _named_pet(self, reference):
         """The recently named saved pet a claim's subject names (recently_named_pets)."""
@@ -280,7 +300,7 @@ class CoreState:
             return None
         from .photo_memory import names_subject
         entities = self.photo_memory.data['entities'] if self.photo_memory is not None else {}
-        return next((k for k in self.recently_named_pets() if names_subject(reference, entities[k]['name'])), None)
+        return next((k for k in self.recently_named_pets(notes=True) if names_subject(reference, entities[k]['name'])), None)
 
     def _pet_fact(self, call, entity_id):
         """Append a person's fact about a saved pet to its photographic-memory notes."""

@@ -246,3 +246,23 @@ nothing of theirs heard he claimed to have heard them in 2 of 2, once blaming mo
 After: quoted in 4 of 4 (one added "heard every word" after quoting), and in 4 cases with nothing heard or only
 a motor sound, 3 said plainly he missed it and asked again, one opened "loud and clear" before admitting it.
 About $1.25 of probe calls. **Still open:** the live run's long context, where the dodge happened; watch for it.
+
+## November 24: a refused save is answered after thinking
+
+In run `ab1cd64f` Rex asked about Toby by name and the owner answered "Yeah, he licks my face." The note on
+Toby was refused (only a person saying the name counted then; code now also counts Rex's own heard line from
+the last two minutes, see IMPLEMENTATION_STATUS). The answer after the refusal streamed straight to speech:
+"The write failed, so I'll just reply. Say [laughs] a dog that raids the trash then kisses you on the mouth."
+Claude had three conflicting instructions: the persona's "a save that did not go through is never mentioned",
+the persona's general "on rejection say so plainly", and the shared photo-memory note's "when
+PhotoSubjectNeedsExplicitName rejects a write, ask for the name". With no thinking first it worked the conflict
+out aloud and then quoted the line it meant to say ("Say ..."); the `[laughs]` was an ordinary delivery tag
+performed as a laugh, misplaced after "Say". Now the answer after a refused save (a memory save whose result
+is not ok) thinks first like the answer after a look, the persona says a refused save is the exception to
+"say so plainly", and Claude has its own copy of the photo-memory note (`photo_memory_decision`) that never
+mentions a refused note and lets an answer to his own question about a pet go on that pet. OpenAI's wording is
+unchanged. The extra cost is a few thinking tokens on a rare answer.
+
+**Evidence:** blocked-I/O checks with fake providers (`tests/test_november24_pet_note.py`). **Still open:** how
+a live Claude model now words the answer after a refused save, and how much its first word slows.
+
