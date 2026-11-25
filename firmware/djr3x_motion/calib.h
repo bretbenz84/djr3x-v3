@@ -345,6 +345,11 @@
                                          // are held through (TOF_ERR_STREAK_STALE) stay ~1 s.
 #define TOF_MATRIX_FIRST_POLL_MS     10  // after a command, leave the module alone this long
 #define TOF_MATRIX_POLL_MS           15  // between status reads (vendor library: 17 ms)
+// 0.2.26 (owner, November 24): the front board on serial (pins.h). A frame reply is 132
+// bytes, 11.5 ms on the wire at this rate, sent by the board as soon as it has one.
+#define TOF_MATRIX_UART_BAUD         115200 // the vendor's UART examples
+#define TOF_MATRIX_UART_READ_TIMEOUT_MS 70  // a frame request to its last byte: the I2C read
+                                            // deadline plus the reply's time on the wire
 #define TOF_MATRIX_MODE_ACK_TIMEOUT_MS 8000 // SETMODE ack wait (init task only). The
                                          // RP2040 only acks AFTER the ~5 s VL53L7CX
                                          // reconfigure; a short window here re-sends

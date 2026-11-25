@@ -10,7 +10,7 @@
 
 // ---- Version ---------------------------------------------------------------
 #define MOTION_PROTO_VERSION 1
-#define MOTION_FW_VERSION    "0.2.25-gentle-matrix"
+#define MOTION_FW_VERSION    "0.2.26-front-uart"
 
 // Physical capabilities advertised in hello. Person-directed behaviors live on
 // the Mac and compose these primitives; firmware has no come-here semantics.

@@ -63,5 +63,14 @@
 // the ESP32's second I2C controller on its own pins — never on the 21/22 trunk.
 // The Gravity board has onboard pull-ups; GPIO4 is a clean output-capable pin, and
 // GPIO5's strapping role (SDIO timing) tolerates an idle-high I2C line at reset.
-#define PIN_MX_I2C_SDA  4   // SEN0628 Gravity D/T
+#define PIN_MX_I2C_SDA  4   // SEN0628 Gravity D/T (the REAR board only, since 0.2.26)
 #define PIN_MX_I2C_SCL  5   // SEN0628 Gravity C/R
+
+// ---- The FRONT 8x8 Matrix ToF on its own serial port (0.2.26, owner 2026-11-24) ----
+// Its I2C/UART switch on UART, off the shared GPIO4/5 bus, so a board that hangs the
+// bus no longer blinds both ends. UART2 is routed to any pins; 16/17 are avoided (see the
+// left-PWM note above). 34 is input-only, which is all a receive pin needs (the board
+// drives its transmit line; no pull-up). 15 is a strapping pin whose boot state is high,
+// the same as an idle transmit line, and nothing on the board's receive pin pulls it low.
+#define PIN_MX_UART_RX  34  // ESP32 receive <- front SEN0628 D/T (its transmit)
+#define PIN_MX_UART_TX  15  // ESP32 send    -> front SEN0628 C/R (its receive)

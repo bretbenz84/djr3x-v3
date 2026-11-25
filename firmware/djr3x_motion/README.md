@@ -1165,3 +1165,34 @@ streaming and logged no stall; the first came minutes after the pack read 13.0 V
 drivers are disabled when the wheels are still, on or off the charger (`hal_motors_off`), so idle
 motor switching is not the difference. The cause is not known; what the charger changes (supply,
 ground path, which loads run) is the next thing to test, without rewiring.
+
+## The front 8x8 on its own serial port (firmware 0.2.26, November 24, 2026)
+
+Owner: "I think I'll switch to UART. Can we leave the back one on I2C and switch the front one to UART for
+now?" The two boards shared one I2C bus, and a board holding the clock line low blinded both until their
+power was cycled. He checked that the boards and the drive ESP32 already share a ground.
+
+Wiring (front board only; the rear stays alone on GPIO4/5):
+
+| Front SEN0628 | Drive ESP32 |
+|---|---|
+| + / − | 3.3 V converter and ground, unchanged |
+| D/T (its transmit) | GPIO34 (receive; input-only pin) |
+| C/R (its receive) | GPIO15 (send) |
+
+The board's I2C/UART switch goes to UART, then its power is cycled. 16/17 are avoided (the June left-PWM
+fault on those pins).
+
+Firmware: UART2 at 115200 baud (the vendor examples' rate). The packets are the I2C ones; the board sends its
+reply by itself, so there is no status polling, and requests go a byte a millisecond as the vendor library
+sends them. A serial line has no address, so the probe is a frame request that gets any reply. The mode
+request's reply waits in the receive buffer through the 5.2 s settle. A frame read has 70 ms
+(`TOF_MATRIX_UART_READ_TIMEOUT_MS`). The same setup-again logic (`tof_matrix_link.h`) runs for both; for the
+front, "restart the bus" reopens the serial port. Log lines say "on serial" instead of an address. Frames
+reach the Mac as before (`tofmx`), so nothing on the host changes.
+
+Checks: `firmware/tests/test_tof_matrix_uart.py` feeds the reply reader clean frames, noise, cut-short,
+failed, wrong-command and oversize replies, and checks the request bytes; all 154 firmware checks pass and
+the robot build compiles (`local/firmware/2026-11-24-0.2.26-front-uart.bin`). Not flashed: until the front is
+rewired, this firmware leaves the front board unread (the drive then goes slow on the ring beams, host
+4c52a06). Not yet seen: the board answering over serial, frame rate, and whether stalls stop.

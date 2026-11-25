@@ -26,6 +26,14 @@
 //   Response (I2C reads): poll one status byte until != 0xFF —
 //     0x53 = success, 0x63 = failed. Then {cmd, lenL, lenH, payload[len]},
 //     reads chunked <= 32 bytes (the RP2040's I2C cache size).
+//
+// ---- The front board on its own serial port (0.2.26, owner November 24) --------
+// The front board's switch is set to UART and it is wired to GPIO34 (its D/T, our
+// receive) and GPIO15 (its C/R, our send) at 115200 baud (pins.h, calib.h). Same
+// packets; the reply comes by itself instead of being polled (tof_matrix_uart.h).
+// A serial line has no address to ACK, so the probe is a frame request answered.
+// The rear board stays alone on the I2C bus, so a board that hangs now blinds only
+// its own end.
 #include "hal.h"
 
 #if MOTION_TOF_MATRIX_PRESENT
@@ -34,6 +42,7 @@
 #include "tof_filter.h"
 #include "tof_matrix_floor.h"
 #include "tof_matrix_link.h"
+#include "tof_matrix_uart.h"
 #include "i2c_trunk.h"
 #include "proto_io.h"
 #include <Arduino.h>
@@ -50,9 +59,10 @@ static const uint8_t MX_STATUS_IDLE   = 0xFF;   // "response not ready yet"
 static const int     MX_I2C_CHUNK     = 32;     // RP2040-side I2C cache limit
 static const uint8_t MX_MODE_8X8      = 8;      // eMatrix_8X8
 
-// ---- Two modules on one private bus -----------------------------------------
-// FRONT (0x33) and REAR (0x32, owner 2026-10-19: same height, facing straight
-// back) share Wire1. One poll task owns every transaction to both, so a
+// ---- Two modules: the front on serial, the rear on the private bus -----------
+// FRONT (serial since 0.2.26; was 0x33 on the bus) and REAR (0x32 on Wire1, owner
+// 2026-10-19: same height, facing straight back). One poll task owns every
+// transaction to both, so a
 // stretching module costs only matrix time. Each module runs its own small state
 // machine (tof_matrix_link.h), so the front never waits on the rear's 5 s mode
 // switch and a rear module that is absent or unplugged simply keeps being probed
@@ -63,6 +73,7 @@ static const uint8_t MX_MODE_8X8      = 8;      // eMatrix_8X8
 
 struct MxUnit {
   const char* name;            // log label
+  bool uart;                   // on its own serial port (the front, 0.2.26), else the I2C bus
   uint8_t addr;
   uint8_t probe_log_every;     // log a missing module every Nth failed probe
   const char* emit_type;       // telemetry line type for the raw grid
@@ -70,6 +81,7 @@ struct MxUnit {
   MxGeom geom;
   // Poll-task owned:
   MxLink link;                 // probe / setup / read / setup-again state
+  MxUartReply reply;           // serial only: the reply being read (kept across steps for the mode ack)
   uint16_t grid[64];
   TofFilt filt_l, filt_r;
   uint8_t emit_div;
@@ -80,14 +92,14 @@ struct MxUnit {
 };
 
 static MxUnit s_units[2] = {
-  {"front", TOF_MATRIX_ADDR, 10, "tofmx", 2,
+  {"front", true, TOF_MATRIX_ADDR, 10, "tofmx", 2,
    {TOF_MATRIX_FLIP_V != 0, TOF_MATRIX_FLIP_H != 0, TOF_MATRIX_HEIGHT_M,
     TOF_MATRIX_FLOOR_ROW_MM, {0}, {0}},
-   MxLink(), {0}, TofFilt(), TofFilt(), 0, false, -1, -1, 0},
-  {"rear", TOF_MATRIX_REAR_ADDR, 60, "tofmx_rear", TOF_MATRIX_REAR_EMIT_EVERY,
+   MxLink(), MxUartReply(), {0}, TofFilt(), TofFilt(), 0, false, -1, -1, 0},
+  {"rear", false, TOF_MATRIX_REAR_ADDR, 60, "tofmx_rear", TOF_MATRIX_REAR_EMIT_EVERY,
    {TOF_MATRIX_REAR_FLIP_V != 0, TOF_MATRIX_REAR_FLIP_H != 0, TOF_MATRIX_REAR_HEIGHT_M,
     TOF_MATRIX_REAR_FLOOR_ROW_MM, {0}, {0}},
-   MxLink(), {0}, TofFilt(), TofFilt(), 0, false, -1, -1, 0},
+   MxLink(), MxUartReply(), {0}, TofFilt(), TofFilt(), 0, false, -1, -1, 0},
 };
 static MxUnit& s_front = s_units[0];
 static MxUnit& s_rear  = s_units[1];
@@ -163,14 +175,69 @@ static int mx_recv_response(uint8_t addr, uint8_t cmd, uint8_t* payload_out, int
   }
 }
 
+// ---- Bounded serial primitives (the front board, UART2 on GPIO34/15) -------------
+// Only the poll task touches the port. Nothing here blocks past its deadline: bytes are
+// taken as they arrive, between 1 ms sleeps.
+static HardwareSerial s_mx_uart(2);
+
+static void mx_uart_start(const char* when) {
+  s_mx_uart.setRxBufferSize(512);   // a frame reply is 132 bytes
+  s_mx_uart.begin(TOF_MATRIX_UART_BAUD, SERIAL_8N1, PIN_MX_UART_RX, PIN_MX_UART_TX);
+  char buf[96];
+  snprintf(buf, sizeof(buf), "tof_matrix: serial %s (receive GPIO%d, send GPIO%d, %d baud)", when,
+           PIN_MX_UART_RX, PIN_MX_UART_TX, TOF_MATRIX_UART_BAUD);
+  emit_log("info", buf);
+}
+
+static void mx_uart_reset() {
+  s_mx_uart.end();
+  vTaskDelay(pdMS_TO_TICKS(2));
+  mx_uart_start("restarted");
+}
+
+// Drop whatever is waiting (noise, a reply that came too late), then send the request a
+// byte a millisecond as the vendor library does, and start reading its reply.
+static void mx_uart_send(MxUnit& u, uint8_t cmd, const uint8_t* args, uint8_t args_len,
+                         uint8_t* dst, uint16_t cap) {
+  while (s_mx_uart.available() > 0) s_mx_uart.read();
+  uint8_t pkt[16];
+  const int n = mx_uart_request(pkt, cmd, args, args_len);
+  for (int i = 0; i < n; i++) {
+    s_mx_uart.write(pkt[i]);
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+  u.reply.start(cmd, dst, cap);
+}
+
+// Read the reply started by mx_uart_send until it is whole or deadline_ms has passed.
+// The payload length on success, else -1.
+static int mx_uart_recv(MxUnit& u, uint32_t deadline_ms) {
+  const uint32_t t0 = millis();
+  for (;;) {
+    while (s_mx_uart.available() > 0) {
+      const MxUartResult r = u.reply.feed((uint8_t)s_mx_uart.read());
+      if (r == MX_UART_OK) return u.reply.length();
+      if (r != MX_UART_MORE) return -1;
+    }
+    if ((uint32_t)(millis() - t0) >= deadline_ms) return -1;
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+}
+
 // ---- One frame from a ready module ---------------------------------------------
 // True when a whole frame was read and published. What a failure means (hold the
 // last values, report -1, set the module up again) is decided in mx_link_step.
 static bool mx_read_frame(MxUnit& u) {
-  mx_send_cmd(u.addr, MX_CMD_ALLDATA, nullptr, 0);
   uint8_t payload[128];
-  const int got = mx_recv_response(u.addr, MX_CMD_ALLDATA, payload, sizeof(payload),
-                                   TOF_MATRIX_READ_TIMEOUT_MS);
+  int got;
+  if (u.uart) {
+    mx_uart_send(u, MX_CMD_ALLDATA, nullptr, 0, payload, sizeof(payload));
+    got = mx_uart_recv(u, TOF_MATRIX_UART_READ_TIMEOUT_MS);
+  } else {
+    mx_send_cmd(u.addr, MX_CMD_ALLDATA, nullptr, 0);
+    got = mx_recv_response(u.addr, MX_CMD_ALLDATA, payload, sizeof(payload),
+                           TOF_MATRIX_READ_TIMEOUT_MS);
+  }
   // A module that reset comes back in its power-on mode and answers with a shorter
   // frame: that is a failure here, and what sends it back through setup.
   if (got != (int)sizeof(payload)) return false;
@@ -236,21 +303,34 @@ static void mx_bus_reset() {
 // 2026-07-16: telemetry died seconds after boot, 4/5 resets). Instead: send
 // SETMODE, leave that module alone BLINDLY through the settle, then read the ack
 // when the sensor is guaranteed idle again. The other module keeps polling.
+// Over serial the board is not talked to through its settle either: the mode reply it
+// sends when done waits in the receive buffer, read by the same parser after the settle.
 struct MxIo {
   MxUnit& u;
-  bool probe() { return mx_probe(u.addr); }
+  bool probe() {
+    if (!u.uart) return mx_probe(u.addr);
+    // No address on a serial line: a board is there when a frame request gets any reply.
+    uint8_t scratch[128];
+    mx_uart_send(u, MX_CMD_ALLDATA, nullptr, 0, scratch, sizeof(scratch));
+    mx_uart_recv(u, TOF_MATRIX_UART_READ_TIMEOUT_MS);
+    return u.reply.answered;
+  }
   void send_setmode() {
     const uint8_t args[4] = {0, 0, 0, MX_MODE_8X8};
-    mx_send_cmd(u.addr, MX_CMD_SETMODE, args, sizeof(args));
+    if (u.uart) mx_uart_send(u, MX_CMD_SETMODE, args, sizeof(args), s_mode_reply, sizeof(s_mode_reply));
+    else mx_send_cmd(u.addr, MX_CMD_SETMODE, args, sizeof(args));
   }
   bool mode_acked() {
+    if (u.uart) return mx_uart_recv(u, TOF_MATRIX_UART_READ_TIMEOUT_MS) >= 0;
     uint8_t scratch[8];
     return mx_recv_response(u.addr, MX_CMD_SETMODE, scratch, sizeof(scratch),
                             TOF_MATRIX_READ_TIMEOUT_MS) >= 0;
   }
   bool read_frame() { return mx_read_frame(u); }
-  void bus_reset() { mx_bus_reset(); }
+  void bus_reset() { if (u.uart) mx_uart_reset(); else mx_bus_reset(); }
+  static uint8_t s_mode_reply[8];
 };
+uint8_t MxIo::s_mode_reply[8];
 
 static void mx_drop_values(MxUnit& u) {
   u.left = u.right = -1;
@@ -265,9 +345,15 @@ static void mx_unit_step(MxUnit& u) {
   switch (ev) {
     case MX_EV_NO_ACK:
       if (((u.link.attempts - 1) % u.probe_log_every) == 0) {
-        snprintf(buf, sizeof(buf),
-                 "tof_matrix %s: no ACK at 0x%02X (attempt %lu) - check wiring/DIP addr",
-                 u.name, u.addr, (unsigned long)u.link.attempts);
+        if (u.uart) {
+          snprintf(buf, sizeof(buf),
+                   "tof_matrix %s: no reply on serial (attempt %lu) - check wiring, power, I2C/UART switch",
+                   u.name, (unsigned long)u.link.attempts);
+        } else {
+          snprintf(buf, sizeof(buf),
+                   "tof_matrix %s: no ACK at 0x%02X (attempt %lu) - check wiring/DIP addr",
+                   u.name, u.addr, (unsigned long)u.link.attempts);
+        }
         emit_log("warn", buf);
       }
       break;
@@ -276,11 +362,14 @@ static void mx_unit_step(MxUnit& u) {
       mx_compute_geometry(u.geom);
       u.pub_ms = millis();   // arm the staleness clock BEFORE readers can see ready
       u.ready = true;
+      char where[16];
+      if (u.uart) snprintf(where, sizeof(where), "on serial");
+      else snprintf(where, sizeof(where), "at 0x%02X", u.addr);
       if (ev == MX_EV_BACK) {
-        snprintf(buf, sizeof(buf), "tof_matrix %s: back - 8x8 matrix set up again at 0x%02X", u.name, u.addr);
+        snprintf(buf, sizeof(buf), "tof_matrix %s: back - 8x8 matrix set up again %s", u.name, where);
       } else {
-        snprintf(buf, sizeof(buf), "tof_matrix %s: 8x8 matrix ready at 0x%02X (floor rejection active)",
-                 u.name, u.addr);
+        snprintf(buf, sizeof(buf), "tof_matrix %s: 8x8 matrix ready %s (floor rejection active)",
+                 u.name, where);
       }
       emit_log("info", buf);
       break;
@@ -328,7 +417,8 @@ static void mx_unit_step(MxUnit& u) {
 // silent (both cores' output dead). Confining the I2C to this dedicated task
 // means a wedge kills ONLY the matrices; tof_matrix_read*() then time out via
 // pub_ms staleness and publish an honest -1 while the robot stays alive.
-// The two modules share the bus, so a wedge in either silences both.
+// Since 0.2.26 only the rear is on the bus; the front's serial reads are bounded
+// by their own deadline, so a hung rear board no longer stops front frames.
 static void mx_task(void*) {
   TickType_t last = xTaskGetTickCount();
   for (;;) {
@@ -342,6 +432,7 @@ void tof_matrix_init() {
   // Second controller, dedicated pins (pins.h): the matrices share a bus with
   // nothing else, and all their transactions run on their own expendable task.
   mx_bus_start("started");
+  mx_uart_start("started");
   emit_log("info", "tof_matrix: init deferred (mode switch needs ~5s settle)");
   xTaskCreatePinnedToCore(mx_task, "tofmx", 4096, nullptr, 1, nullptr, 1);
 }
