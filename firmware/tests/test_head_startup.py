@@ -1,8 +1,10 @@
 """Run the LED board's head code on the Mac against the stand-in LED library and read back the mouth
 and eyes: at startup the mouth dark for two seconds of the sound, a light or two twinkling with its
 loudness, then the sparkle spreading from the centre of the mouth, solid as the chest lands on its
-ordinary panel; the eyes dark behind the visor until they blink on; the slow, dim ripple of the resting
-mouth; and the wink (owner, November 21, 2026). No board, no serial.
+ordinary panel; the eyes dark behind the visor until they blink on; and the wink (owner, November 21,
+2026). The resting mouth, dark at its edges and brighter towards the middle, and the talking bars, measured
+against how loud the voice has lately been and rolling out from the middle (owner, November 24, 2026). No
+board, no serial.
 
 The frames prove what the code sends to the strip, with a fake clock. They do not prove how it looks.
 """
@@ -30,6 +32,14 @@ def distance(pixel):
 
 CENTRE = sorted(MOUTH, key=distance)[:4]
 CORNERS = sorted(MOUTH, key=distance)[-4:]
+
+
+def light_at(row, col):
+    """Strip index of the mouth light in a row (0 the top) and a column (0 the left)."""
+    return 2 + row * 8 + (7 - col if row & 1 else col)
+
+
+RING = [light_at(row, col) for row in range(10) for col in range(8) if row in (0, 9) or col in (0, 7)]   # The outermost lights.
 
 
 class HeadPlay(unittest.TestCase):
@@ -201,7 +211,8 @@ class MouthStartupTests(HeadPlay):
             self.assertLessEqual(levels[0], FULL[1])
             self.assertTrue(all(abs(a - b) <= 3 for a, b in zip(levels, levels[1:])), 'the mouth jumped')
         settled = [f for t, f in after if t >= 6000 + 1500 + 1600]
-        self.assertTrue(all(7 <= f[i][1] <= 20 for f in settled for i in MOUTH))   # The resting ripple: 3 to 8 %.
+        self.assertTrue(all(10 <= f[i][1] <= 22 for f in settled for i in CENTRE))   # The resting glow: its dim middle,
+        self.assertTrue(all(f[i] == (0, 0, 0) for f in settled for i in RING))       # and its dark edges.
 
     def test_refreshes_and_idle_commands_do_not_cut_the_startup_short(self):
         frames = self.play(f'cmd STARTUP:{READY} cmd EYE:255,200,0 run {SOUND} cmd STARTUP_SOUND:{WAIT},{GROW},{END} '
@@ -217,8 +228,9 @@ class MouthStartupTests(HeadPlay):
         speaking = [f for t, f in frames if 4300 <= t < 5200]
         self.assertGreater(max(max(f[i]) for f in speaking for i in MOUTH), 90)    # The speaking bars, far brighter.
         end = [f for t, f in frames if t >= 5200 + 1000]
-        self.assertTrue(all(len(self.lit(f)) == 80 for f in end))                  # Then the resting mouth, not the startup.
-        self.assertTrue(all(f[i][1] <= 20 for f in end for i in MOUTH))
+        self.assertTrue(all(sum(f[i]) for f in end for i in CENTRE))               # Then the resting mouth, not the startup:
+        self.assertTrue(all(not sum(f[i]) for f in end for i in RING))             # lit in the middle, dark at the edges.
+        self.assertTrue(all(f[i][1] <= 22 for f in end for i in MOUTH))
 
     def test_a_start_from_the_menu_times_itself(self):
         frames = self.play('cmd STARTUP run 15000')
@@ -285,34 +297,72 @@ class EyeStartupTests(HeadPlay):
 
 
 class RestingMouthTests(HeadPlay):
-    def test_the_resting_mouth_is_a_slow_dim_ripple_from_the_centre(self):
+    def test_the_resting_mouth_is_dark_at_the_edges_and_brighter_towards_the_middle(self):
+        # Owner, November 24: "the edges are dark and it is brighter towards the middle, keeping the whole
+        # not-talking animation dark". It was a ripple over all eighty lights, each between 3 and 8 %.
         frames = self.play('cmd ACTIVE cmd EYE:255,200,0 run 24000')
         awake = [(t, f) for t, f in frames if t >= 5000]               # After the four-second rise from dark.
-        # Dim: every light between 3 and 8 % (it was a 5 to 10 % pulse), in the ordinary amber.
+        levels = {i: [f[i][1] for t, f in awake] for i in MOUTH}
+        # Dark at the edges: no light of the outermost ring is ever lit, and under half the mouth is.
+        self.assertTrue(all(max(levels[i]) == 0 for i in RING))
+        lit = [i for i in MOUTH if max(levels[i])]
+        self.assertTrue(20 <= len(lit) <= 36, len(lit))
+        self.assertTrue(all(min(levels[i]) >= 2 for i in lit))         # A lit light stays lit, and keeps its colour:
         for t, f in awake:
-            for i in MOUTH:
+            for i in lit:
                 r, g, b = f[i]
-                self.assertTrue(7 <= g <= 20 and g > r > 0 and b == 0, f'{f[i]} at {t} ms')
+                self.assertTrue(g > r > 0 and b == 0, f'{f[i]} at {t} ms')   # the ordinary amber.
+        # Brighter towards the middle: the four middle lights are the brightest, and a light further out
+        # is never brighter than one nearer in. The glow is as wide as it is tall, measured in lights.
+        def out(pixel):
+            row, place = divmod(pixel - 2, 8)
+            col = 7 - place if row & 1 else place
+            return sqrt(((col - 3.5) / 3.5) ** 2 + ((row - 4.5) / 3.6) ** 2)
+        mean = {i: sum(levels[i]) / len(levels[i]) for i in MOUTH}
+        ordered = sorted(MOUTH, key=out)
+        self.assertEqual(set(ordered[:4]), set(CENTRE))
+        for near, far in zip(ordered, ordered[1:]):
+            if out(far) > out(near) + .01:
+                self.assertLessEqual(mean[far], mean[near] + .01, (near, far))
+        self.assertGreater(mean[CENTRE[0]], 4 * min(mean[i] for i in lit))
+        self.assertEqual(sum(1 for i in lit if (i - 2) // 8 in (4, 5)), 12)    # Six lights across the middle rows,
+        self.assertEqual(sum(1 for i in lit if light_at((i - 2) // 8, 3) == i), 6)   # six down the middle columns.
+        # Kept dim: the middle never passes 8.5 % (22 of 255; it reaches 7.5), and the whole mouth gives well under half the light
+        # it did (eighty lights at 14 of 255 on average).
+        self.assertTrue(10 <= min(levels[CENTRE[0]]) and max(levels[CENTRE[0]]) <= 22, (min(levels[CENTRE[0]]), max(levels[CENTRE[0]])))
+        self.assertLess(max(sum(f[i][1] for i in MOUTH) for t, f in awake), .4 * 80 * 14)
         # Slow: no light moves by more than one step from one frame to the next.
         for (t, a), (_, b) in zip(awake, awake[1:]):
             self.assertLessEqual(max(abs(a[i][1] - b[i][1]) for i in MOUTH), 1, f'a jump at {t} ms')
-        # A ripple, not the whole mouth at once: the centre is brightest first and the corners seconds later.
+        # It still breathes, about once every six seconds, each breath spreading from the middle outwards.
         def peaks(pixel):
-            levels = [(t, f[pixel][1]) for t, f in awake]
-            top = max(level for _, level in levels)
-            times, last = [], None
-            for t, level in levels:
-                if level == top and (last is None or t - last > 2000):
-                    times.append(t)
-                last = t if level == top else last
-            return times
-        centre, corner = peaks(CENTRE[0]), peaks(CORNERS[0])
+            """The middle of each stretch of time the light spends at its brightest."""
+            top = max(levels[pixel])
+            stretches = []
+            for (t, f), level in zip(awake, levels[pixel]):
+                if level == top:
+                    if stretches and t - stretches[-1][1] < 2000:
+                        stretches[-1][1] = t
+                    else:
+                        stretches.append([t, t])
+            return [(a + b) / 2 for a, b in stretches if a > awake[0][0] and b < awake[-1][0]]
+        centre = peaks(CENTRE[0])
         self.assertGreaterEqual(len(centre), 2)
         period = centre[1] - centre[0]
-        self.assertTrue(5500 < period < 7200, period)                     # One ripple about every six seconds.
-        lag = min((c - centre[0]) % period for c in corner)
-        self.assertTrue(2000 < lag < 4800, lag)                           # It reaches the corners seconds after the centre.
-        self.assertTrue(any(len({f[i][1] for i in MOUTH}) > 4 for t, f in awake))
+        self.assertTrue(5500 < period < 7200, period)
+        further = light_at(3, 2)                                          # Lit, two lights out from the middle.
+        self.assertIn(further, lit)
+        lag = min((t - centre[0]) % period for t in peaks(further))
+        self.assertTrue(250 < lag < 1500, lag)
+        self.assertGreater(max(levels[CENTRE[0]]) - min(levels[CENTRE[0]]), 5)
+
+    def test_every_feeling_rests_with_dark_edges(self):
+        for feeling in ('happy', 'sad', 'angry', 'surprised'):
+            with self.subTest(feeling=feeling):
+                frames = self.play(f'cmd ACTIVE run 5000 cmd SPEAK:{feeling} cmd SPEAK_LEVEL:0 cmd SPEAK_STOP cmd ACTIVE run 3000')
+                rest = [f for t, f in frames if t >= 6500]
+                self.assertTrue(all(sum(f[i]) == 0 for f in rest for i in RING))
+                self.assertTrue(all(sum(f[i]) > 0 for f in rest for i in CENTRE))
 
     def test_only_speech_is_quick(self):
         frames = self.play('cmd ACTIVE run 6000 cmd SPEAK:neutral cmd SPEAK_LEVEL:200 run 1000 '
@@ -323,7 +373,138 @@ class RestingMouthTests(HeadPlay):
         self.assertLessEqual(biggest_step(5000, 6000), 1)
         self.assertGreater(biggest_step(6100, 7000), 10)                  # The speaking bars jump about.
         self.assertGreater(max(f[i][1] for t, f in frames if 6100 <= t < 7000 for i in MOUTH), 60)
-        self.assertLessEqual(max(f[i][1] for t, f in frames if t >= 8000 for i in MOUTH), 20)   # Back to the dim ripple.
+        self.assertLessEqual(max(f[i][1] for t, f in frames if t >= 8000 for i in MOUTH), 22)   # Back to the dim glow.
+
+
+AWAKE = 'cmd ACTIVE cmd EYE:255,200,0 run 6000 '     # The resting mouth, risen from dark.
+
+
+def bar(frame, col):
+    """How many half-rows of a column's bar are lit, counted out from the middle pair of rows (0 to 5).
+    The dim line of a shut mouth does not count, nor does a peak dot floating above the bar."""
+    height = 0
+    for step in range(5):
+        if frame[light_at(4 - step, col)][1] <= (30 if step == 0 else 8):
+            break
+        height += 1
+    return height
+
+
+def voice(peak, seconds=5):
+    """A voice as the host reports it: a new level every tenth of a second, each sound at its loudest,
+    then half of that, then trailing off, with a short gap."""
+    script = AWAKE + 'cmd SPEAK:neutral '
+    for _ in range(seconds * 2):
+        for share in (1, .5, .7, .35, .12):
+            script += f'cmd SPEAK_LEVEL:{int(peak * share)} run 100 '
+    return script
+
+
+class SpeakingMouthTests(HeadPlay):
+    """Owner, November 24: "sometimes it's got this cool pattern and other times it's not as cool". The bars
+    followed the level against the top of its range, and his voice sits far below that (half the voiced
+    moments of 151 cached lines under level 48), so they stood tall only in the loudest lines."""
+
+    def test_a_quiet_line_fills_the_mouth_like_a_loud_one(self):
+        def shape(peak):
+            frames = [f for t, f in self.play(voice(peak)) if t >= 6000 + 2000]
+            tallest = [max(bar(f, col) for col in range(8)) for f in frames]
+            lit = [len(self.lit(f)) for f in frames]
+            return max(tallest), sum(tallest) / len(tallest), sum(lit) / len(lit)
+        quiet, loud = shape(95), shape(230)          # His quietest and loudest cached lines peak at 91 and 230.
+        for top, mean, lit in (quiet, loud):
+            self.assertGreaterEqual(top, 4)          # The tall bars show in both. (At 95 they stopped at two.)
+            self.assertGreater(mean, 2)
+            self.assertGreater(lit, 22)
+        self.assertLess(abs(quiet[1] - loud[1]), .8)
+        self.assertLess(abs(quiet[2] - loud[2]), 9)
+
+    def test_silence_shuts_the_mouth_to_a_thin_line_brightest_in_the_middle(self):
+        frames = self.play(voice(160, seconds=2) + 'cmd SPEAK_LEVEL:0 run 400 cmd SPEAK_LEVEL:0 run 400 cmd SPEAK_LEVEL:0 run 400')
+        shut = [f for t, f in frames if t >= 6000 + 2000 + 900]
+        line = [light_at(row, col) for row in (4, 5) for col in range(8)]
+        for f in shut:
+            self.assertEqual(sorted(self.lit(f)), sorted(line))
+            self.assertTrue(f[light_at(4, 0)][1] < f[light_at(4, 3)][1] <= 30)
+            self.assertTrue(f[light_at(4, 7)][1] < f[light_at(4, 4)][1])
+
+    def test_room_hiss_is_not_blown_up_into_speech(self):
+        # What counts as loud never falls under level 77, however long nothing louder is heard, and under
+        # level 13 is silence: a steady hiss (a call's open line) does not open the mouth.
+        for level, tallest in ((12, 0), (16, 1)):
+            script = AWAKE + 'cmd SPEAK:neutral ' + f'cmd SPEAK_LEVEL:{level} run 400 ' * 40
+            late = [f for t, f in self.play(script) if t >= 6000 + 10000]
+            self.assertLessEqual(max(bar(f, col) for f in late for col in range(8)), tallest)
+            self.assertEqual({(i - 2) // 8 for f in late for i in self.lit(f)}, {4, 5})   # Only the middle pair of rows.
+
+    def test_each_sound_opens_the_middle_first_and_rolls_out_to_the_corners(self):
+        script = AWAKE + 'cmd SPEAK:neutral cmd SPEAK_LEVEL:0 run 500 ' + 'cmd SPEAK_LEVEL:200 run 100 ' * 6 + 'cmd SPEAK_LEVEL:0 run 400 cmd SPEAK_LEVEL:0 run 400'
+        frames = self.play(script)
+        def opens(col):                              # When the column's bar first stands above the shut line.
+            return next(t for t, f in frames if t > 6500 and bar(f, col) >= 1)
+        left, right = [opens(col) for col in (3, 2, 1, 0)], [opens(col) for col in (4, 5, 6, 7)]
+        self.assertEqual(left, sorted(left))
+        self.assertEqual(right, sorted(right))
+        for side in (left, right):
+            self.assertTrue(100 <= side[-1] - side[0] <= 320, side)       # About 60 ms a column.
+        self.assertLess(opens(3) - 6500, 80)                              # The middle answers the voice at once.
+        # And the sound's end leaves the middle first: the middle bars are falling while the corners still stand.
+        def tallest_at(col):
+            heights = [(f[light_at(3, col)][1] + f[light_at(2, col)][1] + f[light_at(1, col)][1], t) for t, f in frames if 6500 < t < 7600]
+            return max(heights)[1]
+        self.assertTrue(any(bar(f, 3) < bar(f, 0) or (bar(f, 3) == 0 and bar(f, 1) > 0) for t, f in frames if 7100 < t < 7500))
+
+    def test_a_bar_is_brightest_at_the_middle_and_dimmer_towards_its_tip(self):
+        frames = [f for t, f in self.play(AWAKE + 'cmd SPEAK:neutral ' + 'cmd SPEAK_LEVEL:210 run 100 ' * 40) if t >= 7000]
+        full = [f for f in frames if bar(f, 3) == 5]
+        self.assertGreater(len(full), 5)
+        for f in full:
+            inner, tip = f[light_at(4, 3)][1], f[light_at(0, 3)][1]
+            self.assertGreater(f[light_at(4, 3)][1], f[light_at(2, 3)][1])
+            self.assertGreaterEqual(f[light_at(2, 3)][1], f[light_at(1, 3)][1])
+            self.assertEqual(f[light_at(4, 3)], f[light_at(5, 3)])        # The same above and below the middle.
+            self.assertEqual(f[light_at(1, 3)], f[light_at(8, 3)])
+        self.assertTrue(any(f[light_at(4, 3)][1] > 2.5 * f[light_at(0, 3)][1] for f in full))
+        self.assertLessEqual(max(max(f[i]) for f in frames for i in MOUTH), 115)   # Never over 45 %.
+        # The bars still dance apart: neighbours are often of different heights.
+        self.assertGreater(sum(1 for f in frames if bar(f, 3) != bar(f, 4)) / len(frames), .3)
+        # A louder voice gives brighter bars as well as taller ones.
+        def middle(level):
+            late = [f for t, f in self.play(AWAKE + 'cmd SPEAK:neutral cmd SPEAK_LEVEL:255 run 300 ' + f'cmd SPEAK_LEVEL:{level} run 100 ' * 20) if t >= 7300]
+            return max(f[light_at(4, 3)][1] for f in late)
+        self.assertGreater(middle(255), middle(60) + 15)
+
+    def test_the_glow_fades_out_under_the_first_bars_and_the_last_bars_close_into_it(self):
+        frames = self.play(AWAKE + 'cmd SPEAK:neutral cmd SPEAK_LEVEL:0 run 600 ' + 'cmd SPEAK_LEVEL:220 run 100 ' * 12
+                           + 'cmd SPEAK_STOP cmd ACTIVE run 1500')
+        above = light_at(2, 3)                       # Lit by the resting glow, off the shut line.
+        before = [f for t, f in frames if t <= 6000][-1][above][1]
+        opening = [(t, f[above][1]) for t, f in frames if 6000 < t <= 6400]
+        self.assertGreater(before, 2)
+        self.assertGreater(opening[0][1], 0)                              # It does not vanish as the line begins:
+        self.assertEqual([level for t, level in opening], sorted((level for t, level in opening), reverse=True))
+        gone = next(t for t, level in opening if level == 0) - 6000
+        self.assertTrue(100 <= gone <= 260, gone)                         # It is gone in a fifth of a second.
+        # The line ends with the bars standing: they close into the glow over a third of a second.
+        stop = 6000 + 600 + 1200
+        top = max(RING, key=lambda i: [f for t, f in frames if t <= stop][-1][i][1])
+        standing = [f for t, f in frames if t <= stop][-1][top][1]
+        self.assertGreater(standing, 20)
+        closing = [(t, f[top][1]) for t, f in frames if stop < t <= stop + 600]
+        self.assertGreater(closing[0][1], .7 * standing)                  # No snap from the bars to the glow:
+        self.assertEqual([level for t, level in closing], sorted((level for t, level in closing), reverse=True))
+        gone = next(t for t, level in closing if level == 0)
+        self.assertTrue(250 <= gone - stop <= 420, gone - stop)
+        rest = [f for t, f in frames if t >= stop + 600]
+        self.assertTrue(all(sum(f[i]) == 0 for f in rest for i in RING))  # Then the resting mouth again.
+        self.assertTrue(all(10 <= f[i][1] <= 22 for f in rest for i in CENTRE))
+
+    def test_a_line_whose_stop_is_lost_still_closes_into_the_glow(self):
+        frames = self.play(AWAKE + 'cmd SPEAK:neutral ' + 'cmd SPEAK_LEVEL:220 run 100 ' * 8 + 'run 3000')
+        rest = [f for t, f in frames if t >= 6000 + 800 + 1500 + 600]     # Nothing heard for a second and a half.
+        self.assertTrue(rest)
+        self.assertTrue(all(sum(f[i]) == 0 for f in rest for i in RING))
+        self.assertTrue(all(10 <= f[i][1] <= 22 for f in rest for i in CENTRE))
 
 
 class WinkTests(HeadPlay):
@@ -336,7 +517,12 @@ class WinkTests(HeadPlay):
         self.assertTrue(all(f[other] == GOLD for f in during))            # the other still lit;
         after = [f for t, f in frames if t >= 1000 + 480]
         self.assertTrue(after and all(f[eye] == f[other] == GOLD for f in after))   # then both as they were.
-        self.assertTrue(all(sum(f[i]) for f in during for i in MOUTH))    # The mouth is not part of it.
+        # The mouth is not part of it: it shows what it would have shown without the wink.
+        plain = self.play('cmd ACTIVE cmd EYE:255,200,0 run 2500')
+        for t, f in frames:
+            if 1000 < t <= 1000 + 430:
+                self.assertEqual(f[2:], [g for u, g in plain if u <= t][-1][2:], f'the mouth changed at {t} ms')
+        self.assertTrue(all(sum(f[i]) for f in during for i in CENTRE))
 
     def test_a_wink_darkens_one_eye_for_a_short_time(self):
         self.wink('WINK', 1)

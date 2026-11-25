@@ -85,6 +85,14 @@ Then LED firmware 0.8.0 (flashed; it ran in start `c5de246d`, look not yet repor
 the startup sound: dark for its first two seconds, a light or two twinkling with its loudness as heard
 (measured from the clip), then the centre-out sparkle from the moment the sound comes back up at 6.5 s.
 
+November 24, owner requests, LED firmware 0.9.0 (flashed, not yet seen): the resting mouth glows in its
+middle only, with dark edges; the talking bars are measured against how loud his voice has lately been,
+so a quiet line fills the mouth like a loud one, and each sound rolls out from the middle; the chest's
+charge meter moves as a whole, draining downwards off the charger and filling upwards on it; and the
+chest's startup opens faintly and builds over four seconds. Details and evidence:
+[LED integration](LED_INTEGRATION.md#november-24-a-darker-resting-mouth-livelier-talking-a-moving-charge-meter-a-start-that-builds).
+Firmware checks (144) pass; synthetic frames and saved audio only.
+
 The same day the startup sound became the owner's own clip in place of V2's whir: its twelve-second build
 plays while he starts and its finishing sound is held until he is ready, landing with the lights' lock
 and the visor ([startup](STARTUP_HEALTH.md)). Synthetic checks only; not yet heard on the robot.

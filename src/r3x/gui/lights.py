@@ -142,13 +142,20 @@ class LightMirror:
 
 
 class MouthAnimation:
-    """Visual mirror of head_nano's 8x10 mouth equalizer: levels, colours and ballistics."""
+    """Visual mirror of the LED board's 8x10 mouth (firmware/djr3x_leds/head.cpp, 0.9.0): the talking bars'
+    levels, colours and ballistics, and the resting glow, dark at its edges and brighter towards the middle."""
 
     def __init__(self):
         import numpy as np
         self.height = np.zeros(8)
         self.peak = np.zeros(8)
-        self.phase = np.arange(8) * .73
+        self.phase = np.arange(8) * .9
+        self.ref, self.drive, self.heard = .4, 0., []     # What counts as loud; the voice against it; its last moments.
+        # The resting glow: a bell about the middle, nothing on the outermost lights or where it is too faint.
+        rows, cols = np.meshgrid(np.arange(10), np.arange(8), indexing='ij')
+        self.far = np.hypot((cols - 3.5) / 3.5, (rows - 4.5) / 3.6)
+        share = np.where(self.far < 1, np.exp(-(self.far / .58) ** 2), 0.)
+        self.glow = np.where(share * .085 * 255 >= 2, share, 0.)
         self.last = None
         self.utterance = None
         self.last_pixels = np.zeros((80, 3))
@@ -167,24 +174,37 @@ class MouthAnimation:
         if state.get('mouth_utterance') != self.utterance:
             self.height[:] = 0
             self.peak[:] = 0
+            self.drive, self.heard = 0., []
             self.utterance = state.get('mouth_utterance')
         values = np.zeros((10, 8))
         if mode == 'speak':
+            # The voice against how loud it has lately been (never under level 77; under 13 is silence),
+            # quiet sounds lifted; the middle columns follow it now, each column out 60 ms later.
             level = max(0, min(255, state.get('mouth_level', 0))) / 255
-            self.phase += (2.2 + .55*np.arange(8)) * (.6 + 1.4*level) * dt
-            target = np.minimum(5, level * (.6 + .4*np.sin(self.phase)) * np.array([.55, .75, .92, 1, 1, .92, .75, .55]) * 5.2)
-            self.height += (target - self.height) * np.minimum(1, np.where(target > self.height, 18, 6) * dt)
+            self.ref += (level - self.ref) * min(1, 10*dt) if level > self.ref else -(self.ref - .3) * dt / 4
+            want = max(0., min(1., (level - .05) / (self.ref - .05))) ** .75
+            self.drive += (want - self.drive) * min(1, (30 if want > self.drive else 18) * dt)
+            self.heard = [(at, drive) for at, drive in self.heard if now - at < .3] + [(now, self.drive)]
+            out = np.array([3, 2, 1, 0, 0, 1, 2, 3])
+            heard = np.array([next((d for at, d in reversed(self.heard) if at <= now - .06*o), 0.) for o in out])
+            envelope = np.array([.55, .75, .92, 1, 1, .92, .75, .55])
+            self.phase += (2.6 + .6*np.arange(8)) * (.7 + 1.3*heard) * dt
+            target = np.minimum(5, heard * (.62 + .38*np.sin(self.phase)) * envelope * 5.6)
+            self.height += (target - self.height) * np.minimum(1, np.where(target > self.height, 20, 9) * dt)
             self.peak = np.where(self.height > self.peak, self.height, np.maximum(0, self.peak - 3.5*dt))
+            line = (.045 + .055 * (envelope - .55) / .45) * (.85 + .15*np.sin(4*now - .9*out))
+            loud = .45 * (.55 + .45*heard)
             for d in range(5):
-                bright = np.clip(self.height - d, 0, 1) * .45
+                bright = np.clip(self.height - d, 0, 1) * loud * (1 - .7 * d / 4)   # Dimmer towards the tip.
                 if d == 0:
-                    bright = np.maximum(.1, bright)
+                    bright = np.maximum(line, bright)
                 bright = np.where((self.peak > self.height + .6) & (np.minimum(4, self.peak.astype(int)) == d),
                                   np.maximum(bright, .315), bright)
                 values[4-d] = bright
                 values[5+d] = bright
         elif mode in ('active', 'idle'):
-            values[:] = .075 + .025*math.sin(now)
+            # Brightest in the middle (5 to 7.5 %), each slow breath spreading outwards; the edges dark.
+            values = .085 * self.glow * (.6 + .4 * (.5 + .5*np.sin(now - 2.4*self.far)))
         elif mode == 'sleep':
             phase = (now % 8) / 8
             values[:] = .3 * (phase*2 if phase < .5 else 2 - phase*2)

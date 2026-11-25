@@ -18,6 +18,10 @@
  * Startup paced to Rex's own start (owner request, November 21, 2026): the host says how
  * long it expects to take and when it is ready; under the sparks the three bars rise and
  * struggle to stay on, and lock full at READY. See "Startup rise" below.
+ *
+ * Owner requests, November 24, 2026: the charge meter moves as a whole, draining downwards
+ * off the charger and filling upwards on it (see "The meter moves as a whole"), and startup
+ * begins barely lit and builds (see "The opening").
  */
 
 #include <FastLED.h>
@@ -157,7 +161,7 @@ enum ChestMode : uint8_t {
     CM_COMPLIMENT,    // reacting to a compliment: blue glow + gold/white sparkles (self-ends ~2.5s)
     CM_FADEOFF,       // shutdown: blend the frame that was showing to black, then OFF
     CM_SLEEP,         // sleep: very dim slow red breath
-    CM_CHARGE,        // Rex off: contiguous 24-LED SOC meter; upward pulse while charging
+    CM_CHARGE,        // Rex off: contiguous 24-LED SOC meter, draining downwards or filling upwards
     CM_OFF,           // all off
     CM_MANUAL,        // NEXT command: cycle gPatterns[] manually
 };
@@ -185,6 +189,8 @@ uint8_t chargeSoc = 0;             // 0..100, supplied by off-state battery moni
 bool chargeConnected = false;
 uint32_t chargeIntroStartMs = 0;   // millis() when CM_CHARGE was entered (intro sweep)
 #define CHARGE_INTRO_MS 2000
+static bool     chargeLanded   = false;   // the intro sweep has reached the fill line
+static uint32_t chargeLandedMs = 0;       // ... and when: the meter's movement is timed from it
 
 // FADEOFF: blend the frame that was showing to black in a straight line over
 // CHEST_FADEOFF_MS, then go fully OFF — a lifelike "powering down" fade.
@@ -316,11 +322,28 @@ static uint32_t riseMoveAt[3];         // when the bar may next gain a light
 static uint32_t riseSlipAt[3];         // when it next loses ground
 static uint32_t riseDipAt[3];          // when it next browns out
 static uint32_t riseDipUntil[3];
+static bool     riseLocking = false;   // READY has been taken up: the bars are filling
 // Bar A red, bar B blue, bar C white: the panel's own three colours, brighter than the
 // ordinary panel's bars so the rise reads under the sparks.
 static const CRGB RISE_BODY[3] = { CRGB(0x80, 0x00, 0x00), CRGB(0x00, 0x14, 0x90), CRGB(0x70, 0x98, 0x98) };
 static const CRGB RISE_TIP[3]  = { CRGB(0xFF, 0x38, 0x10), CRGB(0x40, 0x70, 0xFF), CRGB(0xFF, 0xFF, 0xFF) };
 static const uint8_t RISE_PACE[3] = { 10, 8, 9 };   // A reaches its seventh light first, B last
+
+// The opening (owner, November 24, 2026: "the chest LED patterns get too bright too quickly.
+// When they first start the first 2 seconds of the Chest LED pattern needs to be less lit up,
+// more like it's barely starting to light up").
+//
+// It began at its densest: the 80 bursts' gaps grow from nothing, so about 30 of them, some 70
+// full white sparks, fell in the first two seconds, with each bar's first light flickering at a
+// tip's full brightness. Now the sparks and the bars' lights begin at OPENING_MIN of their
+// ordinary brightness (a tenth) and build, slowly at first, over the first third of the planned
+// time (OPENING_MS at most): about a sixth at one second and a third at two, of a start
+// planned at 12 s or more. The sparks are also fewer while they are fainter. The two chest
+// lights come up the same way when they were dark. The spark that burns the charge meter is
+// not part of it, and READY ends it: the lock is as bright as ever.
+#define OPENING_MS   4000UL
+#define OPENING_MIN  26                // of 255
+static bool lightsOpening = false;     // the two chest lights were dark when startup began
 
 static void endStartupLayers() {
     igniting = booting = bootBegun = sparksLive = riseBegun = readySaid = false;
@@ -328,6 +351,17 @@ static void endStartupLayers() {
 }
 
 static inline uint8_t flick8(uint32_t a, uint32_t b) { return ledsFlick8(a, b); }
+
+// How much of their ordinary brightness the startup's sparks and bars have now, 0..255.
+static uint8_t startupOpening(uint32_t now) {
+    if (chestMode != CM_STARTUP || readySaid) return 255;
+    if (!riseBegun) return OPENING_MIN;          // the meter is still burning: nothing has begun
+    const uint32_t span = min((uint32_t)OPENING_MS, startupSpanMs / 3);
+    const uint32_t since = now - riseStartMs;
+    if (since >= span) return 255;
+    const uint8_t part = (uint8_t)(since * 255UL / span);
+    return OPENING_MIN + scale8(255 - OPENING_MIN, scale8(part, part));   // slowly at first
+}
 
 // Which bar or block a pixel belongs to: 0-2 bars A-C, 3-11 the blocks, 255 none.
 static uint8_t elementOf(uint8_t pixel) {
@@ -367,12 +401,14 @@ static void compose() {
             if (!fadeLinear) mix = ease8InOutQuad(mix);
         }
     }
+    const uint8_t opening = lightsOpening ? startupOpening(now) : 255;
     for (uint8_t i = 0; i < NUM_LEDS; i++) {
         CRGB c = DJLEDs[i];
         if (booting) {
             const uint8_t element = elementOf(i);
             if (element >= 3 && element != 255) c.nscale8(bootGate(element, now));   // bars are the rise's
         }
+        if (i >= 96 && opening != 255) c.nscale8(opening);   // the chest lights come up with the opening
         if (sparksLive) c += sparks[i];
         c.nscale8(masterBrightness);
         shown[i] = (mix == 255) ? c : blend(fadeFrom[i], c, mix);
@@ -673,7 +709,8 @@ void nextPattern()
 //                        sympathetic → a soft rose heartbeat
 //   SPEAK_STOP       — return to IDLE (end of speech)
 //   SLEEP            — very dim slow red breathing pulse
-//   CHARGE:{soc}:{0|1} — contiguous 24-LED SOC meter; final field says charger attached
+//   CHARGE:{soc}:{0|1} — contiguous 24-LED SOC meter; final field says charger attached:
+//                      the meter drains downwards without it and fills upwards with it
 //   OFF              — all LEDs off at once, the one change that is not blended
 //   NEXT             — cycle to next pattern in gPatterns[]
 //   COMPLIMENT       — blue glow with gold and white sparkles for 2.5 s, then ACTIVE
@@ -700,6 +737,7 @@ void command(const char *cmd) {
 		beginFade(FADE_STARTUP_MS);
 		endStartupLayers();
 		if (!lightsLit) DJLEDs[96] = DJLEDs[97] = cGOLD;
+		lightsOpening = !lightsLit;
 		if (fuel) {
 			igniting = true;
 			igniteFilled = fuel;
@@ -767,7 +805,7 @@ void command(const char *cmd) {
 			// Intro sweep only when ENTERING charge mode (handoff from main.py,
 			// or first paint after a reboot) — SOC updates while already in
 			// CM_CHARGE must not replay it.
-			if (chestMode != CM_CHARGE) chargeIntroStartMs = millis();
+			if (chestMode != CM_CHARGE) { chargeIntroStartMs = millis();  chargeLanded = false; }
 			enter(CM_CHARGE, 55, FADE_CHARGE_MS);  // visible while off, never room-filling
 		}
 
@@ -812,6 +850,7 @@ void command(const char *cmd) {
 				chargeConnected = connected != 0;
 				chargeLinkedAt = millis();
 				chargeIntroStartMs = chargeLinkedAt + CHEST_FADEOFF_MS - CHARGE_INTRO_MS;
+				chargeLanded = false;
 				chargeUnconfirmed = true;
 				masterBrightness = 55;   // the meter's brightness; the outgoing frame keeps its own
 				chestMode = CM_CHARGE;
@@ -877,9 +916,7 @@ static inline uint8_t gauge24Pixel(uint8_t level) {
 // Off-state charge display: one contiguous 24-LED meter across panels A/B/C
 // (owner spec 2026-08-01; previously three parallel 8-LED gauges). Full pack =
 // all 24 lit; as charge depletes, pixels go dark one by one from the blue end
-// down, each pixel keeping its own static colour. The topmost lit pixel blinks
-// until it goes off. While the charger is attached, a bright energy packet also
-// climbs from the fill boundary to the top of the whole meter.
+// down, each pixel keeping its own static colour.
 // Lit meter pixels, 0..24. Each pixel owns one twenty-fourth of the range, so
 // pixel k lights the moment the charge passes (k-1)*100/24 %. That is a CEILING,
 // not a round-to-nearest (rounding made the bar lag a whole LED behind the charge
@@ -891,40 +928,127 @@ static uint8_t chargeFilled() {
 	return filled > 24 ? 24 : filled;
 }
 
+// The meter moves as a whole (owner, November 24, 2026: "right now discharging just blinks the
+// last LED but it would be cool if the whole panel animated that it was draining or charging";
+// interesting, not cold or blue). Before, the top lit light blinked once a second and, on the
+// charger, one pale blue light climbed from the fill line.
+//
+// Every light keeps its own colour and only its brightness moves, so the level still reads by
+// where the colours stop. Off the charger nothing above the fill line is ever lit.
+//
+//   Draining (off the charger): a slow ripple runs DOWN the lit lights all the time. Every
+//   DRAIN_CYCLE_MS the top lit light swells, then lets go of a drop: a band of brighter light
+//   that falls from it through every lit light, gathering speed, and runs out at the bottom,
+//   while the top light is left dim and slowly comes back.
+//
+//   Filling (on the charger): the ripple runs UP. Every FILL_CYCLE_MS a band of brighter light
+//   enters at the bottom and climbs through the lit lights; above the fill line it goes on to
+//   the top as a faint glow in each empty light's own colour, showing what is still to fill.
+//   At 100 % only the ripple is left: nothing more is going in.
+//
+// The movement eases in over CHARGE_SETTLE_MS after the intro sweep, so the sweep still lands
+// on a steady meter. The bands are slow enough that no light jumps between two frames.
+#define CHARGE_SETTLE_MS  1200UL     // the movement comes in over this long after the sweep
+#define FLOW_WAVE         7.0f       // levels from one crest of the ripple to the next
+#define FLOW_DEPTH        0.16f      // the ripple moves a light's brightness this far up and down
+#define FLOW_BAND         2.4f       // half-width of a drop or a climbing band, in levels
+#define FLOW_LIFT         0.85f      // a lit light under the middle of a band is this much brighter
+#define FLOW_GHOST        0.30f      // an empty light under a climbing band: this share of its colour
+#define DRAIN_RIPPLE_MS   2600UL     // the ripple travels one crest's length in this time
+#define DRAIN_CYCLE_MS    4400UL     // one drop falls this often
+#define DRAIN_GATHER_MS    900UL     // the top light swells for this long, then lets go
+#define DRAIN_SWELL       0.5f       // ... by this much
+#define DRAIN_LEFT        0.30f      // the top light just after the drop has gone, as a share of itself
+#define DRAIN_SPEED       8.0f       // levels a second as the drop leaves
+#define DRAIN_GRAVITY     3.0f       // ... and how much faster each second
+#define FILL_RIPPLE_MS    2000UL
+#define FILL_CYCLE_MS     2400UL     // one band enters this often
+#define FILL_SPEED        10.0f      // levels a second
+
+// A band's weight at a light: 1 under its middle, 0 from FLOW_BAND levels away, soft-edged.
+static inline float bandWeight(float level, float middle) {
+	float w = 1.0f - fabsf(level - middle) / FLOW_BAND;
+	if (w <= 0.0f) return 0.0f;
+	return w * w * (3.0f - 2.0f * w);
+}
+
+static inline CRGB brighter(const CRGB &c, float by) {
+	const float r = c.r * by, g = c.g * by, b = c.b * by;
+	return CRGB((uint8_t)(r > 255.0f ? 255.0f : r), (uint8_t)(g > 255.0f ? 255.0f : g), (uint8_t)(b > 255.0f ? 255.0f : b));
+}
+
 void chargeGauge() {
 	const uint8_t filled = chargeFilled();
+	const uint32_t now = millis();
 
 	// Intro sweep on entering CM_CHARGE: instead of snapping the whole meter on
 	// at once, reveal the pixels in order over CHARGE_INTRO_MS until the fill
-	// line is reached. Blink and charge packet stay suppressed until it lands.
+	// line is reached. The movement stays suppressed until it lands.
 	// The sweep may be due to start later (FADEOFF:{soc}:{0|1}): the meter is dark until then.
-	const int32_t elapsed = (int32_t)(millis() - chargeIntroStartMs);
-	if (elapsed < CHARGE_INTRO_MS) {
-		const uint8_t reveal = elapsed <= 0 ? 0 : (uint8_t)(((uint32_t)filled * (uint32_t)elapsed) / CHARGE_INTRO_MS);
-		clearAll();
-		for (uint8_t level = 0; level < reveal; level++)
-			DJLEDs[gauge24Pixel(level)] = gauge24Color(level);
-		return;
+	if (!chargeLanded) {
+		const int32_t elapsed = (int32_t)(now - chargeIntroStartMs);
+		if (elapsed < CHARGE_INTRO_MS) {
+			const uint8_t reveal = elapsed <= 0 ? 0 : (uint8_t)(((uint32_t)filled * (uint32_t)elapsed) / CHARGE_INTRO_MS);
+			clearAll();
+			for (uint8_t level = 0; level < reveal; level++)
+				DJLEDs[gauge24Pixel(level)] = gauge24Color(level);
+			return;
+		}
+		chargeLanded   = true;
+		chargeLandedMs = chargeIntroStartMs + CHARGE_INTRO_MS;
 	}
 
 	clearAll();
-	for (uint8_t level = 0; level < filled; level++)
-		DJLEDs[gauge24Pixel(level)] = gauge24Color(level);
+	const uint32_t t = now - chargeLandedMs;
+	const float ease = t >= CHARGE_SETTLE_MS ? 1.0f : (float)t / (float)CHARGE_SETTLE_MS;
 
-	// The last lit pixel blinks — it is the one currently draining toward its
-	// threshold. ~1 Hz square wave; the off phase leaves it dark.
-	if (filled > 0 && ((millis() / 500UL) & 1))
-		DJLEDs[gauge24Pixel(filled - 1)] = CRGB::Black;
-
-	if (!chargeConnected) return;
-	if (filled < 24) {
-		const uint8_t travel = 24 - filled;
-		const uint8_t phase = (millis() / 170UL) % (travel + 2); // two-beat gap
-		if (phase < travel)   // climbs UPWARD from the fill line, crossing panels
-			DJLEDs[gauge24Pixel(filled + phase)] = CRGB(80, 190, 255);
+	float band[2] = { -100.0f, -100.0f };    // the middles of the bands now on the meter, in levels
+	float strength = 1.0f;                   // how much of a band there is: a drop forms as it leaves
+	float topNow = 1.0f;                     // the top lit light, as a share of an ordinary one
+	float ripple;                            // the ripple's phase at level 0, in turns
+	if (chargeConnected) {
+		ripple = -(float)(t % FILL_RIPPLE_MS) / (float)FILL_RIPPLE_MS;
+		if (chargeSoc < 100) {
+			const uint32_t into = t % FILL_CYCLE_MS;
+			band[0] = -FLOW_BAND + FILL_SPEED * into * 0.001f;
+			if (t >= FILL_CYCLE_MS) band[1] = band[0] + FILL_SPEED * FILL_CYCLE_MS * 0.001f;   // the one before it
+		}
+	} else {
+		ripple = (float)(t % DRAIN_RIPPLE_MS) / (float)DRAIN_RIPPLE_MS;
+		const uint32_t into = t % DRAIN_CYCLE_MS;
+		if (into < DRAIN_GATHER_MS) {
+			// The top light swells before it lets go.
+			const float gather = (float)into / (float)DRAIN_GATHER_MS;
+			topNow = 1.0f + DRAIN_SWELL * gather * gather;
+		} else {
+			const float fall = (into - DRAIN_GATHER_MS) * 0.001f;
+			band[0] = (float)filled - 1.0f - DRAIN_SPEED * fall - 0.5f * DRAIN_GRAVITY * fall * fall;
+			// The drop has gone: the top light is left dim within a quarter second, then
+			// comes back over the rest of the cycle.
+			const float gone = fall < 0.25f ? fall * 4.0f : 1.0f;
+			strength = gone;                     // its light goes into the drop
+			const float back = (float)(into - DRAIN_GATHER_MS) / (float)(DRAIN_CYCLE_MS - DRAIN_GATHER_MS);
+			const float left = DRAIN_LEFT + (1.0f - DRAIN_LEFT) * back * back;
+			topNow = (1.0f + DRAIN_SWELL) + (left - (1.0f + DRAIN_SWELL)) * gone;
+		}
 	}
-	// At full there is nowhere left to climb; the blinking top blue pixel
-	// already marks the state.
+
+	for (uint8_t level = 0; level < 24; level++) {
+		float weight = (bandWeight((float)level, band[0]) + bandWeight((float)level, band[1])) * strength;
+		if (weight > 1.0f) weight = 1.0f;
+		float by;
+		if (level < filled) {
+			by = 1.0f + FLOW_DEPTH * sinf(TWO_PI * ((float)level / FLOW_WAVE + ripple));
+			// The top lit light lets the drop go itself; every other lit light brightens under a band.
+			if (level + 1 == filled && !chargeConnected) by *= topNow;
+			else by += FLOW_LIFT * weight;
+			by = 1.0f + (by - 1.0f) * ease;          // the movement comes in after the sweep
+		} else {
+			if (!chargeConnected) continue;          // off the charger nothing shows above the fill line
+			by = FLOW_GHOST * weight * ease;         // the way still to go, under a climbing band
+		}
+		if (by > 0.0f) DJLEDs[gauge24Pixel(level)] = brighter(gauge24Color(level), by);
+	}
 }
 
 // Turns on block of 4 LEDs based on start number
@@ -1145,11 +1269,11 @@ void addGlitter(fract8 chanceOfGlitter)
 	}
 }
 
-static void glitter4(CRGB *layer, fract8 chanceOfGlitter)
+static void glitter4(CRGB *layer, fract8 chanceOfGlitter, uint8_t white = 255)
 {
 	for (byte i = 0; i < 4; i++) {
 		if (random8() < chanceOfGlitter) {
-			layer[random16(NUM_LEDS)] += CRGB::White;
+			layer[random16(NUM_LEDS)] += CRGB(white, white, white);
 
 		}
 	}
@@ -1258,6 +1382,13 @@ static void riseStep(uint32_t now) {
 	const uint16_t progress = elapsed >= span ? 255 : (uint16_t)(elapsed * 255UL / span);
 	const uint32_t sinceReady = readySaid ? now - readyMs : 0;
 	const uint32_t slot = now / 45;              // flicker changes about 22 times a second
+	const uint8_t opening = startupOpening(now);     // barely lit at first (see "The opening")
+	if (readySaid && !riseLocking) {
+		// The lock starts at once: a bar that had just slipped does not sit out its wait first
+		// (it could be 0.6 s, so the bars were not always full "at once" at READY).
+		riseLocking = true;
+		for (uint8_t b = 0; b < 3; b++) riseMoveAt[b] = now;
+	}
 	for (uint8_t b = 0; b < 3; b++) {
 		const uint16_t planned = (progress * RISE_PACE[b]) >> 8;
 		const uint8_t target = readySaid ? 8 : (planned > 7 ? 7 : (uint8_t)planned);
@@ -1302,6 +1433,7 @@ static void riseStep(uint32_t now) {
 				c = RISE_BODY[b];                // the next light up tries to catch
 				c.nscale8(120);
 			}
+			if (opening != 255) c.nscale8(opening);
 			DJLEDs[gaugePixel(column, i)] = c;
 		}
 	}
@@ -1327,6 +1459,7 @@ void startupShow() {
 	}
 	if (!riseBegun) {                            // the bars start from nothing, each in its own time
 		riseBegun = true;
+		riseLocking = false;
 		riseStartMs = now;
 		for (uint8_t b = 0; b < 3; b++) {
 			riseLevel[b]    = 0;
@@ -1347,7 +1480,8 @@ void startupShow() {
 
 	if (now - FadeMillis > FadeInterval) {
 		if (DecayTime > 0) {                     // the 80 bursts, their gaps growing to fill the span
-			glitter4(sparks, 150);
+			const uint8_t opening = startupOpening(now);   // fewer and fainter at first (see "The opening")
+			glitter4(sparks, scale8(150, 64 + scale8(191, opening)), opening);
 			DecayTime--;
 			const uint32_t span = (int32_t)(planEnd - riseStartMs) > 0 ? planEnd - riseStartMs : 0;
 			FadeInterval = (uint32_t)(DECAYTIME - DecayTime) * span / SPARK_SUM;

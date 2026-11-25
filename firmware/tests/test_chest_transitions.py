@@ -121,7 +121,7 @@ class ChestTransitionTests(unittest.TestCase):
         others = [i for i in range(96) if i not in METER]
         first_spark = next(t for t, f in frames if t > 3000 and light(f, others))
         self.assertGreaterEqual(first_spark, reached[-1])
-        self.assertLessEqual(first_spark, reached[-1] + 150)
+        self.assertLessEqual(first_spark, reached[-1] + 400)         # Faint and few at first (the opening).
         for t, f in frames:
             if 3000 < t < first_spark:
                 self.assertGreater(light(f, METER), 0, f'meter dark at {t} ms')
@@ -238,12 +238,51 @@ class ChestTransitionTests(unittest.TestCase):
                 self.assertNotIn(None, first)
                 self.assertGreater(first[0], span - 3100)          # Blocks begin three seconds before the planned end.
                 self.assertLess(first[-1], span - 600)
-                # Sparks fall on pixels the panel never draws: plenty early, thinning out towards the end.
+                # Sparks fall on pixels the panel never draws: barely any while the start opens (its first
+                # third, four seconds at most), plenty after that, thinning out towards the end.
                 def sparks(start, end):
                     window = [light(f, UNOWNED) for t, f in frames if start <= t < end]
                     return sum(window) / len(window)
-                self.assertGreater(sparks(0, span // 4), 2 * sparks(span * 3 // 4, span))
+                opened = min(4000, span // 3)
+                self.assertGreater(sparks(opened, opened + span // 4), sparks(span * 3 // 4, span))
+                self.assertGreater(sparks(opened, opened + span // 4), 4 * sparks(0, opened // 2))
+                self.assertGreater(sparks(0, opened // 2), 0)
                 self.assertGreater(sparks(span * 3 // 4, span), 0)
+
+    def test_the_start_is_barely_lit_for_two_seconds_and_builds(self):
+        # Owner, November 24: "the chest LED patterns get too bright too quickly ... the first 2 seconds ...
+        # needs to be less lit up, more like it's barely starting to light up". The first two seconds were
+        # the brightest of the sparkle: about 1,100 a frame on this measure, with lights at full from the start.
+        frames = self.play('cmd STARTUP:13200 run 13200 cmd READY run 2500')
+        def mean_light(start, end):
+            window = [light(f) for t, f in frames if start <= t < end]
+            return sum(window) / len(window)
+        def brightest(start, end):
+            return max(max(max(p) for p in f) for t, f in frames if start <= t < end)
+        full = mean_light(4500, 8000)                               # The sparkle once it has opened.
+        self.assertGreater(full, 800)                               # As bright as it was from the start, before.
+        self.assertLess(mean_light(0, 1000), .05 * full)            # Barely anything in the first second,
+        self.assertLess(mean_light(1000, 2000), .15 * full)         # little in the second,
+        self.assertGreater(mean_light(300, 1000), 0)                # but not dark: it is starting to light up.
+        seconds = [mean_light(a, a + 1000) for a in range(0, 5000, 1000)]
+        self.assertEqual(seconds, sorted(seconds))                  # It builds, second by second,
+        self.assertGreater(mean_light(3500, 4500), .6 * full)       # and is all there by four seconds.
+        # No single light is bright early either: a tenth of full at first (full is 90 on this strip).
+        self.assertLessEqual(brightest(0, 1000), 20)
+        self.assertLessEqual(brightest(1000, 2000), 36)
+        self.assertGreaterEqual(brightest(4500, 8000), 85)
+        # The two chest lights come up with it instead of coming on at once.
+        def lights(start, end):
+            return max(light(f, (96, 97)) for t, f in frames if start <= t < end)
+        self.assertLess(lights(0, 1000), .25 * lights(5000, 9000))
+        self.assertGreater(lights(300, 1000), 0)
+        # READY ends the opening, however early it comes: the lock is as bright as ever.
+        early = self.play('cmd STARTUP:13200 run 1000 cmd READY run 1500')
+        locked = [f for t, f in early if 1000 + 150 <= t < 1000 + 250][-1]
+        self.assertGreater(max(locked[7]), 80)
+        for t, f in early:
+            if 1000 + 400 <= t < 1000 + 900:
+                self.assertEqual([self.bar_height(f, bar) for bar in range(3)], [8, 8, 8], f'bars not locked at {t} ms')
 
     def test_a_start_from_the_menu_times_itself(self):
         frames = self.play('cmd STARTUP run 16000')
@@ -383,6 +422,99 @@ class ChestTransitionTests(unittest.TestCase):
         self.assert_no_jump(frames, 3000)
         self.assert_no_jump(frames, 5000)
 
+
+    # --- The meter moves as a whole (owner, November 24: "discharging just blinks the last LED but it would
+    # be cool if the whole panel animated that it was draining or charging") ---------------------------------
+
+    def meter_levels(self, script, start):
+        """Each meter level's brightness (its strongest colour) frame by frame from a moment on."""
+        frames = [(t, f) for t, f in self.play(script) if t >= start]
+        return frames, [[max(f[METER[level]]) for t, f in frames] for level in range(24)]
+
+    def crest_times(self, frames, series, levels, start, end):
+        """When each of some levels is at its brightest between two moments."""
+        times = []
+        for level in levels:
+            window = [(value, t) for (t, f), value in zip(frames, series[level]) if start <= t < end]
+            top = max(value for value, t in window)
+            at = [t for value, t in window if value == top]
+            times.append((at[0] + at[-1]) / 2)
+        return times
+
+    def test_off_the_charger_the_whole_meter_drains_downwards(self):
+        frames, series = self.meter_levels('cmd CHARGE:70:0 run 20000', 4000)    # 70 % lights 17 of 24.
+        top = 16
+        # Every lit light moves, not only the last one, and none of them ever goes out.
+        for level in range(top):
+            self.assertGreater(max(series[level]) - min(series[level]), 12, f'level {level} hardly moves')
+            self.assertGreater(min(series[level]), 12, f'level {level} went dark')
+        # Nothing above the fill line, nothing off the meter: the charge still reads by where the lights stop.
+        self.assertEqual(max(max(series[level]) for level in range(top + 1, 24)), 0)
+        self.assertEqual(max(light(f, [i for i in range(98) if i not in METER]) for t, f in frames), 0)
+        # A drop leaves the top lit light every 4.4 s and falls through every light to the bottom.
+        cycle = 4400
+        first = 2000 + 2 * cycle                                       # The sweep, then whole cycles.
+        for start in (first, first + cycle):
+            crests = self.crest_times(frames, series, range(top - 1, -1, -1), start + 900, start + cycle)
+            self.assertEqual(crests, sorted(crests))                   # Downwards, light by light,
+            self.assertTrue(1000 < crests[-1] - crests[0] < 2600, crests[-1] - crests[0])
+            gaps = [b - a for a, b in zip(crests, crests[1:])]
+            self.assertLess(sum(gaps[-4:]), sum(gaps[:4]))             # gathering speed as it falls.
+        # The top light swells, lets go, is left dim and comes back.
+        rest = sorted(series[top])[len(series[top]) // 2]
+        self.assertGreater(max(series[top]), 1.3 * rest)
+        self.assertLess(min(series[top]), .5 * rest)
+        self.assertGreater(min(series[top]), 0)
+        # Smoothly: no light jumps between two frames.
+        for level in range(24):
+            self.assertLessEqual(max(abs(a - b) for a, b in zip(series[level], series[level][1:])), 6, f'level {level} jumped')
+
+    def test_on_the_charger_the_whole_meter_fills_upwards(self):
+        frames, series = self.meter_levels('cmd CHARGE:40:1 run 20000', 4000)    # 40 % lights 10 of 24.
+        for level in range(10):
+            self.assertGreater(max(series[level]) - min(series[level]), 12, f'level {level} hardly moves')
+            self.assertGreater(min(series[level]), 12, f'level {level} went dark')
+        # A band of light enters at the bottom every 2.4 s and climbs: through the lit lights, then on to the
+        # top as a faint glow over the empty ones, which are dark between bands.
+        cycle = 2400
+        start = 2000 + 3 * cycle                                       # One band enters as each cycle begins,
+        crests = self.crest_times(frames, series, range(22), start, start + cycle)   # and passes level 21 within it.
+        climbing = [b - a for a, b in zip(crests, crests[1:])]
+        self.assertTrue(all(40 <= gap <= 160 for gap in climbing), climbing)       # Ten lights a second, upwards.
+        lit_crest = min(max(series[level]) for level in range(10))
+        for level in range(10, 24):
+            self.assertGreater(max(series[level]), 2, f'level {level} never glows')
+            self.assertLess(max(series[level]), .5 * lit_crest)
+            self.assertEqual(min(series[level]), 0)
+        # In each light's own colour: nothing blue passes over the red end of the meter.
+        self.assertEqual(max(f[METER[level]][2] for t, f in frames for level in range(6)), 0)
+        self.assertEqual(max(light(f, [i for i in range(98) if i not in METER]) for t, f in frames), 0)
+        for level in range(24):
+            self.assertLessEqual(max(abs(a - b) for a, b in zip(series[level], series[level][1:])), 6, f'level {level} jumped')
+
+    def test_draining_and_filling_run_opposite_ways(self):
+        # A full meter off the charger: the drop falls all twenty-four lights, the top one brightest first.
+        frames, series = self.meter_levels('cmd CHARGE:100:0 run 16000', 4000)
+        start = 2000 + 2 * 4400
+        crests = self.crest_times(frames, series, range(4, 20), start + 900, start + 4400)
+        self.assertLess(crests[-1] - crests[0], -500)
+        # Full and on the charger nothing more is going in: only a slow ripple is left, and it runs upwards
+        # (a crest reaches the next light up about 0.29 s later, once every 2 s).
+        frames, series = self.meter_levels('cmd CHARGE:100:1 run 14000', 4000)
+        for level in range(24):
+            swing = max(series[level]) - min(series[level])
+            self.assertTrue(3 <= swing <= 14, (level, swing))
+        lower, upper = self.crest_times(frames, series, (9, 10), 6000, 8000)
+        self.assertTrue(120 < (upper - lower) % 2000 < 480, (upper - lower) % 2000)
+
+    def test_the_meter_lands_steady_and_the_movement_comes_in_after(self):
+        frames, series = self.meter_levels('cmd CHARGE:70:0 run 6000', 2000)     # From the end of the sweep.
+        landed = [values for (t, f), values in zip(frames, zip(*series)) if t < 2100]
+        moving = [values for (t, f), values in zip(frames, zip(*series)) if 3300 <= t < 6000]
+        for level in range(17):
+            self.assertLessEqual(max(v[level] for v in landed) - min(v[level] for v in landed), 2)   # Steady as it lands,
+            self.assertLessEqual(max(abs(a - b) for a, b in zip(series[level], series[level][1:])), 6)   # no jump after,
+            self.assertGreater(max(v[level] for v in moving) - min(v[level] for v in moving), 6)     # and then it moves.
 
     # --- Feelings added November 15 (owner: emotional reactions on the chest) -----------------
 

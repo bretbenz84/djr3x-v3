@@ -54,8 +54,8 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Version 0.8.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 421,332 bytes of
-program, 26,696 bytes of globals. Each strip has its own FastLED controller and brightness,
+Version 0.9.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 426,412 bytes of
+program, 27,152 bytes of globals. Each strip has its own FastLED controller and brightness,
 since the library's board-wide show, brightness and clear would act on both.
 
 ## Startup
@@ -63,11 +63,18 @@ since the library's board-wide show, brightness and clear would act on both.
 Since 0.6.0 (owner, November 21, 2026) startup is paced to Rex's own start. `STARTUP:<ms>` says how long
 the host expects to need (3 to 60 s) and `READY` says it is ready.
 
-- **Chest.** The sparks thin out over the time given. Under them each of the three bars lights from the
+- **Chest.** The sparks thin out over the time given. Since 0.9.0 (owner, November 24: "too bright too
+  quickly"; the first two seconds "barely starting to light up") it opens faintly: the sparks and the
+  bars' lights begin at a tenth of their ordinary brightness, the sparks fewer too, and build over the
+  first third of the time given (four seconds at most): about a sixth at one second, a third at two. The
+  two chest lights come up with them. Before, the first two seconds were the brightest of the sparkle.
+  `READY` ends the opening, and the spark that burns the charge meter is not part of it. Under the sparks
+  each of the three bars lights from the
   bottom at its own pace (A red, B blue, C white) and struggles: its top light flickers and sometimes goes
   out, the next one up tries to catch, the bar browns out for a moment, loses a light or two and climbs
   back. No bar holds its eighth light before `READY`. The nine blocks come on, each with its stutter, in
-  the last three seconds before the planned end. `READY` fills all three bars at once, bright, and over
+  the last three seconds before the planned end. `READY` fills all three bars at once, bright (since 0.9.0
+  also a bar that had just slipped, which could wait 0.6 s first), and over
   0.9 s they ease to steady; then the ordinary panel takes them over with a blend.
 - **Mouth** (0.8.0; the owner asked for less, later, and in step with the startup sound). After
   `H:STARTUP` the mouth is dark and follows the sound the host plays: `H:STARTUP_SOUND:<wait>,<grow>,<end>`
@@ -94,11 +101,41 @@ the host expects to need (3 to 60 s) and `READY` says it is ready.
 
 ## Resting mouth
 
-Since 0.7.0 (owner, November 21: a slow effect when not speaking, dimmer; the quick animation only for
-speech) the mouth at rest (`ACTIVE`, `IDLE`, after `SPEAK_STOP`) is a slow ripple of light spreading from
-its centre to its edges, each light between 3 and 8 % of the current feeling's colour, one ripple about
-every six seconds. Before, the whole mouth pulsed together between 5 and 10 %. Speech is unchanged: the
-quick equalizer bars, up to 45 %.
+Since 0.9.0 (owner, November 24: "the edges are dark and it is brighter towards the middle, keeping the
+whole not-talking animation dark") the mouth at rest (`ACTIVE`, `IDLE`, after `SPEAK_STOP`) glows in its
+middle only, in the current feeling's colour: the four middle lights between 5 and 7.5 %, falling away
+quickly (about half of that one light out, a fifth two lights out, 1 % on the last lit lights), 32 of the
+80 lights lit and the outermost ring always dark. The glow is six lights across and six down, about as wide as it is tall
+on the panel. It still breathes about once every six seconds, each breath spreading from the middle
+outwards. From 0.7.0 (owner, November 21: a slow effect when not speaking, dimmer) it was a ripple over
+the whole mouth, every light between 3 and 8 %; before that the whole mouth pulsed together.
+
+## Talking mouth
+
+The equalizer bars: eight columns opening above and below the middle pair of rows, a falling dot over
+each, never over 45 %. Since 0.9.0 (owner, November 24: "sometimes it's got this cool pattern and other
+times it's not as cool"):
+
+- **The voice is measured against itself.** A bar's height used to follow `SPEAK_LEVEL` against the top
+  of its range. His voice sits far below that: over 151 of his cached lines, measured as the host reports
+  them, half the voiced moments were under level 48 and a line's loudest moment was anywhere from 91 to
+  230. With 26 of those lines replayed through the old code, the mouth was shut or nearly so (no bar past
+  one of its five half-rows) in half the frames while he spoke, and a bar reached three half-rows in one
+  frame in eight: the tall dancing bars showed only in the loudest lines. Now the level is taken as a
+  share of how loud the voice has lately been (followed up within a tenth of a second, let back down over
+  about four, never under level 77), with quiet sounds lifted. On the same lines the mouth is shut in one
+  frame in eleven and a bar reaches three half-rows in four frames in five, four in nearly three in five.
+  Under level 13 is silence, and a steady hiss just above it does not open the mouth.
+- **Each sound rolls outward.** The two middle columns follow the voice now and each column further out
+  follows it 60 ms later, so a sound opens the middle of the mouth and runs out to the corners, and its
+  end leaves the middle first.
+- **Depth.** A bar is brightest at the middle of the mouth and falls to 30 % of that at its outermost
+  half-row; the dot above it is brighter than the tip under it. A louder sound is brighter as well as
+  taller. The shut line between sounds is brightest in the middle (10 %), fainter at its ends, with a slow
+  shimmer along it.
+- **In and out.** The resting glow fades out under the first bars of a line (0.2 s) and the last bars
+  close into the glow (0.35 s) instead of the mouth jumping between the two. A line that cuts startup
+  short still takes the mouth at once.
 
 ## Wink
 
@@ -141,6 +178,26 @@ pattern until `SPEAK_STOP`. The eyes are set by the host (`EYE:r,g,b`). Since 0.
 
 The burst is never a white panel: an earlier full-panel white browned the chest supply out and
 showed red, so its body is blue and white is kept to the bar tips and a block or two.
+
+## Chest charge meter
+
+`C:CHARGE:<soc>:<0|1>` shows the charge on the three bars as one meter of 24 lights, bar A's bottom to bar
+C's top, each light in its own colour from red to blue, lit up to the charge. Since 0.9.0 (owner,
+November 24: "discharging just blinks the last LED but it would be cool if the whole panel animated that
+it was draining or charging") the whole meter moves, in brightness only, so the level still reads by where
+the colours stop:
+
+- **Off the charger (`:0`), draining.** A slow ripple runs down the lit lights all the time. Every 4.4 s
+  the top lit light swells, then lets go of a drop: a band of brighter light that falls from it through
+  every lit light, gathering speed, and runs out at the bottom, while the top light is left dim and
+  slowly comes back. Nothing above the fill line is ever lit.
+- **On the charger (`:1`), filling.** The ripple runs up. Every 2.4 s a band of brighter light enters at
+  the bottom and climbs through the lit lights; above the fill line it goes on to the top as a faint glow
+  in each empty light's own colour. At 100 % only the ripple is left.
+
+The movement eases in over 1.2 s after the sweep that brings the meter on, and no light jumps between two
+frames. Before, the top lit light blinked once a second and, on the charger, one pale blue light climbed
+from the fill line. The blocks and the two chest lights stay dark under the meter, as before.
 
 ## Mouth charge meter
 

@@ -32,6 +32,13 @@
  *   quiet passages close the mouth to a thin lit line instead of lighting
  *   the whole panel.
  *
+ *   Since 0.9.0 (owner, November 24: "sometimes it's got this cool pattern and
+ *   other times it's not as cool"): the bars are measured against how loud the
+ *   voice has lately been, not against the top of SPEAK_LEVEL's range, so a
+ *   quiet line fills the mouth like a loud one; each sound opens the middle
+ *   bars first and rolls out to the corners; and a bar is brightest at the
+ *   middle of the mouth, dimmer towards its tip. See "Speaking animation" below.
+ *
  * Commands — routed here by djr3x_leds.ino, bare or with the H: prefix
  * ---------------------------------------------------------------------
  *   SPEAK:{emotion}       Start speaking animation. Also sets the mouth's
@@ -81,12 +88,15 @@
  * Mouth idle glow
  * ---------------
  *   Whenever Rex is awake and not speaking (ACTIVE / IDLE / after SPEAK_STOP),
- *   a slow ripple of light spreads from the centre of the mouth to its edges,
- *   each light between GLOW_MIN and GLOW_MAX brightness (3–8 %) of the current
- *   emotion colour, so the mouth is never fully dark while he's "on" (owner,
- *   November 21: a slow effect when not speaking, dimmer than before; the
- *   quick animation is for speech only). Speaking brightens it through the existing wave animation,
- *   then it settles back to the glow. OFF / SLEEP / FADEOFF keep their existing
+ *   the middle of the mouth glows dimly in the current emotion colour and the
+ *   glow falls away to nothing at the edges, whose lights stay dark (owner,
+ *   November 24: "the edges are dark and it is brighter towards the middle,
+ *   keeping the whole not-talking animation dark"). It breathes slowly, each
+ *   breath spreading from the middle outwards: the middle between about 5 and
+ *   7.5 %, the last lit lights around 1 % (owner, November 21: a slow effect
+ *   when not speaking; the quick animation is for speech only). Speech takes
+ *   the mouth over, the glow fading out under the first bars, and the last
+ *   bars close back into the glow. OFF / SLEEP / FADEOFF keep their existing
  *   dark / red-breathing behaviour. The glow writes ONLY mouth pixels — eyes
  *   stay exclusively owned by setEyes()/tickIdle()/tickBlink().
  *
@@ -258,23 +268,48 @@ uint8_t      chargeShown[MOUTH_ROWS];         // each row's brightness as last d
 float        colHeight[MOUTH_COLS];           // smoothed bar height, 0–MOUTH_HALF half-rows
 float        colPeak[MOUTH_COLS];             // falling peak-dot height per column
 float        colPhase[MOUTH_COLS];            // per-column wobble phase (seeded in setup)
+// How loud the voice is against how loud it has lately been, and that a little while ago for
+// the bars further from the middle (see "Speaking animation").
+#define SPEAK_LAG_FRAMES 3                    // each column out from the middle follows this many frames later
+#define SPEAK_HISTORY    (3 * SPEAK_LAG_FRAMES + 1)
+#define SPEAK_REF_REST   0.40f                // what counts as loud before any voice has been heard
+float        speakRef    = SPEAK_REF_REST;    // what counts as loud now, 0..1 of SPEAK_LEVEL's range
+float        speakDrive  = 0.0f;              // the voice against it, smoothed, 0..1
+float        driveHistory[SPEAK_HISTORY];     // speakDrive at each of the last frames
+uint8_t      driveHead   = 0;                 // where the newest is
+float        linePhase   = 0.0f;              // the closed mouth's slow shimmer
+// The resting glow fades out under the first bars of a line instead of vanishing.
+#define SPEAK_OPEN_MS 200UL
+uint32_t     speakOpenMs = 0;                 // millis() when the line began over the glow; 0: nothing to fade
+uint8_t      speakUnder[NUM_MOUTH];           // the glow as it was then
+// Each light's brightness as the glow or the speaking bars last drew it, by row and column.
+uint8_t      mouthShown[NUM_MOUTH];
 
-// Mouth idle glow (ACTIVE / IDLE / post-speech): a slow ripple of light spreading from the
-// centre of the mouth outwards, each light between GLOW_MIN and GLOW_MAX of mouthColor. One
-// ripple leaves the centre about every 6.3 s (GLOW_RATE) and about half of one lies across
-// the mouth at a time (GLOW_SPREAD), so the centre brightens first and the edges follow.
-// Owner, November 21: 3-8 %, down from a 5-10 % pulse of the whole mouth at once. This must
-// sit well below the speaking bars. Frames are at most GLOW_FRAME_MS apart and are shown
-// only when a light's brightness byte has changed.
-#define GLOW_MIN  0.03f
-#define GLOW_MAX  0.08f
-#define GLOW_RATE 1.0f                        // rad/s
-#define GLOW_SPREAD 3.5f                      // radians of lag from the centre to the corners
+// Mouth idle glow (ACTIVE / IDLE / post-speech), owner, November 24: dark at the edges, brighter
+// towards the middle, the whole of it kept dim. Each light has a fixed share of the middle's
+// brightness (glowShape): a bell, most at the centre and falling away quickly (GLOW_WIDTH), with
+// nothing at all on the outermost lights or where it would be too faint to hold its colour. The
+// glow is about as wide as it is tall on the panel, whose lights are about as far apart across
+// the middle rows as the rows are (GLOW_ROWS). The middle breathes between GLOW_LOW and all of
+// GLOW_PEAK, one breath about every 6.3 s (GLOW_RATE), each spreading from the centre outwards
+// (GLOW_SPREAD), so the pulse of November 21 is kept under the new shape. It was a ripple over
+// the whole mouth, every light between 3 and 8 %. This must sit well below the speaking bars.
+// Frames are at most GLOW_FRAME_MS apart and are shown only when a light's brightness byte has
+// changed.
+#define GLOW_PEAK   0.085f                    // the very centre at the top of a breath (the four middle lights reach 7.5 %)
+#define GLOW_LOW    0.60f                     // ... and at the bottom, as a share of that
+#define GLOW_RATE   1.0f                      // rad/s
+#define GLOW_SPREAD 2.4f                      // radians of lag from the centre to where the glow ends
+#define GLOW_ROWS   3.6f                      // the glow ends this many rows above and below the middle, and at the outermost columns
+#define GLOW_WIDTH  0.58f                     // how far out, as a share of that, the glow has fallen to about a third
+#define GLOW_FAINT  2                         // a lit light never shows less: under it amber loses its colour
 #define GLOW_FRAME_MS 40UL
 float        glowPhase     = 0.0f;            // 0.0 – TWO_PI
 uint16_t     glowLastSum   = 0xFFFF;          // sentinel: force first frame
 uint32_t     glowFrameMs   = 0;
 uint8_t      mouthDistance[NUM_MOUTH];        // each light's distance from the mouth's centre, 0..255
+uint8_t      glowShape[NUM_MOUTH];            // each light's share of the middle's brightness, 0..255
+uint8_t      glowFar[NUM_MOUTH];              // how far out the light is in the glow, 0 the middle to 255 its end
 
 // Glow ramp-in: when the glow starts from a dark mouth (boot / OFF, or waking
 // from SLEEP), brightness ramps 0 → full glow over GLOW_RAMP_IN_MS so program
@@ -286,11 +321,13 @@ uint8_t      mouthDistance[NUM_MOUTH];        // each light's distance from the 
 #define GLOW_RAMP_IN_MS 4000
 uint32_t     glowRampStartMs = 0;
 
-// Glow settle: after startup leaves the mouth fully lit, the glow eases down from that
-// level over GLOW_SETTLE_MS instead of dropping to it in one frame.
+// Glow settle: the glow eases in from what the mouth was showing instead of jumping to it:
+// from startup's solid mouth over GLOW_SETTLE_MS, from the last bars of a line over SPEAK_CLOSE_MS.
 #define GLOW_SETTLE_MS 1500
+#define SPEAK_CLOSE_MS 350
 uint32_t     glowSettleStartMs = 0;           // 0: not settling
-uint8_t      glowSettleFrom    = 0;
+uint16_t     glowSettleMs      = GLOW_SETTLE_MS;
+uint8_t      glowSettleFrom[NUM_MOUTH];       // each light's brightness when the settle began
 
 // Mouth startup (owner request, November 21, 2026: "the mouth started out flickering the
 // normal yellow light until it were fully illuminated", lined up with the real startup; and
@@ -361,6 +398,29 @@ bool         startupEyesOpen = true;          // false from STARTUP until the ey
 CRGB         startupEyeColor = CRGB(255, 200, 0);   // what they open with: the host's EYE, else warm gold
 
 inline void forceGlowRefresh() { glowLastSum = 0xFFFF; }
+
+// The glow starts from these brightnesses and eases to its own over the time given.
+static void settleGlowFrom(const uint8_t *from, uint8_t level, uint16_t ms) {
+    if (from) memcpy(glowSettleFrom, from, NUM_MOUTH);
+    else      memset(glowSettleFrom, level, NUM_MOUTH);
+    glowSettleMs      = ms;
+    glowSettleStartMs = millis() | 1;         // |1: never the 0 sentinel
+    glowRampStartMs   = 0;
+    forceGlowRefresh();
+}
+
+// Every bar shut and nothing remembered of the last sound, so the next line opens from the closed line.
+static void closeBars() {
+    for (uint8_t c = 0; c < MOUTH_COLS; c++) colHeight[c] = colPeak[c] = 0.0f;
+    for (uint8_t i = 0; i < SPEAK_HISTORY; i++) driveHistory[i] = 0.0f;
+    speakDrive = 0.0f;
+}
+
+// A line has ended: the bars close into the resting glow over SPEAK_CLOSE_MS.
+static void endSpeech() {
+    settleGlowFrom(mouthShown, 0, SPEAK_CLOSE_MS);
+    closeBars();
+}
 
 inline void startGlowRamp()   { glowRampStartMs = millis() | 1;  glowSettleStartMs = 0; }  // |1: never the 0 sentinel
 inline void cancelGlowRamp()  { glowRampStartMs = 0;  glowSettleStartMs = 0; }
@@ -619,10 +679,11 @@ void command(const char *cmd) {
     // leaves the bright speak frame for the glow within one loop pass.
     if (strcmp(cmd, "SPEAK_STOP") == 0) {
         if (animMode == ANIM_STARTUP) return;   // nothing was speaking: the flicker runs on
+        if (animMode == ANIM_SPEAK) endSpeech();   // the bars close into the glow
         animMode   = ANIM_ACTIVE;
         eyesActive = false;
         blinkState = BLINK_OPEN;   // reset so next activation starts cleanly
-        forceGlowRefresh();        // snap mouth from speak frame to glow now
+        forceGlowRefresh();        // the glow takes the mouth on the next pass
         return;
     }
 
@@ -637,6 +698,15 @@ void command(const char *cmd) {
         EmotionColor ec;
         memcpy_P(&ec, &EMOTION_COLORS[emo], sizeof(EmotionColor));
         mouthColor = ec;
+        if (animMode != ANIM_SPEAK) {
+            // A new line. Over the resting glow, that fades out under the first bars; over
+            // anything else (startup's sparkle, a dark mouth) the bars take the mouth at once.
+            const bool resting = animMode == ANIM_ACTIVE || animMode == ANIM_IDLE;
+            if (resting) memcpy(speakUnder, mouthShown, NUM_MOUTH);
+            else         memset(mouthShown, 0, NUM_MOUTH);
+            speakOpenMs = resting ? (millis() | 1) : 0;
+            closeBars();
+        }
         animMode   = ANIM_SPEAK;
         // Start every utterance from silence. speakLevel persists across a stop,
         // and the host's SPEAK_LEVEL:0 is the one unflushed byte in speak_stop()
@@ -877,32 +947,58 @@ void command(const char *cmd) {
 // ---------------------------------------------------------------------------
 //
 // Eight vertical bars — one per mouth column — open outward from the center
-// row pair (rows 4/5), VU-meter style.  Per frame, each column:
+// row pair (rows 4/5), VU-meter style.
 //
-//   1. Wobbles: a per-column sine (distinct rate + phase per column, faster
-//      when loud) modulates the shared audio level so the bars dance
-//      independently instead of pumping in lockstep.
-//   2. Is shaped: a fixed center-weighted envelope keeps the middle columns
+// Owner, November 24: "sometimes it's got this cool pattern and other times it's not as
+// cool". Measured on 151 of his cached lines: a bar's height followed SPEAK_LEVEL against the
+// top of its range (255), and his voice sits far below that (half of the voiced moments under
+// 48, a line's loudest moment anywhere from 91 to 230). With 26 of them replayed through that
+// code the mouth was shut or nearly so in half the frames while he spoke, and a bar reached
+// three of its five half-rows in one frame in eight: the tall dancing bars showed only in the
+// loudest lines. Since 0.9.0, per frame:
+//
+//   1. The voice is measured against itself: speakRef follows how loud it has lately been
+//      (up quickly, back down over seconds, never under SPEAK_REF_MIN, so room hiss is not
+//      blown up into speech), and the level is taken as a share of that, with quiet sounds
+//      lifted (SPEAK_CURVE). Under SPEAK_GATE is silence.
+//   2. It rolls outward: the two middle columns follow the voice now, each column further
+//      out follows it SPEAK_LAG_FRAMES frames later, so every sound opens the middle of the
+//      mouth and runs out to the corners.
+//   3. Each column wobbles: a per-column sine (distinct rate + phase per column, faster
+//      when loud) so the bars dance independently instead of pumping in lockstep.
+//   4. Is shaped: a fixed center-weighted envelope keeps the middle columns
 //      tallest and the corners tapered, so the lit region reads as a mouth.
-//   3. Is smoothed: fast attack / slow decay ballistics — bars snap up on a
+//   5. Is smoothed: fast attack / slow decay ballistics — bars snap up on a
 //      syllable and settle down through the gaps, closing to a thin center
 //      line during pauses.
-//   4. Trails a peak dot: a dim marker rides the bar's recent maximum and
+//   6. Trails a peak dot: a marker rides the bar's recent maximum and
 //      falls slowly, adding motion above the bars.
 //
-// Brightness is capped at SPEAK_MAX_BRIGHT (45 %) — the old wave hit 100 % —
-// and only the center row pair keeps a dim floor, so quiet passages no
-// longer light the whole panel.  The bar tip is anti-aliased (fractional
-// height renders as a dimmed pixel) to keep motion smooth on a 10-row grid.
+// A bar is brightest at the middle of the mouth and dimmer towards its tip (SPEAK_TIP), and
+// brighter when the voice is louder; the peak dot above it is brighter than the tip under it.
+// Brightness is capped at SPEAK_MAX_BRIGHT (45 %). Only the center row pair keeps a dim
+// floor, brightest in the middle and fainter towards the corners, with a slow shimmer along
+// it, so quiet passages close the mouth to a thin lit line instead of lighting the whole
+// panel.  The bar tip is anti-aliased (fractional height renders as a dimmed pixel) to keep
+// motion smooth on a 10-row grid.
 //
 // NOTE: only writes to mouth pixels (index MOUTH_START and above).
 // Eye pixels leds[0] and leds[1] are left alone so tickBlink() owns them.
 
 #define SPEAK_MAX_BRIGHT 0.45f   // brightness of a fully lit bar pixel
-#define SPEAK_FLOOR      0.10f   // dim floor on the center row pair only
-#define SPEAK_ATTACK     18.0f   // bar rise responsiveness (per second)
-#define SPEAK_DECAY       6.0f   // bar fall responsiveness (per second)
+#define SPEAK_TIP        0.30f   // ... of the outermost half-row, as a share of that
+#define SPEAK_QUIET      0.55f   // a bar's brightness for the faintest sound, as a share of a loud one's
+#define SPEAK_FLOOR      0.10f   // dim floor on the center row pair, at its middle
+#define SPEAK_FLOOR_END  0.045f  // ... and at its two ends
+#define SPEAK_ATTACK     20.0f   // bar rise responsiveness (per second)
+#define SPEAK_DECAY       9.0f   // bar fall responsiveness (per second)
 #define SPEAK_PEAK_FALL   3.5f   // peak-dot fall speed (half-rows per second)
+#define SPEAK_GATE       0.05f   // SPEAK_LEVEL under 13: silence
+#define SPEAK_REF_MIN    0.30f   // never count anything under SPEAK_LEVEL 77 as loud
+#define SPEAK_REF_RISE   10.0f   // how quickly "loud" follows a louder voice (per second)
+#define SPEAK_REF_FALL   4.0f    // ... and how many seconds it takes to come back down
+#define SPEAK_HEADROOM   1.00f   // this share of "loud" fills the mouth
+#define SPEAK_CURVE      0.75f   // under 1: quiet sounds are lifted
 
 // Center-weighted column envelope: middle columns reach full height, corner
 // columns top out lower — the lit shape tapers like a mouth, not a box.
@@ -934,15 +1030,48 @@ void tickSpeak() {
 
     float level = speakLevel * (1.0f / 255.0f);
 
-    // --- Update per-column bar heights + peak dots -------------------------
+    // --- The voice against how loud it has lately been -----------------------
+    if (level > speakRef) {
+        float k = SPEAK_REF_RISE * dt;
+        speakRef += (level - speakRef) * (k > 1.0f ? 1.0f : k);
+    } else {
+        speakRef -= (speakRef - SPEAK_REF_MIN) * dt / SPEAK_REF_FALL;
+    }
+    float share = (level - SPEAK_GATE) / (speakRef * SPEAK_HEADROOM - SPEAK_GATE);
+    if (share < 0.0f) share = 0.0f;
+    if (share > 1.0f) share = 1.0f;
+    const float want = share > 0.0f ? powf(share, SPEAK_CURVE) : 0.0f;
+    // The host sends a new level about twenty times a second: smoothed, so the roll outward is not steps.
+    float follow = (want > speakDrive ? 30.0f : 18.0f) * dt;
+    if (follow > 1.0f) follow = 1.0f;
+    speakDrive += (want - speakDrive) * follow;
+    driveHead = (uint8_t)((driveHead + 1) % SPEAK_HISTORY);
+    driveHistory[driveHead] = speakDrive;
+
+    linePhase += 4.0f * dt;
+    if (linePhase >= TWO_PI) linePhase -= TWO_PI;
+
+    // The resting glow, fading out under the first bars of a line.
+    float under = 0.0f;
+    if (speakOpenMs) {
+        const uint32_t open = now - speakOpenMs;
+        if (open >= SPEAK_OPEN_MS) speakOpenMs = 0;
+        else under = 1.0f - (float)open / (float)SPEAK_OPEN_MS;
+    }
+
+    // --- Update per-column bar heights + peak dots, and render ---------------
     for (uint8_t c = 0; c < MOUTH_COLS; c++) {
+        // The voice as this column hears it: the middle pair now, each column out a little later.
+        const uint8_t out = c < MOUTH_COLS / 2 ? (uint8_t)(MOUTH_COLS / 2 - 1 - c) : (uint8_t)(c - MOUTH_COLS / 2);
+        const float heard = driveHistory[(driveHead + SPEAK_HISTORY - out * SPEAK_LAG_FRAMES) % SPEAK_HISTORY];
+
         // Per-column wobble: distinct rate per column, faster when loud.
-        colPhase[c] += (2.2f + 0.55f * c) * (0.6f + 1.4f * level) * dt;
+        colPhase[c] += (2.6f + 0.6f * c) * (0.7f + 1.3f * heard) * dt;
         if (colPhase[c] >= TWO_PI) colPhase[c] -= TWO_PI;
-        float wobble = 0.60f + 0.40f * sinf(colPhase[c]);
+        float wobble = 0.62f + 0.38f * sinf(colPhase[c]);
 
         // Target height in half-rows (0 – MOUTH_HALF from the center pair).
-        float target = level * wobble * COL_ENV[c] * 5.2f;
+        float target = heard * wobble * COL_ENV[c] * 5.6f;
         if (target > (float)MOUTH_HALF) target = (float)MOUTH_HALF;
 
         // Fast attack, slow decay.
@@ -958,13 +1087,15 @@ void tickSpeak() {
             colPeak[c] -= SPEAK_PEAK_FALL * dt;
             if (colPeak[c] < 0.0f) colPeak[c] = 0.0f;
         }
-    }
 
-    // --- Render -------------------------------------------------------------
-    for (uint8_t c = 0; c < MOUTH_COLS; c++) {
         uint8_t peakRow = (uint8_t)colPeak[c];
         if (peakRow > MOUTH_HALF - 1) peakRow = MOUTH_HALF - 1;
         bool showPeak = (colPeak[c] > colHeight[c] + 0.6f);
+
+        // The closed line: brightest in the middle, fainter at the ends, shimmering outwards.
+        const float floorHere = (SPEAK_FLOOR_END + (SPEAK_FLOOR - SPEAK_FLOOR_END) * (COL_ENV[c] - COL_ENV[0]) / (1.0f - COL_ENV[0]))
+                              * (0.85f + 0.15f * sinf(linePhase - 0.9f * out));
+        const float loud = SPEAK_MAX_BRIGHT * (SPEAK_QUIET + (1.0f - SPEAK_QUIET) * heard);
 
         for (uint8_t d = 0; d < MOUTH_HALF; d++) {
             // Bar fill at this half-row: >=1 full, 0–1 anti-aliased tip, <=0 off.
@@ -972,15 +1103,25 @@ void tickSpeak() {
             if (fill > 1.0f) fill = 1.0f;
             if (fill < 0.0f) fill = 0.0f;
 
-            float bright = fill * SPEAK_MAX_BRIGHT;
-            if (d == 0 && bright < SPEAK_FLOOR) bright = SPEAK_FLOOR;
+            // Brightest at the middle of the mouth, dimmer towards the tip.
+            float bright = fill * loud * (1.0f - (1.0f - SPEAK_TIP) * (float)d / (float)(MOUTH_HALF - 1));
+            if (d == 0 && bright < floorHere) bright = floorHere;
             if (showPeak && d == peakRow && bright < SPEAK_MAX_BRIGHT * 0.7f) {
                 bright = SPEAK_MAX_BRIGHT * 0.7f;
             }
 
             uint8_t sc = (uint8_t)(bright * 255.0f);
-            leds[mouthIdx(4 - d, c)] = mouthPixel(4 - d, c, sc, now);
-            leds[mouthIdx(5 + d, c)] = mouthPixel(5 + d, c, sc, now);
+            for (uint8_t side = 0; side < 2; side++) {
+                const uint8_t row = side ? (uint8_t)(5 + d) : (uint8_t)(4 - d);
+                const uint8_t at  = row * MOUTH_COLS + c;
+                uint8_t shown = sc;
+                if (under > 0.0f) {
+                    const uint8_t glow = (uint8_t)(speakUnder[at] * under);
+                    if (glow > shown) shown = glow;
+                }
+                mouthShown[at] = shown;
+                leds[mouthIdx(row, c)] = mouthPixel(row, c, shown, now);
+            }
         }
     }
     show();
@@ -990,10 +1131,10 @@ void tickSpeak() {
 // Mouth idle glow — dim emotional pulse while awake and not speaking
 // ---------------------------------------------------------------------------
 //
-// A slow ripple spreads from the centre of the mouth outwards, each pixel between
-// GLOW_MIN (3 %) and GLOW_MAX (8 %) of mouthColor (see GLOW_RATE and GLOW_SPREAD), so
-// the mouth shows a soft version of the current emotion colour whenever Rex
-// is on but quiet.  Runs in ANIM_ACTIVE and ANIM_IDLE.
+// The middle of the mouth glows dimly in mouthColor and the glow falls away to dark edges
+// (glowShape); it breathes slowly, each breath spreading from the centre outwards (see
+// GLOW_PEAK, GLOW_LOW, GLOW_RATE and GLOW_SPREAD), so the mouth shows a soft version of the
+// current emotion colour whenever Rex is on but quiet.  Runs in ANIM_ACTIVE and ANIM_IDLE.
 //
 // Writes ONLY mouth pixels (MOUTH_START …) and returns true when the frame
 // changed — the caller decides when to show(), so IDLE mode can fold
@@ -1025,32 +1166,41 @@ bool tickMouthGlow(float dt) {
             gain = (float)elapsed / (float)GLOW_RAMP_IN_MS;
         }
     }
-    // Settle from startup's solid mouth: ease down to the glow, never jump.
-    float settleFrom = 0.0f, settled = 1.0f;
+    // Settle from startup's solid mouth or a line's last bars: ease to the glow, never jump.
+    bool  settling = false;
+    float settled  = 1.0f;
     if (glowSettleStartMs) {
         uint32_t elapsed = now - glowSettleStartMs;
-        if (elapsed >= GLOW_SETTLE_MS) {
+        if (elapsed >= glowSettleMs) {
             glowSettleStartMs = 0;
         } else {
-            settleFrom = glowSettleFrom / 255.0f;
-            settled    = (float)elapsed / (float)GLOW_SETTLE_MS;
+            settling = true;
+            settled  = (float)elapsed / (float)glowSettleMs;
         }
     }
 
-    const float mid = (GLOW_MIN + GLOW_MAX) * 0.5f;
-    const float amp = (GLOW_MAX - GLOW_MIN) * 0.5f;
     uint8_t  scale[NUM_MOUTH];
     uint16_t sum = 0;
     for (uint8_t i = 0; i < NUM_MOUTH; i++) {
-        // The further from the centre, the later the ripple arrives.
-        float brightness = (mid + amp * sinf(glowPhase - GLOW_SPREAD * mouthDistance[i] * (1.0f / 255.0f))) * gain;
-        brightness = settleFrom + (brightness - settleFrom) * settled;
-        scale[i] = (uint8_t)(brightness * 255.0f);
+        float brightness = 0.0f;
+        if (glowShape[i]) {
+            // The further from the centre, the later the breath arrives and the fainter the light.
+            const float breath = 0.5f + 0.5f * sinf(glowPhase - GLOW_SPREAD * glowFar[i] * (1.0f / 255.0f));
+            brightness = GLOW_PEAK * glowShape[i] * (1.0f / 255.0f) * (GLOW_LOW + (1.0f - GLOW_LOW) * breath) * gain;
+        }
+        if (settling) {
+            const float from = glowSettleFrom[i] * (1.0f / 255.0f);
+            brightness = from + (brightness - from) * settled;
+        }
+        scale[i] = (uint8_t)(brightness * 255.0f + 0.5f);
+        // The faintest lit lights hold steady at the bottom of a breath instead of going out.
+        if (glowShape[i] && scale[i] < GLOW_FAINT && gain >= 1.0f && !settling) scale[i] = GLOW_FAINT;
         sum += (uint16_t)scale[i] * (uint16_t)(i + 1);
     }
     if (sum == 0xFFFF) sum = 0xFFFE;
     if (!prideMouth && !forced && sum == glowLastSum) return false;   // the rainbow's colours always move
     glowLastSum = sum;
+    memcpy(mouthShown, scale, NUM_MOUTH);
 
     for (uint8_t row = 0; row < MOUTH_ROWS; row++) {
         for (uint8_t col = 0; col < MOUTH_COLS; col++) {
@@ -1226,10 +1376,7 @@ void tickStartup() {
             setEyes(startupEyeColor.r, startupEyeColor.g, startupEyeColor.b);
         }
         animMode          = ANIM_ACTIVE;     // the glow takes over and eases down from solid
-        glowRampStartMs   = 0;
-        glowSettleFrom    = STARTUP_FULL;
-        glowSettleStartMs = now | 1;
-        forceGlowRefresh();
+        settleGlowFrom(nullptr, STARTUP_FULL, GLOW_SETTLE_MS);
         return;
     }
     if (now - startupFrameMs < STARTUP_FRAME_MS) return;
@@ -1337,8 +1484,8 @@ void tickAnimation() {
         // eyes/blink are left alone (the heartbeat keeps them lit), so this is a
         // clean stop.
         if ((uint32_t)(now - lastSpeakActivityMs) > SPEAK_TIMEOUT_MS) {
+            endSpeech();
             animMode = ANIM_ACTIVE;
-            forceGlowRefresh();
             return;   // glow takes over on the next tick
         }
         tickSpeak();
@@ -1377,6 +1524,20 @@ void begin() {
             mouthDistance[row * MOUTH_COLS + col] = (uint8_t)(255.0f * sqrtf((dx * dx + dy * dy) * 0.5f));
         }
     }
+    // The resting glow's shape: a bell, all of the middle's brightness at the centre and falling
+    // away quickly, with nothing where it ends: the outermost lights stay dark, and so does any
+    // light the bell leaves too faint to hold its colour.
+    for (uint8_t row = 0; row < MOUTH_ROWS; row++) {
+        for (uint8_t col = 0; col < MOUTH_COLS; col++) {
+            const uint8_t i = row * MOUTH_COLS + col;
+            const float dx = (col - 3.5f) / 3.5f, dy = (row - 4.5f) / GLOW_ROWS;
+            const float out = sqrtf(dx * dx + dy * dy);
+            const float share = out >= 1.0f ? 0.0f : expf(-(out * out) / (GLOW_WIDTH * GLOW_WIDTH));
+            // A light too faint to show GLOW_FAINT at the top of a breath is left dark.
+            glowShape[i] = share * GLOW_PEAK * 255.0f >= GLOW_FAINT ? (uint8_t)(255.0f * share) : 0;
+            glowFar[i]   = out >= 1.0f ? 255 : (uint8_t)(255.0f * out);
+        }
+    }
     strip = &FastLED.addLeds<WS2812B, HEAD_DATA_PIN, RGB>(leds, NUM_LEDS);
     masterBrightness = 255;
     // Temporal dithering OFF. FastLED's binary dithering simulates extra
@@ -1410,6 +1571,10 @@ void begin() {
         colHeight[c] = 0.0f;
         colPeak[c]   = 0.0f;
     }
+    closeBars();
+    memset(mouthShown, 0, NUM_MOUTH);
+    memset(speakUnder, 0, NUM_MOUTH);
+    memset(glowSettleFrom, 0, NUM_MOUTH);
 
     // Initialise blink state machine — first blink fires somewhere in 2–8 s.
     blinkTimer    = millis();

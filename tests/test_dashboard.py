@@ -187,6 +187,22 @@ class LightMirrorTests(unittest.TestCase):
         self.assertEqual(float(mouth.render(state, 5.1).sum()), 0.)
 
     @unittest.skipUnless(native_available(), 'numpy unavailable (blocked under the contract runner)')
+    def test_resting_mouth_is_dark_at_the_edges_and_a_quiet_voice_fills_it(self):
+        # Mirrors LED firmware 0.9.0 (owner, November 24).
+        rest = MouthAnimation().render({'mouth_mode': 'active', 'mouth_updated_at': 0.}, 3.).reshape(10, 8, 3).sum(axis=2)
+        self.assertEqual(float(rest[0].sum() + rest[9].sum() + rest[:, 0].sum() + rest[:, 7].sum()), 0.)
+        self.assertEqual(float(rest.max()), float(rest[4:6, 3:5].max()))
+        self.assertGreater(float(rest[4, 3]), 2 * float(rest[4, 1]))
+        self.assertGreater(float(rest[4, 1]), 0.)
+        mouth, tallest = MouthAnimation(), 0
+        for n in range(90):                              # Three seconds of a quiet voice, thirty frames a second.
+            state = {'mouth_mode': 'speak', 'mouth_level': (90, 45, 60, 30, 10)[n // 3 % 5],
+                     'mouth_updated_at': n / 30, 'mouth_utterance': 1}
+            frame = mouth.render(state, n / 30).reshape(10, 8, 3).sum(axis=2)
+            tallest = max(tallest, int((frame[:, 3] > 0).sum()))
+        self.assertGreaterEqual(tallest, 8)              # The bars stand tall for it, as for a loud one.
+
+    @unittest.skipUnless(native_available(), 'numpy unavailable (blocked under the contract runner)')
     def test_charging_mouth_is_a_meter_red_at_the_bottom_with_a_band_climbing(self):
         # Mirrors LED firmware 0.4.0: row 0 is the top of the mouth, eight lights a row.
         def rows(soc, age):

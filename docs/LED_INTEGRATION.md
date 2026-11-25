@@ -502,3 +502,45 @@ owner's clip and for the owner sending the moments and levels at the heard time.
 next start (run `c5de246d`) the board answered as 0.8.0, the sound was announced to the lights and `READY`
 went out at 13.6 s with no LED fault, and the owner reported it worked. **Not yet seen:** the one-second
 wait.
+
+## November 24: a darker resting mouth, livelier talking, a moving charge meter, a start that builds
+
+Four owner requests in one sitting, all in the LED board's firmware (0.9.0;
+[what each does](../firmware/djr3x_leds/README.md)). No change to what the program sends.
+
+- **Resting mouth.** "When he's not talking you added a pulsating effect that is dim and subtle. I'd like
+  that to be changed so that the edges are dark and it is brighter towards the middle, keeping the whole
+  'not talking' animation dark." The glow is now in the middle of the mouth only, 32 of 80 lights, the
+  middle at 5 to 7.5 % and the outermost lights always dark; it still breathes about every six seconds.
+- **Talking mouth.** "Right now I've noticed sometimes it's got this cool pattern and other times it's not
+  as cool. Can you improve how it looks?" Cause, measured on the 151 cached startup lines
+  (`local/cache/startup-tts`, his real voice) replayed as `LEDs.tick` reports them: the bars' height
+  followed the level against the top of its range, his voice mostly sits at a fifth of that, so the tall
+  bars showed in the loudest lines only (26 lines through the old code: the mouth shut or nearly so in
+  half the frames while he spoke, a bar at three of its five half-rows in one frame in eight; through the
+  new: one in eleven, and four in five). The bars are now measured against how loud the voice has lately
+  been; each sound opens the middle and rolls out to the corners; a bar is brightest at the middle and
+  dimmer towards its tip; the glow and the bars fade into each other.
+- **Chest charge meter.** "Right now discharging just blinks the last LED but it would be cool if the
+  whole panel animated that it was draining or charging" ("by cool I dont mean cold/blue, I mean
+  intersting"). Off the charger a drop of light falls from the top lit light through the whole meter every
+  4.4 s over a slow downward ripple; on the charger bands of light climb from the bottom and go on over
+  the empty lights as a faint glow. Every light keeps its own colour; the pale blue climbing light is gone.
+- **Chest at startup.** "The startup routine is also really cool, but the chest LED patterns get too
+  bright too quickly. When they first start the first 2 seconds of the Chest LED pattern needs to be less
+  lit up, more like it's barely starting to light up." The sparks and the bars' lights open at a tenth of
+  their brightness, fewer of them, and build over four seconds. In the stand-in run of a 13.2 s start the
+  panel's light in each of the first four half-seconds is 1, 2, 4 and 16 % of what it was.
+- **Found on the way.** `READY` did not always fill the three bars at once: a bar that had just slipped
+  waited out its pause first, up to 0.6 s. The earlier check passed by the luck of its fixed random
+  numbers. Fixed.
+- **Dashboard.** The avatar's mouth mirrors the new resting glow and talking bars
+  (`gui/lights.MouthAnimation`); the chest meter's movement is not mirrored.
+
+Evidence: `tools/run_firmware_checks.py`, 144 checks, both strips' real code against the stand-in LED
+library with a fake clock (13 new and 4 rewritten for the four changes; the frames prove what is sent to
+the strip, not how it looks). The talking measurements replay saved audio through that stand-in, not the
+board. The dashboard checks pass (one new, needing numpy). Compiled (426,412 bytes), flashed to `led_port`
+under the hardware hand-over; the board answers `hello djr3x_leds 0.9.0` and the battery menu then
+repainted the meter (`C:CHARGE:86:0`, so the draining meter was showing). **Not yet seen by the owner:**
+all four, and the chest's start in a real startup.
