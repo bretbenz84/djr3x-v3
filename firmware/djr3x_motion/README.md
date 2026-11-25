@@ -1212,3 +1212,10 @@ once a second. The rear still gave no ACK.
 bus timeout) no longer stalls the front. A front frame gets 150 ms instead of 70. A failed front frame is
 logged with what arrived (bytes, ms to the first, status, length; the first and every 50th), and so is the
 first good one's timing. The rear's no-ACK line now gives SDA/SCL levels.
+
+Flashed 0.2.27 November 24, 22:49 (`local/firmware/2026-11-24-0.2.27-*`). The front set up on serial at
+9.0 s and gave its first frame at 9.2 s; its reply began 1 ms after the request, so 70 ms was never the
+problem. The silent rear was: on one shared task it held up the front reads. In the following 80 s idle there
+was not one front stall or failed frame. The rear still gives no ACK, with `SDA high, SCL LOW` at start-up and
+at every probe. That reading has lasted across the owner's power cycle, which a hung board would not survive,
+so the cause is that board or the clock wire.
