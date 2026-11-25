@@ -1203,3 +1203,12 @@ reading `SDA high, SCL LOW` at start-up. That reading had begun at 22:29 under 0
 so the rear was already holding its clock line or wired wrong before this flash. The ring beams all read
 normally. Still to check on the robot: 3.3 V at both boards, the front's switch on UART, D/T to GPIO34 and C/R
 to GPIO15 (not crossed), and a power cycle of the 3.3 V converter to free the rear.
+
+Then (22:43, after the owner's checks and power cycle) the front answered over serial and acknowledged its
+8x8 setup every time, but every frame read failed. It was set up again every 17 s, and its values went stale
+once a second. The rear still gave no ACK.
+
+0.2.27 (built, not flashed): each board has its own poll task, so a silent rear (each probe waits out the 500 ms
+bus timeout) no longer stalls the front. A front frame gets 150 ms instead of 70. A failed front frame is
+logged with what arrived (bytes, ms to the first, status, length; the first and every 50th), and so is the
+first good one's timing. The rear's no-ACK line now gives SDA/SCL levels.
