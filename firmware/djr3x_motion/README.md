@@ -1196,3 +1196,10 @@ failed, wrong-command and oversize replies, and checks the request bytes; all 15
 the robot build compiles (`local/firmware/2026-11-24-0.2.26-front-uart.bin`). Not flashed: until the front is
 rewired, this firmware leaves the front board unread (the drive then goes slow on the ring beams, host
 4c52a06). Not yet seen: the board answering over serial, frame rate, and whether stalls stop.
+
+Flashed November 24, 22:41 (owner, after rewiring; `local/firmware/2026-11-24-0.2.26-*`). Neither board
+answered: the front gave no reply on serial (one request a second), and the rear gave no ACK, with the bus
+reading `SDA high, SCL LOW` at start-up. That reading had begun at 22:29 under 0.2.25, during the rewiring,
+so the rear was already holding its clock line or wired wrong before this flash. The ring beams all read
+normally. Still to check on the robot: 3.3 V at both boards, the front's switch on UART, D/T to GPIO34 and C/R
+to GPIO15 (not crossed), and a power cycle of the 3.3 V converter to free the rear.
