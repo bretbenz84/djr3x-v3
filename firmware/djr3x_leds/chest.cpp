@@ -934,7 +934,8 @@ static uint8_t chargeFilled() {
 // charger, one pale blue light climbed from the fill line.
 //
 // Every light keeps its own colour and only its brightness moves, so the level still reads by
-// where the colours stop. Off the charger nothing above the fill line is ever lit.
+// where the colours stop. Off the charger nothing above the fill line is ever lit. The nine
+// squares glow in the charge's colour beneath it (see chargeBlocks).
 //
 //   Draining (off the charger): a slow ripple runs DOWN the lit lights all the time, and one
 //   drop is always falling: a band of brighter light that leaves the top lit light, falls
@@ -980,6 +981,46 @@ static inline CRGB brighter(const CRGB &c, float by) {
 	return CRGB((uint8_t)(r > 255.0f ? 255.0f : r), (uint8_t)(g > 255.0f ? 255.0f : g), (uint8_t)(b > 255.0f ? 255.0f : b));
 }
 
+// The meter's colour at any point along it, between two levels as well as on one.
+static CRGB gaugeColorAt(float level) {
+	if (level <= 0.0f) return gaugeAnchorColor(0);
+	if (level >= 23.0f) return gaugeAnchorColor(7);
+	const float pos = level * (7.0f / 23.0f);
+	const uint8_t i = (uint8_t)pos;
+	return blend(gaugeAnchorColor(i), gaugeAnchorColor(i + 1), (uint8_t)((pos - i) * 255.0f));
+}
+
+// The nine squares under the meter (owner, November 24, 2026, on seeing the moving meter: "there are 3
+// clusters of 3 LEDs behind square white diffuse covers. Can you add those to the battery meter, making
+// their color match the charge level but make them have a subtle star-wars pulsing effect. the colors
+// can be slightly different from one another in the same class of color"). They were dark under the meter.
+//
+// Every square shows the colour the meter has at the charge (the top lit light's), each a little to one
+// side of it along the meter (BLOCK_APART levels at most, its own fixed place) and drifting slowly about
+// that (BLOCK_DRIFT), so no two are quite alike and none leaves the colour's family. Each fades slowly
+// up and down between BLOCK_LOW and BLOCK_HIGH at a pace of its own, 2.3 to 5.3 s a pulse, never dark and
+// never in step with its neighbours for long. An empty pack shows none.
+#define BLOCK_LOW    0.30f      // a square at the bottom of its pulse, as a share of a meter light's colour
+#define BLOCK_HIGH   0.80f      // ... and at the top
+#define BLOCK_APART  0.45f      // levels along the meter either side of the charge's own colour
+#define BLOCK_DRIFT  0.25f      // ... and how far each wanders about its place
+static void chargeBlocks(uint8_t filled, float shown) {
+	if (!filled || shown <= 0.0f) return;
+	const uint32_t now = millis();
+	for (uint8_t k = 0; k < 9; k++) {
+		// Whole-number periods, so the pace is as even after a month as after a minute.
+		const uint32_t pulseMs = 2300UL + 375UL * ((k * 5u) % 9u);
+		const uint32_t driftMs = 9100UL + 810UL * ((k * 7u) % 9u);
+		float pulse = 0.5f + 0.5f * sinf(TWO_PI * (float)(now % pulseMs) / (float)pulseMs + k * 1.7f);
+		pulse = pulse * pulse * (3.0f - 2.0f * pulse);           // it lingers at the top and the bottom
+		const float place = BLOCK_APART * ((float)((k * 4u) % 9u) - 4.0f) / 4.0f;
+		const float drift = BLOCK_DRIFT * sinf(TWO_PI * (float)(now % driftMs) / (float)driftMs + k * 2.3f);
+		const CRGB colour = brighter(gaugeColorAt((float)filled - 1.0f + place + drift),
+		                             (BLOCK_LOW + (BLOCK_HIGH - BLOCK_LOW) * pulse) * shown);
+		for (uint8_t i = 0; i < 4; i++) DJLEDs[StartLEDNum[k] + i] = colour;
+	}
+}
+
 void chargeGauge() {
 	const uint8_t filled = chargeFilled();
 	const uint32_t now = millis();
@@ -995,6 +1036,7 @@ void chargeGauge() {
 			clearAll();
 			for (uint8_t level = 0; level < reveal; level++)
 				DJLEDs[gauge24Pixel(level)] = gauge24Color(level);
+			chargeBlocks(filled, elapsed <= 0 ? 0.0f : (float)elapsed / (float)CHARGE_INTRO_MS);   // they come up with the sweep
 			return;
 		}
 		chargeLanded   = true;
@@ -1002,6 +1044,7 @@ void chargeGauge() {
 	}
 
 	clearAll();
+	chargeBlocks(filled, 1.0f);
 	const uint32_t t = now - chargeLandedMs;
 	const float ease = t >= CHARGE_SETTLE_MS ? 1.0f : (float)t / (float)CHARGE_SETTLE_MS;
 

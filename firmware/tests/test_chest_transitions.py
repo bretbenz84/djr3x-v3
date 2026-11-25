@@ -57,6 +57,8 @@ def meter_pixel(level):
 
 
 METER = [meter_pixel(level) for level in range(24)]
+SQUARES = [start + i for start in BLOCK_STARTS for i in range(4)]     # The nine squares: four lights behind each cover.
+OFF_METER = [i for i in range(98) if i not in METER and i not in SQUARES]   # What the charge meter never lights.
 
 
 def lit(pixel):
@@ -116,9 +118,11 @@ class ChestTransitionTests(unittest.TestCase):
         self.assertGreater(len(set(reached)), 20)
         self.assertGreaterEqual(reached[0], 3000 + 300)
         self.assertLessEqual(reached[-1], 3000 + 300 + 24 * 38 + 60)
-        # Nothing else on the panels lights until the spark has reached the top, and the
-        # meter is never dark before then.
-        others = [i for i in range(96) if i not in METER]
+        # Nothing else on the panels lights until the spark has reached the top (the nine squares, lit under
+        # the meter, die away meanwhile), and the meter is never dark before then.
+        others = sorted(UNOWNED)
+        self.assertGreater(light([f for t, f in frames if t <= 3000][-1], SQUARES), 0)
+        self.assertLess(light([f for t, f in frames if t <= reached[-1]][-1], SQUARES), .2 * light([f for t, f in frames if t <= 3000][-1], SQUARES))
         first_spark = next(t for t, f in frames if t > 3000 and light(f, others))
         self.assertGreaterEqual(first_spark, reached[-1])
         self.assertLessEqual(first_spark, reached[-1] + 400)         # Faint and few at first (the opening).
@@ -386,7 +390,8 @@ class ChestTransitionTests(unittest.TestCase):
         for t, f in linked:
             if t > 7050:
                 self.assertTrue(all(lit(f[METER[level]]) for level in range(11)), t)
-                self.assertEqual(light(f, [i for i in range(98) if i not in METER[:12]]), 0, t)
+                self.assertEqual(light(f, OFF_METER + METER[12:]), 0, t)
+                self.assertTrue(all(lit(f[i]) for i in SQUARES), t)     # The squares came up with the sweep.
         self.assert_no_jump(linked, 7000, METER[:11])
 
     def test_the_battery_monitor_confirms_the_meter_without_a_change(self):
@@ -450,7 +455,7 @@ class ChestTransitionTests(unittest.TestCase):
             self.assertGreater(min(series[level]), 12, f'level {level} went dark')
         # Nothing above the fill line, nothing off the meter: the charge still reads by where the lights stop.
         self.assertEqual(max(max(series[level]) for level in range(top + 1, 24)), 0)
-        self.assertEqual(max(light(f, [i for i in range(98) if i not in METER]) for t, f in frames), 0)
+        self.assertEqual(max(light(f, OFF_METER) for t, f in frames), 0)
         # One drop is always falling (owner, the same day: "can it just be continuous without a break?"; there
         # was one every 4.4 s, with a rest of a second and more between). A drop leaves the top lit light,
         # falls through every light to the bottom, and the next leaves as it runs out: 1.63 s apart here.
@@ -501,7 +506,7 @@ class ChestTransitionTests(unittest.TestCase):
             self.assertEqual(min(series[level]), 0)
         # In each light's own colour: nothing blue passes over the red end of the meter.
         self.assertEqual(max(f[METER[level]][2] for t, f in frames for level in range(6)), 0)
-        self.assertEqual(max(light(f, [i for i in range(98) if i not in METER]) for t, f in frames), 0)
+        self.assertEqual(max(light(f, OFF_METER) for t, f in frames), 0)
         for level in range(24):
             self.assertLessEqual(max(abs(a - b) for a, b in zip(series[level], series[level][1:])), 6, f'level {level} jumped')
 
@@ -533,6 +538,55 @@ class ChestTransitionTests(unittest.TestCase):
             self.assertLessEqual(max(v[level] for v in landed) - min(v[level] for v in landed), 2)   # Steady as it lands,
             self.assertLessEqual(max(abs(a - b) for a, b in zip(series[level], series[level][1:])), 6)   # no jump after,
             self.assertGreater(max(v[level] for v in moving) - min(v[level] for v in moving), 6)     # and then it moves.
+
+    def test_the_nine_squares_glow_in_the_charge_s_colour_each_pulsing_in_its_own_time(self):
+        # Owner, November 24: "there are 3 clusters of 3 LEDs behind square white diffuse covers. Can you add
+        # those to the battery meter, making their color match the charge level but make them have a subtle
+        # star-wars pulsing effect. the colors can be slightly different from one another in the same class of
+        # color." At 85 % "some version of the light blue".
+        def squares(soc, connected=0):
+            frames = [(t, f) for t, f in self.play(f'cmd CHARGE:{soc}:{connected} run 30000') if t >= 2500]
+            return frames, {start: [f[start] for t, f in frames] for start in BLOCK_STARTS}
+        frames, seen = squares(85)
+        for t, f in frames:
+            for start in BLOCK_STARTS:
+                self.assertEqual(len({f[start + i] for i in range(4)}), 1)           # A square is one colour across.
+                r, g, b = f[start]                                                    # Light blue, as the meter's top
+                self.assertTrue(r == 0 and g > 0 and .42 < b / (g + b) < .68, f'{f[start]} at {t} ms')   # lit light is: no red.
+        self.assertEqual(max(light(f, OFF_METER) for t, f in frames), 0)             # Nothing else joins in.
+        for start, colours in seen.items():
+            levels = [max(c) for c in colours]
+            self.assertGreater(min(levels), 3, start)                                # Never dark,
+            self.assertLess(max(levels), 24, start)                                  # never as bright as a meter light's flash,
+            self.assertGreater(max(levels), 2 * min(levels), start)                  # pulsing,
+            self.assertLessEqual(max(abs(a - b) for a, b in zip(levels, levels[1:])), 1, start)   # slowly.
+        # Each in its own time: their brightest moments do not line up, and a pulse takes two to five seconds.
+        def crests(colours):
+            """When the square's brightness comes up through the middle of its range: once a pulse."""
+            levels = [max(c) for c in colours]
+            middle = (max(levels) + min(levels)) / 2
+            return [t for (t, f), a, b in zip(frames[1:], levels, levels[1:]) if a < middle <= b]
+        periods = []
+        for start, colours in seen.items():
+            times = crests(colours)
+            self.assertGreaterEqual(len(times), 4, start)
+            periods.append((times[-1] - times[0]) / (len(times) - 1))
+        self.assertTrue(all(2000 < p < 5800 for p in periods), periods)
+        self.assertGreaterEqual(len({round(p / 150) for p in periods}), 7)
+        # Slightly different from one another, in the one family of colour: at any moment several shades.
+        def shade(colour):
+            return colour[2] / (colour[1] + colour[2])                               # How blue against green.
+        for index in range(0, len(frames), 50):
+            shades = [shade(colours[index]) for colours in seen.values()]
+            self.assertGreater(max(shades) - min(shades), .04)
+            self.assertLess(max(shades) - min(shades), .25)
+        # The colour follows the charge: orange-red at 20 %, and the same on the charger as off it.
+        frames, seen = squares(20, connected=1)
+        for colours in seen.values():
+            self.assertTrue(all(r > 3 * g and b == 0 for r, g, b in colours))
+        # An empty pack shows none; nor do the two chest lights ever join.
+        frames, seen = squares(0)
+        self.assertEqual(max(light(f) for t, f in frames), 0)
 
     # --- Feelings added November 15 (owner: emotional reactions on the chest) -----------------
 

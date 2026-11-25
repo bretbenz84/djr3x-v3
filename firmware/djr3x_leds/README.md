@@ -54,7 +54,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Version 0.9.1, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 426,456 bytes of
+Version 0.9.2, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 427,324 bytes of
 program, 27,152 bytes of globals. Each strip has its own FastLED controller and brightness,
 since the library's board-wide show, brightness and clear would act on both.
 
@@ -199,7 +199,16 @@ the colours stop:
 
 The movement eases in over 1.2 s after the sweep that brings the meter on, and no light jumps between two
 frames. Before, the top lit light blinked once a second and, on the charger, one pale blue light climbed
-from the fill line. The blocks and the two chest lights stay dark under the meter, as before.
+from the fill line. The two chest lights stay dark under the meter, as before.
+
+Since 0.9.2 (owner, November 24: "3 clusters of 3 LEDs behind square white diffuse covers. Can you add
+those to the battery meter, making their color match the charge level but make them have a subtle
+star-wars pulsing effect"; "the color should reflect the charge") the nine squares glow under the meter in
+the colour the meter has at the charge, the top lit light's: light blue at 85 %, orange-red at 20 %. Each
+sits a little to one side of that colour along the meter (under half a light's step) and drifts slowly
+about it, so no two are quite alike and none leaves the colour's family. Each fades slowly up and down at
+a pace of its own, 2.3 to 5.3 s a pulse, between 30 and 80 % of a meter light's brightness, never dark.
+They come up with the sweep, die away under the spark when he starts, and an empty pack shows none.
 
 ## Mouth charge meter
 

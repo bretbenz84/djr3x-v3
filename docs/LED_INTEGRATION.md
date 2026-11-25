@@ -558,3 +558,20 @@ nearly empty meter does not flutter. Evidence: the same 144 firmware checks, the
 (a drop always on the meter, breaks of 0.2 s at most as one forms; the short meter's pace). Compiled
 (426,456 bytes), flashed, the board answers `hello djr3x_leds 0.9.1`, and the battery menu repainted the
 meter (`C:CHARGE:85:0`). **Not yet seen by the owner.**
+
+### The nine squares join the meter: firmware 0.9.2 (still November 24)
+
+Owner: "there are 3 clusters of 3 LEDs behind square white diffuse covers. Can you add those to the
+battery meter, making their color match the charge level but make them have a subtle star-wars pulsing
+effect. the colors can be slightly different from one another in the same class of color. right now state
+of charge is 85% so they should be some version of the light blue", and "just to be clear the color should
+reflect the charge". The nine squares (four lights behind each cover) were dark under the meter. Now each
+glows in the colour the meter has at the charge, a slightly different shade of it from its neighbours,
+fading slowly up and down in its own time ([README](../firmware/djr3x_leds/README.md#chest-charge-meter)).
+They add about 36 dim lights to what the meter draws while he is off. The dashboard does not mirror them.
+
+Evidence: 145 firmware checks (one new: the colour family at 85 % and at 20 %, one colour across a square,
+each square's own pace, never dark, nothing else lit, none on an empty pack; three earlier checks that
+required the squares dark now require them lit). Compiled (427,324 bytes), flashed; the board answers
+`hello djr3x_leds 0.9.2` (on a second asking: the first, straight after the upload, went unanswered) and
+was sent `C:CHARGE:85:0`. **Not yet seen by the owner.**

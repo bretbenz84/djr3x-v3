@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-#define LEDS_VERSION   "0.9.1"
+#define LEDS_VERSION   "0.9.2"
 #define LEDS_BAUD      115200
 
 // Plain outputs on every classic ESP32 dev board: not boot-strapping pins, not the
