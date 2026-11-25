@@ -155,7 +155,7 @@ class MouthAnimation:
         rows, cols = np.meshgrid(np.arange(10), np.arange(8), indexing='ij')
         self.far = np.hypot((cols - 3.5) / 3.5, (rows - 4.5) / 3.6)
         share = np.where(self.far < 1, np.exp(-(self.far / .8) ** 2), 0.)
-        self.glow = np.where(share * .085 * 255 >= 2, share, 0.)
+        self.glow = np.where(share * .11 * 255 >= 2, share, 0.)
         self.last = None
         self.utterance = None
         self.last_pixels = np.zeros((80, 3))
@@ -203,8 +203,8 @@ class MouthAnimation:
                 values[4-d] = bright
                 values[5+d] = bright
         elif mode in ('active', 'idle'):
-            # Brightest in the middle (5 to 7.5 %), each slow breath spreading outwards; the edges dark.
-            values = .085 * self.glow * (.6 + .4 * (.5 + .5*np.sin(now - 2.4*self.far)))
+            # Brightest in the middle (6 to 10 %), each slow breath spreading outwards; the edges dark.
+            values = .11 * self.glow * (.6 + .4 * (.5 + .5*np.sin(now - 2.4*self.far)))
         elif mode == 'sleep':
             phase = (now % 8) / 8
             values[:] = .3 * (phase*2 if phase < .5 else 2 - phase*2)

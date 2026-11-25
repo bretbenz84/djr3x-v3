@@ -54,7 +54,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Version 0.9.3, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 427,324 bytes of
+Version 0.9.4, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 427,324 bytes of
 program, 27,152 bytes of globals. Each strip has its own FastLED controller and brightness,
 since the library's board-wide show, brightness and clear would act on both.
 
@@ -103,7 +103,8 @@ the host expects to need (3 to 60 s) and `READY` says it is ready.
 
 Since 0.9.0 (owner, November 24: "the edges are dark and it is brighter towards the middle, keeping the
 whole not-talking animation dark") the mouth at rest (`ACTIVE`, `IDLE`, after `SPEAK_STOP`) glows in its
-middle only, in the current feeling's colour: the four middle lights between 5 and 7.5 %, falling away
+middle only, in the current feeling's colour: the four middle lights between 6 and 10 % (0.9.4; 5 to 7.5 %
+before the owner's "a little brighter in the center"), falling away
 quickly (about half of that one light out, a fifth two lights out, 1 % on the last lit lights), 32 of the
 80 lights lit and the outermost ring always dark. The glow is six lights across and eight down, about as wide as it is tall
 on the panel. Since 0.9.3 (owner, the same day: "looks very dim. Can you bring up the brightness on the

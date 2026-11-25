@@ -211,7 +211,7 @@ class MouthStartupTests(HeadPlay):
             self.assertLessEqual(levels[0], FULL[1])
             self.assertTrue(all(abs(a - b) <= 3 for a, b in zip(levels, levels[1:])), 'the mouth jumped')
         settled = [f for t, f in after if t >= 6000 + 1500 + 1600]
-        self.assertTrue(all(10 <= f[i][1] <= 22 for f in settled for i in CENTRE))   # The resting glow: its dim middle,
+        self.assertTrue(all(13 <= f[i][1] <= 28 for f in settled for i in CENTRE))   # The resting glow: its dim middle,
         self.assertTrue(all(f[i] == (0, 0, 0) for f in settled for i in RING))       # and its dark edges.
 
     def test_refreshes_and_idle_commands_do_not_cut_the_startup_short(self):
@@ -230,7 +230,7 @@ class MouthStartupTests(HeadPlay):
         end = [f for t, f in frames if t >= 5200 + 1000]
         self.assertTrue(all(sum(f[i]) for f in end for i in CENTRE))               # Then the resting mouth, not the startup:
         self.assertTrue(all(not sum(f[i]) for f in end for i in RING))             # lit in the middle, dark at the edges.
-        self.assertTrue(all(f[i][1] <= 22 for f in end for i in MOUTH))
+        self.assertTrue(all(f[i][1] <= 28 for f in end for i in MOUTH))
 
     def test_a_start_from_the_menu_times_itself(self):
         frames = self.play('cmd STARTUP run 15000')
@@ -331,10 +331,10 @@ class RestingMouthTests(HeadPlay):
         # out from the middle hold over a third of the middle's brightness (they had a quarter), the middle unchanged.
         self.assertGreater(mean[light_at(4, 1)], .4 * mean[CENTRE[0]])
         self.assertGreater(mean[light_at(2, 3)], .4 * mean[CENTRE[0]])
-        # Kept dim: the middle never passes 8.5 % (22 of 255; it reaches 7.5), and the whole mouth gives well under half the light
+        # Kept dim: the middle never passes 11 % (28 of 255; it reaches 10), and the whole mouth gives about half the light, at most
         # it did (eighty lights at 14 of 255 on average).
-        self.assertTrue(10 <= min(levels[CENTRE[0]]) and max(levels[CENTRE[0]]) <= 22, (min(levels[CENTRE[0]]), max(levels[CENTRE[0]])))
-        self.assertLess(max(sum(f[i][1] for i in MOUTH) for t, f in awake), .4 * 80 * 14)
+        self.assertTrue(13 <= min(levels[CENTRE[0]]) and max(levels[CENTRE[0]]) <= 28, (min(levels[CENTRE[0]]), max(levels[CENTRE[0]])))
+        self.assertLess(max(sum(f[i][1] for i in MOUTH) for t, f in awake), .55 * 80 * 14)
         # Slow: no light moves by more than one step from one frame to the next.
         for (t, a), (_, b) in zip(awake, awake[1:]):
             self.assertLessEqual(max(abs(a[i][1] - b[i][1]) for i in MOUTH), 1, f'a jump at {t} ms')
@@ -377,7 +377,7 @@ class RestingMouthTests(HeadPlay):
         self.assertLessEqual(biggest_step(5000, 6000), 1)
         self.assertGreater(biggest_step(6100, 7000), 10)                  # The speaking bars jump about.
         self.assertGreater(max(f[i][1] for t, f in frames if 6100 <= t < 7000 for i in MOUTH), 60)
-        self.assertLessEqual(max(f[i][1] for t, f in frames if t >= 8000 for i in MOUTH), 22)   # Back to the dim glow.
+        self.assertLessEqual(max(f[i][1] for t, f in frames if t >= 8000 for i in MOUTH), 28)   # Back to the dim glow.
 
 
 AWAKE = 'cmd ACTIVE cmd EYE:255,200,0 run 6000 '     # The resting mouth, risen from dark.
@@ -501,14 +501,14 @@ class SpeakingMouthTests(HeadPlay):
         self.assertTrue(250 <= gone - stop <= 420, gone - stop)
         rest = [f for t, f in frames if t >= stop + 600]
         self.assertTrue(all(sum(f[i]) == 0 for f in rest for i in RING))  # Then the resting mouth again.
-        self.assertTrue(all(10 <= f[i][1] <= 22 for f in rest for i in CENTRE))
+        self.assertTrue(all(13 <= f[i][1] <= 28 for f in rest for i in CENTRE))
 
     def test_a_line_whose_stop_is_lost_still_closes_into_the_glow(self):
         frames = self.play(AWAKE + 'cmd SPEAK:neutral ' + 'cmd SPEAK_LEVEL:220 run 100 ' * 8 + 'run 3000')
         rest = [f for t, f in frames if t >= 6000 + 800 + 1500 + 600]     # Nothing heard for a second and a half.
         self.assertTrue(rest)
         self.assertTrue(all(sum(f[i]) == 0 for f in rest for i in RING))
-        self.assertTrue(all(10 <= f[i][1] <= 22 for f in rest for i in CENTRE))
+        self.assertTrue(all(13 <= f[i][1] <= 28 for f in rest for i in CENTRE))
 
 
 class WinkTests(HeadPlay):

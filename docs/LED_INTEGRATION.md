@@ -582,5 +582,9 @@ Owner: "I like the idle mouth gradient but it looks very dim. Can you bring up t
 a little?" The glow's middle is unchanged; it falls away more gently, so the lights two out from the middle
 roughly double (to about half the middle's brightness) and four more lights are lit, still none on the
 outermost ring. The dashboard's mouth follows. Evidence: 145 firmware checks and the dashboard checks
-(the resting-mouth ones updated). Flashed; the board answers `hello djr3x_leds 0.9.3`. **Not yet seen by
-the owner.**
+(the resting-mouth ones updated). Flashed; the board answers `hello djr3x_leds 0.9.3`. Shown to the
+owner for 20 s, lights only.
+
+Then (0.9.4) "you could go a little brighter in the center": the whole glow a third brighter, the four
+middle lights at 6 to 10 % (were 5 to 7.5), the shape unchanged. Same checks, limits raised; flashed, the
+board answers `hello djr3x_leds 0.9.4`, shown to the owner for 20 s.

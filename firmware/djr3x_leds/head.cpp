@@ -92,8 +92,8 @@
  *   glow falls away to nothing at the edges, whose lights stay dark (owner,
  *   November 24: "the edges are dark and it is brighter towards the middle,
  *   keeping the whole not-talking animation dark"). It breathes slowly, each
- *   breath spreading from the middle outwards: the middle between about 5 and
- *   7.5 %, the last lit lights around 1 % (owner, November 21: a slow effect
+ *   breath spreading from the middle outwards: the middle between about 6 and
+ *   10 %, the last lit lights around 3 % (owner, November 21: a slow effect
  *   when not speaking; the quick animation is for speech only). Speech takes
  *   the mouth over, the glow fading out under the first bars, and the last
  *   bars close back into the glow. OFF / SLEEP / FADEOFF keep their existing
@@ -296,7 +296,8 @@ uint8_t      mouthShown[NUM_MOUTH];
 // the whole mouth, every light between 3 and 8 %. This must sit well below the speaking bars.
 // Frames are at most GLOW_FRAME_MS apart and are shown only when a light's brightness byte has
 // changed.
-#define GLOW_PEAK   0.085f                    // the very centre at the top of a breath (the four middle lights reach 7.5 %)
+#define GLOW_PEAK   0.11f                     // the very centre at the top of a breath (the four middle lights reach 10 %)
+                                              // (0.085 until 0.9.4; owner, November 24: "a little brighter in the center")
 #define GLOW_LOW    0.60f                     // ... and at the bottom, as a share of that
 #define GLOW_RATE   1.0f                      // rad/s
 #define GLOW_SPREAD 2.4f                      // radians of lag from the centre to where the glow ends
