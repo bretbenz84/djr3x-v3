@@ -379,6 +379,37 @@ class Beat:
     profiles: tuple[tuple[int, int, int], ...] = ()   # (channel, speed, acceleration) per joint, when each eases differently.
 
 
+# Owner, November 24: an obstacle within the poker arm's keep-clear distance on his left no longer
+# keeps it parked outright. Its elbow may come out of the straight-up park only as far as 1778 us
+# and its forearm (13) moves between 1508 and 1668 us; the swing (6) stays where it is, and the
+# hand's twist (16) moves as always. Once the left side reads clear the arm comes out as usual.
+# Driving still parks it fully first (base_lanes 'base_park').
+POKER_NEAR_OBSTACLE = MappingProxyType({12: (7112, LIMITS[12][1]), 13: (6032, 6672)})
+
+
+def poker_near_obstacle(lanes, current) -> tuple[tuple[Beat, ...], ...]:
+    """lanes with the poker swing left where it is and the elbow and forearm kept inside
+    POKER_NEAR_OBSTACLE. A beat whose clamped pose is not a single-joint move from the one
+    before is reached by poker_route's staged clearance route."""
+    out = []
+    for lane in lanes:
+        at, beats = {ch: current[ch] for ch in POKER}, []
+        for beat in lane:
+            targets = {ch: value for ch, value in beat.targets if ch != 6}
+            if set(POKER).issubset(targets):
+                pose = {ch: _clamp(targets[ch], *POKER_NEAR_OBSTACLE[ch]) for ch in POKER}
+                targets.update(pose)
+                for stage in poker_route(at, pose)[:-1]:
+                    beats.append(Beat(tuple(stage.items()), speed=20, acceleration=5, wait=beat.wait, at=beat.at))
+                at = pose
+            if targets:
+                beats.append(replace(beat, targets=tuple(targets.items()),
+                                     profiles=tuple(p for p in beat.profiles if p[0] in targets)))
+        if beats:
+            out.append(tuple(beats))
+    return tuple(out)
+
+
 def poker_lane(current, target, speed=20, acceleration=5) -> tuple[Beat, ...]:
     """The staged, clearance-safe poker elbow/wrist move to target."""
     start = {ch: current[ch] for ch in POKER}

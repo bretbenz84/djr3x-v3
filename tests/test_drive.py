@@ -854,8 +854,16 @@ class ArmClearanceTests(unittest.TestCase):
         self.assertEqual(self.pose((4,)), {4: dict(AWAKE_ARMS)[4]})    # The hero elbow always returns.
         self.assertEqual(self.robot.kept_arms, {'poker'})
         self.assertEqual(self.drive.tick_arm_clearance(), None)       # Still blocked: nothing moves.
+        # Owner, November 24: beside the obstacle the elbow comes out only to 1778 us and the
+        # forearm stays within 1508-1668 us; the swing stays put and the arm stays kept.
         out = self.robot.owner.execute(ServoRequestFor(self.robot, 'poker_out'), Cancellation())
-        self.assertEqual((out.status, out.reason), ('rejected', 'ArmKeptClearOfObstacle:poker'))
+        self.assertEqual(out.status, 'pulses_reached')
+        self.assertEqual(self.pose((6, *POKER)), {6: dict(DRIVE_ARMS)[6], 12: 7112, 13: 6032})
+        self.assertEqual(self.robot.kept_arms, {'poker'})
+        self.assertTrue({6, *POKER} <= self.robot.owner.held_channels)   # Idle and talking leave it.
+        self.drive_and_return()   # A drive still parks it all the way, and it stays there after.
+        self.assertEqual(self.pose((6, *POKER)), {6: dict(DRIVE_ARMS)[6], **dict(POKER_DRIVE)})
+        self.assertEqual(self.robot.kept_arms, {'poker'})
         self.fake.tof.update(lf=1500, lb=1500)
         settle()
         self.assertIsNone(self.drive.tick_arm_clearance())            # Clear, but not yet for long enough.
@@ -895,7 +903,7 @@ class ArmClearanceTests(unittest.TestCase):
         self.assertEqual(pose(POKER), dict(POKER_PARK))
         self.assertEqual(robot.kept_arms, {'poker', 'throttle'})
         self.assertTrue({6, *POKER, *THROTTLE} <= robot.owner.held_channels)   # Idle and talking leave them.
-        out = robot.owner.execute(ServoRequestFor(robot, 'poker_out'), Cancellation())
+        out = robot.owner.execute(ServoRequestFor(robot, 'throttle_high_five'), Cancellation())
         self.assertEqual(out.status, 'rejected')
         self.drive.servos = robot
         self.fake.tof.update(lf=600, lb=1300)   # Something 2 ft to his left; the front is open.

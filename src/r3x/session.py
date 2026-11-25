@@ -105,6 +105,11 @@ POSE_REFUSALS = {
     'ArmKeptClearOfObstacle:poker': ("Something's too close on my left for that arm.",
         'Nothing moved: your poker arm stays folded while your left side sensors read something within 0.7 m. It '
         'comes out by itself once that side has read clear for two seconds. Say so once; it is not a fault.'),
+    # Owner, November 24: beside an obstacle the poker elbow and forearm come out a little instead of not at all.
+    'PokerArmLimitedByObstacle': ("Something's close on my left, so that's as far as that arm goes.",
+        'It moved only part of the way: while your left side sensors read something within 0.7 m the poker arm '
+        'comes out just a little and its swing stays put. It goes the rest of the way by itself once that side '
+        'has read clear for two seconds. Say so once; it is not a fault.'),
     'ArmKeptClearOfObstacle:throttle': (REACH_BLOCKED_LINE, REACH_BLOCKED_MEANING),
     'ServoArrivalTimeout': ('That move got stuck partway.',
         'The servo board did not report the joint reaching its target in time: something may block it, or the '
@@ -2803,6 +2808,8 @@ class Session:
                             delivery.status,delivery.medium='suppressed','none'
                         else:
                             put_phrase(phrases,(pose_refusal(refusal) or ("I couldn't complete that movement.",))[0],cancel)
+                    elif refusal == 'PokerArmLimitedByObstacle' and not opportunity:
+                        put_phrase(phrases, pose_refusal(refusal)[0], cancel)   # Not the full pose its text claims.
                     elif 'hand_take' in steps:
                         # Owner, November 20: holding it out, he says "Okay, ready." and nothing more. The three
                         # seconds count from when the arm got there (owner, November 21), not from this line.

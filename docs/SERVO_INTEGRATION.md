@@ -160,6 +160,14 @@ change with what it saw (`arm_clearance` `kept_blocked`, `left_m`, `front_right_
 for that arm."), a kept throttle (the step-back line) and `ServoArrivalTimeout` ("That move got stuck
 partway.", with a note not to apologise again). Synthetic checks; not yet run on the robot.
 
+**November 24 (owner):** a kept poker arm is no longer frozen. While the left side reads something
+within 0.7 m, a requested poker pose has its elbow limited to 1778 µs at most out of the park and its
+forearm to 1508–1668 µs (`POKER_NEAR_OBSTACLE`, routed by `poker_route`); the swing stays where it is
+and the hand twist moves as always. The receipt says `PokerArmLimitedByObstacle` and Rex says the arm
+stopped short. Idle and talking still leave a kept arm alone, a drive still parks it fully, and once
+the side reads clear for two seconds it comes out to its awake pose. Synthetic checks; not yet run on
+the robot.
+
 ## November 21: new throttle hand mids and finger range
 
 Owner: the wrist (channel 14) keeps 560–1856 µs but its mid, where the hand is level, is 1451 µs; the

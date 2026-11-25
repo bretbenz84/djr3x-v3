@@ -17,12 +17,13 @@ from .servo_poses import (throttle_parks_nowhere, POKER_TWIST, HERO_FINGERS, FIN
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
                           sentry_lanes, telepresence_wake_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS, wake_arm_lanes,
-                          VISOR_RAISE_SECONDS, visor_over_eyes, talking_visor)
+                          VISOR_RAISE_SECONDS, visor_over_eyes, talking_visor, poker_near_obstacle, POKER_NEAR_OBSTACLE)
 
 BASE_HELD = frozenset({*HEAD, 4, 6, *POKER, *THROTTLE})   # Neck, head, hero elbow, poker arm/elbow/wrist, throttle (its hand moves on).
 # The arms the drive stance moved: walked back after the wheels stop. The throttle hand is not among
 # them (owner, November 20: it moves freely with the arm folded).
 ARM_RETURN = frozenset({4, 6, *POKER, *THROTTLE})
+POKER_LIMITED = 'PokerArmLimitedByObstacle'   # Receipt reason: moved, inside POKER_NEAR_OBSTACLE only.
 HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement this long.
 # Owner ruling October 23: a look a person asked for holds until he has answered from it, and about
 # this long after, even when they speak. October 31 (f6d5a0b7): asked to look left and up, his head
@@ -394,6 +395,7 @@ class ServoOwner:
         previous = self.state
         touched = set()
         accepted = False
+        limited = False   # A kept poker arm came out only as far as its obstacle allows.
         reframed = False
         holding = False   # A QUIET_HOLD_KINDS request has arrived and holds still.
         coasted = False   # Cancelled with arms left running on to their targets.
@@ -439,6 +441,15 @@ class ServoOwner:
                 # them (the next drive, shutdown, an arm pose) wait for the return first.
                 return receipt('rejected', 'ServoBusy')
             kept = self.kept_channels
+            if 'poker' in self.kept_arms and request.kind not in {'base_park', 'park', 'shutdown'} and any(
+                    ch in POKER for lane in lanes for beat in lane for ch, _ in beat.targets):
+                # Owner, November 24: beside an obstacle the poker elbow and forearm come out a
+                # little (POKER_NEAR_OBSTACLE); the swing stays put and the arm stays kept.
+                asked = [dict(beat.targets) for lane in lanes for beat in lane]
+                limited = any(6 in t or (12 in t and (t[12] < POKER_NEAR_OBSTACLE[12][0]
+                              or not POKER_NEAR_OBSTACLE[13][0] <= t[13] <= POKER_NEAR_OBSTACLE[13][1])) for t in asked)
+                lanes = poker_near_obstacle(lanes, current)
+                kept = kept - set(POKER)
             if kept and request.kind not in {'base_park', 'park', 'shutdown'} and any(
                     ch in kept for lane in lanes for beat in lane for ch, _ in beat.targets):
                 # Owner, October 11: an arm with something within its reach stays tucked.
@@ -447,9 +458,9 @@ class ServoOwner:
                 channels = {ch for lane in lanes for beat in lane for ch, _ in beat.targets}
                 own_visor = request.pose in ('visor_up', 'visor_normal') and self.may_raise_visor()
                 if request.pose == 'release_poses' or (
-                        channels.intersection(self.held_channels) and self.human_hold_active() and not own_visor):
+                        (channels & self.held_channels) - self.kept_channels and self.human_hold_active() and not own_visor):
                     return receipt('rejected', 'AgencyCannotOverrideHeldPose')
-                self.held_channels.difference_update(channels)  # An aged hold gives way.
+                self.held_channels.difference_update(channels - self.kept_channels)  # An aged hold gives way; a kept arm stays kept.
             self.version += 1
             if request.kind == 'pose' and request.pose == 'visor_normal':
                 self.held_channels.discard(3)   # Back to its usual place: speech and idle move it again.
@@ -583,7 +594,7 @@ class ServoOwner:
             if request.kind in {'park', 'shutdown', 'base_park'} and throttle_parks_nowhere(current):
                 # Everything else parked; the throttle arm had no clear route and stayed where it was.
                 return receipt('pulses_reached', 'ThrottleArmLeftWhereItWas')
-            return receipt('pulses_reached')
+            return receipt('pulses_reached', POKER_LIMITED if limited else None)
         except (Cancelled, KeyboardInterrupt):
             if accepted:
                 try:

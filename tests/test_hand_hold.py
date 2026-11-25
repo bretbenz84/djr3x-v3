@@ -683,8 +683,11 @@ class HandConversationTests(MemoryFixture):
                                                                     'say_before': None, 'text': 'Poker down.'}), robot)
         result = session.process_turn(Capture('0', 'session', bytes(1024), 98, 99, 99.6),
                                       Transcript('Can you put down your poker arm?', -.01, True), session.revision)
-        self.assertEqual(result.completed_text, ["Something's too close on my left for that arm."])
+        # Owner, November 24: it comes out a little instead of not at all, and he says it stopped short.
+        self.assertEqual(result.completed_text, ["Something's close on my left, so that's as far as that arm goes."])
+        self.assertEqual((port.pose[12], port.pose[13]), (7112, 6032))
         receipt = [m for m in session.history if 'Robot pose controller receipt' in str(m.get('content'))][-1]
+        self.assertIn('PokerArmLimitedByObstacle', receipt['content'])
         self.assertIn('0.7 m', receipt['content'])
 
     def test_hold_this_with_a_full_hand_says_to_let_go_first(self):
