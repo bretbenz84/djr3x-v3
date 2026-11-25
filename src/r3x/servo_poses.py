@@ -424,37 +424,81 @@ def hand_home(current, speed=12, acceleration=3, park=HAND_PARK) -> tuple[tuple[
     return ((Beat(park, speed=speed, acceleration=acceleration),),)
 
 
-# The throttle hand's living motion (owner, November 19): a little while idle, a little more while
-# he speaks. Twist and pincher always move together, as every arm's joints do (October 12), each
-# within this share of its half range either side of the park, eased on one curve like the hero arm.
-HAND_IDLE_REACH = {14: .3, 15: .25}
-HAND_TALK_REACH = {14: .5, 15: .45}
-HAND_IDLE_SECONDS, HAND_IDLE_DWELL = (1.1, 2.), (0., 0.)
+# The hands' living motion (owner, November 19 and 22; made more expressive November 24). Each wrist
+# twists in a lane of its own and each hand's fingers gesture in another, starting together: eased
+# curls somewhere new and, now and then, a quick flick toward the far end and back part way, so the
+# fingers keep working for as long as their arm moves instead of gliding once. Reaches are shares of
+# the half range either side of the park, cut at the limits; talking reaches further and quicker.
+HAND_IDLE_REACH = {14: .5, 15: .55}     # Was .3 / .25.
+HAND_TALK_REACH = {14: .75, 15: .85}    # Was .5 / .45.
+HAND_IDLE_SECONDS, HAND_IDLE_DWELL = (1.5, 2.5), (0., .3)   # One wrist twist (was 1.1-2 s: wider now, as slow).
 HAND_TALK_SECONDS, HAND_TALK_DWELL = (.6, 1.), (.1, .3)
+FINGER_IDLE = MappingProxyType({'seconds': (.5, 1.1), 'dwell': (.1, .6), 'flick': .3})
+FINGER_TALK = MappingProxyType({'seconds': (.3, .6), 'dwell': (.05, .25), 'flick': .45})
+FLICK_SECONDS = (.28, .4)   # Out to the far end; back part way takes half as long again.
+HAND_TALK_SECONDS_PLANNED = 5.   # Finger gestures planned per talking cycle (like the head's), so a repeat is rare.
 
 
 # The poker hand's twist and the hero fingers (owner, November 22): the same kind of motion, each
-# moving with its own arm while idle and both in a lane of their own while he speaks.
-TIPS_IDLE_REACH = {POKER_TWIST: .25, HERO_FINGERS: .25}
-TIPS_TALK_REACH = {POKER_TWIST: .4, HERO_FINGERS: .4}
+# moving with its own arm while idle and on their own while he speaks.
+TIPS_IDLE_REACH = {POKER_TWIST: .45, HERO_FINGERS: .55}   # Was .25 each.
+TIPS_TALK_REACH = {POKER_TWIST: .65, HERO_FINGERS: .85}   # Was .4 each.
+FINGERS = (15, HERO_FINGERS)
 
 
 def hand_span(ch, reach) -> tuple[int, int]:
     middle, half = {**dict(HAND_PARK), **dict(TIPS_PARK)}[ch], (LIMITS[ch][1] - LIMITS[ch][0]) / 2
-    return round(middle - half * reach[ch]), round(middle + half * reach[ch])
+    return max(LIMITS[ch][0], round(middle - half * reach[ch])), min(LIMITS[ch][1], round(middle + half * reach[ch]))
 
 
-def hand_moves(rng, start, reach, count, seconds, dwell, pace=1., channels=THROTTLE_HAND) -> tuple[Beat, ...]:
-    """count eased moves of a hand's channels together (the throttle hand's by default), each somewhere new inside reach."""
-    at, lane = {ch: start[ch] for ch in channels}, []
-    for _ in range(count):
+def hand_moves(rng, start, reach, count, seconds, dwell, pace=1., channels=THROTTLE_HAND, until=0.) -> tuple[Beat, ...]:
+    """At least count eased moves of a hand's channels together (the throttle hand's by default), each
+    somewhere new inside reach, and more until about until seconds are planned."""
+    at, lane, planned = {ch: start[ch] for ch in channels}, [], 0.
+    while len(lane) < count or (planned < until and len(lane) < 12):
         aim = []
         for ch in channels:
             low, high = hand_span(ch, reach)
             aim.append((ch, _elsewhere(rng, low, high, at[ch], max(1, (high - low) // 6), max(2, (high - low) // 2))))
         lane.append(eased_beat(at, aim, rng.uniform(*seconds) * pace, rng.uniform(*dwell)))
+        planned += lane[-1].seconds + lane[-1].dwell
         at.update(aim)
     return tuple(lane)
+
+
+def finger_moves(rng, start, ch, reach, style, until, pace=1.) -> tuple[Beat, ...]:
+    """A hand's fingers gesturing for about until seconds (at least one move): eased curls somewhere
+    new and, with style['flick'] odds, a quick flick to the far end of reach and back part way."""
+    low, high = hand_span(ch, reach)
+    at, lane, planned = start[ch], [], 0.
+    while not lane or (planned < until and len(lane) < 24):
+        if rng.random() < style['flick']:
+            far = high if high - at >= at - low else low
+            flick = rng.uniform(*FLICK_SECONDS)
+            moves = ((far, flick, rng.uniform(.03, .12)),
+                     (round(far + (at - far) * rng.uniform(.5, .8)), flick * 1.5, rng.uniform(*style['dwell'])))
+        else:
+            span = high - low
+            moves = ((_elsewhere(rng, low, high, at, max(1, span // 5), span), rng.uniform(*style['seconds']),
+                      rng.uniform(*style['dwell'])),)
+        for value, seconds, dwell in moves:
+            lane.append(eased_beat({ch: at}, ((ch, value),), seconds * pace, dwell))
+            planned += lane[-1].seconds + lane[-1].dwell
+            at = value
+    return tuple(lane)
+
+
+def hand_idle_lanes(rng, current, wrist, fingers, reach, until, wait, pace, held) -> list[tuple[Beat, ...]]:
+    """An idle hand: its wrist twisting and its fingers gesturing, each in a lane of its own, for about
+    as long as its arm moves (until; 0 for one twist), both starting together."""
+    start = wait + rng.uniform(0., .4)
+    lanes = []
+    if wrist is not None and wrist not in held:
+        lanes.append(hand_moves(rng, current, reach, 1, HAND_IDLE_SECONDS, HAND_IDLE_DWELL, pace=pace,
+                                channels=(wrist,), until=until))
+    if fingers is not None and fingers not in held:
+        lanes.append(finger_moves(rng, current, fingers, reach, FINGER_IDLE, until or HAND_IDLE_SECONDS[1], pace))
+    return [(replace(lane[0], wait=start), *lane[1:]) for lane in lanes]
 
 
 def throttle_park_stages(current) -> list[dict[int, int]] | None:
@@ -806,7 +850,7 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
     visor = talking_visor(rng)
     # V2 neutral-expression elbow/wrist range, channels 4/5, not channel 7 (the
     # microphone-bearing hero-arm axis). The arm moves as a whole, as in idle.
-    out, back = ((4,7100),(5,7120)), ((4,6740),(5,4880))
+    out, back = ((4,7100),(5,7600)), ((4,6740),(5,4300))   # Wrist 1900 / 1075 us (November 24; was 1780 / 1220).
     arm = (replace(eased_beat(dict(back), out, rng.uniform(.9, 1.2), rng.uniform(.25, .4)), wait=rng.uniform(.2, .5)),
            eased_beat(dict(out), back, rng.uniform(.9, 1.2), rng.uniform(.25, .4)))
     if flair:
@@ -836,22 +880,22 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
                 break
             poker += (replace(more, dwell=rng.uniform(*TALK_TAIL_PAUSE)),)
         poker = (replace(poker[0], wait=rng.uniform(.2, .5)), *poker[1:])
-    # The throttle hand twists and works its fingers with the line, then comes back to where it began,
-    # so the lane can repeat while slower lanes finish.
-    hand = ()
-    if not set(THROTTLE_HAND).intersection(held):
-        hand = hand_moves(rng, current, HAND_TALK_REACH, rng.randint(3, 4), HAND_TALK_SECONDS, HAND_TALK_DWELL)
-        reached = {**current, **{ch: value for beat in hand for ch, value in beat.targets}}
-        hand += (eased_beat(reached, tuple((ch, current[ch]) for ch in THROTTLE_HAND), rng.uniform(*HAND_TALK_SECONDS)),)
-        hand = (replace(hand[0], wait=rng.uniform(.2, .6)), *hand[1:])
-    # The poker hand twists and the hero fingers work with the line too, and come back where they began.
-    tips, free = (), tuple(ch for ch in (POKER_TWIST, HERO_FINGERS) if ch not in held)
-    if free:
-        tips = hand_moves(rng, current, TIPS_TALK_REACH, rng.randint(3, 4), HAND_TALK_SECONDS, HAND_TALK_DWELL, channels=free)
-        reached = {**current, **{ch: value for beat in tips for ch, value in beat.targets}}
-        tips += (eased_beat(reached, tuple((ch, current[ch]) for ch in free), rng.uniform(*HAND_TALK_SECONDS)),)
-        tips = (replace(tips[0], wait=rng.uniform(.2, .6)), *tips[1:])
-    lanes = (tuple(head),visor,arm,throttle,poker,hand,tips)
+    # Each wrist twists and each hand's fingers gesture with the line (November 24: in lanes of their own,
+    # the fingers curling and flicking), then come back to where they began, so a lane can repeat while
+    # slower lanes finish.
+    hands = []
+    for wrist, fingers, reach in ((14, 15, HAND_TALK_REACH), (POKER_TWIST, None, TIPS_TALK_REACH),
+                                  (None, HERO_FINGERS, TIPS_TALK_REACH)):
+        lead = rng.uniform(.2, .6)
+        for ch in (wrist, fingers):
+            if ch is None or ch in held:
+                continue
+            lane = (hand_moves(rng, current, reach, rng.randint(3, 4), HAND_TALK_SECONDS, HAND_TALK_DWELL, channels=(ch,))
+                    if ch == wrist else finger_moves(rng, current, ch, reach, FINGER_TALK, HAND_TALK_SECONDS_PLANNED))
+            reached = {**current, **{c: value for beat in lane for c, value in beat.targets}}
+            lane += (eased_beat(reached, ((ch, current[ch]),), rng.uniform(*HAND_TALK_SECONDS)),)
+            hands.append((replace(lane[0], wait=lead), *lane[1:]))
+    lanes = (tuple(head),visor,arm,throttle,poker,*hands)
     lanes = tuple(lane for lane in lanes if lane and not set(dict(lane[0].targets)).intersection(held))
     for lane in lanes:
         for beat in lane:
@@ -1228,8 +1272,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
         if set(channels).intersection(held):
             if part == 'throttle' and not set(THROTTLE_HAND).intersection(held):
                 # The arm is held (kept in, parked for a drive); its hand still twists and flexes.
-                hand = hand_moves(rng, current, HAND_IDLE_REACH, 1, HAND_IDLE_SECONDS, HAND_IDLE_DWELL, pace=quicken(.4))
-                extra.append((replace(hand[0], wait=wait + rng.uniform(0., .4)), *hand[1:]))
+                extra += hand_idle_lanes(rng, current, 14, 15, HAND_IDLE_REACH, 0., wait, quicken(.4), held)
             continue
         if part == 'head':
             head_at = len(lanes)
@@ -1257,10 +1300,10 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
             # together. The shoulder carries the microphone array, and each of its moves
             # pauses voice learning, so it joins only when the scheduler says (swing): then
             # the whole arm reaches out, pauses and comes back with the array at centre.
-            ranges = {4: (6500, 7200), 5: (4600, 7400)}
+            ranges = {4: (6500, 7200), 5: (4000, 7900)}   # Wrist 1000-1975 us (November 24; was 1150-1850).
             def bend(start, least):
                 return ((4, _elsewhere(rng, *ranges[4], start[4], least, 550)),
-                        (5, _elsewhere(rng, *ranges[5], start[5], 3 * least, 1700)))
+                        (5, _elsewhere(rng, *ranges[5], start[5], 3 * least, 2200)))
             def beat(start, targets, seconds, dwell=0.):
                 # October 21: on the head's smooth curve, every joint easing in and out together.
                 return eased_beat(start, targets, seconds, dwell)
@@ -1276,7 +1319,7 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 if rng.random() < .3:    # Roll a little past, pause, ease back: both joints again.
                     reached = {**current, **dict(first.targets)}
                     ease = tuple((ch, clamp(ch, reached[ch] + (-1 if reached[ch] > current[ch] else 1) * rng.randint(*by)))
-                                 for ch, by in ((4, (60, 150)), (5, (250, 500))))
+                                 for ch, by in ((4, (60, 150)), (5, (300, 650))))
                     lane = (replace(first, dwell=rng.uniform(.3, .9)), beat(reached, ease, rng.uniform(.9, 1.5) * quicken(.4)))
             tip = HERO_FINGERS
         elif part == 'poker':
@@ -1311,16 +1354,18 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
             # twist and flex of the fingers together, or back to the middle as the arm lowers to rest.
             if phrase.throttle_rest:
                 hand = (eased_beat(current, HAND_PARK, rng.uniform(*HAND_IDLE_SECONDS)),)
-            else:
-                hand = hand_moves(rng, current, HAND_IDLE_REACH, 1, HAND_IDLE_SECONDS, HAND_IDLE_DWELL, pace=quicken(.4))
-            extra.append((replace(hand[0], wait=wait + rng.uniform(0., .4)), *hand[1:]))
+                extra.append((replace(hand[0], wait=wait + rng.uniform(0., .4)), *hand[1:]))
+            else:   # Twisting and gesturing for about as long as the arm moves.
+                extra += hand_idle_lanes(rng, current, 14, 15, HAND_IDLE_REACH, max(0., _lane_seconds(lane, current) - 1.),
+                                         wait, quicken(.4), held)
         else:
             raise ValueError('UnknownIdlePart')
-        if part in ('hero', 'poker') and tip not in held:
-            # Its hand moves with it in a lane of its own: the hero fingers flex, the poker hand twists.
-            moves = hand_moves(rng, current, TIPS_IDLE_REACH, 1, HAND_IDLE_SECONDS, HAND_IDLE_DWELL,
-                               pace=quicken(.4), channels=(tip,))
-            extra.append((replace(moves[0], wait=wait + rng.uniform(0., .4)), *moves[1:]))
+        if part in ('hero', 'poker'):
+            # Its hand moves with it in a lane of its own, for about as long as the arm does: the hero
+            # fingers gesture, the poker hand twists.
+            until = max(0., _lane_seconds(lane, current) - 1.)
+            extra += hand_idle_lanes(rng, current, *((None, tip) if tip == HERO_FINGERS else (tip, None)),
+                                     TIPS_IDLE_REACH, until, wait, quicken(.4), held)
         if wait > 0:
             lane = (replace(lane[0], wait=wait), *lane[1:])
         for beat in lane:

@@ -460,7 +460,7 @@ class ServoTests(unittest.TestCase):
         self.port.packets.clear()
         result = self.execute('talking')
         self.assertEqual(result.status,'pulses_reached')
-        self.assertEqual(result.completed_lanes,(0,1,2,3,4,5,6))   # Head, visor, hero arm, throttle, poker, throttle hand, the other hands.
+        self.assertEqual(result.completed_lanes,(0,1,2,3,4,5,6,7,8))   # Head, visor, hero arm, throttle, poker, then each wrist and each hand's fingers.
         def targets(ch):
             return [p[2]+128*p[3] for p in self.port.targets if p[:2]==bytes((0x84,ch))]
         self.assertGreater(len(targets(3)),4)
@@ -477,7 +477,7 @@ class ServoTests(unittest.TestCase):
         # The arm moves as a whole: elbow and wrist together, between V2's neutral poses.
         self.assertGreater(len(targets(4)),2)
         self.assertEqual(len(targets(4)),len(targets(5)))
-        self.assertEqual(set(zip(targets(4),targets(5))),{(7100,7120),(6740,4880)})
+        self.assertEqual(set(zip(targets(4),targets(5))),{(7100,7600),(6740,4300)})   # Wrist widened November 24 (was 7120 / 4880).
         # The head starts first; the visor and arm follow a moment later, not all at once.
         first=lambda ch:next(i for i,p in enumerate(self.port.targets) if p[:2]==bytes((0x84,ch)))
         self.assertLess(first(0),first(3));self.assertLess(first(0),first(4))

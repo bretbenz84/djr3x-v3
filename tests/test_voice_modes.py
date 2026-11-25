@@ -383,8 +383,9 @@ class BodyTests(unittest.TestCase):
             camp = talking_lanes(start, start, rng=random.Random(4), flair=True)
             arm = lambda lanes: next(l for l in lanes if set(dict(l[0].targets)) == {4, 5})
             spread = lambda lane, ch: max(dict(b.targets)[ch] for b in lane) - min(dict(b.targets)[ch] for b in lane)
-            for ch in (4, 5):
-                self.assertGreater(spread(arm(camp), ch), 2 * spread(arm(plain), ch) - 1)
+            self.assertGreater(spread(arm(camp), 4), 2 * spread(arm(plain), 4) - 1)
+            # The wrist's plain talking bend widened on November 24; pride's already spans nearly its whole range.
+            self.assertGreater(spread(arm(camp), 5), 1.5 * spread(arm(plain), 5))
             self.assertGreater(len(arm(camp)), len(arm(plain)))
             self.assertLess(max(b.seconds for b in arm(camp)), min(b.seconds for b in arm(plain)))
             throttle = next(l for l in camp if set(dict(l[0].targets)) == set(THROTTLE))

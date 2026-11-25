@@ -6,6 +6,28 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 24: more expressive fingers and wider wrists
+
+Owner request: the fingers more expressive idle and while talking, and bigger wrist moves. Before,
+each hand's fingers rode on its wrist's move, one slow glide per arm move while idle and three or
+four while talking, about ±100 µs at most. **Changed:** each wrist twists in a lane of its own and
+each hand's fingers (throttle 15, hero 17) gesture in another, both starting together
+(`finger_moves`, `hand_idle_lanes`). The fingers curl somewhere new or, now and then, flick to the far
+end of their reach and back part way (`FINGER_IDLE`: 0.5–1.1 s curls, flick odds 0.3; `FINGER_TALK`:
+0.3–0.6 s, odds 0.45; a flick takes 0.28–0.4 s out). While idle they keep gesturing for about as
+long as their arm moves, not once (two moves on average with the hero arm, more during its swing);
+while talking about ten moves per five-second cycle, then back where they began. Reaches (shares of
+the half range around the park, now cut at the limits): throttle wrist idle 0.5 / talking 0.75 (was
+0.3 / 0.5), throttle fingers 0.55 / 0.85 (was 0.25 / 0.45), poker wrist 0.45 / 0.65 and hero fingers
+0.55 / 0.85 (were 0.25 / 0.4). Talking fingers now span nearly their whole range (about 1500–1910 µs
+on the throttle hand). An idle wrist twist takes 1.5–2.5 s (was 1.1–2 s), so wrists stay within the
+idle speed cap; the fingers alone may move faster, up to speed 90 idle. The hero wrist (5) bends
+1000–1975 µs idle (was 1150–1850, steps up to 550 µs) and 1075 / 1900 µs while talking (was
+1220 / 1780); pride mode's swing is unchanged, now about 1.5 times the plain one instead of twice.
+A held or gripping hand still stays still. Synthetic checks only; nothing has moved. The throttle
+fingers ignored a confirmed open on November 20 (suspected hardware), and quicker finger moves add
+servo sound that the phantom-transcript check should be watched for in the next live run.
+
 ## November 24: the poker forearm parks at 1429 µs
 
 Owner request: the poker forearm's park (and so its drive stance, which is the same pose) is 1429 µs,

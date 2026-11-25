@@ -15,6 +15,15 @@ failed, so I'll just reply. Say [laughs] a dog that...". A pet Rex named in a li
 answer after a refused save thinks first, and Claude's copy of the photo-memory note no longer says to ask for
 the name. Synthetic checks only; details in [Claude replies](CLAUDE_REPLIES.md#november-24-a-refused-save-is-answered-after-thinking).
 
+## More expressive fingers and wrists — November 24
+
+Owner: make the fingers more expressive idle and while talking, and the wrists move more. The fingers
+now gesture on their own beside the wrist: curls to new spots and quick flicks out and back, for as
+long as their arm moves while idle and about ten moves per five-second cycle while talking, reaching
+nearly their whole range when he speaks (were small glides of about ±100 µs). The throttle and poker
+wrists twist further (half again to about double), and the hero wrist bends wider. Synthetic checks
+only; details in [servo integration](SERVO_INTEGRATION.md#november-24-more-expressive-fingers-and-wider-wrists).
+
 ## He keeps moving while he thinks — November 24
 
 Owner: after a person finishes speaking he looked frozen until he answered. The "I heard you" head cock

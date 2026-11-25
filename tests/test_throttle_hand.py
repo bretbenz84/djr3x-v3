@@ -8,7 +8,7 @@ import unittest
 
 from r3x.contracts import Cancellation
 from r3x.servo_poses import (HAND_IDLE_REACH, HAND_PARK, HAND_TALK_REACH, HELD_PARTS, IdlePhrase, LIMITS,
-                             SENTRY_STANCE, THROTTLE, THROTTLE_HAND, TIPS_PARK, ARM_HOLD, TIPS_IDLE_REACH, TIPS_TALK_REACH, UNPOWERED_REST, hand_span, idle_lanes,
+                             SENTRY_STANCE, THROTTLE, THROTTLE_HAND, TIPS_PARK, ARM_HOLD, TIPS_IDLE_REACH, TIPS_TALK_REACH, UNPOWERED_REST, hand_span, idle_lanes, _lane_seconds,
                              joint_percents, joint_targets, JOINTS, lifecycle_lanes, talking_lanes)
 from tests.test_servos import Clock, PulsePort, ServoOwner, ServoRequest
 
@@ -77,19 +77,41 @@ class HandMotionTests(unittest.TestCase):
         for seed in range(40):
             rng = random.Random(seed)
             lanes = talking_lanes(self.current, rng=rng)
-            hand = [lane for lane in lanes if set(dict(lane[0].targets)) == set(THROTTLE_HAND)]
-            self.assertEqual(len(hand), 1)
-            targets = [dict(beat.targets) for beat in hand[0]]
-            self.within(targets[:-1], HAND_TALK_REACH)
-            self.assertEqual(targets[-1], {ch: self.current[ch] for ch in THROTTLE_HAND})   # Repeats smoothly.
-            talk_spread += [abs(t[ch] - dict(HAND_PARK)[ch]) for t in targets[:-1] for ch in THROTTLE_HAND]
+            for ch in THROTTLE_HAND:   # The wrist and the fingers each in a lane of their own.
+                hand = [lane for lane in lanes if set(dict(lane[0].targets)) == {ch}]
+                self.assertEqual(len(hand), 1)
+                targets = [dict(beat.targets) for beat in hand[0]]
+                self.within(targets[:-1], HAND_TALK_REACH)
+                self.assertEqual(targets[-1], {ch: self.current[ch]})   # Repeats smoothly.
+                talk_spread += [abs(t[ch] - dict(HAND_PARK)[ch]) for t in targets[:-1]]
             phrase = IdlePhrase((('throttle', 0.),))
             idle = hand_targets(idle_lanes(self.current, random.Random(seed), phrase=phrase))
-            self.assertEqual(len(idle), 1)
+            self.assertTrue({14, 15} <= {ch for pose in idle for ch in pose})
             self.within(idle, HAND_IDLE_REACH)
-            idle_spread += [abs(t[ch] - dict(HAND_PARK)[ch]) for t in idle for ch in THROTTLE_HAND]
+            idle_spread += [abs(value - dict(HAND_PARK)[ch]) for t in idle for ch, value in t.items()]
         self.assertGreater(max(talk_spread), max(idle_spread))
         self.assertGreater(sum(talk_spread) / len(talk_spread), sum(idle_spread) / len(idle_spread))
+
+    def test_fingers_gesture_through_the_arm_move_and_use_their_range_talking(self):
+        # Owner, November 24: more expressive fingers. Idle, they keep working while their arm moves
+        # instead of one glide; talking, they curl and flick across most of their range.
+        low, high = LIMITS[15]
+        reached, idle_moves, flicks = set(), [], 0
+        for seed in range(40):
+            lanes = talking_lanes(self.current, rng=random.Random(seed))
+            fingers = next(lane for lane in lanes if set(dict(lane[0].targets)) == {15})
+            values = [dict(beat.targets)[15] for beat in fingers]
+            reached |= set(values)
+            self.assertGreaterEqual(len(fingers), 6)
+            flicks += sum(beat.seconds < .45 for beat in fingers)
+            idle = idle_lanes(self.current, random.Random(seed), phrase=IdlePhrase((('hero', 0.),), swing=True))
+            arm = next(lane for lane in idle if 4 in dict(lane[0].targets))
+            tips = next(lane for lane in idle if set(dict(lane[0].targets)) == {17})
+            idle_moves.append(len(tips))
+            self.assertLess(_lane_seconds(tips, self.current), _lane_seconds(arm, self.current) + 1.5)
+        self.assertGreater(max(reached) - min(reached), .75 * (high - low))
+        self.assertGreater(flicks, 40)
+        self.assertGreater(sum(idle_moves) / len(idle_moves), 3)   # The hero swing lasts several seconds.
 
     def test_held_hand_stays_still(self):
         lanes = talking_lanes(self.current, held=frozenset(THROTTLE_HAND), rng=random.Random(1))
@@ -195,20 +217,19 @@ class OtherHandsTests(unittest.TestCase):
         for seed in range(30):
             for part, ch, other in (('hero', 17, 16), ('poker', 16, 17)):
                 idle = tips(idle_lanes(current, random.Random(seed), phrase=IdlePhrase(((part, 0.),))), ch)
-                self.assertEqual(len(idle), 1, part)
+                self.assertTrue(idle, part)
                 low, high = hand_span(ch, TIPS_IDLE_REACH)
-                self.assertTrue(low <= idle[0][ch] <= high)
+                self.assertTrue(all(low <= pose[ch] <= high for pose in idle))
                 self.assertEqual(tips(idle_lanes(current, random.Random(seed), phrase=IdlePhrase(((part, 0.),))), other), [])
                 self.assertEqual(tips(idle_lanes(current, random.Random(seed), held=frozenset({ch}),
                                                  phrase=IdlePhrase(((part, 0.),))), ch), [])
-            talk = [lane for lane in talking_lanes(current, rng=random.Random(seed)) if set(dict(lane[0].targets)) == {16, 17}]
-            self.assertEqual(len(talk), 1)
-            targets = [dict(beat.targets) for beat in talk[0]]
-            for pose in targets[:-1]:
-                for ch, value in pose.items():
-                    low, high = hand_span(ch, TIPS_TALK_REACH)
-                    self.assertTrue(low <= value <= high)
-            self.assertEqual(targets[-1], {16: current[16], 17: current[17]})   # Back where it began.
+            for ch in (16, 17):
+                talk = [lane for lane in talking_lanes(current, rng=random.Random(seed)) if set(dict(lane[0].targets)) == {ch}]
+                self.assertEqual(len(talk), 1)
+                targets = [dict(beat.targets) for beat in talk[0]]
+                low, high = hand_span(ch, TIPS_TALK_REACH)
+                self.assertTrue(all(low <= pose[ch] <= high for pose in targets[:-1]))
+                self.assertEqual(targets[-1], {ch: current[ch]})   # Back where it began.
         held = talking_lanes(current, held=frozenset({17}), rng=random.Random(2))
         self.assertTrue(all(17 not in dict(beat.targets) for lane in held for beat in lane))
         self.assertTrue(any(16 in dict(beat.targets) for lane in held for beat in lane))

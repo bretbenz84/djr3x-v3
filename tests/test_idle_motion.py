@@ -56,9 +56,12 @@ class IdleTests(unittest.TestCase):
             self.assertTrue(700<=abs(hero-5984)<=1400)
             choices.append(hero)
             self.assertEqual(self.port.pose[7],5984)
-            # Slow and measured: no idle profile is faster than the old idle head glance.
-            speeds=[p[2]+128*p[3] for p in self.port.packets if p[0]==0x87 and p[1] not in (8,9,10)]
+            # Slow and measured: no idle profile is faster than the old idle head glance. The fingers
+            # (15, 17) are small and may flick (owner, November 24: more expressive), still gently.
+            profile=lambda chs:[p[2]+128*p[3] for p in self.port.packets if p[0]==0x87 and p[1] in chs]
+            speeds=profile(set(LIMITS)-{8,9,10,15,17})
             self.assertTrue(speeds and max(speeds)<=18)
+            self.assertLessEqual(max(profile({15,17}),default=0),90)
         self.assertGreater(len(set(choices)),1)
 
     def test_parts_start_at_different_moments_instead_of_all_at_once(self):
@@ -192,8 +195,9 @@ class IdleTests(unittest.TestCase):
         self.execute('startup');self.clock.wait(30.)
         for part in self.idle._due:self.idle._due[part]=self.clock()+60.   # Nothing due on its own.
         self.idle.after_speech();ended=self.clock()
-        early=self.run_scheduler(3.)
-        self.assertTrue(early and early[0][0]-ended<=.5,early)   # Moving within moments (timed as the phrase ends)...
+        sent=[];self.port.on_target=lambda:sent.append(self.clock())
+        early=self.run_scheduler(3.);self.port.on_target=lambda:None
+        self.assertTrue(early and sent[0]-ended<=.5,(ended,sent[:1]))   # Moving within moments...
         self.assertTrue(any({4,5}&channels for _,channels in early))         # ...the hero arm among them,
         self.assertTrue(any({6,12,13}&channels for _,channels in early))     # and the poker arm.
         self.assertGreater(self.idle.energy(ended+.3),.95)   # The last phrase can run past the 3 s window.
