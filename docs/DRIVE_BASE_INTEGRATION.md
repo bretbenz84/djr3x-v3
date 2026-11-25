@@ -318,7 +318,8 @@ approach), going around a hallway corner, and a plain "Stop." halting within 0.2
 and an `explore` goal landed October 11. On November 22 a map of spots and the passages between them was
 added ([room navigation](ROOM_NAVIGATION_PLAN.md#what-was-built-november-22)), with `go_to` and
 `look_around` steps. His own moves now stop where a doorway or hall begins; that is not yet driven on the
-robot. The V2 battery menu app keeps its port
+robot. On November 24 the head camera started watching beside his path while he rolls
+([corners only the camera sees](ROOM_NAVIGATION_PLAN.md#corners-only-the-camera-sees)). The V2 battery menu app keeps its port
 only while V3 is off; V3 battery/base menus remain future work.
 
 ## First floor run and repairs — September 27

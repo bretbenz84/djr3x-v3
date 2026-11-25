@@ -359,3 +359,145 @@ class ArrivalQuestionTests(MemoryFixture):
         self.assertEqual(delivery.completed_text, ['On my way.', 'Living room, I think. Is this it?'])
         notes = [m['content'] for m in self.brain.snapshots[-1].messages if m.get('role') == 'developer']
         self.assertTrue(any('ask them whether this is the living room' in n for n in notes))
+
+
+class DirectionsAndMapTests(unittest.TestCase):
+    """Owner, November 24 (run d085dc5f): told "turn left, go forward like ten feet, and you'll be in the workshop", he
+    rolled 3.1 m into it and said he got lost; the map's way back to the kitchen met the island and the trip ended in
+    sight of it; the workshop seen through the hall's far door was searched for by turning away from it."""
+    start, run_plan = RoomTripTests.start, RoomTripTests.run_plan
+
+    def test_after_rolling_where_a_person_said_the_room_is_he_asks_and_never_gets_lost(self):
+        clock, fake, drive, world = self.start()                 # Nothing the picture search can name.
+        drive.navigator = FakeMap(fake)
+        receipt = self.run_plan(clock, drive, DriveStep('turn', degrees=90.), DriveStep('move', meters=1.5),
+                                DriveStep('go_to', target='ws', description='the workshop', directed=True))
+        step = receipt.steps[-1]
+        self.assertEqual((step['status'], step['reason']), ('completed', 'directions_followed'), receipt)
+        self.assertEqual(step['ask_if_this_is'], 'the workshop')   # "Is this the workshop?"
+        self.assertEqual(len(self.calls), 1)                      # One look ahead, no search spin.
+        turns = [c for c in fake.commands if c['cmd'] == 'turn']
+        self.assertEqual(len(turns), 1)                           # Only the person's own turn.
+
+    def test_the_distance_rolled_on_their_directions_counts_toward_being_in_the_room(self):
+        # The whole view is the workshop once he has rolled where they said: there, not "fills the view from its door".
+        clock, fake, drive, world = self.start([('room', 'the workshop', 3.5, 0.)])
+        receipt = self.run_plan(clock, drive, DriveStep('move', meters=1.6),
+                                DriveStep('go_to', target='ws', description='the workshop', directed=True))
+        step = receipt.steps[-1]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertEqual(step['how'], 'directions')
+        self.assertEqual(step['ask_if_this_is'], 'the workshop')
+        self.assertLess(step.get('travelled_m', 0.), 1.)          # No second long approach first.
+
+    def test_without_their_distance_a_room_filling_the_view_from_its_door_is_still_not_arrival(self):
+        # A turn alone ("go right, into the living room") is not having rolled into it.
+        clock, fake, drive, world = self.start([('room', 'the living room', 9., 0.)])
+        fake.sensors = doorway(fake, at=1.)
+        fake.assist_on = False
+        receipt = self.run_plan(clock, drive, DriveStep('turn', degrees=10.), DriveStep('turn', degrees=-10.),
+                                DriveStep('go_to', target='lr', description='the living room', directed=True))
+        self.assertEqual(receipt.steps[-1]['reason'], 'entered_room', receipt)
+        self.assertGreater(fake.x, 1.4)
+
+    def test_a_mapped_way_that_is_blocked_goes_on_by_sight(self):
+        clock, fake, drive, world = self.start([('box', 'a box', 1.2, 0.), ('room', 'the kitchen', 2.5, 2.)])
+        route = {'kind': 'passages', 'goal': 'B', 'room_id': 'kitchen',
+                 'legs': [{'passage_id': 'p1', 'from': 'A', 'to': 'B', 'arrive': 0., 'marks': [], 'doorways': 0,
+                           'segments': [{'heading': 0., 'length_m': 2.4}]}]}
+        drive.navigator = nav = FakeMap(fake, route)
+        receipt = self.run_plan(clock, drive, DriveStep('go_to', target='kitchen', description='the kitchen'))
+        step = receipt.steps[0]
+        self.assertEqual(step['how'], 'map_then_sight', receipt)
+        self.assertTrue(step['map_blocked'].startswith('blocked_on_the_way'))
+        self.assertEqual(nav.trips, [('kitchen', 'map'), ('kitchen', 'sight')])
+        self.assertIn('the kitchen', self.calls)                  # He looked for it once the map's way was blocked.
+        self.assertEqual(nav.results, [('p1', False)])
+
+    def test_a_picture_search_hears_what_this_houses_room_looks_like(self):
+        hints = []
+        def remembering(seen, world):
+            def locate(description, image, cancel, hint=None):
+                hints.append(hint)
+                return seen(description, image, cancel, hint)
+            return locate
+        clock, fake, drive, world = self.start(locate=remembering)
+        drive.navigator = nav = FakeMap(fake)
+        nav.room_looks = lambda room_id: ['Workshop: white shelves of spray cans, a model train on top, a telescope.']
+        self.run_plan(clock, drive, DriveStep('go_to', target='ws', description='the workshop'))
+        self.assertTrue(hints and all('spray cans' in (h or '') for h in hints), hints)
+        self.assertIsNone(drive._room_looks)                      # Only for that trip.
+
+    def test_a_search_for_something_seen_moments_ago_starts_facing_it(self):
+        clock, fake, drive, world = self.start()
+        drive._sought = {'description': 'the workshop', 'heading': -70., 'seen_at': clock()}
+        receipt = self.run_plan(clock, drive, DriveStep('seek', description='the workshop'))
+        turns = [c['deg'] for c in fake.commands if c['cmd'] == 'turn']
+        self.assertLess(turns[0], -40, receipt)                   # Right, toward where it was, first.
+        self.assertFalse(any(t > 0 for t in turns))               # And the sweep goes on that way.
+
+
+class NamingBrain:
+    """Told the room, the reply model names it with a line."""
+    def __init__(self):
+        self.snapshots = []
+
+    def reply(self, snapshot, cancel):
+        from r3x.contracts import ToolCall
+        self.snapshots.append(snapshot)
+        if snapshot.continuation:
+            yield 'Got it.'
+            return
+        yield ToolCall('call-' + snapshot.turn_id, 'name_room',
+                       {'name': 'kitchen', 'where': 'here', 'source_turn_id': snapshot.turn_id,
+                        'text': 'The kitchen. Let me have a look round.', 'expression': None})
+
+
+class TakeInTheRoomTests(unittest.TestCase):
+    """Owner, November 22 and 24: told which room he is in, he turns once in place to photograph it from every side,
+    so he knows it whichever way he comes back facing. Through the production session, state and output owners, the
+    real room map and the simulated base."""
+
+    def setUp(self):
+        from tests.test_places import PlaceFixture
+        fixture = type('Fixture', (PlaceFixture,), {'runTest': lambda self: None})()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.building()
+        self.places, self.state, self.fixture = fixture.places, fixture.state, fixture
+
+    def say(self, text):
+        from uuid import uuid4
+        from r3x.contracts import Capture, Transcript
+        return self.session.process_turn(Capture(uuid4().hex, 'session', bytes(1024), 98, 99, 99.6),
+                                         Transcript(text, -.01, True), self.session.revision)
+
+    def start(self):
+        from r3x.output import OutputOwner
+        from r3x.scenario import SyntheticSink, SyntheticTTS
+        from r3x.session import Session
+        clock, fake, drive, world = base_setup(self)
+        self.state.trace.clock = clock
+        drive.trace = self.state.trace
+        drive.start()
+        self.addCleanup(lambda: drive.state == 'closed' or drive.close())
+        drive.navigator = FakeMap(fake)                    # The look-around's own looks.
+        self.output = OutputOwner(SyntheticTTS(), SyntheticSink(), self.state.trace, drive=drive)
+        self.session = Session('session', NamingBrain(), self.output, self.state.trace, self.state)
+        self.addCleanup(self.session.close)
+        settle()
+        return fake, drive
+
+    def test_named_where_he_has_few_photos_he_turns_once_and_only_once(self):
+        self.fixture.look(5)
+        fake, drive = self.start()
+        delivery = self.say('You are in the kitchen.')
+        self.assertEqual(delivery.completed_text, ['The kitchen. Let me have a look round.'])
+        taken = [r for r in self.state.trace.rows if r['event'] == 'room_taken_in']
+        self.assertEqual(len(taken), 1, taken)
+        self.assertEqual(taken[0]['status'], 'completed')
+        turns = [c['deg'] for c in fake.commands if c['cmd'] == 'turn']
+        self.assertGreater(sum(turns), 240.)                         # Eight looks round a full turn.
+        # Told again on the same spot this run: no second turn.
+        self.say('Yes, this is the kitchen.')
+        self.assertEqual(len([r for r in self.state.trace.rows if r['event'] == 'room_taken_in']), 1)

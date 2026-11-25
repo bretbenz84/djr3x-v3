@@ -834,6 +834,36 @@ class Session:
                                           'state_revision': result.revision},
                        messages=(*snapshot.messages, {'role': 'developer', 'content': note}))
 
+    def _take_in_named_room(self, result, phrases, cancel, turn_id, worker):
+        """Told which room this is, he turns once in place to photograph it from every side (owner, November 22:
+        a look-around when he is told a room's name; November 24: "once he knows a place from a particular
+        direction he doesn't know it from a different direction"). Only where the spot has photos fewer ways than
+        it needs, once a spot per run, after his line has started; a refused or stopped turn is simply left."""
+        places, drive = self.state.places, self.output.drive
+        kept = (result.data or {}).get('kept') or {}
+        if places is None or drive is None or kept.get('outcome') != 'this_spot' or not hasattr(places, 'wants_look_around'):
+            return
+        spot = places.wants_look_around()
+        if spot is None:
+            return
+        from dataclasses import asdict
+        import json
+        from .drive import DriveAction, DrivePlan, DriveStep
+        plan = DrivePlan(turn_id + ':take_in_room', (DriveStep('look_around'),), 'self_initiated',
+                         'photograph the room just named from every side', {}, drive.clock() + 30.)
+        action = DriveAction(plan)
+        self.output.start_drive(action, phrases, cancel, turn_id)
+        while not action.done.wait(.05):
+            cancel.check()
+            if not worker.is_alive():
+                raise ProviderFailure('OutputWorkerStopped')
+        receipt = asdict(action.receipt)
+        self.trace.emit('room_taken_in', turn_id=turn_id, spot=spot[:8], status=receipt['status'],
+                        reason=receipt['reason'], turned_deg=receipt.get('turned_deg'))
+        self.history.append({'role': 'developer', 'content':
+            'After the room was named he turned once in place to photograph it from every side, so he knows it '
+            'from any direction: ' + json.dumps({k: receipt.get(k) for k in ('status', 'reason', 'turned_deg')})})
+
     def _mode_phrase(self, call, result, context, cancel):
         """A spoken result's line. An accent line is said in that accent's voice. Pride mode coming on
         adds V2's one-shot pose (head right down, visor wide open, hero hand flicked over, held a beat),
@@ -3025,6 +3055,8 @@ class Session:
                         delivery.status, delivery.medium = 'suppressed', 'none'
                     else:
                         put_phrase(phrases,self._mode_phrase(call,result,context,cancel),cancel)
+                    if call.name == 'name_room':
+                        self._take_in_named_room(result, phrases, cancel, turn_id, worker)
                 elif (call.name == 'jeopardy_ruling' and result.outcome != 'ok'
                       and result.reason in {'ResponseBeganBeforeThisTurn', 'ClueAlreadySettled'}):
                     # Words from before the clue, or about one already settled, are not ruled on and he says

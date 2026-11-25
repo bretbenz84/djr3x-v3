@@ -39,8 +39,8 @@ from uuid import uuid4
 from .adapters.places import NAMESPACE
 from .contracts import ProviderFailure
 from .providers import Capability
-from .room_map import (SCHEMA as MAP_SCHEMA, BUCKET_DEG, RoomMap, circular_mean, doorways_in, relative_words,
-                       reversed_segments, segments_of, separation, thumb_shift, wrap)
+from .room_map import (SCHEMA as MAP_SCHEMA, BUCKET_DEG, FAILURE_MARGIN, RoomMap, circular_mean, doorways_in,
+                       relative_words, reversed_segments, segments_of, separation, thumb_shift, wrap)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS places(
@@ -147,6 +147,16 @@ UNKNOWN_ROUTER_SIM = .76    # On a router no building knows, views all under thi
 GOAL_KEEP_S = 120.          # A trip's room goal not landed on a spot this long after the trip ended is dropped...
 GOAL_TRIP_S = 900.          # ...and one whose trip never reported an end, after this.
 EXPECTED_KEEP_S = 180.      # A spot a route should have led to, never confirmed, is forgotten after this.
+# Owner, November 24 (runs ab1cd64f, d085dc5f): "once he knows a place from a particular direction he doesn't
+# know it from a different direction." Most spots had photos one or two ways, so coming back facing another way
+# made a new spot (four in the workshop), and one look-alike view joined the kitchen end of the hall to its far end.
+PREDICT_HOPS = 2            # Spots this many passages from one he stood on this run are placed by his wheels...
+PREDICT_SPREAD = .15        # ...each metre of passage adding this much doubt about where they are...
+PREDICT_NEAR_MAX = 1.2      # ...and never more than this far from where the wheels put them.
+ROOM_AREA_M = 2.            # A new spot this near a named one, no doorway between: in the same room (a guess).
+MERGE_SURE_SIM = .93        # One view this close joins a new spot to an old one; below it, two directions must agree...
+MERGE_AGREE_DEG = 30.       # ...on which way the old spot's frame lies.
+LOOK_AROUND_BELOW = 6       # Named here with photos fewer of the eight ways than this: he turns once to take it in.
 # Descriptions: one hosted line per photo, spread out (owner, November 22: the model describes rooms).
 DESCRIBE_EVERY_S = 20.
 DESCRIBE_PER_RUN = 30
@@ -254,6 +264,9 @@ class Places:
         self.unlike_spot = 0         # Readings in a row unlike the spot the wheels say he is on...
         self.like_at = float('-inf') # ...and when a reading last was like it (or there was nothing to compare).
         self.made = set()            # Spots made this run (they may turn out to be an old one).
+        self.merge_votes = {}        # (made, old) -> {direction bucket: old frame offset}: views that matched.
+        self.passages = []           # This building's passages (room_map.RoomMap.passages).
+        self.swept = set()           # Spots he has turned once at this run to photograph.
         self._last_thumb = None
         self.drift_noted = False     # A gyroscope drifting at rest was traced this run.
         self.last_pose = None        # Odometer pose at the last reading...
@@ -374,6 +387,7 @@ class Places:
         self.rooms = {r['id']: r['name'] for r in self.store.rows('SELECT id,name FROM places WHERE building_id=?', (b,))} if b else {}
         self.photos = self.map.photos(b, self.namespace) if b else []
         self.spots = {s['id']: s for s in self.map.spots(b)} if b else {}
+        self.passages = sorted(self.map.passages(b), key=lambda p: p['length_m']) if b else []
         self.by_spot = {}
         for p in self.photos:
             if p['spot_id']:
@@ -681,6 +695,11 @@ class Places:
                 # Where he stood on it this run is known: rolled well away, he is not there.
                 if k in self.belief and math.hypot(pose[0] - a['x'], pose[1] - a['y']) > 2 * NEAR_M:
                     self.belief[k] *= .1
+            for k, p in self._predicted().items():
+                # Owner, November 24: where a passage puts a spot this run counts too, so a look-alike view
+                # from the far end of a hall cannot make him the spot at its near end.
+                if k in self.belief and math.hypot(pose[0] - p['x'], pose[1] - p['y']) > 2 * self._reach(p):
+                    self.belief[k] *= .1
         if self.here is not None:
             a = self.anchors.get(self.here)
             if a is None or math.hypot(pose[0] - a['x'], pose[1] - a['y']) > NEAR_M:
@@ -694,7 +713,9 @@ class Places:
         near = [(math.hypot(pose[0] - a['x'], pose[1] - a['y']), k) for k, a in self.anchors.items()
                 if k in self.spots and (meta['deliberate'] or not a.get('expected'))]
         near = min(near, default=None)
-        camera_by_spot = {k: wrap(pose[2] + a['offset'] + meta['neck']) for k, a in self.anchors.items()}
+        predicted = self._predicted()
+        camera_by_spot = {k: wrap(pose[2] + p['offset'] + meta['neck']) for k, p in predicted.items()}
+        camera_by_spot.update({k: wrap(pose[2] + a['offset'] + meta['neck']) for k, a in self.anchors.items()})
         depth_ahead = (meta['depth'] or {}).get('front_m')
         sims = self._spot_sims(q, camera_by_spot, depth_ahead)
         # Observation: each spot by its best photo against "none of these".
@@ -721,7 +742,7 @@ class Places:
             if self.trace: self.trace.emit('place_spot', status='not_as_expected', spot=near[1][:8],
                                            best=round(sims[near[1]][0], 3))
             near, expected = None, False
-        if self._merge_duplicate(near, sims, meta, pose):
+        if self._merge_duplicate(near, sims, meta, pose, predicted):
             return
         trip = self.trip
         if near is not None and near[0] <= NEAR_M and (
@@ -732,8 +753,27 @@ class Places:
             self._on_spot(spot, None, q, thumb, meta, now)
         else:
             best = max((k for k in self.belief if k is not None), key=self.belief.get, default=None)
-            if best is not None and self.belief[best] >= SPOT_SURE and best in sims:
+            by_wheels = (self._predicted_near(pose, sims, predicted)
+                         if self.here is None and (trip is None or trip['stopped']) else None)
+            far = best in predicted and best not in self.anchors and math.hypot(
+                pose[0] - predicted[best]['x'], pose[1] - predicted[best]['y']) > 2 * self._reach(predicted[best])
+            if far and best is not None and self.belief[best] >= SPOT_SURE:
+                # A look-alike of a spot his wheels put metres away (the other end of a hall): not that spot.
+                self.belief[best] = min(self.belief[best], .3)
+                if self.trace: self.trace.emit('place_spot', status='look_alike_elsewhere', spot=best[:8],
+                                               similarity=round(sims[best][0], 3) if best in sims else None)
+            if best is not None and not far and self.belief[best] >= SPOT_SURE and best in sims:
                 self._on_spot(best, sims[best][1], q, thumb, meta, now)
+            elif by_wheels is not None:
+                # Owner, November 24: back at a spot he knows, facing a way it has no photo of. A passage from where
+                # he stood this run says where it is; a photo that way would have had to agree.
+                spot, guess = by_wheels
+                self.anchors[spot] = {'offset': guess['offset'], 'x': pose[0], 'y': pose[1], 'at': now}
+                self.belief = {k: (.9 if k == spot else .1 / max(1, len(self.belief) - 1)) for k in self.belief}
+                self.belief[spot] = .9
+                if self.trace: self.trace.emit('place_spot', status='by_wheels', spot=spot[:8],
+                                               off_m=round(math.hypot(pose[0] - guess['x'], pose[1] - guess['y']), 2))
+                self._on_spot(spot, sims[spot][1] if spot in sims else None, q, thumb, meta, now)
             elif self.belief.get(None, 0.) >= .6 and (self.here is None):
                 self.unplaced += 1
                 if self.unplaced >= NEW_SPOT_READINGS:
@@ -743,18 +783,28 @@ class Places:
         if self.here is not None:
             self._maybe_photo(q, thumb, meta, now)
 
-    def _merge_duplicate(self, near, sims, meta, pose):
+    def _merge_duplicate(self, near, sims, meta, pose, predicted=None):
         """A spot made this run (he faced a way the old photos never showed) that turns out to be an old spot:
         once he faces a way the old spot was photographed, they become one, its photos turned into the old
-        spot's frame."""
+        spot's frame.
+
+        Owner, November 24 (run d085dc5f): one view of the front door and picture wall, seen from the kitchen
+        end of the hall, joined that spot to the one at the workshop end (.881). Now one view joins them only
+        when it is all but identical; otherwise two directions must match the old spot and agree on which way
+        its frame lies. A spot his wheels put somewhere else this run (stood on, or reached by a passage from
+        one he stood on) is never joined."""
         if near is None or near[0] > NEAR_M or near[1] not in self.made:
             return False
         made = near[1]
+        predicted = self._predicted() if predicted is None else predicted
         def elsewhere(k):
             # Review, November 22 (second): two spots two metres apart, both made this run, became one when he
             # faced the same far wall from each. Where the wheels put a spot this run outranks a look-alike view.
             a = self.anchors.get(k)
-            return a is not None and math.hypot(pose[0] - a['x'], pose[1] - a['y']) > NEAR_M
+            if a is not None:
+                return math.hypot(pose[0] - a['x'], pose[1] - a['y']) > NEAR_M
+            p = predicted.get(k)
+            return p is not None and math.hypot(pose[0] - p['x'], pose[1] - p['y']) > self._reach(p)
         others = [(sim, k) for k, (sim, photo) in sims.items()
                   if k != made and k not in self.made and not elsewhere(k) and photo['bearing'] is not None]
         if not others:
@@ -766,6 +816,17 @@ class Places:
         shift = thumb_shift(self._last_thumb, photo['thumb']) if self._last_thumb and photo.get('thumb') else None
         camera = wrap(photo['bearing'] + (shift[0] if shift and shift[1] >= FACING_SHIFT_SCORE else 0.))
         offset_old = wrap(camera - meta['neck'] - pose[2])
+        if sim < MERGE_SURE_SIM:
+            # Which way the camera faces in the new spot's frame says which direction this view is.
+            bucket = int(round(wrap(pose[2] + self.anchors[made]['offset'] + meta['neck']) / BUCKET_DEG)) % 8
+            votes = self.merge_votes.setdefault((made, old), {})
+            votes[bucket] = offset_old
+            agreeing = [b for b, o in votes.items() if b != bucket and separation(o, offset_old) <= MERGE_AGREE_DEG]
+            if not agreeing:
+                if self.trace: self.trace.emit('place_spot', status='merge_waits', spot=made[:8], into=old[:8],
+                                               similarity=round(sim, 3), directions=len(votes))
+                return False
+            offset_old = circular_mean([votes[b] for b in agreeing] + [offset_old])
         delta = wrap(offset_old - self.anchors[made]['offset'])
         self.map.merge_spot(made, old, delta)
         if self.trip is not None and self.trip['from_spot'] == made:
@@ -774,6 +835,7 @@ class Places:
             if self.trip['from_offset'] is not None:
                 self.trip['from_offset'] = wrap(self.trip['from_offset'] + delta)
         self.made.discard(made)
+        self.merge_votes = {k: v for k, v in self.merge_votes.items() if made not in k}
         self.anchors.pop(made, None)
         self.anchors[old] = {'offset': offset_old, 'x': pose[0], 'y': pose[1], 'at': self.clock()}
         self.belief.pop(made, None)
@@ -836,7 +898,105 @@ class Places:
         self.belief[spot_id] = .9
         self.here, self.unplaced = spot_id, 0
         if self.trace: self.trace.emit('place_spot', status='new', spot=spot_id[:8])
+        self._room_by_area(spot_id, pose)
         self._arrive(spot_id, now)
+
+    # Where the wheels put the spots he knows (owner, November 24) ---------------------------------------
+    @staticmethod
+    def _reach(guess):
+        """How far from where a passage puts a spot he can still be on it."""
+        return min(PREDICT_NEAR_MAX, NEAR_M + guess['spread'])
+
+    def _predicted(self):
+        """{spot: {'x', 'y', 'offset', 'spread', 'doorways'}}: where spots joined by passages to one he stood on this
+        run are, by those passages, in this run's odometer frame. A spot whose photos all face other ways can still
+        be known by his wheels: he turned out of the kitchen and came back round the island facing the hall."""
+        known = {k: {'x': a['x'], 'y': a['y'], 'offset': a['offset'], 'spread': 0., 'doorways': 0}
+                 for k, a in self.anchors.items() if k in self.spots and not a.get('expected')}
+        out, frontier = {}, known
+        for _ in range(PREDICT_HOPS):
+            found = {}
+            for p in self.passages:
+                if p['failures'] - p['uses'] >= FAILURE_MARGIN:
+                    continue
+                for source, target, back in ((p['from_spot'], p['to_spot'], False), (p['to_spot'], p['from_spot'], True)):
+                    s = frontier.get(source)
+                    if s is None or target in known or target in out or target in found or target not in self.spots:
+                        continue
+                    # Segments are in the passage's own start frame (its from-spot): spot frame = run yaw + offset.
+                    start_offset = wrap(s['offset'] - p['arrive']) if back else s['offset']
+                    dx = sum(g['length_m'] * math.cos(math.radians(g['heading'] - start_offset)) for g in p['segments'])
+                    dy = sum(g['length_m'] * math.sin(math.radians(g['heading'] - start_offset)) for g in p['segments'])
+                    sign = -1. if back else 1.
+                    found[target] = {'x': s['x'] + sign * dx, 'y': s['y'] + sign * dy,
+                                     'offset': start_offset if back else wrap(s['offset'] + p['arrive']),
+                                     'spread': s['spread'] + PREDICT_SPREAD * p['length_m'] + .1,
+                                     'doorways': s['doorways'] + (p['doorways'] or 0)}
+            if not found:
+                break
+            out.update(found)
+            frontier = found
+        return out
+
+    def _predicted_near(self, pose, sims, predicted):
+        """(spot, guess) when the wheels put him on a spot he knows and no photo of it this way says otherwise."""
+        for distance, spot in sorted((math.hypot(pose[0] - g['x'], pose[1] - g['y']), k) for k, g in predicted.items()):
+            guess = predicted[spot]
+            if distance > self._reach(guess):
+                continue
+            if spot in sims and sims[spot][0] < CARRIED_SIM:
+                continue   # A photo of it this way does not look like this.
+            return spot, guess
+        return None
+
+    def _room_by_area(self, spot_id, pose):
+        """A new spot near one a person named, with no doorway between: the same room, as a guess (owner, November
+        24: in the kitchen a metre from where he was told "this is the kitchen", he did not know he was in it)."""
+        trip = self.trip
+        if trip is not None and self.odometer is not None and doorways_in(
+                [(p[4], p[5]) for p in self.odometer.since(trip['started']) if len(p) > 5]):
+            return
+        candidates = []
+        for k, a in self.anchors.items():
+            if k != spot_id and not a.get('expected') and (self.spots.get(k) or {}).get('room_source') == 'told':
+                candidates.append((math.hypot(pose[0] - a['x'], pose[1] - a['y']), k))
+        for k, g in self._predicted().items():
+            if (self.spots.get(k) or {}).get('room_source') == 'told' and not g['doorways']:
+                candidates.append((math.hypot(pose[0] - g['x'], pose[1] - g['y']), k))
+        distance, named = min(candidates, default=(None, None))
+        if named is None or distance > ROOM_AREA_M:
+            return
+        room_id = self.spots[named]['room_id']
+        if self.map.label_spot(spot_id, room_id, 'near'):
+            self.spots[spot_id] = self.map.spot(spot_id)
+            if self.trace: self.trace.emit('place_spot', status='room_by_area', spot=spot_id[:8],
+                                           room=self.rooms.get(room_id), from_spot=named[:8], distance_m=round(distance, 2))
+
+    def wants_look_around(self):
+        """The spot he stands on, when a person just named its room and it has photos fewer ways than
+        LOOK_AROUND_BELOW; he turns once there to take it in (once a spot per run). None otherwise."""
+        with self.lock:
+            spot = self.here
+            if spot is None or spot in self.swept or (self.spots.get(spot) or {}).get('room_source') != 'told':
+                return None
+            ways = {int(round(p['bearing'] / BUCKET_DEG)) % 8 for p in self.by_spot.get(spot, []) if p['bearing'] is not None}
+            if len(ways) >= LOOK_AROUND_BELOW:
+                return None
+            self.swept.add(spot)
+            return spot
+
+    def room_looks(self, room_id, limit=3):
+        """A few lines on what this house's room looks like, from photos of spots a person named as it: what a
+        picture search is told, so "the workshop" is this workshop (run d085dc5f: "not identifiable as a
+        workshop" while it looked straight through its door)."""
+        with self.lock:
+            told = {k for k, s in self.spots.items() if s.get('room_id') == room_id and s.get('room_source') == 'told'}
+            lines = []
+            for p in self.photos:
+                text = p.get('description')
+                if p['spot_id'] in told and text and text not in lines:
+                    lines.append(text)
+            return lines[:limit]
 
     def _off_spot(self, why):
         if self.here is not None and self.trace:
@@ -989,7 +1149,9 @@ class Places:
             room_id, how = spot['room_id'], spot['room_source']
             sure = how == 'told'
         elif self.vote:
-            room_id, how, sure = self.vote['place_id'], 'looks', True
+            # Owner, November 24 (run 2c425f20): the look-alike vote said "workshop" and was passed on as sure, so
+            # "you are in the workshop right now" sounded like old news and nothing was kept. A look is a guess.
+            room_id, how, sure = self.vote['place_id'], 'looks', False
         else:
             room_id = None
         if room_id is None:

@@ -5,6 +5,7 @@ import platform
 
 from .adapters.turn import MODEL_FILE as TURN_MODEL
 from .adapters.voice_check import MODEL_FILE as VOICE_CHECK_MODEL
+from .camera_depth import MODEL_FILE as DEPTH_MODEL
 from .providers import ProviderOwner, dependency_status
 from .settings import ScratchPaths, Settings
 from .settings import Secrets
@@ -89,6 +90,12 @@ class App:
             from .adapters.places import PlaceEncoder
             from .places import Places
             places = Places(camera, PlaceEncoder(self.paths.root / 'models/places/mobileclip-s2.onnx'), None)
+        camera_depth = None
+        if camera and self.settings.drive_port:
+            # What the camera sees beside his path while the wheels roll (owner, November 24: a hallway corner
+            # between the depth grid's view and the side beam).
+            from .camera_depth import CameraDepth
+            camera_depth = CameraDepth(camera, self.paths.root / DEPTH_MODEL)
         from .inspection import CurrentView
         inspection = CurrentView(scene, camera=camera) if scene else None
         from .adapters.flex import FlexControl
@@ -133,10 +140,10 @@ class App:
             from .adapters.expression import ExpressionReader
             expressions = ExpressionReader(self.paths.root / 'models/faces/face_landmarker.task')
         # A disconnected camera removes its dependents for this run, not the setting.
-        for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',))):
+        for provider,requires in ((scene,('camera',)),(inspection,('scene_observations',)),(objects,('camera',)),(places,('camera',)),(camera_depth,('camera',))):
             if provider:
                 provider.capability = replace(provider.capability,requires=requires)
-        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,expressions,public,weather,house,music,scene,inspection,direction,objects,places,locator,agency_planner,self.cloner,self.voice_clones,keywords,turn,voice_check,room_sounds) if p)
+        self.live_components = (asr, vad, encoder, brain, tts, sink, mic) + tuple(p for p in (camera,expressions,public,weather,house,music,scene,inspection,direction,objects,places,camera_depth,locator,agency_planner,self.cloner,self.voice_clones,keywords,turn,voice_check,room_sounds) if p)
         # Audio output is ready for failure notices before device startup.
         # Servo wake/settle completes before microphone or camera starts. Keep
         # tuple indexing stable for core composition; only lifecycle order changes.
@@ -198,6 +205,7 @@ class App:
             Alongside(present(expressions), after=mic),
             Alongside(present(objects), after=mic),
             Alongside(present(places), after=mic),
+            Alongside(present(camera_depth), after=mic),
         )
         if self.robot and self.drive:
             self.drive.reflex_allowed = lambda: self.robot.awake   # No backing off from someone while he is still waking.
@@ -238,6 +246,8 @@ class App:
                 missing.append('object_model_file')
             if self.settings.camera_enabled and self.settings.place_recognition_enabled and not (self.paths.root / 'models/places/mobileclip-s2.onnx').is_file():
                 missing.append('place_model_file')
+            if self.settings.camera_enabled and self.settings.drive_port and not (self.paths.root / DEPTH_MODEL).is_file():
+                missing.append('camera_depth_model_file')
             for provider in self.owner.providers:
                 missing.extend(name for name, version in dependency_status(provider.capability).items()
                                if version is None)
@@ -328,6 +338,7 @@ class App:
         scene = next((p for p in optional if p.capability.name=='scene_observations'),None)
         objects = next((p for p in optional if p.capability.name=='objects'),None)
         places = next((p for p in optional if p.capability.name=='places'),None)
+        camera_depth = next((p for p in optional if p.capability.name=='camera_depth'),None)
         room_sounds = next((p for p in optional if p.capability.name=='room_sounds'),None)
         for provider in (public,house,music,scene,objects,places,room_sounds):
             if provider:provider.trace=trace
@@ -527,6 +538,11 @@ class App:
                             places.describer = lambda image, cancel: finder.describe(image, cancel)   # One line per room photo.
                     if places is not None:
                         self.drive.navigator = places   # Going to rooms by his map (owner, November 22).
+                    if camera_depth is not None and 'camera_depth' in active:
+                        camera_depth.trace = trace
+                        camera_depth.active = self.drive.moving.is_set   # Only while the wheels roll.
+                        camera_depth.neck = self.drive._neck
+                        self.drive.camera_depth = camera_depth
                 state = CoreState(memory,SpeakerTracker(NAMESPACE),trace, face_invalidator=camera.invalidate if camera else None,
                                   require_microphone_hold=self.robot is not None)
                 state.observations,state.scene_observer=public,scene

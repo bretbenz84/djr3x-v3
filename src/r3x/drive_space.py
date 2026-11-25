@@ -528,6 +528,136 @@ def _point(bearing, radius):
     return radius*math.cos(b), radius*math.sin(b)
 
 
+# The head camera's view of what stands beside his path (owner, November 24, run d085dc5f: a hallway corner
+# between the depth grid's 22 degrees and the side beams' 67 ran into his left side). camera_depth gives
+# relative depth per column of the view; here it gets real distances from the depth grid in the middle of
+# the same view, frame by frame, and only the parts the grid cannot see are used.
+DEPTH_GRID_HALF_DEG = 22.5     # The depth grid sees this far either side; the camera adds what lies beyond.
+CAMERA_FIT_MIN = 3             # Grid columns with a return needed to put distances on a camera view...
+CAMERA_FIT_SPREAD = .12        # ...at distances different enough (1/m) to fix both scale and offset...
+CAMERA_FIT_ERROR = .25         # ...fitting them all within this share of their distance.
+CAMERA_NEAR_M = 1.5            # Only things this near the ring's centre matter to the next roll.
+CORNER_STOP_M = .12            # A turn toward something beside his front corner keeps his ring this clear of it...
+CORNER_HORIZON_M = .8          # ...over this much of the arc ahead.
+CORNER_SLOW_M = .45            # The camera sees something this close in a front corner: he slows to a crawl.
+
+
+def _disparity_at(columns, bearing):
+    """The camera view's disparity at a base-relative bearing, between its two nearest columns."""
+    ordered = sorted(columns)
+    if not ordered or not ordered[0][0] <= bearing <= ordered[-1][0]:
+        return None
+    for (b0, d0), (b1, d1) in zip(ordered, ordered[1:]):
+        if b0 <= bearing <= b1:
+            return d0 if b1 == b0 else d0 + (d1 - d0) * (bearing - b0) / (b1 - b0)
+    return None
+
+
+def camera_fit(view, matrix):
+    """(a, b): 1/distance from the ring's centre = a*disparity + b, from the depth grid's columns in the same
+    view, or None when they cannot fix it (too few returns, all at one distance, or not agreeing)."""
+    zones = matrix_zones(matrix)
+    if not view or zones is None:
+        return None
+    columns = [(bearing + view['neck'], disparity) for bearing, disparity in view['columns']]
+    pairs = []
+    for col in range(8):
+        values = [v for i, v in zones.items() if i % 8 == col]
+        disparity = _disparity_at(columns, MATRIX_COLUMN_DEG[col])
+        if values and disparity is not None:
+            distance = min(values) + RING_RADIUS
+            if distance < MATRIX_CLEAR:
+                pairs.append((disparity, 1. / distance))
+    if len(pairs) < CAMERA_FIT_MIN or max(p[1] for p in pairs) - min(p[1] for p in pairs) < CAMERA_FIT_SPREAD:
+        return None
+    n = len(pairs)
+    mx, my = sum(p[0] for p in pairs) / n, sum(p[1] for p in pairs) / n
+    sxx = sum((p[0] - mx) ** 2 for p in pairs)
+    if sxx <= 1e-9:
+        return None
+    a = sum((p[0] - mx) * (p[1] - my) for p in pairs) / sxx
+    b = my - a * mx
+    if a <= 0:
+        return None   # Nearer in the picture must be nearer on the grid.
+    for disparity, inverse in pairs:
+        fitted = a * disparity + b
+        if fitted <= 0 or abs(1. / fitted - 1. / inverse) > CAMERA_FIT_ERROR / inverse:
+            return None
+    return a, b
+
+
+def camera_points(view, matrix):
+    """Points (x ahead, y left of the ring's centre) the camera sees within CAMERA_NEAR_M where the depth grid
+    cannot: beyond DEPTH_GRID_HALF_DEG either side. Empty without a fresh view the grid can put distances on."""
+    fit = camera_fit(view, matrix)
+    if fit is None:
+        return []
+    a, b = fit
+    points = []
+    for bearing, disparity in view['columns']:
+        bearing += view['neck']
+        if abs(bearing) <= DEPTH_GRID_HALF_DEG or abs(bearing) > 90.:
+            continue
+        inverse = a * disparity + b
+        if inverse <= 1. / CAMERA_NEAR_M:
+            continue
+        points.append(_point(bearing, max(RING_RADIUS + .02, 1. / inverse)))
+    return points
+
+
+def corner_points(points, tof=None):
+    """What stands beside his front corners: camera points and the side beams toward his front (67.5 degrees),
+    from beside his middle forward and off the straight path's centre."""
+    seen = list(points)
+    for key, bearing in (('lf', 67.5), ('rf', -67.5)):   # The front's own stops cover the front beams.
+        value = _meters((tof or {}).get(key))
+        if value is not None and value < MATRIX_CLEAR:
+            seen.append(_point(bearing, RING_RADIUS + value))
+    return [(x, y) for x, y in seen if x >= -.05 and abs(y) >= .1]
+
+
+def corner_gaps(points, tof=None):
+    """{+1 left, -1 right: gap between his ring and the nearest thing beside his front corner}; a side with
+    nothing seen is missing."""
+    gaps = {}
+    for x, y in corner_points(points, tof):
+        side = 1 if y > 0 else -1
+        gaps[side] = min(gaps.get(side, float('inf')), math.hypot(x, y) - RING_RADIUS)
+    return gaps
+
+
+def arc_gap(points, ang, lin, horizon_m=CORNER_HORIZON_M):
+    """The least gap between his ring and these points over the next horizon_m of an arc at (lin m/s, ang rad/s)."""
+    if not points:
+        return float('inf')
+    k = ang / max(lin, .05)
+    least = float('inf')
+    steps = int(horizon_m / .05)
+    for i in range(steps + 1):
+        s = horizon_m * i / steps
+        if abs(k) < 1e-6:
+            cx, cy = s, 0.
+        else:
+            cx, cy = math.sin(k * s) / k, (1. - math.cos(k * s)) / k
+        for x, y in points:
+            least = min(least, math.hypot(x - cx, y - cy) - RING_RADIUS)
+    return least
+
+
+def corner_steer(ang, lin, points):
+    """The steering (rad/s, +left) for the next tick: as much of ang as keeps his ring CORNER_STOP_M clear of
+    these points over the arc ahead, or at least as clear as rolling straight would. A turn away from something is
+    never cut (it only ever opens the gap)."""
+    if not points or abs(ang) < 1e-3:
+        return ang
+    straight = arc_gap(points, 0., lin)
+    need = min(CORNER_STOP_M, straight)
+    for share in (1., .75, .5, .25):
+        if arc_gap(points, ang * share, lin) >= need:
+            return ang * share
+    return 0.
+
+
 # Host steering added to the firmware's own during the slow crawl through tight space
 # (rad/s, + = left). The firmware already centres him between the side sensors, leans
 # away from a wall its front pair sees coming and pushes hard inside 13 cm (V2 calib.h

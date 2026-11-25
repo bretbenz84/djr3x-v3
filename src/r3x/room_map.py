@@ -428,8 +428,9 @@ class RoomMap:
             c.execute('UPDATE spots SET last_at=? WHERE id=?', (self.wall_clock(), spot_id))
 
     def label_spot(self, spot_id, room_id, source, turn=None):
-        """A person's words outrank a trip's guess, which outranks a look-alike; never the other way."""
-        rank = {'told': 3, 'trip': 2, 'seen': 1, None: 0}
+        """A person's words outrank a trip's guess, which outranks a look-alike or a named spot nearby
+        ('near'); never the other way."""
+        rank = {'told': 3, 'trip': 2, 'near': 1, 'seen': 1, None: 0}
         with self.store.transaction() as c:
             row = c.execute('SELECT room_id,room_source FROM spots WHERE id=?', (spot_id,)).fetchone()
             if row is None:

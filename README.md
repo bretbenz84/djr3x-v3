@@ -182,6 +182,11 @@ V2=/path/to/djr3x-v2
 
 # Room recognition (needs the v2 copy)
 "$V2/venv/bin/python" -I tools/export_place_model.py --cache "$V2/assets/models/mobileclip" --out local/models/places/mobileclip-s2.onnx
+
+# With wheels: near corners seen by the camera (Depth Anything V2 Small, Apache-2.0, 49.6 MB; checked by digest)
+mkdir -p local/models/depth
+curl -L -o local/models/depth/depth-anything-v2-small-fp16.onnx \
+  https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx/model_fp16.onnx
 ```
 
 ### Configure
@@ -386,7 +391,7 @@ spell, pays full price to fill the cache.
 | [House devices](docs/HOUSE_DEVICES.md) | Homebridge lights, plugs and thermostat. |
 | [Sentry mode](docs/SENTRY_MODE.md) | Guarding a room and phone alerts. |
 | [Room recognition](docs/ROOM_RECOGNITION.md) | Knowing which room he's in. |
-| [Room navigation plan](docs/ROOM_NAVIGATION_PLAN.md) | Plan for going from room to room. Not built. |
+| [Room navigation](docs/ROOM_NAVIGATION_PLAN.md) | Going from room to room: his map of spots, how he learns it, and what the runs showed. |
 | [Telepresence](docs/TELEPRESENCE_PLAN.md) | Calling in through Rex. |
 | [Replies from Claude](docs/CLAUDE_REPLIES.md) | Using Claude instead of OpenAI. |
 | [Core operations](docs/CORE_OPERATIONS.md) | Managing the people Rex knows and their recordings. |

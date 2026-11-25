@@ -14,10 +14,11 @@ from uuid import uuid4
 
 from .adapters.esp32 import DriveLink, RadarLink, open_serial
 from .contracts import Cancellation, Cancelled, ProviderFailure
-from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, throttle_front_m, beside_gap, clearance, describe_bearing, face_range,
+from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, throttle_front_m, beside_gap, body_room,
+                          camera_points, clearance, corner_gaps, corner_points, corner_steer, describe_bearing, face_range,
                           front_room, front_surface, image_bearing, move_allowance, out_of_view, radar_bodies,
-                          seen_points, steer, wall_angle, wrap, AXLE_AFT, FRONT_MARGIN, MIN_TURN, PERSON_MARGIN,
-                          SCRAPE_M, STEER_MAX, SURFACE_HOLD_M, WALL_HOLD_M)
+                          seen_points, steer, wall_angle, wrap, AXLE_AFT, BODY_HALF_WIDTH, CORNER_SLOW_M, FRONT_MARGIN,
+                          MIN_TURN, PATH_MARGIN, PERSON_MARGIN, RING_RADIUS, SCRAPE_M, STEER_MAX, SURFACE_HOLD_M, WALL_HOLD_M)
 from .field_guide import GUIDE
 from .local_map import LocalMap
 from .providers import Capability
@@ -62,6 +63,10 @@ ACTIONS = ('turn', 'move', 'face', 'approach', 'find_person', 'seek', 'go_to', '
 ROOM_ENTER_M = 1.         # Rolled at least this far toward a room before stopping at something counts as in it...
 ROOM_FILLS_AFTER_M = 1.5  # ...and this far before the room filling the view does.
 ENTER_ON_M = .8           # Through its opening, on into the room this far.
+MAP_THEN_SIGHT_M = 1.     # The map's way blocked with this much of the trip's distance left: on by sight.
+SEEN_RECENTLY_S = 120.    # A search for something seen this recently starts facing where it was.
+CORNER_SLOW_MPS = .15     # The camera sees something close in a front corner: this fast at most (November 24).
+CAMERA_STOP_ROOM_M = .08  # Something only the camera sees, this little room before his body reaches it: stop.
 DOOR_SIDE_M = .45         # Both sides this near: a doorway or a hall (his body is 0.54 m, the door 0.8 m)...
 DOOR_OPEN_M = .9          # ...and one side this open again: through it.
 LOOK_AROUND_DEG = 45.     # A look-around: eight looks, one every 45 degrees, photos at each.
@@ -715,6 +720,8 @@ class DriveBase:
         self.locator = None           # (description, image, cancel) -> hosted vision geometry
         self.router = None            # (image, facts, cancel) -> hosted choice of open floor to drive to
         self._at = [0., 0.]           # His own position in metres since connect, kept from wheel travel along the IMU heading.
+        self._plan_from = (0., 0.)    # Where the plan running now began.
+        self._room_looks = None       # (room name, lines on what this house's room looks like) for a picture search.
         self._dead_ends = []          # (x, y, room heading) of legs that went nowhere in this plan.
         self._odom_mark = None
         self.look = None              # (after) -> fresh sharp camera image, or None
@@ -741,6 +748,8 @@ class DriveBase:
         from .room_map import Odometer
         self.odometer = Odometer(clock)   # Wheel travel from every telemetry frame, gamepad included.
         self.navigator = None         # places.Places: where he is, routes to rooms, photos at look-around stops.
+        self.camera_depth = None      # camera_depth.CameraDepth: what the camera sees beside his path (November 24).
+        self._corner_noted = None     # The last corner the guard acted on in this roll, traced once.
         self._weak = None             # The last doubtful sighting: {'bearing', 'note'}.
         self._room_goal = None        # A room being gone into: {'room_id', 'start', 'squeezed', 'entered_at'}.
         self._errand_until = float('-inf')   # His own moves wait until then: a trip someone asked for did not finish.
@@ -2113,6 +2122,13 @@ class DriveBase:
                 self._assist(surface is None)
                 ang = steer(space, telemetry.get('tof_mm'), surface)
                 lin, why = self._crawl_speed(space, top, ang)
+                ang, guarded_lin, corner = self._corner_guard(ang, lin, telemetry, beams=False)
+                if corner:
+                    status, reason = 'blocked', corner
+                    row['stopped_by'], row['clearance_m'] = corner, self._room_row(space)
+                    break
+                if guarded_lin < lin:
+                    lin, why = guarded_lin, 'corner'
                 speeds.add(lin, why)
                 self._speeds.add(lin, why)
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
@@ -2894,11 +2910,19 @@ class DriveBase:
         elif sought and sought.get('heading') is not None and heading is not None:
             expected = wrap(sought['heading'] - heading)
         self._vision_calls += 1
+        looks = ''
+        if self._room_looks and self._room_looks[0] == description:
+            # Owner, November 24 (run d085dc5f): asked for "workshop" with nothing else, the picture model looked
+            # through the workshop's open door and called it "not identifiable as a workshop".
+            looks = (f'This house\'s {description}, from his own photos taken inside it: ' + ' / '.join(self._room_looks[1])
+                     + '. From outside, through its doorway, only part of it shows.')
         if sought and sought.get('note'):
             hint = 'Earlier you matched it as: ' + sought['note'] + '.'
             if expected is not None and abs(expected - self._neck()) < HALF_FOV:
                 hint += f' It should now be near x={.5 - (expected - self._neck())/(2*HALF_FOV):.2f}; if several match, report the one nearest there.'
-            result = self.locator(description, image, cancel, hint=hint)
+            result = self.locator(description, image, cancel, hint=hint + (' ' + looks if looks else ''))
+        elif looks:
+            result = self.locator(description, image, cancel, hint=looks)
         else:
             result = self.locator(description, image, cancel)
         if result.get('found') and result.get('confidence') == 'low':
@@ -2999,7 +3023,7 @@ class DriveBase:
                         'heading': found.get('heading'), 'box_width': found['box_width'],
                         'first_width': previous.get('first_width') or found['box_width'],
                         'first_at': previous.get('first_at') or tuple(self._at),
-                        'sightings': sightings, 'position': self._fixed_position(sightings)}
+                        'sightings': sightings, 'position': self._fixed_position(sightings), 'seen_at': self.clock()}
 
     @staticmethod
     def _fixed_position(sightings):
@@ -3034,6 +3058,17 @@ class DriveBase:
             return {**row, 'status': 'refused', 'reason': 'vision_seek_unavailable', 'turned_deg': 0.}
         sign = -1. if step.prefer == 'right' else 1.
         turned, looks, notes, retried = 0., 0, [], 0
+        recent = self._sought if (self._sought and self._sought.get('description') == step.description
+                                  and self.clock() - self._sought.get('seen_at', float('-inf')) <= SEEN_RECENTLY_S) else None
+        expected = self._expected_sought() if recent is not None else None
+        if step.prefer is None and expected is not None:
+            # Owner, November 24 (run d085dc5f): seen straight ahead through the hall's far door 40 s before, the
+            # workshop was searched for by turning away from it ("Whoa! You turned the wrong way"). A search for
+            # something seen moments ago starts facing where it was, and sweeps that way.
+            sign = 1. if expected > 0 else -1.
+            if abs(expected) > 8:
+                turn = self._turn(max(-120., min(120., expected)), plan, cancel)
+                turned += turn.get('turned_deg', 0.)
         while looks < SEEK_LOOKS:
             self._weak = None
             found, why = self._locate(step.description, cancel)
@@ -3086,6 +3121,45 @@ class DriveBase:
         if tight:
             return (0. if self._crawl_hold(space, telemetry.get('tof_mm')) else space['path_center_m']), True
         return space.get('path_m'), False
+
+    def _corner_guard(self, ang, lin, telemetry, now=None, beams=True):
+        """(ang, lin, why to stop or None) for the next tick of a forward roll, from what is beside his front
+        corners: the side and front beams, and what the head camera sees where the depth grid cannot.
+
+        Owner, November 24 (run d085dc5f): turning left toward the hallway's doorway, his left side went from
+        2 m clear to 3 cm and ran into the hall's corner, which sat between the depth grid's view and the side
+        beam. A turn toward something beside his front corner is cut to what keeps his ring clear of it over the
+        arc ahead (drive_space.corner_steer); the camera seeing it close slows him on the same curve; in his path,
+        he stops. Turning away is never cut, and a wall beside
+        a hallway (off his path) neither slows nor stops him (owner, November 15: hallway speed).
+
+        beams: the side beams count too (a roll toward a sought thing, which has no side hold of its own). A crawl
+        already steers by them (drive_space.steer) and stops for a side about to touch, so there only the
+        camera's points count."""
+        now = self.clock() if now is None else now
+        _, matrix = self.link.snapshot()
+        view = self.camera_depth.latest(now) if self.camera_depth is not None else None
+        points = camera_points(view, matrix) if view is not None else []
+        why, note = None, None
+        reach = BODY_HALF_WIDTH + PATH_MARGIN
+        if points and body_room(points) < CAMERA_STOP_ROOM_M:
+            why = 'camera_sees_it_in_the_path'
+        elif points:
+            close = [p for p in points if p[0] > 0 and math.hypot(*p) - RING_RADIUS < CORNER_SLOW_M
+                     and (abs(p[1]) < reach + .08 or (ang > .1 and p[1] > 0) or (ang < -.1 and p[1] < 0))]
+            if close and lin > CORNER_SLOW_MPS:
+                # Slower on the same curve: a slower roll at the same turn rate would sweep a tighter arc.
+                ang, lin, note = ang * CORNER_SLOW_MPS / lin, CORNER_SLOW_MPS, 'slowed'
+        beside = corner_points(points, (telemetry or {}).get('tof_mm') if beams else None)
+        steered = corner_steer(ang, lin, beside)
+        if abs(steered) < abs(ang) - 1e-6:
+            note = 'turn_cut'
+        if (why or note) and self.trace and self._corner_noted != (why or note):
+            self._corner_noted = why or note
+            self.trace.emit('drive_corner_guard', action=why or note, camera=bool(points),
+                            gaps_m={('left' if s > 0 else 'right'): round(g, 2) for s, g in corner_gaps(beside).items()},
+                            ang=round(ang, 2), steered=round(steered, 2))
+        return steered, lin, why
 
     def _room(self, stand_off):
         space = self.space()
@@ -3216,6 +3290,13 @@ class DriveBase:
                 slowing = CRUISE_DECEL * (math.sqrt(.09 + 2*max(0., room)/CRUISE_DECEL) - .3)
                 lin, why = least(self._crawl_speed(space, speed, ang) if tight else self._speed_limit(space, speed),
                                  (slowing, 'stand_off'), ((budget_m - travelled)/.6, 'distance'))
+                guarded_ang, guarded_lin, corner = self._corner_guard(ang, lin, telemetry, now)
+                if corner:
+                    outcome = ('blocked', corner)
+                    break
+                if guarded_lin < lin:
+                    lin, why = guarded_lin, 'corner'
+                ang = guarded_ang
                 lin = max(.05, lin)
                 self._speeds.add(lin, why)
                 self.link.send({'cmd': 'drive', 'lin': round(lin, 3), 'ang': round(ang, 3)})
@@ -3473,6 +3554,9 @@ class DriveBase:
         row = {'action': 'go_to', 'room': step.description}
         room_id = step.target
         travelled, turned, ok = 0., 0., False
+        # What this house's room looks like, from his own photos in it, for any picture search on the way.
+        looks = nav.room_looks(room_id) if nav is not None and room_id and hasattr(nav, 'room_looks') else []
+        self._room_looks = (step.description, looks) if looks else None
         try:
             if nav is not None and room_id and not step.directed:
                 where = nav.where()
@@ -3504,35 +3588,76 @@ class DriveBase:
                            else self._toward_bearing(route, plan, cancel, budget_m))
                     turned += out.get('turned_deg', 0.)
                     travelled += out.get('travelled_m', 0.)
+                    if out['status'] == 'blocked' and budget_m - travelled >= MAP_THEN_SIGHT_M:
+                        # Owner, November 24 (run d085dc5f): the map's way back to the kitchen met the island 0.9 m
+                        # out, even after going round, and the trip ended there with the kitchen in plain view. The
+                        # rest of the way is by sight: he looks for the room and goes in.
+                        row['map_blocked'] = out.get('reason')
+                        nav.trip_started(room_id, 'sight')
+                        sight = self._enter_by_sight(step, plan, cancel, budget_m - travelled)
+                        ok = sight['status'] == 'completed'
+                        out = {**row, **sight, 'how': 'map_then_sight',
+                               'turned_deg': round(turned + sight.get('turned_deg', 0.), 1),
+                               'travelled_m': round(travelled + sight.get('travelled_m', 0.), 2)}
+                        if ok:
+                            out['ask_if_this_is'] = step.description
+                        return out
                     ok = out['status'] == 'completed'
                     return {**row, **out, 'how': 'map', 'turned_deg': round(turned, 1), 'travelled_m': round(travelled, 2)}
             how = 'directions' if step.directed else 'sight'
             if nav is not None:
                 nav.trip_started(room_id, how)
-            out = self._enter_by_sight(step, plan, cancel, budget_m)
+            dictated = math.dist(self._at, self._plan_from) if step.directed else 0.
+            out = self._enter_by_sight(step, plan, cancel, budget_m, dictated=dictated)
             ok = out['status'] == 'completed'
             out = {**row, **out, 'how': how, 'turned_deg': round(turned + out.get('turned_deg', 0.), 1)}
             if ok:
                 out['ask_if_this_is'] = step.description   # Found by sight or directions: he checks once.
             return out
         finally:
+            self._room_looks = None
             if nav is not None:
                 nav.trip_ended(ok)
 
-    def _enter_by_sight(self, step, plan, cancel, budget_m):
-        seek = self._seek(DriveStep('seek', description=step.description, prefer=step.prefer, pace=step.pace), plan, cancel)
-        if seek['status'] != 'completed':
-            status = 'route_unknown' if seek['status'] == 'not_found' else seek['status']
-            return {'status': status, 'reason': 'not_in_view_and_no_way_known' if status == 'route_unknown' else seek.get('reason'),
-                    'turned_deg': seek.get('turned_deg', 0.), 'looks': seek.get('looks'), 'notes': seek.get('notes'),
-                    'travelled_m': 0.}
-        self._room_goal = {'room_id': step.target, 'name': step.description, 'start': tuple(self._at),
+    def _enter_by_sight(self, step, plan, cancel, budget_m, dictated=0.):
+        """Find the room and go in through its opening. dictated: metres he has just rolled on a person's
+        directions toward it.
+
+        Owner, November 24 (run d085dc5f): "turn left, go forward like ten feet, and you'll be in the workshop."
+        He rolled 3.1 m into the workshop, a look said the whole view was the workshop, and he said "at the end I
+        got lost": the 3.1 m did not count toward being in it, and a few unsure looks later the room was "lost".
+        After rolling where a person said the room is, that distance counts, he looks ahead once instead of
+        spinning to search, and he never calls it lost: he says where he is and asks whether this is it."""
+        followed = dictated >= ROOM_ENTER_M
+        if followed:
+            self._weak = None
+            found, why = self._locate(step.description, cancel)
+            if found is None:
+                return {'status': 'completed', 'reason': 'directions_followed', 'note': why, 'looks': 1,
+                        'turned_deg': 0., 'travelled_m': 0.}
+            seek = {'turned_deg': 0., 'note': found['note']}
+            if abs(found['bearing_deg']) > 8:
+                turn = self._turn(max(-90., min(90., found['bearing_deg'])), plan, cancel)
+                seek['turned_deg'] = turn.get('turned_deg', 0.)
+            self._remember_sought(step.description, found)
+        else:
+            seek = self._seek(DriveStep('seek', description=step.description, prefer=step.prefer, pace=step.pace), plan, cancel)
+            if seek['status'] != 'completed':
+                status = 'route_unknown' if seek['status'] == 'not_found' else seek['status']
+                return {'status': status, 'reason': 'not_in_view_and_no_way_known' if status == 'route_unknown' else seek.get('reason'),
+                        'turned_deg': seek.get('turned_deg', 0.), 'looks': seek.get('looks'), 'notes': seek.get('notes'),
+                        'travelled_m': 0.}
+        self._room_goal = {'room_id': step.target, 'name': step.description,
+                           'start': self._plan_from if followed else tuple(self._at),
                            'squeezed': self._doorway(self.space()), 'entered_at': None}
         try:
             approach = self._approach_sought(DriveStep('approach', target='sought', description=step.description,
                                                        pace=step.pace), plan, cancel, budget_m)
         finally:
             self._room_goal = None
+        if followed and approach['status'] in {'lost', 'look_limit', 'blocked', 'distance_limit'}:
+            approach = {**approach, 'status': 'completed', 'reason': 'directions_followed',
+                        'approach_ended': approach['reason']}
         out = {**approach, 'turned_deg': round(seek.get('turned_deg', 0.) + approach.get('turned_deg', 0.), 1),
                'found_by': seek.get('note')}
         out.pop('action', None); out.pop('target', None)
@@ -3714,6 +3839,8 @@ class DriveBase:
             self._notify(plan)
             self._vision_calls = 0   # The last sought thing persists across plans ("keep going").
             self._dead_ends = []
+            self._corner_noted = None
+            self._plan_from = tuple(self._at)   # Where a person's dictated steps began (a go_to after them).
             self._directed = False
             start = self.link.snapshot()[0]
             self._start_heading = self._heading(start) if start else None

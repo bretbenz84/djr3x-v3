@@ -7,9 +7,10 @@ the on-device room model, sensible links and directions between rooms, range-sen
 an extra layer, maps grouped by building, the layout learned mostly by himself, and the reply
 model describing what is in each room.
 
-**Status, November 22 (overnight): slices 0 to 5 are built in software and checked in the simulated
-base and with synthetic room views. Nothing has run on the robot yet.** The owner asked for the whole plan
-to be built while he slept. [What was built](#what-was-built-november-22) lists each part, what differs
+**Status, November 24: slices 0 to 5 are built. The first real trips ran this evening and the way back
+failed; the repairs are in software and checked in the simulated base, not yet on the floor
+([November 24](#november-24-runs-and-repairs)).** The owner asked for the whole plan to be built while he
+slept on November 22. [What was built](#what-was-built-november-22) lists each part, what differs
 from the design below, what was checked and what only the robot can show. Revised the same day to follow
 the [owner's rulings](#owner-rulings-november-22) on the first draft. Sources: the run's session log, the
 room tables in `local/core.sqlite3` (read only), the code, and web research listed under
@@ -389,9 +390,9 @@ acceptable cost.
 - **No "house north".** Each spot keeps its own frame (bearing 0 is wherever his base faced when it was
   made), and passages carry the turn between two spots' frames. Matching any photo at a spot tells him which
   way he faces there, so a building never needs one direction that stays right across runs.
-- **No look-around after a naming.** One reply can call only one tool, so naming a room cannot also turn
-  him. Photos come as his head and body turn in conversation, and from look-arounds a person asks for or a
-  trip starts.
+- **No look-around after a naming** (until November 24). One reply can call only one tool, so naming a room
+  could not also turn him. Since November 24 the session turns him once after a naming where the spot has
+  few photos ([November 24](#november-24-runs-and-repairs)).
 - **The compass** is recorded with every photo but not used. Nothing yet shows how steady it is beside his
   motors.
 - **No fingerprint model built for places** (EigenPlaces) was tried. There are no saved photos to compare it
@@ -548,6 +549,98 @@ the foyer" loses one of the two.
 4. In the living room, tell him "the kitchen is to your left", then "go to the kitchen".
 5. Afterwards, `.venv/bin/python tools/room_map_report.py` lists what the map holds and what the run did: spots
    and photos, passages, rooms gone into, doubtful sightings and route corrections. It reads only.
+
+## November 24 runs and repairs
+
+Owner: "once he knows a place from a particular direction he doesn't know it from a different direction.
+Even when I told him how to get to the workshop he proclaimed that he got lost." He also ran into the
+hallway: "It was just outside the ToF sensors view but would have been within the camera view."
+
+### What the runs showed
+
+**8:12 PM (`ab1cd64f`), workshop to kitchen to living room, by directions: worked.** He got stuck at the
+workshop door twice, then rolled 4.4 m down the hall to the kitchen, asked "Is this the kitchen?" and kept the
+answer; the same for the living room. Two spots were named and two passages kept.
+
+**8:19 PM (`d085dc5f`), back again: failed.**
+
+| Asked | What Rex did | Why |
+| --- | --- | --- |
+| "Can you go to the kitchen?" | Turned the way his map said and rolled 0.9 m, met the island, and stopped the trip. | A trip by map that met something ended there. The kitchen was in plain view. |
+| "Go around the island." | Went round. Rex said "the sensors say I'm in the kitchen". | That was the October look-alike guess, passed on as certain. His map made a new spot instead of the kitchen's: the kitchen had one photo, facing the range, and he now faced the hall. |
+| "Look left, there's a hallway; down it is the workshop." | Saw the workshop through the far door, rolled toward it, steering left, and **ran his left side into the hall's corner**. You said "Whoa! Stop." | The corner was between the front depth grid's view (22° either side) and the side beam (67°). The side beam saw it at 3 cm. Then the depth sensors' bus dropped out for 20 s (the known 8x8 fault). |
+| "Can you go into the workshop ahead of you?" | Joined the spot he stood on to the spot at the far end of the hall; searched by turning away from the workshop ("You turned the wrong way") and gave up. | One look-alike view of the front door and picture wall (0.88) joined spots 4-5 m apart. The workshop was never on his map: earlier, "You are in the workshop right now" was answered with a joke and nothing was kept, because the October guess already said "workshop" as if sure. The picture search was asked for "workshop" with no idea what this workshop looks like ("not identifiable as a workshop"). |
+| "Turn left, go forward ten feet, and you'll be in the workshop." | Rolled 3.1 m into the workshop and said "at the end I got lost". | A room filling the view counts only after 1.5 m rolled *after* the directions; the 3.1 m did not count, two unsure looks later the room was "lost". |
+
+The map now holds four separate, unnamed spots in the workshop, each from a different start-up facing.
+
+### What changed
+
+- **Known from any direction.** Once he stands on a spot he knows, the passages from it say where the spots
+  they lead to are, by his wheels. Arriving near one (within 0.6 m plus 0.15 m per metre of passage, at most
+  1.2 m), he is on it unless a photo of it facing this way looks different. He no longer needs a photo
+  facing the way he arrived.
+- **Photos all round.** When a person names the room he stands on and that spot has photos fewer than six
+  of the eight ways, he turns once in place to photograph it (about 25 s), once a spot per run. His reply
+  may say he is having a look round. A refused or stopped turn is simply left.
+- **Rooms as areas.** A new spot within 2 m of a spot a person named, with no doorway between on the way, is
+  in that room as a guess (`near`): never claimed as sure, never "already there" for a trip, and any naming
+  replaces it.
+- **Stricter joining.** One look-alike view joins a new spot to an old one only above 0.93. Below that, two
+  directions must match the old spot and agree on its frame. A spot his wheels put somewhere else this run
+  is never joined, and a look-alike of a spot his wheels put metres away is not taken for it.
+- **The October guess is a guess.** The look-alike vote is now passed on as `sure: false`, so being told the
+  room is news and gets kept.
+- **Directions are trusted.** After rolling where a person said the room is (a metre or more), that distance
+  counts toward being in it, he looks ahead once rather than spinning to search, and he never calls it lost:
+  he asks whether this is the room (`directions_followed`).
+- **A blocked map trip goes on by sight** when a metre or more of the trip is left (`map_then_sight`).
+- **The picture search knows the room.** It is told up to three descriptions of photos from spots a person
+  named as that room. A search for something seen in the last two minutes starts facing where it was.
+
+### Corners only the camera sees
+
+While the wheels roll, the head camera's view is turned into relative depth by Depth Anything V2 Small
+(Apache-2.0, onnx-community's fp16 export, 49.6 MB under `local/models/depth/`, checked by digest; at most
+four frames a second, only while rolling). Its scale changes from frame to frame, so each frame is matched
+against the front depth grid's readings in the middle of the same view. With at least three grid columns
+at different distances agreeing within 25%, the parts of the view the grid cannot see (beyond 22° either
+side) become points beside his path. Without such a match the camera adds nothing.
+
+- A turn toward something beside his front corner (camera points, and on a roll toward something also the
+  side beams) is cut to what keeps his body 12 cm clear over the next 0.8 m of the arc. Turning away is
+  never cut.
+- Something the camera sees within 0.45 m in a front corner slows him to 0.15 m/s on the same curve.
+- Something only the camera sees in his path stops him (`camera_sees_it_in_the_path`).
+- A wall beside a hallway, off his path, neither slows nor stops him (owner, November 15).
+
+Measured on the M2, CPU, two threads: about 100 ms a frame from a 1280x720 picture (92 ms for the model
+itself at 252x140), loaded in 0.14 s; a process holding only this model peaked at about 370 MB. CoreML could
+not take the model (6 of 836 nodes).
+
+### Checks
+
+- **Synthetic, room map:** 8 new contract checks in `tests/test_places.py` (arriving facing a way with no
+  photo, rooms as areas and their limits, one view versus two directions, a look-alike from the far end of
+  a passage, the guess not sure, the turn after naming, room descriptions). One older check now expects the
+  area guess.
+- **Simulated base:** 7 in `tests/test_room_trips.py` (no "lost" after directions, their distance counting,
+  a turn alone not counting, blocked map then sight, the search hint, searching toward a recent sighting,
+  the turn after naming through the real session).
+- **Camera arithmetic and the corner replay:** 9 in `tests/test_camera_depth.py`. In the replay (a doorway
+  ahead-left, a corner 0.34 m left of his path, a wall 0.4 m to his right) the side beam alone let his body
+  reach 0.22 m from the corner (it is 0.27 m round: contact); with the camera, 0.31 m.
+- 12 of the 14 new room checks fail on the code before these repairs.
+- **Not done (needs the robot):** whether Depth Anything's view of real door frames and corners matches the
+  grid well enough to be used; how often a turn is cut or he slows in this house; recognising spots from
+  new directions in this house; the turn after naming in real rooms. The four unnamed workshop spots
+  remain until a person names the workshop there; joined spots will gather as he is told.
+
+### Teaching him now
+
+- Standing in a room, tell him which room it is. He turns once to take it in.
+- "Go to the workshop" when he does not know the way: give the turns and distances and end with the room.
+  He follows them and asks whether this is it.
 
 ## Not in this plan
 

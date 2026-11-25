@@ -776,7 +776,11 @@ class SecondReviewTests(PlaceFixture):
                                                   source_turn_id=self.state.current[0]))
         self.assertTrue(rejected.data['belief_dropped'])
         self.look(5)
-        self.assertIsNone(self.store.rows('SELECT room_id FROM spots WHERE id=?', (self.places.here,))[0]['room_id'])
+        # Not the living room; 1.4 m from the spot named the hallway, with no doorway between, it may be the
+        # hallway as a guess (rooms as areas, November 24), never the trip's room.
+        spot = self.store.rows('SELECT room_id,room_source FROM spots WHERE id=?', (self.places.here,))[0]
+        self.assertNotEqual(spot['room_id'], 'lr')
+        self.assertIn(spot['room_source'], (None, 'near'))
         self.assertNotIn('just_arrived', self.places.context())
         self.assertFalse(self.store.rows('SELECT * FROM room_bearings'))
 
@@ -890,3 +894,147 @@ class DriftingGyroTests(PlaceFixture):
             odometer.update({'imu': {'ok': True, 'yaw': i * 2.}, 'odom': {'x': 0., 'y': 0., 'theta': 0.}})
         self.assertAlmostEqual(odometer.pose()[2], 58., delta=.1)
         self.assertIsNone(odometer.drift_at_rest())
+
+
+class FromAnyDirectionTests(PlaceFixture):
+    """Owner, November 24 (runs ab1cd64f, d085dc5f): "once he knows a place from a particular direction he doesn't
+    know it from a different direction." Spots had photos one or two ways; a spot reached facing another way was a new
+    spot, a metre from the named kitchen was nowhere, and one look-alike view joined the two ends of a hall."""
+    def setUp(self):
+        super().setUp()
+        self.building()
+
+    def new_run(self, yaw0, world_facing):
+        self.yaw0, self.yaw, self.x, self.y = yaw0, wrap(world_facing - yaw0), 0., 0.
+        self.start_places()
+        self.places.building_id, self.places.building_how = 'home', 'told'; self.places._reload()
+
+    def name_here(self, room):
+        self.begin(f'This is the {room}.')
+        result = self.call('name_room', dict(name=room, where='here', source_turn_id=self.state.current[0]))
+        self.assertEqual(result.outcome, 'ok', result)
+        return result.data['room_id']
+
+    def spots(self):
+        return self.store.rows('SELECT * FROM spots')
+
+    def test_back_at_a_spot_he_knows_facing_a_way_it_has_no_photo_of(self):
+        # Run 1: the kitchen photographed one way only, then a trip to the living room.
+        self.look(5)
+        kitchen_spot = self.places.here
+        kitchen = self.name_here('kitchen')
+        self.places.swept.add(kitchen_spot)           # (He did not turn round to photograph it.)
+        self.drive([(2., 0.)], 'B')
+        self.look(5)
+        self.assertEqual(len(self.spots()), 2)
+        # Run 2: he starts where run 1 ended, rolls back and arrives facing the way the kitchen has no photo of.
+        self.new_run(40., 0.)
+        self.spot_at = 'B'
+        self.look(5)
+        self.assertNotEqual(self.places.here, kitchen_spot)
+        self.drive([(0., 1.), (-2., -1.)], 'A')       # Round something, not the way he came.
+        self.assertGreater(abs(wrap(self.yaw0 + self.yaw)), 90.)   # Facing roughly back the way the photo looks.
+        self.look(4)
+        self.assertEqual(self.places.here, kitchen_spot)
+        self.assertEqual(len(self.spots()), 2)          # No third spot for the same place.
+        self.assertEqual(self.places.context()['room']['room_id'], kitchen)
+
+    def test_a_new_spot_near_a_named_one_is_in_that_room_as_a_guess(self):
+        self.look(5)
+        kitchen = self.name_here('kitchen')
+        self.drive([(1.2, 0.)], 'C')
+        self.look(5)
+        spot = self.store.rows('SELECT room_id,room_source FROM spots WHERE id=?', (self.places.here,))[0]
+        self.assertEqual((spot['room_id'], spot['room_source']), (kitchen, 'near'))
+        room = self.places.context()['room']
+        self.assertEqual(room['name'], 'kitchen')
+        self.assertFalse(room['sure'])                  # A guess: never claimed, and still not "in" it for a trip.
+        self.assertFalse(self.places.in_room(kitchen))
+        # A person's word outranks it.
+        hall = self.name_here('hallway')
+        self.assertEqual(self.store.rows('SELECT room_id FROM spots WHERE id=?', (self.places.here,))[0]['room_id'], hall)
+
+    def test_through_a_doorway_or_far_off_a_new_spot_is_not_that_room(self):
+        self.look(5)
+        self.name_here('kitchen')
+        self.drive([(3., 0.)], 'C')                      # Three metres on: another room's floor.
+        self.look(5)
+        self.assertIsNone(self.store.rows('SELECT room_id FROM spots WHERE id=?', (self.places.here,))[0]['room_id'])
+
+    def test_one_look_alike_view_does_not_join_two_spots_but_two_directions_do(self):
+        self.look(5)
+        for _ in range(3):
+            self.turn(90); self.look(2)                 # The old spot, photographed four ways.
+        old = self.places.here
+        photos = {round(wrap(r['bearing'])): r['vector'] for r in self.places.by_spot[old]}
+        # Next run: on the same spot, facing a way between photos, so a new spot is made first.
+        self.new_run(0., 45.)
+        self.see(unit(4242), 5)
+        made = self.places.here
+        self.assertNotEqual(made, old)
+        frame = self.places.anchors[made]['offset']
+        self.turn(-45)                                   # Now facing the way the old spot's 0 photo looks.
+        self.see(at_similarity(list(photos[0]), .89, 4300), 3)
+        self.assertEqual(self.places.here, made)         # One direction alone: not joined.
+        self.turn(90)                                    # And the way its 90 photo looks, the same frame.
+        self.see(at_similarity(list(photos[90]), .89, 4400), 2)
+        self.assertEqual(self.places.here, old)
+        self.assertEqual(len(self.spots()), 1)
+        self.assertIsNotNone(frame)
+
+    def test_a_look_alike_from_the_far_end_of_a_passage_is_not_that_spot(self):
+        # Run d085dc5f: the kitchen end of the hall saw the front door and picture wall the way the workshop end
+        # had (.881), and became the workshop end, five metres away.
+        self.look(5)
+        far = self.places.here
+        far_photo = list(self.places.by_spot[far][0]['vector'])
+        self.drive([(4., 0.)], 'B')
+        self.look(5)
+        near = self.places.here
+        self.new_run(0., 0.)
+        self.spot_at = 'B'
+        self.look(5)
+        self.assertEqual(self.places.here, near)
+        self.drive([(.8, 0.)], 'C')                      # A step on from the near end: a new spot.
+        self.see(unit(777), 5)
+        made = self.places.here
+        self.assertNotIn(made, (far, near))
+        self.turn(90)                                    # Turning to face the hall...
+        self.see(far_photo, 4)                           # ...exactly the far end's view.
+        self.assertEqual(self.places.here, made)
+        self.assertEqual(len(self.spots()), 3)
+
+    def test_the_old_look_alike_guess_is_never_sure(self):
+        # Run 2c425f20: the October vote said "workshop" as if certain, so "you are in the workshop right now"
+        # sounded like old news to the reply model and nothing was kept.
+        self.places.odometer = None
+        workshop = self.room('workshop', OFFICE)
+        self.see(near(OFFICE, 3), 4)
+        context = self.places.context()
+        self.assertEqual(context['room']['room_id'], workshop)
+        self.assertFalse(context['room']['sure'])
+        self.assertEqual(context['status'], UNSURE)
+
+    def test_named_with_few_photos_he_turns_once_to_take_it_in(self):
+        self.look(5)
+        spot = self.places.here
+        self.assertIsNone(self.places.wants_look_around())   # Not named yet.
+        self.name_here('kitchen')
+        self.assertEqual(self.places.wants_look_around(), spot)
+        self.assertIsNone(self.places.wants_look_around())   # Once a spot per run.
+        # A spot already photographed most ways needs no turn.
+        self.drive([(3., 0.)], 'B')
+        self.look(5)
+        for _ in range(6):
+            self.turn(45); self.look(2)
+        self.name_here('hallway')
+        self.assertIsNone(self.places.wants_look_around())
+
+    def test_a_picture_search_hears_what_this_houses_room_looks_like(self):
+        self.look(5)
+        kitchen = self.name_here('kitchen')
+        photo = self.places.by_spot[self.places.here][0]['id']
+        self.places.map.describe(photo, 'Kitchen with grey cabinets and a black range.')
+        self.places._reload()
+        self.assertEqual(self.places.room_looks(kitchen), ['Kitchen with grey cabinets and a black range.'])
+        self.assertEqual(self.places.room_looks('nowhere'), [])
