@@ -1146,3 +1146,22 @@ Each froze both modules' frames for 1.0 to 1.4 s while controller telemetry neve
 0.16 s: about two of `Wire1`'s 500 ms timeouts, so a module holds the clock line for over half a second
 however often it is asked. **The polling pace is not the cause of the stalls.** Whether the gentler reads
 stop the eventual permanent hang needs a long run; the stalls themselves are unchanged.
+
+**The stalls follow the charger, not the power source (November 24).** Owner: "I feel like we didn't have
+these dying issues when they were powered off the ESP32." The battery menu's log (it listens whenever
+Rex is not running) has no stall from October 20 to November 10, with the modules on the controller's
+own 3.3 V regulator. The first came November 12 (Yellow Jacket motors fitted), and on November 15 the
+clock was held twice on that regulator (11:46 and 12:44), before the modules moved to their own
+converter at about 13:10. So the hangs began before the converter. Since the converter, the log's pack
+voltage splits time on the charger (14.0 V or more) from time on battery:
+
+| | hours watched | stalls | per hour | clock-held episodes |
+|---|---|---|---|---|
+| on the charger | 108 | 4 | 0.04 | 0 |
+| on battery | 44 | 1,704 | 38 | 10 |
+
+From 16:15 on November 18 to 20:20 on November 20 the controller sat on the charger with both modules
+streaming and logged no stall; the first came minutes after the pack read 13.0 V and 1.7 A. The motor
+drivers are disabled when the wheels are still, on or off the charger (`hal_motors_off`), so idle
+motor switching is not the difference. The cause is not known; what the charger changes (supply,
+ground path, which loads run) is the next thing to test, without rewiring.
