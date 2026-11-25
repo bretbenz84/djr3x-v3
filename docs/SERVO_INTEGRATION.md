@@ -6,6 +6,12 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 24: the servo menu shows the board's names, without nudges
+
+Owner request: slider labels read like the board ("Hero Swing", "Throttle Forearm") instead of the
+underscored names, and the nudge buttons (±1/5/10 µs in measurement mode) are removed. Measurement
+mode still slows moves and records poses. Synthetic checks only.
+
 ## November 23: servo names follow the board's labels
 
 The owner renamed the Maestro channels: each arm's shoulder is its swing, the old wrist bend is the

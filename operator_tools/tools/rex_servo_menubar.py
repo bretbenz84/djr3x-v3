@@ -53,6 +53,9 @@ November 22, 2026: the poker hand's twist (ch 16, "poker_wrist") and the hero ha
 same day: the hero fingers 1242–1748 µs (mid 1500), and channel 5 (was "hand") is "hero_wrist",
 768–2100 µs (mid 1436).
 
+November 23-24, 2026: sliders are listed by board channel under the board's own names
+("Hero Swing", "Throttle Forearm"); the nudge buttons are gone.
+
 Run directly for debugging:
     venv/bin/python tools/rex_servo_menubar.py
 """
@@ -147,24 +150,29 @@ _THROTTLE_DIRECTIONS = {
     "throttle_elbow": "low ↓ / high ↑",
     "throttle_forearm": "low ↑ / high ↓",
 }
-# The throttle hand's directions are not measured yet; its joints get nudges too.
+# The hands' directions are not measured yet.
 _HAND_DIRECTIONS = {
     "throttle_wrist": "wrist twist (direction unmeasured)",
     "throttle_fingers": "fingers (direction unmeasured)",
     "poker_wrist": "poker hand twist (direction unmeasured)",
     "hero_fingers": "hero fingers (direction unmeasured)",
 }
-_NUDGED = (*_THROTTLE_DIRECTIONS, *_HAND_DIRECTIONS)
-# Slider label hints for the reworked joints (the throttle hints above also get nudges).
+# Slider label hints for the reworked joints.
 _DIRECTIONS = {
     **_THROTTLE_DIRECTIONS,
     **_HAND_DIRECTIONS,
-    "head_left": "low ↓ / high ↑ (pair with head_right)",
-    "head_right": "low ↑ / high ↓ (pair with head_left)",
+    "head_left": "low ↓ / high ↑ (pair with Head Right)",
+    "head_right": "low ↑ / high ↓ (pair with Head Left)",
     "visor": "low ↑ / high ↓ (inverted)",
     "poker_elbow": "low ↓ / high ↑ (ceiling drops as forearm curls in)",
     "poker_forearm": "low ↓ / high ↑ inward",
 }
+
+
+
+def _shown(name: str) -> str:
+    """The board's own label style (owner, November 24): "hero_swing" shows as "Hero Swing"."""
+    return name.replace("_", " ").title()
 
 
 # ── Minimal .env reading (no project config import) ────────────────────────────
@@ -378,22 +386,6 @@ def _capture_measurement(ser, by_channel, note: str, path=None) -> dict[int, int
     return positions
 
 
-def _nudge(ser, cfg, delta_us: int) -> int:
-    """Nudge from fresh board pulse, never from an off-channel placeholder."""
-    if not _measurement_mode.is_set():
-        raise ValueError("Enable measurement mode first")
-    if delta_us not in (-10, -5, -1, 1, 5, 10):
-        raise ValueError("Unsupported nudge size")
-    _require_stationary(ser)
-    ch = cfg["ch"]
-    current = _read_positions(ser, [ch]).get(ch, 0)
-    if not cfg["min"] <= current <= cfg["max"]:
-        raise ValueError(f"Channel {_board(ch)} is off or unreadable; select its initial pulse manually")
-    target = max(cfg["min"], min(cfg["max"], current + delta_us * 4))
-    _write_target(ser, cfg, target)
-    return target
-
-
 def _discard_measurement_requests() -> None:
     discarded = False
     while True:
@@ -453,7 +445,7 @@ def _sequence_request(ser, by_channel, request):
             raise ValueError('Finish the current sequence first')
         pose = _sequence_pose(ser, by_channel)
         _recorder = Recorder(value, pose, by_channel)
-        _update(sequence_mode="recording", sequence_status=f"Recording: {value} · move throttle sliders or nudges")
+        _update(sequence_mode="recording", sequence_status=f"Recording: {value} · move throttle sliders")
     elif action == "save":
         if _recorder is None:
             raise ValueError('No sequence is recording')
@@ -601,18 +593,10 @@ def _worker() -> None:
                     with _tx_lock:
                         if pending or _targets or _go_home.is_set():
                             raise ValueError("Wait for pending movement, then try again")
-                        if request[0] == "record":
-                            positions = _capture_measurement(ser, by_channel, request[1])
-                            summary = " / ".join(f"{positions[ch] / 4:g}" for ch in (8, 9, 10))
-                            _update(measurement_status=f"Saved S / E / W: {summary} µs",
-                                    pending_positions=positions)
-                        else:
-                            if _playback is not None:
-                                raise ValueError("Stop playback before nudging")
-                            _, ch, delta = request
-                            target = _nudge(ser, by_channel[ch], delta)
-                            _update(measurement_status=f"Nudged ch{ch} to {target / 4:g} µs",
-                                    pending_positions={ch: target})
+                        positions = _capture_measurement(ser, by_channel, request[1])
+                        summary = " / ".join(f"{positions[ch] / 4:g}" for ch in (8, 9, 10))
+                        _update(measurement_status=f"Saved S / E / F: {summary} µs",
+                                pending_positions=positions)
                 except Exception as exc:
                     _update(measurement_status=str(exc))
                     log.warning("Measurement request: %s", exc)
@@ -736,7 +720,7 @@ def run_app() -> int:
             # Listed by board channel: from the top of Rex down since the November 23 rewire.
             for name, cfg in sorted(servos.items(), key=lambda item: _board(item[1]["ch"])):
                 self._by_channel[cfg["ch"]] = name
-                label = rumps.MenuItem(f"{name}", callback=lambda _: None)
+                label = rumps.MenuItem(_shown(name), callback=lambda _: None)
                 slider = rumps.SliderMenuItem(
                     value=cfg["neutral"], min_value=cfg["min"], max_value=cfg["max"],
                     callback=self._make_slider_cb(name), dimensions=(200, 20),
@@ -744,11 +728,6 @@ def run_app() -> int:
                 self._labels[name] = label
                 self._sliders[name] = slider
                 menu += [label, slider]
-                if name in _NUDGED:
-                    nudges = rumps.MenuItem(f"Nudge {name.removeprefix('throttle_')} (µs)")
-                    for delta in (-10, -5, -1, 1, 5, 10):
-                        nudges.add(rumps.MenuItem(f"{delta:+d} µs", callback=self._make_nudge_cb(cfg["ch"], delta)))
-                    menu.append(nudges)
                 self._set_label(name, cfg["neutral"], "unread")
             self._restart = rumps.MenuItem("Restart Pololu (all home)",
                                            callback=self._on_restart)
@@ -810,16 +789,8 @@ def run_app() -> int:
             else:
                 _measurement_mode.set()
                 sender.state = True
-                _update(measurement_status="Slow on next move · nudge one joint at a time")
+                _update(measurement_status="Slow on next move · one joint at a time")
             _discard_measurement_requests()
-
-        def _make_nudge_cb(self, channel, delta):
-            def callback(_sender):
-                if _snapshot()["mode"] != "live" or not _measurement_mode.is_set():
-                    _update(measurement_status="Enable measurement mode while connected")
-                    return
-                _measurement_requests.put(("nudge", channel, delta))
-            return callback
 
         def _record_pose(self, _sender):
             if self._record_dialog_pending:
@@ -850,7 +821,7 @@ def run_app() -> int:
             direction = _DIRECTIONS.get(name, "")
             value = f"{qus / 4.0:.2f}".rstrip("0").rstrip(".")
             reading = f"{value} µs ({state})" if state == "target" else state
-            self._labels[name].title = f"ch{_board(servos[name]['ch'])} {name}: {reading} {direction}".rstrip()
+            self._labels[name].title = f"ch{_board(servos[name]['ch'])} {_shown(name)}: {reading} {direction}".rstrip()
 
         def _make_slider_cb(self, name: str):
             cfg = servos[name]
