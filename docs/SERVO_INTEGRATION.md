@@ -12,7 +12,9 @@ Owner request: slider labels read like the board ("Hero Swing", "Throttle Forear
 underscored names, and the nudge buttons (±1/5/10 µs in measurement mode) are removed. Measurement
 mode still slows moves and records poses. So that all eighteen sliders fit without scrolling, the
 throttle sequences, measurement mode, pose recording and their greyed status lines moved into one
-"Throttle tools" submenu. Synthetic checks only.
+"Throttle tools" submenu. Later: the sliders of servos whose pulse falls as they rise (visor, Head
+Right, throttle shoulder and forearm) are flipped, so every up/down slider runs down on the left to
+up on the right; the label still shows the board pulse. Synthetic checks only.
 
 ## November 23: servo names follow the board's labels
 

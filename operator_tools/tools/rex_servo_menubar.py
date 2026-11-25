@@ -146,10 +146,14 @@ _SERVO_DEFAULTS: dict[str, dict[str, int]] = {
     "throttle_fingers": {"ch": 15, "min": 6000, "max": 7900, "neutral": 6824,  # Maestro "throttlefingers", 1500-1975 us
                          "speed": 20, "acceleration": 4},
 }
+# Owner, November 24: servos whose pulse falls as they rise have flipped sliders, so every up/down
+# slider runs down on the left to up on the right. Only the slider is flipped; pulses, limits and
+# labels (µs) are the board's.
+_FLIPPED = frozenset({"visor", "head_right", "throttle_shoulder", "throttle_forearm"})
 _THROTTLE_DIRECTIONS = {
-    "throttle_shoulder": "low ↑ / high ↓",
-    "throttle_elbow": "low ↓ / high ↑",
-    "throttle_forearm": "low ↑ / high ↓",
+    "throttle_shoulder": "← down / up →",
+    "throttle_elbow": "← down / up →",
+    "throttle_forearm": "← down / up →",
 }
 # The hands' directions are not measured yet.
 _HAND_DIRECTIONS = {
@@ -162,13 +166,18 @@ _HAND_DIRECTIONS = {
 _DIRECTIONS = {
     **_THROTTLE_DIRECTIONS,
     **_HAND_DIRECTIONS,
-    "head_left": "low ↓ / high ↑ (pair with Head Right)",
-    "head_right": "low ↑ / high ↓ (pair with Head Left)",
-    "visor": "low ↑ / high ↓ (inverted)",
-    "poker_elbow": "low ↓ / high ↑ (ceiling drops as forearm curls in)",
-    "poker_forearm": "low ↓ / high ↑ inward",
+    "head_left": "← down / up → (pair with Head Right)",
+    "head_right": "← down / up → (pair with Head Left)",
+    "visor": "← down / up →",
+    "poker_elbow": "← down / up → (ceiling drops as forearm curls in)",
+    "poker_forearm": "← down / up and in →",
 }
 
+
+
+def _slider(name: str, cfg, value: int) -> int:
+    """Slider position for a pulse, and the pulse for a slider position (the flip is its own inverse)."""
+    return cfg["min"] + cfg["max"] - value if name in _FLIPPED else value
 
 
 def _shown(name: str) -> str:
@@ -729,7 +738,7 @@ def run_app() -> int:
                 self._by_channel[cfg["ch"]] = name
                 label = rumps.MenuItem(_shown(name), callback=lambda _: None)
                 slider = rumps.SliderMenuItem(
-                    value=cfg["neutral"], min_value=cfg["min"], max_value=cfg["max"],
+                    value=_slider(name, cfg, cfg["neutral"]), min_value=cfg["min"], max_value=cfg["max"],
                     callback=self._make_slider_cb(name), dimensions=(200, 20),
                 )
                 self._labels[name] = label
@@ -834,7 +843,7 @@ def run_app() -> int:
             cfg = servos[name]
 
             def _cb(sender):
-                qus = int(round(sender.value))
+                qus = _slider(name, cfg, int(round(sender.value)))
                 self._set_label(name, qus)
                 if _snapshot()["mode"] != "live":
                     return                      # inert while Rex owns the servos
@@ -872,7 +881,7 @@ def run_app() -> int:
                 shown = qus if qus > 0 else _limp_start(ch, cfg)
                 shown = max(cfg["min"], min(cfg["max"], shown))
                 try:
-                    self._sliders[name].value = shown
+                    self._sliders[name].value = _slider(name, cfg, shown)
                 except Exception:
                     pass
                 self._set_label(name, qus, "target" if qus > 0 else "off — no pulse")

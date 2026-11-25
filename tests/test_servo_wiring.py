@@ -113,6 +113,14 @@ class MenuWiringTests(unittest.TestCase):
         port.replies = {13: 6824}
         self.assertEqual(menu._read_positions(port, [15]), {15: 6824})
 
+    def test_a_servo_whose_pulse_falls_as_it_rises_has_a_flipped_slider(self):
+        # Owner, November 24: every up/down slider runs down on the left, up on the right.
+        menu = servo_menu()
+        visor, elbow = menu._SERVO_DEFAULTS['visor'], menu._SERVO_DEFAULTS['throttle_elbow']
+        self.assertEqual(menu._slider('visor', visor, visor['min']), visor['max'])   # Far left: the visor's down pulse.
+        self.assertEqual(menu._slider('visor', visor, menu._slider('visor', visor, 5000)), 5000)
+        self.assertEqual(menu._slider('throttle_elbow', elbow, 3000), 3000)
+
 
 class MenuGentleMoveTests(unittest.TestCase):
     """Owner, November 23: slider moves jerked; every one is now gentle, and a limp servo starts where it hangs."""
