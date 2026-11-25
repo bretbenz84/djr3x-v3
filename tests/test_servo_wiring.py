@@ -153,5 +153,38 @@ class MenuGentleMoveTests(unittest.TestCase):
         self.assertEqual(self.sent()[:2], [bytes((0x89, 9, 6, 0)), bytes((0x87, 9, 30, 0))])
 
 
+class MenuParkTests(unittest.TestCase):
+    """Owner, November 24: one menu item parks every servo, slowly and in clearance-safe stages."""
+
+    def test_park_moves_the_body_then_the_poker_arm_then_the_throttle_and_ends_at_rest(self):
+        menu = servo_menu()
+        wiring = servo_wiring.load()
+        on_board = {channel: servo for servo, channel in wiring.items()}
+        pose = {ch: 0 for ch in LIMITS}   # Everything limp.
+
+        class Board(Port):
+            def read(self, count):
+                last = self.written[-1]
+                if last[0] == 0x93:
+                    return bytes((0,))   # Never moving: each stage arrives at once.
+                return pose[on_board[last[1]]].to_bytes(2, 'little')
+
+            def write(self, packet):
+                if packet[0] == 0x84:
+                    pose[on_board[packet[1]]] = packet[2] | packet[3] << 7
+                return super().write(packet)
+
+        board = Board()
+        board.reset_input_buffer = lambda: None
+        by_channel = {cfg['ch']: cfg for cfg in menu._servos().values()}
+        self.assertEqual(menu._run_park(board, by_channel), dict(UNPOWERED_REST))
+        moved = [on_board[packet[1]] for packet in board.written if packet[0] == 0x84]
+        last = {servo: index for index, servo in enumerate(moved)}
+        self.assertLess(last[3], min(last[12], last[13]))              # The visor before the poker arm...
+        self.assertLess(max(last[12], last[13]), min(last[8], last[9], last[10]))   # ...and the poker arm before the throttle.
+        speeds = [packet for packet in board.written if packet[0] == 0x87 and on_board[packet[1]] == 0]
+        self.assertEqual(speeds[-1][2], menu._GENTLE_SPEED)            # The neck went at the gentle pace.
+
+
 if __name__ == '__main__':
     unittest.main()

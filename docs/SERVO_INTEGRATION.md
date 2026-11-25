@@ -14,7 +14,11 @@ mode still slows moves and records poses. So that all eighteen sliders fit witho
 throttle sequences, measurement mode, pose recording and their greyed status lines moved into one
 "Throttle tools" submenu. Later: the sliders of servos whose pulse falls as they rise (visor, Head
 Right, throttle shoulder and forearm) are flipped, so every up/down slider runs down on the left to
-up on the right; the label still shows the board pulse. Synthetic checks only.
+up on the right; the label still shows the board pulse. "Park all servos (slowly)" moves every
+servo to the park Rex shuts down in (`UNPOWERED_REST`) at the sliders' gentle pace, one stage after
+another: the head, hands and swings, then the poker elbow and forearm by `poker_route`, then the
+throttle arm by `throttle_route` (refused, with nothing moved, if no clear route exists). A limp
+servo counts as where it hangs. Synthetic checks only.
 
 ## November 23: servo names follow the board's labels
 

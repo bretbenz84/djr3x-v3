@@ -89,7 +89,7 @@ log = logging.getLogger("rex_servo")
 
 from tools.throttle_sequences import Recorder, load_sequence, require_start_pose, validate_pose
 from r3x.servo_wiring import load as _load_wiring
-from r3x.servo_poses import UNPOWERED_REST as _LIMP_REST
+from r3x.servo_poses import POKER, THROTTLE, UNPOWERED_REST as _LIMP_REST, poker_route, throttle_route
 
 # Each servo's "ch" below is its fixed id in Rex's program; servo_wiring.toml (repository root) says
 # which board channel carries it (owner, November 23). Only the wire writes and reads translate.
@@ -286,6 +286,7 @@ def _take_pending_positions() -> dict[int, int]:
 _tx_lock = threading.Lock()
 _targets: dict[int, int] = {}
 _go_home = threading.Event()
+_park = threading.Event()
 
 
 def _queue_target(channel: int, qus: int) -> None:
@@ -300,6 +301,46 @@ def _queue_go_home() -> None:
     with _tx_lock:
         _targets.clear()      # a queued drag must not immediately undo the home
     _go_home.set()
+
+
+def _queue_park() -> None:
+    with _tx_lock:
+        _targets.clear()      # a queued drag must not undo the park
+    _park.set()
+
+
+def _park_stages(current: dict[int, int]) -> list[dict[int, int]]:
+    """Owner, November 24: every servo to the park Rex shuts down in, one stage after another.
+    The head, hands and swings first, then the poker elbow and forearm by their clearance-safe
+    stages, then the throttle arm by its route. A limp servo counts as where it hangs."""
+    park = dict(_LIMP_REST)
+    arms = {*POKER, *THROTTLE}
+    stages = [{ch: value for ch, value in park.items() if ch not in arms}]
+    stages += poker_route(current, park)
+    stages += throttle_route(current, {ch: park[ch] for ch in THROTTLE})
+    return stages
+
+
+def _wait_still(ser, timeout: float = 20.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        ser.reset_input_buffer()
+        ser.write(bytes([0x93]))  # GET MOVING STATE
+        if ser.read(1) == bytes([0]):
+            return
+        time.sleep(0.1)
+    raise ValueError("Park: a servo did not arrive in time")
+
+
+def _run_park(ser, by_channel) -> dict[int, int]:
+    _require_stationary(ser)
+    read = _read_positions(ser, list(by_channel))
+    current = {ch: read.get(ch) or _limp_start(ch, cfg) for ch, cfg in by_channel.items()}
+    for stage in _park_stages(current):
+        for ch, qus in stage.items():
+            _write_target(ser, by_channel[ch], qus)
+        _wait_still(ser)
+    return _read_positions(ser, list(by_channel))
 
 
 def _encode_set_target(channel: int, qus: int) -> bytes:
@@ -528,6 +569,7 @@ def _worker() -> None:
         with _tx_lock:
             _targets.clear()
         _go_home.clear()
+        _park.clear()
         _discard_measurement_requests()
         _cancel_sequence_state()
 
@@ -578,6 +620,23 @@ def _worker() -> None:
                 log.warning("GO HOME failed (%s) — reopening.", exc)
                 _close()
                 continue
+
+        if _park.is_set():
+            _park.clear()
+            if _recorder is not None or _playback is not None:
+                _update(sequence_status="Finish or stop the sequence before parking")
+            else:
+                _update(detail=f"Parking slowly on {port}…")
+                try:
+                    positions = _run_park(ser, by_channel)
+                    _update(detail=f"live on {port} · parked", pending_positions=positions)
+                except ValueError as exc:
+                    _update(detail=f"live on {port} · {exc}")
+                    log.warning("Park: %s", exc)
+                except Exception as exc:
+                    log.warning("Park failed (%s) — reopening.", exc)
+                    _close()
+                    continue
 
         with _tx_lock:
             pending = dict(_targets)
@@ -745,9 +804,10 @@ def run_app() -> int:
                 self._sliders[name] = slider
                 menu += [label, slider]
                 self._set_label(name, cfg["neutral"], "unread")
+            self._park = rumps.MenuItem("Park all servos (slowly)", callback=self._on_park)
             self._restart = rumps.MenuItem("Restart Pololu (all home)",
                                            callback=self._on_restart)
-            menu += [None, self._restart]
+            menu += [None, self._park, self._restart]
             self.menu = menu
             self._timer = rumps.Timer(self._refresh, 1.0)
             self._timer.start()
@@ -850,6 +910,12 @@ def run_app() -> int:
                 _queue_target(cfg["ch"], qus)
             return _cb
 
+        def _on_park(self, _item):
+            if _snapshot()["mode"] != "live" or _snapshot().get("sequence_mode") in ("recording", "playing"):
+                return
+            log.info("User clicked Park all servos.")
+            _queue_park()
+
         def _on_restart(self, _item):
             if _snapshot()["mode"] != "live":
                 return
@@ -871,6 +937,7 @@ def run_app() -> int:
             self._refresh_sequences()
             self._measurement_status.title = s.get("measurement_status", "Measurement: off")
             self._restart.hidden = (s["mode"] != "live" or _measurement_mode.is_set() or s.get("sequence_mode") in ("recording", "playing"))
+            self._park.hidden = s["mode"] != "live" or s.get("sequence_mode") in ("recording", "playing")
             for ch, qus in _take_pending_positions().items():
                 name = self._by_channel.get(ch)
                 if name is None:
