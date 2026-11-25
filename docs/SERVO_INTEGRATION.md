@@ -6,6 +6,11 @@ and movement while talking. The follow-on adds optional live composition, confir
 handoff, operator tools and microphone protection. **Not activated or validated on
 hardware.** The owner asked to leave V2 running and prepare cutover for later.
 
+## November 24: the poker forearm parks at 1429 µs
+
+Owner request: the poker forearm's park (and so its drive stance, which is the same pose) is 1429 µs,
+was 1564 µs. The elbow can still rise fully there. Synthetic checks only.
+
 ## November 24: the servo menu shows the board's names, without nudges
 
 Owner request: slider labels read like the board ("Hero Swing", "Throttle Forearm") instead of the

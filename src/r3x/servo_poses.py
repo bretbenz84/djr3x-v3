@@ -277,8 +277,9 @@ DRIVE_ARMS = ((4, 7424), (6, 8000))
 # Owner, October 10: the poker arm's park, elbow up (1920 us) with the wrist at 1564 us. It
 # is where the arm stands when the robot is switched on, the stance while the base drives,
 # and where shutdown returns it (first live start: the arm began there, dropped at once to
-# the assumed elbow-down rest, and shutdown left it down).
-POKER_PARK = ((12, POKER_ELBOW_UP), (13, 6256))
+# the assumed elbow-down rest, and shutdown left it down). Owner, November 24: the forearm parks
+# at 1429 us (was 1564), still low enough for the elbow to rise fully.
+POKER_PARK = ((12, POKER_ELBOW_UP), (13, 5716))
 POKER_DRIVE = POKER_PARK
 # Owner, October 10 evening: awake, the arm sits 45 degrees up with the hand level (1500 /
 # 942 us). Startup takes it there from its park and idle life wanders around it.
