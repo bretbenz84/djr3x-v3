@@ -39,6 +39,13 @@ from .providers import Capability
 # gamepad drives the same halls at 0.60 m/s without touching them. Now a wall beside him slows him
 # only as it nears touching, and what is in his path slows him by how soon he would reach it.
 OPEN_SPEED = .45          # Nothing near him (the wheels reach 0.61 m/s, the gamepad 0.60).
+# Owner, November 24: "allow rex to travel fast if there's clearance, but if he's heading towards a person
+# it's a little slower." On November 15 (run f15e7ec1) he turned round and rolled 1.35 m at Jeremy Thomas at
+# about 0.43 m/s, and Jeremy was startled. Heading toward someone, he keeps full speed only while they are
+# still PERSON_SLOW_WITHIN_M off; nearer, or with their distance unknown, PERSON_SPEED, and the last stretch
+# eases out more gently (PERSON_EASE_OUT, against EASE_OUT for things).
+PERSON_SPEED = .30        # m/s toward a person (two thirds of OPEN_SPEED); the step's pace still scales it.
+PERSON_SLOW_WITHIN_M = 2.5
 HALLWAY_SPEED = .25       # Backing up (rear sensing is narrower) and the dashboard joystick.
 SQUEEZE_SPEED = .12       # Brushing past a door jamb, or about to reach something in his path.
 SIDE_SCRAPE_M = .08       # A side return this near: squeeze speed...
@@ -288,6 +295,7 @@ DEFAULT_STOP_AT = {'face': 1.2, 'nearest_person': 1.2, 'object': .6, 'radar_body
 # words and reflexes keep the firmware's firmer ramp. Unverified on the robot.
 EASE_IN = .1    # m/s²: 0.04 to 0.25 m/s takes about 2 s and 0.3 m.
 EASE_OUT = .07  # m/s²
+PERSON_EASE_OUT = .045  # m/s²: toward a person the slowing starts farther out (0.30 m/s at 1 m, 0.21 at 0.5 m).
 # A roll toward a sought thing plans its slow-down to the stand-off at this rate, allowing the same
 # 0.3 s reaction as its stop check, which assumes the firmware's 0.35 m/s². November 14: at 0.45 m/s
 # the check otherwise ended the roll 0.4 m early, and each restart costs a camera look.
@@ -510,8 +518,9 @@ class Approach:
     completed. V2's fixed 0.55 m fused-front subtraction (which stalled field
     approaches at 26 cm) is replaced by the shared FRONT_MARGIN stand-off.
     """
-    def __init__(self, now, kind, stop_at, speed, max_travel, accel=.35):
+    def __init__(self, now, kind, stop_at, speed, max_travel, accel=.35, person_speed=None):
         self.started, self.kind, self.stop_at, self.speed = now, kind, stop_at, speed
+        self.person_speed = speed if person_speed is None else min(speed, person_speed)
         self.max_travel, self.accel = max(.05, max_travel), accel
         self.last_seen, self.ranges, self.samples = now, [], 0
         self.near_since = self.near_sample = self.block_since = self.front_near_since = self.clear_since = None
@@ -590,7 +599,13 @@ class Approach:
         # Whichever stop comes first (the person, knees or furniture, the distance limit)
         # is eased into; the linear terms still bound the last few centimetres.
         room = min(remaining, budget, self.max_travel - self.travel - .03)
-        lin = min(self.speed, max(.04, math.sqrt(2*EASE_OUT*max(0., room))),
+        top, ease = self.speed, EASE_OUT
+        if self.kind == 'face':
+            # Toward a person: full speed only while they are still well off (owner, November 24).
+            ease = PERSON_EASE_OUT
+            if remaining <= PERSON_SLOW_WITHIN_M:
+                top = self.person_speed
+        lin = min(top, max(.04, math.sqrt(2*ease*max(0., room))),
                   max(0., budget)/.6, max(0., self.max_travel - self.travel - .03)/.6)
         clear = front >= 1. and all(v is not None and v >= .4 for v in (space['left_m'], space['right_m']))
         if not clear:
@@ -2158,7 +2173,7 @@ class DriveBase:
         self._step_trace(row)
         return row
 
-    def _move(self, meters, plan, cancel, straighten=True):
+    def _move(self, meters, plan, cancel, straighten=True, top=None):
         row = {'action': 'move', 'requested_m': round(meters, 2)}
         need = min(meters, STRAIGHTEN_WITHIN_M)
         straightened = self._straighten(need, plan, cancel) if meters > 0 and straighten else 0.
@@ -2166,7 +2181,7 @@ class DriveBase:
             # Reported so the model can say he lined up with the hallway first.
             row['turned_away_from_wall_deg'] = round(straightened, 1)
             row['turned_deg'] = abs(round(straightened, 1))
-        top = LIMITS[plan.origin]['speed_mps'] * self._pace
+        top = min(LIMITS[plan.origin]['speed_mps'] * self._pace, top if top is not None else float('inf'))
         space = self.space()
         if meters > 0 and self._path_blocked(space, need) and self._doubtful(space, self.clock()):
             # Open floor was seen there a moment ago and nothing before: look again first.
@@ -2432,7 +2447,7 @@ class DriveBase:
                 if distance < .05:
                     return {**row, 'status': 'completed', 'reason': 'already near radar range; no face in view',
                             'travelled_m': 0., 'turned_deg': turned}
-                move = self._move(distance, plan, cancel)
+                move = self._move(distance, plan, cancel, top=PERSON_SPEED * self._pace)   # Toward someone.
                 return {**row, 'status': move['status'], 'reason': 'no face in view; moved toward radar range',
                         'travelled_m': move.get('travelled_m', 0.), 'turned_deg': turned}
             else:
@@ -2595,7 +2610,8 @@ class DriveBase:
         """One closed-loop run toward a camera target; returns (result, reason, travel, last seen)."""
         self._ensure_parked(cancel)
         controller = Approach(self.clock(), 'face' if kind in {'face', 'nearest_person'} else 'object',
-                              stop_at, LIMITS[plan.origin]['speed_mps'] * self._pace, budget_m)
+                              stop_at, LIMITS[plan.origin]['speed_mps'] * self._pace, budget_m,
+                              person_speed=PERSON_SPEED * self._pace)
         result, reason, last = None, None, None
         ease = Ease()
         self._wheels_on('move', self._origin)
@@ -2841,7 +2857,8 @@ class DriveBase:
         self._ensure_parked(cancel)
         start = self._telemetry().get('odom') or {}
         hold = self._heading(self._telemetry())
-        speed = LIMITS[plan.origin]['speed_mps'] * self._pace
+        # Toward someone whose distance is not known yet (owner, November 24): the speed for near people.
+        speed = min(LIMITS[plan.origin]['speed_mps'], PERSON_SPEED) * self._pace
         outcome, travelled = 'distance', 0.
         ease = Ease()
         graces = [0]
@@ -2874,7 +2891,7 @@ class DriveBase:
                 heading = self._heading(telemetry)
                 ang = 0. if hold is None or heading is None else max(-.2, min(.2, math.radians(wrap(hold - heading))*1.2))
                 lin, why = least(self._speed_limit(self.space(now), speed),
-                                 (math.sqrt(2*EASE_OUT*max(0., min(room, distance_m - travelled))), 'stand_off'),
+                                 (math.sqrt(2*PERSON_EASE_OUT*max(0., min(room, distance_m - travelled))), 'stand_off'),
                                  ((distance_m - travelled)/.6, 'distance'))
                 wanted = max(.05, lin)
                 lin = ease(now, wanted, speed_now)

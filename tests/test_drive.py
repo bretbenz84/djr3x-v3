@@ -8,7 +8,8 @@ import time
 import unittest
 
 from r3x.contracts import Cancellation, Capture, ToolCall, Transcript
-from r3x.drive import DriveBase, DrivePlan, DriveStep, Flinch, Radar, LIMITS, CONFIG, SENSOR_GRACE_S, SENSOR_WAIT_S
+from r3x.drive import (DriveBase, DrivePlan, DriveStep, Flinch, Radar, LIMITS, CONFIG, PERSON_SLOW_WITHIN_M, PERSON_SPEED,
+                       SENSOR_GRACE_S, SENSOR_WAIT_S)
 from r3x.drive_space import (allowed_turn, clearance, face_range, image_bearing, matrix_sectors,
                              move_allowance, open_directions, radar_bodies, FACE_WIDTH, HALF_FOV)
 from r3x.adapters.esp32 import seam_merge
@@ -723,6 +724,42 @@ class DriveOwnerTests(unittest.TestCase):
         full = [x for x, lin in rolled if lin >= .24]
         self.assertGreater(full[0], .2)                     # reaches full speed only after rolling a while,
         self.assertGreater(self.fake.x - full[-1], .3)      # and starts slowing well before he stops.
+
+    def recorded_drive(self):
+        rolled, handle = [], self.fake.handle
+        def recording(command):
+            handle(command)
+            if command['cmd'] == 'drive' and command['lin'] > 0:
+                rolled.append((self.fake.x, command['lin']))
+        self.fake.handle = recording
+        return rolled
+
+    def test_toward_a_person_he_is_fast_only_while_they_are_well_off(self):
+        # Owner, November 24: Jeremy Thomas was startled by Rex rolling 1.35 m at him at about 0.43 m/s
+        # (November 15, run f15e7ec1). Fast with room to spare, a little slower heading toward a person.
+        self.start()
+        self.world.people.append(('face-1', 'person-1', 5.5, 0.))
+        targets = {'face-1': {'target_id': 'face-1', 'kind': 'face', 'person_id': 'person-1'}}
+        rolled = self.recorded_drive()
+        receipt = self.drive.execute(plan(DriveStep('approach', target='face-1'), targets=targets), Cancellation())
+        self.assertEqual(receipt.status, 'completed', receipt)
+        stop_x = self.fake.x
+        self.assertGreater(max(lin for _, lin in rolled), PERSON_SPEED + .08)       # Far off: full speed.
+        near = [lin for x, lin in rolled if stop_x - x <= PERSON_SLOW_WITHIN_M - .3]
+        self.assertTrue(near)
+        self.assertLessEqual(max(near), PERSON_SPEED + .005)                        # Near them: slower.
+        at = [lin for x, lin in rolled if 1.2 <= stop_x - x <= 1.5]                # Where Jeremy's began.
+        self.assertTrue(at and max(at) <= PERSON_SPEED + .005, at)
+        last = [lin for x, lin in rolled if stop_x - x <= .5]
+        self.assertLessEqual(max(last), .22)                                        # And easing out early.
+
+    def test_toward_a_voice_with_no_face_yet_he_rolls_at_the_speed_for_people(self):
+        self.start()
+        rolled = self.recorded_drive()
+        self.drive._origin, self.drive._pace = 'requested', 1.
+        moved, outcome = self.drive._toward_voice(plan(DriveStep('move', meters=2.)), Cancellation(), 2.)
+        self.assertGreater(moved, 1.5)
+        self.assertLessEqual(max(lin for _, lin in rolled), PERSON_SPEED + .005)
 
     def test_object_approach_arrives_at_the_front_standoff_not_a_collision(self):
         self.start()

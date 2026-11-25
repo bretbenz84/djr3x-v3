@@ -2077,3 +2077,19 @@ with seconds). Nothing moves until the readings are back; an older outage and Re
 are refused at once, as before. Checks: synthetic controller only (`tests/test_drive.py`
 dropout tests, `tests/test_drive_session.py`), `run_checks.py --changed` 564 pass. Not yet run
 on the robot.
+
+## Slower toward people — November 24, 2026
+
+Owner: "allow rex to travel fast if there's clearance, but if he's heading towards a person it's a little
+slower than it is currently." On November 15 (run `f15e7ec1`), asked to "go say hi to Jeremy Thomas", he
+turned round and rolled 1.35 m toward him at about 0.43 m/s, the open-floor speed, and Jeremy was startled.
+
+- **Toward a person** (an approach to a face, whoever asked for it): full speed (0.45 m/s) only while the
+  person is still more than 2.5 m from where he will stop. Nearer, at most 0.30 m/s, and the last stretch
+  eases out more gently: about 0.30 m/s at 1 m to go, 0.21 at 0.5 m (it was 0.37 and 0.26).
+- **Toward a voice with no face seen yet**, or toward a body the radar sees: 0.30 m/s, since how far they are
+  is not known.
+- The step's pace (slow, easy) still scales these. Everything else (trips, moves, approaches to things) keeps
+  its speed.
+- Checks: two in `tests/test_drive.py` with the simulated base (fast far off, slower within 2.5 m, easing out
+  early; toward a voice); both fail on the earlier code. Not yet seen on the floor.
