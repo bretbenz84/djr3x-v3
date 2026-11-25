@@ -881,6 +881,7 @@ class IdlePhrase:
     throttle_rest: bool = False   # The throttle arm's bout ends: it lowers to rest (THROTTLE_RELAXED).
     throttle_run_on: tuple[tuple[int, int, int, int], ...] = ()   # (channel, target, speed, acceleration) still under way.
     energy: float = 0.   # 1 just after speech, fading to 0: livelier, quicker arm moves (idle_motion).
+    listening: bool = False   # The head is cocked to show he heard: it moves on the cue's gentler curve.
 
 
 # Each arm is one part: when it moves, all of its joints move a little together (owner,
@@ -1241,7 +1242,8 @@ def idle_lanes(current: dict[int, int], rng, held=frozenset(), phrase: IdlePhras
                 return eased_head_beat(start, moved)
             if phrase.head:
                 targets = tuple((ch, clamp(ch, value)) for ch, value in phrase.head)
-                lane = (eased_head_beat(current, targets, dwell=phrase.head_dwell),)
+                lane = (eased_head_beat(current, targets, dwell=phrase.head_dwell,
+                                        **({'pace': LISTEN_EASE} if phrase.listening else {})),)
             else:
                 lane = (drift(current),)
         elif part == 'visor':
@@ -1654,26 +1656,14 @@ def reflex_lanes(target):
 # side and stays there while he thinks, so people see he heard them before his answer
 # (about 2.5 s later) begins. Talking sway straightens the head when the reply starts.
 # October 21 (owner): it snapped over at board speed 35, the camera wobbled, and it was the
-# same cock every time. It now eases in and out on the head's curve and varies.
+# same cock every time. It eases in and out on the head's curve and varies.
+# November 24 (owner): the cock was its own request and held every other servo still, so he
+# looked frozen from the moment a person spoke until he answered. It is now idle movement's
+# head (IdleMotion.listen): the arms go on moving gently while the head is cocked.
 LISTEN_TILT = (.2, .35)      # Fraction of side travel, different each time: up to idle's cock and a bit more.
 LISTEN_DIP = (.03, .08)      # A touch down, also varied.
 LISTEN_HOLD_SECONDS = 3.     # Roughly model plus voice time; a reply starting sooner takes over.
-LISTEN_EASE = (.6, .05)      # Gentler than talking: about 0.8-1 s in, and as long back.
-
-
-def listening_lanes(current, side, rng=None):
-    """The 'I heard you' cock: the two head servos only, easing to one side and a touch
-    down, held, then back to where the head was. side is -1 (Rex's left) or 1 (his right)."""
-    if side not in (-1, 1): raise ValueError('ListeningSideRequired')
-    rng = rng or random.Random()
-    pitch0, _ = head_pose(current)
-    start = tuple((ch, current[ch]) for ch in HEAD_PAIR)
-    cocked = tuple(head_pulses(pitch0 - rng.uniform(*LISTEN_DIP), side * rng.uniform(*LISTEN_TILT)).items())
-    lane = (eased_head_beat(current, cocked, dwell=LISTEN_HOLD_SECONDS, pace=LISTEN_EASE),
-            eased_head_beat({**current, **dict(cocked)}, start, pace=LISTEN_EASE))
-    for beat in lane:
-        validate_pose(dict(beat.targets))
-    return (lane,)
+LISTEN_EASE = (.6, .05)      # Gentler than idle's head moves: about 0.8-1 s in.
 
 
 # Sentry mode (owner, October 22): the arms stop moving completely, the head stays level and the neck

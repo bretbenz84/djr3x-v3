@@ -14,7 +14,7 @@ from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
 from .servo_poses import (throttle_parks_nowhere, POKER_TWIST, HERO_FINGERS, FINGERS_CLOSED, HAND_STEPS, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
-                          talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, listening_lanes, NAMED_POSES,
+                          talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
                           sentry_lanes, telepresence_wake_lanes,
                           UNPOWERED_REST, expressive_lanes, IdlePhrase, ARM_HOLD, GESTURES, REACHING_ARMS, wake_arm_lanes,
                           VISOR_RAISE_SECONDS, visor_over_eyes, talking_visor, poker_near_obstacle, POKER_NEAR_OBSTACLE)
@@ -31,12 +31,8 @@ HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement th
 # was held like an arm pose, until released. The head is now held only while their look lasts.
 LOOK_HOLD_SECONDS = 20.
 # Requests that only run once he is awake (after startup, before park).
-AWAKE_KINDS = frozenset({'talking', 'idle', 'pose', 'reflex', 'listening', 'base_park', 'base_release',
+AWAKE_KINDS = frozenset({'talking', 'idle', 'pose', 'reflex', 'base_park', 'base_release',
                          'attention', 'gesture', 'operator', 'sentry'})
-# Requests whose still hold between beats is not motion. October 20 (515d71db): people answered
-# during the listening cue's 3 s hold, so 41 of 87 longer clips counted as heard while Rex moved;
-# such clips never start a new voice, and Jeremy's never did.
-QUIET_HOLD_KINDS = frozenset({'listening'})
 SETTLE_SECONDS = .5   # Motion risk lasts this long after the servos stop.
 # Owner, October 21: at the end of a line every arm froze mid-move. When a line finishes
 # normally the arms and visor run on to the targets already sent (the head and microphone arm
@@ -64,7 +60,6 @@ class ServoRequest:
     hold_seconds: float = .5
     idle: IdlePhrase | None = None  # Idle: which parts move in this phrase and where the gaze points
     hold_pose: bool = True        # Human poses persist; agency poses never acquire a hold.
-    side: int = 1                 # Listening cock: -1 Rex's left, 1 his right.
     travel_seconds: float = 0.    # Sentry head moves: the curve's length (0: timed by its size).
     look: bool = False            # Operator head moves at a person's look pace (telepresence aiming).
     arms_home: bool = False       # Park/shutdown: the poker arm's swing comes home too (a telepresence call).
@@ -223,11 +218,6 @@ class ServoOwner:
     def motion_risk(self) -> bool:
         return (self._motion.is_set() or self._arm_returning or self.visor_talking
                 or self.clock() < self.motion_until)
-
-    @property
-    def travelling(self) -> bool:
-        """A servo request is under way and not merely holding still."""
-        return self._motion.is_set()
 
     @property
     def busy(self) -> bool:
@@ -397,7 +387,6 @@ class ServoOwner:
         accepted = False
         limited = False   # A kept poker arm came out only as far as its obstacle allows.
         reframed = False
-        holding = False   # A QUIET_HOLD_KINDS request has arrived and holds still.
         coasted = False   # Cancelled with arms left running on to their targets.
         try:
             if self.state not in {'ready', 'active', 'stopped'} or self._bus is None:
@@ -425,7 +414,6 @@ class ServoOwner:
                      pose_lanes(dict(request.pose),current,further=request.look) if request.kind == 'operator' else
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
                      sentry_lanes(request.pose, current, request.travel_seconds) if request.kind == 'sentry' else
-                     listening_lanes(current, request.side, self.rng) if request.kind == 'listening' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      telepresence_wake_lanes(current) if request.kind == 'telepresence_wake' else
                      lifecycle_lanes(request.kind, current, request.first_look, request.arms_home, request.keep_arms))
@@ -532,9 +520,6 @@ class ServoOwner:
                                 self.camera_moving = True
                                 self.on_camera_motion(True, request.request_id, request.kind)
                         touched.update(targets)  # Include partially sent batches on failure.
-                        if holding:
-                            self._motion.set()
-                            holding = False
                         self._bus.targets(targets)
                         changed.update(changes)
                         self.commanded.update(targets)
@@ -565,13 +550,6 @@ class ServoOwner:
                             lagging = ','.join(f'ch{ch}@{observed[ch]}->{value}' for ch, value in beat.targets
                                                if abs(observed[ch] - value) > 2)
                             raise ProviderFailure('ServoArrivalTimeout:' + lagging)
-                if (request.kind in QUIET_HOLD_KINDS and not holding and active
-                        and all(arrived is not None for _, arrived in active.values())):
-                    # Every servo is at its target, dwelling: nothing travels until the next beat.
-                    self.motion_until = max(self.motion_until,
-                                            max(arrived for _, arrived in active.values()) + SETTLE_SECONDS)
-                    self._motion.clear()
-                    holding = True
                 if len(completed) < len(lanes) or active:
                     self.wait(.025)
             cancel.check()
@@ -637,8 +615,7 @@ class ServoOwner:
                     self.on_camera_motion(False, request.request_id, request.kind)
             finally:
                 if accepted:
-                    if not holding:   # Stopped mid-hold, nothing was travelling: no settle tail.
-                        self.motion_until = self.clock() + SETTLE_SECONDS + (COAST_SECONDS if coasted else 0.)
+                    self.motion_until = self.clock() + SETTLE_SECONDS + (COAST_SECONDS if coasted else 0.)
                     if self.microphone_moved_until == float('inf'):
                         self.microphone_moved_until = self.motion_until
                         self.microphone_still_since = self.clock()

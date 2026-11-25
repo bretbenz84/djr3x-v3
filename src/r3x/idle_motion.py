@@ -15,6 +15,11 @@ between phrases. The head belongs to the gaze:
   look_down, a silent look), the head stays there with small living movement until the
   model looks back at people, someone speaks, or DIRECTION_SECONDS pass. A look a person
   asked for stays as long as the servo owner holds it (October 23), speech included.
+- listening (listen): once a person has finished and what they said is understood, the head
+  cocks to one side and a touch down wherever the gaze points, for LISTEN_HOLD_SECONDS or until
+  he answers. Owner, November 24: this cue had been a request of its own that held every other
+  servo still, so he sat frozen from the moment a person spoke until his answer; the arms now go
+  on moving gently beside it. While a person is talking idle is still stopped (note_speech).
 
 With nobody in view it looks around the room. This aims the head only; it attributes no
 speaker and identifies nobody.
@@ -25,9 +30,9 @@ import random
 import threading
 
 from .contracts import Cancellation, ProviderFailure
-from .servo_poses import (DRIVE_HEAD, HEAD, HEAD_SMALL, IDLE_CHANNELS, LOOK_NECK_DEG, NECK_CENTER, THROTTLE,
-                          NECK_PER_DEG, PITCH_SMALL, TILT_SMALL, IdlePhrase, degrees_from_pitch, head_pose,
-                          head_pulses, pitch_from_degrees)
+from .servo_poses import (DRIVE_HEAD, HEAD, HEAD_PAIR, HEAD_SMALL, IDLE_CHANNELS, LISTEN_DIP, LISTEN_HOLD_SECONDS,
+                          LISTEN_TILT, LOOK_NECK_DEG, NECK_CENTER, THROTTLE, NECK_PER_DEG, PITCH_SMALL, TILT_SMALL,
+                          IdlePhrase, degrees_from_pitch, head_pose, head_pulses, pitch_from_degrees)
 from .servos import ServoRequest
 
 # Seconds between one part's moves. An arm moves all of its joints together (owner,
@@ -110,6 +115,8 @@ class IdleMotion:
         self._cock_until = float('-inf')   # ...held until then...
         self._cock_at = float('-inf')      # ...and next begun then.
         self._wake_until = float('-inf')   # After a drive: alive even while he listens or works.
+        self._listen_until = float('-inf')   # The 'I heard you' cock lasts until then (listen)...
+        self._listen_pose = (0., 0.)         # ...at this pitch and side tilt.
         self._wake_at = float('-inf')
         # What the head is doing and since when, for Rex's own sense of where he is looking
         # (October 14, 1662b007: asked "what are you looking at?" he could only describe the view).
@@ -154,7 +161,51 @@ class IdleMotion:
                 if part != 'head' and channels.intersection(owned):
                     self._rest[part] = now + POSE_REST_SECONDS
 
+    def listen(self) -> str:
+        """What a person said is understood: the head cocks to show he heard, as idle's next head
+        move, and the arms carry on beside it. A phrase under way steps aside so the cock comes now."""
+        with self._lock:
+            if self.closed or self.owner.state != 'active':
+                return 'unavailable'
+            commanded = self.owner.commanded
+            if set(HEAD_PAIR).intersection(self.owner.held_channels):
+                return 'head_held'   # A person's held pose, or the drive stance.
+            now = self.owner.clock()
+            pitch, tilt = head_pose(commanded) if set(HEAD_PAIR).issubset(commanded) else (0., 0.)
+            # On the side of a lean the head already has (October 21: cocking away from it swung
+            # the head across, left then right, as a person went on talking); straight, either side.
+            side = (1 if tilt > 0 else -1) if abs(tilt) > .1 else self.rng.choice((-1, 1))
+            self._listen_pose = (pitch - self.rng.uniform(*LISTEN_DIP), side * self.rng.uniform(*LISTEN_TILT))
+            self._listen_until = now + LISTEN_HOLD_SECONDS
+            self._due['head'] = float('-inf')   # First in the next phrase, ahead of any arm that is due.
+            if self._thread is not None and self._thread.is_alive():
+                self._cancel.event.set()
+                self._thread.join(timeout=2.)
+                if self._thread.is_alive():
+                    raise ProviderFailure('IdleMotionStillActive')
+                self._thread = None
+            if self._allowed:
+                self._resume = now
+            if self.trace:
+                self.trace.emit('listening_cue', side=side, tilt=round(self._listen_pose[1], 3))
+            return 'started'
+
+    def listening(self, now=None):
+        return (self.owner.clock() if now is None else now) < self._listen_until
+
     def _head(self, now, calm):
+        """The gaze's head targets, cocked while he shows he heard (listen)."""
+        targets, dwell = self._gaze(now, calm)
+        if not self.listening(now):
+            return targets, dwell
+        commanded = self.owner.commanded
+        level = dict(DRIVE_HEAD)
+        aimed = {**{ch: commanded.get(ch, level.get(ch, NECK_CENTER)) for ch in HEAD}, **dict(targets)}
+        pitch, tilt = self._listen_pose
+        cocked = head_pulses(pitch + self.rng.uniform(-.015, .015), tilt + self.rng.uniform(-.03, .03))
+        return ((0, aimed[0]), (1, aimed[1]), *cocked.items()), dwell
+
+    def _gaze(self, now, calm):
         """Head targets for this phrase, or () for a small drift where it already points.
 
         The head is a neck pulse, a lift pulse, and a pitch and side tilt for the two head
@@ -263,6 +314,7 @@ class IdleMotion:
                 return
             now = self.owner.clock()
             self._spoke_at, self._allowed, self._resume = now, True, now
+            self._listen_until = float('-inf')   # He has answered: the cock is over.
             self._resumed(now)
             # The throttle finishes the talking move it is on, then goes straight on (October 21:
             # waiting for it to arrive first still read as stopping the moment he stopped).
@@ -323,7 +375,8 @@ class IdleMotion:
                 self._throttle_left -= 1
         head, dwell = self._head(now, calm) if 'head' in chosen else ((), 0.)
         return IdlePhrase(tuple(parts), tuple((ch, round(value)) for ch, value in head), dwell, swing, settle,
-                          throttle_rest=lower, throttle_run_on=run_on, energy=round(energy, 3))
+                          throttle_rest=lower, throttle_run_on=run_on, energy=round(energy, 3),
+                          listening='head' in chosen and self.listening(now))
 
     # Scheduling -----------------------------------------------------------
     def _stop(self):
@@ -396,7 +449,8 @@ class IdleMotion:
                 return
             if not self._allowed:
                 self._allowed = True
-                self._resume = now + self.rng.uniform(.6, 1.2)
+                # The usual pause before idle takes over again, but not when it is to show he heard.
+                self._resume = now if self.listening(now) else now + self.rng.uniform(.6, 1.2)
                 self._resumed(now)
             self._start(now, calm)
 

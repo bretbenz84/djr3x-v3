@@ -787,21 +787,20 @@ class RobotServos:
         return receipt
 
     def note_speech(self):
-        """A person is speaking: idle movement and a listening cue stop so the rest is heard cleanly."""
+        """A person is speaking: idle movement, the listening cock included, stops where it is so
+        the rest is heard cleanly."""
         self._speech_at = self.owner.clock()
         self.idle.stop()
-        self.reflex.settle()
 
     def heard(self):
         """A trusted transcript is back: cock the head while he thinks, unless he is
-        already talking or the person has carried on speaking. Calm idle movement steps
-        aside so the cue is not refused busy."""
+        already talking or the person has carried on speaking. The cock is idle movement's
+        head, so the arms keep moving gently beside it (owner, November 24)."""
         if self.talking._thread is not None:
             return 'talking'
         if self.owner.clock() - self._speech_at < STILL_TALKING_S:
             return 'person_still_talking'
-        self.idle.stop()
-        return self.reflex.heard()
+        return self.idle.listen()
 
     def capture_held(self,capture):
         valid = not capture.motion_risk and self.owner.microphone_held_during(capture.started_at,capture.ended_at)

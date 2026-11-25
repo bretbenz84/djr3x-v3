@@ -13,20 +13,14 @@ the camera saw his face 32-38 degrees left (the run before agreed within ~10). W
 visible face lies near the voice's bearing, the head aims at that face instead: the
 camera is the precise sensor. This only aims the head; it attributes no speaker.
 
-The same worker gives the listening cue (owner, October 11): once a trusted transcript
-is back, the head cocks to one side while Rex thinks (servo_poses.listening_lanes).
-Anything that moves him deliberately (talking, a pose, a gesture, a drive) stops it first.
-A person speaking stops it where it is (settle), and it does not start while they are
-mid-sentence: October 20 (515d71db), clips heard during the cue matched Bret's voice at a
-median .39 against .57 still, and none of them could start a new person's voice.
+The listening cue (the head cock once a transcript is back) is idle movement's head since
+November 24 (IdleMotion.listen), so the arms keep moving while he thinks.
 """
 from dataclasses import asdict
-import random
 import threading
 
 from .contracts import Cancellation, ProviderFailure
 from .drive_space import image_bearing, neck_pulse
-from .servo_poses import HEAD_PAIR, LIMITS, head_pose
 from .servos import ServoRequest
 
 FORWARD_DEG = 90.     # Front half only; a voice behind is left to the model and base.
@@ -40,16 +34,14 @@ def voice_neck(bearing: float) -> int:
 
 
 class VoiceReflex:
-    def __init__(self, owner, *, rng=None):
+    def __init__(self, owner):
         self.owner = owner
-        self.rng = rng or random.Random()
         self.trace = None
         self.faces = None          # () -> fresh face boxes in the current camera frame
         self.on_voice = lambda: None   # A voice in front returns the idle gaze to people.
         self._lock = threading.Lock()
         self._thread = None
         self._cancel = None
-        self._listening = None   # (cancellation, thread) of the latest listening cue.
         self._index = 0
         self.closed = False
 
@@ -98,44 +90,6 @@ class VoiceReflex:
             self._thread = threading.Thread(target=run, name='r3x-voice-reflex', daemon=True)
             self._thread.start()
             return 'started'
-
-    def heard(self) -> str:
-        """Cock the head to show Rex heard what was said; started in the background."""
-        with self._lock:
-            if self.closed or self.owner.state != 'active':
-                return 'unavailable'
-            if set(HEAD_PAIR).intersection(self.owner.held_channels):
-                return 'head_held'   # A person's held pose, or the drive stance.
-            if self._thread is not None and self._thread.is_alive():
-                return 'already_turning'
-            _, tilt = head_pose(self.owner.commanded) if set(HEAD_PAIR).issubset(self.owner.commanded) else (0., 0.)
-            # On the side of a lean the head already has (October 21: cocking away from it swung
-            # the head across, left then right, as a person went on talking); straight, either side.
-            side = (1 if tilt > 0 else -1) if abs(tilt) > .1 else self.rng.choice((-1, 1))
-            self._index += 1
-            request = ServoRequest(f'listening:{self._index}', self.owner.version, 'listening',
-                                   self.owner.clock()+10., side=side)
-            token = self._cancel = Cancellation()
-            def run():
-                result = self.owner.execute(request, token)
-                if self.trace:
-                    self.trace.emit('listening_cue', side=side, **asdict(result))
-            self._thread = threading.Thread(target=run, name='r3x-listening-cue', daemon=True)
-            self._listening = (token, self._thread)
-            self._thread.start()
-            return 'started'
-
-    def settle(self) -> bool:
-        """A person is talking: a running listening cue stops where it is and the head holds
-        still, so the rest of what they say is heard cleanly. Only while it holds: the cock's
-        own whir can sound like speech. Called from the audio loop, so it takes no lock and
-        joins nothing; the servo owner sees the cancel within a step."""
-        listening = self._listening
-        if (listening is None or listening[0].event.is_set() or not listening[1].is_alive()
-                or self.owner.travelling):
-            return False
-        listening[0].event.set()
-        return True
 
     def _stop(self):
         if self._cancel:

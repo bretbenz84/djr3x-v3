@@ -6,6 +6,14 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## He keeps moving while he thinks — November 24
+
+Owner: after a person finishes speaking he looked frozen until he answered. The "I heard you" head cock
+held every servo still for about 5 s; it is now part of idle movement, so the arms and visor keep moving
+gently while the head is cocked. While a person talks he still holds still. Clips of someone carrying on
+during the think time are more often heard during motion and do not teach a voice. Synthetic checks only;
+details in [servo integration](SERVO_INTEGRATION.md#november-24-the-arms-keep-moving-while-he-thinks).
+
 ## He struggles awake, until the chime — November 21 (night)
 
 Owner: the wake "goes up right away slowly and the head levels out, it then turns left and right while

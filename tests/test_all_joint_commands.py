@@ -337,37 +337,73 @@ class VoiceReflexTests(unittest.TestCase):
 
 
 class ListeningCueTests(unittest.TestCase):
-    """Owner, October 11: once Rex has understood what was said, his head cocks while he thinks."""
+    """Owner, October 11: once Rex has understood what was said, his head cocks while he thinks.
+    November 24: the cock is idle movement's head, so the arms keep moving gently beside it."""
     def setUp(self):
+        import random
         self.clock, self.port = Clock(), PulsePort()
         self.robot = RobotServos('fake', open_port=lambda:self.port, clock=self.clock, wait=self.clock.wait)
         self.robot.owner.wait = self.clock.wait
         self.robot.start();self.robot.open_eyes()   # Past the ready line: the visor is open.
         self.addCleanup(self.robot.close)
+        self.robot.idle.rng = random.Random(5)
         self.rows = []
-        self.robot.reflex.trace = type('T', (), {'emit': lambda _, event, **kw: self.rows.append((event, kw))})()
-        self.poses = []
-        self.port.on_target = lambda: self.poses.append((self.clock(), dict(self.port.pose)))
+        self.robot.idle.trace = type('T', (), {'emit': lambda _, event, **kw: self.rows.append((event, kw))})()
+        self.moves = []   # (time, channels sent, pose after)
+        self.port.on_target = lambda: self.moves.append((self.clock(), dict(self.port.pose)))
 
-    def settle(self):
-        self.robot.reflex._thread.join(5)
+    def tick_for(self, seconds, allowed=True, calm=True, step=.1):
+        """Tick like the audio loop while the conversation works on the reply (calm)."""
+        idle = self.robot.idle
+        end = self.clock() + seconds
+        while self.clock() < end:
+            idle.tick(allowed, calm)
+            if idle._thread is not None:
+                idle._thread.join(2)
+            self.clock.wait(step)
 
-    def settled(self):
-        """The pose after each beat's targets (the fake board reports one channel at a time)."""
-        return list({at: pose for at, pose in self.poses}.items())
+    def a_person_spoke(self, seconds=3.):
+        self.tick_for(4.)                                   # Idle life before they speak.
+        self.robot.note_speech()
+        self.tick_for(seconds, allowed=False)               # They talk: nothing moves.
+        self.robot.note_speech()
+        self.clock.wait(.5)                            # The end of their speech; the words come back.
 
-    def test_head_cocks_to_one_side_holds_while_he_thinks_then_straightens(self):
+    def changed(self, since, channels):
+        before = None
+        for at, pose in self.moves:
+            if at < since:
+                before = pose
+            elif before is not None and any(pose[ch] != before[ch] for ch in channels):
+                return True
+        return False
+
+    def test_head_cocks_while_he_thinks_and_the_arms_keep_moving(self):
         from r3x.servo_poses import LISTEN_HOLD_SECONDS, LISTEN_TILT, head_pose
-        before = dict(self.port.pose)
-        self.assertEqual(self.robot.heard(), 'started'); self.settle()
-        (cocked_at, cocked), (back_at, back) = self.settled()
-        self.assertTrue(LISTEN_TILT[0] - .05 <= abs(head_pose(cocked)[1]) <= LISTEN_TILT[1] + .05)
-        self.assertGreaterEqual(back_at - cocked_at, LISTEN_HOLD_SECONDS)
-        for ch in (0, 1, 3, 4, 5, 7):                       # Only the two head servos move; never the array arm.
-            self.assertEqual(cocked[ch], before[ch])
-        self.assertEqual({ch: back[ch] for ch in (2, 11)}, {ch: before[ch] for ch in (2, 11)})
-        self.assertEqual(self.rows[-1][1]['status'], 'pulses_reached')
+        self.a_person_spoke()
+        heard = self.clock()
+        array = self.port.pose[7]
+        self.assertEqual(self.robot.heard(), 'started')
+        self.tick_for(LISTEN_HOLD_SECONDS)
+        tilts = [abs(head_pose(pose)[1]) for at, pose in self.moves if at >= heard]
+        self.assertTrue(any(LISTEN_TILT[0] - .05 <= t <= LISTEN_TILT[1] + .05 for t in tilts), tilts)
+        self.assertTrue(self.changed(heard, (3, 4, 5, 6, 8, 9, 10, 12, 13)))   # Visor or an arm moved too.
+        self.assertEqual(self.port.pose[7], array)                            # Never the microphone array.
+        self.assertEqual(self.rows[0][0], 'listening_cue')
         self.assertEqual(self.robot.owner.held_channels, set())   # Nobody's pose: nothing is held.
+
+    def test_the_cock_ends_after_its_hold_or_when_he_answers(self):
+        from r3x.servo_poses import LISTEN_HOLD_SECONDS
+        self.a_person_spoke()
+        self.assertEqual(self.robot.heard(), 'started')
+        self.assertTrue(self.robot.idle.listening())
+        self.clock.wait(LISTEN_HOLD_SECONDS)
+        self.assertFalse(self.robot.idle.listening())
+        self.assertEqual(self.robot.heard(), 'started')
+        self.robot.talking.start('reply', Cancellation())               # His reply stops idle first...
+        self.robot.talking.stop()
+        self.robot.idle.after_speech()                                  # ...and ends the cock.
+        self.assertFalse(self.robot.idle.listening())
 
     def test_stays_on_the_side_of_a_lean_the_head_already_has(self):
         # October 21: cocking away from a lean swung the head across, left then right, as the
@@ -375,29 +411,26 @@ class ListeningCueTests(unittest.TestCase):
         from r3x.servo_poses import head_pose, head_pulses
         for lean in (.4, -.3):
             self.robot.execute_pose(head_pulses(0., lean), Cancellation(), 'lean', hold_pose=False)
-            self.poses.clear()
-            self.assertEqual(self.robot.heard(), 'started'); self.settle()
-            self.assertGreater(head_pose(self.settled()[0][1])[1] * lean, 0.)
+            self.assertEqual(self.robot.heard(), 'started')
+            self.assertGreater(self.robot.idle._listen_pose[1] * lean, 0.)
+            self.robot.idle.after_speech()
 
-    def test_the_cock_eases_in_and_out_and_varies(self):
+    def test_the_cock_eases_in_and_varies(self):
         # October 21: it snapped over at board speed 35 (the picture wobbled) and was the same
-        # every time. Both head servos now ease along one curve, and the amount varies.
-        import random
-        from r3x.servo_poses import LISTEN_EASE, head_pose
-        self.robot.owner.rng = random.Random(11)   # Unseeded, six draws now and then gave only three amounts.
+        # every time. Both head servos ease along one curve, and the amount varies.
         tilts = set()
         for _ in range(6):
-            self.port.packets.clear(); self.poses.clear()
-            self.assertEqual(self.robot.heard(), 'started'); self.settle()
+            self.robot.idle.after_speech(); self.clock.wait(1.)
+            self.port.packets.clear()
+            self.assertEqual(self.robot.heard(), 'started')
+            self.tick_for(1.5)
             speeds = [p[2] + 128 * p[3] for p in self.port.packets if p[0] == 0x87 and p[1] in (2, 11)]
             self.assertTrue(speeds); self.assertLessEqual(max(speeds), 12)       # Was 35.
-            tilts.add(round(abs(head_pose(self.settled()[0][1])[1]), 2))
-            self.robot.execute_pose('look_level', Cancellation(), 'level', hold_pose=False)
+            tilts.add(round(abs(self.robot.idle._listen_pose[1]), 2))
         self.assertGreater(len(tilts), 3)
 
     def test_a_held_head_pose_and_his_own_talking_are_left_alone(self):
         self.robot.execute_pose('look_up', Cancellation(), 'asked')     # A person asked: the head is held.
-        self.poses.clear()
         self.assertEqual(self.robot.heard(), 'head_held')
         self.robot.execute_pose('release_poses', Cancellation(), 'release')
         self.robot.talking._thread = object()                           # Already answering.
@@ -405,57 +438,24 @@ class ListeningCueTests(unittest.TestCase):
             self.assertEqual(self.robot.heard(), 'talking')
         finally:
             self.robot.talking._thread = None
-        self.assertEqual([p for p in self.poses if p[1][2] != self.port.pose[2]], [])
+        self.assertFalse(self.robot.idle.listening())
 
-    def test_his_reply_starting_takes_the_head_over_mid_hold(self):
-        import threading, time
-        holding = threading.Event()
-        def slow_wait(seconds):
-            self.clock.wait(seconds)
-            holding.set()
-            time.sleep(.002)
-        self.robot.owner.wait = slow_wait
+    def test_someone_talking_again_stills_everything_until_they_finish(self):
+        # October 20 (515d71db): people answered during the cock, and clips heard while he moved
+        # never start a new voice. While a person talks nothing moves; the cock stays where it is.
+        self.a_person_spoke()
         self.assertEqual(self.robot.heard(), 'started')
-        self.assertTrue(holding.wait(2))
-        self.robot.talking.start('reply', Cancellation())               # Stops the cue before talking moves.
-        self.robot.talking.stop()
-        self.assertEqual(self.rows[0][1]['status'], 'cancelled')
-
-    def test_someone_talking_during_the_hold_stops_the_head_where_it_is_with_no_motion(self):
-        # October 20 (515d71db): people answered during the cock's hold and return, so 41 of 87
-        # longer clips counted as heard while he moved; a new voice never starts from those.
-        import threading
-        from r3x.servo_poses import LISTEN_TILT, head_pose
-        holding, proceed = threading.Event(), threading.Event()
-        def gated_wait(seconds):
-            self.clock.wait(seconds)
-            if self.robot.owner.busy and not self.robot.owner.motion_risk():
-                holding.set()
-                proceed.wait(2)
-        self.robot.owner.wait = gated_wait
-        self.assertEqual(self.robot.heard(), 'started')
-        self.assertTrue(holding.wait(2))
-        self.assertFalse(self.robot.owner.motion_risk())               # Holding still is not motion.
-        cocked = dict(self.port.pose)
+        self.tick_for(1.)
         self.robot.note_speech()
-        proceed.set(); self.settle()
-        self.assertEqual(self.rows[-1][1]['status'], 'cancelled')
-        self.assertEqual(self.port.pose, cocked)                        # No return beat: it stays cocked.
-        self.assertTrue(LISTEN_TILT[0] - .05 <= abs(head_pose(cocked)[1]) <= LISTEN_TILT[1] + .05)
-        self.assertFalse(self.robot.owner.motion_risk())               # Nothing travelled: no settle tail.
+        stopped = self.clock()
+        self.assertIsNone(self.robot.idle._thread)
+        self.tick_for(2., allowed=False)                                     # Capturing them: idle not allowed.
+        self.assertFalse(self.changed(stopped, range(16)))
 
     def test_no_cue_while_the_person_is_still_talking(self):
         self.robot.note_speech()
         self.assertEqual(self.robot.heard(), 'person_still_talking')
         self.clock.wait(1.)
-        self.assertEqual(self.robot.heard(), 'started'); self.settle()
+        self.assertEqual(self.robot.heard(), 'started')
 
-    def test_the_cock_itself_is_motion_and_its_whir_does_not_stop_it(self):
-        seen = []
-        def sent():
-            if not seen:   # The cock's targets go out: its own whir heard as speech.
-                seen.append((self.robot.owner.travelling, self.robot.owner.motion_risk(), self.robot.reflex.settle()))
-        self.port.on_target = sent
-        self.assertEqual(self.robot.heard(), 'started'); self.settle()
-        self.assertEqual(seen, [(True, True, False)])
-        self.assertEqual(self.rows[-1][1]['status'], 'pulses_reached')
+

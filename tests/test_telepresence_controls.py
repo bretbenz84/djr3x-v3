@@ -77,7 +77,7 @@ class StanceTests(unittest.TestCase):
             self.assertEqual(port.pose[ch], value, ch)
 
     def test_the_call_refuses_rex_s_own_motion_and_moves_only_what_the_caller_asks(self):
-        for kind, data in (('idle', {}), ('talking', {}), ('pose', {'pose': 'look_left'}), ('listening', {}),
+        for kind, data in (('idle', {}), ('talking', {}), ('pose', {'pose': 'look_left'}),
                            ('gesture', {'primitive': 'nod'})):
             self.assertEqual(self.request(kind, **data).reason, 'OperatorOverride', kind)
         arms = {ch: self.port.pose[ch] for ch in ARMS}

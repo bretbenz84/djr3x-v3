@@ -1506,3 +1506,25 @@ Owner: the throttle arm is on his right and reaches straight ahead; the right si
 nearest of the whole front under 0.61 m); `RobotServos.execute_pose` refuses a fully extended throttle pose
 under 0.5 m. The throttle hand (14, 15) is out of `REACHING_ARMS`, `BASE_HELD` and `ARM_RETURN`, and idle moves
 it alone while its arm is held. Synthetic checks only.
+
+## November 24: the arms keep moving while he thinks
+
+Owner: whenever he is spoken to he sits still, and after the person is done he still looks frozen;
+once they are done he should move a little. Run `db15f04d` showed why: while a person talks idle movement
+stops (kept: their words are heard cleanly), and once the words came back the listening cue was a request
+of its own that held the whole servo board for about 5 s (ease in, 3 s hold, ease back), so nothing else
+moved until his reply began 3-7 s later. Idle ran 9 phrases in a minute of that run, against about 40.
+
+The cock is now idle movement's head (`IdleMotion.listen`, from `RobotServos.heard`): the next phrase starts
+at once with the head cocked to one side and a touch down (same `LISTEN_TILT`, `LISTEN_DIP`, side of an
+existing lean, on the cue's gentler `LISTEN_EASE` curve) wherever the gaze points, and whichever arms and
+visor are due move gently beside it (calm: small head moves, never the microphone array). It lasts
+`LISTEN_HOLD_SECONDS` or until he answers. A person speaking again still stops everything where it is
+(`note_speech`). The separate `listening` request, `listening_lanes`, `QUIET_HOLD_KINDS` and
+`VoiceReflex.heard/settle` are retired.
+
+Trade-off, accepted by the owner's request: a person who carries on speaking during the think time
+now often starts while something is moving, so those clips are marked as heard during motion and do not
+start or teach a voice (the October 20 finding: .39 voice match during the cue against .57 still).
+811 blocked-I/O checks pass (synthetic, simulated servo board). How it looks and sounds on the robot,
+and whether follow-up speech is recognised less often, are unseen.
