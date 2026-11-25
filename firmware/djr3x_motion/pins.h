@@ -55,22 +55,17 @@
 #define PIN_I2C_SDA  21
 #define PIN_I2C_SCL  22
 
-// ---- I2C #2 — the 8x8 Matrix ToF's PRIVATE bus (MOTION_TOF_MATRIX_PRESENT==1) --
-// The SEN0628's onboard RP2040 clock-stretches (frame packaging, ~5 s mode
-// reconfigure); stretches past the Wire timeout corrupt the IDF i2c_master driver
-// state and take out every OTHER device on the same controller (field bug
-// 2026-07-16: IMU transaction crashed → whole firmware froze). So the matrix rides
-// the ESP32's second I2C controller on its own pins — never on the 21/22 trunk.
-// The Gravity board has onboard pull-ups; GPIO4 is a clean output-capable pin, and
-// GPIO5's strapping role (SDIO timing) tolerates an idle-high I2C line at reset.
-#define PIN_MX_I2C_SDA  4   // SEN0628 Gravity D/T (the REAR board only, since 0.2.26)
-#define PIN_MX_I2C_SCL  5   // SEN0628 Gravity C/R
-
-// ---- The FRONT 8x8 Matrix ToF on its own serial port (0.2.26, owner 2026-11-24) ----
-// Its I2C/UART switch on UART, off the shared GPIO4/5 bus, so a board that hangs the
-// bus no longer blinds both ends. UART2 is routed to any pins; 16/17 are avoided (see the
-// left-PWM note above). 34 is input-only, which is all a receive pin needs (the board
-// drives its transmit line; no pull-up). 15 is a strapping pin whose boot state is high,
-// the same as an idle transmit line, and nothing on the board's receive pin pulls it low.
-#define PIN_MX_UART_RX  34  // ESP32 receive <- front SEN0628 D/T (its transmit)
-#define PIN_MX_UART_TX  15  // ESP32 send    -> front SEN0628 C/R (its receive)
+// ---- The two 8x8 Matrix ToF boards, each on its own serial port --------------
+// Owner, November 24, 2026: until 0.2.25 both shared a private I2C bus on GPIO4/5, and a
+// board holding the clock line low blinded both. Each board's I2C/UART switch is now on
+// UART. Its Gravity D/T is its transmit (our receive), C/R its receive (our send). The
+// ESP32 routes its UARTs to any pins; 16/17 are avoided (the left-PWM note above).
+//   Front, UART2 (0.2.26): 34 is input-only, all a receive pin needs (the board drives
+//   its transmit line). 15 is a strapping pin whose boot state is high, as an idle send
+//   line is, and nothing on the board's receive pin pulls it low.
+//   Rear, UART1 (0.2.28): the same two wires it had on the bus. 5 is a strapping pin
+//   (SDIO timing) that idles high as a send line; 4 is a clean pin.
+#define PIN_MX_FRONT_RX  34  // ESP32 receive <- front SEN0628 D/T
+#define PIN_MX_FRONT_TX  15  // ESP32 send    -> front SEN0628 C/R
+#define PIN_MX_REAR_RX    4  // ESP32 receive <- rear SEN0628 D/T
+#define PIN_MX_REAR_TX    5  // ESP32 send    -> rear SEN0628 C/R

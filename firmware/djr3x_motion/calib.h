@@ -332,25 +332,13 @@
 // ---- 8x8 Matrix ToF (DFRobot SEN0628 — MOTION_TOF_MATRIX_PRESENT==1) --------
 // Front-mounted, level, VL53L7CX behind an onboard RP2040 (tof_matrix.cpp).
 // Range 20-3500 mm, 45°x45° FOV (63° diagonal), 8x8 = 15 Hz max on the sensor.
-#define TOF_MATRIX_ADDR            0x33  // DIP-strapped I2C address (bench-confirmed)
-// 0.2.25 (owner, November 24): gentler reads. After a cold boot both modules streamed, the
-// brief stalls grew more frequent, and then one module held the clock line low until its
-// power was cut. The vendor library asks for a reply every 17 ms; until 0.2.24 this driver
-// asked every 2 ms (about eight times as often) at 13 Hz on both modules. Now: wait before
-// the first status read, poll at the vendor's pace, and read each module at 10 Hz.
-#define TOF_MATRIX_FRAME_INTERVAL_MS 100 // 10 Hz poll (was 75 ms; sensor tops out at 15 Hz in 8x8)
-#define TOF_MATRIX_READ_TIMEOUT_MS   50  // hard deadline for one frame read (was 30 ms with
-                                         // 2 ms polls): status reads at 10, 25 and 40 ms. Kept
-                                         // short so the 8 failed reads a module's last values
-                                         // are held through (TOF_ERR_STREAK_STALE) stay ~1 s.
-#define TOF_MATRIX_FIRST_POLL_MS     10  // after a command, leave the module alone this long
-#define TOF_MATRIX_POLL_MS           15  // between status reads (vendor library: 17 ms)
-// 0.2.26 (owner, November 24): the front board on serial (pins.h). A frame reply is 132
-// bytes, 11.5 ms on the wire at this rate, sent by the board as soon as it has one.
+// 0.2.25 (owner, November 24): the boards read at 10 Hz. 0.2.26-0.2.28 put each on its own
+// serial port (pins.h): a frame reply is 132 bytes, 11.5 ms on the wire at this rate, sent by
+// the board as soon as it has one (it began 1 ms after the request on the robot).
+#define TOF_MATRIX_FRAME_INTERVAL_MS 100 // 10 Hz poll (sensor tops out at 15 Hz in 8x8)
 #define TOF_MATRIX_UART_BAUD         115200 // the vendor's UART examples
-#define TOF_MATRIX_UART_READ_TIMEOUT_MS 150 // a frame request to its last byte. 0.2.26 had 70
-                                            // (the I2C deadline plus 11.5 ms on the wire) and no
-                                            // frame was read; with 8 failures held that is ~1.2 s.
+#define TOF_MATRIX_UART_READ_TIMEOUT_MS 150 // a frame request to its last byte; with the 8
+                                            // failures held (TOF_ERR_STREAK_STALE) ~1.2 s.
 #define TOF_MATRIX_MODE_ACK_TIMEOUT_MS 8000 // SETMODE ack wait (init task only). The
                                          // RP2040 only acks AFTER the ~5 s VL53L7CX
                                          // reconfigure; a short window here re-sends
@@ -366,7 +354,7 @@
 // Two seconds leaves a brief glitch alone (a new setup costs the 5.2 s blind settle).
 #define TOF_MATRIX_PROBE_INTERVAL_MS 1000 // between probes of a module that does not answer
 #define TOF_MATRIX_REINIT_AFTER_MS   2000 // failed reads this long = set the module up again
-#define TOF_MATRIX_BUS_RESET_PROBES  10   // while a lost module stays silent, reset the bus
+#define TOF_MATRIX_BUS_RESET_PROBES  10   // while a lost module stays silent, reopen its port
                                           // every Nth unanswered probe (a stuck line)
 //
 // FLOOR REJECTION geometry — the sensor sits above the floor, so the lower rows
@@ -432,15 +420,14 @@
 //
 // ---- REAR 8x8 Matrix ToF (owner 2026-10-19) ----------------------------------
 // An identical SEN0628 at the front module's height, facing straight back (180°
-// from the front, same way up), sharing the front's private bus (GPIO4/5) at its
-// own DIP address. Optional: absent, it is probed once a second and rl/rr stay
+// from the front, same way up), on its own serial port since 0.2.28 (pins.h; it shared
+// the front's I2C bus at its own DIP address before). Optional: absent, it is probed once a second and rl/rr stay
 // radial-only. Orientation is in the SENSOR'S frame like the front (row 0 = top,
 // col 0 = the sensor's left = the robot's rear-RIGHT); tof_matrix_read_rear()
 // maps the halves to rl/rr. Height and floor rows start as copies of the front's
 // calibration. ⚠ The effective height is per-module (two front modules under-read
 // at 0.70x and 0.59x): capture this module's empty-floor grid after mounting and
 // recalibrate exactly as the front was (Oct 10), then set its own values here.
-#define TOF_MATRIX_REAR_ADDR        0x32  // DIP-strapped; must differ from TOF_MATRIX_ADDR
 #define TOF_MATRIX_REAR_HEIGHT_M    TOF_MATRIX_HEIGHT_M      // uncalibrated copy
 #define TOF_MATRIX_REAR_FLOOR_ROW_MM TOF_MATRIX_FLOOR_ROW_MM // uncalibrated copy
 #define TOF_MATRIX_REAR_FLIP_V      TOF_MATRIX_FLIP_V        // same module, same way up

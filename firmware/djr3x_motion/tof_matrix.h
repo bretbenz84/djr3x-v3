@@ -38,7 +38,7 @@ bool tof_matrix_ready();
 void tof_matrix_read(int16_t* fl, int16_t* fr);
 
 // REAR module (owner 2026-10-19): an identical SEN0628 at the same height facing
-// straight back, on the same private bus at TOF_MATRIX_REAR_ADDR. Same floor
+// straight back, on its own serial port (pins.h, since 0.2.28). Same floor
 // rejection and speckle rule, mapped to the ROBOT frame: *rl = nearest obstacle
 // behind on the robot's LEFT, *rr = behind on the RIGHT. -1 = absent (not fitted),
 // still initializing, errored or stale; callers min-combine it into rl/rr, so a

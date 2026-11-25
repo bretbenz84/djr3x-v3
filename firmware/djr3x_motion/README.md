@@ -1219,3 +1219,14 @@ problem. The silent rear was: on one shared task it held up the front reads. In 
 was not one front stall or failed frame. The rear still gives no ACK, with `SDA high, SCL LOW` at start-up and
 at every probe. That reading has lasted across the owner's power cycle, which a hung board would not survive,
 so the cause is that board or the clock wire.
+
+## Both 8x8 boards on serial (firmware 0.2.28, November 24, 2026)
+
+Owner: "If I keep them as is, can you change them to UART if I flip the dip-switch to UART?" The rear keeps
+its two wires: D/T on GPIO4 (ESP32 receive) and C/R on GPIO5 (ESP32 send), on UART1 at 115200 baud. The
+front stays on UART2 (GPIO34/15). The 8x8 I2C code is gone: the bus start and restart, the status polling,
+the addresses and the I2C read timing. The link's "restart the bus" now reopens that board's own port. Log
+lines name the board and its pins ("tof_matrix rear: serial started (receive GPIO4, send GPIO5 …)"). Checks:
+the robot build compiles and all firmware checks pass (`local/firmware/2026-11-24-0.2.28-both-uart.bin`).
+Not flashed yet; the rear's clock wire (GPIO5) read low through the last power cycle, so if the rear stays
+silent on serial, its wire or the board is the next suspect.
