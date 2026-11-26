@@ -28,7 +28,7 @@ every bar. A person speaking, a line of his or a person's pose pauses it; "stop"
 with each song) when the library has one, else a typical tempo for its genre: **nothing listens for the
 beat**, so he keeps the song's pace, not its downbeat. His own goals cannot start a dance. Never the wheels.
 `finger_wiggle` is a one-shot gesture of the hand joints only (fingers 15 and 17, wrists 5, 14 and 16).
-11 synthetic checks on the fake board; not yet run on the robot or heard over a song.
+11 synthetic checks on the fake board. Paid probe on OpenAI the same day (Claude credit was out): dance, stop_dancing, finger_wiggle and arm_dance each chosen for their requests, 5 of 5, then 4 of 4 after the description's sample opener (said word for word twice) was removed. Not yet on Claude, the robot, or over a song.
 
 ## Drive controls window — November 25
 
