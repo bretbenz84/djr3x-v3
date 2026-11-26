@@ -164,6 +164,8 @@ class Memory:
         self.connection.executescript(curiosity_schema)
         from .callouts import SCHEMA as callouts_schema
         self.connection.executescript(callouts_schema)
+        from .relay import SCHEMA as relay_schema
+        self.connection.executescript(relay_schema)
         from .familiarity import SCHEMA as familiarity_schema
         self.connection.executescript(familiarity_schema)
         from .signature_lines import SCHEMA as signature_lines_schema

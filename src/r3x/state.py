@@ -1064,6 +1064,9 @@ class CoreState:
                 candidate=next((r for r in current if r['claim_id']==call.arguments['claim_id'] and r['claim_id'] in offered),None)
                 if not candidate:raise ValueError('MemoryOpportunityUnavailable')
                 data={'text':call.arguments['text'],'claim_id':candidate['claim_id'],'occasion':candidate['occasion']}
+            elif call.name=='deliver_message':
+                with self.store.lock:
+                    data=self._message_to_pass_on(self.store.connection,call.arguments,context)
             elif call.name=='impersonate':
                 data=self._beat_impression(dict(call.arguments),context)
             elif call.name=='voice_mode':
@@ -1609,6 +1612,27 @@ class CoreState:
             jokes.record(conn, capture.session_id, person, jokes.audience_key(person), args['premise'],
                          line, args['reaction'], self.wall_clock())
             return {'text':args['text'],'premise':args['premise'],'reaction':args['reaction']},True
+        if name == 'relay_message':
+            # Owner, November 25: a message left for someone, passed on when they are next here.
+            self._source_allowed(args,name)
+            from . import relay
+            if args['action'] == 'cancel':
+                if not args['message_id']:
+                    raise ValueError('CancelNeedsTheMessage')
+                return relay.cancel(conn,args['message_id'],by=attribution.speaker_id),True
+            if not args['recipient']:
+                raise ValueError('MessageNeedsSomeoneToPassItTo')
+            try:
+                recipient = self._mentioned(conn,args['recipient'],None)[0]
+            except ValueError as exc:
+                if str(exc) == 'MentionedPersonIsTheSpeaker':
+                    raise ValueError('MessageForTheSpeakerThemself')
+                raise
+            data = relay.leave(conn,recipient,args['message'],left_by=attribution.speaker_id,turn_id=turn_id,
+                               source_text=transcript.text,now=self.wall_clock())
+            return {**data,'for':self._label(conn,recipient),'text':args.get('text')},True
+        if name == 'deliver_message':
+            return self._message_to_pass_on(conn,args,context),False
         if name == 'callout':
             # Owner, October 25: anyone may add one, about themself, someone else or a saved pet.
             self._source_allowed(args,name)
@@ -2179,6 +2203,42 @@ class CoreState:
         if not found:
             raise ValueError('NoCalloutForThem')
         return 'person', found[0]
+
+    @staticmethod
+    def _messages_here(context):
+        """The people recognized here now, for messages left with Rex: faces, the speaker's voice, an arrival."""
+        here = {f['identity'] for f in (context or {}).get('faces') or () if f.get('identity')}
+        here.add(((context or {}).get('speaker') or {}).get('speaker_id'))
+        here.add(((context or {}).get('visual_arrival') or {}).get('person_id'))
+        return here - {None}
+
+    def _message_to_pass_on(self, conn, args, context):
+        """A deliver_message call: the message must have been offered and still be waiting for someone here."""
+        from . import relay
+        offered = {r['message_id'] for r in ((context or {}).get('messages') or {}).get('for_someone_here', [])}
+        if args['message_id'] not in offered or args['message_id'] not in relay.waiting_for(conn, self._messages_here(context)):
+            raise ValueError('MessageNotWaitingForAnyoneHere')
+        return {'message_id': args['message_id'], 'text': args['text']}
+
+    def relay_context(self, context):
+        """Messages left with Rex: those for someone here now, and the speaker's own latest."""
+        if self.frozen or self.sentry.active or self.store.connection is None:
+            return None
+        from . import relay
+        speaker = ((context or {}).get('speaker') or {}).get('speaker_id')
+        with self.store.lock:
+            conn = self.store.connection
+            def names(person_id):
+                row = conn.execute('SELECT name FROM people WHERE id=?', (person_id,)).fetchone()
+                return row[0] if row else 'someone'
+            return relay.context(conn, self._messages_here(context), speaker, names, self.wall_clock())
+
+    def message_delivered(self, message_id, line):
+        """A deliver_message line was heard in full: the message has been passed on."""
+        from . import relay
+        with self.store.transaction() as conn:
+            if relay.delivered(conn, message_id, line, self.wall_clock()):
+                self.store.advance(conn)
 
     def callout_context(self, context):
         """The callouts switched on for the people and pets around now, for the reply model."""

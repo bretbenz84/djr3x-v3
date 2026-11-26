@@ -299,6 +299,24 @@ TOOLS += (schema('callout',
      'subject':{'type':'string','enum':['speaker','person','pet']},'name':NULL_TEXT,'famous_for':NULL_TEXT,
      'angles':{'type':'array','items':TEXT,'maxItems':4},'off_limits':{'type':'array','items':TEXT,'maxItems':6},
      'source_turn_id':TEXT}),)
+# Owner, November 25: "Rex, when Jeremy gets here, tell him dinner's in the fridge."
+TOOLS += (schema('relay_message',
+    'Leave a message with you for someone, to pass on when you next see or hear them ("when Jeremy gets here, '
+    'tell him dinner is in the fridge", "let my mom know I will be late", "tell Joy I said happy birthday"). '
+    'action leave saves it: recipient is their name as said in this conversation, message what to pass on, in '
+    'the words given (first person as they said it is fine; nothing added). action cancel takes back one shown '
+    'in messages.left_by_speaker (message_id; recipient and message null), when they say never mind or not to '
+    'tell them after all. Not for a message to someone who is here now (just tell them), and not for a fact about '
+    'someone (record_claim) or a reminder for the speaker (remember_followup). Saving is not passing it on: never '
+    'say you told them. A rejection naming someone (PossiblySameAsAKnownPerson:Joy) means ask whether they mean '
+    'that person.',
+    {'action':{'type':'string','enum':['leave','cancel']},'recipient':NULL_TEXT,'message':NULL_TEXT,
+     'message_id':NULL_TEXT,'source_turn_id':TEXT}),)
+TOOLS += (schema('deliver_message',
+    'Pass on a message someone left with you for a person who is here now (messages.for_someone_here). text is '
+    'your whole spoken line: say who it is from and what they said, in your own voice, close to their words and '
+    'nothing invented; it may also greet or answer them. It counts as passed on only once heard in full.',
+    {'message_id':TEXT,'text':TEXT}),)
 TOOLS += (schema('wait_for',
     'Not now: hold this beat of your own goal for a better moment instead of doing it now, the way a person waits '
     'for the right moment. when=answered: once someone replies to your last line; quiet: after `seconds` of nobody '
@@ -436,10 +454,10 @@ for _definition in TOOLS:
 INITIATIVE_TOOLS = frozenset({'stop_chiming_in', 'resume_chiming_in'})
 SPOKEN_RESULT_TOOLS = frozenset({'remember_followup', 'remember_interest', 'record_claim', 'correct_claim',
                                  'retract_claim', 'settle_question', 'name_room', 'name_place', 'correct_room', 'note_bit',
-                                 'voice_mode', 'callout', 'house_devices', 'music'})
+                                 'voice_mode', 'callout', 'house_devices', 'music', 'relay_message', 'deliver_message'})
 # Owner, October 25 (a0afcf85): "He often refuses to save memories and tells me so... never talk about
 # failing to save it." Two refused facts became "I couldn't save that detail" in the continuation.
-MEMORY_SAVES = frozenset({'record_claim', 'remember_interest', 'remember_followup', 'edit_object_memory', 'callout',
+MEMORY_SAVES = frozenset({'record_claim', 'remember_interest', 'remember_followup', 'edit_object_memory', 'callout', 'relay_message',
                           'correct_claim'})
 RESULT_TEXT = {'type': ['string', 'null'], 'description': 'Your whole spoken reply this turn, said only once this '
                'succeeds; answer them naturally. It may acknowledge what you were told but never claim more than '
@@ -469,7 +487,7 @@ for _definition in TOOLS:
         _definition['parameters']['required'] = list(_definition['parameters']['properties'])
 
 
-STARTUP_GREETING_TOOLS = frozenset({'ask_face_question','respond_with_intent','use_memory_opportunity'})
+STARTUP_GREETING_TOOLS = frozenset({'ask_face_question','respond_with_intent','use_memory_opportunity','deliver_message'})
 # A later arrival may also be greeted with a spoken gesture or by rolling over with a hello.
 GREETING_TOOLS = STARTUP_GREETING_TOOLS | {'respond_with_gesture','drive_base','remain_silent'}
 
@@ -506,11 +524,11 @@ def grounded_tools(context):
         return definitions
     definitions = copy.deepcopy(TOOLS)
     if context.get('trigger')=='visual_arrival':
-        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}]
+        definitions = [d for d in definitions if d['name'] in {'respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base','deliver_message'}]
     elif context.get('trigger') in {'conversation_lull','ambient','reconsideration'}:
         # November 4 (ba328d49): "Let's play Jeopardy" was dropped as someone came into view; the owed answer
         # could not start a game, so a goal played at hosting one with no board on the dashboard.
-        definitions = [d for d in definitions if d['name'] in {'voice_mode','respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}
+        definitions = [d for d in definitions if d['name'] in {'voice_mode','respond_with_intent','remain_silent','ask_face_question','use_memory_opportunity','deliver_message','use_observation','shift_attention','respond_with_gesture','animate_lights','inspect_view','use_visual_memory','describe_view','inspect_visual_memory','drive_base'}
                        or (d['name'] == 'jeopardy_setup' and context.get('owed_answer'))]
     elif context.get('trigger')=='pet_arrival':
         definitions = [d for d in definitions if d['name'] in {'inspect_visual_memory','respond_with_intent',
@@ -646,6 +664,9 @@ def grounded_tools(context):
             if not targets: continue
             definition['parameters']['properties']['target']['enum'] = targets
         if name=='use_memory_opportunity' and (not context.get('trigger') or not context.get('memory_opportunities')):continue
+        waiting = [r['message_id'] for r in (context.get('messages') or {}).get('for_someone_here', [])]
+        if name=='deliver_message' and not waiting:continue
+        if name=='relay_message' and (context.get('trigger') or context.get('agency_step')):continue   # A person's words only.
         if name=='shut_down' and context.get('trigger'):continue   # Only a person's request, never his own initiative.
         if name=='sentry_mode' and (context.get('trigger') or not context.get('sentry_available')):continue
         # No game is on: only a person's request starts one, also when his reply to it was dropped and is owed.
@@ -720,6 +741,10 @@ def grounded_tools(context):
             if name=='retract_visual' and key=='observation_ids':
                 spec['items']['enum'] = [r['id'] for r in context.get('visual_correction_candidates',[])]
             if key=="cue_id": values = [r["cue_id"] for r in context.get("observations",[])]
+            if key=="message_id":
+                messages = context.get('messages') or {}
+                values = (waiting if name=='deliver_message' else
+                          [r['message_id'] for r in messages.get('left_by_speaker', []) if not r.get('status')])
             if key=="callout_id": values = [r["callout_id"] for r in (context.get("callouts") or {}).get("here",[])]
             if key=="claim_id": values = [r['claim_id'] for r in context['memory_opportunities']] if name=='use_memory_opportunity' else claims
             if key=="face_track_id":

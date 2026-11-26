@@ -128,6 +128,19 @@ CASES.update({
                     'Put your arm back up.', 'action', hand_up),
     'raise_your_hands': ((), VISOR_OPEN, False, 'Raise your hands.', 'action', hands_up),
 })
+# Owner, November 25: "dance" is the 30-second whole-body dance; arm_dance is only for the arms; wiggling fingers
+# is finger_wiggle.
+def whole_dance(calls):
+    return 'dance' in arm_poses(calls) and 'throttle_offer' not in arm_poses(calls)
+
+
+CASES.update({
+    'dance_for_us': ((), VISOR_OPEN, False, 'Rex, dance for us!', 'action', whole_dance),
+    'can_you_dance': ((), VISOR_OPEN, False, 'Can you dance?', 'action', whole_dance),
+    'stop_dancing': ((('Rex, dance for us!', 'Hit it!'),), VISOR_OPEN, False, "Okay, that's enough dancing.", 'action',
+                     pose('stop_dancing')),
+    'wiggle_fingers': ((), VISOR_OPEN, False, 'Wiggle your fingers.', 'action', pose('finger_wiggle')),
+})
 # Owner, November 20: holding something light, like a card, in the throttle hand.
 HOLD = 'Can you hold this card for me?'
 

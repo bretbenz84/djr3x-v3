@@ -37,6 +37,8 @@ running.
 - Tell him about yourself or someone else ("Jeremy loves the Kings") and he remembers it, along
   with who told him. He brings these things up later, in other conversations.
 - You can correct something he got wrong, or ask him to forget it.
+- Leave a message for someone ("when Jeremy gets here, tell him dinner's in the fridge") and he passes it on
+  the next time he sees or hears them. "Never mind" takes it back.
 - Name a pet or an object and he remembers what it looks like.
 - He remembers what he's said lately, so he doesn't keep repeating the same topics, and he notices
   how long it has been since he last saw you.
@@ -236,7 +238,7 @@ on its own. The program on the Mac does all of that and tells the model what is 
 2. The program packs up everything the model needs into one request:
    - **Who Rex is:** his personality and how he talks.
    - **The rules:** what he may and may not do, and how to use his abilities.
-   - **His tools:** a list of 61 things he can do besides talk, each with a short description (all
+   - **His tools:** a list of 63 things he can do besides talk, each with a short description (all
     listed [below](#rexs-tools)).
      Examples: look through his camera, drive, move his arms, change the lights, save a fact about
      someone, play a song, check the thermostat, start Jeopardy or sentry mode.
@@ -289,6 +291,8 @@ request before carrying it out.
 - `recall_conversations`: look up earlier conversations ("what did we talk about last night?").
 - `remember_interest`: save something a person is into, which also gets them their own news.
 - `remember_followup`: save a plan, birthday or celebration to ask about later.
+- `relay_message`: keep a message for someone, or take one back.
+- `deliver_message`: pass on a message to the person it was for, now that they are here.
 - `remember_episode`: save a short summary of a shared moment from an earlier conversation.
 - `retract_episode`: withdraw one of those summaries.
 - `use_memory_opportunity`: bring up something he remembers when the moment suits it.

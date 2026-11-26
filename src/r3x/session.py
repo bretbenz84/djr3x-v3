@@ -1251,6 +1251,7 @@ class Session:
         model_error = None
         question = None
         memory_selected = None
+        message_selected = None
         observation_selected = None
         def refresh_current_view(context):
             if latest_faces is None or opportunity or not self.state:
@@ -1747,6 +1748,9 @@ class Session:
                 # Standing celebrity bits people asked for, for whoever is around (owner, October 25).
                 offered = self.state.callout_context(context)
                 if offered: context['callouts'] = offered
+                # Messages left with him for someone here (owner, November 25).
+                messages = self.state.relay_context(context)
+                if messages: context['messages'] = messages
             if self.state and not self.state.frozen:
                 with self._lock:
                     self.state.intent_context(context, human=not opportunity)
@@ -3048,6 +3052,8 @@ class Session:
                                     parts=result.data['parts'])
                 elif (result.outcome=='ok' and call.name in SPOKEN_RESULT_TOOLS and isinstance(call.arguments.get('text'),str)
                       and call.arguments['text'].strip()):
+                    if call.name == 'deliver_message':
+                        message_selected = result.data   # Passed on once this line is heard in full.
                     # The reply came with the tool and the executor succeeded: no second model call
                     # (October 16: about 1-1.5 s). A fact kept as a candidate is saved too (October 25).
                     from dataclasses import asdict
@@ -3300,6 +3306,9 @@ class Session:
                             self.trace.emit('observation_delivered',turn_id=turn_id,cue_id=observation_selected['cue_id'],kind=observation_selected['kind'])
                         if memory_selected and fully_heard(memory_selected['text']):
                             self.state.memory_delivered(memory_selected)
+                        if message_selected and fully_heard(message_selected['text']):
+                            self.state.message_delivered(message_selected['message_id'], message_selected['text'])
+                            self.trace.emit('message_delivered', turn_id=turn_id, message_id=message_selected['message_id'])
                         if question and fully_heard(question['question']):
                             self.state.question_delivered(question["question"],question["addressee_id"],delivery.completed_at or self.trace.clock(),question.get("face_track_id"))
                 except Exception as exc:

@@ -131,6 +131,13 @@ GUIDE = {
               'sparingly, never the same way twice. bits_that_flopped: leave them alone. bits_told_lately: do '
               'not tell them again. spent_shapes: joke shapes your own lines this visit already used up; no '
               'more of them in any wording.'),
+    'messages': ('Messages people left with you to pass on (relay_message). for_someone_here: waiting for a '
+                 'person who is here now: pass each one on with deliver_message the first time it fits, in your '
+                 'own words, saying who it is from (their words close to as given, nothing added or guessed), '
+                 'as part of your hello when they have just arrived, or alongside your answer when they are '
+                 'talking to you. It counts as passed on only once they heard it. A message is between the two of '
+                 'them, never a fact about anyone: do not bring it up with anyone else. left_by_speaker: the '
+                 'latest ones the person talking left, so they can ask whether it went through or take one back.'),
     'callouts': ('Standing celebrity bits people asked you for (the callout tool), about someone here or a saved '
                  'pet: treat them as famous for famous_for, playing its angles. People here gave those angles, so '
                  'they may go where your usual joke limits do not, in the playful form given; off_limits always '

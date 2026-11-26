@@ -6,6 +6,16 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Messages passed on — November 25
+
+Owner: "Rex, when Jeremy gets here, tell him dinner's in the fridge." `relay_message` files the message on the
+recipient's record (a name not met yet gets a name-only record, as a fact about them would) with who left it
+and the source turn; it is never a claim. Whenever the recipient is recognized here (face, supported voice or
+arrival) the waiting message is in the reply context (`messages`, `src/r3x/relay.py`), and `deliver_message`
+says it in Rex's words, on an arrival hello or beside an answer; it counts as passed on only once that line was
+heard in full. Whoever left it can take it back; forgetting either person removes it. Not offered on Rex's
+own turns except to pass one on. 9 synthetic checks; not yet tried in a conversation or with a live model.
+
 ## Dancing, to music and on request; wiggling his fingers — November 25
 
 Owner: asked to dance with no music he dances for 30 seconds; while a song from the Music app plays he dances
