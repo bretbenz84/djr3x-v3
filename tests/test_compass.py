@@ -146,5 +146,53 @@ class HeadingTests(unittest.TestCase):
         self.assertTrue(back.saved_at)
 
 
+class CalibrationWindowTests(unittest.TestCase):
+    """The battery menu's window (owner, November 25): what its model makes of the lines it is fed."""
+    def setUp(self):
+        from r3x.gui.compass_model import CompassCalibration
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.path = Path(folder.name) / 'compass.json'
+        self.model = CompassCalibration(self.path)
+
+    def feed(self, rows, start=0.):
+        import json
+        for i, row in enumerate(rows):
+            self.model.feed_line(json.dumps(row).encode(), start + i * .1)
+
+    def test_nothing_is_kept_before_start_and_progress_fills_in_as_he_turns(self):
+        self.feed(sweep()[:10])
+        self.assertEqual((self.model.phase, self.model.readings), ('ready', []))
+        self.assertIn('No calibration saved yet', self.model.progress_words(1.))
+        self.model.start(1.)
+        rows = sweep()
+        self.feed(rows[:37], 1.)                                   # Half way round.
+        self.assertAlmostEqual(abs(self.model.turned), 180., delta=6.)
+        self.assertAlmostEqual(self.model.coverage(), .5, delta=.06)
+        self.assertFalse(self.model.ready_to_finish())
+        self.assertFalse(self.model.finish())                     # Not offered yet; and refused if forced.
+        self.assertEqual(self.model.phase, 'refused')
+        self.model.start(5.)
+        self.feed(rows, 5.)
+        self.assertTrue(self.model.ready_to_finish())
+        self.assertIn('press Finish', self.model.progress_words(20.))
+
+    def test_finishing_saves_and_then_shows_which_way_he_faces(self):
+        self.model.start(0.)
+        self.feed(sweep(start=345.))
+        self.assertTrue(self.model.finish(facing=345.))
+        self.assertEqual(self.model.phase, 'saved')
+        self.assertEqual(compass.load(self.path).told_facing_deg, 345.)
+        self.feed([reading(90.)], 30.)
+        self.assertAlmostEqual(ang_diff(self.model.facing()['heading_deg'], 90.), 0., delta=1.5)
+        self.assertIn('pinned to the direction given', self.model.progress_words(31.))
+
+    def test_readings_while_the_motors_draw_current_are_counted_apart(self):
+        self.model.start(0.)
+        self.feed([reading(h, current=3000) for h in range(0, 40, 5)])
+        self.assertEqual((self.model.quiet, self.model.busy), (0, 8))
+        self.assertIn('switch the motor controllers off', self.model.progress_words(1.))
+
+
 if __name__ == '__main__':
     unittest.main()

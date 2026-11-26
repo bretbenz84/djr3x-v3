@@ -369,6 +369,19 @@ class BatteryMenuTests(unittest.TestCase):
         self.assertEqual([row['type'] for row in child.lines()], ['feed', 'feed', 'telemetry'])
         self.assertEqual(menu._sensor_window.open(), 'raised')
 
+    def test_the_compass_window_is_fed_the_same_lines_and_asks_the_controller_for_nothing(self):
+        # Owner, November 25: "add the calibration routine to the menu bar app as a clickable option".
+        menu = self.menu
+        self.assertEqual(menu._compass_window.open(), 'started')
+        child = self.children[0]
+        self.assertEqual(child.argv, [sys.executable, '-m', 'r3x.gui.compass_calibration'])
+        menu._update(mode='live')
+        menu._diagnostics_tick(now=100.)
+        menu._diagnostics_tick(now=100. + menu._TOF_RAW_RENEW_SECS)
+        self.assertEqual(self.queued(), [])
+        menu._diagnostics_feed(telemetry())
+        self.assertEqual(child.lines()[-1]['type'], 'telemetry')
+
     def test_both_windows_open_together_get_every_line_and_closing_one_leaves_the_other(self):
         menu = self.menu
         menu._tof_window.open(); menu._sensor_window.open()

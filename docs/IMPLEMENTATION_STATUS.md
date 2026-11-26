@@ -12,7 +12,9 @@ Owner request: V2's compass calibration copied in (`src/r3x/compass.py`, `tools/
 record in [V2 reference](V2_REFERENCE.md#compass-calibration-and-heading--november-25-2026)). Read live that
 day, uncalibrated: x 298, y -1166, z -994, steady; no heading can be given until a calibration turn is done.
 Nothing in Rex uses the heading yet; room photos keep saving raw counts. 12 synthetic checks; not yet
-calibrated on the robot.
+calibrated on the robot. The same day the battery menu gained **Compass Calibration…**, a window that
+shows the circle filling in while he is pushed round with the motor controllers off, then saves
+([GUI](GUI.md#compass-calibration-window--november-25-2026)).
 
 ## The neck turns 78 degrees; a look-around by head and wheels — November 25
 

@@ -211,6 +211,33 @@ windows. Drawn off screen from a November 20 recording (0.20° a second, front 8
 made-up copy of November 22's fault. Not yet opened from the menu on the robot's own screen, and not
 yet seen with the real fault live.
 
+## Compass calibration window — November 25, 2026
+
+Owner: "add the calibration routine to the menu bar app as a clickable option? it would launch a small GUI
+that shows progress of the calibration. I would ensure the motor controllers were off while I push it."
+
+- **Open it:** battery menu, **Compass Calibration…**. Fed exactly as the diagnostics windows; it asks the
+  controller for nothing and never moves the wheels. With Rex running it says he has the controller.
+- **Use it:** motor controllers off, press **Start**, push him slowly round a full circle (either way). The
+  ring, front up, lights each tenth of the circle (by the gyroscope) once a quiet compass reading is taken
+  there; the dots in the middle are the raw readings, which should trace a ring. At a full circle (300° by
+  the gyroscope) **Finish & Save** lights up. If someone knows which way he faces at the end, type it
+  first (true degrees, 345 = 15° left of north): north is then pinned to it; otherwise the 13° declination
+  is used. Readings taken while the pack draws over 1.6 A are left out and counted, with a reminder to
+  switch the motor controllers off.
+- **After saving** the dial turns into a compass rose, north up, with the direction he faces and a warning
+  when the field no longer matches the calibration (steel nearby) or the motors draw current. A refused
+  calibration (he barely turned, or under a full circle) says why and saves nothing.
+- **Saved to** the ignored `local/calibration/compass.json`, the same file `tools/compass.py read` uses.
+  The fitting and its checks are `r3x.compass` ([V2 reference](../V2_REFERENCE.md#compass-calibration-and-heading--november-25-2026)).
+- **Structure:** `gui/compass_model.py` (Qt-free: recording, the circle, finishing) and
+  `gui/compass_calibration.py` (the window).
+
+**Evidence.** 3 synthetic checks of the window's model in `tests/test_compass.py` (nothing kept before
+Start, the circle filling, a half turn refused, a pinned save then the heading, motors drawing current)
+and 1 in `tests/test_tof_diagnostics.py` (fed the menu's lines, asks for nothing). Drawn off screen from
+synthetic readings at each stage. Not yet opened from the menu, and the robot has not been calibrated.
+
 ## Evidence
 
 - `tools/run_checks.py`: 1214 blocked-I/O checks pass (5 skipped: numpy-only cases, run and passing

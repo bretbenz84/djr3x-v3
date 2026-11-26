@@ -41,6 +41,11 @@ V3, November 22 (owner): "Sensor Diagnostics…" does the same for the other
   drifts at rest, tilt, compass, wheels, and which chips on the sensor bus
   answer. It is fed the same lines and asks the firmware for nothing.
 
+V3, November 25 (owner): "Compass Calibration…" (src/r3x/gui/compass_calibration.py)
+  shows a compass calibration filling in while he is pushed round a full
+  circle with the motor controllers off, then saves it and shows which way he
+  faces. Fed the same lines; it asks the firmware for nothing.
+
 How it shares the serial port with main.py (ports are exclusive-open):
   Same dormant pattern the supervisor uses for the microphone. main.py holds
   the single-instance flock (utils/single_instance.py) for its whole lifetime,
@@ -363,7 +368,8 @@ class _DiagnosticsWindow:
 
 _tof_window = _DiagnosticsWindow("ToF diagnostics", "r3x.gui.tof_diagnostics", raw_stream=True)
 _sensor_window = _DiagnosticsWindow("Sensor diagnostics", "r3x.gui.sensor_diagnostics")
-_WINDOWS = (_tof_window, _sensor_window)
+_compass_window = _DiagnosticsWindow("Compass calibration", "r3x.gui.compass_calibration")
+_WINDOWS = (_tof_window, _sensor_window, _compass_window)
 
 
 def _diagnostics_feed(raw: bytes) -> None:
@@ -1321,12 +1327,14 @@ def run_app() -> int:
             self._tof = rumps.MenuItem("ToF Diagnostics…", callback=self._on_tof)
             # V3, owner November 22: the gyroscope, tilt, compass, wheels and sensor bus, the same way.
             self._sensors = rumps.MenuItem("Sensor Diagnostics…", callback=self._on_sensors)
+            # V3, owner November 25: push him round a full circle with the motor controllers off.
+            self._compass = rumps.MenuItem("Compass Calibration…", callback=self._on_compass)
             self._hv_notified_at = 0.0   # last supply-too-high notification
             self._mono_warned = False    # warn once if attributed titles fail
             self.menu = (list(self._rows)
                          + [None, self._joy_item, self._stop_motors]
                          + [None, self._mark_full, self._set_soc, self._restart_esp]
-                         + [None, self._tof, self._sensors])
+                         + [None, self._tof, self._sensors, self._compass])
             # A menu that closes mid-drag can eat the mouseUp — force-release
             # the stick whenever ANY menu ends tracking (no-op when centered);
             # the worker then sends the one clean stop.
@@ -1414,6 +1422,9 @@ def run_app() -> int:
 
         def _on_sensors(self, _item):
             self._open_window(_sensor_window, "Sensor Diagnostics")
+
+        def _on_compass(self, _item):
+            self._open_window(_compass_window, "Compass Calibration")
 
         @staticmethod
         def _open_window(window, title):
