@@ -6,6 +6,14 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Compass calibration from V2 — November 25
+
+Owner request: V2's compass calibration copied in (`src/r3x/compass.py`, `tools/compass.py read|calibrate`;
+record in [V2 reference](V2_REFERENCE.md#compass-calibration-and-heading--november-25-2026)). Read live that
+day, uncalibrated: x 298, y -1166, z -994, steady; no heading can be given until a calibration turn is done.
+Nothing in Rex uses the heading yet; room photos keep saving raw counts. 12 synthetic checks; not yet
+calibrated on the robot.
+
 ## The neck turns 78 degrees; a look-around by head and wheels — November 25
 
 Owner: the neck's gearing (a 270° servo on a large gear driving a semicircle gear of about 90° sweep) puts

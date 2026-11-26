@@ -1440,3 +1440,27 @@ longer stalls during repaints, so fades may run slightly faster). The same day V
 settings, handoff and menus were changed to this board and the two-Nano code removed
 ([LED integration](docs/LED_INTEGRATION.md#november-14-one-led-board)); earlier sections of this
 file that describe the Nanos are history.
+
+## Compass calibration and heading — November 25, 2026
+
+Owner request. Source HEAD `95f2403`; `hardware/compass.py`, `tools/compass_calibrate.py` and
+`tests/test_compass.py` are committed and unchanged in the working tree (its uncommitted changes are firmware
+and drive files). No V2 code imported or changed at runtime; nothing reads V2's `config.py`.
+
+Preserved: the min/max box calibration (hard-iron offset at the cloud's centre, per-axis scale evening the
+half-ranges), V2's refusal of a sweep whose field comes out under 50 counts (its August 22 still-robot run),
+the field-strength gate (25%), the AN4248-style tilt-compensated heading `atan2(-my_h, mx_h)`, V2's 13°
+declination, readings with pack current over 1,600 mA left out (V2's fusion trust ramp started there), and
+sampling with the drive board's `hello` only while holding the controller lock so the battery menu yields.
+
+Adapted (`src/r3x/compass.py`, `tools/compass.py read|calibrate`): a turn on the floor that leaves the vertical
+axis unswept is a flat calibration using the level axes alone (V2 scaled that axis 3.5x from noise); the gyro's
+yaw across the sweep must reach 300° and says whether the level axes are mirrored, replacing V2's hand-set
+swap/flip flags; `--facing` pins the heading to a direction a person gives, replacing the declination; no
+heading is given without a calibration (V2 fell back to raw counts). Calibration lives in the ignored
+`local/calibration/compass.json`. V2's August 23 calibration was not imported: today's reading against it
+gives a field of about 1,580 counts where it measured 156, so the robot's iron has changed (new motors November 12).
+
+Not ported: the gyro/compass fusion service, turn verification and cardinal-direction commands (V2's regex
+classifier); nothing in V3 consumes them. Checks: 12 synthetic in `tests/test_compass.py`. Live: a calibration
+turn on the robot, then `read` against a known direction.

@@ -393,8 +393,9 @@ acceptable cost.
 - **No look-around after a naming** (until November 24). One reply can call only one tool, so naming a room
   could not also turn him. Since November 24 the session turns him once after a naming where the spot has
   few photos ([November 24](#november-24-runs-and-repairs)).
-- **The compass** is recorded with every photo but not used. Nothing yet shows how steady it is beside his
-  motors.
+- **The compass** is recorded with every photo (raw counts) but not used. Nothing yet shows how steady it is
+  beside his motors. November 25: V2's calibration is in (`tools/compass.py calibrate`, then `read`); the robot
+  has not been calibrated yet.
 - **No fingerprint model built for places** (EigenPlaces) was tried. There are no saved photos to compare it
   on yet, and fetching a model needs the owner's go-ahead.
 - **Doorways** are found from the side beams along a trail and counted on each passage. A spot's room size
