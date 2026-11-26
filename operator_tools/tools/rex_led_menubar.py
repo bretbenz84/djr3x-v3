@@ -29,7 +29,8 @@ Battery Meter Mode (the top menu item, DEFAULT ON):
   console starts in Battery Meter Mode: port released, buttons inert, gauge
   visible. Toggle the menu item (or just click any animation — that takes the
   port automatically) to switch to LED-control mode; the choice persists in
-  local/operator/led_console_mode.json across relaunches.
+  local/operator/led_console_mode.json across relaunches. Whenever Rex stops,
+  the console goes back to Battery Meter Mode by itself (owner, November 25).
 
 How it shares the serial port with the robot (the port is exclusive-open):
   Same dormant pattern as the battery meter and servo console. The robot holds
@@ -237,6 +238,7 @@ class _Board:
 
     def worker(self, stop: threading.Event) -> None:
         ser = None
+        rex_was_running = False
 
         def _close():
             nonlocal ser
@@ -263,8 +265,18 @@ class _Board:
                     _close()
                     log.info("Rex is running — port released (dormant).")
                 self._set("dormant", "Rex is running")
+                rex_was_running = True
                 stop.wait(_LOCK_POLL_SECS)
                 continue
+
+            if rex_was_running:
+                # Rex has just stopped: the chest should show the charge, not whatever
+                # was last auditioned here (owner, November 25: the meter stayed dark
+                # for a day after one animation click took the board).
+                rex_was_running = False
+                if not battery_mode():
+                    log.info("Rex stopped — back to Battery Meter Mode.")
+                    set_battery_mode(True)
 
             if battery_mode():
                 # Hands off: the battery menu bar app needs to open the board to

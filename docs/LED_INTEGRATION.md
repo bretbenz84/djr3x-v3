@@ -588,3 +588,15 @@ owner for 20 s, lights only.
 Then (0.9.4) "you could go a little brighter in the center": the whole glow a third brighter, the four
 middle lights at 6 to 10 % (were 5 to 7.5), the shape unchanged. Same checks, limits raised; flashed, the
 board answers `hello djr3x_leds 0.9.4`, shown to the owner for 20 s.
+
+## November 25: the charge meter comes back when Rex stops
+
+Owner question: Rex was off on batteries and the chest showed no charge. An animation click in the LED
+menu the evening before had switched it out of Battery Meter Mode, which is saved, so the LED menu had held
+the board ever since and every one of the battery menu's charge sends failed. Now, whenever the LED menu sees
+Rex stop, it switches back to Battery Meter Mode and lets go of the board, and the battery menu repaints the
+meter within about five seconds. Clicking an animation while he is off still takes the board, as before.
+
+Checked with a fake board and lock (`tests/test_operator_tools.py`: held while off, released for Rex, not
+taken back after he stops; fails without the change). The LED menu was restarted with the change; not yet
+seen after a real shutdown.

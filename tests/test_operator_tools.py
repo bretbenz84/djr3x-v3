@@ -77,6 +77,48 @@ class OperatorToolsTests(unittest.TestCase):
             menu._sync_mouth_charge('live', soc, charging)
         self.assertEqual(sent, ['H:CHARGE:81', 'H:CHARGE:91', 'H:OFF'])
 
+    def test_led_console_hands_the_board_back_to_the_battery_meter_when_rex_stops(self):
+        # Owner, November 25: an animation click left LED Control holding the board, and the
+        # chest showed no charge for a day after Rex shut down.
+        import importlib.util
+        import threading
+        spec = importlib.util.spec_from_file_location('rex_led_menubar_check',
+                                                      TOOLS / 'tools' / 'rex_led_menubar.py')
+        menu = importlib.util.module_from_spec(spec)
+        with patch('logging.basicConfig'):
+            spec.loader.exec_module(menu)
+        with tempfile.TemporaryDirectory() as directory:
+            menu._MODE_STATE_PATH = Path(directory) / 'led_console_mode.json'
+            menu.set_battery_mode(False, persist=False)       # an animation click took the board
+            running = iter([False, True, True, False])        # Rex off, starts, runs, stops
+            stop = threading.Event()
+            opened, states = [], []
+
+            def rex_running():
+                try:
+                    return next(running)
+                except StopIteration:
+                    stop.set()
+                    return False
+
+            class Port:
+                def write(self, _data): pass
+                def flush(self): pass
+                def close(self): opened.append('closed')
+
+            board = menu._Board()
+            real_set = board._set
+            board._set = lambda mode, detail: states.append(mode) or real_set(mode, detail)
+            stop.wait = lambda _secs=None: None
+            with patch.object(menu, '_rex_running', rex_running), \
+                    patch.object(menu.led_board, 'port', lambda: '/dev/fake'), \
+                    patch.object(menu.led_board, 'connect', lambda _p: opened.append('open') or Port()):
+                board.worker(stop)
+            self.assertTrue(menu.battery_mode())
+            self.assertEqual(opened, ['open', 'closed'])      # held while off, released for Rex, not retaken
+            self.assertEqual(states[-1], 'battery')
+            self.assertIn('"battery_mode": true', menu._MODE_STATE_PATH.read_text())
+
 
 if __name__ == '__main__':
     unittest.main()
