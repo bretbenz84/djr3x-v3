@@ -630,6 +630,20 @@ while none reaches 50, keeps looking for up to 3 s. `place_photo` now carries `s
 `place_photo_skipped` (`blurred`) marks a refusal. Two place checks (synthetic scores). Whether live
 1080p frames of blank walls clear 50 is still to be seen on the robot. The two smeared photos were deleted from the map at the owner's request.
 
+### Look-around by head and wheels (November 25)
+
+Owner's idea: use the head's sweep with the wheels. Four stops a quarter turn apart; at each the head looks
+22.5° right, settles a second and photographs (the sharpest frame), then 22.5° left and photographs, then the
+wheels turn 90° left. The eight photos still fall 45° apart, with three wheel turns instead of seven (fewer
+turns, less of the carpet's shortfall and wheel slip in the photo bearings). Directions are counted from what
+the wheels actually turned, so a short turn leaves the next direction to the head or to a smaller turn; a
+quarter turn refused for room is tried at 45°; a head that will not move hands the rest to 45° wheel stops.
+The head is centred again at the end. A photo taken with the head turned more than 10° keeps no straight-ahead
+depth (the ring reads straight ahead, not where the camera looks). The same day the neck's travel was set to
+78° (owner, from the gearing), which the head's 22.5° looks depend on. Simulated base only: 3 new room-trip
+checks, 1 place check. Live: how long the four stops take, and whether a second's settle after a head swing
+gives sharp photos (`place_photo` sharpness).
+
 ### Checks
 
 - **Synthetic, room map:** 8 new contract checks in `tests/test_places.py` (arriving facing a way with no

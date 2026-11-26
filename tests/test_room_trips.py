@@ -218,6 +218,78 @@ class RoomTripTests(unittest.TestCase):
         self.assertEqual(drive.navigator.captures, 8)
         self.assertGreater(step['turned_deg'], 290.)
 
+    def with_head(self, fake, drive, works=True):
+        """A neck the drive owner can turn; each capture records where the camera pointed (degrees left of
+        his heading at the start) and which way the head was turned."""
+        from r3x.drive_space import NECK_CENTER, NECK_PULSES_PER_DEG
+        head = {'neck': 0., 'moves': []}
+        class Owner:
+            def neck_degrees(self): return head['neck']
+        class Servos:
+            owner = Owner()
+            def prepare_base_motion(self, cancel):
+                return type('R', (), {'status': 'pulses_reached', 'reason': None})()
+            def finish_base_motion(self, look_pending=False, keep_parked=frozenset()): pass
+            def execute_pose(self, pose, cancel, request_id):
+                if not works:
+                    return type('R', (), {'status': 'refused'})()
+                head['neck'] = (NECK_CENTER - pose[0]) / NECK_PULSES_PER_DEG
+                head['moves'].append(round(head['neck'], 1))
+                return type('R', (), {'status': 'pulses_reached'})()
+        drive.servos = Servos()
+        nav, start = FakeMap(fake), fake.theta
+        shots = []
+        def capture(cancel=None):
+            nav.captures += 1
+            shots.append((round(wrap(fake.theta - start + head['neck'])), round(head['neck'], 1)))
+            return nav.where()
+        nav.capture = capture
+        drive.navigator = nav
+        return head, shots
+
+    def test_a_look_around_turns_the_head_right_and_left_at_four_stops(self):
+        # Owner, November 25: "4 moves not 8 of the wheels, but the head moves to fill in the 8 directions."
+        clock, fake, drive, world = self.start()
+        head, shots = self.with_head(fake, drive)
+        receipt = self.run_plan(clock, drive, DriveStep('look_around'))
+        step = receipt.steps[0]
+        self.assertEqual(step['status'], 'completed', receipt)
+        self.assertEqual((step['looks'], step['wheel_turns'], step['head']), (8, 3, True))
+        self.assertTrue(260. < step['turned_deg'] < 280., step)               # Three quarter turns.
+        for (_, neck), side in zip(shots, [-22.5, 22.5] * 4):                   # Right, then left, at each stop.
+            self.assertAlmostEqual(neck, side, delta=.5)
+        self.assertEqual(len(shots), 8)
+        directions = sorted(d % 360 for d, _ in shots)
+        gaps = [(b - a) for a, b in zip(directions, directions[1:] + [directions[0] + 360])]
+        self.assertTrue(all(abs(g - 45.) <= 6. for g in gaps), directions)   # Eight directions, 45 apart.
+        self.assertEqual(head['moves'][-1], 0.)                                # Centred again at the end.
+
+    def test_a_quarter_turn_refused_for_room_is_tried_at_45(self):
+        clock, fake, drive, world = self.start()
+        head, shots = self.with_head(fake, drive)
+        turn, refused = drive._turn, []
+        def tight(degrees, *args, **kwargs):
+            if degrees > 60 and not refused:
+                refused.append(degrees)
+                return {'action': 'turn', 'status': 'refused', 'reason': 'turn_path_blocked: test', 'turned_deg': 0.}
+            return turn(degrees, *args, **kwargs)
+        drive._turn = tight
+        step = self.run_plan(clock, drive, DriveStep('look_around')).steps[0]
+        self.assertEqual(step['status'], 'completed', step)
+        self.assertEqual((step['looks'], step['turns_refused']), (8, 1))
+        self.assertNotIn('missed', step)
+        directions = sorted(d % 360 for d, _ in shots)
+        self.assertTrue(all(abs(b - a - 45.) <= 6. for a, b in zip(directions, directions[1:])), directions)
+
+    def test_a_head_that_will_not_turn_leaves_the_look_around_to_the_wheels(self):
+        clock, fake, drive, world = self.start()
+        head, shots = self.with_head(fake, drive, works=False)
+        step = self.run_plan(clock, drive, DriveStep('look_around')).steps[0]
+        self.assertEqual(step['status'], 'completed', step)
+        self.assertEqual(step['looks'], 8)
+        self.assertFalse(step['head'])
+        self.assertTrue(all(n == 0. for _, n in shots))
+
     def test_his_own_roll_toward_something_past_a_doorway_is_not_an_arrival(self):
         small = lambda seen, world: (lambda *a, **k: {**seen(*a, **k), 'width': .15})   # Far off: small in view.
         clock, fake, drive, world = self.start([('chair', 'the red chair', 6., 0.)], locate=small)

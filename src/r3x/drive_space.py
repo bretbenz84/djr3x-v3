@@ -25,14 +25,17 @@ MIN_TURN = 10.
 # 4-5 ft estimate. V2's 25 degrees came from a commanded turn that overshoots.
 HALF_FOV = 45.
 from .servo_poses import LIMITS, NECK_CENTER
-# Neck pulses per degree the head actually turns. V2's figure (the owner's "sweeps about 90 degrees",
-# 77.5 per degree) was never measured. October 23: in runs 1e626e07, e72ab522, 0421a222 and 1072c10a,
-# a recognized face seated still moved across the picture only 0.48-0.65 (pooled 0.57) as far as a
-# neck change should move it with the IMU-checked 90 degree lens above. The neck turns about 0.57 of
-# what was assumed: its whole travel is about 51 degrees, and "look left" (8000/2944) about 19 degrees.
-# With the old figure the voice reflex aimed at Bret's face 25 degrees short and crept toward him in
-# steps. Idle and talking motion keep their own sizes (servo_poses.NECK_PER_DEG): those were tuned by eye.
-NECK_PULSES_PER_DEG = (5472 - 1984) / 45. / .57
+# Neck pulses per degree the head actually turns: its whole calibrated travel (1984-8960) is 78 degrees,
+# 39 either side of the centre (owner, November 25, from the gearing: a 270 degree servo on a large gear
+# drives a semicircle gear of about 90 degrees' sweep; the calibrated pulses use about 87% of the servo's
+# travel). From October 23 to November 25 the code used 51 degrees, fitted from how far faces moved in the
+# picture when the neck turned (runs 1e626e07, e72ab522, 0421a222, 1072c10a, then 7261d8ce). Two things
+# made that fit read low: faces seen while the head was still turning counted as seen after it (fixed
+# November 16), and the lens squeezes the picture's edges. With it, every aim overshot about 1.5 times:
+# the owner saw the turn toward a speaker always off. Idle and talking motion keep their own sizes
+# (servo_poses.NECK_PER_DEG), tuned by eye.
+NECK_TRAVEL_DEG = 78.
+NECK_PULSES_PER_DEG = (LIMITS[0][1] - LIMITS[0][0]) / NECK_TRAVEL_DEG
 FACE_WIDTH = .16
 MATRIX_CLEAR = 3.5
 FRONT_MARGIN = .35      # Host stop short of a front return; firmware still stops at its zone.

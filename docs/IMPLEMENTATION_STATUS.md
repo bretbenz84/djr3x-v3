@@ -1,10 +1,28 @@
 # Current implementation status
 
-Updated November 20, 2026. This is the consolidated
+Updated November 25, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## The neck turns 78 degrees; a look-around by head and wheels — November 25
+
+Owner: the neck's gearing (a 270° servo on a large gear driving a semicircle gear of about 90° sweep) puts
+its whole calibrated travel at about 78°, 39° each way. Since October 23 the code had used about 51°,
+fitted from how far faces moved in the picture; that fit read low (frames taken mid-turn, fixed November 16,
+and the lens squeezing the picture's edges), so every head aim overshot about 1.5 times and the turn toward a
+speaker was always off. `drive_space.NECK_TRAVEL_DEG = 78` now sets every degree-to-pulse conversion (face
+following, the voice reflex, drive looks, room-photo bearings); drive re-finding looks reach 39° and the
+sentry sweep's outer stops go to the limits. Idle and talking motion sizes are unchanged (tuned by eye).
+
+The look-around (asked for, or the turn after a room is named) is four stops a quarter turn apart: at each
+the head looks 22.5° right, then 22.5° left, a photo after each (one second's settle, the sharpest frame),
+then the wheels turn 90° left; three wheel turns instead of seven. A quarter turn refused for room is tried
+at 45°; a head that will not move hands the rest to 45° wheel stops. A photo taken with the head turned more
+than 10° keeps no straight-ahead depth. Owner's figure, not measured; simulated base and synthetic checks only
+(full suite 2,300, three checks updated from the old reach); details in the
+[room navigation plan](ROOM_NAVIGATION_PLAN.md#look-around-by-head-and-wheels-november-25).
 
 ## Toby's note refused, and the refusal spoken — November 24, run `ab1cd64f`
 

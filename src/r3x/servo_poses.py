@@ -905,7 +905,8 @@ def talking_lanes(current: dict[int, int], head_origin: dict[int, int] | None = 
 
 LOOK_NECK_DEG = 35.       # Idle glances stay inside the talking gaze range.
 # Motion sizes in V2's assumed neck degrees, tuned by eye on the robot. The neck actually turns about
-# 0.57 of a degree per such unit (October 23); drive_space.NECK_PULSES_PER_DEG is the camera geometry.
+# 0.87 of a degree per such unit (78 degrees of travel, November 25); drive_space.NECK_PULSES_PER_DEG is
+# the camera geometry.
 NECK_PER_DEG = (5472 - 1984) / 45.
 # A head move inside these pulse deltas (about 5 degrees) leaves the camera view
 # effectively unchanged: it does not restart scene settling or arrival tracking.
@@ -1482,8 +1483,8 @@ def base_lanes(kind: str, current: dict[int, int], keep=frozenset(), hero=True) 
     return lanes
 
 
-# Explicit look requests (September 28). October 23: the "33-degree" poses below turn the head about
-# 19 degrees (drive_space.NECK_PULSES_PER_DEG); their pulses are unchanged. look_left mirrors look_right about the centre:
+# Explicit look requests (September 28). The "33-degree" poses below turn the head about 28 degrees
+# (drive_space.NECK_PULSES_PER_DEG, November 25); their pulses are unchanged. look_left mirrors look_right about the centre:
 # the startup scan's 4000 is only ~19 degrees, less than a 20% joint request, so a
 # "look left" after one visibly swung right. Named look_* (not head_*) because the model
 # announced "head_right" as "Turning right." Side, up/down and the side tilt are separate

@@ -139,13 +139,17 @@ class NeckCalibrationTests(MemoryFixture):
 
     def test_the_voice_reflex_lands_on_the_speakers_face_seen_at_the_edge_of_his_view(self):
         # 4:29 PM: head looking left (2944), Bret's face at the right edge (x 0.94) and his voice 35 degrees
-        # right. With the old neck figure the reflex aimed at 8 degrees right (6116) and missed him.
+        # right. October 23 the reflex aimed at 8 degrees right (6116) and missed him. The head goes to the face
+        # seen, by the neck's 78 degree travel (owner, November 25), not to the voice's direction.
         self.setup_robot('unused')
         self.robot.owner.commanded[0] = NECK_LEFT
         self.port.pose[0] = NECK_LEFT
         self.robot.reflex.faces = lambda: [[.92, .42, .04, .11]]
         self.assertEqual(self.reflex(-35.), 'started')
-        self.assertGreater(self.port.pose[0], 7800)   # About 24 degrees right, at his face.
+        from r3x.drive_space import image_bearing, neck_degrees, neck_pulse
+        at_face = neck_pulse(image_bearing([.92, .42, .04, .11], neck_degrees(NECK_LEFT)))
+        self.assertAlmostEqual(self.port.pose[0], at_face, delta=60)
+        self.assertNotAlmostEqual(self.port.pose[0], neck_pulse(-35.), delta=300)   # Not the voice's bearing.
 
 
 class SplitSentenceTests(MemoryFixture):

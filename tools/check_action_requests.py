@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 from r3x.adapters.hosted import OpenAIBrain
 from r3x.contracts import Capture, Cancellation, ToolCall, Transcript
+from r3x.drive_space import neck_degrees
 from r3x.leds import LEDs
 from r3x.memory import Memory
 from r3x.output import OutputOwner
@@ -281,7 +282,7 @@ def run(case, key, folder, round_=0, provider='openai'):
                 owner.look_hold_until = trace.clock() + 20 if head == 'left' else float('-inf')
                 owner.holding_requested_look = lambda: trace.clock() < owner.look_hold_until
                 owner.head_moved_by, owner.head_moved_at = ('reflex', trace.clock() - 3) if head == 'away' else (None, float('-inf'))
-                owner.neck_degrees = lambda: (NECK_CENTER - owner.commanded[0]) / ((5472 - 1984) / 45. / .57)
+                owner.neck_degrees = lambda: neck_degrees(owner.commanded[0])
                 output.robot.keep_requested_look = lambda *a, **k: None
                 output.inspection = SimpleNamespace(directions=('current',), close=lambda: None, cancel=lambda: None)
                 state.photo_memory = PhotoMemory(Path(tmp).resolve() / 'photos'); state.photo_memory.start()

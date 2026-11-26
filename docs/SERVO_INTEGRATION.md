@@ -1550,3 +1550,10 @@ now often starts while something is moving, so those clips are marked as heard d
 start or teach a voice (the October 20 finding: .39 voice match during the cue against .57 still).
 811 blocked-I/O checks pass (synthetic, simulated servo board). How it looks and sounds on the robot,
 and whether follow-up speech is recognised less often, are unseen.
+
+## November 25: the neck turns 78 degrees
+
+Owner, from the gearing: the neck's calibrated travel (1984-8960) is about 78°, 39° each way, not the
+October 23 fit of about 51° (which read low). `drive_space.NECK_TRAVEL_DEG` sets the camera geometry; the
+"33-degree" look poses turn about 28°; `servo_poses.NECK_PER_DEG` (idle and talking motion sizes, tuned by
+eye) is unchanged. The sentry sweep's stops are now -39, -20, 0, 20, 39. Not yet checked on the robot.

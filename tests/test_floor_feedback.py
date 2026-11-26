@@ -62,8 +62,10 @@ class GazeTests(unittest.TestCase):
     def test_voice_direction_when_no_speaker_face_and_limits_when_nothing_visible(self):
         neck = addressee_neck([], 0., 'bret', {'status': 'observed', 'bearing_deg': -20.})
         self.assertAlmostEqual((NECK_CENTER - neck)/NECK_PULSES_PER_DEG, -20., delta=.5)
-        # October 23: the neck turns about 25 degrees each way; a voice further round stops it there.
-        self.assertEqual(addressee_neck([], 0., 'bret', {'status': 'observed', 'bearing_deg': -30.}), LIMITS[0][1])
+        # The neck turns 39 degrees each way (owner, November 25); a voice further round stops it there.
+        neck = addressee_neck([], 0., 'bret', {'status': 'observed', 'bearing_deg': -30.})
+        self.assertAlmostEqual((NECK_CENTER - neck)/NECK_PULSES_PER_DEG, -30., delta=.5)
+        self.assertEqual(addressee_neck([], 0., 'bret', {'status': 'observed', 'bearing_deg': -50.}), LIMITS[0][1])
         self.assertIsNone(addressee_neck([], 0., None, {'status': 'ambiguous', 'bearing_deg': None}))
         far = addressee_neck([], 0., None, {'status': 'observed', 'bearing_deg': 170.})
         self.assertEqual(far, LIMITS[0][0])
@@ -1998,13 +2000,13 @@ class LookBackTests(SeekTests):
 
     def test_nowhere_in_three_looks_is_reported_once_not_looked_at_twice_in_one_spot(self):
         clock, fake, drive, world = self.start([('door', 'door', 3., 0.)])
-        plan = self.aside(clock, drive, 50.)
+        plan = self.aside(clock, drive, 70.)
         world.objects.clear()
         before = len(self.calls)
         found, why, swung = drive._find_again(plan, Cancellation(), shifted=1)
         self.assertIsNone(found)
-        # Two different head views cover both sides; then, with the neck's real 25 degree reach, the body
-        # turns toward where it should be for one more (October 23).
+        # Two different head views cover both sides; then, past what the head turned to its 39 degree limit
+        # sees well, the body turns toward where it should be for one more (October 23, November 25).
         self.assertEqual(len(self.calls) - before, 3)
         self.assertGreater(abs(swung), 40.)
         self.assertEqual(world.neck, 0.)

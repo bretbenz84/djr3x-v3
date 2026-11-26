@@ -2116,3 +2116,12 @@ that last until their power is cycled (firmware README, November 24).
   is all that softens such a bump.
 - Checks: simulated base only (`tests/test_drive.py` grid-out drives and refusals, rear radial fallback;
   `tests/test_drive_session.py`); `run_checks.py --changed` 603 pass. Not yet driven on the robot.
+
+## The neck turns 78 degrees; look-around by head and wheels — November 25, 2026
+
+Owner: the neck's whole calibrated travel is about 78°, 39° each way, from its gearing; the October 23 figure
+(about 51°, fitted from faces in the picture) read low, and head aims overshot about 1.5 times.
+`drive_space.NECK_TRAVEL_DEG` sets `NECK_PULSES_PER_DEG`; `LOOK_NECK_MAX` follows it (39°), so re-finding
+looks go to 39° and a missed thing more than 59° aside still gets the body's extra turn. The look-around is
+now four 90° wheel stops with head looks 22.5° right and left
+([room navigation plan](ROOM_NAVIGATION_PLAN.md#look-around-by-head-and-wheels-november-25)). Simulated only.

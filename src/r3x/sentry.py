@@ -51,7 +51,7 @@ STILL_DEG, STILL_Y, STILL_WIDTH = 1.5, .02, (.85, 1.18)
 FIXTURE_DEG = 3.                  # Later, a face this close to a picture's place is that picture:
 FIXTURE_Y = .05                   # bearing, height in the picture...
 FIXTURE_WIDTH = (.7, 1.4)         # ...and size ratio.
-SWEEP_STOPS_DEG = (-30., -15., 0., 15., 30.)   # Neck stops; the ~90 degree lens covers about 75 each side.
+SWEEP_STOPS_DEG = (-39., -20., 0., 20., 39.)   # Neck stops to its limits; the ~90 degree lens then covers about 84 each side.
 
 PHASES = ('off', 'countdown', 'guarding', 'alarm', 'watching')
 GUARD_PHASES = frozenset({'guarding', 'alarm', 'watching'})

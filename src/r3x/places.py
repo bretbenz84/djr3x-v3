@@ -130,6 +130,7 @@ TRIP_MIN_M = .5             # Shorter trips (and turns in place) leave him on th
 SPOT_PHOTOS = 16            # Two per direction at most (day and night).
 FACING_SHIFT_SCORE = .45    # A tiny-copy shift this good refines which way he faces.
 DEPTH_DIFFERS_M = 1.        # Depth straight ahead this different from a photo's: a little less like it.
+DEPTH_NECK_MAX_DEG = 10.    # The head turned further than this: the depth straight ahead is not the view's (November 25).
 MERGE_SIM = .84             # A spot made this run whose view matches an old spot's photo this well is that spot.
 CARRIED_SIM = .70           # On a spot by the wheels, a view this unlike its photo this way...
 CARRIED_READINGS = 3        # ...this many times in a row, after leaning like something picked up: he was carried.
@@ -532,6 +533,10 @@ class Places:
                 'settled': deliberate or self._safe(lambda: self.view_settled(frame.at), True),
                 'sharpness': self._sharpness(frame),
                 'depth': self._safe(self.depth, None), 'compass': self._safe(self.compass, None)}
+        if meta['depth'] and abs(meta['neck']) > DEPTH_NECK_MAX_DEG:
+            # A look to the side (a look-around's head looks, idle glances): the ring's reading straight ahead
+            # is another direction's, so it neither describes this photo nor compares with one.
+            meta['depth'] = {k: v for k, v in meta['depth'].items() if k != 'front_m'}
         vector = unit(self.encoder.embed(frame))        # Slow work outside the lock.
         thumb = self._safe(lambda: self.encoder.thumbnail(frame), None) if hasattr(self.encoder, 'thumbnail') else None
         with self.lock:

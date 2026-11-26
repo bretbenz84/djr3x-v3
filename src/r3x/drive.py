@@ -17,7 +17,7 @@ from .contracts import Cancellation, Cancelled, ProviderFailure
 from .drive_space import (ARMS, ARMS_TUCKED, allowed_turn, arms_blocked, throttle_front_m, beside_gap, body_room,
                           camera_points, clearance, corner_gaps, corner_points, corner_steer, describe_bearing, face_range,
                           front_room, front_surface, image_bearing, move_allowance, out_of_view, radar_bodies,
-                          seen_points, steer, wall_angle, wrap, AXLE_AFT, BODY_HALF_WIDTH, CORNER_SLOW_M, FRONT_MARGIN,
+                          seen_points, steer, wall_angle, wrap, AXLE_AFT, BODY_HALF_WIDTH, CORNER_SLOW_M, FRONT_MARGIN, NECK_TRAVEL_DEG,
                           MIN_TURN, PATH_MARGIN, PERSON_MARGIN, RING_RADIUS, SCRAPE_M, STEER_MAX, SURFACE_HOLD_M, WALL_HOLD_M)
 from .field_guide import GUIDE
 from .local_map import LocalMap
@@ -82,7 +82,12 @@ CAMERA_STOP_ROOM_M = .08  # Something only the camera sees, this little room bef
 DOOR_SIDE_M = .45         # Both sides this near: a doorway or a hall (his body is 0.54 m, the door 0.8 m)...
 DOOR_OPEN_M = .9          # ...and one side this open again: through it.
 LOOK_AROUND_DEG = 45.     # A look-around: eight looks, one every 45 degrees, photos at each.
-LOOK_AROUND_SETTLE_S = 1.
+LOOK_AROUND_SETTLE_S = 1.  # After the wheels or the head stop, before the photo (the head shakes as it stops).
+# Owner, November 25: the head turns too, so four quarter turns of the wheels, with a look 22.5 degrees right
+# and 22.5 left at each, cover the eight directions (was eight stops, seven 45 degree wheel turns).
+LOOK_AROUND_NECK_DEG = LOOK_AROUND_DEG / 2
+LOOK_AROUND_REACH_DEG = 32.  # A direction this far either side of where he faces is a head look, not a turn.
+LOOK_AROUND_TURNS = 8        # Wheel turns tried at most (a refused or shortened one is tried again smaller).
 BEARING_ROLL_M = 3.       # Toward a room known only by its direction from here: at most this far.
 SEGMENT_FIX_MIN_DEG = 4.  # A passage's tiny copies turn him back onto the line he drove before by at
 SEGMENT_FIX_MAX_DEG = 20. # least this and at most this (a bigger one is a poor match, not a heading).
@@ -128,9 +133,9 @@ PERSON_REACH = .8         # Face range minus a front return within this may be k
 CRUISE_LOOK_S = 2.        # While rolling, a new look starts at most this often (hosted looks take 2-5 s).
 AIM_DEG = 15.             # Re-aim only past this while the path ahead is open (legs re-locate anyway).
 LOST_AFTER_S = 2.5         # Unseen this long mid-approach: stop and look for them (was 6 s, then gave up).
-# Head looks while re-finding a person or thing: as far as the neck turns. October 23: it reaches about
-# 25 degrees each way, not the 40 assumed before (drive_space.NECK_PULSES_PER_DEG).
-LOOK_NECK_MAX = 25.
+# Head looks while re-finding a person or thing: as far as the neck turns, 39 degrees each way
+# (drive_space.NECK_TRAVEL_DEG; 25 from October 23 to November 25, when the neck was thought to turn less).
+LOOK_NECK_MAX = NECK_TRAVEL_DEG / 2
 MAX_REACQUIRES = 3
 VOICE_LEG_M = 2.           # With only a voice to go on, roll this far toward it looking for a face.
 # Owner, November 15 (run 7261d8ce): "turn left and come towards me" with him out of face range
@@ -3016,8 +3021,8 @@ class DriveBase:
             self._look(0., cancel)   # Level and centred again: bearings below are base-relative.
         if (found is None and not turned and expected is not None and abs(expected) > LOOK_NECK_MAX + 20.
                 and self._vision_calls < self._vision_budget()):
-            # October 23: the neck reaches about 25 degrees, not 40, so a thing predicted well to the side
-            # can sit just past what the turned head sees. The body turns toward it for one more look.
+            # A thing predicted well to the side can sit just past what the turned head sees (October 23).
+            # The body turns toward it for one more look.
             turn = self._turn(max(-120., min(120., expected)), plan, cancel, escape=False)
             turned += turn.get('turned_deg', 0.)
             self._sought['slack'] = 90.
@@ -3546,35 +3551,76 @@ class DriveBase:
 
     def _look_around(self, plan, cancel, until_placed=False):
         """A full turn in eight looks, a photo at each (requested, or to find himself on a trip someone asked
-        for). until_placed: stop once the room map knows the spot and two looks are in."""
+        for). until_placed: stop once the room map knows the spot and two looks are in.
+
+        Owner, November 25: the head does half the turning. At each of four stops he looks 22.5 degrees right,
+        then 22.5 left, then the wheels turn 90 degrees left. A turn refused for room is tried at 45; a short
+        one leaves the next directions to the head or to a smaller turn. Without a head, eight 45 degree stops."""
         row = {'action': 'look_around'}
         nav = self.navigator
         if nav is None:
             return {**row, 'status': 'refused', 'reason': 'room_map_unavailable', 'turned_deg': 0.}
-        turned, looks, refused, where = 0., 0, 0, nav.where()
-        owed = 0.
-        for index in range(int(round(360. / LOOK_AROUND_DEG))):
-            if index:
-                owed += LOOK_AROUND_DEG
-                turn = self._turn(owed, plan, cancel, escape=False)
-                if turn['status'] == 'refused':
-                    refused += 1
-                    continue   # Too close to something to swing that far: try the next step's angle.
-                if turn['status'] != 'completed':
-                    return {**row, 'status': turn['status'], 'reason': turn['reason'], 'turned_deg': round(turned, 1),
-                            'looks': looks}
-                moved = turn.get('measured_deg') if turn.get('measured_deg') is not None else turn.get('commanded_deg', owed)
-                turned += abs(moved)
-                owed = max(0., owed - abs(moved))
-            self._sleep(LOOK_AROUND_SETTLE_S, cancel)
-            where = nav.capture(cancel)
-            looks += 1
-            if until_placed and where.get('spot') and looks >= 2:
+        head = self.servos is not None and hasattr(self.servos, 'execute_pose')
+        # Camera directions to photograph, degrees left of where he faced at the start, right to left.
+        offset = -LOOK_AROUND_NECK_DEG if head else 0.
+        remaining = [offset + LOOK_AROUND_DEG * i for i in range(int(round(360. / LOOK_AROUND_DEG)))]
+        turned, looks, turns, refused, where, looked = 0., 0, 0, 0, nav.where(), False
+        out = None
+        while remaining:
+            reach, had_head = (LOOK_AROUND_REACH_DEG if head else LOOK_AROUND_DEG / 2), head
+            for direction in sorted(d for d in remaining if abs(d - turned) <= reach):
+                if head:
+                    neck = direction - turned
+                    if abs(neck - self._neck()) > 2.:
+                        if self._look(neck, cancel):
+                            looked = True
+                        else:
+                            # The head would not move: the wheels do the rest, one direction every 45 degrees.
+                            head = False
+                            remaining = [turned + LOOK_AROUND_DEG * i for i in range(len(remaining))]
+                            if self.trace: self.trace.emit('look_around_head_unavailable', looks=looks)
+                            break
+                self._sleep(LOOK_AROUND_SETTLE_S, cancel)
+                where = nav.capture(cancel)
+                looks += 1
+                remaining.remove(direction)
+                if until_placed and where.get('spot') and looks >= 2:
+                    remaining = []
+                    break
+            if not remaining:
                 break
-        out = {**row, 'status': 'completed', 'reason': 'placed' if where.get('spot') else 'spot_not_known',
-               'looks': looks, 'turned_deg': round(turned, 1)}
-        if refused:
-            out['turns_refused'] = refused
+            if had_head and not head:
+                continue   # The head just failed: look straight ahead from here before any turn.
+            if turns >= LOOK_AROUND_TURNS:
+                break
+            # Turn so the next direction is the head's right look (or straight ahead without a head).
+            want = min(remaining) - turned + (LOOK_AROUND_NECK_DEG if head else 0.)
+            if want <= 0:
+                remaining.remove(min(remaining))   # Already passed (a turn ran long): skip it.
+                continue
+            turn, turns = self._turn(want, plan, cancel, escape=False), turns + 1
+            if turn['status'] == 'refused' and want > LOOK_AROUND_DEG:
+                refused += 1
+                turn, turns = self._turn(LOOK_AROUND_DEG, plan, cancel, escape=False), turns + 1
+            if turn['status'] == 'refused':
+                refused += 1
+                remaining.remove(min(remaining))   # Too close to something to swing there: the next one.
+                continue
+            if turn['status'] != 'completed':
+                out = {**row, 'status': turn['status'], 'reason': turn['reason'], 'turned_deg': round(turned, 1),
+                       'looks': looks}
+                break
+            moved = turn.get('measured_deg') if turn.get('measured_deg') is not None else turn.get('commanded_deg', want)
+            turned += abs(moved)
+        if looked:
+            self._look(0., cancel)   # Centred again: bearings after this are base-relative.
+        if out is None:
+            out = {**row, 'status': 'completed', 'reason': 'placed' if where.get('spot') else 'spot_not_known',
+                   'looks': looks, 'turned_deg': round(turned, 1), 'wheel_turns': turns, 'head': looked}
+            if refused:
+                out['turns_refused'] = refused
+            if remaining:
+                out['missed'] = len(remaining)
         self._step_trace(out)
         return out
 

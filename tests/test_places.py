@@ -287,6 +287,20 @@ class SpotTests(PlaceFixture):
         self.look(1)
         self.assertEqual(len(self.photos(spot)), 1)            # The same way, clear: kept.
 
+    def test_a_photo_with_the_head_turned_keeps_no_straight_ahead_depth(self):
+        # Owner, November 25: the look-around photographs with the head 22.5 degrees to each side.
+        import json
+        self.places.depth = lambda: {'front_m': 1.2, 'path_m': 1.1}
+        self.places.neck = lambda: 22.5
+        self.look(5)
+        rows = self.store.rows('SELECT depth FROM room_photos WHERE spot_id IS NOT NULL')
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn('front_m', json.loads(rows[0]['depth']))
+        self.places.neck = lambda: 0.
+        self.turn(90); self.look(2)
+        depths = [json.loads(r['depth']) for r in self.store.rows('SELECT depth FROM room_photos WHERE spot_id IS NOT NULL')]
+        self.assertIn(1.2, [d.get('front_m') for d in depths])              # Head straight: kept.
+
     def test_a_look_around_stop_reads_its_sharpest_frame(self):
         def stop(scores):
             frames = [self.frame(self.world.view(self.spot_at, self.yaw0 + self.yaw)) for _ in scores]
