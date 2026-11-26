@@ -228,15 +228,23 @@ that shows progress of the calibration. I would ensure the motor controllers wer
 - **After saving** the dial turns into a compass rose, north up, with the direction he faces and a warning
   when the field no longer matches the calibration (steel nearby) or the motors draw current. A refused
   calibration (he barely turned, or under a full circle) says why and saves nothing.
+- **Stuck sensors:** the first try (November 25) showed nothing: after a drive the drive board's sensor bus
+  had hung, so the gyroscope said "not ok" and the compass and battery current repeated their last values
+  (1695 mA, read as motors working). Before and during a recording the window now says when the gyroscope
+  or compass is not answering, or the compass has not changed at all for 5 s, and to use **Restart ESP32** or
+  switch the drive board off and on. `tools/compass.py` refuses the same cases (and no longer loses its
+  recording to the drive link's own `telemetry` field).
 - **Saved to** the ignored `local/calibration/compass.json`, the same file `tools/compass.py read` uses.
   The fitting and its checks are `r3x.compass` ([V2 reference](../V2_REFERENCE.md#compass-calibration-and-heading--november-25-2026)).
 - **Structure:** `gui/compass_model.py` (Qt-free: recording, the circle, finishing) and
   `gui/compass_calibration.py` (the window).
 
-**Evidence.** 3 synthetic checks of the window's model in `tests/test_compass.py` (nothing kept before
-Start, the circle filling, a half turn refused, a pinned save then the heading, motors drawing current)
+**Evidence.** 4 synthetic checks of the window's model in `tests/test_compass.py` (nothing kept before
+Start, the circle filling, a half turn refused, a pinned save then the heading, motors drawing current,
+stuck sensors said)
 and 1 in `tests/test_tof_diagnostics.py` (fed the menu's lines, asks for nothing). Drawn off screen from
-synthetic readings at each stage. Not yet opened from the menu, and the robot has not been calibrated.
+synthetic readings at each stage. Opened from the menu once (stuck sensors, above); `tools/compass.py read`
+against the hung board printed the gyroscope message. The robot has not been calibrated.
 
 ## Drive controls window — November 25, 2026
 

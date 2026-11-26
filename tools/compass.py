@@ -27,13 +27,15 @@ from r3x.hardware_ownership import HardwareLocks, serial_port_free
 
 
 class Recorder(DriveLink):
+    # DriveLink keeps its newest telemetry as .telemetry; the whole recording is .readings (November 25: sharing
+    # the name, the list was overwritten by the first message and the tool failed).
     def __init__(self, open_port):
         super().__init__(open_port)
-        self.telemetry = []
+        self.readings = []
 
     def dispatch(self, message, received_at):
         if message.get('type') == 'telemetry':
-            self.telemetry.append(message)
+            self.readings.append(message)
         super().dispatch(message, received_at)
 
 
@@ -52,7 +54,7 @@ def record(seconds, note=None):
         link = Recorder(lambda: open_serial(port))
         try:
             link.open({})
-            if not any((t.get('mag') or {}).get('ok') for t in link.telemetry) and not _wait_for_mag(link):
+            if not any((t.get('mag') or {}).get('ok') for t in link.readings) and not _wait_for_mag(link):
                 sys.exit('No compass reading in telemetry (mag.ok false): is the sensor wired and answering?')
             if note:
                 print(note, flush=True)
@@ -61,21 +63,33 @@ def record(seconds, note=None):
                 elapsed = time.monotonic() - start
                 if note and elapsed - last >= 10:
                     last = elapsed
-                    print(f'  {elapsed:4.0f} s, {len(link.telemetry)} readings', flush=True)
+                    print(f'  {elapsed:4.0f} s, {len(link.readings)} readings', flush=True)
                 time.sleep(.2)
             if link.failure:
                 sys.exit(f'The drive link failed: {link.failure}')
-            return list(link.telemetry)
+            _refuse_stuck(link.readings)
+            return list(link.readings)
         finally:
             link.close()
     finally:
         lease.close()
 
 
+def _refuse_stuck(readings):
+    """A hung sensor bus on the drive board leaves the gyroscope "not ok" and repeats the compass's last counts
+    (November 25). Both are said and refused rather than calibrated or read."""
+    restart = 'choose Restart ESP32 in the battery menu, or switch the drive board off and on.'
+    if readings and not any((t.get('imu') or {}).get('ok') for t in readings):
+        sys.exit(f'The gyroscope is not answering: the drive board\'s sensors look stuck; {restart}')
+    mags = {tuple((t.get('mag') or {}).get(k) for k in 'xyz') for t in readings if (t.get('mag') or {}).get('ok')}
+    if len(readings) >= 30 and len(mags) == 1:
+        sys.exit(f'The compass repeated one reading {len(readings)} times: the sensors look stuck; {restart}')
+
+
 def _wait_for_mag(link):
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        if any((t.get('mag') or {}).get('ok') for t in link.telemetry[-5:]):
+        if any((t.get('mag') or {}).get('ok') for t in link.readings[-5:]):
             return True
         time.sleep(.3)
     return False

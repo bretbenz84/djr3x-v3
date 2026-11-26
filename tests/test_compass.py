@@ -193,6 +193,25 @@ class CalibrationWindowTests(unittest.TestCase):
         self.assertEqual((self.model.quiet, self.model.busy), (0, 8))
         self.assertIn('switch the motor controllers off', self.model.progress_words(1.))
 
+    def test_a_stuck_sensor_bus_is_said_rather_than_showing_nothing(self):
+        # November 25, the first try: after a drive the board's sensor bus hung; the gyroscope said "not ok" and
+        # the compass and battery current repeated their last values, and the window showed nothing.
+        self.feed(sweep()[:20])
+        self.assertIsNone(self.model.trouble(2.))
+        frozen = {**reading(80., current=1695), 'imu': {'ok': False}}
+        self.feed([frozen] * 30, 10.)
+        self.assertIn('gyroscope is not answering', self.model.progress_words(13.))
+        self.assertIn('Restart ESP32', self.model.progress_words(13.))
+        still = reading(80.)                                     # Gyroscope fine, compass repeating itself.
+        self.feed([still] * 70, 20.)
+        self.assertIn('has not changed at all', self.model.trouble(26.9))
+        self.model.start(27.)
+        self.assertIn('has not changed at all', self.model.progress_words(27.))
+        self.feed(sweep()[:5], 27.)                              # It moves again: nothing to say.
+        self.assertIsNone(self.model.trouble(27.5))
+        self.feed([{'type': 'telemetry', 'batt_ma': 30, 'mag': {'ok': False}, 'imu': {'ok': True, 'yaw': 1.}}], 28.)
+        self.assertIn('compass is not answering', self.model.trouble(28.))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -9,6 +9,11 @@ Recording starts on the person's word. It keeps every telemetry message; the gyr
 has been pushed round and which tenths of the circle have a quiet compass reading (motors drawing current are
 left out, compass.QUIET_MA). Finishing fits the calibration with compass.fit (the same checks as the command
 line tool) and writes it; afterwards the window shows which way he faces by it.
+
+November 25, the first try: the drive board's sensor bus had hung after a drive. The gyroscope answered
+"not ok" and the compass and battery current repeated their last values (1695 mA, over the quiet limit), so
+the window counted nothing and drew nothing, with no word why. trouble() now says so before and during a
+recording: no gyroscope, no compass, or a compass reading that has not changed at all for STUCK_S.
 """
 from __future__ import annotations
 
@@ -19,6 +24,10 @@ from .controller_feed import ControllerFeed
 
 ROOT = Path(__file__).resolve().parents[3]
 SECTOR_DEG = 10.          # The circle is drawn and counted in pieces this wide.
+STUCK_S = 5.              # A compass reading identical to the count for this long has stopped updating (its
+                          # noise moves it a count or two between readings).
+RESTART = ('The drive board\'s sensors look stuck: choose Restart ESP32 in the battery menu, or switch the '
+           'drive board off and on, then try again.')
 
 
 class CompassCalibration(ControllerFeed):
@@ -35,6 +44,8 @@ class CompassCalibration(ControllerFeed):
         self.quiet = self.busy = 0
         self.points = []              # Raw (x, y) of quiet readings, to draw the cloud forming.
         self._yaw0 = self._last_yaw = None
+        self.gyro_ok = self.mag_ok = None    # As the newest telemetry says.
+        self._mag_last = self._mag_since = None
 
     # ------------------------------------------------------------------ the person's steps
     def start(self, now):
@@ -63,17 +74,22 @@ class CompassCalibration(ControllerFeed):
         if kind != 'telemetry':
             return
         self.telemetry, self.telemetry_at = line, now
+        imu, mag = line.get('imu') or {}, line.get('mag') or {}
+        yaw = imu.get('yaw') if imu.get('ok') and isinstance(imu.get('yaw'), (int, float)) else None
+        self.gyro_ok = yaw is not None
+        self.mag_ok = bool(mag.get('ok'))
+        raw = tuple(mag.get(k) for k in 'xyz') if self.mag_ok else None
+        if raw != self._mag_last:
+            self._mag_last, self._mag_since = raw, now
         if self.phase != 'recording':
             return
         self.readings.append(line)
-        imu = line.get('imu') or {}
-        yaw = imu.get('yaw') if imu.get('ok') and isinstance(imu.get('yaw'), (int, float)) else None
         if yaw is not None:
             if self._yaw0 is None:
                 self._yaw0 = self._last_yaw = float(yaw)
             self.turned += compass.ang_diff(float(yaw), self._last_yaw)
             self._last_yaw = float(yaw)
-        mag, current = line.get('mag') or {}, line.get('batt_ma')
+        current = line.get('batt_ma')
         if not mag.get('ok') or mag.get('ovl'):
             return
         if not isinstance(current, (int, float)) or abs(current) > compass.QUIET_MA:
@@ -92,7 +108,24 @@ class CompassCalibration(ControllerFeed):
         """compass.heading for the newest telemetry, or None (no calibration, or no reading)."""
         return compass.heading(self.telemetry, self.calibration) if self.calibration and self.telemetry else None
 
+    def trouble(self, now):
+        """Why the sensors this needs cannot be used right now, in words; None when they can."""
+        if self.telemetry is None or not self.live(now):
+            return None                     # The link line already says there is no data.
+        if not self.gyro_ok and not self.mag_ok:
+            return f'Neither the gyroscope nor the compass is answering. {RESTART}'
+        if not self.gyro_ok:
+            return f'The gyroscope is not answering, so the turn cannot be measured. {RESTART}'
+        if not self.mag_ok:
+            return f'The compass is not answering. {RESTART}'
+        if self._mag_since is not None and now - self._mag_since >= STUCK_S:
+            return f'The compass reading has not changed at all for {now - self._mag_since:.0f} s. {RESTART}'
+        return None
+
     def progress_words(self, now):
+        problem = self.trouble(now)
+        if problem and self.phase in ('ready', 'recording'):
+            return problem
         if self.phase == 'ready':
             saved = (f'Saved calibration from {self.calibration.saved_at}.' if self.calibration
                      else 'No calibration saved yet.')

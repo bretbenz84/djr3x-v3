@@ -220,6 +220,8 @@ class CompassCalibrationWindow(QDialog):
             self._link.setProperty('ok', live)
             self._link.style().unpolish(self._link); self._link.style().polish(self._link)
         colour = {'refused': theme.BAD, 'saved': theme.GOOD}.get(model.phase, theme.TEXT)
+        if model.trouble(now) and model.phase in ('ready', 'recording'):
+            colour = theme.WARN
         self._progress.setText(f'<span style="color:{colour}">{model.progress_words(now)}</span>')
         recording = model.phase == 'recording'
         self._start.setVisible(not recording and model.phase != 'saved' and model.phase != 'refused')
