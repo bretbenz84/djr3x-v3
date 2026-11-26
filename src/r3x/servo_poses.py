@@ -1525,7 +1525,7 @@ NAMED_POSES = {
 # One-shot gestures run and return to where they started; nothing is held afterwards. The
 # head expressions (not the plain one-cock 'tilt', which tilt_left/tilt_right cover as held
 # looks) are also steps people can ask for and Rex can plan.
-GESTURES = ('wave', 'arm_dance', 'nod', 'wink', 'perplexed', 'wiggle', 'sympathetic', 'surprised', 'laugh', 'skeptical',
+GESTURES = ('wave', 'arm_dance', 'finger_wiggle', 'nod', 'wink', 'perplexed', 'wiggle', 'sympathetic', 'surprised', 'laugh', 'skeptical',
             'deflated', 'proud', 'angry')
 # Owner request October 3: the model chooses between following faces and looking where it
 # decides. look_at_people resumes following faces; any look_* step holds that direction.
@@ -1551,7 +1551,11 @@ HAND_POSES = {
     'hand_put_down': FULL_DOWN,
 }
 HAND_STEPS = tuple(HAND_POSES)
-POSE_COMMANDS = (*NAMED_POSES, *NECK_POSES, *HEAD_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses', *HAND_STEPS)
+# Dancing (owner, November 25; dance.py): 'dance' starts a dance of dance.DANCE_SECONDS that carries on
+# beside the conversation; 'stop_dancing' ends it, and stops dancing to the song now playing.
+DANCE_STEPS = ('dance', 'stop_dancing')
+POSE_COMMANDS = (*NAMED_POSES, *NECK_POSES, *HEAD_POSES, *GESTURES, *GAZE, 'hold_arms', 'release_poses', *HAND_STEPS,
+                 *DANCE_STEPS)
 
 
 def neck_target(name, current, further=True) -> int:
@@ -1691,6 +1695,39 @@ def arm_dance_lanes(current):
     return lanes
 
 
+# "Wiggle your fingers" (owner, November 25): both hands' fingers open and close and the three hand joints
+# that turn or bend (hero wrist, throttle wrist, poker twist) go back and forth, WIGGLES times, then each
+# goes back where it was. Only hand joints move: no arm, so nothing needs clearance. A hand holding something
+# keeps its fingers closed (the servo owner strips them from every request but the hand's own).
+WIGGLES = 4
+WIGGLE_SECONDS = .3
+WIGGLE_TRAVEL = {5: 900, 14: 800, 16: 1200}   # Either side of where the joint is now, inside its limits.
+WIGGLE_FINGERS = {15: (6100, 7800), 17: (5100, 6850)}   # Throttle and hero fingers: nearly open, nearly closed.
+
+
+def finger_wiggle_lanes(current):
+    """Fingers and wrists back and forth a few times, each lane on its own hand, then home."""
+    def swing(ch, i):
+        if ch in WIGGLE_FINGERS:
+            return WIGGLE_FINGERS[ch][i % 2]
+        low, high = LIMITS[ch]
+        side = WIGGLE_TRAVEL[ch] * (1 if i % 2 == 0 else -1)
+        return max(low, min(high, current[ch] + side))
+    lanes = []
+    for group in ((5, HERO_FINGERS), THROTTLE_HAND, (POKER_TWIST,)):
+        at, lane = dict(current), []
+        for i in range(WIGGLES * 2):
+            aim = tuple((ch, swing(ch, i + (1 if ch in WIGGLE_FINGERS else 0))) for ch in group)
+            lane.append(eased_beat(at, aim, WIGGLE_SECONDS))
+            at.update(aim)
+        lane.append(eased_beat(at, tuple((ch, current[ch]) for ch in group), WIGGLE_SECONDS))
+        lanes.append(tuple(lane))
+    for lane in lanes:
+        for beat in lane:
+            validate_pose(dict(beat.targets))
+    return tuple(lanes)
+
+
 def reflex_lanes(target):
     """Voice reflex: the neck alone, quicker than an idle glance, nothing held."""
     if set(target) != {0}: raise ValueError('ReflexMovesNeckOnly')
@@ -1747,6 +1784,8 @@ def pose_lanes(name, current, further=True):
         return wave_lanes(current)
     elif name == 'arm_dance':
         return arm_dance_lanes(current)
+    elif name == 'finger_wiggle':
+        return finger_wiggle_lanes(current)
     elif name in GESTURES:
         return expressive_lanes(current, 'gesture', 'unfocused', name, 'normal', .5, frozenset())
     elif name == 'look_at_people':

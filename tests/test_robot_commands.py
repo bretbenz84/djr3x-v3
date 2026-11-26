@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import unittest
 from r3x.capture import Endpoint, Frame
 from r3x.contracts import Cancellation, Cancelled, Capture, Transcript, ToolCall
-from r3x.servo_poses import NAMED_POSES, POSE_COMMANDS, pose_lanes, throttle_clear, THROTTLE
+from r3x.servo_poses import DANCE_STEPS, NAMED_POSES, POSE_COMMANDS, pose_lanes, throttle_clear, THROTTLE
 from r3x.servos import ServoOwner, ServoRequest
 from r3x.robot_servos import RobotServos
 from r3x.output import OutputOwner
@@ -65,6 +65,8 @@ class PoseTests(unittest.TestCase):
     def test_all_named_pose_transitions_and_park_have_valid_routes(self):
         for start in NAMED_POSES:
             for end in POSE_COMMANDS:
+                if end in DANCE_STEPS:
+                    continue   # Not a board pose: RobotServos runs the dance beside the conversation (tests/test_dance.py).
                 with self.subTest(start=start,end=end):
                     self.assertEqual(self.run_pose(start).status,'pulses_reached')
                     self.assertEqual(self.run_pose(end).status,'pulses_reached')

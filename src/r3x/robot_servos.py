@@ -6,9 +6,10 @@ from .adapters.maestro import open_serial
 from . import servo_wiring
 from .contracts import Cancellation, ProviderFailure
 from .providers import Capability
-from .servo_poses import (throttle_extends, ARM_HOLD, HAND_PARK, HAND_STEPS, HEAD, LIMITS, THROTTLE, THROTTLE_HAND, REACHING_ARMS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
+from .servo_poses import (throttle_extends, ARM_HOLD, DANCE_STEPS, HAND_PARK, HAND_STEPS, HEAD, LIMITS, THROTTLE, THROTTLE_HAND, REACHING_ARMS, REST, SENTRY_ARM_OUT, SENTRY_STANCE, TELEPRESENCE_DRIVE_HEAD,
                           pose_channels, sentry_head, telepresence_targets, visor_over_eyes)
 from .servos import ServoOwner, ServoReceipt, ServoRequest, TalkingMotion
+from .dance import DANCE_SECONDS, Dance
 from .idle_motion import IdleMotion
 from .voice_reflex import VoiceReflex
 
@@ -35,10 +36,12 @@ class RobotServos:
         self.idle = IdleMotion(self.owner)
         self.talking = TalkingMotion(self.owner)
         self.reflex = VoiceReflex(self.owner)
+        self.dance = Dance(self.owner)
         self.reflex.on_voice = self.idle.look_at_people   # Someone is talking: look at them again.
         def quiet():
             self.idle.stop()
             self.reflex.stop()
+            self.dance.pause()   # A line of his: the dance stops for it and carries on after, while it has time.
         self.talking.before_start = quiet
         self.talking.after_speech = self.idle.after_speech
         # Idle never starts a phrase while talking motion or the hand's own move needs the servos
@@ -144,6 +147,7 @@ class RobotServos:
         return receipt
 
     def cancel(self):
+        self.dance.close()
         self.idle.close()
         self.reflex.close()
         self.talking.cancel()
@@ -182,19 +186,29 @@ class RobotServos:
         self.idle.wake()
 
     def before_frame(self, *, allow_idle=False, capturing=False, calm=False):
-        self.idle.trace = self.reflex.trace = self.trace
+        self.idle.trace = self.reflex.trace = self.dance.trace = self.trace
         if self.owner.release_expired_look():
             self.idle.look_at_people()   # A person's look is over: the head follows people again.
         if self.owner.operator:
             self.idle.tick(False)
+            self.dance.stop('operator')
             return
         self._tick_hand()
+        if self.dance.engaged():
+            # Dancing (owner, November 25): idle movement stays still while the dance has the servos. A person
+            # speaking, a line of his or the hand's own move pauses it, as they pause idle movement.
+            self.idle.stop()
+            if self.dance.tick(allow_idle and self.talking._thread is None and not self._hand_busy()):
+                return
         self.idle.tick(allow_idle and self.talking._thread is None, calm)
         if (not capturing and self.talking._thread is None and self.idle._thread is None and
                 not (self.reflex._thread and self.reflex._thread.is_alive())):
             self.owner.refresh_microphone_hold()
 
     def execute_pose(self, name, cancel, request_id, *, hold_pose=True, beside_visor=False):
+        if name in DANCE_STEPS:
+            return self._dance_step(name, request_id, hold_pose)
+        self.dance.pause()
         self.idle.stop()
         self.reflex.stop()   # The model's explicit move replaces an unfinished reflex.
         if not (beside_visor and self.talking.visor_only):
@@ -277,6 +291,23 @@ class RobotServos:
                     # folds back in with it instead of staying out for good (review, November 20).
                     self._fold_held(request_id)
         return receipt
+
+    def _dance_step(self, name, request_id, asked):
+        """'dance' starts a dance of DANCE_SECONDS that carries on beside the conversation; 'stop_dancing'
+        ends one, and stops dancing to the song now playing. Only a person's request starts one: a dance
+        is half a minute of the whole body, not a beat of his own goal."""
+        def receipt(status, reason=None):
+            return ServoReceipt(request_id, status, self.owner.version, self.owner.clock(), self.owner.medium,
+                                reason=reason)
+        if name == 'stop_dancing':
+            return receipt('pulses_reached', 'DanceStopped' if self.dance.stop('asked') else 'WasNotDancing')
+        if not asked:
+            return receipt('rejected', 'DanceOnlyWhenAsked')
+        if self._hand_state not in ('empty', 'holding'):
+            return receipt('rejected', 'HandBusy')
+        if self.dance.start(DANCE_SECONDS) != 'started':
+            return receipt('rejected', 'ServoUnavailableOrParked')
+        return receipt('pulses_reached', 'DanceStarted')
 
     def _takes_arm(self, name) -> bool:
         """Whether this pose takes the throttle arm or hand over from a move the hand was about to make."""
@@ -791,6 +822,7 @@ class RobotServos:
         the rest is heard cleanly."""
         self._speech_at = self.owner.clock()
         self.idle.stop()
+        self.dance.pause()
 
     def heard(self):
         """A trusted transcript is back: cock the head while he thinks, unless he is

@@ -470,6 +470,8 @@ class App:
                     output.attention.start();output.gestures.start()
                 output.speech_motion = output.robot.talking if output.robot else None
                 output.leds = self.leds if self.leds and 'robot_leds' in active else None
+                if output.robot:
+                    output.robot.dance.lights = output.leds   # A dance's colours change every bar.
                 try:
                     ready = self.startup_audio.ready()   # Chosen and fetched while everything started.
                 except Exception as exc:

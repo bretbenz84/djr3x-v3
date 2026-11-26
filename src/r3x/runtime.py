@@ -602,6 +602,7 @@ class VoiceRuntime:
         """The song a wake word paused plays again once the talk has been quiet (owner, November 18). A game
         or sentry mode keeps it paused for good."""
         music = self.music
+        self._dance_to_music(music)
         if music is None or not music.held:
             return
         if self.gaming() or self.guarding():
@@ -616,6 +617,18 @@ class VoiceRuntime:
             self._music_quiet_since = now
             return
         music.resume_when_quiet(self._music_quiet_since, now)
+
+    def _dance_to_music(self, music):
+        """While a song from the Music app is heard he dances to it (owner, November 25), at its BPM or its
+        genre's usual tempo. A game or sentry mode never has a song playing."""
+        dance = getattr(self.robot, 'dance', None) if self.robot else None
+        if dance is None:
+            return
+        playing = music is not None and music.audible and not self.gaming() and not self.guarding()
+        song = music.now if playing else None
+        from .dance import beat_seconds
+        dance.music(playing, beat_seconds(getattr(song, 'bpm', 0), getattr(song, 'genre', None)) if playing else None,
+                    getattr(song, 'song_id', None))
 
     def game_tick(self):
         """Jeopardy's clock and music while a game is on (owner, October 26)."""

@@ -13,6 +13,7 @@ from typing import Callable
 from .adapters.maestro import Maestro, Port
 from .contracts import Cancellation, Cancelled, ProviderFailure
 from .providers import Capability
+from .dance import dance_lanes
 from .servo_poses import (throttle_parks_nowhere, POKER_TWIST, HERO_FINGERS, FINGERS_CLOSED, HAND_STEPS, LIMITS, THROTTLE, THROTTLE_HAND, HEAD, PAIRS, POKER, lifecycle_lanes, motion_profiles, base_lanes,
                           talking_lanes, idle_lanes, throttle_clear, validate_pose, pose_lanes, reflex_lanes, NAMED_POSES,
                           sentry_lanes, telepresence_wake_lanes,
@@ -32,7 +33,7 @@ HOLD_YIELD_SECONDS = 90.   # A human-requested pose blocks Rex's own movement th
 LOOK_HOLD_SECONDS = 20.
 # Requests that only run once he is awake (after startup, before park).
 AWAKE_KINDS = frozenset({'talking', 'idle', 'pose', 'reflex', 'base_park', 'base_release',
-                         'attention', 'gesture', 'operator', 'sentry'})
+                         'attention', 'gesture', 'operator', 'sentry', 'dance'})
 SETTLE_SECONDS = .5   # Motion risk lasts this long after the servos stop.
 # Owner, October 21: at the end of a line every arm froze mid-move. When a line finishes
 # normally the arms and visor run on to the targets already sent (the head and microphone arm
@@ -64,6 +65,7 @@ class ServoRequest:
     look: bool = False            # Operator head moves at a person's look pace (telepresence aiming).
     arms_home: bool = False       # Park/shutdown: the poker arm's swing comes home too (a telepresence call).
     keep_arms: frozenset[str] = frozenset()   # Startup: reaching arms left in until their space reads clear.
+    dance: object | None = None   # Dance: one phrase (dance.DancePhrase).
 
 
 @dataclass(frozen=True)
@@ -413,6 +415,8 @@ class ServoOwner:
                      pose_lanes(request.pose,current,further=request.hold_pose) if request.kind == 'pose' else
                      pose_lanes(dict(request.pose),current,further=request.look) if request.kind == 'operator' else
                      reflex_lanes(request.pose) if request.kind == 'reflex' else
+                     dance_lanes(current, request.dance, self.held_channels | self.kept_channels | self.grip_channels)
+                     if request.kind == 'dance' else
                      sentry_lanes(request.pose, current, request.travel_seconds) if request.kind == 'sentry' else
                      base_lanes(request.kind,current) if request.kind in {'base_park','base_release'} else
                      telepresence_wake_lanes(current) if request.kind == 'telepresence_wake' else

@@ -37,10 +37,10 @@ ACTIONS = ('play', 'pause', 'resume', 'stop', 'next', 'set_volume', 'now_playing
 US, RS = '\x1f', '\x1e'     # Field and record separators in script output.
 
 _PRELUDE = 'set US to character id 31\nset RS to character id 30\n'
-# Every song a reference names, nine properties in nine bulk reads (0.3 s for 909 songs on the robot;
+# Every song a reference names, ten properties in ten bulk reads (0.3 s for 909 songs on the robot;
 # reading them song by song took 2.1 s for 13). The result is one column per property.
 _COLUMNS = ('\t\tset out to {persistent ID, name, artist, album, year, genre, duration, disc number, '
-            'track number} of r\n')
+            'track number, bpm} of r\n')
 _JOINED = ('on joined(out, US, RS)\n'
            '\tset parts to {}\n'
            "\tset AppleScript's text item delimiters to US\n"
@@ -170,6 +170,7 @@ class Song:
     seconds: int | None
     disc: int = 0
     number: int = 0
+    bpm: int = 0          # The library's beats per minute, 0 when it has none (most streamed songs): his dance's tempo.
 
     def view(self):
         minutes = None if self.seconds is None else f'{self.seconds // 60}:{self.seconds % 60:02d}'
@@ -178,18 +179,20 @@ class Song:
 
 
 def songs(output: str) -> list[Song]:
-    """Songs from a script's nine columns (persistent ID, name, artist, album, year, genre, seconds, disc,
-    track number), each a list joined by US, the columns joined by RS."""
+    """Songs from a script's ten columns (persistent ID, name, artist, album, year, genre, seconds, disc,
+    track number, BPM), each a list joined by US, the columns joined by RS. Nine (no BPM) also reads."""
     columns = [c.split(US) for c in output.split(RS)] if output else []
-    if len(columns) != 9 or len({len(c) for c in columns}) != 1:
+    if len(columns) not in (9, 10) or len({len(c) for c in columns}) != 1:
         return []
+    if len(columns) == 9:
+        columns.append(['0'] * len(columns[0]))
     def whole(text):
         try:
             return int(round(float(text.replace(',', '.'))))
         except ValueError:
             return None
-    return [Song(i, n, a, b, whole(y) or None, g, whole(d), whole(c) or 0, whole(k) or 0)
-            for i, n, a, b, y, g, d, c, k in zip(*columns) if i]
+    return [Song(i, n, a, b, whole(y) or None, g, whole(d), whole(c) or 0, whole(k) or 0, whole(m) or 0)
+            for i, n, a, b, y, g, d, c, k, m in zip(*columns) if i]
 
 
 def plain(text) -> str:

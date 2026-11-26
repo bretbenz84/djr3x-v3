@@ -67,7 +67,9 @@ running.
 - **Celebrity entrances.** Tell him "treat PJ like Kings royalty whenever he shows up" and that person
   gets a grand entrance when they arrive. "Stop that bit" turns it off.
 - **Music.** Ask for a song, album, artist, genre or playlist. He introduces it like a DJ and plays it
-  from the Mac's Apple Music library. Say "Hey Rex" to pause it.
+  from the Mac's Apple Music library. Say "Hey Rex" to pause it. While a song plays he dances to it.
+- **Dancing.** "Dance for us" and he dances for 30 seconds, head, arms and lights. "Stop" or "stop dancing"
+  ends it. "Wiggle your fingers" wiggles his fingers and wrists.
 - He can tell when someone smiles at his jokes, and reacts accordingly.
 
 ### See and move

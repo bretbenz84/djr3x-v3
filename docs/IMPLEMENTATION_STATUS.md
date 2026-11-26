@@ -6,6 +6,20 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Dancing, to music and on request; wiggling his fingers — November 25
+
+Owner: asked to dance with no music he dances for 30 seconds; while a song from the Music app plays he dances
+to it; "wiggle your fingers" moves his fingers and wrists back and forth. One `src/r3x/dance.py` scheduler
+beside idle movement sends two-bar phrases through the servo owner: the head bobs and sways, all three arms
+swing through poses talking and the arm dance already use (the throttle hand never below a talking pose, the
+microphone arm still, held or obstacle-kept arms left out), and the eyes, mouth glow and chest change colour
+every bar. A person speaking, a line of his or a person's pose pauses it; "stop" or `stop_dancing` ends it
+("stop dancing" during a song lasts for that song). The tempo is the song's BPM from the Music app (now read
+with each song) when the library has one, else a typical tempo for its genre: **nothing listens for the
+beat**, so he keeps the song's pace, not its downbeat. His own goals cannot start a dance. Never the wheels.
+`finger_wiggle` is a one-shot gesture of the hand joints only (fingers 15 and 17, wrists 5, 14 and 16).
+11 synthetic checks on the fake board; not yet run on the robot or heard over a song.
+
 ## Drive controls window — November 25
 
 Owner: the battery menu's dropdown pad is replaced by **Drive Controls…**, a window with a round drag

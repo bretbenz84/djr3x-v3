@@ -595,7 +595,7 @@ class Session:
     def _planning_job(self, turn_id, context, planning_context, audience, capabilities, opportunity):
         """Everything the planner sees, captured now; planning itself may finish later."""
         from .agency import evidence_catalog, recent_dialogue
-        from .servo_poses import HAND_STEPS, POSE_COMMANDS
+        from .servo_poses import DANCE_STEPS, HAND_STEPS, POSE_COMMANDS
         from . import jokes
         agency = self.state.agency
         now = self.trace.clock()
@@ -643,7 +643,7 @@ class Session:
             'evidence': evidence, 'capabilities': capabilities,
             'capability_contract': {'gesture': 'A short spoken thought with a finite head expression that shows its feeling (nod, tilt, perplexed, wiggle, sympathetic, surprised, laugh, skeptical, deflated, proud, angry) that your lights show too; not a silent pose.',
                 'attention_mode': context.get('attention', {}).get('mode'),
-                'pose': {'enabled': 'pose' in capabilities, 'commands': [c for c in POSE_COMMANDS if c not in HAND_STEPS],
+                'pose': {'enabled': 'pose' in capabilities, 'commands': [c for c in POSE_COMMANDS if c not in HAND_STEPS and c not in DANCE_STEPS],
                          'reach_out_hand': 'throttle_offer', 'look_and_comment': 'pose with look_after',
                          **context.get('robot_pose_state', {})},
                 'drive': context.get('drive'),
@@ -778,6 +778,9 @@ class Session:
             finally:
                 self._lock.release()
         self.output.cancel()
+        dance = getattr(getattr(self.output, 'robot', None), 'dance', None)
+        if dance is not None and reason != 'shutdown':
+            dance.stop('stop_phrase')   # "Stop" ends a dance too (it carries on beside the conversation).
         self.trace.emit("cancel", revision=self.revision)
         if quiet and self.state and self.state.initiative.quiet:
             self.trace.emit('initiative_quiet', source='stop_phrase')
@@ -1643,6 +1646,10 @@ class Session:
                       getattr(self.output.robot, 'hand_state', lambda: 'empty')())
                 if hand:
                     context['robot_pose_state']['throttle_hand'] = hand
+                dance = getattr(self.output.robot, 'dance', None)
+                dancing = dance.state() if dance is not None and hasattr(dance, 'state') else {}
+                if dancing.get('dancing') or dancing.get('stopped_for_this_song'):
+                    context['robot_pose_state']['dance'] = dancing   # Only while it matters: the request stays small.
                 own_visor = bool(getattr(owner, 'may_raise_visor', lambda: False)())
                 if visor_over_eyes(commanded):
                     context['visor_over_eyes'] = {'closed': True, 'yours_to_raise': own_visor, 'meaning':
