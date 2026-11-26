@@ -56,7 +56,16 @@ CASES = {
     'no_its_the_dining_room': ((('user', 'Go into the living room.'), ('assistant', 'Living room, I think. Is this it?')),
                                True, "No, this is the dining room.", ('dining room', 'here')),
     'not_a_naming': ((), False, 'What room do you think you are in?', None),
+    # Owner, November 25: the ways he would say it. Run 2c425f20 (November 24): "You are in the workshop right now."
+    # while his own guess already said workshop got a joke and no naming, so that spot stayed unnamed.
+    'you_are_in_the_dining_room': ((), False, 'You are in the dining room.', ('dining room', 'here')),
+    'learn_this_room': ((), False, "I'd like you to learn this room, it's the bedroom.", ('bedroom', 'here')),
+    'learn_a_new_room': ((), False, "I'd like you to learn this room. It's the laundry room.", ('laundry room', 'here')),
+    'this_is_the_dining_room': ((), False, 'This is the dining room.', ('dining room', 'here')),
+    'told_what_he_already_guessed': ((), False, 'You are in the workshop right now.', ('workshop', 'here')),
 }
+# Cases where his own guess already says the room (a look-alike vote, not a person): a person saying so still names it.
+BELIEVES = {'told_what_he_already_guessed': 'workshop'}
 
 
 def same(a, b):
@@ -119,6 +128,10 @@ def run(case, key, folder, round_=0, provider='claude'):
             places = Places(camera, encoder, store, clock=trace.clock, odometer=odometer, trace=trace)
             places.load(); places._check_network()
             places.last_query = {'at': trace.clock(), 'status': 'unsure', 'top': [('workshop', .761), ('living room', .692)]}
+            if case in BELIEVES:
+                room = BELIEVES[case]
+                places.last_query = {'at': trace.clock(), 'status': 'recognized', 'top': [(room, .83), ('living room', .70)]}
+                places.current = {'place_id': ids[room], 'name': room, 'since': trace.clock() - 60, 'sure': True, 'how': 'vote'}
             if arrived:
                 places.arrived = {'room_id': ids[ARRIVED], 'name': ARRIVED, 'ask': True, 'at': trace.clock()}
                 places.current = {'place_id': ids[ARRIVED], 'name': ARRIVED, 'since': trace.clock(), 'sure': False, 'how': 'trip'}
