@@ -8,8 +8,8 @@ Documentation does not authorize new hardware operation or feature expansion.
 
 ## Drive controls window — November 25
 
-Owner: the battery menu's dropdown pad is replaced by **Drive Controls…**, a window with a clickable
-direction pad and W A S D (shown on the window), a speed slider, and stops on letting go, losing focus,
+Owner: the battery menu's dropdown pad is replaced by **Drive Controls…**, a window with a round drag
+stick (any angle, how far out sets how fast) and W A S D (shown on the window), a speed slider, and stops on letting go, losing focus,
 closing or 0.5 s of silence. Same drive commands and caps as the old pad. Checks drawn off screen and of the
 menu's side; not yet used on the robot ([GUI](GUI.md#drive-controls-window--november-25-2026)).
 

@@ -242,12 +242,17 @@ synthetic readings at each stage. Not yet opened from the menu, and the robot ha
 
 Owner: "remove the directional control pad from the menu bar helper app, but instead make a line item to
 activate a gui that pops up to control the movement. The GUI should have the directional clickable control
-pad, but also have awsd keyboard movement, show that on the GUI so it's obvious to a new person."
+pad, but also have awsd keyboard movement, show that on the GUI so it's obvious to a new person." Later that
+day: "your direction pad can't do angled drives. Can you make it a circular pad so I can drag the center
+anywhere and it goes that direction" — the four arrows became a round stick.
 
 - **Open it:** battery menu, **Drive Controls…** (the pad that sat in the dropdown is gone; **■ STOP Motors**
-  stays in the menu). With Rex running, or no live controller, the pad and keys do nothing and it says so.
-- **Driving:** hold a pad arrow, or hold **W** forward, **S** back, **A** turn left, **D** turn right (arrow keys
-  too); two at once curves; **Space** or the round STOP button stops; letting go stops. The keys are drawn
+  stays in the menu). With Rex running, or no live controller, the stick and keys do nothing and it says so.
+- **Driving:** press anywhere in the round stick and drag: up is forward, down back, the sides turn on the
+  spot, and any angle between mixes the two in proportion (how far out sets how fast; past the rim stays at
+  the rim; the middle 8% does nothing). Letting go springs the knob back and stops. Or hold **W** forward,
+  **S** back, **A** turn left, **D** turn right (arrow keys too); two at once curves, and the knob shows the
+  keys. **Space** or the STOP button stops. The keys are drawn
   on the window and light while held. A speed slider sets 20-100% of the old pad's caps (0.25 m/s, 60°/s;
   60% to start). Below, what he is doing and the speed the wheels report.
 - **Safety:** the window says which way it is held at once on every change and again every 0.1 s while
@@ -258,9 +263,10 @@ pad, but also have awsd keyboard movement, show that on the GUI so it's obvious 
   `{"type": "drive", "x", "y", "engaged"}`, which the menu turns into the same `drive` and `stop` commands
   the dropdown pad sent. Structure: `gui/drive_controls.py`.
 
-**Evidence.** 6 checks of the window drawn off screen (`tests/test_drive_controls.py`: a key held and let go,
-two keys and the arrows, the repeat while held, the pad, Space and losing focus, the speed slider and lit
-keys, nothing without a live controller) and 3 of the menu (`tests/test_tof_diagnostics.py`: held and let go
+**Evidence.** 8 checks of the window drawn off screen (`tests/test_drive_controls.py`: a key held and let go,
+two keys and the arrows, the repeat while held, the stick at three angles and let go, a press in the middle
+or outside the circle, Space and losing focus, the speed slider and lit keys, nothing without a live
+controller) and 3 of the menu (`tests/test_tof_diagnostics.py`: held and let go
 at the old caps, quiet for 0.6 s or closed stops, nonsense never drives). Not yet used on the robot.
 
 ## Evidence
