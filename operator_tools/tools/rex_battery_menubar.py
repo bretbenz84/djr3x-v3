@@ -17,12 +17,14 @@ How it gets the data with no protocol handshake:
   to sync the coulomb gauge when the operator watches the charger's taper
   current hit cutoff — evidence of "full" the firmware can't see on its own
   (mid-absorption the pack is never at rest, so the boot rest-voltage anchor
-  can't fire until a power-cycle) — and the JOYSTICK embedded in the dropdown
-  (owner request 2026-07-21), which drives the base directly while dragged:
+  can't fire until a power-cycle) — and driving by hand (owner request
+  2026-07-21, a pad in the dropdown; since V3, November 25, the "Drive
+  Controls…" window, which reports what it holds through its stdout):
   `drive` setpoints refreshed each worker loop (~10 Hz while telemetry flows,
-  bounded by readline's timeout) and one `stop` on release. The firmware's
-  300 ms drive deadman is the backstop — if this app stalls, loses the port,
-  or the menu closes mid-drag, the base ramps to a stop on its own. Side
+  bounded by readline's timeout) and one `stop` on release, on the window
+  closing, or when it has said nothing for 0.5 s. The firmware's 300 ms drive
+  deadman is the backstop — if this app stalls or loses the port, the base
+  ramps to a stop on its own. Side
   effect of any write: the firmware's comms watchdog arms (seen_mac) and
   re-latches comms_lost once we go quiet — harmless while the base is idle,
   and the dropdown already presents that state as benign standby.
@@ -296,8 +298,9 @@ class _DiagnosticsWindow:
     """One diagnostics window this app starts and feeds. raw_stream: while it watches a live meter,
     the firmware's diagnostic stream of the two front corner sensors is kept on for it."""
 
-    def __init__(self, name: str, module: str, raw_stream: bool = False) -> None:
+    def __init__(self, name: str, module: str, raw_stream: bool = False, commands=None) -> None:
         self.name, self.module, self.raw_stream = name, module, raw_stream
+        self.commands = commands    # Called with each JSON line the window writes back (drive controls), or None.
         self.lock = threading.Lock()
         self.child = None           # subprocess.Popen of the window, or None
         self.relay = None           # utils.line_relay.LineRelay onto its stdin
@@ -317,12 +320,35 @@ class _DiagnosticsWindow:
                 self.relay.send(b'{"type":"feed","raise":true}')
                 return "raised"
             argv, cwd = self.command()
-            self.child = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE)
+            if self.commands is None:
+                self.child = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE)
+            else:
+                self.child = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+                threading.Thread(target=self._read_back, args=(self.child.stdout.fileno(),),
+                                 name=f"{self.name} commands", daemon=True).start()
             self.relay = LineRelay(self.child.stdin.fileno())
             self.status_mode = None   # Its first line says where things stand.
             pid = self.child.pid
         log.info("%s window started (pid %s).", self.name, pid)
         return "started"
+
+    def _read_back(self, fd: int) -> None:
+        """What the window writes back, one JSON line at a time, until it closes (then the wheels stop)."""
+        rest = b""
+        while True:
+            try:
+                chunk = os.read(fd, 4096)
+            except OSError:
+                chunk = b""
+            if not chunk:
+                break
+            *rows, rest = (rest + chunk).split(b"\n")
+            for row in rows:
+                try:
+                    self.commands(json.loads(row))
+                except Exception as exc:
+                    log.debug("%s sent an unreadable line (%s).", self.name, exc)
+        _joy_release()
 
     def feed(self, raw: bytes) -> None:
         """One line from the controller, on to the window if it is open."""
@@ -360,6 +386,8 @@ class _DiagnosticsWindow:
                     self.raw_at = now
         if gone:
             log.info("%s window closed.", self.name)
+            if self.commands is not None:
+                _joy_release()
             if was_raw and _snapshot()["mode"] == "live":
                 _queue_tof_debug(0)
         elif renew:
@@ -369,7 +397,18 @@ class _DiagnosticsWindow:
 _tof_window = _DiagnosticsWindow("ToF diagnostics", "r3x.gui.tof_diagnostics", raw_stream=True)
 _sensor_window = _DiagnosticsWindow("Sensor diagnostics", "r3x.gui.sensor_diagnostics")
 _compass_window = _DiagnosticsWindow("Compass calibration", "r3x.gui.compass_calibration")
-_WINDOWS = (_tof_window, _sensor_window, _compass_window)
+
+
+def _drive_command(row: dict) -> None:
+    """The drive window's word: which way it is held (x right+, y forward+, each -1..1), or let go."""
+    if row.get("type") != "drive":
+        return
+    clamp = lambda v: max(-1.0, min(1.0, float(v))) if isinstance(v, (int, float)) and math.isfinite(v) else 0.0
+    _joy_set(clamp(row.get("x")), clamp(row.get("y")), bool(row.get("engaged")))
+
+
+_drive_window = _DiagnosticsWindow("Drive controls", "r3x.gui.drive_controls", commands=_drive_command)
+_WINDOWS = (_tof_window, _sensor_window, _compass_window, _drive_window)
 
 
 def _diagnostics_feed(raw: bytes) -> None:
@@ -391,18 +430,20 @@ def _diagnostics_tick(now=None) -> None:
         window.tick(now)
 
 
-# ── Joystick (dropdown view → serial worker) ──────────────────────────────────
-# The AppKit view (run_app) writes the stick position here; the serial worker
-# turns it into `drive` lines each loop pass. Conservative caps, mirroring the
+# ── Joystick (drive window → serial worker) ───────────────────────────────────
+# V3, owner November 25: the dropdown's pad is gone; the Drive Controls window
+# (src/r3x/gui/drive_controls.py) writes the stick position here through its
+# stdout, and the serial worker turns it into `drive` lines each loop pass. Conservative caps, mirroring the
 # GUI Motivator console's arcade mixing: stick-up = forward, stick-right =
 # clockwise. The firmware still clamps to its own params and runs the full
 # zone reflex (slow/stop) on top of whatever we send.
 _JOY_MAX_LIN_MS = 0.25          # m/s at full stick (== config MOTION_MAX_LINEAR_MS default)
 _JOY_MAX_ANG_DEG_S = 60.0       # deg/s at full stick
 _JOY_DEADZONE = 0.06            # ignore resting jitter near center
+_JOY_STALE_SECS = 0.5           # a held position not renewed this long is let go (the window repeats it every 0.1 s)
 
 _joy_lock = threading.Lock()
-_joy = {"x": 0.0, "y": 0.0, "engaged": False}   # x right+, y up+ (normalized -1..1)
+_joy = {"x": 0.0, "y": 0.0, "engaged": False, "at": 0.0}   # x right+, y up+ (normalized -1..1); when set
 _joy_was_driving = False        # worker-thread only: displaced -> centered sends one stop
 
 
@@ -412,6 +453,7 @@ def _joy_set(x: float, y: float, engaged: bool) -> None:
         _joy["x"] = float(x)
         _joy["y"] = float(y)
         _joy["engaged"] = bool(engaged)
+        _joy["at"] = time.monotonic()
 
 
 def _joy_release() -> None:
@@ -425,8 +467,9 @@ def _service_joystick(ser) -> None:
     to the read path, which owns reopen."""
     global _tx_seq, _joy_was_driving
     with _joy_lock:
-        x, y, engaged = _joy["x"], _joy["y"], _joy["engaged"]
-    driving = engaged and math.hypot(x, y) > _JOY_DEADZONE
+        x, y, engaged, at = _joy["x"], _joy["y"], _joy["engaged"], _joy["at"]
+    # A window that stopped saying it is held (hung, or its line lost) is let go.
+    driving = engaged and math.hypot(x, y) > _JOY_DEADZONE and time.monotonic() - at <= _JOY_STALE_SECS
     if not driving and not _joy_was_driving:
         return
     with _tx_lock:
@@ -1151,131 +1194,6 @@ def _fmt_age(age: float) -> str:
 
 # ── Menu bar app ───────────────────────────────────────────────────────────────
 
-def _make_joystick_view():
-    """Build the AppKit joystick view embedded in the dropdown (NSMenuItem
-    custom view, the same mechanism as the volume slider in the sound menu).
-    macOS delivers mouse-drag events to menu-item views during menu tracking,
-    so dragging the knob works with the menu open; the worker thread turns the
-    published position into `drive` lines. Returns an NSView."""
-    import objc
-    from AppKit import (NSBezierPath, NSColor, NSFont, NSFontAttributeName,
-                        NSForegroundColorAttributeName, NSView)
-    from Foundation import NSMakeRect, NSString
-
-    class RexJoystickView(NSView):
-        def initWithFrame_(self, frame):
-            self = objc.super(RexJoystickView, self).initWithFrame_(frame)
-            if self is None:
-                return None
-            self.live = False       # set by the refresh timer; gates mouse input
-            self.kx = 0.0           # knob position, unit circle, y up+
-            self.ky = 0.0
-            return self
-
-        def acceptsFirstMouse_(self, _event):
-            return True
-
-        def _geom(self):
-            b = self.bounds()
-            w, h = b.size.width, b.size.height
-            cx, cy = w / 2.0, h / 2.0
-            r = min(w, h) / 2.0 - 10.0
-            return cx, cy, r
-
-        @objc.python_method
-        def _track(self, event, engaged):
-            if not self.live:
-                return
-            p = self.convertPoint_fromView_(event.locationInWindow(), None)
-            cx, cy, r = self._geom()
-            travel = max(1.0, r - r * 0.30)
-            nx = (p.x - cx) / travel
-            ny = (p.y - cy) / travel          # NSView y is up — matches ly up+
-            n = math.hypot(nx, ny)
-            if n > 1.0:
-                nx, ny = nx / n, ny / n
-            if not engaged:
-                nx = ny = 0.0
-            self.kx, self.ky = nx, ny
-            _joy_set(nx, ny, engaged)
-            self.setNeedsDisplay_(True)
-
-        def mouseDown_(self, event):
-            self._track(event, True)
-
-        def mouseDragged_(self, event):
-            self._track(event, True)
-
-        def mouseUp_(self, event):
-            self._track(event, False)
-
-        def recenter(self):
-            self.kx = self.ky = 0.0
-            self.setNeedsDisplay_(True)
-
-        def setLive_(self, live):
-            live = bool(live)
-            if live != self.live:
-                self.live = live
-                if not live:
-                    self.kx = self.ky = 0.0
-                self.setNeedsDisplay_(True)
-
-        def drawRect_(self, _rect):
-            cx, cy, r = self._geom()
-            a = 1.0 if self.live else 0.35
-
-            def col(rr, gg, bb, al=1.0):
-                return NSColor.colorWithCalibratedRed_green_blue_alpha_(
-                    rr / 255.0, gg / 255.0, bb / 255.0, al * a)
-
-            col(28, 33, 41).setFill()
-            NSBezierPath.bezierPathWithOvalInRect_(
-                NSMakeRect(cx - r, cy - r, 2 * r, 2 * r)).fill()
-            ring = NSBezierPath.bezierPathWithOvalInRect_(
-                NSMakeRect(cx - r, cy - r, 2 * r, 2 * r))
-            col(70, 80, 95).setStroke()
-            ring.setLineWidth_(2.0)
-            ring.stroke()
-            well = r * 0.82
-            col(18, 22, 28).setFill()
-            NSBezierPath.bezierPathWithOvalInRect_(
-                NSMakeRect(cx - well, cy - well, 2 * well, 2 * well)).fill()
-            cross = NSBezierPath.bezierPath()
-            cross.moveToPoint_((cx - well, cy))
-            cross.lineToPoint_((cx + well, cy))
-            cross.moveToPoint_((cx, cy - well))
-            cross.lineToPoint_((cx, cy + well))
-            col(90, 150, 200, 0.5).setStroke()
-            cross.setLineWidth_(1.0)
-            cross.stroke()
-            rk = r * 0.30
-            travel = r - rk
-            kx = cx + self.kx * travel
-            ky = cy + self.ky * travel
-            col(64, 140, 200).setFill()
-            NSBezierPath.bezierPathWithOvalInRect_(
-                NSMakeRect(kx - rk, ky - rk, 2 * rk, 2 * rk)).fill()
-            knob_ring = NSBezierPath.bezierPathWithOvalInRect_(
-                NSMakeRect(kx - rk, ky - rk, 2 * rk, 2 * rk))
-            col(190, 235, 255).setStroke()
-            knob_ring.setLineWidth_(2.0)
-            knob_ring.stroke()
-            if not self.live:
-                s = NSString.stringWithString_("needs live link (Rex off)")
-                attrs = {
-                    NSFontAttributeName: NSFont.boldSystemFontOfSize_(10),
-                    NSForegroundColorAttributeName:
-                        NSColor.colorWithCalibratedRed_green_blue_alpha_(
-                            0.72, 0.78, 0.85, 0.95),
-                }
-                sz = s.sizeWithAttributes_(attrs)
-                s.drawAtPoint_withAttributes_(
-                    (cx - sz.width / 2.0, cy - sz.height / 2.0), attrs)
-
-    return RexJoystickView.alloc().initWithFrame_(NSMakeRect(0, 0, 230, 230))
-
-
 def run_app() -> int:
     try:
         import rumps
@@ -1308,18 +1226,11 @@ def run_app() -> int:
             # crawling to the USB plug. Live-mode only, like Set-Battery-100%.
             self._restart_esp = rumps.MenuItem("Restart ESP32",
                                                callback=self._on_restart_esp)
-            # Joystick (owner request 2026-07-21): an AppKit view embedded in
-            # the dropdown drives the base while dragged. Live-mode only, like
-            # the other write actions; the firmware's 300 ms drive deadman and
-            # zone reflex remain the real safety layer.
-            self._joy_view = None
-            self._joy_item = rumps.MenuItem("Joystick")
-            try:
-                self._joy_view = _make_joystick_view()
-                self._joy_item._menuitem.setView_(self._joy_view)
-            except Exception as exc:
-                log.warning("Joystick view unavailable: %s", exc)
-                self._joy_item.hidden = True
+            # V3, owner November 25: driving by hand moved from a pad in this
+            # dropdown to its own window (direction pad and W A S D keys). The
+            # firmware's 300 ms drive deadman and zone reflex remain the real
+            # safety layer.
+            self._drive = rumps.MenuItem("Drive Controls…", callback=self._on_drive)
             self._stop_motors = rumps.MenuItem("■ STOP Motors",
                                                callback=self._on_stop_motors)
             # V3, owner November 20: every range reading live, in its own window.
@@ -1332,30 +1243,9 @@ def run_app() -> int:
             self._hv_notified_at = 0.0   # last supply-too-high notification
             self._mono_warned = False    # warn once if attributed titles fail
             self.menu = (list(self._rows)
-                         + [None, self._joy_item, self._stop_motors]
+                         + [None, self._drive, self._stop_motors]
                          + [None, self._mark_full, self._set_soc, self._restart_esp]
                          + [None, self._tof, self._sensors, self._compass])
-            # A menu that closes mid-drag can eat the mouseUp — force-release
-            # the stick whenever ANY menu ends tracking (no-op when centered);
-            # the worker then sends the one clean stop.
-            try:
-                from Foundation import NSNotificationCenter
-
-                def _menu_closed(_note):
-                    _joy_release()
-                    try:
-                        if self._joy_view is not None:
-                            self._joy_view.recenter()
-                    except Exception:
-                        pass
-
-                self._menu_close_obs = (
-                    NSNotificationCenter.defaultCenter()
-                    .addObserverForName_object_queue_usingBlock_(
-                        "NSMenuDidEndTrackingNotification", None, None,
-                        _menu_closed))
-            except Exception as exc:
-                log.warning("Menu-close stop hook unavailable: %s", exc)
             self._timer = rumps.Timer(self._refresh, 1.0)
             self._timer.start()
             # rumps schedules its NSTimer in the DEFAULT run-loop mode only,
@@ -1426,6 +1316,9 @@ def run_app() -> int:
         def _on_compass(self, _item):
             self._open_window(_compass_window, "Compass Calibration")
 
+        def _on_drive(self, _item):
+            self._open_window(_drive_window, "Drive Controls")
+
         @staticmethod
         def _open_window(window, title):
             try:
@@ -1442,11 +1335,6 @@ def run_app() -> int:
 
         def _on_stop_motors(self, _item):
             _joy_release()
-            if self._joy_view is not None:
-                try:
-                    self._joy_view.recenter()
-                except Exception:
-                    pass
             if _snapshot()["mode"] != "live":
                 return
             log.info("User clicked STOP Motors — queueing stop.")
@@ -1479,11 +1367,6 @@ def run_app() -> int:
             self._set_soc.hidden = (s["mode"] != "live")
             self._restart_esp.hidden = (s["mode"] != "live")
             self._stop_motors.hidden = (s["mode"] != "live")
-            if self._joy_view is not None:
-                try:
-                    self._joy_view.setLive_(s["mode"] == "live")
-                except Exception:
-                    pass
             if _supply_too_high(s):
                 now = time.time()
                 if now - self._hv_notified_at >= _SUPPLY_HIGH_RENOTIFY_SECS:

@@ -184,7 +184,7 @@ by 19.7° a second, and nothing on screen showed it
     eight ring sensors, both 8×8 depth sensors), for how long one has been silent, and how often one
     dropped out while watched.
   - The wheels: still or moving, position by the wheels, drive level, and the last move as the
-    gyroscope and the wheels each measured it. Turning him with the battery menu's joystick is the
+    gyroscope and the wheels each measured it. Turning him with the battery menu's Drive Controls is the
     test: the two should agree.
   - The controller: its state, how long it has been running, gamepad, who is in charge.
   - What stands out, in words, and the controller's own messages.
@@ -237,6 +237,31 @@ that shows progress of the calibration. I would ensure the motor controllers wer
 Start, the circle filling, a half turn refused, a pinned save then the heading, motors drawing current)
 and 1 in `tests/test_tof_diagnostics.py` (fed the menu's lines, asks for nothing). Drawn off screen from
 synthetic readings at each stage. Not yet opened from the menu, and the robot has not been calibrated.
+
+## Drive controls window — November 25, 2026
+
+Owner: "remove the directional control pad from the menu bar helper app, but instead make a line item to
+activate a gui that pops up to control the movement. The GUI should have the directional clickable control
+pad, but also have awsd keyboard movement, show that on the GUI so it's obvious to a new person."
+
+- **Open it:** battery menu, **Drive Controls…** (the pad that sat in the dropdown is gone; **■ STOP Motors**
+  stays in the menu). With Rex running, or no live controller, the pad and keys do nothing and it says so.
+- **Driving:** hold a pad arrow, or hold **W** forward, **S** back, **A** turn left, **D** turn right (arrow keys
+  too); two at once curves; **Space** or the round STOP button stops; letting go stops. The keys are drawn
+  on the window and light while held. A speed slider sets 20-100% of the old pad's caps (0.25 m/s, 60°/s;
+  60% to start). Below, what he is doing and the speed the wheels report.
+- **Safety:** the window says which way it is held at once on every change and again every 0.1 s while
+  held; the menu stops the wheels when it lets go, closes, loses the keyboard to another window, or says
+  nothing for 0.5 s. The firmware still stops 300 ms after the last command, and its range reflexes still
+  slow and stop him near things.
+- **How it talks:** fed the controller's lines on stdin like the other windows; it answers on stdout with
+  `{"type": "drive", "x", "y", "engaged"}`, which the menu turns into the same `drive` and `stop` commands
+  the dropdown pad sent. Structure: `gui/drive_controls.py`.
+
+**Evidence.** 6 checks of the window drawn off screen (`tests/test_drive_controls.py`: a key held and let go,
+two keys and the arrows, the repeat while held, the pad, Space and losing focus, the speed slider and lit
+keys, nothing without a live controller) and 3 of the menu (`tests/test_tof_diagnostics.py`: held and let go
+at the old caps, quiet for 0.6 s or closed stops, nonsense never drives). Not yet used on the robot.
 
 ## Evidence
 

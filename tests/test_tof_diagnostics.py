@@ -1,8 +1,10 @@
 """ToF diagnostics (owner, November 20): what the window's model makes of the drive controller's
 lines, the relay that feeds it without ever waiting on it, and the battery menu's wiring.
 Synthetic lines only; no Qt, no serial port, no child process."""
+from contextlib import nullcontext
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -248,12 +250,23 @@ class Stdin:
 
 class Child:
     """A window process that is only a pipe: what the battery menu would have started."""
-    def __init__(self, argv, cwd=None, stdin=None):
+    def __init__(self, argv, cwd=None, stdin=None, stdout=None):
         self.argv, self.cwd, self.pid = argv, cwd, 4242
         self.read_fd, write_fd = os.pipe()
         os.set_blocking(self.read_fd, False)
         self.stdin = Stdin(write_fd)
         self.exited = None
+        self.says = None                 # The window's end of its stdout, when the menu asked for one.
+        if stdout is not None:
+            out_read, self.says = os.pipe()
+            self.stdout = Stdin(out_read)
+
+    def say(self, **row):
+        os.write(self.says, (json.dumps(row) + '\n').encode())
+
+    def hang_up(self):
+        os.close(self.says)
+        self.says = None
 
     def poll(self):
         return self.exited
@@ -264,6 +277,15 @@ class Child:
         except BlockingIOError:
             return []
         return [json.loads(row) for row in data.split(b'\n') if row]
+
+
+class Port:
+    """The serial handle the worker writes to."""
+    def __init__(self):
+        self.written = []
+
+    def write(self, data):
+        self.written.append(data)
 
 
 class BatteryMenuTests(unittest.TestCase):
@@ -282,7 +304,9 @@ class BatteryMenuTests(unittest.TestCase):
         started = patch('subprocess.Popen', side_effect=popen)
         started.start()
         self.addCleanup(started.stop)
-        self.addCleanup(lambda: [(c.stdin.close(), os.close(c.read_fd)) for c in self.children])
+        self.addCleanup(lambda: [(c.stdin.close(), os.close(c.read_fd), c.says is not None and c.hang_up())
+                                 for c in self.children])
+        self.addCleanup(self.menu._joy_release)
 
     def queued(self):
         with self.menu._tx_lock:
@@ -381,6 +405,70 @@ class BatteryMenuTests(unittest.TestCase):
         self.assertEqual(self.queued(), [])
         menu._diagnostics_feed(telemetry())
         self.assertEqual(child.lines()[-1]['type'], 'telemetry')
+
+    def drives(self, port, at=None):
+        """What one pass of the serial worker writes for the stick, at `at` seconds on the monotonic clock."""
+        with patch.object(self.menu.time, 'monotonic', return_value=at) if at is not None else nullcontext():
+            self.menu._service_joystick(port)
+        rows = [json.loads(line) for line in port.written]
+        port.written.clear()
+        return [(row['cmd'], row.get('lin'), row.get('ang')) for row in rows]
+
+    def wait_for(self, check):
+        import time
+        deadline = time.monotonic() + 2.
+        while not check() and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue(check())
+
+    def test_the_drive_window_drives_while_held_and_stops_on_letting_go(self):
+        # Owner, November 25: the dropdown's pad moved to its own window, with W A S D.
+        menu = self.menu
+        self.assertEqual(menu._drive_window.open(), 'started')
+        window = self.children[0]
+        self.assertEqual(window.argv, [sys.executable, '-m', 'r3x.gui.drive_controls'])
+        port = Port()
+        self.assertEqual(self.drives(port), [])                                     # Nothing held: silence.
+        window.say(type='drive', x=0., y=1., engaged=True)
+        self.wait_for(lambda: menu._joy['engaged'])
+        self.assertEqual(self.drives(port), [('drive', .25, 0.)])                  # Full forward, the old caps.
+        window.say(type='drive', x=-1., y=0., engaged=True)                        # A held: turn left on the spot.
+        self.wait_for(lambda: menu._joy['x'] == -1.)
+        (cmd, lin, ang), = self.drives(port)
+        self.assertEqual((cmd, lin), ('drive', 0.))
+        self.assertAlmostEqual(ang, math.radians(60.), places=2)                   # Left is counter-clockwise.
+        window.say(type='drive', x=0., y=0., engaged=False)
+        self.wait_for(lambda: not menu._joy['engaged'])
+        self.assertEqual(self.drives(port), [('stop', None, None)])                # One stop, then silence.
+        self.assertEqual(self.drives(port), [])
+
+    def test_a_window_that_goes_quiet_or_closes_stops_the_wheels(self):
+        menu = self.menu
+        menu._drive_window.open()
+        window, port = self.children[0], Port()
+        window.say(type='drive', x=0., y=.6, engaged=True)
+        self.wait_for(lambda: menu._joy['engaged'])
+        held_at = menu._joy['at']
+        self.assertEqual(self.drives(port, at=held_at + .3), [('drive', .15, 0.)])
+        self.assertEqual(self.drives(port, at=held_at + .6), [('stop', None, None)])   # Not renewed for 0.6 s.
+        window.say(type='drive', x=0., y=.6, engaged=True)                             # Held again, then the window dies.
+        self.wait_for(lambda: menu._joy['at'] > held_at)
+        self.assertEqual(self.drives(port)[0][0], 'drive')
+        window.hang_up()
+        self.wait_for(lambda: not menu._joy['engaged'])
+        self.assertEqual(self.drives(port), [('stop', None, None)])
+
+    def test_nonsense_from_the_window_never_drives(self):
+        menu = self.menu
+        menu._drive_window.open()
+        window, port = self.children[0], Port()
+        window.say(type='drive', x=50., y=float('nan'), engaged=True)
+        window.say(type='hello')
+        os.write(window.says, b'not json\n')
+        self.wait_for(lambda: menu._joy['engaged'])
+        (cmd, lin, ang), = self.drives(port)
+        self.assertEqual((cmd, lin), ('drive', 0.))                                 # NaN forward is no forward...
+        self.assertAlmostEqual(ang, -math.radians(60.), places=2)                  # ...and 50 is held to full right.
 
     def test_both_windows_open_together_get_every_line_and_closing_one_leaves_the_other(self):
         menu = self.menu
