@@ -30,6 +30,12 @@ class ArrivalTests(unittest.TestCase):
         for i in range(int((end-start)*2)+1):
             at=start+i*.5;arrivals.observe([face(at,person,track)],at)
 
+    def test_no_hello_for_an_unknown_face_already_asked_by_a_reply(self):
+        # Owner, November 26: a reply asked the guest's name in a long chat; the quiet-moment hello must not ask again.
+        a=Arrivals();self.visible(a,0,5)
+        self.assertIsNone(a.take('session',5,0,stranger_asked=True))
+        self.assertIsNotNone(a.take('session',5,0))
+
     def test_stable_known_arrival_and_real_return_respect_cooldown(self):
         a=Arrivals();self.visible(a,0,2,'known')
         self.assertIsNone(a.take('s',2,float('-inf')))

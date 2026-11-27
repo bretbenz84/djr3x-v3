@@ -1712,6 +1712,8 @@ class Session:
             if self.state:
                 context['right_now'] = self._right_now(
                     context.get('current_view', {}).get('faces', context.get('faces', [])))
+                if sentry_kind:
+                    context['right_now'].pop('someone_new', None)   # The guard deals with strangers its own way.
                 # Kept in the session log so a run can be read back the way Rex saw it.
                 self.trace.emit('right_now', turn_id=turn_id, picture=context['right_now'])
                 company = company_evidence(context, None if opportunity else transcript.text)
@@ -3310,7 +3312,8 @@ class Session:
                             self.state.message_delivered(message_selected['message_id'], message_selected['text'])
                             self.trace.emit('message_delivered', turn_id=turn_id, message_id=message_selected['message_id'])
                         if question and fully_heard(question['question']):
-                            self.state.question_delivered(question["question"],question["addressee_id"],delivery.completed_at or self.trace.clock(),question.get("face_track_id"))
+                            self.state.question_delivered(question["question"],question["addressee_id"],delivery.completed_at or self.trace.clock(),question.get("face_track_id"),
+                                                          unknown_face=bool(question.get("unknown_face")))
                 except Exception as exc:
                     self.trace.emit("state_finalize_failed",turn_id=turn_id,error_type=type(exc).__name__)
             if performance_gesture and not any(r['request_id']==performance_gesture.request_id for r in delivery.gestures):

@@ -1,10 +1,42 @@
 # Current implementation status
 
-Updated November 25, 2026. This is the consolidated
+Updated November 26, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Asking a newcomer's name during a long chat; back on OpenAI — November 26
+
+Runs `8025d16e` and `56fd470b` (November 24): JT talked for fifteen minutes and Joy longer; Rex asked neither
+name on his own. The quiet-moment hello never found a quiet moment (`human_work_pending` nearly throughout),
+and their voices came through unresolved like many of the owner's, so the unnamed-speaker rule never applied.
+Replies did see an unrecognized face (100-140 px, similarity .04-.27 to anyone saved; the owner's own face
+.6-.8) but nothing said it had been there for minutes unasked.
+
+`Present` now keeps one stranger visit: any `stranger` face (followed, 48 px or wider), whatever its track
+number. After 20 s in view, in a visit at least 60 s old, `right_now.someone_new` tells the reply, and while it is
+there a per-turn note rides with the voice reminder (`_prompt('someone_new')`; both prompts also have a
+NAMES AND IDENTITY bullet): decide whether to speak as usual, then ask the name once with `ask_face_question`,
+never in plain words, and not of someone tired or upset. A face question to an unknown face heard in full,
+or an introduction while a stranger was in view, marks the visit asked; the quiet-moment hello then skips
+unknown faces; ten minutes with no stranger ends the visit. Sentry turns never get the note. Nothing uses
+voices or saves anything; the answer still goes through `introduce_person`. docs/INTRODUCTION_RECOVERY.md.
+
+Owner, the same day: the Claude credit ran out, so `llm_provider = "openai"` (`gpt-6-luna` replies,
+`gpt-5.6-terra` planner); backup `local/settings.before-openai-20261126.toml`.
+
+Replay on saved camera logs (real data, no model): over 34 sessions (November 20-26) `someone_new` came up only in
+JT's (+126 s), Joy's (+96 s) and a November 22 run with a guest (+220 s); a short driving run after Joy's reached
+18 s of 20, and the owner alone at most 4 s. Paid probe `tools/check_name_asking.py` on OpenAI (production
+Session, real reply model, stand-in faces, unresolved voice; 105 replies, about 25-40 cents in all), six
+wordings. With the persona bullet only: 0 of 3 replies to the guest asked ("no question tacked on" won). Final
+wording, 4 runs each: asked the guest through `ask_face_question` 2 of 4 (the other two answered without asking;
+the note stays until a question is heard, so a later reply asks), silent for words put to Bret 4 of 4, no ask when
+already asked 4 of 4 or with the owner alone 4 of 4, the tired guest only answered 4 of 4. An earlier wording asked
+4 of 4 but also asked the tired guest 4 of 4, and one asked 3 of 3 but two in `respond_with_intent`'s words, which
+leaves no pending question. Not run on Claude (no credit). Checks: blocked-I/O, synthetic (`SomeoneNew`, the
+arrival skip, the heard face question). Not yet seen with a real guest.
 
 ## Cost after the credit ran out: lull decisions on Haiku, fewer facts per request, memory reused — November 26
 

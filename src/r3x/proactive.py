@@ -310,9 +310,11 @@ class Arrivals:
                     self.unknown_target = None
             self.seen = dict(sorted(self.seen.items(),key=lambda p:p[1]['last'],reverse=True)[:128])
 
-    def take(self, session_id, now, speech_marker, human_turns=None, known_just_now=False):
+    def take(self, session_id, now, speech_marker, human_turns=None, known_just_now=False, stranger_asked=False):
         """human_turns counts trusted human turns so far; None makes no quick retry.
-        known_just_now: someone Rex knows was recognized (face or voice) moments ago."""
+        known_just_now: someone Rex knows was recognized (face or voice) moments ago.
+        stranger_asked: someone unknown was already asked their name this visit, by a reply
+        (owner, November 26), so an unknown face gets no hello of its own."""
         with self.lock:
             # A hello cut off by a sound later thrown away (October 14: Rex's own motor noise,
             # heard as "Oh.") is retried at once, ahead of the cooldown and anything else, while
@@ -331,7 +333,7 @@ class Arrivals:
                 if not 0<=now-face['at']<=VISIBLE_FACE_MAX_AGE: continue
                 person = face.get('identity')
                 if person and sum(f.get('identity')==person for f in self.faces)!=1: continue
-                if not person and self.unknown_attempted: continue
+                if not person and (self.unknown_attempted or stranger_asked): continue
                 box=face.get('box',(0,0,0,0))
                 if (face.get('face_width_px') or 0)<48 or box[2]*box[3]<.006: continue
                 key = person or face['track_id'];entry=self.seen[key]

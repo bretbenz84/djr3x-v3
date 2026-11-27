@@ -106,3 +106,17 @@ either (every later clip `tentative_continuity` against the 1.4 s introduction c
 `speaker_evidence` log row now has `track_scores` (similarity to the three closest session voices, their reference
 counts and voiced seconds) so the next run shows how far below .55 such clips fall.
 
+
+## November 26: asking a newcomer during a long chat
+
+Runs `8025d16e` and `56fd470b` (November 24): JT talked for fifteen minutes and Joy longer, and Rex
+asked neither name on his own (Joy only after she asked whether he knew her). The quiet-moment hello
+never got a quiet moment, and their voices came through unresolved, like many of the owner's lines, so
+the unnamed-speaker rule never applied. A reply saw an unrecognized face but nothing said it had been
+there for minutes unasked. Now `Present` keeps one stranger visit (any `stranger` face, followed and 48 px
+or wider, whatever its track number). After 20 s in view, in a visit at least 60 s old, `right_now.someone_new`
+tells the reply; both prompts ask him to answer first, then ask the name once with `ask_face_question`,
+on a turn that is his. A heard face question to an unknown face, or an introduction while a stranger was
+in view, marks the visit asked (no re-ask after a decline); the quiet-moment hello then skips unknown faces.
+Ten minutes with no stranger in view ends the visit. Nothing here uses voices or saves anything; the answer
+goes through `introduce_person` as before. Replay and probe results: docs/IMPLEMENTATION_STATUS.md.

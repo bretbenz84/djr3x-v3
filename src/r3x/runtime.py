@@ -750,7 +750,8 @@ class VoiceRuntime:
             # People first: a settled new arrival is greeted before any goal work.
             event = self.arrivals.take(self.session.session_id, now, self.session._latest_speech,
                                       self.session.human_turns,
-                                      known_just_now=present.recently_recognized(now, KNOWN_FACE_TURN_SECONDS))
+                                      known_just_now=present.recently_recognized(now, KNOWN_FACE_TURN_SECONDS),
+                                      stranger_asked=present.stranger_asked(now))
             while self.arrivals.passed_over:
                 self.trace.emit('arrival_skipped', track_id=self.arrivals.passed_over.pop(0),
                                 reason='unrecognized_view_of_someone_here')

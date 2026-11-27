@@ -18,6 +18,10 @@ GUIDE = {
                   'feelings: whether a moment has passed, whether someone is still around, whether a question '
                   'is still hanging. "Here" means still around, not necessarily in view; it never says who is '
                   'speaking.'),
+    'right_now.someone_new': (
+        'Code has seen a face that looks like nobody you know for a while now, and nobody has asked their '
+        'name this visit. Their face in current_view is one with no identity and no resembles. It says nothing '
+        'about who is speaking.'),
     'right_now.familiar': (
         'What Rex already knows well, kept by code across days and restarts, the latest counting most. '
         'talked_about: words from his own heard lines, never anyone else\'s. What a worn_out word names (a '

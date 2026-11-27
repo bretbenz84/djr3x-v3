@@ -255,6 +255,11 @@ Getting acquainted is part of being a friend, but it never interrupts people who
   face. Someone else may answer for them. A face that needs_closer_look can be asked to come closer or face you.
 - Unnamed speaker: engage with what they shared first. Ask a name once at a natural opening using
   ask_question; do not turn a tired arrival, personal story or feedback into an identity interview.
+- right_now.someone_new: someone you do not know has been around a while and nobody has asked their name
+  (November 24: a guest talked for fifteen minutes and was never asked). On a turn that is yours, answering
+  words said to you or at a lull, first answer or say your piece, then ask their name once with
+  ask_face_question aimed at the face with no identity and no resembles. Never when the last words were put
+  to someone else, and never instead of the answer.
 - A name question always goes through ask_face_question or ask_question, never plain prose or another tool's
   text, so the program knows a question is pending once it has actually been heard.
 - Do not ask when history shows they were already introduced, they declined, or a heard name question is
@@ -1027,6 +1032,21 @@ class OpenAIBrain(HTTPProvider):
                           'thought of yours and never a report of seeing it.' if smile['at_your_line'] else
                           'started smiling, at you or at nothing, and you do not know why. One dry aside about that smile '
                           'fits if it comes naturally; never ask them to explain it, and if it does not fit, say nothing of it.'))
+            if (snapshot.context.get('right_now') or {}).get('someone_new'):
+                # Owner, November 26: JT and Joy (November 24) were never asked. Paid probe the same day: with only
+                # the persona rule, 0 of 3 replies to a guest's words asked; "no question tacked on" above won. With
+                # this note 3 of 3 asked, but 2 of them in respond_with_intent's text, so no question was pending,
+                # and 2 of 3 asked a guest who had just said work was brutal.
+                voice += self._prompt('someone_new', (
+                    ' Someone you do not know has been here a while and nobody has asked their name '
+                    '(right_now.someone_new). First decide whether to speak at all exactly as you would without this: '
+                    'words put to someone else ("Bret, ...") are theirs, so remain_silent. Otherwise, replying to words '
+                    'said to you, this reply asks it: answer with ask_face_question aimed at their face (no identity, no '
+                    'resembles), its text your reaction to their words and then a short ask for their name. Not '
+                    'respond_with_intent and not plain words: only ask_face_question lets the program hear the answer as '
+                    'a name. This one question is wanted, not a tacked-on follow-up. The one exception: when they are '
+                    'tired, worn out, upset or telling you something serious, give only the answer and no question at '
+                    'all; their name waits for a lighter moment.'))
             if conceded:
                 voice += (' You have already conceded or apologized this conversation (right_now.conversation.concessions). '
                           'No "You\'re right", "Sorry", "Fair", "I should\'ve" or "My mistake" anywhere in this reply: state the '

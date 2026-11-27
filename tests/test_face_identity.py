@@ -132,6 +132,16 @@ class FaceStateTests(MemoryFixture):
         metadata=json.loads(self.store.rows('SELECT metadata FROM face_references WHERE person_id=?',(person,))[0]['metadata'])
         self.assertEqual(metadata['association']['said_by'],speaker)
 
+    def test_a_heard_name_question_to_an_unknown_face_counts_as_asked(self):
+        # Owner, November 26: once a guest has been asked, Rex does not ask them again this visit.
+        self.visible_turn('Rex, these snacks at work are wild.',[face(110,B,'guest')])
+        result=self.call('ask_face_question',{'text':'And who are you?','face_track_id':'guest',
+                                              'intent_update':None,'next_opportunity':None})
+        self.assertTrue(result.data['unknown_face'])
+        self.assertFalse(self.state.present.stranger_asked(112))       # Proposed, not yet heard.
+        self.state.question_delivered(result.data['question'],None,112,'guest',unknown_face=True)
+        self.assertTrue(self.state.present.stranger_asked(112))
+
     def test_multiple_unknown_faces_need_a_delivered_target_question(self):
         faces=[face(110,A,'left',sole=False),face(110,B,'right',sole=False)]
         self.visible_turn('This is Casey.',faces)

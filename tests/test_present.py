@@ -3,7 +3,8 @@ from types import SimpleNamespace
 import unittest
 
 from r3x.output import OutputOwner
-from r3x.present import ARRIVAL_SECONDS, STAYS_SECONDS, Present, ago, quiet_meaning
+from r3x.present import (ARRIVAL_SECONDS, COMPANY_SECONDS, NEWCOMER_AFTER_SECONDS, STAYS_SECONDS, Present, ago,
+                         quiet_meaning)
 from r3x.runtime import VoiceRuntime
 from r3x.scenario import SyntheticTTS
 from r3x.session import Session
@@ -11,6 +12,61 @@ from tests import test_memory_core as memory_tests
 from tests import test_turn_taking as timing_tests
 from tests.test_agency_plan import Executor, Planner
 from tests.test_proactive import face
+
+
+def stranger_face(at, track, **extra):
+    """A face compared against the saved ones that looks like nobody Rex knows."""
+    return {**face(at, None, track), 'embedding_available': True, 'similarity': .05, 'resembles': None, **extra}
+
+
+class SomeoneNew(unittest.TestCase):
+    """Owner, November 26: JT and Joy talked for many minutes (November 24) and were never asked their names."""
+
+    def watch(self, present, start, end, make=stranger_face):
+        for i in range(int((end - start) * 2) + 1):
+            at = start + i * .5
+            present.saw_faces([make(at, f'track-{i}')], at)   # A new track number every view, as live.
+
+    def test_someone_unknown_in_view_a_while_is_in_the_picture(self):
+        present = Present()
+        self.watch(present, 0, 30)
+        self.assertNotIn('someone_new', present.describe(30, {}))           # Too soon: the hello's turn first.
+        self.watch(present, 30.5, NEWCOMER_AFTER_SECONDS + 5)
+        new = present.describe(NEWCOMER_AFTER_SECONDS + 5, {})['someone_new']
+        self.assertFalse(new['name_asked'])
+        self.assertNotIn('someone_new', present.describe(NEWCOMER_AFTER_SECONDS + 10, {}))   # Not in view now.
+
+    def test_a_flicker_or_a_face_like_bret_is_not_someone_new(self):
+        present = Present()
+        self.watch(present, 0, 5)
+        present.saw_faces([stranger_face(70, 'late')], 70)
+        self.assertNotIn('someone_new', present.describe(70, {}))
+        bretish = Present()
+        self.watch(bretish, 0, 70, lambda at, track: stranger_face(at, track, resembles='bret', similarity=.5))
+        self.assertNotIn('someone_new', bretish.describe(70, {}))
+        far = Present()
+        self.watch(far, 0, 70, lambda at, track: {**stranger_face(at, track), 'face_width_px': 30})
+        self.assertNotIn('someone_new', far.describe(70, {}))
+
+    def test_asked_once_a_visit_and_a_new_visit_after_ten_minutes_away(self):
+        present = Present()
+        self.watch(present, 0, 70)
+        present.note_stranger_asked(70)
+        self.watch(present, 70.5, 200)
+        self.assertNotIn('someone_new', present.describe(200, {}))           # Even after a decline.
+        self.assertTrue(present.stranger_asked(200))
+        back = 200 + COMPANY_SECONDS + 1
+        self.watch(present, back, back + 70)
+        self.assertFalse(present.stranger_asked(back + 70))
+        self.assertIn('someone_new', present.describe(back + 70, {}))
+
+    def test_an_introduction_with_nobody_unknown_around_asks_nobody(self):
+        present = Present()
+        present.note_stranger_asked(10, start_visit=False)    # Bret saying his own name, alone.
+        self.watch(present, 20, 90)
+        self.assertIn('someone_new', present.describe(90, {}))
+        present.note_stranger_asked(91, start_visit=False)    # The guest named themself.
+        self.assertNotIn('someone_new', present.describe(91, {}))
 
 
 class PresentRules(unittest.TestCase):

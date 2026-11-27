@@ -49,6 +49,15 @@ COMPANY_SECONDS = 600.
 # looks like nobody he knows, below this, is someone else here. Bret's followed frames that did not
 # yet resemble him scored .29 and .42 that run; a far face too small to compare has no embedding.
 STRANGER_FACE_BELOW = .12
+# Owner, November 26: JT talked for 15 minutes and Joy longer (November 24) and Rex never asked
+# either name; the room was never quiet enough for his hello and nothing told a reply someone new
+# was there. Someone new is in the picture once a stranger's face has been in view this many seconds
+# in all, in a visit at least NEWCOMER_AFTER_SECONDS old; any stranger face counts, whatever its track
+# number. Replayed over 34 saved sessions (November 20-26): JT's, Joy's and a November 22 run with a
+# guest got there at 96-220 s, a short driving run after Joy's reached 18 s, and Bret alone at most 4 s.
+NEWCOMER_SEEN_SECONDS = 20.
+NEWCOMER_AFTER_SECONDS = 60.
+NEWCOMER_FRAME_GAP = 1.     # A longer gap between stranger views adds only this much.
 # A detector drops and relabels animals (dog, cat, nothing) from one frame to the next.
 PET_LABELS = frozenset({'dog', 'cat'})
 PET_RECALL_SECONDS = 10.    # A pet seen this recently is still targetable between detections.
@@ -246,6 +255,11 @@ class Present:
         self.looks = {}          # moment id -> what one face showed: see saw_expressions.
         self.smile_owned_at = float('-inf')   # When a heard line was last told to own a smile.
         self.smile_offered = False            # The line being written has been told to.
+        # One stranger visit: someone Rex does not know in view. Ends after COMPANY_SECONDS unseen.
+        self.stranger_first = None            # When it began.
+        self.stranger_last = float('-inf')    # The latest stranger view.
+        self.stranger_seconds = 0.            # Seconds in view, frame gaps capped.
+        self.stranger_asked_at = None         # A name question to a stranger was heard (or they were introduced).
 
     # People ------------------------------------------------------------------
     def _recognize(self, person, at):
@@ -262,6 +276,7 @@ class Present:
         owner was alone, which is the gate for deducing his voice."""
         with self.lock:
             seen = []
+            strangers = []
             people = {id(f) for f in followed(faces)}
             for face in faces or ():
                 at = face.get('at', now)
@@ -274,11 +289,55 @@ class Present:
                     seen.append(at)
                     if stranger(face):
                         self.company_at = max(self.company_at, at)
+                        strangers.append(at)
                 if face.get('identity'):
                     self._recognize(face['identity'], at)
             if len(seen) > 1:
                 self.company_at = max(self.company_at, max(seen))
+            if strangers:
+                self._saw_stranger(max(strangers))
             self.saw_expressions(faces, now)
+
+    def _saw_stranger(self, at):
+        # The same camera pass arrives again with each caller; only a newer view adds time.
+        if at <= self.stranger_last:
+            return
+        if self.stranger_first is None or at - self.stranger_last > COMPANY_SECONDS:
+            self.stranger_first, self.stranger_seconds, self.stranger_asked_at = at, 0., None
+        else:
+            self.stranger_seconds += min(at - self.stranger_last, NEWCOMER_FRAME_GAP)
+        self.stranger_last = at
+
+    def note_stranger_asked(self, at, start_visit=True):
+        """A name question to a face Rex does not know was heard (start_visit), or someone was
+        introduced while a stranger was in view lately: once per stranger visit, even when they
+        decline (owner: never ask again after a decline)."""
+        with self.lock:
+            current = self.stranger_first is not None and at - self.stranger_last <= COMPANY_SECONDS
+            if not current:
+                if not start_visit:
+                    return
+                self.stranger_first, self.stranger_seconds = at, 0.
+                self.stranger_last = max(self.stranger_last, at)
+            elif not start_visit and at - self.stranger_last > HERE_SECONDS:
+                return   # Nobody unknown in view lately: an introduction of someone else.
+            self.stranger_asked_at = at
+
+    def stranger_asked(self, now):
+        """Someone Rex does not know has been asked their name in the current stranger visit."""
+        with self.lock:
+            return (self.stranger_asked_at is not None and self.stranger_first is not None
+                    and now - self.stranger_last <= COMPANY_SECONDS)
+
+    def someone_new(self, now):
+        """Someone Rex does not know has been in view a while and nobody has asked their name."""
+        with self.lock:
+            if (self.stranger_first is None or self.stranger_asked_at is not None
+                    or now - self.stranger_last > 3 or now - self.stranger_first < NEWCOMER_AFTER_SECONDS
+                    or self.stranger_seconds < NEWCOMER_SEEN_SECONDS):
+                return None
+            return {'in_view_since': ago(now - self.stranger_first), 'name_asked': False,
+                    'meaning': GUIDE['right_now.someone_new']}
 
     def saw_expressions(self, faces, now):
         """The looks on faces in view, every camera pass and at each turn. For the picture only:
@@ -553,6 +612,9 @@ class Present:
                        'things_seen': things,
                        'conversation': conversation,
                        'meaning': GUIDE['right_now']}
+            new = self.someone_new(now)
+            if new:
+                picture['someone_new'] = new
             if looks:
                 picture['expressions'] = {'faces': looks, 'meaning': GUIDE['right_now.expressions']}
             if rex:

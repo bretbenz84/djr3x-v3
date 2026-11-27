@@ -1086,7 +1086,9 @@ class CoreState:
                     raise ValueError('FaceEvidenceMissing')
                 if context['trigger']=='visual_arrival' and call.arguments['face_track_id']!=context['visual_arrival']['face_track_id']:
                     raise ValueError('VisualQuestionTargetMismatch')
-                data={'question':call.arguments['text'],'face_track_id':call.arguments['face_track_id'],'addressee_id':None}
+                target=next(f for f in context['faces'] if f['track_id']==call.arguments['face_track_id'])
+                data={'question':call.arguments['text'],'face_track_id':call.arguments['face_track_id'],'addressee_id':None,
+                      'unknown_face':not target.get('identity')}
             else: raise ValueError('VisualEventDoesNotAuthorizeMutation')
             return ToolResult(request_id,'ok','executed',self.store.revision,data)
         except ValueError as exc:
@@ -1806,9 +1808,11 @@ class CoreState:
                     data["conversations"] = {"unavailable": "No known private audience: earlier conversations stay private."}
             return data,False
         if name == "ask_face_question":
-            if not any(f["track_id"]==args["face_track_id"] for f in self.faces):
+            face = next((f for f in self.faces if f["track_id"]==args["face_track_id"]), None)
+            if face is None:
                 raise ValueError("FaceEvidenceMissing")
-            return {"question":args["text"],"addressee_id":None,"face_track_id":args["face_track_id"]},False
+            return {"question":args["text"],"addressee_id":None,"face_track_id":args["face_track_id"],
+                    "unknown_face":not face.get("identity")},False
         if name == "ask_question":
             if args["addressee_id"]:
                 self._person(args["addressee_id"])
@@ -2472,6 +2476,9 @@ class CoreState:
                 self.enrollments[attribution.track_id] = proposal
                 self.persist_evidence(proposal)
                 self.learn_observation()
+        if name=="introduce_person":
+            # Someone new got a name while a stranger was around: nothing left to ask this visit.
+            self.present.note_stranger_asked(self.trace.clock(), start_visit=False)
         if name=="introduce_person" and data["subject"]=="other":
             self._welcome(data)
         if name in {"cancel_association","forget_person"}:
@@ -2900,7 +2907,10 @@ class CoreState:
                 self.evidence.pop(proposal.track_id, None)
                 self.trace.emit("voice_learning_saved",person_id=proposal.person_id,samples=len(proposal.samples),revision=revision)
 
-    def question_delivered(self,text,addressee_id,completed_at,face_track_id=None):
+    def question_delivered(self,text,addressee_id,completed_at,face_track_id=None,unknown_face=False):
         self.pending = {"text":text,"addressee_id":addressee_id,"delivered_at":completed_at}
         if face_track_id: self.pending["face_track_id"] = face_track_id
+        if face_track_id and unknown_face:
+            # Heard in full: someone Rex does not know has been asked, once a visit (owner, November 26).
+            self.present.note_stranger_asked(completed_at)
         self.trace.emit("question_delivered",**self.pending)
