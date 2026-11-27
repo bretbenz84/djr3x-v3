@@ -1,10 +1,11 @@
 """Bounded HTTP streams; no SDK retries, provider substitutions, or private logging."""
+import hashlib
 import json
 import time
 from urllib.parse import quote
 
 from ..contracts import Cancellation, Cancelled, ProviderFailure, Snapshot, ToolCall, ToolText
-from ..field_guide import render as render_guide, slim as slim_context, facts_to_send
+from ..field_guide import render as render_guide, slim as slim_context, facts_to_send, split_memory, LASTING_MEMORY_HEADER
 from ..providers import Capability
 
 
@@ -681,6 +682,16 @@ class OpenAIBrain(HTTPProvider):
             static['impersonation.famous'] = self._famous
         prefix = ([{'role': 'developer', 'content': 'STATIC CONTEXT (the same for the whole run):\n'
                     + json.dumps(static, ensure_ascii=False)}] if static else [])
+        # November 26 (the credit ran out): what Rex knows about the person here was ~16,000 characters of the
+        # moment's notes, sent at full price on every request though it changes only when a fact is saved or
+        # the person changes. It goes ahead of the history, where it is stored and reused; the moment's notes
+        # keep the current time, greetings, this conversation's ids and facts with a planned time.
+        shown, lasting = split_memory(shown)
+        if lasting:
+            prefix.append({'role': 'developer', 'content': LASTING_MEMORY_HEADER + lasting})
+            if self.trace:
+                self.trace.emit('lasting_memory', turn_id=snapshot.turn_id, characters=len(lasting),
+                                digest=hashlib.sha256(lasting.encode()).hexdigest()[:12])
         payload = {"model": self.capability.model, "instructions": self._prompt('persona', PERSONA),
                    "input": prefix+list(snapshot.messages)+list(snapshot.continuation), "stream": True, "store": False,
                    "reasoning": {"effort": self.reasoning_effort}, "max_output_tokens": 1536 if snapshot.tools_enabled else 768}

@@ -6,7 +6,7 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
-## Cost after the credit ran out: lull decisions on Haiku, fewer facts per request — November 26
+## Cost after the credit ran out: lull decisions on Haiku, fewer facts per request, memory reused — November 26
 
 The $100 Anthropic credit ran out on November 25. Logged usage November 14–24: 905 Claude requests cost about
 $56–62 (6.8 cents each against the 1.3 cents estimated on November 10), about $15 of logged test runs on top.
@@ -28,7 +28,17 @@ filter about $5 (when someone is recognized their facts were already sent only o
 saving is the third of requests with nobody recognized, ~11,000 characters each). Still above $100. The next
 lever is personal_memory's own facts (~13,000 characters for the owner, a third of it repeated person ids).
 
-Checks: blocked-I/O only, synthetic people (`FactsHereTests`, `LullModelTests`); full suite 2,350 passed.
+Later the same day (owner: "wouldn't those be cacheable?"): personal_memory's lasting part (saved facts,
+earlier conversations, episodes) goes in a PERSONAL MEMORY block ahead of the history (`split_memory`), where it
+is stored and reused; the moment's notes keep the current time, greetings, this conversation's ids and facts with
+a planned time. A fact's `told` is now by the day (`local_time`: "Tue Nov 24, 6:32 PM (2 days ago, evening)"), so
+its wording changes at midnight; planned_time still follows the clock. On the database copy, 14,600 of the
+owner's 16,500 memory characters move into the block, identical ten minutes later. The block changes when a fact
+is saved or the person changes; each change stores it and the history again (about 2 cents). Estimated $8–12 a
+month saved; each request logs `lasting_memory` with a digest, so the first live run shows how often it changes.
+
+Checks: blocked-I/O only, synthetic people (`FactsHereTests`, `LullModelTests`, `LastingMemoryTests`); full suite
+2,352 passed.
 Sizes measured on a copy of the database. Not run on a live model (no credit): whether Haiku's lull lines are
 as good, and whether Rex still brings up an absent person's facts unprompted, are unchecked.
 

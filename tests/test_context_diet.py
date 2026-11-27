@@ -72,7 +72,7 @@ class RowTrimTests(memory_tests.MemoryFixture):
         claim = next(c for c in context['claims'] if c['predicate'] == 'interest')
         self.assertEqual(set(claim) - {'mentions_id'}, {'id', 'subject_id', 'said_by', 'predicate', 'value', 'kind', 'status', 'told'})
         self.assertNotIn('source_track', claim)
-        self.assertIn('ago', claim['told'])
+        self.assertIn('(today, ', claim['told'])                     # By the day (November 26).
         self.assertEqual(set(context['people'][0]), {'id', 'name', 'aliases', 'status'})
         row = {'id': 'x', 'session_id': 's', 'person_id': person, 'source_turn': 't', 'origin': 'human_turn',
                'human_text': 'a' * 500, 'heard_text': 'Bold order.', 'local_time': 'Fri 7 PM', 'at': '2026-10-17',
@@ -152,3 +152,55 @@ class FactsHereTests(memory_tests.MemoryFixture):
         self.assertEqual(len(self.state.context()['claims']), 2)     # Code still has both; ids check against all.
         found = self.call('recall', {'subject_id': joy, 'query': None})
         self.assertEqual([c['value'] for c in found.data['claims']], ['loves the opera'])
+
+
+class LastingMemoryTests(memory_tests.MemoryFixture):
+    """November 26: what Rex knows about the person here goes ahead of the history, the same bytes from one
+    request to the next, so it is stored and reused. Production builders, made-up people, no network."""
+    def request(self, text, now, history):
+        from r3x import conversation_memory
+        self.begin(text)
+        context = {**self.state.context(), 'source_turn_id': self.state.current[0]}
+        context['personal_memory'] = conversation_memory.context(self.store, context, 'session', now)
+        return send(context, history)[0]
+
+    def test_the_persons_lasting_memory_opens_every_request_unchanged_and_the_clock_stays_in_the_notes(self):
+        from r3x.adapters.claude import translate
+        from r3x.field_guide import LASTING_MEMORY_HEADER
+        bret = self.enroll('Bret')
+        self.begin('I love the Sacramento Kings.')
+        self.call('record_claim', dict(subject_id=bret, subject_reference=None, predicate='interest',
+                                       value='loves the Kings', kind='self_report',
+                                       source_turn_id=self.state.current[0], other_person=None, text=None))
+        now = self.state.wall_clock()
+        first = self.request('What should I do tonight?', now + 60,
+                             ({'role': 'user', 'content': 'Hi Rex.'},))
+        later = self.request('Any other ideas?', now + 300,
+                             ({'role': 'user', 'content': 'Hi Rex.'}, {'role': 'assistant', 'content': 'Hey.'},
+                              {'role': 'user', 'content': 'What should I do tonight?'}))
+        block = first['input'][0]
+        self.assertTrue(block['content'].startswith(LASTING_MEMORY_HEADER))
+        self.assertIn('loves the Kings', block['content'])
+        self.assertIn('(today, ', block['content'])
+        self.assertEqual(later['input'][0], block)                                # Same bytes: reused.
+        self.assertEqual(first['input'][1], {'role': 'user', 'content': 'Hi Rex.'})  # History follows it.
+        notes = next(m['content'] for m in later['input'] if 'CURRENT CORE CONTEXT' in str(m.get('content')))
+        self.assertNotIn('loves the Kings', notes)
+        self.assertIn('"local_now"', notes)
+        system, messages, *_ = translate(later, [])
+        self.assertEqual(system[0]['cache_control'], {'type': 'ephemeral', 'ttl': '1h'})
+        self.assertIn('loves the Kings', system[1]['text'])                      # After the persona, before history.
+        self.assertEqual(messages[0]['content'][0]['text'], 'Hi Rex.')
+
+    def test_a_fact_with_a_planned_time_stays_with_the_clock_and_nobody_here_means_no_block(self):
+        from r3x.field_guide import split_memory
+        memory = {'person_id': 'p', 'now': 'n', 'interests_and_facts': [
+            {'id': 'a', 'value': 'loves the Kings', 'told': 'Tue'},
+            {'id': 'b', 'value': 'wine run', 'told': 'Thu', 'planned_time': 'in about 4 minutes'}],
+            'episodes': [{'id': 'e', 'summary': 'talked hockey'}]}
+        rest, lasting = split_memory({'personal_memory': memory})
+        self.assertEqual([f['id'] for f in json.loads(lasting)['interests_and_facts']], ['a'])
+        self.assertEqual([f['id'] for f in rest['personal_memory']['interests_and_facts']], ['b'])
+        self.assertNotIn('episodes', rest['personal_memory'])
+        self.assertEqual(split_memory({'personal_memory': {'person_id': None}})[1], '')
+        self.assertEqual(split_memory({})[1], '')

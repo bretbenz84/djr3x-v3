@@ -94,7 +94,7 @@ class MemoryOpportunityTests(MemoryFixture):
                       text="In five minutes, I'm going to go to the store to get wine.")
         now=noon(date(2026,9,13))
         fact=cm.context(self.store,{**self.state.context(),'faces':list(self.faces)},'later-session',now)['interests_and_facts'][0]
-        self.assertEqual(fact['told'],'about 24 hours ago (Saturday 12:00 p.m.)')
+        self.assertEqual(fact['told'],'Sat Sep 12, 12:00 PM (yesterday, afternoon)')
         self.assertTrue(fact['planned_time'].startswith('its planned time was about 24 hours ago'),fact['planned_time'])
         self.assertNotIn('told_at',fact);self.assertNotIn('due_at',fact)
 

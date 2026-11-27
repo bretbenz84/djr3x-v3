@@ -328,12 +328,14 @@ def told(row, now):
     the code works out. October 15 (2f85db5c): "in five minutes, I'm going to the store to get
     wine", told the night before, was still offered as tonight's wine run in 6 of 13 joke
     batches; nothing said when it was told."""
-    from .memory_opportunities import clock, span, timing
+    from .memory_opportunities import timing
     row = dict(row)
     at, due = row.pop('told_at', None), row.pop('due_at', None)
     kind = row.pop('followup_kind', None)
     asked = row.pop('followup_asked_on', None)
-    row['told'] = span(now - at) + ' ago (' + clock(at) + ')' if at is not None else 'unknown'
+    # November 26: by the day (local_time), so a fact's wording changes at midnight, not every minute, and the
+    # memory holding it can be stored and reused between requests. planned_time keeps the clock.
+    row['told'] = local_time(at, now) if at is not None else 'unknown'
     if due is not None:
         row['planned_time'] = timing({'said_at': at, 'due_at': due, 'kind': kind}, now)['due']
     if asked:
