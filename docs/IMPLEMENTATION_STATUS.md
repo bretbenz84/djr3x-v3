@@ -38,6 +38,35 @@ already asked 4 of 4 or with the owner alone 4 of 4, the tired guest only answer
 leaves no pending question. Not run on Claude (no credit). Checks: blocked-I/O, synthetic (`SomeoneNew`, the
 arrival skip, the heard face question). Not yet seen with a real guest.
 
+## Christmas mode, the fortune teller, the toast, going to check on something — November 26
+
+Owner's request, from the November 25 brainstorm; built overnight with the owner away, so the choices below are
+mine and unreviewed.
+
+- **Christmas mode.** `voice_mode` mode `christmas`: Santa's ElevenLabs voice `ZncHSOpbSyuBVFfZSUAG` (on Rex's
+  `eleven_v4_turbo` until the owner picks a model by ear), a Santa directive, and red and green eyes in turn every
+  1.5 s (`LEDs._christmas_eyes`, from the Mac; the LED firmware is unchanged, so the mouth and chest keep their usual
+  colours). Unlike the ten-minute modes it lasts until turned off, another mode is asked for or Rex restarts
+  (`UNTIL_OFF`); there is no single line of it. Sentry mode's red, a blink, the alarm's flashing and telepresence win.
+- **Fortune teller.** `tell_fortune` (a person's request only): the fortune runs as `animate_lights` curious, during
+  speech, so eyes, mouth and chest glow purple for the whole line. The voice is Rex's own; "mystic" is in the words.
+- **Toast.** `give_toast` (a person's request only): the toast is said, then `raise_glass`, a new one-shot gesture:
+  the throttle arm goes up to `throttle_high_five` by its checked route, holds 2 s and comes back to where it was; the
+  fingers are not touched, so a held cup stays held. Whether a cup stays upright at that wrist angle is unchecked.
+- **Go check on something.** The room trip already looked on arrival (`drive_base` go_to with look_after). Added:
+  `send_photo`, offered only right after a person's look with a phone set up (the ntfy topic sentry uses), sends the
+  look's picture with Rex's caption and speaks only once ntfy took it ("I couldn't get that picture to your phone."
+  otherwise); after a room trip's look, `errand` in the context names who asked, the question and the room he set off
+  from, so the one follow-up drive can go back with the answer as its arrival line.
+
+Checks: blocked-I/O, fake serial, fake clock, fake phone service (`tests/test_party_tricks.py`, a drive-then-photo
+case in `test_drive_session`, `ErrandTests` in `test_room_trips`); full suite 2,368 passed. Paid probe on OpenAI
+(`gpt-6-luna`, what Rex runs on while the Claude credit is out), five calls, about 3 cents: "read my fortune" and "what
+does my future hold" chose `tell_fortune`, "give us a toast" `give_toast`, "turn on Christmas mode" and "be Santa"
+`voice_mode` christmas on: 5 of 5. The probe's person had no saved facts, so the fortunes and toast were generic.
+Not checked: Claude's choices, Santa's voice, the raised glass on the robot, a real room trip with the photo or the
+return, and the go-check request itself in the probe (its drive stand-in has no rooms).
+
 ## Cost after the credit ran out: lull decisions on Haiku, fewer facts per request, memory reused — November 26
 
 The $100 Anthropic credit ran out on November 25. Logged usage November 14–24: 905 Claude requests cost about

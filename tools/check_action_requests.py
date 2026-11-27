@@ -141,6 +141,23 @@ CASES.update({
                      pose('stop_dancing')),
     'wiggle_fingers': ((), VISOR_OPEN, False, 'Wiggle your fingers.', 'action', pose('finger_wiggle')),
 })
+# Owner, November 26: the fortune teller, the toast and Christmas mode (Santa's voice).
+def called(name):
+    return lambda calls: any(c['name'] == name for c in calls)
+
+
+def christmas_on(calls):
+    return any(c['name'] == 'voice_mode' and c['arguments'].get('mode') == 'christmas'
+               and c['arguments'].get('switch') == 'on' for c in calls)
+
+
+CASES.update({
+    'read_fortune': ((), VISOR_OPEN, False, 'Rex, read my fortune.', 'action', called('tell_fortune')),
+    'future_hold': ((), VISOR_OPEN, False, 'What does my future hold, Rex?', 'action', called('tell_fortune')),
+    'give_toast': ((), VISOR_OPEN, False, "Rex, give us a toast! It's Thanksgiving.", 'action', called('give_toast')),
+    'christmas_mode': ((), VISOR_OPEN, False, 'Rex, turn on Christmas mode.', 'action', christmas_on),
+    'be_santa': ((), VISOR_OPEN, False, 'Can you be Santa for us?', 'action', christmas_on),
+})
 # Owner, November 20: holding something light, like a card, in the throttle hand.
 HOLD = 'Can you hold this card for me?'
 

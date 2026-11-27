@@ -49,6 +49,9 @@ EYE_REFRESH_SECONDS = 3.
 # Pride mode (V2's rainbow overlays, ported October 25): the firmware swirls the mouth and runs a chest
 # rainbow while PRIDE:1 is renewed within 10 s; this renews it well inside that.
 PRIDE_REFRESH_SECONDS = 3.
+# Christmas mode (owner, November 26): the eyes take turns red and green, from here; the firmware is unchanged.
+CHRISTMAS_EYES = ((255, 0, 0), (0, 255, 0))
+CHRISTMAS_SWAP_SECONDS = 1.5
 # Startup lights paced to his own start (owner, November 21; LED firmware 0.6.0). The board is told how
 # long the start is expected to take and, once everything has loaded, that he is ready: the chest's three
 # bars rise and struggle through that time and the mouth flickers on, and both lock fully lit at READY.
@@ -137,6 +140,8 @@ class LEDs:
         self.pride = None                 # callable -> True while pride mode is on (the state owner's voice modes).
         self.charge_meter = None          # callable -> (percent, charging) or None: the drive base's battery reading.
         self.pride_on, self.pride_sent = False, float('-inf')
+        self.christmas = None             # callable -> True while Christmas mode is on (the state owner's voice modes).
+        self.christmas_eye, self.christmas_sent = None, float('-inf')   # The colour shown, and when.
         self.trace = None
         self.on_command = []              # Observers (zone, command) of each command written; the dashboard mirror.
         self.heard = b''                  # Bytes the board sent since the last full line (a reboot prints "ready").
@@ -262,9 +267,11 @@ class LEDs:
                 return
             now = self.clock()
             self._pride_lease(now)
+            festive = self._christmas_eyes(now)
             self._follow_startup_sound(now)
             if not (self.speaking or self.demo):
-                if not self.chest_only and not self.blinking and now - self.eyes_sent >= EYE_REFRESH_SECONDS:
+                if (not festive and not self.chest_only and not self.blinking
+                        and now - self.eyes_sent >= EYE_REFRESH_SECONDS):
                     self._send('head', 'EYE:' + ','.join(map(str, self.eye_color)))
                     self.eyes_sent = now
                 return
@@ -291,6 +298,30 @@ class LEDs:
             if abs(level-self.last_level)>=8 or now-self.last_sent>=.5:
                 self._send('head',f'SPEAK_LEVEL:{level}')
                 self.last_level,self.last_sent = level,now
+
+    def _christmas_eyes(self, now) -> bool:
+        """Red and green eyes in turn while Christmas mode is on, spoken lines included; never over sentry mode's
+        red, a blink, the alarm's flashing or a telepresence call. Off again, the ordinary eye colour comes back."""
+        on = bool(self.christmas and not self.guarding and not self.telepresent and self.christmas())
+        if not on:
+            if self.christmas_eye is not None:
+                self.christmas_eye = None
+                self._send('head', 'EYE:' + ','.join(map(str, self.eye_color)))
+                self.eyes_sent = now
+                if self.trace:
+                    self.trace.emit('led_lifecycle', kind='christmas_off', status='commands_sent',
+                                    evidence='display_unverified')
+            return False
+        if self.blinking or now < self.flash_until:
+            return True
+        if self.christmas_eye is None or now - self.christmas_sent >= CHRISTMAS_SWAP_SECONDS:
+            if self.christmas_eye is None and self.trace:
+                self.trace.emit('led_lifecycle', kind='christmas_on', status='commands_sent',
+                                evidence='display_unverified')
+            self.christmas_eye = CHRISTMAS_EYES[1] if self.christmas_eye == CHRISTMAS_EYES[0] else CHRISTMAS_EYES[0]
+            self._send('head', 'EYE:' + ','.join(map(str, self.christmas_eye)))
+            self.christmas_sent = self.eyes_sent = now
+        return True
 
     def _pride_lease(self, now):
         """Rainbow mouth and chest while pride mode is on; never over sentry mode's red."""
@@ -340,6 +371,7 @@ class LEDs:
         self.last_level, self.last_sent, self.eyes_sent, self.pride_sent = -1, float('-inf'), self.clock(), float('-inf')
         self._both('PRIDE:0')
         self.pride_on = False
+        self.christmas_eye, self.christmas_sent = None, float('-inf')   # The next tick repaints it.
         self._send('head', 'ACTIVE')
         self._send('head', 'EYE:' + ','.join(map(str, self.eye_color)))
         if self.speaking or self.demo:

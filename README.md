@@ -64,6 +64,14 @@ running.
 - **Accents and characters.** Ask him to talk with an accent (British, French, Irish and many more),
   like a pirate, or like a hype DJ, and he keeps it up for ten minutes. Ask whether he's gay and he
   goes full proud, rainbow lights and all. "Drop the accent" ends it.
+- **Christmas mode.** "Turn on Christmas mode" or "be Santa for us" and he talks like Santa in a Santa
+  voice, with his eyes taking turns red and green. It stays on until you turn it off ("Christmas is
+  over"), ask for another voice, or he restarts.
+- **Fortune teller.** "Read my fortune" and his eyes, mouth and chest glow purple while he gives you a
+  spooky, playful fortune made from what he knows about you.
+- **Toasts.** "Give us a toast" and he toasts the people there by name, from what he knows about them,
+  then raises his throttle hand as a glass and brings it back down. If he's holding a cup, he keeps
+  holding it.
 - **Jeopardy.** "Let's play Jeopardy" for up to four players, with real boards, music, Daily Doubles
   and Final Jeopardy. Rex hosts and judges the answers. The board can be shown on a TV.
 - **Celebrity entrances.** Tell him "treat PJ like Kings royalty whenever he shows up" and that person
@@ -238,7 +246,7 @@ on its own. The program on the Mac does all of that and tells the model what is 
 2. The program packs up everything the model needs into one request:
    - **Who Rex is:** his personality and how he talks.
    - **The rules:** what he may and may not do, and how to use his abilities.
-   - **His tools:** a list of 63 things he can do besides talk, each with a short description (all
+   - **His tools:** a list of 66 things he can do besides talk, each with a short description (all
     listed [below](#rexs-tools)).
      Examples: look through his camera, drive, move his arms, change the lights, save a fact about
      someone, play a song, check the thermostat, start Jeopardy or sentry mode.
@@ -270,7 +278,9 @@ request before carrying it out.
 - `resume_chiming_in`: start talking again when invited.
 - `conversation_feedback`: note when someone turns down his idea or closes a topic, so he drops it.
 - `note_bit`: note whether a joke landed or flopped, so good ones can become running gags.
-- `voice_mode`: switch an accent or character voice on or off.
+- `voice_mode`: switch an accent or character voice on or off, including Christmas mode (Santa).
+- `tell_fortune`: read someone's fortune, with purple lights for the whole reading.
+- `give_toast`: give a toast to the people there, then raise his throttle hand as a glass.
 - `impersonate`: do a voice impression of a celebrity, someone he knows, or the speaker.
 - `callout`: set up, pause or delete a celebrity-entrance bit for a person or pet.
 - `shut_down`: power down.
@@ -299,6 +309,9 @@ request before carrying it out.
 
 **Seeing**
 - `inspect_view`: take a fresh picture (turning his head first if asked) and answer from it.
+- `send_photo`: send the picture he just took to the owner's phone with a caption. With a room trip,
+  "go see if the dog's on the couch" sends him to look; he sends the photo if you asked for one,
+  otherwise he comes back and tells you.
 - `describe_view`: describe what's in the picture, and optionally remember the description.
 - `use_visual_memory`: answer from something he saw recently, without taking a new picture.
 - `revise_visual`: correct a description of something he saw.

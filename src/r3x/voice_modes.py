@@ -1,4 +1,5 @@
-"""Speaking modes: pride, AAVE and eleven accents, each in its own voice, switched by the reply model.
+"""Speaking modes: pride, AAVE, the accents, a pirate, a DJ and Christmas (Santa), each in its own voice,
+switched by the reply model.
 
 Ported October 25 from V2's intelligence/pride.py ("queeny mode": asked whether he is gay, Rex says a
 delighted yes and goes full camp) and intelligence/homie.py (owner request, August 23: greeted "wassup
@@ -88,9 +89,18 @@ DIRECTIVES['dj'] = (
     'the music tool when someone asks for one: never offer a track or say one is playing otherwise. Reply in it as '
     'you are; voice_mode only switches. Still Rex '
     'underneath: still brief, the roast still bites, no recap and no tacked-on question.')
+# Christmas (owner, November 26): Santa's voice and red and green eyes. A holiday mode, so it lasts until
+# someone turns it off, another mode is asked for or Rex restarts, not ten minutes.
+DIRECTIVES['christmas'] = (
+    'CHRISTMAS MODE: they switched on Christmas mode, so you speak as Santa Claus would, every line: jolly, warm, '
+    'booming, a belly laugh in you ("ho ho ho"), the North Pole, the elves, the reindeer, the sleigh, milk and '
+    'cookies, the naughty and nice list in your metaphors, and people judged for the list now and then. Reply in it '
+    'as you are; voice_mode only switches. Still Rex underneath: still brief, the roast still bites (Santa keeps a '
+    'naughty list for a reason), no recap and no tacked-on question.')
+UNTIL_OFF = frozenset({'christmas'})   # Modes that last until turned off instead of MODE_SECONDS.
 LINE_MODES = (*ACCENTS, 'pirate', 'dj')   # What a single line can be said in.
 OWN_LINE_MODES = (*ACCENTS, 'pirate')    # ...and what one of his own can be (never the DJ).
-MODES = ('pride', 'aave', *LINE_MODES)
+MODES = ('pride', 'aave', *LINE_MODES, 'christmas')
 
 # Every ElevenLabs voice Rex speaks in is kept in the repository, not in local secrets (owner, October 25).
 REX_VOICE = 'no5jvDWvnx2leN3dFOS7'   # His own.
@@ -118,6 +128,7 @@ VOICES = {
     'scottish': 'hfjEc1EOtgq3yY1fG1LU',
     'pirate': 'k7Hlaw47rGJtmFyJGXPK',
     'dj': '4IsdjOhE4SIxzyzFVxKH',
+    'christmas': 'ZncHSOpbSyuBVFfZSUAG',   # Santa Claus (owner, November 26).
 }
 # Mode voices that render on Eleven v3; the rest, and Rex's own, on his eleven_v4_turbo. Owner, October 25:
 # in ElevenLabs' web interface the Russian voice sounds Russian only on v3, on v4 completely British, and
@@ -141,7 +152,7 @@ class VoiceModes:
         if on:
             # One mode at a time (owner, October 25): asked to be someone else, he stops being the last.
             self.clear()
-            self.until[mode] = now + MODE_SECONDS
+            self.until[mode] = float('inf') if mode in UNTIL_OFF else now + MODE_SECONDS
         else:
             self.until.pop(mode, None)
 
@@ -158,7 +169,8 @@ class VoiceModes:
     def context(self, now) -> dict | None:
         """{mode: {'minutes_left': n}} for the reply context, or None when nothing is on."""
         modes = self.active(now)
-        return {m: {'minutes_left': max(1, round((self.until[m] - now) / 60))} for m in modes} or None
+        return {m: {'until': 'turned off'} if m in UNTIL_OFF else
+                {'minutes_left': max(1, round((self.until[m] - now) / 60))} for m in modes} or None
 
     def line_allowed(self, now) -> bool:
         """A line in an accent of his own: nothing on, and none of his own in the last LINE_SECONDS."""
@@ -170,7 +182,10 @@ def directive(context) -> str | None:
     modes = [m for m in MODES if m in (context or {})]
     if not modes:
         return None
-    return ' '.join(DIRECTIVES[m] + f' (About {context[m]["minutes_left"]} more minutes; voice_mode off ends it. '
+    def left(m):
+        return ('It stays on until someone turns it off' if 'minutes_left' not in context[m] else
+                f'About {context[m]["minutes_left"]} more minutes')
+    return ' '.join(DIRECTIVES[m] + f' ({left(m)}; voice_mode off ends it. '
                     'Asked to be someone else: switch, and that very line drops every word of this mode.)' for m in modes)
 
 

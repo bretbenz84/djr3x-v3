@@ -88,6 +88,9 @@ REACH_BLOCKED_LINE = 'Step back a little so my arm has room.'
 # Owner, November 20: holding the hand out he says this and nothing more; the fingers close three seconds after the arm is out (November 21).
 # Said only once the hand is out (run b6249519: a streamed "Okay, ready." came before "My hand's full.").
 HAND_READY_LINE = 'Okay, ready.'
+# A picture for the owner's phone that did not go (no ntfy topic, no network): said plainly (November 26).
+PHOTO_FAILED_LINE = "I couldn't get that picture to your phone."
+
 # Review, November 20: every other refused hand step was spoken as "I couldn't complete that movement.", which
 # told nobody what to do next. Each refusal has a line he says and its meaning for the model (the reason's start).
 POSE_REFUSALS = {
@@ -267,6 +270,7 @@ class Session:
         self._credit_said = {}    # Out-of-credit reason -> when its saved line was last said.
         self.model_switch = None  # claude.ModelSwitch: says once when the run moved from Claude to OpenAI.
         self.on_sentry = None     # Starts the guard after a sentry_mode request was accepted.
+        self.photo_push = None    # push.Push to the owner's phone, for send_photo (November 26); None: not offered.
         self.revision = 0
         self.history = TurnHistory()
         self._lock = threading.RLock()
@@ -1126,6 +1130,28 @@ class Session:
     def history_messages(self):
         return self.history.messages()
 
+    def _send_photo(self, call, images, turn_id):
+        """The picture a look just took goes to the owner's phone with Rex's caption (owner, November 26: "go see if
+        the dog's on the couch"). Returns the line to say: his own once ntfy took it, a plain one if it did not,
+        never one that says it went before it did."""
+        import base64
+        push, image = getattr(self, 'photo_push', None), images[0] if images else None
+        sent = {'outcome': 'unavailable'}
+        if push is not None and image is not None and ',' in image.data_url:
+            try:
+                photo = base64.b64decode(image.data_url.split(',', 1)[1])
+                sent = push.send('Rex', call.arguments['caption'], photo, priority='default', tags='camera')
+            except Exception as exc:
+                sent = {'outcome': 'failed', 'error': type(exc).__name__}
+        ok = sent.get('outcome') == 'sent'
+        self.trace.emit('photo_sent' if ok else 'photo_not_sent', turn_id=turn_id,
+                        **{k: v for k, v in sent.items() if k in ('outcome', 'status', 'error')})
+        self.history.append({'role': 'developer', 'content': ('Photo sent to the owner\'s phone, captioned: '
+                             + call.arguments['caption']) if ok else 'The photo did not reach the owner\'s phone.'})
+        if ok:
+            return call.arguments.get('text')
+        return PHOTO_FAILED_LINE
+
     def _perform_impression(self, data, phrases, delivery, cancel, worker, turn_id):
         """Intro in Rex's voice, the prepared take in the cloned voice, then the outro.
 
@@ -1614,6 +1640,7 @@ class Session:
             # Awake: 'moving' while any motion runs, the listening cue as a person finishes above all. October 22:
             # requiring 'active' hid the pose tool on 15 of 20 visor requests in three runs (silence, a nod saying
             # "Down it goes", the lights, "be quiet", "the visor tool isn't available"); a pose stops those first.
+            context['photo_push'] = getattr(self, 'photo_push', None) is not None   # send_photo (November 26).
             context['robot_pose_enabled'] = bool(self.state and not self.state.frozen and getattr(self.output,'robot',None)
                                                  and self.output.robot.owner.state in ('active', 'moving'))
             if context['robot_pose_enabled']:
@@ -2005,6 +2032,8 @@ class Session:
                             from .semantics import blank_text_to_null
                             from dataclasses import replace as replace_call
                             delta = replace_call(delta, arguments=blank_text_to_null(delta.name, delta.arguments))
+                            from .semantics import as_existing_tool
+                            delta = as_existing_tool(delta)   # The fortune and the toast (November 26).
                             # General intent replies follow ordinary prose once audible.
                             # Questions and memory-bearing tools retain audience guards.
                             update = delta.arguments.get('intent_update') or {}
@@ -2488,9 +2517,17 @@ class Session:
                         purpose='inspection_result_continuation',image_count=len(images),image_bytes=sum(len(i.data_url) for i in images))
                     description_calls = generate(followup)
                     if description_calls:
-                        if len(description_calls)!=1 or generated.strip() or not images or description_calls[0].name!='describe_view':
+                        if (len(description_calls)!=1 or generated.strip() or not images
+                                or description_calls[0].name not in {'describe_view','send_photo'}):
                             raise ProviderFailure('ToolContinuationLimit')
                         description_call = description_calls[0]
+                    if description_calls and description_call.name=='send_photo':
+                        line = self._send_photo(description_call, images, turn_id)
+                        if line:
+                            put_phrase(phrases, line, cancel)
+                        else:
+                            delivery.status,delivery.medium='suppressed','none'
+                    elif description_calls:
                         with self._lock:
                             cancel.check()
                             model = getattr(getattr(self.brain,'capability',None),'model',None) or 'scripted-or-unspecified'
@@ -2530,6 +2567,15 @@ class Session:
                             if not images: setback[0] = True
                             followup_context.update(inspection=inspection,inspection_description_allowed=bool(images),
                                                     drive_replan_allowed=replan and bool(images))
+                            if (not opportunity and replan and any(s.get('action') == 'go_to' for s in call.arguments.get('steps') or ())):
+                                # Gone to check on something (November 26): who asked and where they were.
+                                from .field_guide import GUIDE
+                                room = (context.get('place') or {}).get('room') or {}
+                                followup_context['errand'] = {
+                                    'asked_by': (context.get('speaker') or {}).get('display_name'),
+                                    'question': call.arguments.get('look_after'),
+                                    'started_in': {'room_id': room['room_id'], 'name': room.get('name')} if room.get('room_id') else None,
+                                    'meaning': GUIDE['errand']}
                         status = (output.get('drive') or {}).get('status') if isinstance(output, dict) else None
                         messages = self.history_messages()
                         if inspection is not None:
@@ -2656,8 +2702,13 @@ class Session:
                             followup, look_calls = drive_followup(call,{'drive':receipt,'inspection':data},images,data,replan=depth==0)
                             if look_calls:
                                 chosen = look_calls[0]
-                                if len(look_calls)!=1 or not images or chosen.name not in {'describe_view','drive_base'}:
+                                if len(look_calls)!=1 or not images or chosen.name not in {'describe_view','drive_base','send_photo'}:
                                     raise ProviderFailure('ToolContinuationLimit')
+                                if chosen.name=='send_photo':
+                                    line = self._send_photo(chosen, images, turn_id)
+                                    if line:
+                                        speak(line)
+                                    return
                                 if chosen.name=='drive_base':
                                     if depth:
                                         raise ProviderFailure('ToolContinuationLimit')
@@ -2884,7 +2935,11 @@ class Session:
                                         image_count=len(images),reasoning_effort=getattr(self.brain,'reasoning_effort',None))
                         delivery.status, delivery.medium = 'requested', 'audio'
                         look_calls = generate(followup)
-                        if look_calls:
+                        if look_calls and look_calls[0].name=='send_photo' and len(look_calls)==1 and images:
+                            line = self._send_photo(look_calls[0], images, turn_id)
+                            if line:
+                                put_phrase(phrases, line, cancel)
+                        elif look_calls:
                             if len(look_calls)!=1 or not images or look_calls[0].name!='describe_view':
                                 raise ProviderFailure('ToolContinuationLimit')
                             with self._lock:

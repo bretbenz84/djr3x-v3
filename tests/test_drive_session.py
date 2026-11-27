@@ -181,6 +181,24 @@ class DriveSessionTests(MemoryFixture):
         receipt = self.rows('drive_result')[-1]
         self.assertGreaterEqual(inspection['captured_at'], receipt['finished_at'])
 
+    def test_after_the_look_the_picture_can_go_to_the_owners_phone(self):
+        # Owner, November 26 ("go see if the dog's on the couch and send me a photo").
+        from tests.test_party_tricks import Push
+        self.setup_drive(drive_call(step('move', meters=.3), look_after='Is the dog on the couch?'),
+                         followup=ToolCall('p', 'send_photo', {'caption': 'Couch: occupied by dog.', 'text': 'Sent.'}),
+                         inspection=True)
+        self.session.photo_push = Push()
+        from unittest import mock
+        def picture(scene, include_offered=False):
+            scene.clock.wait(.1)   # A new camera frame arrives as time passes.
+            return 'scene', (SceneImage('frame-' + str(scene.clock()), scene.clock(), 'data:image/jpeg;base64,/9g='),)
+        with mock.patch.object(FakeScene, 'snapshot', picture):
+            delivery = self.turn('Go see if the dog is on the couch and send me a photo.')
+        self.assertEqual(delivery.completed_text, ['Sent.'])
+        self.assertEqual(self.session.photo_push.sent[0][1], 'Couch: occupied by dog.')
+        self.assertEqual(self.session.photo_push.sent[0][2], b'\xff\xd8')         # The picture from the look.
+        self.assertIn('send_photo', {d['name'] for d in grounded_tools(self.brain.snapshots[-1].context)})
+
     def test_direction_words_set_robot_frame_signs_and_mismatches_are_rejected(self):
         self.setup_drive(drive_call(step('turn', degrees=-45.), step('move', meters=-.3)))
         self.turn('Turn right and back up a little.')

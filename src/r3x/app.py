@@ -553,6 +553,8 @@ class App:
                 if hasattr(tts, 'modes'):
                     tts.modes = lambda: state.voice_modes.active(trace.clock())
                 pride = lambda: state.voice_modes.on('pride', trace.clock())
+                if self.leds is not None:
+                    self.leds.christmas = lambda: state.voice_modes.on('christmas', trace.clock())
                 if self.leds:
                     self.leds.pride = pride
                 if self.robot:
@@ -662,6 +664,7 @@ class App:
                     push = Push(topic, trace) if valid_topic(topic) else None
                     if topic and push is None:
                         trace.emit('push_notification', outcome='invalid_topic')
+                    session.photo_push = push   # A look's picture to the owner's phone (send_photo, November 26).
                     guard = SentryGuard(session, output, trace, camera=camera, canned=self.startup_audio.speech,
                         recorder=SentryRecorder(self.paths.root / 'sentry' / 'recordings', camera.hub.peek, trace),
                         push=push, observations=public,

@@ -433,6 +433,36 @@ class ArrivalQuestionTests(MemoryFixture):
         self.assertTrue(any('ask them whether this is the living room' in n for n in notes))
 
 
+class ErrandTests(MemoryFixture):
+    """Owner, November 26: "go see if the dog's on the couch". After the look he knows who asked, what, and the
+    room he set off from, so he can come back and tell them or send the picture."""
+    setup_drive, turn = sessions.DriveSessionTests.setup_drive, sessions.DriveSessionTests.turn
+
+    def test_the_look_after_a_room_trip_carries_the_errand(self):
+        from tests.test_drive_session import step
+        go = {**step('go_to'), 'description': 'the living room'}
+        self.setup_drive(sessions.drive_call(go, text='On my way.', look_after='Is the dog on the couch?'),
+                         followup='No dog. Suspicious.', inspection=True)
+        self.world.objects[:] = [('room', 'the living room', 9., 0.)]
+        self.fake.sensors = doorway(self.fake, at=1.)
+        self.fake.assist_on = False
+        self.drive.look = lambda after: type('Image', (), {'frame_id': 'f', 'detail': 'high'})()
+        def locate(description, image, cancel, hint=None):
+            distance, bearing, _, _ = self.world.relative(9., 0.)
+            return {'found': True, 'x': .5 - bearing/90, 'y': .5, 'width': .62, 'height': .8, 'confidence': 'high',
+                    'note': 'room through the doorway'}
+        self.drive.locator = locate
+        settle()
+        delivery = self.turn('Go see if the dog is on the couch in the living room.')
+        self.assertEqual(delivery.completed_text, ['On my way.', 'No dog. Suspicious.'])
+        errand = self.brain.snapshots[-1].context['errand']
+        self.assertEqual((errand['question'], errand['asked_by']),
+                         ('Is the dog on the couch?', self.brain.snapshots[0].context['speaker'].get('display_name')))
+        self.assertIn('started_in', errand)
+        offered = {d['name'] for d in sessions.grounded_tools(self.brain.snapshots[-1].context)}
+        self.assertTrue({'describe_view', 'drive_base'} <= offered)
+
+
 class DirectionsAndMapTests(unittest.TestCase):
     """Owner, November 24 (run d085dc5f): told "turn left, go forward like ten feet, and you'll be in the workshop", he
     rolled 3.1 m into it and said he got lost; the map's way back to the kitchen met the island and the trip ended in

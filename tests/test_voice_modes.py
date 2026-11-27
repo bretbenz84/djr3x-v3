@@ -263,7 +263,8 @@ class VoiceTests(unittest.TestCase):
             list(tts.synthesize('Line.', Cancellation(), mode=mode))
             return tts.client.calls[0][1]['json']['model_id']
         self.assertEqual(model(), 'eleven_v4_turbo')
-        v4 = {'indian', 'british', 'dutch', 'irish', 'dj', 'pride', 'aave', 'french', 'german', 'spanish', 'scandinavian'}
+        v4 = {'indian', 'british', 'dutch', 'irish', 'dj', 'pride', 'aave', 'french', 'german', 'spanish', 'scandinavian',
+              'christmas'}   # Santa (November 26) on his own model until the owner picks by ear.
         self.assertEqual({mode for mode in MODES if model(mode) == 'eleven_v4_turbo'}, v4)
         self.assertEqual({mode for mode in MODES if model(mode) == 'eleven_v3'}, set(MODES) - v4)
         tts.modes = lambda: ('italian',)

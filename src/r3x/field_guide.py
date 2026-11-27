@@ -179,6 +179,10 @@ GUIDE = {
                         'MEMORY block before the conversation, for the same person_id; the part here has the '
                         'current time, earlier greetings, this conversation\'s exchange ids and any fact with a '
                         'planned time. Both are one memory: use them together, and never with anyone else.'),
+    'errand': ('You went to another room to check on something for asked_by and have just looked (owner, November 26). '
+               'If they asked for a picture, send_photo. Otherwise come back and tell them: one drive_base go_to '
+               'started_in.room_id with say_after your answer (it is said on arrival), or, when started_in is null, '
+               'describe_view with your answer said here. place still describes where you set off from, not this room.'),
     # Owner, November 26 (the credit ran out): every saved fact about everyone went with every request.
     'claims_not_shown': ('How many saved facts about other people, not here and not just named, are left out, and '
                          'whose. They are still known: recall with their subject_id or name fetches them before you '

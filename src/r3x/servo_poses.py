@@ -1525,7 +1525,7 @@ NAMED_POSES = {
 # One-shot gestures run and return to where they started; nothing is held afterwards. The
 # head expressions (not the plain one-cock 'tilt', which tilt_left/tilt_right cover as held
 # looks) are also steps people can ask for and Rex can plan.
-GESTURES = ('wave', 'arm_dance', 'finger_wiggle', 'nod', 'wink', 'perplexed', 'wiggle', 'sympathetic', 'surprised', 'laugh', 'skeptical',
+GESTURES = ('wave', 'arm_dance', 'finger_wiggle', 'raise_glass', 'nod', 'wink', 'perplexed', 'wiggle', 'sympathetic', 'surprised', 'laugh', 'skeptical',
             'deflated', 'proud', 'angry')
 # Owner request October 3: the model chooses between following faces and looking where it
 # decides. look_at_people resumes following faces; any look_* step holds that direction.
@@ -1705,6 +1705,25 @@ WIGGLE_TRAVEL = {5: 900, 14: 800, 16: 1200}   # Either side of where the joint i
 WIGGLE_FINGERS = {15: (6100, 7800), 17: (5100, 6850)}   # Throttle and hero fingers: nearly open, nearly closed.
 
 
+# The toast (owner, November 26): the throttle hand goes up as for a high five, as a glass is raised, holds a
+# moment and comes back to where it was. Only the throttle arm moves: fingers holding something stay closed.
+# The same clearance-checked route as throttle_high_five there and back; not yet seen on the robot with a cup.
+RAISE_GLASS_HOLD_SECONDS = 2.
+
+
+def raise_glass_lanes(current):
+    up = dict(NAMED_POSES['throttle_high_five'])
+    home = {ch: current[ch] for ch in THROTTLE}
+    there = throttle_route(current, up)
+    back = throttle_route({**current, **up}, home)
+    lane = [Beat(tuple(stage.items()), throttle_duration=1.7) for stage in there]
+    lane[-1] = replace(lane[-1], dwell=RAISE_GLASS_HOLD_SECONDS)
+    lane += [Beat(tuple(stage.items()), throttle_duration=1.7) for stage in back]
+    for beat in lane:
+        validate_pose({**current, **dict(beat.targets)})
+    return (tuple(lane),)
+
+
 def finger_wiggle_lanes(current):
     """Fingers and wrists back and forth a few times, each lane on its own hand, then home."""
     def swing(ch, i):
@@ -1786,6 +1805,8 @@ def pose_lanes(name, current, further=True):
         return arm_dance_lanes(current)
     elif name == 'finger_wiggle':
         return finger_wiggle_lanes(current)
+    elif name == 'raise_glass':
+        return raise_glass_lanes(current)
     elif name in GESTURES:
         return expressive_lanes(current, 'gesture', 'unfocused', name, 'normal', .5, frozenset())
     elif name == 'look_at_people':
