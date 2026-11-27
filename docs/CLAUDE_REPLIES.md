@@ -131,6 +131,8 @@ size are estimated at $55–60 a month: about $31 for 2,350 replies with the pro
 about $26 for roughly a hundred cold starts, each storing 66,000 tokens for an hour. Haiku would
 be a few dollars. Nothing here is measured on the robot; the Anthropic console is the record.
 Tool descriptions are about 60% of each request and are the next thing to trim.
+**Measured November 26:** 6.8 cents a request, not 1.3; the credit ran out November 25. The moment's notes are
+never reused and were more than half the input cost. See IMPLEMENTATION_STATUS.md, November 26.
 The planner, locator and news search now draw on the same Anthropic credit (a plan is about three
 cents at list prices; a news search about ten to fifteen); their monthly total is not estimated.
 

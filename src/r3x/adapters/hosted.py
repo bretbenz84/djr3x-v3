@@ -4,7 +4,7 @@ import time
 from urllib.parse import quote
 
 from ..contracts import Cancellation, Cancelled, ProviderFailure, Snapshot, ToolCall, ToolText
-from ..field_guide import render as render_guide, slim as slim_context, without_repeated_facts
+from ..field_guide import render as render_guide, slim as slim_context, facts_to_send
 from ..providers import Capability
 
 
@@ -664,7 +664,10 @@ class OpenAIBrain(HTTPProvider):
         # October 17 (reply context diet): fixed field meanings travel once in the persona (the
         # CONTEXT FIELD GUIDE), not in every request; per-run constants (the famous voices) go in a
         # static block before the history, so the cached prefix is not broken by them.
-        shown = without_repeated_facts(slim_context(snapshot.context))
+        # November 26: saved facts go only for people here or named in the latest few lines (recent_words).
+        recent_words = ' '.join(m['content'] for m in list(snapshot.messages)[-6:]
+                                if isinstance(m, dict) and isinstance(m.get('content'), str))
+        shown = facts_to_send(slim_context(snapshot.context), recent_words)
         static = {}
         famous = shown['impersonation'].get('famous') if isinstance(shown.get('impersonation'), dict) else None
         if famous:

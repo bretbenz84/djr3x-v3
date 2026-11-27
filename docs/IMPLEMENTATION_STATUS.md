@@ -6,6 +6,32 @@ The linked plans retain dated implementation history and test results. An earlie
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
 
+## Cost after the credit ran out: lull decisions on Haiku, fewer facts per request — November 26
+
+The $100 Anthropic credit ran out on November 25. Logged usage November 14–24: 905 Claude requests cost about
+$56–62 (6.8 cents each against the 1.3 cents estimated on November 10), about $15 of logged test runs on top.
+About 72% of input tokens were reused; the ~20,000 not reused per request (the moment's notes, ~13,000) were
+more than half the input cost. Of 90 requests that reused nothing, 54 were a session's first plan, 26 a
+session's first reply and 5 a reply seconds after another (not explained).
+
+Owner's choice: lull decisions (trigger `conversation_lull`, `reconsideration`, `ambient`, about one request in
+five) go to `claude-haiku-5-5` without thinking (`LULL_MODEL` in `adapters/claude.py`); a line he says in a
+lull is Haiku's. `claims` in each request now carries only facts about people here (speaker, faces,
+personal_memory's person, the person just seen) or named in the current words or the last six lines;
+`claims_not_shown` says how many others are left out and whose, and `recall` fetches them. Code keeps every
+fact and tool ids are checked against the full list. Both providers send the shorter list; the field guide's
+`claims` line changed with it and `claims_not_shown` is new. The proposed trim of past-conversation episodes
+was dropped: on the database they are about 700 characters.
+
+Estimate at November's pace (~2,500 requests a month, ~$150–170): Haiku lulls save about $30 a month; the fact
+filter about $5 (when someone is recognized their facts were already sent only once, in personal_memory; the
+saving is the third of requests with nobody recognized, ~11,000 characters each). Still above $100. The next
+lever is personal_memory's own facts (~13,000 characters for the owner, a third of it repeated person ids).
+
+Checks: blocked-I/O only, synthetic people (`FactsHereTests`, `LullModelTests`); full suite 2,350 passed.
+Sizes measured on a copy of the database. Not run on a live model (no credit): whether Haiku's lull lines are
+as good, and whether Rex still brings up an absent person's facts unprompted, are unchecked.
+
 ## Messages passed on — November 25
 
 Owner: "Rex, when Jeremy gets here, tell him dinner's in the fridge." `relay_message` files the message on the

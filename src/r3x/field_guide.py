@@ -10,6 +10,8 @@ Entries are keyed by the field they describe; the values are the texts the build
 A meaning not listed here stays in the request, so a new or changed text degrades to the old
 behaviour rather than vanishing.
 """
+import json
+import re
 
 GUIDE = {
     'right_now': ('Rex\'s sense of the moment, kept by code. Times are in words because they matter as '
@@ -164,10 +166,15 @@ GUIDE = {
         '(set_robot_pose with visor_normal), and lean into it in its text ("I kept it down for you, but I really '
         'wanted to see again. It was dark in here!"). Keep it shut if they asked you to keep it down. Joke about '
         'your own darkness, never about blind people or blindness.'),
-    'claims': ('Saved facts about everyone, with ids for correct_claim and retract_claim. The facts of '
-               'personal_memory\'s person are listed only there (interests_and_facts, same ids). status candidate: '
-               'told while the voice was not confirmed (usually your own motor noise); they are still what this '
-               'person told you, so use them with them like any other fact, but never as news to anyone else.'),
+    'claims': ('Saved facts about the people here and anyone just named, with ids for correct_claim and '
+               'retract_claim. The facts of personal_memory\'s person are listed only there (interests_and_facts, '
+               'same ids). status candidate: told while the voice was not confirmed (usually your own motor noise); '
+               'they are still what this person told you, so use them with them like any other fact, but never as '
+               'news to anyone else.'),
+    # Owner, November 26 (the credit ran out): every saved fact about everyone went with every request.
+    'claims_not_shown': ('How many saved facts about other people, not here and not just named, are left out, and '
+                         'whose. They are still known: recall with their subject_id or name fetches them before you '
+                         'say you know nothing about someone.'),
     'house': ('The house\'s smart devices through Homebridge, for house_devices: devices maps each name (use it exactly) '
               'to its kind and the changes it takes; every device can be checked. Only what a person asks for, never '
               'on your own. States are not listed: check before saying whether something is on or what it reads. '
@@ -214,10 +221,53 @@ def slim(value):
     return value
 
 
-def without_repeated_facts(context):
-    """Saved facts already shown in personal_memory are not sent twice in claims (same ids)."""
+def here_or_named(context, recent_text=''):
+    """Ids of the people a request is about: those here (speaker, faces, memory's person, the person just seen)
+    and anyone whose name or alias is in the current words or `recent_text`. Choosing which saved facts to
+    show; it never says who spoke or who someone is."""
+    ids = set()
+    speaker = context.get('speaker') or {}
+    ids.update((speaker.get('speaker_id'), speaker.get('person_id'), context.get('provisional_person_id'),
+                (context.get('personal_memory') or {}).get('person_id'),
+                (context.get('recent_audience') or {}).get('person_id')))
+    for face in [*(context.get('faces') or ()), *((context.get('current_view') or {}).get('faces') or ())]:
+        if isinstance(face, dict):
+            ids.update((face.get('identity'), face.get('person_hypothesis')))
+    text = ' '.join((str(context.get('current_utterance') or ''), recent_text)).casefold()
+    for person in context.get('people') or ():
+        aliases = person.get('aliases') or []
+        if isinstance(aliases, str):
+            try:
+                aliases = json.loads(aliases)
+            except ValueError:
+                aliases = [aliases]
+        for name in (person.get('name'), *aliases):
+            name = str(name or '').strip().casefold()
+            if len(name) > 1 and re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text):
+                ids.add(person.get('id'))
+                break
+    ids.discard(None)
+    return ids
+
+
+def facts_to_send(context, recent_text=''):
+    """The request's claims: facts about people here or just named, none already shown in personal_memory
+    (same ids). How many others are left out, and whose, goes in claims_not_shown. Code keeps every fact;
+    tool ids are checked against the full list."""
+    claims = context.get('claims')
+    if not isinstance(claims, list):
+        return context
     memory = context.get('personal_memory') or {}
     shown = {row.get('id') for row in memory.get('interests_and_facts') or () if row.get('id')}
-    if shown and isinstance(context.get('claims'), list):
-        context = {**context, 'claims': [c for c in context['claims'] if c.get('id') not in shown]}
+    ids = here_or_named(context, recent_text)
+    kept, left = [], []
+    for claim in claims:
+        if claim.get('id') in shown:
+            continue
+        (kept if claim.get('subject_id') in ids or claim.get('mentions_id') in ids else left).append(claim)
+    context = {**context, 'claims': kept}
+    if left:
+        names = {p.get('id'): p.get('name') for p in context.get('people') or ()}
+        context['claims_not_shown'] = {'facts': len(left), 'about': sorted({
+            names.get(c.get('subject_id')) or 'someone not named' for c in left})}
     return context

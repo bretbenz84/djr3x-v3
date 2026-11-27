@@ -121,3 +121,34 @@ class LongerPlansTests(memory_tests.MemoryFixture):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FactsHereTests(memory_tests.MemoryFixture):
+    """Owner, November 26 (the credit ran out): saved facts about everyone went with every request. Made-up
+    people, the production context and request builder; no network."""
+    def fact(self, subject, value):
+        return self.call('record_claim', dict(subject_id=subject, subject_reference=None, predicate='interest', value=value,
+                                       kind='self_report',
+                                       source_turn_id=self.state.current[0], other_person=None, text=None))
+
+    def sent_claims(self, text):
+        self.begin(text)
+        payload, _ = send({**self.state.context(), 'source_turn_id': self.state.current[0]})
+        return next(m['content'] for m in payload['input'] if 'CURRENT CORE CONTEXT' in str(m.get('content')))
+
+    def test_only_facts_about_people_here_or_named_go_and_the_rest_stay_one_recall_away(self):
+        self.bret = self.enroll('Bret')
+        joy = self.enroll('Joy', memory_tests.C)
+        self.begin('I love the opera.', memory_tests.C)
+        saved = self.fact(joy, 'loves the opera')
+        self.assertEqual(saved.outcome, 'ok', saved)
+        self.begin('I love the Sacramento Kings.')
+        self.fact(self.bret, 'loves the Kings')
+        shown = self.sent_claims('What should I do tonight?')
+        self.assertIn('loves the Kings', shown)                       # Bret's own, in his memory.
+        self.assertNotIn('loves the opera', shown)                    # Joy is not here or named.
+        self.assertIn('"claims_not_shown": {"facts": 1, "about": ["Joy"]}', shown)
+        self.assertIn('loves the opera', self.sent_claims('Should I take Joy somewhere?'))
+        self.assertEqual(len(self.state.context()['claims']), 2)     # Code still has both; ids check against all.
+        found = self.call('recall', {'subject_id': joy, 'query': None})
+        self.assertEqual([c['value'] for c in found.data['claims']], ['loves the opera'])

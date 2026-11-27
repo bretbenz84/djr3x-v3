@@ -464,3 +464,18 @@ class HelperTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class LullModelTests(unittest.TestCase):
+    """Owner, November 26: whether to speak up in a lull is decided by Haiku 5.5; everything else stays on the
+    chosen reply model."""
+    def test_a_lull_decision_goes_to_haiku_without_thinking_and_a_persons_turn_stays_on_sonnet(self):
+        for trigger in ('conversation_lull', 'reconsideration', 'ambient'):
+            made = brain(stream(('text', 'Quiet in here.')))
+            list(made.reply(Snapshot('s', 't', 0, HEARD, context={'source_turn_id': 't', 'trigger': trigger}),
+                            Cancellation()))
+            self.assertEqual((sent(made)['model'], sent(made)['thinking']), ('claude-haiku-5-5', {'type': 'disabled'}))
+            self.assertEqual([r['model'] for r in made.trace.rows if r['event'] == 'model_usage'], ['claude-haiku-5-5'])
+        made = brain(stream(('text', 'Give it back.')))
+        list(made.reply(Snapshot('s', 't', 0, HEARD, context={'source_turn_id': 't'}), Cancellation()))
+        self.assertEqual((sent(made)['model'], sent(made)['thinking']), ('claude-sonnet-5-5', {'type': 'between_tools'}))

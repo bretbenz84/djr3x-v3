@@ -25,6 +25,11 @@ THINKING = {'claude-sonnet-5-5': {'type': 'adaptive'}, 'claude-haiku-5-5': {'typ
 # is one short line: it starts without thinking first. Only Sonnet 5.5 takes `between_tools`, so a request
 # re-sent to another model must not carry it.
 REPLY_THINKING = {'claude-sonnet-5-5': {'type': 'between_tools'}, 'claude-haiku-5-5': {'type': 'disabled'}}
+# Owner, November 26: the credit ran out on November 25. About one reply request in five was Rex deciding in a
+# lull whether to speak up (266 of 1,351 since November 10), each about 6.8 cents on Sonnet; those go to Haiku 5.5,
+# about a twentieth of the price. Any line he says in a lull is Haiku's words too.
+LULL_MODEL = 'claude-haiku-5-5'
+LULL_TRIGGERS = frozenset({'conversation_lull', 'reconsideration', 'ambient'})
 MAX_TOKENS = 4000
 OPERATOR = '[Operator note, not said by anyone in the room]\n'
 # November 22 (run e54062b9): told "Hey Rex, you are in the workshop.", the whole answer was "Rex is told he's in the
@@ -192,8 +197,8 @@ class ClaudeBrain(OpenAIBrain):
         super().__init__(key)
         if model not in MODELS:
             raise ValueError('UnsupportedClaudeReplyModel')
-        self.capability = Capability('brain', 'Anthropic Messages', 'one main conversational generation',
-                                     model, ('httpx',), ('network',))
+        self.capability = Capability('brain', 'Anthropic Messages', 'one main conversational generation '
+                                     f'(lull decisions on {LULL_MODEL})', model, ('httpx',), ('network',))
 
     def _prompt(self, name, text):
         """Claude's own copy of the prompt (owner, November 16): OpenAI's tuned text stays as it is in
@@ -202,7 +207,7 @@ class ClaudeBrain(OpenAIBrain):
         return own.get(name, claude_prompt.NOTES.get(name, text))
 
     def _stream_response(self, payload, snapshot, cancel, offered=None):
-        model = self.capability.model
+        model = LULL_MODEL if snapshot.context.get('trigger') in LULL_TRIGGERS else self.capability.model
         system, messages, tools, choice, required = translate(payload, offered)
         # November 20 (run b048ba2f): told twice in the copy not to, Claude still spoke its comparison when the
         # dog walked in ("...looks a lot like the earlier Max photos... I'll go with Max"). The answer after a
