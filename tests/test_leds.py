@@ -115,17 +115,17 @@ class LEDTests(unittest.TestCase):
         led.start();self.addCleanup(led.close)
         led.stop_event.set();led.worker.join(1)
         startup=f'STARTUP:{round(LIVE_STARTUP_SECONDS*1000)}'     # The expected time, in milliseconds.
-        self.assertEqual(board.strips['chest'].commands,['PRIDE:0',startup])
+        self.assertEqual(board.strips['chest'].commands,['PRIDE:0','XMAS:0',startup])
         self.assertEqual(board.strips['head'].commands,['PRIDE:0',startup,'EYE:255,200,0'])
         led.ready()
         self.assertEqual(board.strips['chest'].commands[-1],'READY')
         self.assertEqual(board.strips['head'].commands[-1],'READY')
         self.assertIn(('led_lifecycle',{'kind':'ready','status':'commands_sent','evidence':'display_unverified'}),rows)
         # A start nobody will call ready() for (a telepresence call, a demo) lets the lights time themselves.
-        self.assertEqual(self.ports['chest'].commands,['PRIDE:0','STARTUP'])
+        self.assertEqual(self.ports['chest'].commands,['PRIDE:0','XMAS:0','STARTUP'])
 
     def test_start_and_shutdown_preserve_firmware_effects(self):
-        self.assertEqual(self.ports['chest'].commands,['PRIDE:0','STARTUP'])
+        self.assertEqual(self.ports['chest'].commands,['PRIDE:0','XMAS:0','STARTUP'])
         self.assertEqual(self.ports['head'].commands[-2:],['STARTUP','EYE:255,200,0'])   # The mouth flickers on.
         self.assertEqual(self.ports['head'].board.lines[0],'HELLO')   # Identified before any light command.
         self.assertEqual(self.led.firmware,'0.1.0')

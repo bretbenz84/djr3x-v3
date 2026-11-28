@@ -51,6 +51,28 @@ class ChristmasTests(unittest.TestCase):
         led.tick()
         self.assertEqual(eyes()[-1], 'EYE:' + ','.join(map(str, led.eye_color)))
 
+    def test_the_chest_runs_christmas_colours_renewed_until_the_mode_ends(self):
+        led, strips, clock = rig()
+        self.addCleanup(led.close)
+        on = [True]
+        led.christmas = lambda: on[0]
+        chest = lambda: [c for c in strips['chest'].commands if c.startswith('XMAS:')]
+        start = len(chest())
+        for _ in range(8):                                   # 8 s: renewed well inside the board's 10 s
+            led.tick(); clock.wait(1.)
+        self.assertEqual(set(chest()[start:]), {'XMAS:1'})
+        self.assertGreaterEqual(len(chest()[start:]), 3)
+        led.guarding = True                                  # Sentry mode's red takes the chest back at once.
+        led.tick()
+        self.assertEqual(chest()[-1], 'XMAS:0')
+        led.guarding = False
+        led.tick()
+        self.assertEqual(chest()[-1], 'XMAS:1')
+        on[0] = False
+        led.tick(); clock.wait(5.); led.tick()
+        self.assertEqual(chest()[-1], 'XMAS:0')
+        self.assertEqual(chest().count('XMAS:0'), chest()[start:].count('XMAS:0') + start)   # sent once each time
+
 
 class FortuneAndToastToolTests(unittest.TestCase):
     def names(self, **context):

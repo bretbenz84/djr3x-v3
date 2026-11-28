@@ -37,6 +37,9 @@ reports the lights "no longer flicker at all".
 | `C:<command>` | Chest only; commands above `command()` in `chest.cpp` |
 | `<command>` | Both strips; each ignores what it does not know |
 
+`C:XMAS:1` (0.10.0, Christmas mode) runs the chest's ordinary panel in red, green and white and its two
+small lights red and green in turn; like `PRIDE:1` it must be renewed within 10 s, and `C:XMAS:0` ends it.
+
 `STARTUP` on either strip may carry the time the host expects its start to take, in milliseconds
 (`STARTUP:12800`), and is then ended by `READY`; see [Startup](#startup).
 
@@ -54,8 +57,8 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 arduino-cli upload -p <port> --fqbn esp32:esp32:esp32 firmware/djr3x_leds
 ```
 
-Version 0.9.4, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 427,324 bytes of
-program, 27,152 bytes of globals. Each strip has its own FastLED controller and brightness,
+Version 0.10.0, built with the `esp32:esp32` core 3.3.10 and FastLED 3.10.3: 427,840 bytes of
+program, 27,160 bytes of globals. Each strip has its own FastLED controller and brightness,
 since the library's board-wide show, brightness and clear would act on both.
 
 ## Startup

@@ -89,8 +89,13 @@ mine and unreviewed.
 
 - **Christmas mode.** `voice_mode` mode `christmas`: Santa's ElevenLabs voice `ZncHSOpbSyuBVFfZSUAG` (on Rex's
   `eleven_v4_turbo` until the owner picks a model by ear), a Santa directive, and red and green eyes in turn every
-  1.5 s (`LEDs._christmas_eyes`, from the Mac; the LED firmware is unchanged, so the mouth and chest keep their usual
-  colours). Unlike the ten-minute modes it lasts until turned off, another mode is asked for or Rex restarts
+  1.5 s (`LEDs._christmas_eyes`, from the Mac). November 27 (owner: "add christmas colors on the chest leds and
+  flash"): LED firmware 0.10.0's `C:XMAS:1`, renewed every 3 s like pride's (the board drops it after 10 s), runs the
+  chest's ordinary panel in red, green and white and its two small lights red and green in turn; the feelings keep
+  their own patterns and the mouth its usual colours. Evidence: 3 new firmware checks (no blue left on the panel,
+  bar C green, the lights never gold; it ends unrenewed or on `XMAS:0`; sad still blue), 1 host check (renewed,
+  sentry's red takes it back, `XMAS:0` once). Flashed; the board answers `hello djr3x_leds 0.10.0`. **Not yet
+  seen on the robot.** Unlike the ten-minute modes it lasts until turned off, another mode is asked for or Rex restarts
   (`UNTIL_OFF`); there is no single line of it. Sentry mode's red, a blink, the alarm's flashing and telepresence win.
 - **Fortune teller.** `tell_fortune` (a person's request only): the fortune runs as `animate_lights` curious, during
   speech, so eyes, mouth and chest glow purple for the whole line. The voice is Rex's own; "mystic" is in the words.

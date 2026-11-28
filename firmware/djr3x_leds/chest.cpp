@@ -141,6 +141,34 @@ uint16_t DecayTime = DECAYTIME;
 const CRGB SmallLEDColors[9] = { cRED2, cRED2, cWHITE2, cWHITE2, cBLUE2, cBLUE2, cRED2, cWHITE2, cWHITE2 };
 const CRGB BlockLEDColors[4] = { cRED, cWHITE, cGOLD, cBLUE };
 
+// Christmas (owner, November 27, 2026): while XMAS:1 is renewed within 10 seconds the ordinary
+// panel runs in red, green and white: bar A red, bar C green, bar B and the nine blocks lit in
+// red, green and white (gold kept among the blocks), and each chest light turns red and green in
+// turn as it flickers. The feelings keep their own patterns; pride's rainbow comes first. Nothing
+// is wiped: each light takes the new colours the next time it comes on, so the whole panel has
+// changed over within a few seconds and changes back the same way.
+#define cGREEN  0x00FF00
+#define cGREEN2 0x005000
+#define cWARM2  0x605040
+const CRGB XmasSmallColors[9] = { cRED2, cRED2, cRED2, cGREEN2, cGREEN2, cGREEN2, cWARM2, cWARM2, cWARM2 };
+const CRGB XmasBlockColors[4] = { cRED, cWHITE, cGOLD, cGREEN };
+bool xmasPanels = false;
+uint32_t xmasRefreshMs = 0;
+#define XMAS_TIMEOUT_MS 10000UL
+static bool xmasRedNext[2] = { true, false };   // the colour each chest light comes on in next
+
+static inline CRGB panelSmall()   { return (xmasPanels ? XmasSmallColors : SmallLEDColors)[random(0, 9)]; }
+static inline CRGB panelBlock()   { return (xmasPanels ? XmasBlockColors : BlockLEDColors)[random(0, 4)]; }
+static inline CRGB panelBarC()    { return xmasPanels ? CRGB(cGREEN2) : CRGB(cWHITE2); }
+// The colour a chest light (96 or 97) comes on in: gold, or at Christmas red and green in turn.
+static CRGB chestLightOn(uint8_t pos) {
+    if (!xmasPanels) return CRGB(cGOLD);
+    bool &red = xmasRedNext[pos - 96];
+    const CRGB c = red ? CRGB(cRED) : CRGB(cGREEN);
+    red = !red;
+    return c;
+}
+
 // ---------------------------------------------------------------------------
 // Chest mode
 // ---------------------------------------------------------------------------
@@ -251,7 +279,7 @@ static void beginFade(uint16_t ms, bool linear = false) {
 static inline bool panelMode(ChestMode m) {
     return m == CM_IDLE || m == CM_ACTIVE || m == CM_SPEAK_NEUTRAL;
 }
-// Modes in which the two chest lights are RandomEyes' steady gold flicker.
+// Modes in which the two chest lights are RandomEyes' steady flicker (gold; red and green at Christmas).
 static inline bool awakeMode(ChestMode m) {
     return m == CM_STARTUP || m == CM_COMPLIMENT || m == CM_IDLE || m == CM_ACTIVE ||
         (m >= CM_SPEAK_NEUTRAL && m <= CM_SPEAK_SYMPATHETIC);
@@ -425,7 +453,7 @@ static void panelSeed() {
         const uint8_t pos = PanelBStart + i;
         LEDMillis[pos] = now;
         if (random8() < 120) {
-            DJLEDs[pos] = SmallLEDColors[random(0, 9)];
+            DJLEDs[pos] = panelSmall();
             LEDOn[pos] = 1;  IntervalTime[pos] = random(500, 2500);
         } else {
             LEDOn[pos] = 0;  IntervalTime[pos] = random(0, 1500);
@@ -435,7 +463,7 @@ static void panelSeed() {
         const uint8_t pos = StartLEDNum[k];
         LEDMillis[pos] = now;
         if (random8() < 128) {
-            LEDBlockOn(pos, BlockLEDColors[random(0, 4)], BLOCKBRIGHTNESS);
+            LEDBlockOn(pos, panelBlock(), BLOCKBRIGHTNESS);
             LEDOn[pos] = 1;  IntervalTime[pos] = random(200, 1500);
         } else {
             LEDOn[pos] = 0;  IntervalTime[pos] = random(0, 1000);
@@ -448,7 +476,10 @@ static void panelSeed() {
 // for an awake mode (so they fade in with the blend) and dark for any other.
 static void freshCanvas(ChestMode mode, bool keepLights) {
     fill_solid(DJLEDs, 96, CRGB::Black);
-    if (!keepLights) DJLEDs[96] = DJLEDs[97] = awakeMode(mode) ? CRGB(cGOLD) : CRGB(CRGB::Black);
+    if (!keepLights) {
+        DJLEDs[96] = awakeMode(mode) ? chestLightOn(96) : CRGB(CRGB::Black);
+        DJLEDs[97] = awakeMode(mode) ? chestLightOn(97) : CRGB(CRGB::Black);
+    }
     if (panelMode(mode)) panelSeed();
 }
 
@@ -627,6 +658,7 @@ void runCurrentMode() {
 
 void tick() {
 	if (pridePanels && millis() - prideRefreshMs > PRIDE_TIMEOUT_MS) pridePanels = false;
+	if (xmasPanels && millis() - xmasRefreshMs > XMAS_TIMEOUT_MS) xmasPanels = false;
 
 	if (millis() - previousMillis > interval) {
 		previousMillis = millis();
@@ -718,12 +750,18 @@ void nextPattern()
 //   FADEOFF:{soc}:{0|1} — the same fade, ending in the charge meter, which sweeps up
 //                      under its last two seconds; fades out if no CHARGE confirms it
 //   PRIDE:{0|1}      — rainbow over the awake patterns; renew ON within 10 seconds
+//   XMAS:{0|1}       — the ordinary panel and chest lights in Christmas colours; renew ON within 10 seconds
 
 void command(const char *cmd) {
     // Colour overlay only; never changes sleep/off/charge/fade state.
     if (strcmp(cmd, "PRIDE:1") == 0 || strcmp(cmd, "PRIDE:0") == 0) {
         pridePanels = cmd[6] == '1';
         prideRefreshMs = millis();
+        return;
+    }
+    if (strcmp(cmd, "XMAS:1") == 0 || strcmp(cmd, "XMAS:0") == 0) {
+        xmasPanels = cmd[5] == '1';
+        xmasRefreshMs = millis();
         return;
     }
 
@@ -736,7 +774,7 @@ void command(const char *cmd) {
 		const bool lightsLit = awakeMode(chestMode) && !prideShown;
 		beginFade(FADE_STARTUP_MS);
 		endStartupLayers();
-		if (!lightsLit) DJLEDs[96] = DJLEDs[97] = cGOLD;
+		if (!lightsLit) { DJLEDs[96] = chestLightOn(96); DJLEDs[97] = chestLightOn(97); }
 		lightsOpening = !lightsLit;
 		if (fuel) {
 			igniting = true;
@@ -1130,7 +1168,7 @@ void RandomEyes()
     }
     if (millis() - LEDMillis[pos] > IntervalTime[pos]) {
       if (!LEDOn[pos]) { // LED Off - turn in on
-          DJLEDs[pos] = cGOLD;
+          DJLEDs[pos] = chestLightOn(pos);
         IntervalTime[pos] = random(200, 1600);
         LEDMillis[pos] = millis();
         LEDOn[pos] = 1;
@@ -1174,7 +1212,7 @@ void RandomBlocks2()
 			LEDOn[pos] = 1;
 		}
 		else {	// Turn the LED off
-			DJLEDs[pos] = SmallLEDColors[random(0, 9)];
+			DJLEDs[pos] = panelSmall();
 			IntervalTime[pos] = random(200, 500);
 			LEDMillis[pos] = millis();
 			LEDOn[pos] = 0;
@@ -1211,7 +1249,7 @@ void RandomBlocks2()
 			}
 			if (millis() - LEDMillis[pos] > IntervalTime[pos]) {
 				if (!LEDOn[pos]) { // LED Off - turn in on
-					DJLEDs[pos] = SmallLEDColors[random(0, 9)];// CHSV(random(100, 200), random(0, 200), 255); //CHSV(gHue + random8(64), 200, 0);
+					DJLEDs[pos] = panelSmall();// CHSV(random(100, 200), random(0, 200), 255); //CHSV(gHue + random8(64), 200, 0);
 					IntervalTime[pos] = random(500, 2500);
 					LEDMillis[pos] = millis();
 					LEDOn[pos] = 1;
@@ -1240,7 +1278,7 @@ void RandomBlocks2()
 			LEDOn[pos] = 1;
 		}
 		else {	// Turn the LED off
-			DJLEDs[pos] = SmallLEDColors[random(0, 9)];
+			DJLEDs[pos] = panelSmall();
 			IntervalTime[pos] = random(200, 500);
 			LEDMillis[pos] = millis();
 			LEDOn[pos] = 0;
@@ -1255,7 +1293,7 @@ void RandomBlocks2()
 		Bar3Length = random(1, 7);
 		for (i = 0; i < 8; i++) {
 			pos = PanelCStart + i;
-			if (i < Bar3Length)	DJLEDs[pos] = cWHITE2;
+			if (i < Bar3Length)	DJLEDs[pos] = panelBarC();
 			else DJLEDs[pos] = 0;
 		}
 	}
@@ -1277,9 +1315,7 @@ void RandomBlocks2()
 			}
 			if (millis() - LEDMillis[pos] > IntervalTime[pos]) {
 				if (!LEDOn[pos]) { // LED Off - turn in on
-					byte c = random(0, 4);
-					//Serial.println(c);
-					LEDBlockOn(pos, BlockLEDColors[c], BLOCKBRIGHTNESS);//CHSV(random(100, 200), random(0, 200), 255), 50);
+					LEDBlockOn(pos, panelBlock(), BLOCKBRIGHTNESS);//CHSV(random(100, 200), random(0, 200), 255), 50);
 					IntervalTime[pos] = random(200, 1500);
 					LEDMillis[pos] = millis();
 					LEDOn[pos] = 1;
@@ -1414,12 +1450,12 @@ static void bootElementOn(uint8_t element, uint32_t now) {
 	} else if (element == 1) {                   // bar B: every pixel lit
 		for (uint8_t i = 0; i < 8; i++) {
 			const uint8_t pos = PanelBStart + i;
-			DJLEDs[pos] = SmallLEDColors[random(0, 9)];
+			DJLEDs[pos] = panelSmall();
 			LEDOn[pos] = 1;  LEDMillis[pos] = now;  IntervalTime[pos] = random(600, 2500);
 		}
 	} else {
 		const uint8_t pos = StartLEDNum[element - 3];
-		LEDBlockOn(pos, BlockLEDColors[random(0, 4)], BLOCKBRIGHTNESS);
+		LEDBlockOn(pos, panelBlock(), BLOCKBRIGHTNESS);
 		LEDOn[pos] = 1;  LEDMillis[pos] = now;  IntervalTime[pos] = random(700, 1500);
 	}
 }

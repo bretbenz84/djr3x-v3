@@ -65,7 +65,7 @@ running.
   like a pirate, or like a hype DJ, and he keeps it up for ten minutes. Ask whether he's gay and he
   goes full proud, rainbow lights and all. "Drop the accent" ends it.
 - **Christmas mode.** "Turn on Christmas mode" or "be Santa for us" and he talks like Santa in a Santa
-  voice, with his eyes taking turns red and green. It stays on until you turn it off ("Christmas is
+  voice, with his eyes taking turns red and green and his chest lit in red, green and white. It stays on until you turn it off ("Christmas is
   over"), ask for another voice, or he restarts.
 - **Fortune teller.** "Read my fortune" and his eyes, mouth and chest glow purple while he gives you a
   spooky, playful fortune made from what he knows about you.

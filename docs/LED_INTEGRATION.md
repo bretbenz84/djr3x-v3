@@ -600,3 +600,18 @@ meter within about five seconds. Clicking an animation while he is off still tak
 Checked with a fake board and lock (`tests/test_operator_tools.py`: held while off, released for Rex, not
 taken back after he stops; fails without the change). The LED menu was restarted with the change; not yet
 seen after a real shutdown.
+
+## November 27: Christmas colours on the chest (firmware 0.10.0)
+
+Owner: "you can add christmas colors on the chest leds and flash". While Christmas mode is on the LED owner
+renews `C:XMAS:1` every 3 s (the board drops it after 10 s without one) and sends `C:XMAS:0` once when the mode
+ends, sentry mode's red or a telepresence call take the lights, or the board is repainted. The firmware runs
+the ordinary panel (idle, awake and plain speaking) in red, green and white: bar A red, bar C green, bar B and
+the nine blocks red, green and warm white (gold kept among the blocks), and each of the two small chest
+lights red and green in turn as it flickers. Nothing is wiped: each light takes the new colours the next
+time it comes on, so the panel has changed over within a few seconds. The feelings keep their own patterns;
+pride's rainbow comes first.
+
+Evidence: 157 firmware checks (3 new), the host's LED checks (1 new; two start-up checks now expect the
+`XMAS:0` clear). Compiled (427,840 bytes) and flashed under the hand-over lock on the first try; the board
+answers `hello djr3x_leds 0.10.0` and the battery menu repainted the meter. **Not yet seen on the robot.**

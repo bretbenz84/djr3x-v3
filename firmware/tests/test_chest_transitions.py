@@ -712,5 +712,53 @@ class ChestTransitionTests(unittest.TestCase):
                 self.assertTrue(any(block_lit(f, b) for f in settled for b in BLOCK_STARTS))
 
 
+    # Christmas (owner, November 27): XMAS:1, renewed within 10 s, runs the ordinary panel in red, green
+    # and white, and the two chest lights red and green in turn.
+    @staticmethod
+    def leaning(frames, pixels, channel):
+        """How many lit pixels lean to one colour channel (0 red, 1 green, 2 blue) over the frames."""
+        others = [c for c in range(3) if c != channel]
+        return sum(1 for f in frames for i in pixels
+                   if f[i][channel] > max(f[i][c] for c in others))
+
+    def test_christmas_turns_the_panel_red_green_and_white(self):
+        frames = self.play('cmd IDLE run 3000 cmd XMAS:1 run 4000 cmd XMAS:1 run 4000')
+        before = [f for t, f in frames if 500 < t <= 3000]
+        after = [f for t, f in frames if t > 3000 + 4000]
+        panel = range(96)
+        self.assertGreater(self.leaning(before, panel, 2), 0)          # the ordinary panel has its blue
+        self.assertEqual(self.leaning(after, panel, 2), 0)              # Christmas has none
+        self.assertGreater(self.leaning(after, panel, 0), 0)            # red
+        self.assertGreater(self.leaning(after, panel, 1), 0)            # and green
+        # Bar C, white on the ordinary panel, is green (its blinking tip takes any of the colours).
+        bar_c = [f[64 + i] for f in after for i in range(8) if lit(f[64 + i])]
+        self.assertTrue(bar_c)
+        self.assertGreater(sum(p[1] > p[0] and p[1] > p[2] for p in bar_c), .7 * len(bar_c))
+        # The two chest lights are never gold: each shows red at some moments and green at others.
+        for pixel in (96, 97):
+            shown = [f[pixel] for f in after if lit(f[pixel])]
+            self.assertTrue(any(p[0] > 2 * p[1] for p in shown), pixel)
+            self.assertTrue(any(p[1] > 2 * p[0] for p in shown), pixel)
+            self.assertFalse(any(p[0] > 0 and p[1] > 0 for p in shown), pixel)
+        # Nothing was wiped: the change-over is gradual, with no jump when the command arrives.
+        self.assert_no_jump(frames, 3000)
+        self.assertEqual(max(light(f, UNOWNED) for f in after), 0)
+
+    def test_christmas_ends_when_it_is_not_renewed_or_is_turned_off(self):
+        for script in ('cmd IDLE cmd XMAS:1 run 6000 run 9000', 'cmd IDLE cmd XMAS:1 run 6000 cmd XMAS:0 run 5000'):
+            with self.subTest(script=script):
+                frames = self.play(script)
+                last = frames[-1][0]
+                settled = [f for t, f in frames if t > last - 900]
+                self.assertEqual(self.leaning(settled, range(96), 1), 0)    # no green left
+                self.assertGreater(self.leaning(settled, range(96), 2), 0)  # the blue is back
+                self.assertFalse(any(f[96][1] > f[96][0] for f in settled))
+
+    def test_the_feelings_keep_their_own_colours_at_christmas(self):
+        frames = self.play('cmd IDLE cmd XMAS:1 run 2000 cmd SPEAK:sad run 3000')
+        sad = [f for t, f in frames if t > 2000 + 1500]
+        self.assertGreater(self.leaning(sad, range(96), 2), self.leaning(sad, range(96), 1))
+
+
 if __name__ == '__main__':
     unittest.main()
