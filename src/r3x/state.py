@@ -1149,11 +1149,12 @@ class CoreState:
         from .memory_opportunities import occasion
         asked = []
         for claim_id in dict.fromkeys(i for i in claim_ids if isinstance(i, str)):
-            rows = self.store.rows('SELECT f.kind,f.on_date,f.due_at FROM memory_followups f JOIN claims c '
+            rows = self.store.rows('SELECT f.kind,f.on_date,f.due_at,f.said_at FROM memory_followups f JOIN claims c '
                                    "ON c.id=f.claim_id WHERE f.claim_id=? AND c.status='accepted'", (claim_id,))
             if not rows:
                 continue
-            key = occasion(rows[0]['kind'], rows[0]['on_date'], self.calendar_today(), rows[0]['due_at'], self.wall_clock())
+            key = occasion(rows[0]['kind'], rows[0]['on_date'], self.calendar_today(), rows[0]['due_at'], self.wall_clock(),
+                            rows[0]['said_at'])
             if key and not self.store.rows('SELECT 1 FROM memory_followup_delivery WHERE claim_id=? AND occasion=?',
                                            (claim_id, key)):
                 self.memory_delivered({'claim_id': claim_id, 'occasion': key})

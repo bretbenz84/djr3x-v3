@@ -27,11 +27,17 @@ class MemoryOpportunityTests(MemoryFixture):
         self.faces=(dict(face(100),identity=self.person),)
 
     def remember(self,kind='plan',on_date='2026-09-14',audience='subject_only',predicate='trip',
-                 due_in_minutes=None,due_by=None,text='I am taking a trip on September 14. Ask me about it later.'):
+                 due_in_minutes=None,due_by=None,text='I am taking a trip on September 14. Ask me about it later.',
+                 told_earlier=True):
         self.begin(text)
-        return self.call('remember_followup',dict(predicate=predicate,value='Trip on September 14',kind=kind,
+        result=self.call('remember_followup',dict(predicate=predicate,value='Trip on September 14',kind=kind,
             on_date=on_date,due_in_minutes=due_in_minutes,due_by=due_by,audience=audience,
             source_turn_id=self.state.current[0]))
+        if told_earlier and result.outcome=='ok':
+            # Told the day before: a plan told moments ago is not brought straight back (November 27).
+            with self.store.transaction() as conn:
+                conn.execute('UPDATE memory_followups SET said_at=said_at-86400 WHERE claim_id=?',(result.data['claim_id'],))
+        return result
 
     def event(self,faces=None):
         return Opportunity(uuid4().hex,'session',100,None,None,faces or self.faces,float('-inf'),False,
@@ -147,7 +153,9 @@ class MemoryOpportunityTests(MemoryFixture):
     def test_plan_window_celebration_day_and_leap_birthday(self):
         self.setup_person();self.remember('plan','2026-09-20')
         self.assertFalse(self.offered())
-        self.assertTrue(candidates(self.store,self.faces,date(2026,9,13),now=noon(date(2026,9,13))))
+        # Looking forward to it comes a day or two before (November 27), not the whole week before.
+        self.assertFalse(candidates(self.store,self.faces,date(2026,9,17),now=noon(date(2026,9,17))))
+        self.assertTrue(candidates(self.store,self.faces,date(2026,9,18),now=noon(date(2026,9,18))))
         self.assertFalse(candidates(self.store,self.faces,date(2026,9,28),now=noon(date(2026,9,28))))
         self.remember('birthday','02-29',predicate='birthday')
         self.assertTrue(any(r['kind']=='birthday' for r in candidates(self.store,self.faces,date(2028,2,29),now=noon(date(2028,2,29)))))
@@ -175,12 +183,9 @@ class MemoryOpportunityTests(MemoryFixture):
         # later Rex planned to tease the "imminent wine mission" instead of asking how it went.
         self.setup_person();said=noon(date(2026,9,12))
         result=self.remember('callback',None,predicate='wine run',due_in_minutes=5,
-                             text='In five minutes I am going to the store to get wine.')
+                             text='In five minutes I am going to the store to get wine.',told_earlier=False)
         self.assertEqual(result.outcome,'ok');self.assertEqual(result.data['due'],'Saturday 12:05 p.m.')
-        row=self.offered()[0]
-        self.assertEqual((row['moment'],row['occasion']),('ahead','before_due'))
-        self.assertEqual(row['due'],'not yet: due in about 5 minutes (Saturday 12:05 p.m.)')
-        self.assertEqual(row['said'],'under a minute ago (Saturday 12:00 p.m.)')
+        self.assertFalse(self.offered())   # Just told: no "looking forward to it?" (November 27).
         restarted=CoreState(self.store,SpeakerTracker(NS),self.state.trace)
         restarted.calendar_today=self.state.calendar_today;restarted.wall_clock=lambda:said+8*60
         row=self.arrival(restarted)[0]

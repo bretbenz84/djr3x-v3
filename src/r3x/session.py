@@ -1793,7 +1793,9 @@ class Session:
                         and context['personal_memory'].get('person_id') == self.last_question['person_id']):
                     row = self.last_question['row']
                     context['your_question'] = {'asked': self.last_question['text'], 'about': row.get('about'),
-                                                'wanted_to_know': row.get('want_to_know'), 'meaning': GUIDE['your_question']}
+                                                'wanted_to_know': row.get('want_to_know'), 'meaning': GUIDE['your_question'],
+                                                **({'when_they_answer': row['when_they_answer']}
+                                                   if row.get('when_they_answer') else {})}
             memory_subject = context.get('personal_memory',{}).get('person_id')
             # A game turn's request leaves private memory out (request_view), so a face coming or going never
             # cancels it (October 26, third game: "Exzunica and Jeremy." was dropped that way).

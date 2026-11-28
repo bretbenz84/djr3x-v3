@@ -15,8 +15,12 @@ def validate_date(kind: str, value: str | None) -> None:
         raise ValueError('InvalidFollowupDate') from None
 
 
-# A follow-up with a time is offered in the week before it (once) and the week after it (once).
+# A follow-up with a time is offered once close before it and once in the week after it.
 AFTER_SECONDS = 7*86400
+# Owner, November 27: "looking forward to it?" comes a day or two before, never right after it was told
+# (a holiday plans question a week ahead would otherwise bring it straight back).
+BEFORE_DAYS = 2
+TOLD_RECENTLY_SECONDS = 12*3600
 
 
 def resolve_due(kind: str, on_date: str | None, due_in_minutes, due_by: str | None, now: float, today: date) -> float | None:
@@ -52,10 +56,13 @@ def end_of_day(day: date) -> float:
     return datetime.combine(day, time(23,59)).timestamp()
 
 
-def occasion(kind: str, scheduled: str | None, today: date, due_at: float | None = None, now: float = 0.) -> str | None:
+def occasion(kind: str, scheduled: str | None, today: date, due_at: float | None = None, now: float = 0.,
+             said_at: float | None = None) -> str | None:
     if due_at is not None:
         # Once before its time (looking forward to it), once after (asking how it went).
-        if now<due_at:return 'before_due' if (date.fromtimestamp(due_at)-today).days<=7 else None
+        if now<due_at:
+            told_recently = said_at is not None and now-said_at<TOLD_RECENTLY_SECONDS
+            return 'before_due' if (date.fromtimestamp(due_at)-today).days<=BEFORE_DAYS and not told_recently else None
         return 'after_due' if now-due_at<=AFTER_SECONDS else None
     # A callback without a time is brought up once, not once a day (October 16).
     if kind=='callback':return 'callback'
@@ -112,7 +119,7 @@ def candidates(store, faces, today: date, offset: int = 0, limit: int = 6, *, no
     for row in rows:
         if row['said_by'] not in visible:continue
         if row['audience']=='subject_only' and (len(faces)!=1 or len(visible)!=1):continue
-        key=occasion(row['kind'],row['on_date'],today,row['due_at'],now)
+        key=occasion(row['kind'],row['on_date'],today,row['due_at'],now,row['said_at'])
         if key is None:continue
         if not include_delivered and store.rows('SELECT 1 FROM memory_followup_delivery WHERE claim_id=? AND occasion=?',
                       (row['claim_id'],key)):continue

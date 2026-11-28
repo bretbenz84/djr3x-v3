@@ -1,10 +1,49 @@
 # Current implementation status
 
-Updated November 26, 2026. This is the consolidated
+Updated November 27, 2026. This is the consolidated
 checklist for current scope.
 The linked plans retain dated implementation history and test results. An earlier
 slice's limitations or test count do not describe the final implementation.
 Documentation does not authorize new hardware operation or feature expansion.
+
+## Holiday and weekend plans questions — November 27
+
+Owner: "a friend might ask a week before thanksgiving 'any plans for the big turkey day?' and then after it's
+passed, he should ask how it went if plans were shared." These questions should drive the conversation, not
+just fill lulls. V2 had this (a holiday calendar, a weekend ask from Thursday to Sunday, and dated plan
+follow-ups). V3 only had the after half: a plan someone volunteered was asked about once its date passed.
+
+`occasions.py` computes a US calendar locally. `right_now.calendar` names holidays that passed in the last
+three days and the next two within 30 days, as background for replies. A known person's `curiosity.still_unknown`
+leads with one plans question (`soon`, `when_they_answer`, guide `curiosity.soon`):
+- Thanksgiving, Christmas and New Year's Eve from 10 days out.
+- Easter, Memorial Day, the Fourth of July, Labor Day and Halloween from 5 days out.
+- Otherwise the weekend, from Thursday to Sunday noon.
+
+When a pet has just walked in, the pet's question still goes first. A plans question is spent once heard, and
+is not offered when a plan near that date is already saved. There is no weekend question when a holiday falls
+Thursday to Monday or a holiday question was heard within six days. Both prompt copies put it in the
+hello and right behind a passed follow-up in the planner's first question and the lull order.
+`your_question.when_they_answer` saves a shared plan with `remember_followup` under the holiday's date, so the
+existing follow-up asks how it went in the week after; "nothing planned" saves nothing. The "looking forward to
+it?" follow-up now comes in the two days before, never within 12 hours of being told; before this it came
+anywhere in the week before.
+
+Checks: blocked-I/O synthetic tests in `tests/test_occasions.py`, which use the production Session to ask, save,
+and ask after. The suite passes with the plans question forced to a Thursday before Thanksgiving and to a plain
+Friday, so no other test depends on the day it runs. Paid probe `tools/check_plans_question.py` on OpenAI (real
+reply model, fictional Sam, fixed wall clock; 24 replies, a few cents):
+- The plan was saved as `kind plan`, `on_date 2026-11-26`, 3 of 3.
+- "Nothing planned" saved nothing, 3 of 3.
+- The day after, he asked "how was Thanksgiving at your mom's?" through `use_memory_opportunity`, 3 of 3.
+- On a plain Wednesday he did not ask, 3 of 3.
+- Handed the floor ("you pick something"), he asked 2 of 3 times; once he named the topic but made a remark
+  instead of asking.
+- In the hello a week before, he asked 4 of 6 times. The other 2 were silent because the model's visit goal
+  listed a working interest with no evidence (`WorkingInterestEvidenceNotOffered`), which throws out the whole
+  reply. That existing rejection shows up in earlier probes too (greetings, humor, sentry).
+
+Not run on Claude (no credit). Not yet seen live, and the planner's lull beats were not probed.
 
 ## Asking a newcomer's name during a long chat; back on OpenAI — November 26
 

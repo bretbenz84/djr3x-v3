@@ -17,6 +17,9 @@ from tests import test_photo_memory as photo_tests
 from tests import test_turn_taking as timing_tests
 from tests import test_agency_plan as agency_tests
 
+# Local noon on Wednesday, September 16, 2026: no holiday or weekend near, so no plans question.
+WEDNESDAY = __import__('datetime').datetime(2026, 9, 16, 12).timestamp()
+
 
 def say(text, asked_about=None):
     return ToolCall(uuid4().hex, 'respond_with_intent', {'text': text, 'intent_update': None,
@@ -66,25 +69,26 @@ class CuriosityFixture(memory_tests.MemoryFixture):
 class StillUnknownTests(CuriosityFixture):
     def test_he_is_offered_what_he_does_not_know_about_the_owner_and_each_pet(self):
         bret = self.enroll('Bret')
+        at = WEDNESDAY   # No holiday or weekend near: no plans question leads.
         turn = self.begin('I love Star Trek.')
         self.assertEqual(self.call('remember_interest', {'predicate': 'interest', 'value': 'loves Star Trek',
             'topic': 'Star Trek', 'source_turn_id': turn, 'subject_reference': None}).outcome, 'ok')
         pets = self.album.catalog()
-        rows = curiosity.still_unknown(self.store, bret, 'Bret', pets, 1000., pets_first=True)
+        rows = curiosity.still_unknown(self.store, bret, 'Bret', pets, at, pets_first=True)
         self.assertLessEqual(len(rows), curiosity.OFFERED)
         self.assertEqual(rows[0]['about'], 'Max')                 # A pet in view: its story comes first.
         self.assertEqual({r['about'] for r in rows}, {'Max', 'Toby', 'Bret'})
         self.assertIn('max_came_home', [r['topic'] for r in rows])
         self.assertIn('toby_came_home', [r['topic'] for r in rows])  # Each pet has its own topics.
-        everything = curiosity.still_unknown(self.store, bret, 'Bret', [], 1000.)
+        everything = curiosity.still_unknown(self.store, bret, 'Bret', [], at)
         self.assertEqual(everything[0]['about'], 'Bret')
-        wanted = {r['topic']: r['want_to_know'] for r in curiosity.still_unknown(self.store, bret, 'Bret', [], 1000.)}
+        wanted = {r['topic']: r['want_to_know'] for r in curiosity.still_unknown(self.store, bret, 'Bret', [], at)}
         self.assertIn('work', wanted)
         # Only eight at a time; the interest story is among the person's topics once the first are asked.
         for topic in list(curiosity.PERSON_TOPICS):
             with self.store.transaction() as conn:
-                curiosity.record(conn, {'topic': topic}, bret, 1000.)
-        later = {r['topic']: r['want_to_know'] for r in curiosity.still_unknown(self.store, bret, 'Bret', [], 1001.)}
+                curiosity.record(conn, {'topic': topic}, bret, at)
+        later = {r['topic']: r['want_to_know'] for r in curiosity.still_unknown(self.store, bret, 'Bret', [], at + 1)}
         self.assertEqual(list(later), [curiosity.interest_key('Star Trek')])
         self.assertIn('star trek', later[curiosity.interest_key('Star Trek')].lower())
 

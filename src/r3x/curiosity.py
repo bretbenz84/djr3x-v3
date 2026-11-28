@@ -95,6 +95,14 @@ def still_unknown(store, person_id, name, pets, wall_now, pets_first=False):
         rows.append(({'topic': key, 'about': who, 'want_to_know': about,
                       **({'pet_id': pet_id} if pet_id else {})}, at is None, at or 0.))
     groups = []
+    soon = None
+    if person_id:
+        # A holiday or weekend that is near (owner, November 27): its plans question leads, once.
+        from datetime import datetime
+        from . import occasions
+        mine = {topic: at for (who, pet, topic), at in asked.items() if who == person_id and pet is None}
+        soon = occasions.plans_question(datetime.fromtimestamp(wall_now), mine,
+                                        occasions.plan_days(store, person_id), name)
     for pet in pets:
         if pet.get('entity_id') and pet.get('name'):
             rows = []
@@ -112,15 +120,19 @@ def still_unknown(store, person_id, name, pets, wall_now, pets_first=False):
         rows.sort(key=lambda r: (not r[1], r[2]))   # Never asked first, then the oldest ask.
     # Round the subjects so a pet in view does not crowd out the person, nor one pet the other.
     out = []
-    while any(groups) and len(out) < OFFERED:
+    while any(groups) and len(out) < OFFERED - bool(soon):
         for rows in groups:
-            if rows and len(out) < OFFERED: out.append(rows.pop(0)[0])
+            if rows and len(out) < OFFERED - bool(soon): out.append(rows.pop(0)[0])
+    if soon:
+        out.insert(1 if pets_first and out else 0, soon)   # A pet just in view keeps its story first.
     return out
 
 
 def context(store, person_id, name, pets, wall_now, pets_first=False):
     rows = still_unknown(store, person_id, name, pets, wall_now, pets_first=pets_first)
-    return {'still_unknown': rows, 'meaning': MEANING} if rows else None
+    if not rows: return None
+    soon = {'soon_meaning': GUIDE['curiosity.soon']} if any(r.get('soon') for r in rows) else {}
+    return {'still_unknown': rows, 'meaning': MEANING, **soon}
 
 
 def offered(context_value, topic):

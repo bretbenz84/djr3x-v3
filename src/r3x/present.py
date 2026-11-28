@@ -612,6 +612,11 @@ class Present:
                        'things_seen': things,
                        'conversation': conversation,
                        'meaning': GUIDE['right_now']}
+            if wall is not None:
+                from .occasions import calendar_note
+                calendar = calendar_note(wall.date())   # Owner, November 27: holidays near today.
+                if calendar:
+                    picture['calendar'] = calendar
             new = self.someone_new(now)
             if new:
                 picture['someone_new'] = new

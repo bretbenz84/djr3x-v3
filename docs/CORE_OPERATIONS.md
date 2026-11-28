@@ -625,10 +625,25 @@ clock on every turn, `moment`: `ahead` (with how long until), `passed` (its plan
 time was so long ago; whether it happened is unknown), `no_time_given` or
 `occasion_today`. A passed follow-up comes first and Rex asks how it went or whether
 it happened; he never assumes it did. A follow-up with a time is offered once in the
-week before it and once in the week after; celebrations on their saved date;
+two days before it (never within 12 hours of being told) and once in the week after;
+celebrations on their saved date;
 birthdays on their month/day each year; callbacks without a time can be considered
 daily. Completed audio prevents repetition for that occurrence across restart.
 Follow-ups saved before October 15 have no said or due time.
+
+Holidays and weekends (November 27, `occasions.py`): code keeps a US calendar,
+computed locally. `right_now.calendar` names holidays that passed in the last three
+days and the next two within 30 days. When Thanksgiving, Christmas or New Year's Eve
+is within 10 days, or Easter, Memorial Day, the Fourth of July, Labor Day or Halloween
+is within 5, the known person's `curiosity.still_unknown` leads with a plans question
+(`soon`, `when_they_answer`). Otherwise the weekend gets one from Thursday to Sunday
+noon. Each person is asked once per holiday or weekend, and only once the question is
+heard. There is no question when a plan near that date is already saved, and no
+weekend question when a holiday falls Thursday to Monday or a holiday question was
+heard within six days. The hello, the planner's first question and the lull order put
+it right behind a passed follow-up. A plan they share is saved with
+`remember_followup` under its date, so the follow-up above asks how it went;
+"nothing planned" saves nothing.
 
 Generic old claims are not automatically scheduled. Correcting/retracting the claim
 retires the old cue; a fresh follow-up save is needed to establish a replacement's

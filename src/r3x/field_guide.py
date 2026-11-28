@@ -14,6 +14,8 @@ import json
 import re
 
 GUIDE = {
+    'right_now.calendar': ('Holidays near today, from the calendar. Background a reply may use when it fits '
+                           '("turkey day" on Thanksgiving week), not news to announce; asking about plans is curiosity\'s.'),
     'right_now': ('Rex\'s sense of the moment, kept by code. Times are in words because they matter as '
                   'feelings: whether a moment has passed, whether someone is still around, whether a question '
                   'is still hanging. "Here" means still around, not necessarily in view; it never says who is '
@@ -107,6 +109,12 @@ GUIDE = {
                   'question tacked onto a reply. Then listen and react to the answer. Never while a question of yours is still '
                   'unanswered, never two in a row, never health, money or politics unless they raised it. Put the topic id in '
                   'asked_about (your own lines) or curious_about (plan beats).'),
+    # Owner, November 27: "any plans for the big turkey day?" a week before, "how did it go?" after.
+    'curiosity.soon': ('A still_unknown row with soon is a holiday or weekend that is near, and the plans question a '
+                       'friend asks then ("Any big plans for turkey day?"). It comes before the other topics, jokes and '
+                       'side topics: ask it in your hello when they arrive, or as your own next move once the current '
+                       'exchange pauses or they hand you the floor. Never cut into talk that is not for you, never tack '
+                       'it onto an answer, never twice. Its when_they_answer says how to keep the plan they share.'),
     'your_question': ('Your recent question about something you did not know yet about them or their pet. If these '
                       'words answer it, you wanted to know: react to what they told you like a friend who did (a jab, '
                       'a feeling, a story of your own), without tacking on another question. Save what they told you in the same reply: '
