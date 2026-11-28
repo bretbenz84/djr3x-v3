@@ -303,12 +303,24 @@ class ConversationIntent:
                 prior = previous.get(identifier)
                 refs = set(item['evidence_ids'])
                 prior_refs = set(prior['evidence_ids']) if prior and prior['kind'] == item['kind'] else set()
-                if not refs <= evidence | prior_refs or (item['kind'] != 'character_idea' and not refs):
-                    raise ValueError('WorkingInterestEvidenceNotOffered')
+                unbacked = ('WorkingInterestEvidenceNotOffered'
+                            if not refs <= evidence | prior_refs or (item['kind'] != 'character_idea' and not refs) else
+                            'WorkingInterestHumanSourceRequired'
+                            if item['kind'] == 'conversation' and not refs & ({human_source} | prior_refs) else None)
+                if unbacked and item['kind'] == 'conversation':
+                    # A topic to talk about that nobody here raised (the hello asking holiday plans, November 27)
+                    # is only left out of the note; the line still goes. Before, the whole hello was thrown away
+                    # and Rex said nothing (2 of 6 OpenAI hellos). Seen or remembered claims still refuse it.
+                    self.trace.emit('working_interest_dropped', source_id=value['source_id'], reason=unbacked,
+                                    topic=str(item.get('topic', ''))[:80])
+                    if prior is not None:
+                        used.add(identifier)
+                        new.append(deepcopy(prior))
+                    continue
+                if unbacked:
+                    raise ValueError(unbacked)
                 if not row.audience and item['kind'] in {'conversation', 'memory'}:
                     raise ValueError('GeneralInterestHasPersonalSource')
-                if item['kind'] == 'conversation' and not refs & ({human_source} | prior_refs):
-                    raise ValueError('WorkingInterestHumanSourceRequired')
                 if item['kind'] == 'observation' and not refs & (
                         {r['cue_id'] for r in context.get('observations', [])} |
                         {r['id'] for r in context.get('visual_memory', [])} | prior_refs):

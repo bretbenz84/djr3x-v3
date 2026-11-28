@@ -40,8 +40,13 @@ reply model, fictional Sam, fixed wall clock; 24 replies, a few cents):
 - Handed the floor ("you pick something"), he asked 2 of 3 times; once he named the topic but made a remark
   instead of asking.
 - In the hello a week before, he asked 4 of 6 times. The other 2 were silent because the model's visit goal
-  listed a working interest with no evidence (`WorkingInterestEvidenceNotOffered`), which throws out the whole
-  reply. That existing rejection shows up in earlier probes too (greetings, humor, sentry).
+  listed a working interest with no evidence (`WorkingInterestEvidenceNotOffered`), which threw out the whole
+  reply. That rejection shows up in earlier probes too (greetings, humor, sentry): 9 replies in saved
+  validation traces, every one a `conversation` interest.
+- Repaired the same day: a `conversation` interest that nobody here raised, or that lacks evidence, is left out
+  of the note and traced (`working_interest_dropped`), and the line still goes. An interest claiming something
+  seen or remembered on invented evidence still refuses the reply. Rerun: asked in the hello 6 of 6, two of
+  them with the note dropped. A tic to watch: 5 of those 6 hellos joked about the turkey doing the work.
 
 Not run on Claude (no credit). Not yet seen live, and the planner's lull beats were not probed.
 

@@ -146,6 +146,20 @@ class AgencyTests(MemoryFixture):
         self.assertIsNone(self.state.conversation_intent.record)
         self.assertTrue(any(r.get('reason')=='WorkingInterestEvidenceNotOffered' for r in self.trace.rows))
 
+    def test_a_talk_topic_nobody_raised_is_left_out_and_the_line_still_goes(self):
+        # November 27 OpenAI probe: 2 of 6 hellos asking holiday plans noted "Sam's Thanksgiving plans" as a
+        # conversation interest with no evidence; the whole hello was thrown away and Rex said nothing.
+        self.no_camera(lambda c: ToolCall('reply','respond_with_intent', dict(text='Any plans for turkey day?',
+            intent_update=proposal(c, target_ids=[], interests=[interest(c, kind='conversation', topic='Thanksgiving plans'),
+                                                                interest(c)]))))
+        self.assertEqual(self.tick(100).status, 'completed')
+        self.assertIn('Any plans for turkey day?', self.state.agency.record['outcomes'][-1]['heard_text'])
+        row = self.state.conversation_intent.record
+        self.assertEqual([i['topic'] for i in row.interests], ['A musical thought experiment'])
+        dropped = [r for r in self.trace.rows if r['event'] == 'working_interest_dropped']
+        self.assertEqual([(r['reason'], r['topic']) for r in dropped],
+                         [('WorkingInterestEvidenceNotOffered', 'Thanksgiving plans')])
+
     def test_new_session_clears_working_notes_and_timer(self):
         self.no_camera(lambda c: ToolCall('note','remain_silent', dict(reason='no_response_needed',
             intent_update=proposal(c,target_ids=[],interests=[interest(c)]),next_opportunity=next_request(c))))
